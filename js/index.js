@@ -109,9 +109,9 @@
     setBreadcrumbs(crumbs);
     outlet.innerHTML = [
       '<section class="card" style="text-align:center;padding:40px">',
-        `<h2>${escapeHtml(toText(label, "Section"))}</h2>`,
-        '<p style="color:var(--fv-text-muted)">This section is under construction.</p>',
-        '<a class="btn" href="#" data-go="home">Back to Home</a>',
+        `<h2 id="fv-coming-title" style="margin:0 0 8px 0">${escapeHtml(toText(label, "Section"))}</h2>`,
+        '<p style="margin:0 0 16px 0;color:var(--fv-text-muted)">This section is under construction. The UI is ready. Data and AI features arrive soon.</p>',
+        '<a class="btn" href="#/" id="fv-back-home" data-go="home">Back to Home</a>',
       '</section>'
     ].join("");
     if(typeof window.FV_setActiveNav === "function"){
