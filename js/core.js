@@ -48,6 +48,36 @@
   var NAV_OPEN_KEY = "fv_nav_open";
   var LAST_ROUTE_KEY = "fv_last_route";
 
+  var scrollState = {
+    locked: false,
+    htmlOverflow: "",
+    bodyPosition: "",
+    bodyOverscroll: ""
+  };
+
+  function lockBodyScroll(shouldLock){
+    if(shouldLock){
+      if(scrollState.locked){ return; }
+
+      scrollState.htmlOverflow = document.documentElement.style.overflow;
+      scrollState.bodyPosition = document.body.style.position;
+      scrollState.bodyOverscroll = document.body.style.overscrollBehavior;
+
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.position = "relative";
+      document.body.style.overscrollBehavior = "contain";
+      scrollState.locked = true;
+      return;
+    }
+
+    if(!scrollState.locked){ return; }
+
+    document.documentElement.style.overflow = scrollState.htmlOverflow;
+    document.body.style.position = scrollState.bodyPosition;
+    document.body.style.overscrollBehavior = scrollState.bodyOverscroll;
+    scrollState.locked = false;
+  }
+
   document.addEventListener("DOMContentLoaded", init);
   window.addEventListener("hashchange", handleHashRoute, false);
 
@@ -58,6 +88,7 @@
     var open = forceOpen || !!isOpen;
     drawer.setAttribute("aria-hidden", open ? "false" : "true");
     document.body.classList.toggle("drawer-open", open);
+    lockBodyScroll(!forceOpen && open);
   }
 
   function init(){
