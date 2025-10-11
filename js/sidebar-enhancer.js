@@ -18,7 +18,7 @@
     if(!sb){ return; }
 
     // Ensure base classes for styling
-    sb.classList.add('fv-sidebar');
+    sb.classList.add('fv-sidebar', 'sidebar');
 
     // Ensure a single inner scroller
     let scroller = sb.querySelector('.fv-sidebar__scroll');

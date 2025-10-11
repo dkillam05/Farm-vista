@@ -65,7 +65,7 @@
 
     app.innerHTML =
       '<div class="fv-shell">' +
-        '<aside class="fv-sidebar" id="fvSidebar" aria-hidden="true">' +
+        '<aside class="fv-sidebar sidebar" id="fvSidebar" aria-hidden="true">' +
           '<div class="s-head">' +
             '<img src="assets/icons/logo.png" alt="FarmVista logo" onerror="this.style.display=\'none\'" />' +
             '<div class="name">FarmVista</div>' +
@@ -80,7 +80,7 @@
 
         '<header class="fv-header site-header site-header--with-bc">' +
           '<div class="fv-header-inner">' +
-            '<button class="icon-btn" id="btnSidebar" aria-label="Menu" title="Menu">=</button>' +
+            '<button id="menuButton" class="icon-btn" type="button" aria-label="Toggle menu" onclick="toggleSidebar()">☰</button>' +
             '<div class="fv-brand" title="FarmVista">' +
               '<img src="assets/icons/logo.png" alt="FV" onerror="this.style.display=\'none\'">' +
               '<div class="title">FarmVista</div>' +
@@ -99,7 +99,7 @@
           '</div>' +
         '</header>' +
 
-        '<main class="fv-main"><div class="container" id="fvOutlet"></div></main>' +
+        '<main class="fv-main main-content"><div class="container" id="fvOutlet"></div></main>' +
 
         '<footer class="fv-footer">' +
           '<div class="inner"><div>© FarmVista</div><div>' + VERSION + ' • UI shell</div></div>' +
@@ -419,3 +419,65 @@
   window.addEventListener('fv:drawer:open', lockPage);
   window.addEventListener('fv:drawer:close', unlockPage);
 })();
+
+// Sidebar toggle logic
+document.addEventListener('DOMContentLoaded', function(){
+  window.toggleSidebar = function(){};
+
+  var sidebar = document.querySelector('.sidebar');
+  if(!sidebar){
+    return;
+  }
+
+  var overlay = document.querySelector('.sidebar-overlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.classList.add('sidebar-overlay');
+    document.body.appendChild(overlay);
+  }
+
+  var isOpen = true;
+
+  function isMobile(){
+    return window.innerWidth < 768;
+  }
+
+  function applyState(){
+    if(isMobile()){
+      sidebar.classList.toggle('closed', !isOpen);
+      overlay.classList.toggle('active', isOpen);
+    }else{
+      sidebar.classList.remove('closed');
+      overlay.classList.remove('active');
+    }
+  }
+
+  function toggle(forceState){
+    if(typeof forceState === 'boolean'){
+      isOpen = forceState;
+    }else{
+      isOpen = !isOpen;
+    }
+    applyState();
+  }
+
+  window.toggleSidebar = function(forceState){
+    toggle(forceState);
+  };
+
+  overlay.addEventListener('click', function(){
+    toggle(false);
+  });
+
+  if(isMobile()){
+    isOpen = false;
+  }
+  applyState();
+
+  window.addEventListener('resize', function(){
+    if(!isMobile()){
+      isOpen = true;
+    }
+    applyState();
+  });
+});
