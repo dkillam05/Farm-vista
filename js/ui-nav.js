@@ -1,6 +1,12 @@
 (function(){
   const NAV_ID = "fvNav";
 
+  function toDomId(value){
+    return String(value || "group")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "-");
+  }
+
   function buildNav(menu){
     if(!Array.isArray(menu)) return "";
     return menu.map(item => {
@@ -19,6 +25,8 @@
         ].join("");
       }
 
+      const sublistId = `${NAV_ID}-sub-${toDomId(groupId)}`;
+
       const childLinks = children.map(child => {
         const childId = typeof child.id === "string" ? child.id : "";
         const childLabel = typeof child.label === "string" ? child.label : childId;
@@ -27,11 +35,11 @@
 
       return [
         `<div class="fv-group" data-group="${groupId}">`,
-          `<button class="fv-group-header" type="button" data-toggle-group="${groupId}">`,
+          `<button class="fv-group-header" type="button" data-toggle-group="${groupId}" aria-expanded="false" aria-controls="${sublistId}">`,
             `<span>${escapeHtml(title)}</span>`,
             '<span class="chevron" aria-hidden="true">⌄</span>',
           '</button>',
-          '<div class="fv-sublist">',
+          `<div class="fv-sublist" id="${sublistId}" aria-hidden="true">`,
             childLinks,
           '</div>',
         '</div>'
@@ -50,9 +58,15 @@
 
   function setGroupExpanded(groupEl, expanded){
     const sublist = groupEl.querySelector(".fv-sublist");
+    const header = groupEl.querySelector(".fv-group-header");
     if(!sublist) return;
-    groupEl.classList.toggle("expanded", !!expanded);
-    if(expanded){
+    const isExpanded = !!expanded;
+    groupEl.classList.toggle("expanded", isExpanded);
+    if(header){
+      header.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    }
+    sublist.setAttribute("aria-hidden", isExpanded ? "false" : "true");
+    if(isExpanded){
       const scrollHeight = sublist.scrollHeight;
       sublist.style.maxHeight = scrollHeight ? `${scrollHeight}px` : "none";
     }else{
