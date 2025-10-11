@@ -67,18 +67,20 @@
           '</div>' +
         '</aside>' +
 
-        '<header class="fv-header">' +
+        '<header class="fv-header site-header site-header--with-bc">' +
           '<div class="fv-header-inner">' +
             '<button class="icon-btn" id="btnSidebar" aria-label="Menu" title="Menu">=</button>' +
             '<div class="fv-brand" title="FarmVista">' +
               '<img src="assets/icons/logo.png" alt="FV" onerror="this.style.display=\'none\'">' +
               '<div class="title">FarmVista</div>' +
             '</div>' +
-            '<nav class="breadcrumb-bar" id="fvBreadcrumbs" aria-label="Breadcrumb"></nav>' +
             '<div class="fv-header-actions">' +
               '<button class="icon-btn" title="Search">Search</button>' +
               '<button class="icon-btn" title="Profile">Profile</button>' +
             '</div>' +
+          '</div>' +
+          '<div class="header-breadcrumbs">' +
+            '<nav class="breadcrumb-bar" id="fvBreadcrumbs" aria-label="Breadcrumb"></nav>' +
           '</div>' +
         '</header>' +
 
