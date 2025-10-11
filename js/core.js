@@ -95,7 +95,7 @@
             '</div>' +
           '</div>' +
           '<div class="header-breadcrumbs">' +
-            '<nav class="breadcrumb-bar" id="fvBreadcrumbs" aria-label="Breadcrumb"></nav>' +
+            '<nav class="breadcrumbs" id="fvBreadcrumbs" aria-label="Breadcrumb"></nav>' +
           '</div>' +
         '</header>' +
 
@@ -312,26 +312,31 @@
       var crumb = crumbs[j];
       var isCurrent = j === crumbs.length - 1;
       var isInteractive = !isCurrent && (crumb.href || crumb.go);
-      var node = document.createElement(isInteractive ? "a" : "span");
-      node.textContent = crumb.label;
 
-      if(isInteractive){
-        node.setAttribute("href", crumb.href || "#");
+      var wrapper = document.createElement("span");
+      wrapper.className = "crumb";
+
+      if(isCurrent){
+        wrapper.textContent = crumb.label;
+        wrapper.setAttribute("aria-current", "page");
+      }else if(isInteractive){
+        var link = document.createElement("a");
+        link.textContent = crumb.label;
+        link.setAttribute("href", crumb.href || "#");
         if(crumb.go){
-          node.setAttribute("data-go", crumb.go);
+          link.setAttribute("data-go", crumb.go);
         }
-      }else if(isCurrent){
-        node.classList.add("current");
-        node.setAttribute("aria-current", "page");
+        wrapper.appendChild(link);
+      }else{
+        wrapper.textContent = crumb.label;
       }
 
-      el.appendChild(node);
+      el.appendChild(wrapper);
 
       if(j < crumbs.length - 1){
         var divider = document.createElement("span");
-        divider.className = "divider";
+        divider.className = "sep";
         divider.setAttribute("aria-hidden", "true");
-        divider.textContent = "›";
         el.appendChild(divider);
       }
     }
