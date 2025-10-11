@@ -88,26 +88,31 @@
     crumbs.forEach((crumb, index) => {
       const isCurrent = index === crumbs.length - 1;
       const isInteractive = !isCurrent && (crumb.href || crumb.go);
-      const element = document.createElement(isInteractive ? "a" : "span");
-      element.textContent = crumb.label;
 
-      if(isInteractive){
-        element.setAttribute("href", crumb.href || "#");
+      const wrapper = document.createElement("span");
+      wrapper.className = "crumb";
+
+      if(isCurrent){
+        wrapper.textContent = crumb.label;
+        wrapper.setAttribute("aria-current", "page");
+      }else if(isInteractive){
+        const link = document.createElement("a");
+        link.textContent = crumb.label;
+        link.setAttribute("href", crumb.href || "#");
         if(crumb.go){
-          element.setAttribute("data-go", crumb.go);
+          link.setAttribute("data-go", crumb.go);
         }
-      }else if(isCurrent){
-        element.classList.add("current");
-        element.setAttribute("aria-current", "page");
+        wrapper.appendChild(link);
+      }else{
+        wrapper.textContent = crumb.label;
       }
 
-      fragment.appendChild(element);
+      fragment.appendChild(wrapper);
 
       if(index < crumbs.length - 1){
         const divider = document.createElement("span");
-        divider.className = "divider";
+        divider.className = "sep";
         divider.setAttribute("aria-hidden", "true");
-        divider.textContent = "›";
         fragment.appendChild(divider);
       }
     });
