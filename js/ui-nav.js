@@ -123,7 +123,7 @@
               '<img src="assets/icons/logo.svg" alt="FarmVista logo" />',
               '<span class="title">FarmVista</span>',
             '</div>',
-            '<div class="fv-breadcrumbs" id="fvBreadcrumbs" aria-live="polite" aria-label="Breadcrumb"></div>',
+            '<nav class="breadcrumb-bar" id="fvBreadcrumbs" aria-live="polite" aria-label="Breadcrumb"></nav>',
             '<div class="fv-header-actions">',
               '<button class="icon-btn" type="button" aria-label="View notifications">🔔</button>',
             '</div>',

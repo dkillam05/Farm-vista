@@ -74,7 +74,7 @@
               '<img src="assets/icons/logo.png" alt="FV" onerror="this.style.display=\'none\'">' +
               '<div class="title">FarmVista</div>' +
             '</div>' +
-            '<nav class="fv-breadcrumbs" id="fvBreadcrumbs" aria-label="Breadcrumb"></nav>' +
+            '<nav class="breadcrumb-bar" id="fvBreadcrumbs" aria-label="Breadcrumb"></nav>' +
             '<div class="fv-header-actions">' +
               '<button class="icon-btn" title="Search">Search</button>' +
               '<button class="icon-btn" title="Profile">Profile</button>' +
@@ -275,14 +275,65 @@
 
   window.setBreadcrumbs = setBreadcrumbs;
   function setBreadcrumbs(parts){
-    var el = $("#fvBreadcrumbs"); if(!el) return;
-    var out = [];
-    for(var i=0;i<parts.length;i++){
-      var cls = (i === parts.length-1) ? "fv-crumb current" : "fv-crumb";
-      out.push('<span class="'+cls+'">'+esc(String(parts[i]))+'</span>');
-      if(i < parts.length-1){ out.push('<span aria-hidden="true">></span>'); }
+    var el = $("#fvBreadcrumbs");
+    if(!el) return;
+
+    var crumbs = [];
+    if(Array.isArray(parts)){
+      for(var i=0;i<parts.length;i++){
+        var normalized = normalizeCrumb(parts[i]);
+        if(normalized){ crumbs.push(normalized); }
+      }
     }
-    el.innerHTML = out.join("");
+
+    el.innerHTML = "";
+    if(!crumbs.length) return;
+
+    for(var j=0;j<crumbs.length;j++){
+      var crumb = crumbs[j];
+      var isCurrent = j === crumbs.length - 1;
+      var isInteractive = !isCurrent && (crumb.href || crumb.go);
+      var node = document.createElement(isInteractive ? "a" : "span");
+      node.textContent = crumb.label;
+
+      if(isInteractive){
+        node.setAttribute("href", crumb.href || "#");
+        if(crumb.go){
+          node.setAttribute("data-go", crumb.go);
+        }
+      }else if(isCurrent){
+        node.classList.add("current");
+        node.setAttribute("aria-current", "page");
+      }
+
+      el.appendChild(node);
+
+      if(j < crumbs.length - 1){
+        var divider = document.createElement("span");
+        divider.className = "divider";
+        divider.setAttribute("aria-hidden", "true");
+        divider.textContent = "›";
+        el.appendChild(divider);
+      }
+    }
+  }
+
+  function normalizeCrumb(part){
+    if(part && typeof part === "object"){
+      var labelValue = typeof part.label === "string" ? part.label : (part.label != null ? String(part.label) : "");
+      if(!labelValue) return null;
+      var crumb = { label: labelValue };
+      if(typeof part.href === "string" && part.href){
+        crumb.href = part.href;
+      }
+      if(typeof part.go === "string" && part.go){
+        crumb.go = part.go;
+      }
+      return crumb;
+    }
+    if(part === undefined || part === null) return null;
+    var label = String(part);
+    return label ? { label: label } : null;
   }
 
   function renderHomeCard(){
