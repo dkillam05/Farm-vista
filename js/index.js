@@ -29,38 +29,89 @@
       if(typeof item !== "object" || !item) continue;
       if(item.id === id){
         const label = toText(item.label, toText(item.id, "Section"));
-        return { trail:[label], label };
+        return { trail:[{ id:item.id, label }], label };
       }
       const children = Array.isArray(item.children) ? item.children : [];
       for(const child of children){
         if(child && child.id === id){
           const parentLabel = toText(item.label, toText(item.id, "Section"));
           const childLabel = toText(child.label, toText(child.id, "Section"));
-          return { trail:[parentLabel, childLabel], label:childLabel };
+          return {
+            trail:[
+              { id:item.id, label:parentLabel },
+              { id:child.id, label:childLabel }
+            ],
+            label:childLabel
+          };
         }
       }
     }
-    const fallback = "Section";
-    return { trail:[fallback], label:fallback };
+    const fallbackLabel = toText(id, "Section");
+    return { trail:[{ id, label:fallbackLabel }], label:fallbackLabel };
+  }
+
+  function normalizeBreadcrumb(part){
+    if(part && typeof part === "object"){
+      const label = toText(part.label, "");
+      if(!label) return null;
+      const crumb = { label };
+      if(typeof part.href === "string" && part.href){
+        crumb.href = part.href;
+      }
+      if(typeof part.go === "string" && part.go){
+        crumb.go = part.go;
+      }
+      return crumb;
+    }
+    if(part === undefined || part === null) return null;
+    const label = toText(part, "");
+    if(!label) return null;
+    return { label };
   }
 
   function setBreadcrumbs(parts){
     const container = document.getElementById("fvBreadcrumbs");
     if(!container) return;
-    container.innerHTML = "";
-    const fragment = document.createDocumentFragment();
-    parts.forEach((part, index) => {
-      const crumb = document.createElement("span");
-      crumb.className = index === parts.length - 1 ? "fv-crumb current" : "fv-crumb";
-      crumb.textContent = part;
-      fragment.appendChild(crumb);
-      if(index < parts.length - 1){
-        const separator = document.createElement("span");
-        separator.setAttribute("aria-hidden", "true");
-        separator.textContent = "›";
-        fragment.appendChild(separator);
+
+    const crumbs = [];
+    (Array.isArray(parts) ? parts : []).forEach((part) => {
+      const crumb = normalizeBreadcrumb(part);
+      if(crumb){
+        crumbs.push(crumb);
       }
     });
+
+    container.innerHTML = "";
+    if(!crumbs.length) return;
+
+    const fragment = document.createDocumentFragment();
+    crumbs.forEach((crumb, index) => {
+      const isCurrent = index === crumbs.length - 1;
+      const isInteractive = !isCurrent && (crumb.href || crumb.go);
+      const element = document.createElement(isInteractive ? "a" : "span");
+      element.textContent = crumb.label;
+
+      if(isInteractive){
+        element.setAttribute("href", crumb.href || "#");
+        if(crumb.go){
+          element.setAttribute("data-go", crumb.go);
+        }
+      }else if(isCurrent){
+        element.classList.add("current");
+        element.setAttribute("aria-current", "page");
+      }
+
+      fragment.appendChild(element);
+
+      if(index < crumbs.length - 1){
+        const divider = document.createElement("span");
+        divider.className = "divider";
+        divider.setAttribute("aria-hidden", "true");
+        divider.textContent = "›";
+        fragment.appendChild(divider);
+      }
+    });
+
     container.appendChild(fragment);
   }
 
@@ -105,7 +156,10 @@
     const outlet = getOutlet();
     if(!outlet) return;
     const { trail, label } = findTrail(id);
-    const crumbs = ["Home", ...trail];
+    const crumbs = [
+      { label: "Home", href: "#/", go: "home" },
+      ...trail.map((part) => ({ label: part.label, go: part.id }))
+    ];
     setBreadcrumbs(crumbs);
     outlet.innerHTML = [
       '<section class="card" style="text-align:center;padding:40px">',
