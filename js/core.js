@@ -361,3 +361,24 @@
     });
   }
 })();
+
+/* ===== Drawer open/close helpers (no-op if you already manage this) ===== */
+(function(){
+  const html = document.documentElement;
+  const body = document.body;
+
+  function lockPage(){ body.classList.add('drawer-open'); }
+  function unlockPage(){ body.classList.remove('drawer-open'); }
+
+  // Wire up any toggles you already use: data-drawer-open / data-drawer-close
+  document.addEventListener('click', (e)=>{
+    const openBtn  = e.target.closest('[data-drawer-open]');
+    const closeBtn = e.target.closest('[data-drawer-close],[data-drawer-backdrop]');
+    if (openBtn){ lockPage(); }
+    if (closeBtn){ unlockPage(); }
+  });
+
+  // If your app fires custom events, this makes it resilient:
+  window.addEventListener('fv:drawer:open', lockPage);
+  window.addEventListener('fv:drawer:close', unlockPage);
+})();
