@@ -78,16 +78,16 @@
       const childLinks = children.map(child => {
         const childId = typeof child.id === "string" ? child.id : "";
         const childLabel = typeof child.label === "string" ? child.label : childId;
-        return `<a href="#" data-go="${childId}">${escapeHtml(childLabel)}</a>`;
+        return `<a class="fv-link" href="#" data-go="${childId}">${escapeHtml(childLabel)}</a>`;
       }).join("");
 
       return [
         `<div class="fv-group" data-group="${groupId}">`,
-          `<button class="fv-group-header" type="button" data-toggle-group="${groupId}" aria-expanded="false" aria-controls="${sublistId}">`,
+          `<button class="fv-group-header fv-group__title" type="button" data-toggle-group="${groupId}" aria-expanded="false" aria-controls="${sublistId}">`,
             `<span>${escapeHtml(title)}</span>`,
-            '<span class="chevron" aria-hidden="true">⌄</span>',
+            '<span class="fv-group__chev chevron" aria-hidden="true">›</span>',
           '</button>',
-          `<div class="fv-sublist" id="${sublistId}" aria-hidden="true">`,
+          `<div class="fv-sublist fv-links" id="${sublistId}" aria-hidden="true">`,
             childLinks,
           '</div>',
         '</div>'
@@ -110,6 +110,7 @@
     if(!sublist) return;
     const isExpanded = !!expanded;
     groupEl.classList.toggle("expanded", isExpanded);
+    groupEl.classList.toggle("is-open", isExpanded);
     if(header){
       header.setAttribute("aria-expanded", isExpanded ? "true" : "false");
     }
@@ -162,7 +163,7 @@
             '<img src="assets/icons/logo.svg" alt="FarmVista logo" loading="lazy" />',
             '<div class="name">FarmVista</div>',
           '</div>',
-          '<div class="drawer-scroll">',
+          '<div class="fv-sidebar__scroll drawer-scroll">',
             `<nav class="fv-nav" id="${NAV_ID}" aria-label="Section navigation"></nav>`,
           '</div>',
         '</aside>',
