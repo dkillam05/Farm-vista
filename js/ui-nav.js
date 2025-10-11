@@ -1,6 +1,7 @@
 (function(){
   const NAV_ID = "fvNav";
   let drawerEl = null;
+  let keydownBound = false;
 
   function ensureDrawer(){
     if(drawerEl) return drawerEl;
@@ -21,6 +22,31 @@
     if(typeof force === "boolean"){ setDrawerOpen(force); return; }
     const isOpen = document.body.classList.contains("drawer-open");
     setDrawerOpen(!isOpen);
+  }
+
+  function openDrawer(){
+    toggleDrawer(true);
+  }
+
+  function closeDrawer(){
+    toggleDrawer(false);
+  }
+
+  function bindDrawerDismiss(){
+    if(!keydownBound){
+      document.addEventListener("keydown", (event) => {
+        if(event.key === "Escape"){
+          closeDrawer();
+        }
+      });
+      keydownBound = true;
+    }
+
+    const overlay = document.querySelector(".drawer-overlay");
+    if(overlay && !overlay.dataset.fvDrawerBound){
+      overlay.addEventListener("click", closeDrawer);
+      overlay.dataset.fvDrawerBound = "true";
+    }
   }
 
   function toDomId(value){
@@ -142,7 +168,13 @@
         '</aside>',
         '<header class="fv-header site-header site-header--with-bc">',
           '<div class="fv-header-inner">',
-            '<button class="icon-btn" id="fvSidebarToggle" type="button" aria-label="Toggle navigation">☰</button>',
+            '<button class="hamburger-btn" data-hamburger aria-label="Open menu" type="button">',
+              '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">',
+                '<rect x="3" y="6" width="18" height="2" rx="1" fill="currentColor"></rect>',
+                '<rect x="3" y="11" width="18" height="2" rx="1" fill="currentColor"></rect>',
+                '<rect x="3" y="16" width="18" height="2" rx="1" fill="currentColor"></rect>',
+              '</svg>',
+            '</button>',
             '<div class="fv-brand" role="link" tabindex="0" data-go="home">',
               '<img src="assets/icons/logo.svg" alt="FarmVista logo" />',
               '<span class="title">FarmVista</span>',
@@ -172,6 +204,7 @@
     drawerEl = root.querySelector(".fv-sidebar");
     const startOpen = window.innerWidth > 900;
     setDrawerOpen(startOpen);
+    bindDrawerDismiss();
 
     const navEl = document.getElementById(NAV_ID);
     if(navEl){
@@ -185,12 +218,12 @@
       versionTarget.textContent = `Version ${window.FV_VERSION}`;
     }
 
-    const toggle = document.getElementById("fvSidebarToggle");
-    if(toggle){
-      toggle.addEventListener("click", () => {
+    const hamburgerButtons = root.querySelectorAll("[data-hamburger]");
+    hamburgerButtons.forEach(button => {
+      button.addEventListener("click", () => {
         toggleDrawer();
       });
-    }
+    });
 
     const handleResize = () => {
       setDrawerOpen(document.body.classList.contains("drawer-open"));
@@ -214,9 +247,11 @@
     }
   }
 
+  window.FV_openSidebar = openDrawer;
+
   window.FV_closeSidebar = function(){
     if(window.innerWidth > 900) return;
-    toggleDrawer(false);
+    closeDrawer();
   };
 
   window.FV_setActiveNav = function(targetId){
