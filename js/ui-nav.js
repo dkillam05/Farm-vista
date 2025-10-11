@@ -2,6 +2,7 @@
   const NAV_ID = "fvNav";
   let drawerEl = null;
   let keydownBound = false;
+  let resizeBound = false;
 
   function ensureDrawer(){
     if(drawerEl) return drawerEl;
@@ -152,69 +153,23 @@
   }
 
   function initShell(){
-    const root = document.getElementById("app");
+    const root = document.querySelector(".fv-shell") || document.getElementById("app") || document.body;
     if(!root) return;
 
-    root.innerHTML = [
-      '<div class="fv-shell">',
-        '<aside class="fv-sidebar" aria-label="Primary" aria-hidden="true">',
-          '<div class="s-head">',
-            '<img src="assets/icons/logo.svg" alt="FarmVista logo" loading="lazy" />',
-            '<div class="name">FarmVista</div>',
-          '</div>',
-          '<div class="drawer-scroll">',
-            `<nav class="fv-nav" id="${NAV_ID}" aria-label="Section navigation"></nav>`,
-          '</div>',
-        '</aside>',
-        '<header class="fv-header site-header site-header--with-bc">',
-          '<div class="fv-header-inner">',
-            '<button class="hamburger-btn" data-hamburger aria-label="Open menu" type="button">',
-              '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">',
-                '<rect x="3" y="6" width="18" height="2" rx="1" fill="currentColor"></rect>',
-                '<rect x="3" y="11" width="18" height="2" rx="1" fill="currentColor"></rect>',
-                '<rect x="3" y="16" width="18" height="2" rx="1" fill="currentColor"></rect>',
-              '</svg>',
-            '</button>',
-            '<div class="fv-brand" role="link" tabindex="0" data-go="home">',
-              '<img src="assets/icons/logo.svg" alt="FarmVista logo" />',
-              '<span class="title">FarmVista</span>',
-            '</div>',
-            '<div class="fv-header-actions">',
-              '<button class="icon-btn" type="button" aria-label="View notifications">🔔</button>',
-              '<button id="btn-settings" class="btn-gear" type="button" aria-label="Open settings">',
-                '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">',
-                  '<path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm8.94 3.06-.98-.57.06-1.14a1 1 0 0 0-.5-.91l-1.04-.6-.34-1.1a1 1 0 0 0-.77-.69l-1.19-.22-.73-.93a1 1 0 0 0-.94-.36l-1.18.2-.93-.73a1 1 0 0 0-.94 0l-.93.73-1.18-.2a1 1 0 0 0-.94.36l-.73.93-1.19.22a1 1 0 0 0-.77.69l-.34 1.1-1.04.6a1 1 0 0 0-.5.91l.06 1.14-.98.57a1 1 0 0 0-.37 1.36l.6 1.04-.22 1.19a1 1 0 0 0 .36.94l.93.73.2 1.18a1 1 0 0 0 .69.77l1.1.34.6 1.04a1 1 0 0 0 .91.5l1.14-.06.57.98a1 1 0 0 0 1.36.37l1.04-.6 1.19.22a1 1 0 0 0 .94-.36l.73-.93 1.18.2a1 1 0 0 0 .94-.36l.73-.93 1.19-.22a1 1 0 0 0 .77-.69l.34-1.1 1.04-.6a1 1 0 0 0 .5-.91l-.06-1.14.98-.57a1 1 0 0 0 .37-1.36l-.6-1.04.22-1.19a1 1 0 0 0-.36-.94l-.93-.73-.2-1.18a1 1 0 0 0-.69-.77l-1.1-.34-.6-1.04a1 1 0 0 0-.91-.5l-1.14.06-.57-.98a1 1 0 0 0-1.36-.37l-1.04.6-1.19-.22a1 1 0 0 0-.94.36l-.73.93-1.18-.2a1 1 0 0 0-.94.36l-.73.93Z"/>',
-                '</svg>',
-              '</button>',
-            '</div>',
-          '</div>',
-          '<div class="header-breadcrumbs">',
-            '<nav class="breadcrumb-bar" id="fvBreadcrumbs" aria-live="polite" aria-label="Breadcrumb"></nav>',
-          '</div>',
-        '</header>',
-        '<main class="fv-main" id="fvMain">',
-          '<div class="container">',
-            '<div id="fvOutlet"></div>',
-          '</div>',
-        '</main>',
-        '<footer class="fv-footer">',
-          '<div class="inner">',
-            '<span>&copy; FarmVista</span>',
-            '<span class="version"></span>',
-          '</div>',
-        '</footer>',
-      '</div>'
-    ].join("");
+    drawerEl = ensureDrawer();
+    if(drawerEl){
+      const startOpen = window.innerWidth > 900;
+      setDrawerOpen(startOpen);
+      bindDrawerDismiss();
+    }
 
-    drawerEl = root.querySelector(".fv-sidebar");
-    const startOpen = window.innerWidth > 900;
-    setDrawerOpen(startOpen);
-    bindDrawerDismiss();
-
-    const navEl = document.getElementById(NAV_ID);
-    if(navEl){
-      navEl.innerHTML = buildNav(window.FV_MENU || []);
+    const navEl = root.querySelector(`#${NAV_ID}`) || document.getElementById(NAV_ID);
+    if(navEl && !navEl.dataset.fvNavReady){
+      if(!navEl.children.length && !navEl.textContent.trim()){
+        navEl.innerHTML = buildNav(window.FV_MENU || []);
+      }
       navEl.addEventListener("click", handleNavClick);
+      navEl.dataset.fvNavReady = "true";
       navEl.querySelectorAll(".fv-group").forEach(group => setGroupExpanded(group, true));
     }
 
@@ -225,18 +180,23 @@
 
     const hamburgerButtons = root.querySelectorAll("[data-hamburger]");
     hamburgerButtons.forEach(button => {
+      if(button.dataset.fvHamburgerBound === "true") return;
       button.addEventListener("click", () => {
         toggleDrawer();
       });
+      button.dataset.fvHamburgerBound = "true";
     });
 
-    const handleResize = () => {
-      setDrawerOpen(document.body.classList.contains("drawer-open"));
-    };
-    window.addEventListener("resize", handleResize);
+    if(!resizeBound){
+      const handleResize = () => {
+        setDrawerOpen(document.body.classList.contains("drawer-open"));
+      };
+      window.addEventListener("resize", handleResize);
+      resizeBound = true;
+    }
 
     const brand = root.querySelector(".fv-brand");
-    if(brand){
+    if(brand && !brand.dataset.fvBrandBound){
       const goHome = () => {
         if(typeof window.FV_openSection === "function"){
           window.FV_openSection("home");
@@ -249,6 +209,7 @@
           goHome();
         }
       });
+      brand.dataset.fvBrandBound = "true";
     }
   }
 
