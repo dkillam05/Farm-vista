@@ -74,10 +74,9 @@
               '<img src="assets/icons/logo.png" alt="FV" onerror="this.style.display=\'none\'">' +
               '<div class="title">FarmVista</div>' +
             '</div>' +
-            '<div class="fv-header-actions">' +
-              '<button class="icon-btn" title="Search">Search</button>' +
-              '<button class="icon-btn" title="Profile">Profile</button>' +
-            '</div>' +
+          '<div class="fv-header-actions">' +
+            '<button class="icon-btn" title="Profile">Profile</button>' +
+          '</div>' +
           '</div>' +
           '<div class="header-breadcrumbs">' +
             '<nav class="breadcrumb-bar" id="fvBreadcrumbs" aria-label="Breadcrumb"></nav>' +
