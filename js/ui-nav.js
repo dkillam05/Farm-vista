@@ -1,5 +1,27 @@
 (function(){
   const NAV_ID = "fvNav";
+  let drawerEl = null;
+
+  function ensureDrawer(){
+    if(drawerEl) return drawerEl;
+    drawerEl = document.querySelector("#sideNav, .side-drawer, .sidebar, .fv-sidebar");
+    return drawerEl;
+  }
+
+  function setDrawerOpen(isOpen){
+    const drawer = ensureDrawer();
+    if(!drawer) return;
+    const forceOpen = window.innerWidth > 900;
+    const open = forceOpen || !!isOpen;
+    drawer.setAttribute("aria-hidden", open ? "false" : "true");
+    document.body.classList.toggle("drawer-open", open);
+  }
+
+  function toggleDrawer(force){
+    if(typeof force === "boolean"){ setDrawerOpen(force); return; }
+    const isOpen = document.body.classList.contains("drawer-open");
+    setDrawerOpen(!isOpen);
+  }
 
   function toDomId(value){
     return String(value || "group")
@@ -109,12 +131,14 @@
 
     root.innerHTML = [
       '<div class="fv-shell">',
-        '<aside class="fv-sidebar" aria-label="Primary">',
+        '<aside class="fv-sidebar" aria-label="Primary" aria-hidden="true">',
           '<div class="s-head">',
             '<img src="assets/icons/logo.svg" alt="FarmVista logo" loading="lazy" />',
             '<div class="name">FarmVista</div>',
           '</div>',
-          `<nav class="fv-nav" id="${NAV_ID}" aria-label="Section navigation"></nav>`,
+          '<div class="drawer-scroll">',
+            `<nav class="fv-nav" id="${NAV_ID}" aria-label="Section navigation"></nav>`,
+          '</div>',
         '</aside>',
         '<header class="fv-header site-header site-header--with-bc">',
           '<div class="fv-header-inner">',
@@ -145,6 +169,10 @@
       '</div>'
     ].join("");
 
+    drawerEl = root.querySelector(".fv-sidebar");
+    const startOpen = window.innerWidth > 900;
+    setDrawerOpen(startOpen);
+
     const navEl = document.getElementById(NAV_ID);
     if(navEl){
       navEl.innerHTML = buildNav(window.FV_MENU || []);
@@ -160,9 +188,14 @@
     const toggle = document.getElementById("fvSidebarToggle");
     if(toggle){
       toggle.addEventListener("click", () => {
-        document.body.classList.toggle("sidebar-open");
+        toggleDrawer();
       });
     }
+
+    const handleResize = () => {
+      setDrawerOpen(document.body.classList.contains("drawer-open"));
+    };
+    window.addEventListener("resize", handleResize);
 
     const brand = root.querySelector(".fv-brand");
     if(brand){
@@ -182,7 +215,8 @@
   }
 
   window.FV_closeSidebar = function(){
-    document.body.classList.remove("sidebar-open");
+    if(window.innerWidth > 900) return;
+    toggleDrawer(false);
   };
 
   window.FV_setActiveNav = function(targetId){

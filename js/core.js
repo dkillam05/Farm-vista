@@ -51,17 +51,28 @@
   document.addEventListener("DOMContentLoaded", init);
   window.addEventListener("hashchange", handleHashRoute, false);
 
+  function setDrawerOpen(isOpen){
+    var drawer = $("#fvSidebar");
+    if(!drawer) return;
+    var forceOpen = window.innerWidth > 900;
+    var open = forceOpen || !!isOpen;
+    drawer.setAttribute("aria-hidden", open ? "false" : "true");
+    document.body.classList.toggle("drawer-open", open);
+  }
+
   function init(){
     var app = $("#app"); if(!app) return;
 
     app.innerHTML =
       '<div class="fv-shell">' +
-        '<aside class="fv-sidebar" id="fvSidebar">' +
+        '<aside class="fv-sidebar" id="fvSidebar" aria-hidden="true">' +
           '<div class="s-head">' +
             '<img src="assets/icons/logo.png" alt="FarmVista logo" onerror="this.style.display=\'none\'" />' +
             '<div class="name">FarmVista</div>' +
           '</div>' +
-          '<nav class="fv-nav" id="fvNav"></nav>' +
+          '<div class="drawer-scroll">' +
+            '<nav class="fv-nav" id="fvNav"></nav>' +
+          '</div>' +
           '<div class="s-foot" style="padding:10px 12px;color:#9fb8c1;border-top:1px solid rgba(255,255,255,0.06)">' +
             'Version <strong>' + VERSION + '</strong>' +
           '</div>' +
@@ -92,16 +103,18 @@
       '</div>';
 
     buildSidebar($("#fvNav"), MENU);
+    setDrawerOpen(window.innerWidth > 900);
     setBreadcrumbs(["Home"]);
+
+    window.addEventListener("resize", function(){
+      setDrawerOpen(document.body.classList.contains("drawer-open"));
+    });
 
     var btn = $("#btnSidebar");
     if(btn){
       btn.addEventListener("click", function(){
-        if(document.body.classList.contains("sidebar-open")){
-          document.body.classList.remove("sidebar-open");
-        } else {
-          document.body.classList.add("sidebar-open");
-        }
+        var isOpen = document.body.classList.contains("drawer-open");
+        setDrawerOpen(!isOpen);
       });
     }
 
@@ -112,7 +125,7 @@
       var insideSidebar = sb.contains(e.target);
       var onToggle = toggle && toggle.contains(e.target);
       if(!insideSidebar && !onToggle){
-        document.body.classList.remove("sidebar-open");
+        setDrawerOpen(false);
       }
     });
 
@@ -166,7 +179,7 @@
       if(!a) return;
       var route = a.getAttribute("data-route");
       try{ localStorage.setItem(LAST_ROUTE_KEY, route); }catch(e){}
-      document.body.classList.remove("sidebar-open");
+      setDrawerOpen(false);
     });
   }
 
@@ -369,8 +382,21 @@
   const html = document.documentElement;
   const body = document.body;
 
-  function lockPage(){ body.classList.add('drawer-open'); }
-  function unlockPage(){ body.classList.remove('drawer-open'); }
+  function lockPage(){
+    const drawer = document.querySelector('#fvSidebar, #sideNav, .side-drawer, .sidebar, .fv-sidebar');
+    if(drawer){ drawer.setAttribute('aria-hidden', 'false'); }
+    body.classList.add('drawer-open');
+  }
+  function unlockPage(){
+    const drawer = document.querySelector('#fvSidebar, #sideNav, .side-drawer, .sidebar, .fv-sidebar');
+    if(window.innerWidth > 900){
+      if(drawer){ drawer.setAttribute('aria-hidden', 'false'); }
+      body.classList.add('drawer-open');
+      return;
+    }
+    if(drawer){ drawer.setAttribute('aria-hidden', 'true'); }
+    body.classList.remove('drawer-open');
+  }
 
   // Wire up any toggles you already use: data-drawer-open / data-drawer-close
   document.addEventListener('click', (e)=>{
