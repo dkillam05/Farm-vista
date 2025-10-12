@@ -8,9 +8,10 @@ class FVShell extends HTMLElement {
       <style>
         :host { display: block; }
 
-        :root{ --sidebar-w: 270px; }
-
-        /* Local tokens tied to theme variables (inheritable into shadow) */
+        /* DO NOT set --sidebar-w here; allow host CSS to override via fallback */
+        /* Use fallback value of 270px if not provided by app.css */
+        
+        /* Local tokens tied to theme variables (inherit from page) */
         :host {
           --fv-green:      var(--fv-green, #3B7E46);
           --fv-yellow:     var(--fv-yellow, #D0C542);
@@ -26,15 +27,18 @@ class FVShell extends HTMLElement {
         .brand { font-weight: 700; letter-spacing: .4px; font-size: 20px; color: var(--fv-black); }
 
         header.fv-header {
-          display: grid; row-gap: 8px;
-          padding: 10px 0 12px;
-          border-bottom: 1px solid var(--fv-border);
-          background: #fff;
           position: sticky; top: 0; z-index: 5;
+          background: #fff;
+          border-bottom: 1px solid var(--fv-border);
         }
         header .top {
-          display: flex; align-items: center; gap: 12px; justify-content: space-between;
+          display: flex; align-items: center; justify-content: space-between;
+          gap: 12px; padding: 10px 0;
         }
+        header .bottom {
+          padding: 6px 0 10px; /* space for breadcrumbs row INSIDE header */
+        }
+
         .burger {
           display: inline-flex; align-items: center; justify-content: center;
           width: 40px; height: 40px; border-radius: 8px;
@@ -43,16 +47,10 @@ class FVShell extends HTMLElement {
         }
         .burger:focus { outline: 3px solid var(--fv-ring); outline-offset: 1px; }
 
-        .stripe {
-          height: 4px;
-          background: linear-gradient(90deg, var(--fv-green), var(--fv-yellow));
-          border-radius: 999px; margin-top: 8px;
-        }
-
         /* Sidebar */
         aside.fv-sidebar {
           position: fixed; left: 0; top: 0;
-          width: var(--sidebar-w);
+          width: var(--sidebar-w, 270px);
           height: 100dvh;
           background: var(--fv-black); color: #fff;
           transform: translateX(-100%);
@@ -104,8 +102,11 @@ class FVShell extends HTMLElement {
           .burger { display: none; }
           aside.fv-sidebar { transform: none; }
           .scrim { display: none; }
-          main.fv-main, footer.fv-footer { margin-left: var(--sidebar-w); }
+          main.fv-main, footer.fv-footer { margin-left: var(--sidebar-w, 270px); }
         }
+
+        /* Light styling for slotted breadcrumbs (optional; page CSS also applies) */
+        ::slotted(.breadcrumbs) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
       </style>
 
       <!-- internal toggle checkbox -->
@@ -118,7 +119,10 @@ class FVShell extends HTMLElement {
           <div class="brand">FarmVista</div>
           <div style="width:40px;height:40px;border:1px solid var(--fv-border); border-radius:8px; background:#fff; display:flex; align-items:center; justify-content:center;" title="Profile">⚙️</div>
         </div>
-        <div class="container"><div class="stripe"></div></div>
+        <div class="container bottom">
+          <!-- Breadcrumbs injected by page -->
+          <slot name="breadcrumbs"></slot>
+        </div>
       </header>
 
       <!-- Sidebar -->
@@ -126,7 +130,7 @@ class FVShell extends HTMLElement {
         <nav class="menu">
           <h6>Navigation</h6>
 
-          <a href="index.html">Dashboard</a>
+          <a href="/dashboard/">Dashboard</a>
 
           <details open>
             <summary>Grain Tracking</summary>
@@ -177,7 +181,6 @@ class FVShell extends HTMLElement {
   }
 
   connectedCallback() {
-    // simple year stamp
     const y = this.shadowRoot.getElementById('y');
     if (y) y.textContent = new Date().getFullYear();
   }
