@@ -1,43 +1,47 @@
-// FarmVista — App Shell (header, sidebar, footer) — v2025-10-13d
+// FarmVista — App Shell (header, sidebar overlay, pinned footer)
+// Mobile grid fix + no-bounce scroll  v2025-10-13e
 class FVShell extends HTMLElement {
   constructor() {
     super();
     const r = this.attachShadow({ mode: "open" });
     r.innerHTML = `
       <style>
-        :host{ display:block; --fv-green:#3B7E46; --fv-gold:#D0C542; --fv-bg:#CBCDCB; --fv-text:#141514; --sidebar-w:280px; --sidebar-mini:72px; --container-max:1040px; --radius:12px; --shadow:0 10px 22px rgba(0,0,0,.12); }
+        :host{ display:block;
+          --fv-green:#3B7E46; --fv-gold:#D0C542; --fv-bg:#CBCDCB; --fv-text:#141514;
+          --sidebar-w:280px; --sidebar-mini:72px; --container-max:1040px;
+          --radius:12px; --shadow:0 10px 22px rgba(0,0,0,.12);
+        }
 
-        /* Shell uses full viewport height; ONLY the main area scrolls */
+        /* Shell takes full viewport; only MAIN scrolls */
         .shell{
-          height:100dvh;           /* important: pin header+footer */
+          height:100dvh;
           display:grid;
-          grid-template-columns: var(--sidebar-mini) 1fr;
-          grid-template-rows: auto 1fr auto; /* header, MAIN (scroll), footer */
-          overflow:hidden;         /* prevent body scroll; main will scroll */
-          background:var(--fv-bg);
-          color:var(--fv-text);
+          grid-template-columns: var(--sidebar-mini) 1fr; /* desktop default */
+          grid-template-rows: auto 1fr auto;              /* header, main, footer */
+          overflow:hidden;                                 /* prevent body scroll */
+          background:var(--fv-bg); color:var(--fv-text);
         }
         .shell.expanded{ grid-template-columns: var(--sidebar-w) 1fr; }
 
-        /* Header */
+        /* ===== Header ===== */
         header.hdr{
-          grid-column:1 / -1;
-          background:var(--fv-green); color:#fff;
+          grid-column:1 / -1; background:var(--fv-green); color:#fff;
           position:sticky; top:0; z-index:1000;
           border-bottom:1px solid rgba(0,0,0,.15);
         }
-        .hdr-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;max-width:calc(var(--container-max) + 32px);margin:0 auto;}
-        .wordmark{font-weight:800;font-size:20px;letter-spacing:.3px;white-space:nowrap;}
-        .btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:9px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.28);cursor:pointer;}
-        .hdr-accent{height:3px;background:var(--fv-gold);}
+        .hdr-top{ display:flex; align-items:center; justify-content:space-between; gap:12px;
+          padding:10px 14px; max-width:calc(var(--container-max) + 32px); margin:0 auto; }
+        .wordmark{ font-weight:800; font-size:20px; letter-spacing:.3px; white-space:nowrap; }
+        .btn{ display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
+          border-radius:9px; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.28); cursor:pointer; }
+        .hdr-accent{ height:3px; background:var(--fv-gold); }
+        .offline{ display:none; background:var(--fv-gold); color:var(--fv-text); padding:8px 14px; text-align:center; font-weight:600; }
+        .offline.show{ display:block; }
 
-        .offline{display:none;background:var(--fv-gold);color:var(--fv-text);padding:8px 14px;text-align:center;font-weight:600;}
-        .offline.show{display:block;}
-
-        /* Sidebar */
+        /* ===== Sidebar ===== */
         aside.sb{
-          grid-row:2 / span 1; /* only alongside main row */
-          background:#fff;color:var(--fv-text);
+          grid-row:2 / span 1;          /* sits beside MAIN on desktop */
+          background:#fff; color:var(--fv-text);
           border-right:1px solid rgba(0,0,0,.08);
           box-shadow:var(--shadow);
           position:sticky; top:0; height:100%;
@@ -48,55 +52,65 @@ class FVShell extends HTMLElement {
           .shell.expanded .sb{ width:var(--sidebar-w); }
         }
 
-        /* MOBILE overlay */
+        /* ===== MOBILE overlay (no left gutter, no shadow when closed) ===== */
         @media (max-width:1023px){
+          /* grid becomes ONE column so no gray strip on the left */
+          .shell{
+            grid-template-columns: 1fr;
+          }
+          /* Sidebar becomes overlay */
           aside.sb{
             position:fixed; left:0; top:0; bottom:0;
-            width:84vw; max-width:320px;
-            transform: translateX(-100%);
-            transition: transform .2s ease-out;
-            z-index: 1001;
+            width:84vw; max-width:320px; transform:translateX(-100%);
+            transition:transform .2s ease-out; z-index:1001;
+            box-shadow:none;                 /* no shadow while closed */
           }
-          .shell.mobile-open aside.sb{ transform: translateX(0); }
+          .shell.mobile-open aside.sb{ transform:translateX(0); box-shadow:var(--shadow); }
         }
 
-        .sb-head{display:grid;gap:6px;padding:14px 12px;border-bottom:1px solid rgba(0,0,0,.08);align-content:start;}
-        .farm-row{display:flex;align-items:center;gap:10px;}
-        .farm-logo{width:36px;height:36px;border-radius:8px;object-fit:contain;background:#f0f2ef;border:1px solid rgba(0,0,0,.06);}
-        .farm-title{font-weight:700;}
-        .farm-sub{font-size:13px;opacity:.8;}
+        .sb-head{ display:grid; gap:6px; padding:14px 12px; border-bottom:1px solid rgba(0,0,0,.08); align-content:start; }
+        .farm-row{ display:flex; align-items:center; gap:10px; }
+        .farm-logo{ width:36px; height:36px; border-radius:8px; object-fit:contain; background:#f0f2ef; border:1px solid rgba(0,0,0,.06); }
+        .farm-title{ font-weight:700; }
+        .farm-sub{ font-size:13px; opacity:.8; }
         @media (min-width:1024px){
-          .shell:not(.expanded) .farm-title,
-          .shell:not(.expanded) .farm-sub{ display:none; }
+          .shell:not(.expanded) .farm-title, .shell:not(.expanded) .farm-sub{ display:none; }
         }
         nav.menu{ padding:8px; overflow:auto; flex:1; }
-        a.item{display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:10px;text-decoration:none;color:inherit;}
-        a.item:hover{background:#f4f6f4;}
-        .emoji{width:24px;text-align:center;}
-        .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        a.item{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:10px; text-decoration:none; color:inherit; }
+        a.item:hover{ background:#f4f6f4; }
+        .emoji{ width:24px; text-align:center; }
+        .label{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         @media (min-width:1024px){ .shell:not(.expanded) .label{ display:none; } }
 
-        .sb-foot{border-top:1px solid rgba(0,0,0,.08);padding:12px;font-size:12.5px;color:#2b2e2b;}
-        .sb-foot strong{font-weight:800;}
-        .sb-tagline{margin-top:4px;color:#49514d;}
+        .sb-foot{ border-top:1px solid rgba(0,0,0,.08); padding:12px; font-size:12.5px; color:#2b2e2b; }
+        .sb-foot strong{ font-weight:800; }
+        .sb-tagline{ margin-top:4px; color:#49514d; }
 
-        .scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:1000;}
-        .scrim.show{opacity:1;pointer-events:auto;}
+        /* Scrim */
+        .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s ease; z-index:1000; }
+        .scrim.show{ opacity:1; pointer-events:auto; }
 
-        /* MAIN scrolls between header & footer */
-        main{ grid-column:2 / -1; overflow:auto; background:var(--fv-bg); }
+        /* ===== Main (scroll container) ===== */
+        main{
+          grid-column:1 / -1;           /* covers full width on mobile */
+          overflow:auto;                /* only this scrolls */
+          overscroll-behavior: contain; /* stop rubber-band above/below */
+          -webkit-overflow-scrolling: touch;
+          background:var(--fv-bg);
+        }
         .container{ max-width:var(--container-max); margin:0 auto; padding:18px 14px 14px; }
 
-        /* Footer is always visible */
+        /* ===== Footer pinned ===== */
         footer.foot{
           grid-column:1 / -1;
-          position:sticky; bottom:0;      /* pinned even if main scrolls */
+          position:sticky; bottom:0;
           background:var(--fv-green); color:#fff;
           border-top:3px solid var(--fv-gold);
           display:grid; place-items:center;
           padding:10px 14px; white-space:nowrap;
           font-size:clamp(12px,1.6vw,14px);
-          z-index: 1;                      /* above main content edges */
+          z-index:1;
         }
       </style>
 
@@ -104,11 +118,16 @@ class FVShell extends HTMLElement {
         <header class="hdr">
           <div class="hdr-top">
             <button class="btn" id="btnMenu" title="Menu" aria-label="Menu">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M3 6h18M3 12h18M3 18h18"/>
+              </svg>
             </button>
             <div class="wordmark">FarmVista</div>
             <button class="btn" id="btnGear" title="User menu" aria-haspopup="menu" aria-expanded="false" aria-label="User menu">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.61-.24 1-.84 1-1.49"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.61-.24 1-.84 1-1.49"/>
+              </svg>
             </button>
           </div>
           <div class="offline" id="offlineBanner">You’re offline. Some data may be unavailable.</div>
@@ -146,33 +165,29 @@ class FVShell extends HTMLElement {
           <div class="container"><slot></slot></div>
         </main>
 
-        <footer class="foot"><div id="footLine">© 2025 FarmVista • Monday, October 13th, 2025</div></footer>
+        <footer class="foot"><div id="footLine">© 2025 FarmVista • </div></footer>
       </div>
     `;
 
     this._root = r;
     this.$ = (s) => r.querySelector(s);
-
     this._initVersion();
     this._initFooterDate();
-    this._initSidebarLogo();
+    const logo = this.$("#farmLogo"); if (logo) logo.src = "/Farm-vista/assets/icons/logo.png";
   }
 
   connectedCallback(){
     const shell = this.$(".shell");
     const scrim = this.$("#scrim");
     const btnMenu = this.$("#btnMenu");
-    const btnGear = this.$("#btnGear");
-    const gear = this.$("#gearSheet");
     const offlineBanner = this.$("#offlineBanner");
-
     const isDesktop = () => matchMedia("(min-width:1024px)").matches;
 
     const applySidebarState = () => {
       if (isDesktop()) {
         shell.classList.remove("mobile-open");
         scrim.classList.remove("show");
-        shell.classList.remove("expanded");  // start collapsed as mini rail
+        shell.classList.remove("expanded");  // desktop starts collapsed (mini)
       } else {
         shell.classList.remove("expanded");
         scrim.classList.remove("show");
@@ -203,7 +218,7 @@ class FVShell extends HTMLElement {
     addEventListener("online", onOnline);
     if (!navigator.onLine) onOffline();
 
-    // Register SW
+    // Service worker
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/Farm-vista/serviceworker.js").catch(()=>{});
     }
@@ -213,21 +228,22 @@ class FVShell extends HTMLElement {
     const v=this.$("#ver"), t=this.$("#tagline");
     const num=window.FarmVistaVersion || (window.FV_VERSION&&window.FV_VERSION.number) || "1.0.0";
     const tag=window.FV_TAGLINE || (window.FV_VERSION&&window.FV_VERSION.tagline) || "Clean farm data. Smarter reporting.";
-    if (v) v.textContent=`v${num}`;
-    if (t) t.textContent=tag;
+    if (v) v.textContent = `v${num}`;
+    if (t) t.textContent = tag;
   }
+
   _initFooterDate(){
     const el=this.$("#footLine"); if(!el) return;
     const now=this._fmt(new Date());
     const yr=new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",year:"numeric"}).format(new Date());
-    el.textContent=`© ${yr} FarmVista • ${now}`;
+    el.textContent = `© ${yr} FarmVista • ${now}`;
   }
   _fmt(d){
     const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",weekday:"long",month:"long",day:"numeric",year:"numeric"}).formatToParts(d);
-    const map=Object.fromEntries(parts.map(p=>[p.type,p.value])); const n=parseInt(map.day,10);
+    const map=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+    const n=parseInt(map.day,10);
     const s=(n%10===1&&n%100!==11)?"st":(n%10===2&&n%100!==12)?"nd":(n%10===3&&n%100!==13)?"rd":"th";
     return `${map.weekday}, ${map.month} ${n}${s}, ${map.year}`;
   }
-  _initSidebarLogo(){ const img=this.$("#farmLogo"); if(img) img.src="/Farm-vista/assets/icons/logo.png"; }
 }
 customElements.define("fv-shell", FVShell);
