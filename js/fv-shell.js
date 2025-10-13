@@ -1,5 +1,5 @@
-// FarmVista — App Shell (header, sidebar overlay, pinned footer)
-// Mobile grid fix + no-bounce scroll  v2025-10-13e
+// FarmVista — App Shell with pinned footer, mobile overlay sidebar,
+// gear sheet, and "Check for updates".   v2025-10-13g
 class FVShell extends HTMLElement {
   constructor() {
     super();
@@ -12,106 +12,103 @@ class FVShell extends HTMLElement {
           --radius:12px; --shadow:0 10px 22px rgba(0,0,0,.12);
         }
 
-        /* Shell takes full viewport; only MAIN scrolls */
+        /* Shell: header | main (scrolls) | footer (pinned) */
         .shell{
           height:100dvh;
           display:grid;
-          grid-template-columns: var(--sidebar-mini) 1fr; /* desktop default */
-          grid-template-rows: auto 1fr auto;              /* header, main, footer */
-          overflow:hidden;                                 /* prevent body scroll */
+          grid-template-columns: var(--sidebar-mini) 1fr; /* desktop */
+          grid-template-rows: auto 1fr auto;
+          overflow:hidden;                     /* prevent body scroll */
           background:var(--fv-bg); color:var(--fv-text);
         }
         .shell.expanded{ grid-template-columns: var(--sidebar-w) 1fr; }
 
-        /* ===== Header ===== */
+        /* Header */
         header.hdr{
           grid-column:1 / -1; background:var(--fv-green); color:#fff;
           position:sticky; top:0; z-index:1000;
           border-bottom:1px solid rgba(0,0,0,.15);
         }
-        .hdr-top{ display:flex; align-items:center; justify-content:space-between; gap:12px;
-          padding:10px 14px; max-width:calc(var(--container-max) + 32px); margin:0 auto; }
-        .wordmark{ font-weight:800; font-size:20px; letter-spacing:.3px; white-space:nowrap; }
-        .btn{ display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
-          border-radius:9px; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.28); cursor:pointer; }
-        .hdr-accent{ height:3px; background:var(--fv-gold); }
-        .offline{ display:none; background:var(--fv-gold); color:var(--fv-text); padding:8px 14px; text-align:center; font-weight:600; }
-        .offline.show{ display:block; }
+        .hdr-top{display:flex;align-items:center;justify-content:space-between;gap:12px;
+          padding:10px 14px; max-width:calc(var(--container-max) + 32px); margin:0 auto;}
+        .wordmark{font-weight:800;font-size:20px;letter-spacing:.3px;white-space:nowrap;}
+        .btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:9px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.28);cursor:pointer;}
+        .hdr-accent{height:3px;background:var(--fv-gold);}
+        .offline{display:none;background:var(--fv-gold);color:var(--fv-text);padding:8px 14px;text-align:center;font-weight:600;}
+        .offline.show{display:block;}
 
-        /* ===== Sidebar ===== */
+        /* Sidebar (desktop pinned rail) */
         aside.sb{
-          grid-row:2 / span 1;          /* sits beside MAIN on desktop */
-          background:#fff; color:var(--fv-text);
-          border-right:1px solid rgba(0,0,0,.08);
-          box-shadow:var(--shadow);
-          position:sticky; top:0; height:100%;
-          display:flex; flex-direction:column;
+          grid-row:2 / span 1; background:#fff; color:var(--fv-text);
+          border-right:1px solid rgba(0,0,0,.08); box-shadow:var(--shadow);
+          position:sticky; top:0; height:100%; display:flex; flex-direction:column;
         }
         @media (min-width:1024px){
           .sb{ width:var(--sidebar-mini); transition:width .18s ease; }
           .shell.expanded .sb{ width:var(--sidebar-w); }
         }
 
-        /* ===== MOBILE overlay (no left gutter, no shadow when closed) ===== */
+        /* Mobile: overlay sidebar, grid is ONE column (no left gutter) */
         @media (max-width:1023px){
-          /* grid becomes ONE column so no gray strip on the left */
-          .shell{
-            grid-template-columns: 1fr;
-          }
-          /* Sidebar becomes overlay */
+          .shell{ grid-template-columns: 1fr; }
           aside.sb{
             position:fixed; left:0; top:0; bottom:0;
             width:84vw; max-width:320px; transform:translateX(-100%);
-            transition:transform .2s ease-out; z-index:1001;
-            box-shadow:none;                 /* no shadow while closed */
+            transition:transform .2s ease-out; z-index:1001; box-shadow:none;
           }
           .shell.mobile-open aside.sb{ transform:translateX(0); box-shadow:var(--shadow); }
         }
 
-        .sb-head{ display:grid; gap:6px; padding:14px 12px; border-bottom:1px solid rgba(0,0,0,.08); align-content:start; }
-        .farm-row{ display:flex; align-items:center; gap:10px; }
-        .farm-logo{ width:36px; height:36px; border-radius:8px; object-fit:contain; background:#f0f2ef; border:1px solid rgba(0,0,0,.06); }
-        .farm-title{ font-weight:700; }
-        .farm-sub{ font-size:13px; opacity:.8; }
+        .sb-head{display:grid;gap:6px;padding:14px 12px;border-bottom:1px solid rgba(0,0,0,.08);}
+        .farm-row{display:flex;align-items:center;gap:10px;}
+        .farm-logo{width:36px;height:36px;border-radius:8px;object-fit:contain;background:#f0f2ef;border:1px solid rgba(0,0,0,.06);}
+        .farm-title{font-weight:700;}
+        .farm-sub{font-size:13px;opacity:.8;}
         @media (min-width:1024px){
           .shell:not(.expanded) .farm-title, .shell:not(.expanded) .farm-sub{ display:none; }
         }
         nav.menu{ padding:8px; overflow:auto; flex:1; }
-        a.item{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:10px; text-decoration:none; color:inherit; }
-        a.item:hover{ background:#f4f6f4; }
-        .emoji{ width:24px; text-align:center; }
-        .label{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        a.item{display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:10px;text-decoration:none;color:inherit;}
+        a.item:hover{background:#f4f6f4;}
+        .emoji{width:24px;text-align:center;}
+        .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
         @media (min-width:1024px){ .shell:not(.expanded) .label{ display:none; } }
 
-        .sb-foot{ border-top:1px solid rgba(0,0,0,.08); padding:12px; font-size:12.5px; color:#2b2e2b; }
-        .sb-foot strong{ font-weight:800; }
-        .sb-tagline{ margin-top:4px; color:#49514d; }
+        .sb-foot{border-top:1px solid rgba(0,0,0,.08);padding:12px;font-size:12.5px;color:#2b2e2b;}
+        .sb-foot strong{font-weight:800;}
+        .sb-tagline{margin-top:4px;color:#49514d;}
 
-        /* Scrim */
-        .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s ease; z-index:1000; }
-        .scrim.show{ opacity:1; pointer-events:auto; }
+        .scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:1000;}
+        .scrim.show{opacity:1;pointer-events:auto;}
 
-        /* ===== Main (scroll container) ===== */
+        /* Main is the ONLY scroller; stop rubber-band */
         main{
-          grid-column:1 / -1;           /* covers full width on mobile */
-          overflow:auto;                /* only this scrolls */
-          overscroll-behavior: contain; /* stop rubber-band above/below */
-          -webkit-overflow-scrolling: touch;
-          background:var(--fv-bg);
+          grid-column:1 / -1; overflow:auto; overscroll-behavior:contain;
+          -webkit-overflow-scrolling:touch; background:var(--fv-bg);
         }
         .container{ max-width:var(--container-max); margin:0 auto; padding:18px 14px 14px; }
 
-        /* ===== Footer pinned ===== */
+        /* Footer pinned */
         footer.foot{
-          grid-column:1 / -1;
-          position:sticky; bottom:0;
-          background:var(--fv-green); color:#fff;
-          border-top:3px solid var(--fv-gold);
-          display:grid; place-items:center;
-          padding:10px 14px; white-space:nowrap;
-          font-size:clamp(12px,1.6vw,14px);
-          z-index:1;
+          grid-column:1 / -1; position:sticky; bottom:0;
+          background:var(--fv-green); color:#fff; border-top:3px solid var(--fv-gold);
+          display:grid; place-items:center; padding:10px 14px; white-space:nowrap;
+          font-size:clamp(12px,1.6vw,14px); z-index:1;
         }
+
+        /* Gear sheet (top drop-down) */
+        .gear{ position:fixed; left:0; right:0; top:56px;
+          background:var(--fv-green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15);
+          transform-origin:top center; transform:scaleY(.98); opacity:0; visibility:hidden;
+          transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002; }
+        .gear.show{ transform:scaleY(1); opacity:1; visibility:visible; }
+        .gear-inner{ max-width:calc(var(--container-max) + 32px); margin:0 auto; padding:8px 14px 12px; }
+        .section-title{ text-transform:uppercase; letter-spacing:.12em; font-size:12px; opacity:.9; margin:6px 0 2px 4px; }
+        .chips{ display:flex; gap:8px; flex-wrap:wrap; padding:6px 4px 8px; }
+        .chip{ border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff; padding:8px 12px; border-radius:999px; cursor:pointer; }
+        .chip[aria-pressed="true"]{ outline:2px solid #fff; outline-offset:2px; }
+        .row{ display:flex; align-items:center; justify-content:space-between; padding:12px 6px; border-radius:10px; cursor:pointer; }
+        .row:hover{ background:rgba(255,255,255,.08); }
       </style>
 
       <div class="shell">
@@ -150,7 +147,7 @@ class FVShell extends HTMLElement {
             <a class="item" href="#"><span class="emoji">🚜</span><span class="label">Equipment</span></a>
             <a class="item" href="#"><span class="emoji">🌾</span><span class="label">Grain</span></a>
             <a class="item" href="#"><span class="emoji">💵</span><span class="label">Expenses</span></a>
-            <a class="item" href="#"><span class="emoji">📊</span><span class="label">Reports</span></a>
+            <a class="item" href="#"><span an class="emoji">📊</span><span class="label">Reports</span></a>
             <a class="item" href="#"><span class="emoji">⚙️</span><span class="label">Setup</span></a>
           </nav>
           <div class="sb-foot">
@@ -166,11 +163,27 @@ class FVShell extends HTMLElement {
         </main>
 
         <footer class="foot"><div id="footLine">© 2025 FarmVista • </div></footer>
+
+        <!-- Gear sheet -->
+        <div class="gear" id="gearSheet" role="menu" aria-label="User menu">
+          <div class="gear-inner">
+            <div class="section-title">Theme</div>
+            <div class="chips">
+              <button class="chip" data-theme="system" aria-pressed="false">System</button>
+              <button class="chip" data-theme="light"  aria-pressed="false">Light</button>
+              <button class="chip" data-theme="dark"   aria-pressed="false">Dark</button>
+            </div>
+            <div class="section-title">Maintenance</div>
+            <div class="row" id="btnCheckUpdates"><div>Check for updates</div><div>↻</div></div>
+            <div class="row" id="btnClearCache"><div>Clear cache</div><div>🧹</div></div>
+          </div>
+        </div>
       </div>
     `;
 
     this._root = r;
     this.$ = (s) => r.querySelector(s);
+
     this._initVersion();
     this._initFooterDate();
     const logo = this.$("#farmLogo"); if (logo) logo.src = "/Farm-vista/assets/icons/logo.png";
@@ -180,36 +193,70 @@ class FVShell extends HTMLElement {
     const shell = this.$(".shell");
     const scrim = this.$("#scrim");
     const btnMenu = this.$("#btnMenu");
+    const btnGear = this.$("#btnGear");
+    const gear = this.$("#gearSheet");
     const offlineBanner = this.$("#offlineBanner");
+
     const isDesktop = () => matchMedia("(min-width:1024px)").matches;
+
+    const closeOverlays = () => {
+      shell.classList.remove("mobile-open");
+      scrim.classList.remove("show");
+      gear.classList.remove("show");
+      btnGear.setAttribute("aria-expanded","false");
+    };
 
     const applySidebarState = () => {
       if (isDesktop()) {
-        shell.classList.remove("mobile-open");
-        scrim.classList.remove("show");
-        shell.classList.remove("expanded");  // desktop starts collapsed (mini)
+        closeOverlays();
+        shell.classList.remove("expanded");  // desktop starts mini
       } else {
         shell.classList.remove("expanded");
-        scrim.classList.remove("show");
       }
     };
     applySidebarState();
     addEventListener("resize", applySidebarState);
 
-    const toggleSidebar = () => {
+    // Burger toggles sidebar (desktop: expand rail; mobile: overlay)
+    btnMenu.addEventListener("click", () => {
       if (isDesktop()) shell.classList.toggle("expanded");
       else {
         const open = !shell.classList.contains("mobile-open");
         shell.classList.toggle("mobile-open", open);
         scrim.classList.toggle("show", open);
+        if (open) gear.classList.remove("show");
       }
-    };
-
-    btnMenu.addEventListener("click", toggleSidebar);
-    scrim.addEventListener("click", () => {
-      shell.classList.remove("mobile-open");
-      scrim.classList.remove("show");
     });
+
+    // Gear sheet open/close
+    btnGear.addEventListener("click", () => {
+      const open = !gear.classList.contains("show");
+      gear.classList.toggle("show", open);
+      btnGear.setAttribute("aria-expanded", String(open));
+      scrim.classList.toggle("show", open);
+      if (open) shell.classList.remove("mobile-open");
+    });
+
+    scrim.addEventListener("click", closeOverlays);
+
+    // Theme chips
+    const reflect = () => {
+      const m = localStorage.getItem("fv-theme") || "system";
+      this._root.querySelectorAll('.chip[data-theme]').forEach(ch=>{
+        ch.setAttribute("aria-pressed", String(ch.getAttribute("data-theme")===m));
+      });
+      const root=document.documentElement;
+      root.classList.remove("dark");
+      if (m==="dark") root.classList.add("dark");
+      else if (m==="system" && matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add("dark");
+    };
+    this._root.querySelectorAll('.chip[data-theme]').forEach(ch=>{
+      ch.addEventListener('click', ()=>{
+        localStorage.setItem("fv-theme", ch.getAttribute("data-theme")||"system");
+        reflect();
+      });
+    });
+    reflect();
 
     // Offline banner
     const onOffline = () => offlineBanner?.classList.add("show");
@@ -218,20 +265,24 @@ class FVShell extends HTMLElement {
     addEventListener("online", onOnline);
     if (!navigator.onLine) onOffline();
 
-    // Service worker
+    // Gear sheet actions
+    this.$("#btnCheckUpdates")?.addEventListener("click", () => this._checkForUpdates());
+    this.$("#btnClearCache")?.addEventListener("click", () => this._clearCachesAndReload());
+
+    // Register SW (normal)
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/Farm-vista/serviceworker.js").catch(()=>{});
     }
   }
 
+  // ---- Version + date ----
   _initVersion(){
     const v=this.$("#ver"), t=this.$("#tagline");
-    const num=window.FarmVistaVersion || (window.FV_VERSION&&window.FV_VERSION.number) || "1.0.0";
-    const tag=window.FV_TAGLINE || (window.FV_VERSION&&window.FV_VERSION.tagline) || "Clean farm data. Smarter reporting.";
+    const num=(window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"1.0.0";
+    const tag=(window.FV_TAGLINE)||(window.FV_VERSION&&window.FV_VERSION.tagline)||"Clean farm data. Smarter reporting.";
     if (v) v.textContent = `v${num}`;
     if (t) t.textContent = tag;
   }
-
   _initFooterDate(){
     const el=this.$("#footLine"); if(!el) return;
     const now=this._fmt(new Date());
@@ -244,6 +295,48 @@ class FVShell extends HTMLElement {
     const n=parseInt(map.day,10);
     const s=(n%10===1&&n%100!==11)?"st":(n%10===2&&n%100!==12)?"nd":(n%10===3&&n%100!==13)?"rd":"th";
     return `${map.weekday}, ${map.month} ${n}${s}, ${map.year}`;
+  }
+
+  // ---- Update utilities ----
+  async _fetchLatestVersion(){
+    try{
+      const res = await fetch("/Farm-vista/js/version.js?rev="+Date.now(), {cache:"no-store"});
+      const text = await res.text();
+      // Extract "window.FarmVistaVersion = 'x';"
+      const m = text.match(/FarmVistaVersion\\s*=\\s*["']([^"']+)["']/);
+      return m ? m[1] : null;
+    }catch{ return null; }
+  }
+
+  async _clearCachesAndReload(){
+    try{
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const reg of regs) await reg.unregister();
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        for (const k of keys) await caches.delete(k);
+      }
+      localStorage.removeItem("fv-cache-stamp");
+      const url = location.pathname + "?rev=" + Date.now();
+      location.replace(url);
+    }catch{
+      location.reload();
+    }
+  }
+
+  async _checkForUpdates(){
+    // Current version as seen by the page
+    const current = (window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"0.0.0";
+    const latest = await this._fetchLatestVersion();
+    // If we can’t read latest (offline), just force-clear so you aren’t stuck
+    if (!latest || latest !== current) {
+      await this._clearCachesAndReload();
+    } else {
+      // Even if same version, clear runtime caches to ensure fresh assets
+      await this._clearCachesAndReload();
+    }
   }
 }
 customElements.define("fv-shell", FVShell);
