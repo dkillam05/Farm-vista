@@ -1,34 +1,92 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta http-equiv="refresh" content="0; url=dashboard/">
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
   <title>FarmVista</title>
-  <script>
-    // JS fallback (handles odd cases / old browsers)
-    (function(){
-      var target = "dashboard/";
-      if (location.pathname.endsWith("/index.html")) {
-        // stay relative to current path to support GitHub Pages project roots
-        target = "dashboard/";
-      }
-      window.location.replace(target);
-    })();
-  </script>
+
+  <!-- GitHub Pages base path -->
+  <base href="/Farm-vista/">
+
+  <!-- PWA essentials -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0A5A2B">
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
+
+  <!-- iOS "installed app" polish -->
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FarmVista">
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css">
+
+  <!-- Safe-area helpers so content doesn't sit under notch/home bar -->
   <style>
-    body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin:0; padding:24px;}
-    .card{max-width:720px; margin:auto; border:1px solid #e2e5e5; border-radius:10px; padding:18px; background:#f5f6f6;}
-    a{color:#3B7E46; text-decoration:none;}
-    a:hover{text-decoration:underline;}
+    :root{
+      --safe-top: env(safe-area-inset-top);
+      --safe-right: env(safe-area-inset-right);
+      --safe-bottom: env(safe-area-inset-bottom);
+      --safe-left: env(safe-area-inset-left);
+    }
+    body.pwa {
+      padding-top: max(0px, var(--safe-top));
+      padding-bottom: max(0px, var(--safe-bottom));
+    }
+    /* Minimal structure scaffolding (non-opinionated)
+       Your existing CSS can style #app-header/#app-main/#app-footer as you like. */
+    #app-root{min-height:100dvh;display:flex;flex-direction:column}
+    #app-header{flex:0 0 auto}
+    #app-main{flex:1 1 auto}
+    #app-footer{flex:0 0 auto}
   </style>
 </head>
+
 <body>
-  <div class="card">
-    <p>Redirecting to <a href="dashboard/">dashboard/</a>…</p>
+  <div id="app-root">
+    <!-- Keep/replace with your own header markup -->
+    <header id="app-header" role="banner">
+      <!-- Your header content (logo, title, gear icon, etc.) -->
+    </header>
+
+    <!-- Your main content goes here (sidebar/drawer, pages, etc.) -->
+    <main id="app-main" role="main">
+      <!-- Your existing content -->
+    </main>
+
+    <!-- Keep/replace with your own footer markup -->
+    <footer id="app-footer" role="contentinfo">
+      <!-- Your footer content -->
+    </footer>
   </div>
-  <noscript>
-    <p>If you are not redirected, click <a href="dashboard/">here</a>.</p>
-  </noscript>
+
+  <!-- Your existing scripts (keep order if your app depends on it) -->
+  <script src="/Farm-vista/js/core.js"></script>
+  <script src="/Farm-vista/js/index.js"></script>
+  <script src="/Farm-vista/js/ui-nav.js"></script>
+  <script src="/Farm-vista/js/ui-subnav.js"></script>
+  <script src="/Farm-vista/js/version.js"></script>
+
+  <!-- Register the service worker & add PWA class when opened from Home Screen -->
+  <script>
+    (function () {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/Farm-vista/serviceworker.js")
+          .catch(console.error);
+      }
+      // Add a CSS hook when running as an installed app (iOS & Android)
+      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+      if (isStandalone) document.body.classList.add("pwa");
+
+      // Keep internal links inside the PWA (avoid bouncing to Safari)
+      document.addEventListener("click", (e) => {
+        const a = e.target.closest("a[href]");
+        if (!a) return;
+        const href = a.getAttribute("href");
+        const isExternal = /^https?:\/\//i.test(href) || href.startsWith("mailto:") || href.startsWith("tel:");
+        if (!isExternal) a.setAttribute("target", "_self");
+      }, { capture: true });
+    })();
+  </script>
 </body>
 </html>
