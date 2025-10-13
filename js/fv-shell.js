@@ -1,6 +1,7 @@
-// FarmVista — App Shell with pinned footer, mobile overlay sidebar,
-// gear sheet (with single "Check for updates"), safe-area padding,
-// and no-bounce global scroll lock.   v2025-10-13h
+// FarmVista — App Shell (gear focus) v2025-10-13i
+// Changes vs prior build: gear panel is full-width, scrollable, safe-area padded,
+// single "Check for updates (also clears cache)", dev helper ?gear=1 to auto-open.
+
 class FVShell extends HTMLElement {
   constructor() {
     super();
@@ -16,18 +17,16 @@ class FVShell extends HTMLElement {
           --safe-top:   env(safe-area-inset-top, 0px);
         }
 
-        /* Shell: header | main (scrolls) | footer (pinned) */
+        /* ===== Shell: header | main (scrolls) | footer (pinned) ===== */
         .shell{
-          height:100dvh;
-          display:grid;
+          height:100dvh; display:grid;
           grid-template-columns: var(--sidebar-mini) 1fr; /* desktop */
           grid-template-rows: auto 1fr auto;
-          overflow:hidden;                     /* prevent body scroll */
-          background:var(--fv-bg); color:var(--fv-text);
+          overflow:hidden; background:var(--fv-bg); color:var(--fv-text);
         }
         .shell.expanded{ grid-template-columns: var(--sidebar-w) 1fr; }
 
-        /* Header */
+        /* ===== Header ===== */
         header.hdr{
           grid-column:1 / -1; background:var(--fv-green); color:#fff;
           position:sticky; top:0; z-index:1000;
@@ -36,21 +35,18 @@ class FVShell extends HTMLElement {
         .hdr-top{
           display:flex; align-items:center; justify-content:space-between; gap:12px;
           padding:10px max(14px, var(--safe-right)) 10px max(14px, var(--safe-left));
-          padding-top: calc(10px + var(--safe-top));    /* avoid notch clipping */
+          padding-top: calc(10px + var(--safe-top));
           max-width:calc(var(--container-max) + 32px); margin:0 auto;
         }
         .wordmark{font-weight:800;font-size:20px;letter-spacing:.3px;white-space:nowrap;}
-        .btn{
-          display:inline-flex;align-items:center;justify-content:center;
-          width:40px;height:40px;border-radius:9px;color:#fff;
-          background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.28);
-          cursor:pointer;
-        }
-        .hdr-accent{height:3px;background:var(--fv-gold);}
-        .offline{display:none;background:var(--fv-gold);color:var(--fv-text);padding:8px 14px;text-align:center;font-weight:600;}
-        .offline.show{display:block;}
+        .btn{ display:inline-flex; align-items:center; justify-content:center;
+          width:40px; height:40px; border-radius:9px; color:#fff;
+          background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.28); cursor:pointer; }
+        .hdr-accent{ height:3px; background:var(--fv-gold); }
+        .offline{ display:none; background:var(--fv-gold); color:var(--fv-text); padding:8px 14px; text-align:center; font-weight:600; }
+        .offline.show{ display:block; }
 
-        /* Sidebar (desktop pinned rail) */
+        /* ===== Sidebar ===== */
         aside.sb{
           grid-row:2 / span 1; background:#fff; color:var(--fv-text);
           border-right:1px solid rgba(0,0,0,.08); box-shadow:var(--shadow);
@@ -60,28 +56,22 @@ class FVShell extends HTMLElement {
           .sb{ width:var(--sidebar-mini); transition:width .18s ease; }
           .shell.expanded .sb{ width:var(--sidebar-w); }
         }
-
-        /* Mobile: overlay sidebar, grid is ONE column (no left gutter) */
         @media (max-width:1023px){
           .shell{ grid-template-columns: 1fr; }
           aside.sb{
-            position:fixed; left:0; top:0; bottom:0;
-            width:84vw; max-width:320px; transform:translateX(-100%);
-            transition:transform .2s ease-out; z-index:1001; box-shadow:none;
+            position:fixed; left:0; top:0; bottom:0; width:84vw; max-width:320px;
+            transform:translateX(-100%); transition:transform .2s ease-out; z-index:1001; box-shadow:none;
           }
           .shell.mobile-open aside.sb{ transform:translateX(0); box-shadow:var(--shadow); }
         }
-
         .sb-head{display:grid;gap:6px;padding:14px 12px;border-bottom:1px solid rgba(0,0,0,.08);}
         .farm-row{display:flex;align-items:center;gap:10px;}
         .farm-logo{width:36px;height:36px;border-radius:8px;object-fit:contain;background:#f0f2ef;border:1px solid rgba(0,0,0,.06);}
         .farm-title{font-weight:700;}
         .farm-sub{font-size:13px;opacity:.8;}
-        @media (min-width:1024px){
-          .shell:not(.expanded) .farm-title, .shell:not(.expanded) .farm-sub{ display:none; }
-        }
+        @media (min-width:1024px){ .shell:not(.expanded) .farm-title, .shell:not(.expanded) .farm-sub{ display:none; } }
         nav.menu{ padding:8px; overflow:auto; flex:1; }
-        a.item{display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:10px;text-decoration:none;color:inherit;}
+        a.item{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;text-decoration:none;color:inherit;}
         a.item:hover{background:#f4f6f4;}
         .emoji{width:24px;text-align:center;}
         .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -94,14 +84,11 @@ class FVShell extends HTMLElement {
         .scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:1000;}
         .scrim.show{opacity:1;pointer-events:auto;}
 
-        /* Main is the ONLY scroller; stop rubber-band */
-        main{
-          grid-column:1 / -1; overflow:auto; overscroll-behavior:contain;
-          -webkit-overflow-scrolling:touch; background:var(--fv-bg);
-        }
+        /* ===== Main (only scroller) ===== */
+        main{ grid-column:1 / -1; overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; background:var(--fv-bg); }
         .container{ max-width:var(--container-max); margin:0 auto; padding:18px 14px 14px; }
 
-        /* Footer pinned */
+        /* ===== Footer pinned ===== */
         footer.foot{
           grid-column:1 / -1; position:sticky; bottom:0;
           background:var(--fv-green); color:#fff; border-top:3px solid var(--fv-gold);
@@ -109,13 +96,19 @@ class FVShell extends HTMLElement {
           white-space:nowrap; font-size:clamp(12px,1.6vw,14px); z-index:1;
         }
 
-        /* Gear sheet (top drop-down) */
-        .gear{ position:fixed; left:0; right:0; top:56px;
+        /* ===== Gear sheet (improved) ===== */
+        .gear{
+          position:fixed; left:0; right:0;
+          top:calc(56px + var(--safe-top));  /* sit below header incl. notch */
           background:var(--fv-green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15);
           transform-origin:top center; transform:scaleY(.98); opacity:0; visibility:hidden;
-          transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002; }
+          transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002;
+          max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto;   /* <-- scrollable */
+          -webkit-overflow-scrolling:touch;
+        }
         .gear.show{ transform:scaleY(1); opacity:1; visibility:visible; }
-        .gear-inner{ max-width:calc(var(--container-max) + 32px); margin:0 auto; padding:8px max(14px, var(--safe-right)) 12px max(14px, var(--safe-left)); }
+        .gear-inner{ max-width:calc(var(--container-max) + 32px);
+          margin:0 auto; padding:8px max(14px, var(--safe-right)) 14px max(14px, var(--safe-left)); }
         .section-title{ text-transform:uppercase; letter-spacing:.12em; font-size:12px; opacity:.9; margin:6px 0 2px 4px; }
         .chips{ display:flex; gap:8px; flex-wrap:wrap; padding:6px 4px 8px; }
         .chip{ border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff; padding:8px 12px; border-radius:999px; cursor:pointer; }
@@ -172,9 +165,7 @@ class FVShell extends HTMLElement {
 
         <div class="scrim" id="scrim"></div>
 
-        <main>
-          <div class="container"><slot></slot></div>
-        </main>
+        <main><div class="container"><slot></slot></div></main>
 
         <footer class="foot"><div id="footLine">© 2025 FarmVista • </div></footer>
 
@@ -209,14 +200,12 @@ class FVShell extends HTMLElement {
   }
 
   connectedCallback(){
-    // *** Global scroll lock to remove rubber-band gray on iOS ***
+    // Lock global scroll (prevents gray bounce above/below on iOS)
     const GL_ID = "fv-global-lock-style";
     if (!document.getElementById(GL_ID)) {
       const g = document.createElement("style");
       g.id = GL_ID;
-      g.textContent = `
-        html, body { height:100%; margin:0; overflow:hidden; overscroll-behavior:none; -webkit-overflow-scrolling:auto; }
-      `;
+      g.textContent = `html, body { height:100%; margin:0; overflow:hidden; overscroll-behavior:none; -webkit-overflow-scrolling:auto; }`;
       document.head.appendChild(g);
     }
 
@@ -237,17 +226,12 @@ class FVShell extends HTMLElement {
     };
 
     const applySidebarState = () => {
-      if (isDesktop()) {
-        closeOverlays();
-        shell.classList.remove("expanded");  // desktop starts mini
-      } else {
-        shell.classList.remove("expanded");
-      }
+      if (isDesktop()) { closeOverlays(); shell.classList.remove("expanded"); }
+      else { shell.classList.remove("expanded"); }
     };
     applySidebarState();
     addEventListener("resize", applySidebarState);
 
-    // Burger toggles sidebar
     btnMenu.addEventListener("click", () => {
       if (isDesktop()) shell.classList.toggle("expanded");
       else {
@@ -258,7 +242,6 @@ class FVShell extends HTMLElement {
       }
     });
 
-    // Gear sheet open/close
     btnGear.addEventListener("click", () => {
       const open = !gear.classList.contains("show");
       gear.classList.toggle("show", open);
@@ -294,8 +277,13 @@ class FVShell extends HTMLElement {
     addEventListener("online", onOnline);
     if (!navigator.onLine) onOffline();
 
-    // Update button (single action does both: check & clear)
+    // One-button update action
     this.$("#btnUpdateAll")?.addEventListener("click", () => this._checkForUpdatesAndRefresh());
+
+    // Dev helper: auto-open gear with ?gear=1
+    if (new URLSearchParams(location.search).has("gear")) {
+      setTimeout(()=>btnGear.click(), 80);
+    }
 
     // Service worker
     if ("serviceWorker" in navigator) {
@@ -303,7 +291,7 @@ class FVShell extends HTMLElement {
     }
   }
 
-  // ---- Version + date ----
+  /* ===== Version + date ===== */
   _initVersion(){
     const v=this.$("#ver"), t=this.$("#tagline");
     const num=(window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"1.0.0";
@@ -325,7 +313,7 @@ class FVShell extends HTMLElement {
     return `${map.weekday}, ${map.month} ${n}${s}, ${map.year}`;
   }
 
-  // ---- Update utilities ----
+  /* ===== Update utilities ===== */
   async _fetchLatestVersion(){
     try{
       const res = await fetch("/Farm-vista/js/version.js?rev="+Date.now(), {cache:"no-store"});
@@ -334,7 +322,6 @@ class FVShell extends HTMLElement {
       return m ? m[1] : null;
     }catch{ return null; }
   }
-
   async _clearCachesAndReload(){
     try{
       if ("serviceWorker" in navigator) {
@@ -345,23 +332,16 @@ class FVShell extends HTMLElement {
         const keys = await caches.keys();
         for (const k of keys) await caches.delete(k);
       }
-      // keep theme choice
       const theme = localStorage.getItem("fv-theme");
       localStorage.clear();
       if (theme) localStorage.setItem("fv-theme", theme);
-
       const url = location.pathname + "?rev=" + Date.now();
       location.replace(url);
-    }catch{
-      location.reload();
-    }
+    }catch{ location.reload(); }
   }
-
   async _checkForUpdatesAndRefresh(){
-    // Compare with latest (best effort), then always refresh cleanly.
-    const current = (window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"0.0.0";
-    const latest  = await this._fetchLatestVersion();
-    // If different or unknown, proceed — either way we want a clean reload.
+    const _current = (window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"0.0.0";
+    const _latest  = await this._fetchLatestVersion(); // we don't block on compare; we refresh either way
     await this._clearCachesAndReload();
   }
 }
