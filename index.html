@@ -1,92 +1,185 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>FarmVista</title>
+  <meta charset="utf-8" />
+  <title>FarmVista · Dashboard</title>
 
-  <!-- GitHub Pages base path -->
-  <base href="/Farm-vista/">
+  <!-- Viewport/safe-area so the header icons and footer sit flush on iPhone -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#2f6f35" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="format-detection" content="telephone=no" />
 
-  <!-- PWA essentials -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0A5A2B">
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="assets/icons/icon-192.png" />
 
-  <!-- iOS "installed app" polish -->
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="FarmVista">
+  <!-- Theme -->
+  <link rel="stylesheet" href="assets/css/theme.css" />
 
-  <!-- App styles -->
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css">
-
-  <!-- Safe-area helpers so content doesn't sit under notch/home bar -->
+  <!-- Minimal, page-local safe-area glue (keeps gear visible and footer flush even before CSS updates) -->
   <style>
     :root{
-      --safe-top: env(safe-area-inset-top);
+      --safe-left: env(safe-area-inset-left);
       --safe-right: env(safe-area-inset-right);
       --safe-bottom: env(safe-area-inset-bottom);
-      --safe-left: env(safe-area-inset-left);
+      --green:#2f6f35;           /* header green */
+      --gold:#d0b200;             /* accent gold */
+      --surface:#f5f6f4;          /* app background */
+      --text:#0e1111;
     }
-    body.pwa {
-      padding-top: max(0px, var(--safe-top));
-      padding-bottom: max(0px, var(--safe-bottom));
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--surface);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-attachment: fixed; /* avoids iOS rubber-band white edge */
     }
-    /* Minimal structure scaffolding (non-opinionated)
-       Your existing CSS can style #app-header/#app-main/#app-footer as you like. */
-    #app-root{min-height:100dvh;display:flex;flex-direction:column}
-    #app-header{flex:0 0 auto}
-    #app-main{flex:1 1 auto}
-    #app-footer{flex:0 0 auto}
+    #app { min-height: 100dvh; display: flex; flex-direction: column; }
+
+    /* Header */
+    .app-header{
+      background: var(--green);
+      color: #fff;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px max(16px, var(--safe-right)) 8px max(16px, var(--safe-left));
+      position: sticky; top: 0; z-index: 1000;
+    }
+    .header-left, .header-center, .header-right{ display:flex; align-items:center; gap:12px; }
+    .brand { font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+
+    /* Icon buttons meet Apple HIG 44x44 tap target */
+    .icon-btn{
+      width: 44px; height: 44px; display:inline-flex;
+      align-items:center; justify-content:center;
+      background: transparent; border: 0; color: inherit; cursor: pointer;
+      border-radius: 8px;
+    }
+    .icon-btn:active { opacity: .85; }
+
+    /* Simple hamburger/gear glyphs (swap for SVGs if you like) */
+    .icon { font-size: 22px; line-height: 1; }
+
+    /* Breadcrumbs bar under header */
+    .breadcrumbs-bar{
+      background:#e7e9e6;
+      border-bottom: 3px solid var(--gold);
+      padding: 10px max(16px, var(--safe-right)) 10px max(16px, var(--safe-left));
+      display:flex; align-items:center; gap:10px; color:#1b1f1a;
+    }
+    .crumb{ font-weight:600; }
+    .crumb + .crumb::before{ content:"›"; opacity:.5; margin:0 6px; font-weight:400; }
+
+    /* Main content */
+    .app-main{ flex: 1 1 auto; padding: 20px 16px; }
+    .card{
+      background:#fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+      padding:20px; margin-bottom:18px;
+    }
+    .card h1{ margin:0 0 12px 0; font-size: 28px; }
+    .badge-row{ display:flex; gap:12px; flex-wrap:wrap; }
+    .pill{ padding:8px 14px; border-radius: 999px; font-weight:700; }
+    .pill.secondary{ background:#e7eef8; color:#224d8f; }
+    .pill.primary{ background:#2f6f35; color:#fff; }
+    .pill.badge{ background:#e3e6d8; color:#333; }
+
+    /* Table (Recent Activity) */
+    .table{ width:100%; border-collapse: collapse; }
+    .table th, .table td{ padding:14px; border-bottom:1px solid #e6e6e6; text-align:left; }
+    .chip{ background:#e3e6d8; padding:8px 12px; border-radius:999px; font-weight:700; display:inline-block; }
+
+    /* Footer flush with safe-area */
+    .app-footer{
+      margin:0;
+      padding: 12px max(16px,var(--safe-right)) calc(12px + var(--safe-bottom)) max(16px,var(--safe-left));
+      background: var(--surface);
+      border-top: 3px solid var(--gold);
+      font-size: 14px; color:#444;
+    }
   </style>
 </head>
-
 <body>
-  <div id="app-root">
-    <!-- Keep/replace with your own header markup -->
-    <header id="app-header" role="banner">
-      <!-- Your header content (logo, title, gear icon, etc.) -->
+  <div id="app" class="app-shell">
+
+    <!-- Global Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <button class="icon-btn drawer-trigger" aria-label="Open menu" id="btnMenu">
+          <span class="icon">≡</span>
+        </button>
+      </div>
+      <div class="header-center">
+        <div class="brand">FarmVista</div>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn gear-btn" aria-label="Settings" id="btnSettings">
+          <span class="icon">⚙︎</span>
+        </button>
+      </div>
     </header>
 
-    <!-- Your main content goes here (sidebar/drawer, pages, etc.) -->
-    <main id="app-main" role="main">
-      <!-- Your existing content -->
+    <!-- Breadcrumbs -->
+    <nav class="breadcrumbs-bar" aria-label="Breadcrumb">
+      <span class="crumb">Home</span>
+      <span class="crumb">Dashboard</span>
+    </nav>
+
+    <!-- Main -->
+    <main class="app-main" role="main">
+      <section class="card">
+        <h1>Dashboard</h1>
+        <p>Header is solid green, breadcrumbs sit on a gunmetal bar, and the white drawer slides in from the left with icons.</p>
+        <div class="badge-row">
+          <span class="pill secondary">Secondary</span>
+          <span class="pill primary">Primary</span>
+          <span class="pill badge">Badge</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 style="margin:0 0 12px 0;">Recent Activity</h2>
+        <table class="table">
+          <thead>
+            <tr><th>When</th><th>Item</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Today</td><td>Grain ticket import</td><td><span class="chip">Processed</span></td></tr>
+            <tr><td>Yesterday</td><td>Equipment service log</td><td><span class="chip">Scheduled</span></td></tr>
+            <tr><td>Oct 1</td><td>Moisture sampling</td><td><span class="chip">Logged</span></td></tr>
+          </tbody>
+        </table>
+      </section>
     </main>
 
-    <!-- Keep/replace with your own footer markup -->
-    <footer id="app-footer" role="contentinfo">
-      <!-- Your footer content -->
+    <!-- Footer -->
+    <footer class="app-footer">
+      © 2025 FarmVista • All rights reserved.
     </footer>
+
   </div>
 
-  <!-- Your existing scripts (keep order if your app depends on it) -->
-  <script src="/Farm-vista/js/core.js"></script>
-  <script src="/Farm-vista/js/index.js"></script>
-  <script src="/Farm-vista/js/ui-nav.js"></script>
-  <script src="/Farm-vista/js/ui-subnav.js"></script>
-  <script src="/Farm-vista/js/version.js"></script>
+  <!-- JS (existing app wiring) -->
+  <script src="assets/data/menus.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/ui-nav.js"></script>
+  <script src="js/ui-subnav.js"></script>
+  <script src="js/index.js"></script>
+  <script src="js/version.js"></script>
 
-  <!-- Register the service worker & add PWA class when opened from Home Screen -->
   <script>
-    (function () {
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/Farm-vista/serviceworker.js")
-          .catch(console.error);
-      }
-      // Add a CSS hook when running as an installed app (iOS & Android)
-      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
-      if (isStandalone) document.body.classList.add("pwa");
-
-      // Keep internal links inside the PWA (avoid bouncing to Safari)
-      document.addEventListener("click", (e) => {
-        const a = e.target.closest("a[href]");
-        if (!a) return;
-        const href = a.getAttribute("href");
-        const isExternal = /^https?:\/\//i.test(href) || href.startsWith("mailto:") || href.startsWith("tel:");
-        if (!isExternal) a.setAttribute("target", "_self");
-      }, { capture: true });
-    })();
+    // Basic hooks (keeps behavior consistent with your core.js if it’s looking for these IDs)
+    document.getElementById('btnMenu')?.addEventListener('click', () => {
+      if (window.App && App.toggleDrawer) App.toggleDrawer(true);
+      document.dispatchEvent(new CustomEvent('drawer:toggle', { detail: { open: true }}));
+    });
+    document.getElementById('btnSettings')?.addEventListener('click', () => {
+      if (window.App && App.openSettings) App.openSettings();
+      document.dispatchEvent(new CustomEvent('settings:open'));
+    });
   </script>
 </body>
 </html>
