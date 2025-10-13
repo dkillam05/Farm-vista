@@ -4,7 +4,7 @@
    This value is read by fv-shell.js to display in the sidebar footer.
    ========================================================== */
 
-window.FarmVistaVersion = "1.0.0";
+window.FarmVistaVersion = "1.1.0";
 
 /*
   Usage:
