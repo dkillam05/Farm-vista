@@ -3,22 +3,29 @@ File: /assets/css/theme.css  (FULL REPLACEMENT)
 Brand-first color system + preferences sheet
 ========================================= */
 
-/* Reset & layout */
+/* ---------- Reset & layout ---------- */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+html { background: var(--bg); }
 body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.4;
   color: var(--text);
   background: var(--bg);
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-           env(safe-area-inset-bottom) env(safe-area-inset-left);
-  overflow-x: hidden;
+  overflow-x: hidden;              /* prevent right-edge bleed */
+  overscroll-behavior-x: none;     /* avoid horizontal rubber-band on iOS */
+  -webkit-text-size-adjust: 100%;
 }
 
-/* Brand palette (tune to your final tones) */
+/* Safe-area vars (used by header/footer) */
 :root{
+  --safe-top: env(safe-area-inset-top);
+  --safe-right: env(safe-area-inset-right);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
+
+  /* Brand palette (tune to your final tones) */
   --brand-green:#0f6b3a;
   --brand-green-700:#0a4c29;
   --brand-gold:#e2b100;
@@ -38,6 +45,8 @@ body {
 
   --shadow:0 12px 24px rgba(0,0,0,.14);
 }
+
+/* Dark theme tokens */
 html[data-theme="dark"]{
   --bg:#0d1210;
   --surface:#151b17;
@@ -61,13 +70,24 @@ html[data-theme="dark"]{
   }
 }
 
-/* Header */
+/* ---------- Global shell ---------- */
+/* Ensure every page gets a sticky-bottom footer without extra hacks */
+.app-shell, #app{
+  min-height: 100vh;
+  min-height: 100svh;             /* mobile viewport units */
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Header ---------- */
 .app-header{
-  position:sticky; top:0; left:0; right:0;
-  display:grid; grid-template-columns:1fr auto; align-items:center;
-  height:56px; padding:0 12px;
-  background:var(--header-bg); color:var(--header-fg);
-  z-index:1000;
+  position: sticky; top: 0; left: 0; right: 0;
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  height: 56px;
+  padding: 0 max(12px, var(--safe-right)) 0 max(12px, var(--safe-left));
+  background: var(--header-bg); color: var(--header-fg);
+  z-index: 1000;
+  width: 100%;
 }
 .header-left{display:flex; align-items:center; gap:10px; min-width:0;}
 .brand-mark{height:28px; width:auto; display:block;}
@@ -76,11 +96,11 @@ html[data-theme="dark"]{
 .icon-btn{background:transparent; border:0; width:40px; height:40px; display:grid; place-items:center; border-radius:10px; color:inherit;}
 .icon-btn:focus-visible{outline:2px solid var(--brand-gold); outline-offset:2px;}
 
-/* Preferences sheet */
+/* ---------- Preferences sheet ---------- */
 .gear-panel{
   position:absolute; top:56px; right:8px;
   width:min(520px,92vw);
-  max-height:calc(100vh - 56px - env(safe-area-inset-bottom));
+  max-height:calc(100vh - 56px - var(--safe-bottom));
   overflow:auto;
   background:var(--surface); color:var(--text);
   border:1px solid var(--border);
@@ -119,7 +139,7 @@ html[data-theme="dark"]{
 .gp-caret{opacity:.5;}
 .gp-logout{background:rgba(176,0,32,.06);}
 
-/* Theme chips */
+/* ---------- Theme chips ---------- */
 .theme-row{display:flex; gap:10px; flex-wrap:wrap; padding:12px;}
 .theme-chip{
   display:flex; align-items:center; gap:8px;
@@ -129,7 +149,7 @@ html[data-theme="dark"]{
 .theme-chip svg{fill:currentColor;}
 .theme-chip[aria-pressed="true"]{outline:2px solid var(--brand-gold);}
 
-/* Tabs & forms */
+/* ---------- Tabs & forms ---------- */
 .tabs{display:flex; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border);}
 .tab{border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:6px 12px; cursor:pointer;}
 .tab.active{outline:2px solid var(--brand-gold);}
@@ -150,8 +170,9 @@ html[data-theme="dark"]{
 .fb-list li{border-top:1px solid var(--border); padding:8px 0;}
 .muted{color:var(--muted);}
 
-/* Dashboard mock */
-.app-main{min-height:calc(100vh - 56px - 44px); display:block;}
+/* ---------- Layout helpers & content ---------- */
+img, svg, video { max-width: 100%; height: auto; display: block; }
+
 .container{max-width:1100px; margin:0 auto; padding:16px;}
 .cards{display:grid; grid-template-columns:1fr; gap:12px;}
 .card{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; box-shadow:var(--shadow);}
@@ -160,8 +181,24 @@ html[data-theme="dark"]{
 .stat-label{font-size:.85rem; color:var(--muted);}
 .stat-value{font-weight:700; font-size:1.2rem;}
 
-/* Footer */
+/* Tables guard against overflow on narrow screens */
+.table{ width:100%; border-collapse:collapse; table-layout: fixed; }
+.table th, .table td{ padding:14px; border-bottom:1px solid var(--border); text-align:left; }
+.table td{ word-break: break-word; }
+
+/* ---------- Main area ---------- */
+/* Let flexbox handle the height; no calc() that can cause off-by-one overflow */
+.app-main{ flex: 1 1 auto; min-height: auto; }
+
+/* ---------- Footer (flush to bottom, safe-area aware) ---------- */
 .app-footer{
-  height:44px; display:grid; place-items:center; color:var(--footer-fg);
-  background:var(--footer-bg);
+  margin-top: auto;                    /* pushes footer to bottom */
+  display: grid; place-items: center;
+  color: var(--footer-fg);
+  background: var(--footer-bg);
+  border-top: 3px solid var(--brand-gold);
+  padding: 10px max(16px, var(--safe-right))
+           calc(10px + var(--safe-bottom))
+           max(16px, var(--safe-left));
+  text-align: center;
 }
