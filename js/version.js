@@ -1,20 +1,15 @@
 /* ==========================================================
-   FarmVista — Version (single source of truth)
-   Update ONLY here when you release.
-   Everything else (sidebar/footer/shell) reads from this.
+   File: /js/version.js
+   Purpose: Single source of truth for FarmVista app version.
+   This value is read by fv-shell.js to display in the sidebar footer.
    ========================================================== */
-(function (global) {
-  const FV_VERSION = {
-    number: "1.0.0",
-    date: "Monday, October 13th, 2025", // America/Chicago
-    tagline: "Clean farm data. Smarter reporting."
-  };
 
-  // Expose globals (simple to consume anywhere)
-  global.FV_BUILD = FV_VERSION.number;
-  global.FV_BUILD_DATE = FV_VERSION.date;
-  global.FV_TAGLINE = FV_VERSION.tagline;
+window.FarmVistaVersion = "1.0.0";
 
-  // Also expose an immutable object for structured access
-  global.FV_VERSION = Object.freeze({ ...FV_VERSION });
-})(window);
+/*
+  Usage:
+    - The <fv-shell> component automatically looks for this variable
+      and injects it into its footer if present.
+    - Any other script can read it globally:
+          console.log(window.FarmVistaVersion);
+*/
