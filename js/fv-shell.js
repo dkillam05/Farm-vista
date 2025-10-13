@@ -1,247 +1,543 @@
-// js/fv-shell.js
-// FarmVista shell: green header, gunmetal breadcrumb row, white overlay drawer (logo+icons),
-// hamburger ALWAYS visible, repo-safe links, simple user menu + theme switch.
-
+// ==========================================================
+// FarmVista — Reusable App Shell (Header / Sidebar / Footer)
+// - Text-only wordmark with full-width gold accent bar
+// - Gear top-sheet menu (Theme: System/Light/Dark; Profile/Feedback/Logout placeholders)
+// - Sidebar: pinned on desktop (≥1024px), collapsed by default to mini icon rail,
+//            overlay on phones; only "Home" navigates today
+// - Sidebar header shows Farm logo + "Dowson Farms" + "Divernon, IL" (placeholders)
+// - Sidebar footer shows "FarmVista v{version}" and tagline from js/version.js
+// - Global footer: one-line, no wrap, auto-shrink, © YEAR • localized date (America/Chicago)
+// - Offline banner (shows on offline, hides on online)
+// - SW registration (silent updates)
+// - Absolute paths from /Farm-vista/
+//
+// NOTE: Requires js/version.js loaded somewhere on the page first
+//       (exposes FV_BUILD, FV_BUILD_DATE, FV_TAGLINE / FV_VERSION)
+// ==========================================================
 class FVShell extends HTMLElement {
   constructor() {
     super();
-    const r = this.attachShadow({ mode: 'open' });
+    const r = this.attachShadow({ mode: "open" });
+
+    // --- Styling (scoped) ---
     r.innerHTML = `
       <style>
-        :host{
-          display:block;
-          --fv-green:      var(--fv-green, #3B7E46);
-          --fv-yellow:     var(--fv-yellow, #D0C542);
-          --fv-gunmetal:   var(--fv-gunmetal, #CBCDCB);
-          --fv-black:      var(--fv-black, #141514);
-          --fv-border:     var(--fv-border, #e2e5e5);
-          --fv-surface:    var(--fv-surface, #f5f6f6);
-          --fv-ring:       var(--fv-ring, #b9e1c4);
-          --sidebar-w:     var(--sidebar-w, 300px);
+        :host { display:block; }
+
+        /* Brand tokens with fallbacks (match theme.css) */
+        :host {
+          --fv-green:    #3B7E46;
+          --fv-gold:     #D0C542;
+          --fv-bg:       #CBCDCB;
+          --fv-text:     #141514;
+
+          /* Dark tuned palette (used when <html>.classList.contains('dark')) */
+          --fv-dark-bg:        #141514;
+          --fv-dark-surface:   #1B1D1B;
+          --fv-dark-text:      #F2F4F1;
+          --fv-dark-muted:     #AEB5AD;
+          --fv-dark-border:    rgba(255,255,255,0.14);
+
+          --sidebar-w: 280px;          /* pinned width */
+          --sidebar-mini: 72px;        /* mini icon rail */
+          --container-max: 1040px;     /* content max width */
+          --radius: 12px;
+
+          --shadow: 0 10px 22px rgba(0,0,0,.12);
+          --shadow-strong: 0 14px 28px rgba(0,0,0,.18);
         }
-        .container{ width:min(1100px,100%); margin-inline:auto; padding:0 16px; }
 
-        /* ===== HEADER ===== */
-        header.fv-header{ position:sticky; top:0; z-index:6; }
-        .hdr-top{ background:var(--fv-green); color:#fff; border-bottom:1px solid color-mix(in srgb,#000 12%,var(--fv-green)); }
-        .hdr-top .bar{ height:56px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-        .brand{ font-weight:800; letter-spacing:.3px; font-size:20px; color:#fff; }
-        .hdr-sub{ background:var(--fv-gunmetal); color:var(--fv-black); }
-        .hdr-sub .bar{ min-height:40px; display:flex; align-items:center; }
-        .hdr-sub .accent{ height:3px; background:var(--fv-yellow); }
+        /* Layout grid: header on top, sidebar left (desktop), content + footer right */
+        .shell {
+          display: grid;
+          grid-template-columns: var(--sidebar-mini) 1fr;
+          grid-template-rows: auto 1fr auto;
+          min-height: 100vh;
+          background: var(--fv-bg);
+          color: var(--fv-text);
+        }
 
-        /* Hamburger + gear buttons (ALWAYS visible) */
-        .btn-plain{
+        /* When desktop and expanded */
+        .shell.expanded {
+          grid-template-columns: var(--sidebar-w) 1fr;
+        }
+
+        /* On phones: sidebar overlays; single column */
+        @media (max-width: 1023px) {
+          .shell,
+          .shell.expanded {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        /* Header */
+        header.hdr {
+          grid-column: 1 / -1;
+          background: var(--fv-green);
+          color: #fff;
+          position: sticky; top: 0; z-index: 1000;
+          border-bottom: 1px solid rgba(0,0,0,.15);
+        }
+        .hdr-top {
+          display:flex; align-items:center; justify-content:space-between;
+          gap: 12px; padding: 10px 14px;
+          max-width: calc(var(--container-max) + 32px);
+          margin: 0 auto;
+        }
+        .wordmark {
+          font-weight: 800; font-size: 20px; letter-spacing: .3px;
+          text-transform: none; white-space: nowrap;
+        }
+        .btn {
           display:inline-flex; align-items:center; justify-content:center;
-          width:40px; height:40px; border-radius:9px; cursor:pointer; font-size:22px;
-          background: color-mix(in srgb, #fff 6%, transparent);
-          border:1px solid color-mix(in srgb, #fff 25%, transparent);
-          color:#fff; transition:transform .02s ease;
+          width:40px; height:40px; border-radius: 9px;
+          color:#fff; background: rgba(255,255,255,.08);
+          border: 1px solid rgba(255,255,255,.28);
+          cursor:pointer; -webkit-tap-highlight-color: transparent;
         }
-        .btn-plain:active{ transform:translateY(1px); }
-        .btn-plain:focus{ outline:3px solid var(--fv-ring); outline-offset:1px; }
-        .burger svg{ display:block; }
+        .btn:active { transform: translateY(1px); }
 
-        /* ===== WHITE OVERLAY DRAWER (slides over at ALL widths) ===== */
-        aside.fv-sidebar{
-          position:fixed; inset:0 auto 0 0; width:var(--sidebar-w);
-          background:#fff; color:var(--fv-black);
-          border-right:1px solid var(--fv-border);
-          transform:translateX(-100%); transition:transform .18s ease-out;
-          z-index:999; display:flex; flex-direction:column;
-          overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y;
-          box-shadow:0 10px 22px rgba(0,0,0,.18);
+        /* Full-width gold accent bar */
+        .hdr-accent { height: 3px; background: var(--fv-gold); }
+
+        /* Offline banner */
+        .offline {
+          display:none;
+          background: var(--fv-gold);
+          color: var(--fv-text);
+          padding: 8px 14px;
+          text-align: center;
+          font-weight: 600;
         }
-        .sd-head{ padding:16px 16px 12px; background:#fff; border-bottom:1px solid var(--fv-border); }
-        .sd-head img{ display:block; max-width:100%; height:44px; object-fit:contain; }
+        .offline.show { display:block; }
 
-        nav.sd-menu{ padding:8px 8px; }
-        .nav-item{
-          display:flex; align-items:center; gap:12px;
-          padding:12px 10px; border-radius:10px; text-decoration:none;
-          color:#232523; transition:background .15s ease;
+        /* Sidebar (desktop pinned) */
+        aside.sb {
+          grid-row: 2 / span 2;
+          background: #fff;
+          color: var(--fv-text);
+          border-right: 1px solid rgba(0,0,0,0.08);
+          box-shadow: var(--shadow);
+          position: sticky; top: 0; height: 100dvh;
+          display:flex; flex-direction: column;
         }
-        .nav-item:hover{ background:#f4f6f4; }
-        .nav-item .i{ width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; color:#2f3530; }
-        .nav-item .t{ font-size:16px; }
-        .nav-item.active{ background:var(--fv-green); color:#fff; }
-        .nav-item.active .i{ color:#fff; }
+        .sb-mini aside.sb { width: var(--sidebar-mini); }
+        .sb.expanded { width: var(--sidebar-w); }
 
-        .sd-foot{ margin-top:auto; padding:14px 16px; border-top:1px solid var(--fv-border); font-size:13px; display:grid; gap:6px; }
-        .status{ display:flex; align-items:center; gap:8px; color:#2b2e2b; }
-        .dot{ width:10px; height:10px; border-radius:999px; background:#2BB673; box-shadow:0 0 0 2px #dcefe6 inset; }
-        .muted{ color:#6a6d6a; }
+        /* Sidebar collapsed vs expanded (desktop ≥1024) */
+        @media (min-width: 1024px) {
+          .sb { width: var(--sidebar-mini); transition: width .18s ease; }
+          .shell.expanded .sb { width: var(--sidebar-w); }
+        }
 
-        /* Scrim */
-        .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s ease-out; z-index:998; }
+        /* Sidebar header (logo + farm name/address) */
+        .sb-head {
+          display:grid; gap:6px; padding: 14px 12px;
+          border-bottom: 1px solid rgba(0,0,0,0.08);
+          align-content: start;
+        }
+        .farm-row { display:flex; align-items:center; gap:10px; }
+        .farm-logo {
+          width: 36px; height: 36px; border-radius: 8px; object-fit: contain;
+          background: #f0f2ef; border:1px solid rgba(0,0,0,.06);
+        }
+        .farm-title { font-weight: 700; }
+        .farm-sub   { font-size: 13px; opacity: .8; }
 
-        /* Main + footer */
-        main.fv-main{ padding:18px 16px 44px; }
-        footer.fv-footer{ background:var(--fv-gunmetal); color:#2b2e2b; border-top:3px solid var(--fv-yellow); padding:12px 0; }
+        /* Hide text in mini mode on desktop */
+        @media (min-width: 1024px) {
+          .shell:not(.expanded) .farm-title,
+          .shell:not(.expanded) .farm-sub { display:none; }
+        }
 
-        /* Toggle mechanics */
-        #navToggle{ display:none; }
-        #navToggle:checked ~ aside.fv-sidebar{ transform:translateX(0); }
-        #navToggle:checked ~ .scrim{ opacity:1; pointer-events:auto; }
+        /* Menu */
+        nav.menu { padding: 8px; overflow: auto; flex: 1; }
+        a.item {
+          display:flex; align-items:center; gap:10px;
+          padding: 10px 10px; border-radius: 10px;
+          text-decoration: none; color: inherit;
+        }
+        a.item:hover { background: #f4f6f4; }
+        .emoji { width: 24px; text-align: center; }
+        .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-        /* Breadcrumbs coloring in header */
-        ::slotted(.breadcrumbs){ display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:13px; }
-        ::slotted(.breadcrumbs a){ color:#0e4d26; padding:4px 6px; border-radius:6px; text-decoration:none; }
-        ::slotted(.breadcrumbs a:hover){ background:color-mix(in srgb, var(--fv-green) 18%, white); color:#0e4d26; }
-        ::slotted(.breadcrumbs .sep){ opacity:.65; }
+        /* Hide labels in mini mode desktop */
+        @media (min-width: 1024px) {
+          .shell:not(.expanded) .label { display:none; }
+        }
+
+        /* Sidebar footer */
+        .sb-foot {
+          border-top: 1px solid rgba(0,0,0,0.08);
+          padding: 12px;
+          font-size: 12.5px;
+          color: #2b2e2b;
+        }
+        .sb-foot strong { font-weight: 800; }
+        .sb-tagline { margin-top: 4px; color: #49514d; }
+
+        /* Scrim for overlays (phone + gear sheet) */
+        .scrim {
+          position: fixed; inset: 0; background: rgba(0,0,0,.45);
+          opacity: 0; pointer-events: none; transition: opacity .18s ease;
+          z-index: 900;
+        }
+        .scrim.show { opacity: 1; pointer-events: auto; }
+
+        /* Gear top-sheet (full-width under header) */
+        .gear {
+          position: fixed; left: 0; right: 0; top: 56px;
+          background: var(--fv-green); color: #fff;
+          border-bottom: 1px solid rgba(0,0,0,.15);
+          transform-origin: top center;
+          transform: scaleY(.98);
+          opacity: 0; visibility: hidden;
+          transition: transform .14s ease, opacity .14s ease, visibility .14s;
+          z-index: 1001;
+        }
+        .gear.show { transform: scaleY(1); opacity: 1; visibility: visible; }
+        .gear-inner {
+          max-width: calc(var(--container-max) + 32px);
+          margin: 0 auto; padding: 8px 14px 12px 14px;
+        }
+        .row {
+          display:flex; align-items:center; justify-content:space-between;
+          padding: 12px 6px; border-radius: 10px;
+          cursor: pointer; user-select: none;
+        }
+        .row:hover { background: rgba(255,255,255,.08); }
+        .row .l { display:flex; align-items:center; gap:10px; }
+        .chev { opacity: .8; }
+        .row.logout { color: #FFD8D8; }
+        .row.logout:hover { background: rgba(255,255,255,.03); }
+
+        .section-title {
+          text-transform: uppercase; letter-spacing: .12em;
+          font-size: 12px; opacity: .9; margin: 6px 0 2px 4px;
+        }
+
+        /* Theme chips */
+        .chips { display:flex; gap:8px; flex-wrap:wrap; padding: 6px 4px 8px; }
+        .chip {
+          border: 1px solid rgba(255,255,255,.35);
+          background: rgba(255,255,255,.08);
+          color: #fff; padding: 8px 12px;
+          border-radius: 999px; cursor: pointer;
+        }
+        .chip[aria-pressed="true"] { outline: 2px solid #fff; outline-offset: 2px; }
+
+        /* Main */
+        main {
+          background: var(--fv-bg);
+          padding: 18px 14px 44px;
+          min-width: 0;
+        }
+        .container { max-width: var(--container-max); margin: 0 auto; }
+
+        /* Footer (global) */
+        footer.foot {
+          grid-column: 2 / -1;
+          background: var(--fv-green); color: #fff;
+          border-top: 3px solid var(--fv-gold);
+          display: grid; place-items: center;
+          padding: 10px 14px;
+          white-space: nowrap;
+          font-size: clamp(12px, 1.6vw, 14px); /* auto-shrink on small screens */
+        }
+        @media (max-width: 1023px) {
+          footer.foot { grid-column: 1 / -1; }
+        }
       </style>
 
-      <input id="navToggle" type="checkbox" hidden />
-
-      <header class="fv-header">
-        <div class="hdr-top">
-          <div class="container bar">
-            <!-- ALWAYS visible hamburger -->
-            <label for="navToggle" class="btn-plain burger" aria-label="Open menu" title="Menu">
+      <div class="shell"><!-- classes toggled by JS: expanded -->
+        <header class="hdr">
+          <div class="hdr-top">
+            <button class="btn" id="btnMenu" title="Menu" aria-label="Menu">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <path d="M3 6h18M3 12h18M3 18h18"/>
               </svg>
-            </label>
+            </button>
+            <div class="wordmark">FarmVista</div>
+            <button class="btn" id="btnGear" title="User menu" aria-haspopup="menu" aria-expanded="false" aria-label="User menu">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 0 1 7.04 3.3l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .67.39 1.27 1 1.51H21a2 2 0 1 1 0 4h-.09c-.61.24-1 .84-1 1.49z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="offline" id="offlineBanner">You’re offline. Some data may be unavailable.</div>
+          <div class="hdr-accent"></div>
+        </header>
 
-            <div class="brand">FarmVista</div>
-
-            <div class="menu-anchor">
-              <button class="btn-plain gear" aria-haspopup="menu" aria-expanded="false" title="User menu">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 0 1 7.04 3.3l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .67.39 1.27 1 1.51H21a2 2 0 1 1 0 4h-.09c-.61.24-1 .84-1 1.49z"/>
-                </svg>
-              </button>
-              <!-- Simple user menu placeholder -->
-              <div class="user-menu" role="menu" aria-label="User menu" style="display:none; position:absolute; right:0; top:48px; min-width:220px; background:#fff; color:var(--fv-black); border:1px solid var(--fv-border); border-radius:10px; box-shadow:0 10px 22px rgba(0,0,0,.10); padding:6px; z-index:1000;">
-                <h6 style="margin:6px 8px; font-size:12px; text-transform:uppercase; letter-spacing:.12em; color:#6a6d6a;">Theme</h6>
-                <button data-theme="light" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:10px 10px; background:none; border:0; text-align:left; cursor:pointer; border-radius:8px;">Light <span class="check">○</span></button>
-                <button data-theme="dark"  style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:10px 10px; background:none; border:0; text-align:left; cursor:pointer; border-radius:8px;">Dark <span class="check">○</span></button>
-                <button data-theme="system" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:10px 10px; background:none; border:0; text-align:left; cursor:pointer; border-radius:8px;">System <span class="check">○</span></button>
-                <div style="height:1px; background:var(--fv-border); margin:6px; border-radius:999px;"></div>
-                <a href="#" class="logout" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:10px 10px; text-decoration:none; border-radius:8px; color:#9b1d1d;">Logout</a>
+        <aside class="sb">
+          <div class="sb-head">
+            <div class="farm-row">
+              <img class="farm-logo" id="farmLogo" alt="Farm logo"/>
+              <div class="farm-texts">
+                <div class="farm-title">Dowson Farms</div>
+                <div class="farm-sub">Divernon, IL</div>
               </div>
             </div>
           </div>
+          <nav class="menu" id="menu">
+            <a class="item" href="/Farm-vista/dashboard/"><span class="emoji">🏠</span><span class="label">Home</span></a>
+            <a class="item" href="javascript:void(0)"><span class="emoji">🌱</span><span class="label">Crop Production</span></a>
+            <a class="item" href="javascript:void(0)"><span class="emoji">🚜</span><span class="label">Equipment</span></a>
+            <a class="item" href="javascript:void(0)"><span class="emoji">🌾</span><span class="label">Grain</span></a>
+            <a class="item" href="javascript:void(0)"><span class="emoji">💵</span><span class="label">Expenses</span></a>
+            <a class="item" href="javascript:void(0)"><span class="emoji">📊</span><span class="label">Reports</span></a>
+            <a class="item" href="javascript:void(0)"><span class="emoji">⚙️</span><span class="label">Setup</span></a>
+          </nav>
+          <div class="sb-foot">
+            <div><strong>FarmVista</strong> <span id="ver">v0.0.0</span></div>
+            <div class="sb-tagline" id="tagline">Clean farm data. Smarter reporting.</div>
+          </div>
+        </aside>
+
+        <div class="scrim" id="scrim"></div>
+
+        <main>
+          <div class="container">
+            <slot></slot>
+          </div>
+        </main>
+
+        <footer class="foot">
+          <div id="footLine">© 2025 FarmVista • Monday, October 13th, 2025</div>
+        </footer>
+
+        <!-- Gear top-sheet -->
+        <div class="gear" id="gearSheet" role="menu" aria-label="User menu">
+          <div class="gear-inner">
+            <div class="section-title">Theme</div>
+            <div class="chips">
+              <button class="chip" data-theme="system" aria-pressed="false">System</button>
+              <button class="chip" data-theme="light"  aria-pressed="false">Light</button>
+              <button class="chip" data-theme="dark"   aria-pressed="false">Dark</button>
+            </div>
+
+            <div class="section-title">Account</div>
+            <div class="row" data-action="profile">
+              <div class="l"><span>Profile</span></div>
+              <div class="chev">›</div>
+            </div>
+            <div class="row" data-action="feedback">
+              <div class="l"><span>Feedback</span></div>
+              <div class="chev">›</div>
+            </div>
+            <div class="row logout" data-action="logout">
+              <div class="l"><span>Logout</span></div>
+              <div class="chev">›</div>
+            </div>
+          </div>
         </div>
-        <div class="hdr-sub">
-          <div class="container bar"><slot name="breadcrumbs"></slot></div>
-          <div class="accent"></div>
-        </div>
-      </header>
-
-      <!-- ===== Drawer ===== -->
-      <aside class="fv-sidebar" aria-label="Primary">
-        <div class="sd-head">
-          <img class="logo-img" alt="FarmVista logo" />
-        </div>
-
-        <nav class="sd-menu">
-          <a class="nav-item" data-route="dashboard" href="#"><span class="i">${iconHome()}</span><span class="t">Home</span></a>
-          <a class="nav-item" href="#"><span class="i">${iconGrid()}</span><span class="t">Grain Tracking</span></a>
-          <a class="nav-item" href="#"><span class="i">${iconDroplet()}</span><span class="t">Crop Production</span></a>
-          <a class="nav-item" href="#"><span class="i">${iconTractor()}</span><span class="t">Equipment</span></a>
-          <a class="nav-item" href="#"><span class="i">${iconChart()}</span><span class="t">Reports</span></a>
-          <a class="nav-item" href="#"><span class="i">${iconBell()}</span><span class="t">Alerts</span></a>
-          <a class="nav-item" href="#"><span class="i">${iconUser()}</span><span class="t">Account Details</span></a>
-          <a class="nav-item" href="#"><span class="i">${iconLogout()}</span><span class="t">Logout</span></a>
-        </nav>
-
-        <div class="sd-foot">
-          <div class="status"><span class="dot" aria-hidden="true"></span>All Systems Operational</div>
-          <div class="muted">App Version <span class="ver">1.0.0</span></div>
-        </div>
-      </aside>
-
-      <label class="scrim" for="navToggle" aria-hidden="true"></label>
-
-      <main class="fv-main"><slot></slot></main>
-
-      <footer class="fv-footer">
-        <div class="container">
-          <small>© <span id="y"></span> FarmVista • All rights reserved.</small>
-        </div>
-      </footer>
+      </div>
     `;
 
-    // inline icon helpers
-    function icon(p){ return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`; }
-    function iconHome(){ return icon('<path d="M3 10.5 12 4l9 6.5"/><path d="M5 10.5V20h14v-9.5"/><path d="M10 20v-5h4v5"/>'); }
-    function iconGrid(){ return icon('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>'); }
-    function iconDroplet(){ return icon('<path d="M12 3c3.5 4.6 7 7.7 7 12a7 7 0 1 1-14 0c0-4.3 3.5-7.4 7-12z"/>'); }
-    function iconTractor(){ return icon('<circle cx="7" cy="17" r="3"/><circle cx="18" cy="15" r="2"/><path d="M5 17h-2v-4l3-2 5 2 2-4h4l1 4h-5m-7 4h10"/>'); }
-    function iconChart(){ return icon('<path d="M3 3v18h18"/><rect x="6" y="10" width="3" height="8"/><rect x="11" y="6" width="3" height="12"/><rect x="16" y="12" width="3" height="6"/>'); }
-    function iconBell(){ return icon('<path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>'); }
-    function iconUser(){ return icon('<circle cx="12" cy="8" r="4"/><path d="M6 20c2-3 10-3 12 0"/>'); }
-    function iconLogout(){ return icon('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>'); }
+    // Cache important nodes
+    this._root = r;
+    this.$ = (sel) => r.querySelector(sel);
 
-    this._icons = {iconHome,iconGrid,iconDroplet,iconTractor,iconChart,iconBell,iconUser,iconLogout};
+    // Initialize static bits
+    this._initVersion();
+    this._initFooterDate();
+    this._initSidebarLogo();
   }
 
-  connectedCallback(){
-    const y = this.shadowRoot.getElementById('y');
-    if (y) y.textContent = new Date().getFullYear();
+  connectedCallback() {
+    const shell = this.$(".shell");
+    const sb = this.$(".sb");
+    const scrim = this.$("#scrim");
+    const btnMenu = this.$("#btnMenu");
+    const btnGear = this.$("#btnGear");
+    const gear = this.$("#gearSheet");
+    const offlineBanner = this.$("#offlineBanner");
 
-    const prefix = this._computeRepoPrefix();
+    // ----- Sidebar behavior -----
+    const isDesktop = () => window.matchMedia("(min-width: 1024px)").matches;
 
-    // logo path (optional file—skip if missing)
-    const logo = this.shadowRoot.querySelector('.logo-img');
-    if (logo) logo.src = `${prefix}assets/icons/logo.png`;
-
-    // repo-safe Dashboard link + active state
-    const dash = this.shadowRoot.querySelector('[data-route="dashboard"]');
-    if (dash) {
-      dash.setAttribute('href', `${prefix}dashboard/`);
-      if (location.pathname.includes('/dashboard/')) dash.classList.add('active');
-    }
-
-    // gear menu open/close
-    const gear = this.shadowRoot.querySelector('.gear');
-    const menu = this.shadowRoot.querySelector('.user-menu');
-    const onDocClick = (e) => {
-      const path = e.composedPath();
-      const inside = path.some(el => el === this.shadowRoot || (el && el.host === this));
-      if (!inside) { menu.style.display = 'none'; gear.setAttribute('aria-expanded','false'); document.removeEventListener('click', onDocClick, true); }
+    const applySidebarState = () => {
+      // Desktop: pinned but collapsed by default every load
+      if (isDesktop()) {
+        shell.classList.remove("overlay");
+        shell.classList.remove("mobile-open");
+        shell.classList.remove("expanded"); // collapsed = mini rail
+        scrim.classList.remove("show");
+      } else {
+        // Phone: overlay closed by default
+        shell.classList.add("overlay");
+        shell.classList.remove("expanded");
+        scrim.classList.remove("show");
+      }
     };
-    gear?.addEventListener('click', () => {
-      const open = menu.style.display !== 'block';
-      menu.style.display = open ? 'block' : 'none';
-      gear.setAttribute('aria-expanded', String(open));
-      if (open) document.addEventListener('click', onDocClick, true);
+    applySidebarState();
+    window.addEventListener("resize", applySidebarState);
+
+    const toggleSidebar = () => {
+      if (isDesktop()) {
+        // Toggle collapsed <-> expanded
+        shell.classList.toggle("expanded");
+      } else {
+        // Mobile overlay
+        const open = !scrim.classList.contains("show");
+        scrim.classList.toggle("show", open);
+        shell.classList.toggle("mobile-open", open);
+      }
+    };
+    btnMenu.addEventListener("click", toggleSidebar);
+    scrim.addEventListener("click", () => {
+      scrim.classList.remove("show");
+      shell.classList.remove("mobile-open");
+      this._hideGear();
     });
 
-    // theme switch
-    const applyTheme = (mode) => {
-      localStorage.setItem('fv-theme', mode);
-      const root = document.documentElement;
-      root.classList.remove('dark');
-      if (mode === 'dark') root.classList.add('dark');
-      else if (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add('dark');
-      reflectChecks();
-    };
-    const reflectChecks = () => {
-      const mode = localStorage.getItem('fv-theme') || 'system';
-      this.shadowRoot.querySelectorAll('.user-menu .check').forEach(c => c.textContent = '○');
-      const curr = this.shadowRoot.querySelector(\`.user-menu [data-theme="\${mode}"] .check\`);
-      if (curr) curr.textContent = '●';
-    };
-    applyTheme(localStorage.getItem('fv-theme') || 'system');
-    this.shadowRoot.querySelectorAll('.user-menu [data-theme]').forEach(btn => btn.addEventListener('click', () => applyTheme(btn.getAttribute('data-theme') || 'system')));
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    mq.addEventListener?.('change', () => { if ((localStorage.getItem('fv-theme')||'system')==='system') applyTheme('system'); });
+    // ----- Gear menu -----
+    btnGear.addEventListener("click", () => {
+      const open = !gear.classList.contains("show");
+      if (open) {
+        this._showGear();
+        // Close sidebar overlay if open
+        scrim.classList.add("show");
+      } else {
+        this._hideGear();
+        scrim.classList.remove("show");
+      }
+    });
 
-    // version attr support
-    const ver = this.getAttribute('version');
-    if (ver) {
-      const vEl = this.shadowRoot.querySelector('.sd-foot .ver');
-      if (vEl) vEl.textContent = ver;
+    // Theme chips
+    this._reflectThemeChips();
+    this._root.querySelectorAll(".chip[data-theme]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const mode = btn.getAttribute("data-theme") || "system";
+        this._applyTheme(mode);
+      });
+    });
+
+    // Placeholder actions
+    this._root.querySelector('[data-action="profile"]').addEventListener("click", () => {
+      this._toast("(Mock) Profile screen coming soon.");
+    });
+    this._root.querySelector('[data-action="feedback"]').addEventListener("click", () => {
+      this._toast("(Mock) Feedback screen coming soon.");
+    });
+    this._root.querySelector('[data-action="logout"]').addEventListener("click", () => {
+      this._toast("(Mock) Logout not wired yet.");
+    });
+
+    // ----- Offline banner -----
+    const onOffline = () => offlineBanner.classList.add("show");
+    const onOnline  = () => offlineBanner.classList.remove("show");
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    if (!navigator.onLine) onOffline();
+
+    // ----- Service Worker registration (silent updates) -----
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/Farm-vista/serviceworker.js").catch(()=>{});
     }
   }
 
-  _computeRepoPrefix(){
-    const parts = location.pathname.split('/').filter(Boolean);
-    const up = Math.max(0, parts.length - 1);
-    return '../'.repeat(up);
+  // ----- Helpers -----
+  _initVersion() {
+    const verEl = this.$("#ver");
+    const tagEl = this.$("#tagline");
+    const v = (window.FV_BUILD || (window.FV_VERSION && window.FV_VERSION.number) || "0.0.0");
+    const t = (window.FV_TAGLINE || (window.FV_VERSION && window.FV_VERSION.tagline) || "");
+    if (verEl) verEl.textContent = `v${v}`;
+    if (tagEl) tagEl.textContent = t || "";
+  }
+
+  _initFooterDate() {
+    const foot = this.$("#footLine");
+    if (!foot) return;
+    const now = this._formatLongDateChi(new Date());
+    const year = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", year: "numeric" }).format(new Date());
+    foot.textContent = `© ${year} FarmVista • ${now}`;
+    // Update shortly after midnight local
+    const schedule = () => {
+      const chiNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+      const next = new Date(chiNow); next.setDate(chiNow.getDate() + 1); next.setHours(0, 0, 5, 0);
+      const ms = +next - +chiNow;
+      setTimeout(() => { this._initFooterDate(); schedule(); }, Math.max(ms, 30_000));
+    };
+    schedule();
+  }
+
+  _formatLongDateChi(d) {
+    // Monday, October 13th, 2025
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      weekday: "long", month: "long", day: "numeric", year: "numeric"
+    }).formatToParts(d);
+    const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    const day = parseInt(map.day, 10);
+    const suffix = (n) => {
+      const j = n % 10, k = n % 100;
+      if (j === 1 && k !== 11) return "st";
+      if (j === 2 && k !== 12) return "nd";
+      if (j === 3 && k !== 13) return "rd";
+      return "th";
+    };
+    return `${map.weekday}, ${map.month} ${day}${suffix(day)}, ${map.year}`;
+  }
+
+  _initSidebarLogo() {
+    const img = this.$("#farmLogo");
+    if (!img) return;
+    img.src = "/Farm-vista/assets/icons/logo.png";
+  }
+
+  _showGear() {
+    const gear = this.$("#gearSheet");
+    const btn = this.$("#btnGear");
+    const scrim = this.$("#scrim");
+    gear.classList.add("show");
+    btn.setAttribute("aria-expanded", "true");
+    scrim.classList.add("show");
+  }
+  _hideGear() {
+    const gear = this.$("#gearSheet");
+    const btn = this.$("#btnGear");
+    const scrim = this.$("#scrim");
+    gear.classList.remove("show");
+    btn.setAttribute("aria-expanded", "false");
+    // scrim is closed by sidebar/gear interactions
+  }
+
+  _applyTheme(mode) {
+    // Persist & apply: default System
+    try { localStorage.setItem("fv-theme", mode); } catch {}
+    const root = document.documentElement;
+    root.classList.remove("dark");
+    if (mode === "dark") {
+      root.classList.add("dark");
+    } else if (mode === "system") {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (prefersDark) root.classList.add("dark");
+    }
+    this._reflectThemeChips();
+  }
+
+  _reflectThemeChips() {
+    let mode = "system";
+    try { mode = localStorage.getItem("fv-theme") || "system"; } catch {}
+    this._root.querySelectorAll('.chip[data-theme]').forEach(ch => {
+      ch.setAttribute("aria-pressed", String(ch.getAttribute("data-theme") === mode));
+    });
+  }
+
+  _toast(msg) {
+    // Minimal unobtrusive toast inside shadow root
+    const t = document.createElement("div");
+    t.textContent = msg;
+    Object.assign(t.style, {
+      position: "fixed", left: "50%", bottom: "16px", transform: "translateX(-50%)",
+      background: "rgba(0,0,0,.85)", color: "#fff", padding: "10px 12px",
+      borderRadius: "10px", fontSize: "13px", zIndex: "2000"
+    });
+    this._root.appendChild(t);
+    setTimeout(() => t.remove(), 1800);
   }
 }
-customElements.define('fv-shell', FVShell);
+
+customElements.define("fv-shell", FVShell);
