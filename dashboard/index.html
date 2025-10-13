@@ -5,26 +5,189 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FarmVista • Dashboard</title>
 
-  <!-- Cache-bust versions: bump the ?v= number whenever we change files -->
-  <link rel="stylesheet" href="../assets/css/theme.css?v=5" />
-  <link rel="stylesheet" href="../assets/css/app.css?v=3" />
-
-  <!-- The shell is what paints the GREEN header / GUNMETAL subbar -->
-  <script src="../js/fv-shell.js?v=9" defer></script>
+  <!-- Styles (theme first, then app) -->
+  <link rel="stylesheet" href="../assets/css/theme.css?v=10" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=10" />
 </head>
 <body>
 
-  <fv-shell>
-    <!-- Breadcrumbs appear inside the header (gunmetal row) -->
+  <!-- ========== INLINE SHELL COMPONENT (cache-proof) ========== -->
+  <script type="module">
+    // Simple icon set (stroke = currentColor)
+    const ICONS = {
+      home: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 4l9 6.5"/><path d="M5 10.5V20h14v-9.5"/><path d="M10 20v-5h4v5"/></svg>`,
+      grid: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`,
+      droplet: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3.5 4.6 7 7.7 7 12a7 7 0 1 1-14 0c0-4.3 3.5-7.4 7-12z"/></svg>`,
+      tractor: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="17" r="3"/><circle cx="18" cy="15" r="2"/><path d="M5 17h-2v-4l3-2 5 2 2-4h4l1 4h-5m-7 4h10"/></svg>`,
+      chart: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="6" y="10" width="3" height="8"/><rect x="11" y="6" width="3" height="12"/><rect x="16" y="12" width="3" height="6"/></svg>`,
+      bell: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>`,
+      user: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20c2-3 10-3 12 0"/></svg>`,
+      logout: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>`
+    };
+
+    class FVShell extends HTMLElement {
+      constructor(){
+        super();
+        const r = this.attachShadow({mode:'open'});
+        r.innerHTML = `
+          <style>
+            :host{
+              display:block;
+              --fv-green:      var(--fv-green, #3B7E46);
+              --fv-yellow:     var(--fv-yellow, #D0C542);
+              --fv-gunmetal:   var(--fv-gunmetal, #CBCDCB);
+              --fv-black:      var(--fv-black, #141514);
+              --fv-border:     var(--fv-border, #e2e5e5);
+              --fv-surface:    var(--fv-surface, #f5f6f6);
+              --fv-ring:       var(--fv-ring, #b9e1c4);
+              --sidebar-w:     var(--sidebar-w, 300px);
+            }
+            .container{ width:min(1100px,100%); margin-inline:auto; padding:0 16px; }
+
+            /* HEADER */
+            header.fv-header{ position:sticky; top:0; z-index:6; }
+            .hdr-top{ background:var(--fv-green); color:#fff; border-bottom:1px solid color-mix(in srgb,#000 12%,var(--fv-green)); }
+            .hdr-top .bar{ height:56px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+            .brand{ font-weight:800; letter-spacing:.3px; font-size:20px; color:#fff; }
+            .hdr-sub{ background:var(--fv-gunmetal); color:var(--fv-black); }
+            .hdr-sub .bar{ min-height:40px; display:flex; align-items:center; }
+            .hdr-sub .accent{ height:3px; background:var(--fv-yellow); }
+
+            .btn-plain{
+              display:inline-flex; align-items:center; justify-content:center;
+              width:40px; height:40px; border-radius:9px; cursor:pointer; font-size:22px;
+              background: color-mix(in srgb, #fff 6%, transparent);
+              border:1px solid color-mix(in srgb, #fff 25%, transparent);
+              color:#fff; transition:transform .02s ease;
+            }
+            .btn-plain:active{ transform:translateY(1px); }
+            .btn-plain:focus{ outline:3px solid var(--fv-ring); outline-offset:1px; }
+
+            /* WHITE OVERLAY DRAWER */
+            aside.fv-sidebar{
+              position:fixed; inset:0 auto 0 0; width:var(--sidebar-w);
+              background:#fff; color:var(--fv-black);
+              border-right:1px solid var(--fv-border);
+              transform:translateX(-100%); transition:transform .18s ease-out;
+              z-index:999; display:flex; flex-direction:column;
+              overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y;
+              box-shadow:0 10px 22px rgba(0,0,0,.18);
+            }
+            .sd-head{ padding:16px 16px 12px; background:#fff; border-bottom:1px solid var(--fv-border); }
+            .sd-head img{ display:block; max-width:100%; height:44px; object-fit:contain; }
+
+            nav.sd-menu{ padding:8px 8px; }
+            .nav-item{
+              display:flex; align-items:center; gap:12px;
+              padding:12px 10px; border-radius:10px; text-decoration:none;
+              color:#232523; transition:background .15s ease;
+            }
+            .nav-item:hover{ background:#f4f6f4; }
+            .nav-item .i{ width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; color:#2f3530; }
+            .nav-item .t{ font-size:16px; }
+            .nav-item.active{ background:var(--fv-green); color:#fff; }
+            .nav-item.active .i{ color:#fff; }
+
+            .sd-foot{ margin-top:auto; padding:14px 16px; border-top:1px solid var(--fv-border); font-size:13px; display:grid; gap:6px; }
+            .status{ display:flex; align-items:center; gap:8px; color:#2b2e2b; }
+            .dot{ width:10px; height:10px; border-radius:999px; background:#2BB673; box-shadow:0 0 0 2px #dcefe6 inset; }
+            .muted{ color:#6a6d6a; }
+
+            .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s ease-out; z-index:998; }
+
+            main.fv-main{ padding:18px 16px 44px; }
+            footer.fv-footer{ background:var(--fv-gunmetal); color:#2b2e2b; border-top:3px solid var(--fv-yellow); padding:12px 0; }
+
+            #navToggle{ display:none; }
+            #navToggle:checked ~ aside.fv-sidebar{ transform:translateX(0); }
+            #navToggle:checked ~ .scrim{ opacity:1; pointer-events:auto; }
+
+            ::slotted(.breadcrumbs){ display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:13px; }
+            ::slotted(.breadcrumbs a){ color:#0e4d26; padding:4px 6px; border-radius:6px; text-decoration:none; }
+            ::slotted(.breadcrumbs a:hover){ background:color-mix(in srgb, var(--fv-green) 18%, white); color:#0e4d26; }
+            ::slotted(.breadcrumbs .sep){ opacity:.65; }
+          </style>
+
+          <input id="navToggle" type="checkbox" hidden />
+
+          <header class="fv-header">
+            <div class="hdr-top">
+              <div class="container bar">
+                <label for="navToggle" class="btn-plain burger" aria-label="Open menu" title="Menu">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+                </label>
+                <div class="brand">FarmVista</div>
+                <div class="menu-anchor">
+                  <button class="btn-plain gear" aria-haspopup="menu" aria-expanded="false" title="User menu">⚙️</button>
+                </div>
+              </div>
+            </div>
+            <div class="hdr-sub">
+              <div class="container bar"><slot name="breadcrumbs"></slot></div>
+              <div class="accent"></div>
+            </div>
+          </header>
+
+          <aside class="fv-sidebar" aria-label="Primary">
+            <div class="sd-head"><img class="logo-img" alt="FarmVista logo" /></div>
+
+            <nav class="sd-menu">
+              <a class="nav-item" data-route="dashboard" href="#"><span class="i">${ICONS.home}</span><span class="t">Home</span></a>
+              <a class="nav-item" href="#"><span class="i">${ICONS.grid}</span><span class="t">Grain Tracking</span></a>
+              <a class="nav-item" href="#"><span class="i">${ICONS.droplet}</span><span class="t">Crop Production</span></a>
+              <a class="nav-item" href="#"><span class="i">${ICONS.tractor}</span><span class="t">Equipment</span></a>
+              <a class="nav-item" href="#"><span class="i">${ICONS.chart}</span><span class="t">Reports</span></a>
+              <a class="nav-item" href="#"><span class="i">${ICONS.bell}</span><span class="t">Alerts</span></a>
+              <a class="nav-item" href="#"><span class="i">${ICONS.user}</span><span class="t">Account Details</span></a>
+              <a class="nav-item" href="#"><span class="i">${ICONS.logout}</span><span class="t">Logout</span></a>
+            </nav>
+
+            <div class="sd-foot">
+              <div class="status"><span class="dot"></span>All Systems Operational</div>
+              <div class="muted">App Version <span class="ver">1.0.0</span></div>
+            </div>
+          </aside>
+
+          <label class="scrim" for="navToggle" aria-hidden="true"></label>
+
+          <main class="fv-main"><slot></slot></main>
+
+          <footer class="fv-footer">
+            <div class="container"><small>© <span id="y"></span> FarmVista • All rights reserved.</small></div>
+          </footer>
+        `;
+
+        // runtime tweaks
+        const y = r.getElementById('y'); if (y) y.textContent = new Date().getFullYear();
+
+        const prefix = this._computePrefix();
+        const logo = r.querySelector('.logo-img'); if (logo) logo.src = `${prefix}assets/icons/logo.png`;
+
+        const dash = r.querySelector('[data-route="dashboard"]');
+        if (dash) { dash.setAttribute('href', `${prefix}dashboard/`); if (location.pathname.includes('/dashboard/')) dash.classList.add('active'); }
+      }
+
+      _computePrefix(){
+        const parts = location.pathname.split('/').filter(Boolean);
+        const up = Math.max(0, parts.length - 1);   // go up to repo root
+        return '../'.repeat(up);
+      }
+    }
+    customElements.define('fv-shell', FVShell);
+  </script>
+  <!-- ========== /INLINE SHELL COMPONENT ========== -->
+
+  <!-- Use the component -->
+  <fv-shell version="1.0.0">
+    <!-- Breadcrumbs appear inside the header -->
     <nav slot="breadcrumbs" class="breadcrumbs" aria-label="Breadcrumb">
-      <a href="../">Home</a><span class="sep">›</span>
-      <span>Dashboard</span>
+      <a href="../">Home</a><span class="sep">›</span><span>Dashboard</span>
     </nav>
 
     <div class="container page stack">
       <div class="card stack">
         <h1>Dashboard</h1>
-        <p class="lead">Shared shell provides header, **green** top bar, gunmetal breadcrumb bar, black sidebar, and footer. Theme switch is under the gear.</p>
+        <p class="lead">Header is FarmVista green, breadcrumbs on gunmetal, and the **white drawer** slides in from the left with icons and an active row.</p>
 
         <div style="display:flex; gap:12px; flex-wrap: wrap;">
           <button class="btn">Secondary</button>
@@ -36,9 +199,7 @@
       <div class="card">
         <h2 style="margin-bottom:8px;">Recent Activity</h2>
         <table class="table">
-          <thead>
-            <tr><th>When</th><th>Item</th><th>Status</th></tr>
-          </thead>
+          <thead><tr><th>When</th><th>Item</th><th>Status</th></tr></thead>
           <tbody>
             <tr><td>Today</td><td>Grain ticket import</td><td><span class="badge">Processed</span></td></tr>
             <tr><td>Yesterday</td><td>Equipment service log</td><td><span class="badge">Scheduled</span></td></tr>
@@ -50,9 +211,7 @@
   </fv-shell>
 
   <noscript>
-    <div class="container page">
-      <div class="card">JavaScript is required for the FarmVista shell.</div>
-    </div>
+    <div class="container page"><div class="card">JavaScript is required for the FarmVista shell.</div></div>
   </noscript>
 </body>
 </html>
