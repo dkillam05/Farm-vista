@@ -1,6 +1,6 @@
 // js/fv-shell.js
-// FarmVista Shell: bold brand header, gunmetal subbar with breadcrumbs,
-// scrollable black sidebar, footer accent, user menu + theme switch.
+// FarmVista Shell: bold brand header, gunmetal breadcrumb row, scrollable sidebar,
+// footer accent, user menu with theme switch, and repo-safe nav links.
 
 class FVShell extends HTMLElement {
   constructor() {
@@ -19,7 +19,7 @@ class FVShell extends HTMLElement {
           --fv-border:     var(--fv-border, #e2e5e5);
           --fv-surface:    var(--fv-surface, #f5f6f6);
           --fv-ring:       var(--fv-ring, #b9e1c4);
-          --sidebar-w:     var(--sidebar-w, 280px); /* host can override via app.css */
+          --sidebar-w:     var(--sidebar-w, 280px);
         }
 
         .container { width: min(1100px, 100%); margin-inline: auto; padding: 0 16px; }
@@ -44,32 +44,20 @@ class FVShell extends HTMLElement {
           background: var(--fv-gunmetal);
           color: var(--fv-black);
         }
-        .hdr-sub .bar {
-          min-height: 40px; display: flex; align-items: center;
-        }
+        .hdr-sub .bar { min-height: 40px; display: flex; align-items: center; }
         .hdr-sub .accent { height: 3px; background: var(--fv-yellow); }
 
-        /* buttons on dark/green */
+        /* buttons on green */
         .btn-plain {
           display: inline-flex; align-items: center; justify-content: center;
-          width: 40px; height: 40px; border-radius: 9px;
-          cursor: pointer; font-size: 22px; line-height: 1;
+          width: 40px; height: 40px; border-radius: 9px; cursor: pointer; font-size: 22px; line-height: 1;
           transition: transform .02s ease;
+          background: color-mix(in srgb, #fff 6%, transparent);
+          border: 1px solid color-mix(in srgb, #fff 25%, transparent);
+          color: #fff;
         }
         .btn-plain:active { transform: translateY(1px); }
         .btn-plain:focus { outline: 3px solid var(--fv-ring); outline-offset: 1px; }
-
-        /* burger on green background */
-        .burger {
-          color: #fff;
-          background: color-mix(in srgb, #fff 6%, transparent);
-          border: 1px solid color-mix(in srgb, #fff 25%, transparent);
-        }
-        .gear {
-          color: #fff;
-          background: color-mix(in srgb, #fff 6%, transparent);
-          border: 1px solid color-mix(in srgb, #fff 25%, transparent);
-        }
 
         /* ================= SIDEBAR ================= */
         aside.fv-sidebar {
@@ -164,7 +152,7 @@ class FVShell extends HTMLElement {
           display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px;
         }
         ::slotted(.breadcrumbs a) {
-          color: #0e4d26; /* darker green for contrast on gunmetal */
+          color: #0e4d26;
           padding: 4px 6px; border-radius: 6px; text-decoration: none;
         }
         ::slotted(.breadcrumbs a:hover) {
@@ -179,7 +167,7 @@ class FVShell extends HTMLElement {
       <header class="fv-header">
         <div class="hdr-top">
           <div class="container bar">
-            <label for="navToggle" class="btn-plain burger" aria-label="Open menu">☰</label>
+            <label for="navToggle" class="btn-plain" aria-label="Open menu">☰</label>
             <div class="brand">FarmVista</div>
 
             <div class="menu-anchor">
@@ -206,7 +194,8 @@ class FVShell extends HTMLElement {
         <nav class="menu">
           <h6>Navigation</h6>
 
-          <a href="/dashboard/" class="active">Dashboard</a>
+          <!-- Hrefs are set dynamically for repo-safe routing -->
+          <a data-route="dashboard" class="active" href="#">Dashboard</a>
 
           <details open>
             <summary>Grain Tracking</summary>
@@ -263,16 +252,26 @@ class FVShell extends HTMLElement {
     const y = this.shadowRoot.getElementById('y');
     if (y) y.textContent = new Date().getFullYear();
 
+    // user menu wiring
     this._menu = this.shadowRoot.querySelector('.user-menu');
     this._gear = this.shadowRoot.querySelector('.gear');
-
     this._gear?.addEventListener('click', () => {
       const open = this._menu?.classList.toggle('open');
       if (this._gear) this._gear.setAttribute('aria-expanded', String(!!open));
       if (open) document.addEventListener('click', this._onDocClick, true);
     });
 
-    // Theme
+    // repo-safe links: compute prefix to repo root, then set anchors
+    const prefix = this._computeRepoPrefix();
+    const dash = this.shadowRoot.querySelector('[data-route="dashboard"]');
+    if (dash) {
+      dash.setAttribute('href', `${prefix}dashboard/`);
+      // mark active when on dashboard
+      if (location.pathname.includes('/dashboard/')) dash.classList.add('active');
+      else dash.classList.remove('active');
+    }
+
+    // Theme handling
     const btns = this.shadowRoot.querySelectorAll('.user-menu [data-theme]');
     btns.forEach(b => b.addEventListener('click', () => {
       const mode = b.getAttribute('data-theme') || 'system';
@@ -304,6 +303,20 @@ class FVShell extends HTMLElement {
     this._mq?.removeEventListener?.('change', this._applyTheme);
   }
 
+  /* ===== helpers ===== */
+
+  _computeRepoPrefix() {
+    // Works for both User Sites and Project Sites (any depth)
+    // Example paths:
+    //  - /Farm-vista/dashboard/                -> parts = ['Farm-vista','dashboard']
+    //  - /Farm-vista/grain-tracking/tickets/   -> parts = ['Farm-vista','grain-tracking','tickets']
+    //  - /dashboard/ (user site)               -> parts = ['dashboard']
+    const parts = location.pathname.split('/').filter(Boolean);
+    // Number of segments to go "up" to the site root (repo root for project sites)
+    const up = Math.max(0, parts.length - 1);
+    return '../'.repeat(up);
+  }
+
   _handleDocClick(e) {
     const path = e.composedPath();
     const inside = path.some(el => el === this.shadowRoot || (el && el.host === this));
@@ -330,7 +343,7 @@ class FVShell extends HTMLElement {
     const mode = localStorage.getItem('fv-theme') || 'system';
     const btns = this.shadowRoot.querySelectorAll('.user-menu [data-theme] .check');
     btns.forEach(c => c.textContent = '○');
-    const current = this.shadowRoot.querySelector(\`.user-menu [data-theme="\${mode}"] .check\`);
+    const current = this.shadowRoot.querySelector(`.user-menu [data-theme="${mode}"] .check`);
     if (current) current.textContent = '●';
   }
 }
