@@ -1,5 +1,5 @@
 /* FarmVista single source of truth for version + tagline */
-window.FarmVistaVersion = "1.2.0";
+window.FarmVistaVersion = "1.3.0";
 window.FV_VERSION = {
   number: "1.0.0",
   date: "2025-10-13",
