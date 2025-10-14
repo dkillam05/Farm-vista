@@ -1,9 +1,8 @@
-/* FarmVista — <fv-shell> v5.2
-   - Footer slimmed per request:
-     • --ftr-h reduced to 26px
-     • Footer border 3px → 2px
-     • Footer text 14px → 15px
-   - All other v5.1 behavior preserved
+/* FarmVista — <fv-shell> v5.3
+   - Footer halved again:
+     • --ftr-h = 14px
+     • Footer text = 13px
+   - All other behavior from v5.1 retained (top drawer, sidebar, updater, version)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -12,7 +11,7 @@
     :host{
       --green:#3B7E46; --gold:#D0C542;
       --surface:var(--surface,#fff); --text:var(--text,#141514);
-      --hdr-h:56px; --ftr-h:26px;
+      --hdr-h:56px; --ftr-h:14px;
       display:block; color:var(--text); background:var(--page, var(--app-bg,#f5f7f4));
       min-height:100vh; position:relative;
     }
@@ -37,7 +36,7 @@
       left:0; right:0; height:3px; background:var(--brand-gold,var(--gold)); z-index:999;
     }
 
-    /* ===== Footer (fixed, slim) ===== */
+    /* ===== Footer (fixed, extra slim) ===== */
     .ftr{
       position:fixed; inset:auto 0 0 0;
       height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
@@ -46,7 +45,7 @@
       display:flex; align-items:center; justify-content:center;
       border-top:2px solid var(--brand-gold,var(--gold)); z-index:900;
     }
-    .ftr .text{ font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     /* ===== Main scroll area ===== */
     .main{
