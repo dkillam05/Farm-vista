@@ -174,7 +174,7 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
 
       <div class="sttl">Maintenance</div>
       <div class="row" id="btnUpdateAll" aria-busy="false">
-        <div>Check for updates (also clears cache)</div>
+        <div>Check for updates</div>
         <div id="updIcon">↻</div>
       </div>
     </div>
