@@ -1,17 +1,29 @@
-/* FarmVista — <fv-shell> v5.4
-   - Maintenance: "Check for updates" now a row (matches Account/Feedback)
-   - Updater: version-aware toasts (announces target version when updating)
-   - Footer remains extra-slim (14px) from v5.3
+/* FarmVista — <fv-shell> v5.5
+   - Maintenance: "Check for updates" styled as row (matches Account/Feedback)
+   - Updater: version-aware toasts
+   - Footer remains extra-slim (14px)
+   - NEW: full tokenization for light/dark (no hard-coded #fff/#222/#eee/#111)
 */
 (function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
     :host{
+      /* brand fallbacks if page CSS hasn't loaded yet */
       --green:#3B7E46; --gold:#D0C542;
-      --surface:var(--surface,#fff); --text:var(--text,#141514);
+
+      /* map global tokens from theme.css (inherit across shadow DOM) */
+      --brand-green: var(--brand-green, var(--green));
+      --brand-gold:  var(--brand-gold,  var(--gold));
+      --c-bg:        var(--surface, #ffffff);
+      --c-bg-2:      var(--surface-2, #f0f2ee);
+      --c-fg:        var(--text, #141514);
+      --c-muted:     var(--muted, #677a6e);
+      --c-border:    var(--border, #e3e6e2);
+      --c-shadow:    var(--shadow, 0 12px 24px rgba(0,0,0,.14));
+
       --hdr-h:56px; --ftr-h:14px;
-      display:block; color:var(--text); background:var(--page, var(--app-bg,#f5f7f4));
+      display:block; color:var(--c-fg); background:var(--c-bg);
       min-height:100vh; position:relative;
     }
 
@@ -20,7 +32,7 @@
       position:fixed; inset:0 0 auto 0;
       height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px);
-      background:var(--brand-green,var(--green)); color:#fff;
+      background:var(--brand-green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center;
       z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05);
     }
@@ -32,7 +44,7 @@
     }
     .gold-bar{
       position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
-      left:0; right:0; height:3px; background:var(--brand-gold,var(--gold)); z-index:999;
+      left:0; right:0; height:3px; background:var(--brand-gold); z-index:999;
     }
 
     /* ===== Footer (fixed, extra slim) ===== */
@@ -40,9 +52,9 @@
       position:fixed; inset:auto 0 0 0;
       height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px);
-      background:var(--brand-green,var(--green)); color:#fff;
+      background:var(--brand-green); color:#fff;
       display:flex; align-items:center; justify-content:center;
-      border-top:2px solid var(--brand-gold,var(--gold)); z-index:900;
+      border-top:2px solid var(--brand-gold); z-index:900;
     }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
@@ -68,44 +80,53 @@
     /* ===== Sidebar (left drawer) ===== */
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
-      background:#fff; color:#222; box-shadow:0 0 36px rgba(0,0,0,.25);
+      background:var(--c-bg-2); color:var(--c-fg); box-shadow:0 0 36px rgba(0,0,0,.25);
       transform:translateX(-100%); transition:transform .25s; z-index:1200;
       -webkit-overflow-scrolling:touch;
       display:flex; flex-direction:column; height:100%; overflow:hidden;
       padding-bottom:env(safe-area-inset-bottom,0px);
+      border-right:1px solid var(--c-border);
     }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
 
     .drawer header{
-      padding:16px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:12px; flex:0 0 auto;
+      padding:16px; border-bottom:1px solid var(--c-border);
+      display:flex; align-items:center; gap:12px; flex:0 0 auto;
+      background:var(--c-bg);
     }
     .org{ display:flex; align-items:center; gap:12px; }
     .org img{ width:40px; height:40px; border-radius:8px; object-fit:cover; }
     .org .org-text{ display:flex; flex-direction:column; }
     .org .org-name{ font-weight:800; line-height:1.15; }
-    .org .org-loc{ font-size:13px; color:#666; }
-    .drawer nav{ flex:1 1 auto; overflow:auto; }
+    .org .org-loc{ font-size:13px; color:var(--c-muted); }
+
+    .drawer nav{ flex:1 1 auto; overflow:auto; background:var(--c-bg-2); }
     .drawer nav a{
-      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color:#222; border-bottom:1px solid #f3f3f3;
+      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none;
+      color:var(--c-fg); border-bottom:1px solid color-mix(in srgb, var(--c-border) 90%, transparent);
     }
+    .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
+
     .drawer-footer{
       flex:0 0 auto;
       display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
       padding:12px 16px;
       padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
-      border-top:1px solid #eee; background:#fff;
+      border-top:1px solid var(--c-border);
+      background:var(--c-bg);
+      color:var(--c-fg);
     }
     .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
     .df-left .brand{ font-weight:800; line-height:1.15; }
-    .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
-    .df-right{ font-size:13px; color:#777; white-space:nowrap; }
+    .df-left .slogan{ font-size:12.5px; color:var(--c-muted); line-height:1.2; }
+    .df-right{ font-size:13px; color:var(--c-muted); white-space:nowrap; }
 
     /* ===== Top Drawer (Account) ===== */
     .topdrawer{
       position:fixed; left:0; right:0; top:0;
       transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300;
-      background:var(--brand-green, var(--green)); color:#fff;
+      background:var(--brand-green); color:#fff;
       box-shadow:0 20px 44px rgba(0,0,0,.35);
       border-bottom-left-radius:16px; border-bottom-right-radius:16px;
       padding-top:calc(env(safe-area-inset-top,0px) + 8px);
@@ -137,36 +158,31 @@
     }
     .chip[aria-pressed="true"]{
       outline:3px solid color-mix(in srgb,#fff 25%, transparent);
-      background:var(--brand-gold,var(--gold)); color:#111; border-color:transparent;
+      background:var(--brand-gold); color:#111; border-color:transparent;
     }
 
     /* Rows (Profile, Maintenance, Logout) */
     .row{
       display:flex; align-items:center; justify-content:space-between;
       padding:14px 12px; text-decoration:none; color:#fff;
-      border-top:1px solid color-mix(in srgb,#000 22%, var(--brand-green, var(--green)));
+      border-top:1px solid color-mix(in srgb,#000 22%, var(--brand-green));
     }
     .row .left{ display:flex; align-items:center; gap:10px; }
     .row .ico{ width:22px; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; }
     .row .chev{ opacity:.9; }
 
-    /* Toast */
+    /* Toast (now tokenized) */
     .toast{
       position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
-      transform:translateX(-50%); background:#111; color:#fff;
-      padding:12px 16px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      transform:translateX(-50%);
+      background:var(--c-bg-2); color:var(--c-fg);
+      padding:12px 16px; border-radius:12px; box-shadow:var(--c-shadow); border:1px solid var(--c-border);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* Dark mode for left drawer; top drawer stays green */
-    :host-context(.dark) .drawer{ background:#171917; color:#f1f3ef; border-right:1px solid #1f231f; }
-    :host-context(.dark) .drawer nav a{ color:#f1f3ef; border-color:#1f231f; }
-    :host-context(.dark) .drawer-footer{ background:#171917; border-top:1px solid #1f231f; }
-    :host-context(.dark) .df-left .slogan,
-    :host-context(.dark) .df-right,
-    :host-context(.dark) .org .org-loc{ color:#cfd3cf; }
+    /* Dark tweaks for left drawer done via tokens; no extra rules needed */
   </style>
 
   <header class="hdr" part="header">
@@ -350,6 +366,7 @@
       try{
         if(window.App && App.setTheme){ App.setTheme(mode); }
         else {
+          document.documentElement.setAttribute('data-theme', mode === 'system' ? 'auto' : mode);
           document.documentElement.classList.toggle('dark',
             mode==='dark' || (mode==='system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
           );
@@ -403,7 +420,6 @@
         }
         await sleep(200);
 
-        // One more fetch to make sure the browser sees the fresh file
         try{ await fetch('/Farm-vista/js/version.js?rev=' + Date.now(), { cache:'reload' }); }catch{}
 
         this._toastMsg('Reloading with fresh assets…', 900);
