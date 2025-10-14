@@ -1,9 +1,9 @@
-// FarmVista — App Shell v1.1.0 (2025-10-13)
+// /js/fv-shell.js
+// FarmVista — App Shell v1.1.1
+// - Theme chips fixed (System/Light/Dark) with html[data-theme] support
+// - Update action label simplified to "Check for updates" (still clears cache)
+// - Footer pinned; main-only scrolling; mobile drawer; desktop expandable sidebar
 // - Absolute paths for GitHub Pages (/Farm-vista/...)
-// - Theme chips: System/Light/Dark (works, shows ring)
-// - One-button updater: clears SW + caches, preserves theme, reloads with cache-buster
-// - Pinned footer; main-only scrolling (prevents gray rubber-band)
-// - Sidebar drawer (mobile) + collapsible (desktop)
 
 class FVShell extends HTMLElement {
   constructor(){
@@ -21,7 +21,7 @@ class FVShell extends HTMLElement {
   --safe-left:env(safe-area-inset-left,0px);
   --safe-right:env(safe-area-inset-right,0px);
 }
-/* Dark palette when html has .dark */
+/* Dark palette when html has .dark (we also set html[data-theme]) */
 :host-context(.dark){
   --bg:#0f1210; --ink:#e8eee9;
   --sb-bg:#151b17; --sb-ink:#e8eee9; --hair:#253228;
@@ -30,9 +30,7 @@ class FVShell extends HTMLElement {
 /* Shell grid */
 .shell{height:100dvh; display:grid; grid-template-columns:72px 1fr; grid-template-rows:auto 1fr auto; background:var(--bg); color:var(--ink);}
 .shell.expanded{grid-template-columns:280px 1fr;}
-@media (max-width:1023px){
-  .shell{grid-template-columns:1fr;}
-}
+@media (max-width:1023px){ .shell{grid-template-columns:1fr;} }
 
 /* Header */
 .h{grid-column:1/-1; position:sticky; top:0; z-index:1000; background:var(--green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15);}
@@ -69,7 +67,7 @@ a.item:hover{background:color-mix(in srgb, var(--green) 10%, transparent);}
 .scrim{position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s; z-index:1000;}
 .scrim.show{opacity:1; pointer-events:auto}
 
-/* Main scroller (prevents gray rubber-band elsewhere) */
+/* Main scroller */
 main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;}
 .container{max-width:1040px; margin:0 auto; padding:18px 14px 14px;}
 
@@ -149,9 +147,9 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     <div class="sheet-in">
       <div class="sttl">Theme</div>
       <div class="chips">
-        <button class="chip" id="chipSystem" data-theme="system" aria-pressed="false">System</button>
-        <button class="chip" id="chipLight"  data-theme="light"  aria-pressed="false">Light</button>
-        <button class="chip" id="chipDark"   data-theme="dark"   aria-pressed="false">Dark</button>
+        <button type="button" class="chip" id="chipSystem" data-theme="system" aria-pressed="false">System</button>
+        <button type="button" class="chip" id="chipLight"  data-theme="light"  aria-pressed="false">Light</button>
+        <button type="button" class="chip" id="chipDark"   data-theme="dark"   aria-pressed="false">Dark</button>
       </div>
 
       <div class="sttl">Profile</div>
@@ -161,15 +159,15 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
 
       <div class="sttl">Maintenance</div>
       <div class="row" id="btnUpdateAll" aria-busy="false">
-        <div>Check for updates (also clears cache)</div><div id="updIcon">↻</div>
+        <div>Check for updates</div><div id="updIcon">↻</div>
       </div>
     </div>
   </div>
 </div>
     `;
 
-    // page-level locks so only <main> scrolls
-    if(!document.getElementById('fv-lock')){
+    // lock page so only <main> scrolls (prevents gray above/below)
+    if (!document.getElementById('fv-lock')) {
       const s=document.createElement('style'); s.id='fv-lock';
       s.textContent='html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;}';
       document.head.appendChild(s);
@@ -177,20 +175,20 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
   }
 
   connectedCallback(){
-    // Logo
+    // logo
     const logo=this._r.getElementById('farmLogo');
     if (logo) logo.src = '/Farm-vista/assets/icons/logo.png';
 
-    // Footer date
+    // footer date
     this._setFooterDate();
 
-    // Version + tagline (from window.FarmVistaVersion if present)
+    // version + tagline
     const ver = (window.FarmVistaVersion) || (window.FV_VERSION && window.FV_VERSION.number) || '1.0.0';
     const tag = (window.FV_TAGLINE) || 'Clean farm data. Smarter reporting.';
     const vEl = this._r.getElementById('ver'); if (vEl) vEl.textContent = 'v'+ver;
     const tg  = this._r.getElementById('tagline'); if (tg) tg.textContent = tag;
 
-    // Menu + sheet
+    // wiring
     const shell=this._r.querySelector('.shell');
     const scrim=this._r.getElementById('scrim');
     const btnMenu=this._r.getElementById('btnMenu');
@@ -222,14 +220,15 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     scrim?.addEventListener('click', closeAll);
     addEventListener('resize', closeAll);
 
-    // Theme restore + handlers
+    // Theme: restore + apply + reflect
     const saved = this._getTheme();
     this._applyTheme(saved);
     this._reflectThemeChips();
 
     ['chipSystem','chipLight','chipDark'].forEach(id=>{
-      this._r.getElementById(id)?.addEventListener('click', ()=>{
-        const mode = this._r.getElementById(id).getAttribute('data-theme') || 'system';
+      const el=this._r.getElementById(id);
+      el?.addEventListener('click', ()=>{
+        const mode = el.getAttribute('data-theme') || 'system';
         this._setTheme(mode);
         this._applyTheme(mode);
         this._reflectThemeChips();
@@ -239,7 +238,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     // Update action
     this._r.getElementById('btnUpdateAll')?.addEventListener('click', ()=> this._updateAndRefresh());
 
-    // Service worker scope
+    // SW
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/Farm-vista/serviceworker.js').catch(()=>{});
     }
@@ -249,7 +248,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     if (post) { this._toast(post, 2400); sessionStorage.removeItem('fv-postUpdateMsg'); }
   }
 
-  /* Helpers --------------------------------------------------- */
+  /* Helpers ----------------------------- */
   _setFooterDate(){
     try{
       const el=this._r.getElementById('footLine'); if (!el) return;
@@ -267,13 +266,19 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
   _setTheme(m){ try{ localStorage.setItem('fv-theme', m); }catch{} }
   _applyTheme(mode){
     const root=document.documentElement;
+    // keep class for older CSS
     root.classList.remove('dark');
     if (mode==='dark') root.classList.add('dark');
     else if (mode==='system' && matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add('dark');
+    // ALSO set data-theme to work with your theme.css tokens
+    const token = (mode==='system') ? 'auto' : mode; // your CSS expects 'auto' not 'system'
+    try{ root.setAttribute('data-theme', token); }catch{}
   }
   _reflectThemeChips(){
     const m=this._getTheme();
-    this._r.querySelectorAll('.chip[data-theme]').forEach(ch=> ch.setAttribute('aria-pressed', String(ch.getAttribute('data-theme')===m)) );
+    this._r.querySelectorAll('.chip[data-theme]').forEach(ch=>{
+      ch.setAttribute('aria-pressed', String(ch.getAttribute('data-theme')===m));
+    });
   }
 
   _toast(msg, ms=2200){
