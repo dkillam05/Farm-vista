@@ -1,9 +1,6 @@
-/* FarmVista — <fv-shell> v5.9
-   Based on your v5.8 file.
-   Changes (and only these):
-   • .main background/text now use tokens (var(--bg)/var(--text)) — no hard-coded colors
-   • Dark-context shell/MAIN use tokens too
-   • Sidebar dark rules read --sidebar-* tokens (with fallbacks), so it flips with theme
+/* FarmVista — <fv-shell> v5.9 (sidebar dark tweak only)
+   Change: In dark mode, .drawer nav now uses var(--sidebar-surface)
+           (no color-mix), so the whole sidebar is a single dark tone.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -187,9 +184,13 @@
       background:var(--sidebar-surface, #171a18);
       border-bottom:1px solid var(--sidebar-border, #2a2e2b);
     }
-    :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
+    :host-context(.dark) .org .org-loc{
+      color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
+    }
+
+    /* >>> CHANGED: nav now matches sidebar surface exactly (no lighten) <<< */
     :host-context(.dark) .drawer nav{
-      background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000);
+      background:var(--sidebar-surface, #171a18); /* CHANGED */
     }
     :host-context(.dark) .drawer nav a{
       color:var(--sidebar-text, #f1f3ef);
@@ -371,14 +372,12 @@
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
       async function readTargetVersion(){
-        // prefer in-memory version
         const v = (window.FV_VERSION && window.FV_VERSION.number) || (window.FV_BUILD);
         if (v) return v;
-        // fallback: fetch version.js and parse
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          const m = txt.match(/number\\s*:\\s*["']([\\d.]+)["']/) || txt.match(/FV_NUMBER\\s*=\\s*["']([\\d.]+)["']/);
           return (m && m[1]) || String(Date.now());
         }catch{ return String(Date.now()); }
       }
@@ -387,12 +386,10 @@
         this._toastMsg('Checking For Updates…', 1200);
         const targetVer = await readTargetVersion();
 
-        // Ask the current SW (if any) to skip waiting so a new one can take control
         if (navigator.serviceWorker && navigator.serviceWorker.controller) {
           try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
         }
 
-        // Clear all caches
         if('caches' in window){
           try{
             const keys = await caches.keys();
@@ -400,7 +397,6 @@
           }catch{}
         }
 
-        // Unregister any existing SWs, then register fresh (timestamped URL)
         if('serviceWorker' in navigator){
           try {
             const regs = await navigator.serviceWorker.getRegistrations();
@@ -412,8 +408,7 @@
           } catch {}
         }
 
-        // Hard reload with the version as the rev param so every CSS/JS link updates
-        this._toastMsg(`Updating to v${targetVer}…`, 900);
+        this._toastMsg(\`Updating to v\${targetVer}…\`, 900);
         await sleep(400);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer);
