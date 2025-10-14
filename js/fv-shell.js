@@ -1,6 +1,7 @@
 /* FarmVista — <fv-shell> v5.9.1
    Based on your v5.9 file.
    Only change: safe custom element registration guard.
+   + Tokenized sidebar rules (.drawer, .drawer header, .drawer nav, .drawer nav a, .drawer-footer)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -66,21 +67,24 @@
     :host(.drawer-open) .scrim,
     :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
 
-    /* ===== Sidebar (left drawer) — LIGHT MODE defaults ===== */
+    /* ===== Sidebar (left drawer) — token-based so it follows theme ===== */
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
-      background:#fff; color:#222; box-shadow:0 0 36px rgba(0,0,0,.25);
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200;
       -webkit-overflow-scrolling:touch;
       display:flex; flex-direction:column; height:100%; overflow:hidden;
       padding-bottom:env(safe-area-inset-bottom,0px);
-      border-right:1px solid #eee;
+      border-right: 1px solid var(--border);
     }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
 
     .drawer header{
-      padding:16px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:12px; flex:0 0 auto;
-      background:#fff;
+      padding:16px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:12px; flex:0 0 auto;
+      background: var(--surface);
     }
     .org{ display:flex; align-items:center; gap:12px; }
     .org img{ width:40px; height:40px; border-radius:8px; object-fit:cover; }
@@ -88,10 +92,11 @@
     .org .org-name{ font-weight:800; line-height:1.15; }
     .org .org-loc{ font-size:13px; color:#666; }
 
-    .drawer nav{ flex:1 1 auto; overflow:auto; background:#f6f7f6; }
+    .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
     .drawer nav a{
-      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color:#222;
-      border-bottom:1px solid #f3f3f3;
+      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none;
+      color: var(--text);
+      border-bottom:1px solid var(--border);
     }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
 
@@ -100,7 +105,9 @@
       display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
       padding:12px 16px;
       padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
-      border-top:1px solid #eee; background:#fff; color:#222;
+      border-top:1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
     }
     .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
     .df-left .brand{ font-weight:800; line-height:1.15; }
@@ -173,7 +180,7 @@
       background:var(--bg); color:var(--text);
     }
 
-    /* Sidebar surfaces in dark (tokenized with fallbacks) */
+    /* Sidebar surfaces in dark (tokenized with fallbacks still supported) */
     :host-context(.dark) .drawer{
       background:var(--sidebar-surface, #171a18);
       color:var(--sidebar-text, #f1f3ef);
