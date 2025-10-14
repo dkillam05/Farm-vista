@@ -1,4 +1,7 @@
-/* FarmVista — <fv-shell> v4.4 (drawer footer: tagline + version, pinned bottom) */
+/* FarmVista — <fv-shell> v4.6
+   - Sidebar header: logo LEFT, "Dowson Farms" + "Divernon, Illinois" RIGHT
+   - Drawer footer pinned: LEFT (FarmVista + slogan), RIGHT (live version)
+*/
 (function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -64,32 +67,45 @@
       transform:translateX(-100%); transition:transform .25s; z-index:1200;
       -webkit-overflow-scrolling:touch;
 
-      /* NEW: make footer stick to bottom and allow only nav to scroll */
+      /* Footer pinned / only nav scrolls */
       display:flex; flex-direction:column; height:100%; overflow:hidden;
+      padding-bottom:env(safe-area-inset-bottom,0px);
     }
+
+    /* Header (org block) */
     .drawer header{
       padding:16px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:12px; flex:0 0 auto;
     }
-    .drawer nav{
-      display:block; flex:1 1 auto; overflow:auto;
-    }
+    .org{ display:flex; align-items:center; gap:12px; }
+    .org img{ width:40px; height:40px; border-radius:8px; object-fit:cover; }
+    .org .org-text{ display:flex; flex-direction:column; }
+    .org .org-name{ font-weight:800; line-height:1.15; }
+    .org .org-loc{ font-size:13px; color:#666; }
+
+    /* Nav */
+    .drawer nav{ flex:1 1 auto; overflow:auto; }
     .drawer nav a{
       display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color:#222; border-bottom:1px solid #f3f3f3;
     }
-    .drawer .drawer-footer{
-      flex:0 0 auto;
-      margin-top:auto;
-      padding:14px 16px;
-      padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));
-      font-size:13px; color:#777; border-top:1px solid #eee;
-      background:#fff;
-    }
 
-    /* ✅ Correct: react to a class on the HOST inside shadow DOM */
+    /* Drawer footer (pinned bottom) */
+    .drawer-footer{
+      flex:0 0 auto;
+      display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
+      padding:12px 16px;
+      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+      border-top:1px solid #eee; background:#fff;
+    }
+    .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
+    .df-left .brand{ font-weight:800; line-height:1.15; }
+    .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
+    .df-right{ font-size:13px; color:#777; white-space:nowrap; }
+
+    /* State */
     :host(.drawer-open) .scrim{ opacity:1; pointer-events:auto; }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
 
-    /* ===== Account panel ===== */
+    /* Account panel */
     .panel{
       position:fixed; right:8px; left:auto;
       top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 8px);
@@ -115,14 +131,15 @@
     }
     .toast.show{ display:block; }
 
-    /* Dark surfaces */
+    /* Dark mode */
     :host-context(.dark) .drawer{ background:#171917; color:#f1f3ef; border-right:1px solid #1f231f; }
     :host-context(.dark) .drawer nav a{ color:#f1f3ef; border-color:#1f231f; }
-    :host-context(.dark) .drawer .drawer-footer{
-      background:#171917; color:#cfd3cf; border-top:1px solid #1f231f;
-    }
-    :host-context(.dark) .panel{ background:#1b1d1b; color:#f1f3ef; border-color:#253228; }
-    :host-context(.dark) .chip{ background:#1b1d1b; color:#f1f3ef; border-color:#3a423a; }
+    :host-context(.dark) .drawer-footer{ background:#171917; border-top:1px solid #1f231f; }
+    :host-context(.dark) .df-left .slogan,
+    :host-context(.dark) .df-right,
+    :host-context(.dark) .org .org-loc{ color:#cfd3cf; }
+    :host-context(.dark) .panel{ background:#1b1d1b; color:#f1f3f1; border-color:#253228; }
+    :host-context(.dark) .chip{ background:#1b1d1b; color:#f1f3f1; border-color:#3a423a; }
   </style>
 
   <header class="hdr" part="header">
@@ -133,11 +150,18 @@
   <div class="gold-bar" aria-hidden="true"></div>
 
   <div class="scrim js-scrim"></div>
+
   <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
-      <img src="/Farm-vista/assets/icons/icon-192.png" alt="" width="40" height="40" />
-      <div><div style="font-weight:800">FarmVista</div><div class="tiny">Menu</div></div>
+      <div class="org">
+        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
+        <div class="org-text">
+          <div class="org-name">Dowson Farms</div>
+          <div class="org-loc">Divernon, Illinois</div>
+        </div>
+      </div>
     </header>
+
     <nav>
       <a href="/Farm-vista/dashboard/"><span>🏠</span> Home</a>
       <a href="#"><span>🌱</span> Crop Production</a>
@@ -147,9 +171,14 @@
       <a href="#"><span>📊</span> Reports</a>
       <a href="#"><span>⚙️</span> Setup</a>
     </nav>
-    <!-- NEW: pinned footer -->
+
+    <!-- Pinned footer -->
     <footer class="drawer-footer">
-      <div class="tiny js-drawer-footer">Loading…</div>
+      <div class="df-left">
+        <div class="brand">FarmVista</div>
+        <div class="slogan js-slogan">Loading…</div>
+      </div>
+      <div class="df-right"><span class="js-ver">v0.0.0</span></div>
     </footer>
   </aside>
 
@@ -195,7 +224,10 @@
       this._panel = r.querySelector('.js-panel');
       this._footerText = r.querySelector('.js-footer');
       this._toast = r.querySelector('.js-toast');
-      this._drawerFooter = r.querySelector('.js-drawer-footer');
+
+      // Drawer footer refs
+      this._verEl = r.querySelector('.js-ver');
+      this._sloganEl = r.querySelector('.js-slogan');
 
       this._btnMenu.addEventListener('click', ()=> this.toggleDrawer(true));
       this._scrim.addEventListener('click', ()=> this.toggleDrawer(false));
@@ -208,7 +240,7 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
-      // Version & date display
+      // Version + slogan + date
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
@@ -224,8 +256,9 @@
       // Bottom app footer (green bar)
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // Sidebar footer (slogan + version)
-      this._drawerFooter.textContent = `${tagline} • v${verNumber}`;
+      // Sidebar footer (left/right layout)
+      this._verEl.textContent = `v${verNumber}`;
+      this._sloganEl.textContent = tagline;
 
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
 
