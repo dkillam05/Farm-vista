@@ -1,6 +1,9 @@
-// FarmVista — App Shell (gear focus) v2025-10-13i
-// Changes vs prior build: gear panel is full-width, scrollable, safe-area padded,
-// single "Check for updates (also clears cache)", dev helper ?gear=1 to auto-open.
+// FarmVista — App Shell (people icon) v2025-10-13j
+// - Replaces gear with people icon (keeps same behavior/IDs)
+// - Gear sheet full-width, scrollable, safe-area padded
+// - Single "Check for updates (also clears cache)"
+// - Global scroll lock: only <main> scrolls (no gray rubber-band)
+// - Dev helper: ?gear=1 opens the sheet on load
 
 class FVShell extends HTMLElement {
   constructor() {
@@ -96,14 +99,14 @@ class FVShell extends HTMLElement {
           white-space:nowrap; font-size:clamp(12px,1.6vw,14px); z-index:1;
         }
 
-        /* ===== Gear sheet (improved) ===== */
+        /* ===== People sheet (gear sheet) ===== */
         .gear{
           position:fixed; left:0; right:0;
-          top:calc(56px + var(--safe-top));  /* sit below header incl. notch */
+          top:calc(56px + var(--safe-top));  /* sits below header incl. notch */
           background:var(--fv-green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15);
           transform-origin:top center; transform:scaleY(.98); opacity:0; visibility:hidden;
           transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002;
-          max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto;   /* <-- scrollable */
+          max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto;
           -webkit-overflow-scrolling:touch;
         }
         .gear.show{ transform:scaleY(1); opacity:1; visibility:visible; }
@@ -128,9 +131,12 @@ class FVShell extends HTMLElement {
             </button>
             <div class="wordmark">FarmVista</div>
             <button class="btn" id="btnGear" title="User menu" aria-haspopup="menu" aria-expanded="false" aria-label="User menu">
+              <!-- People (two users) icon -->
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.61-.24 1-.84 1-1.49"/>
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
             </button>
           </div>
@@ -169,7 +175,7 @@ class FVShell extends HTMLElement {
 
         <footer class="foot"><div id="footLine">© 2025 FarmVista • </div></footer>
 
-        <!-- Gear sheet -->
+        <!-- People sheet -->
         <div class="gear" id="gearSheet" role="menu" aria-label="User menu">
           <div class="gear-inner">
             <div class="section-title">Theme</div>
@@ -242,6 +248,7 @@ class FVShell extends HTMLElement {
       }
     });
 
+    // open/close the people sheet
     btnGear.addEventListener("click", () => {
       const open = !gear.classList.contains("show");
       gear.classList.toggle("show", open);
@@ -280,7 +287,7 @@ class FVShell extends HTMLElement {
     // One-button update action
     this.$("#btnUpdateAll")?.addEventListener("click", () => this._checkForUpdatesAndRefresh());
 
-    // Dev helper: auto-open gear with ?gear=1
+    // Dev helper: auto-open sheet with ?gear=1
     if (new URLSearchParams(location.search).has("gear")) {
       setTimeout(()=>btnGear.click(), 80);
     }
@@ -341,7 +348,7 @@ class FVShell extends HTMLElement {
   }
   async _checkForUpdatesAndRefresh(){
     const _current = (window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"0.0.0";
-    const _latest  = await this._fetchLatestVersion(); // we don't block on compare; we refresh either way
+    const _latest  = await this._fetchLatestVersion(); // not used to block; we refresh regardless
     await this._clearCachesAndReload();
   }
 }
