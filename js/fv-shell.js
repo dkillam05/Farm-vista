@@ -1,11 +1,9 @@
-/* FarmVista — <fv-shell> v5.1
-   - Top Drawer cleaned per request:
-     • Keep centered brand row (logo + FarmVista)
-     • Keep THEME (chips), PROFILE (Account details, Feedback)
-     • Keep MAINTENANCE (Check for updates button only)
-     • Keep Logout row
-     • Remove JD-style quick rows and "Clears cache & reloads" hint
-   - Sidebar, footer, updater, and version (FV_VERSION) preserved
+/* FarmVista — <fv-shell> v5.2
+   - Footer slimmed per request:
+     • --ftr-h reduced to 26px
+     • Footer border 3px → 2px
+     • Footer text 14px → 15px
+   - All other v5.1 behavior preserved
 */
 (function () {
   const tpl = document.createElement('template');
@@ -14,7 +12,7 @@
     :host{
       --green:#3B7E46; --gold:#D0C542;
       --surface:var(--surface,#fff); --text:var(--text,#141514);
-      --hdr-h:56px; --ftr-h:42px;
+      --hdr-h:56px; --ftr-h:26px;
       display:block; color:var(--text); background:var(--page, var(--app-bg,#f5f7f4));
       min-height:100vh; position:relative;
     }
@@ -39,16 +37,16 @@
       left:0; right:0; height:3px; background:var(--brand-gold,var(--gold)); z-index:999;
     }
 
-    /* ===== Footer (fixed) ===== */
+    /* ===== Footer (fixed, slim) ===== */
     .ftr{
       position:fixed; inset:auto 0 0 0;
       height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px);
       background:var(--brand-green,var(--green)); color:#fff;
       display:flex; align-items:center; justify-content:center;
-      border-top:3px solid var(--brand-gold,var(--gold)); z-index:900;
+      border-top:2px solid var(--brand-gold,var(--gold)); z-index:900;
     }
-    .ftr .text{ font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ftr .text{ font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     /* ===== Main scroll area ===== */
     .main{
@@ -241,7 +239,7 @@
       <a class="row" href="#"><div class="left"><div class="ico">🧾</div><div class="txt">Account details</div></div><div class="chev">›</div></a>
       <a class="row" href="#"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
 
-      <!-- Maintenance (no helper text) -->
+      <!-- Maintenance -->
       <div class="section-h">MAINTENANCE</div>
       <div class="chips">
         <button class="chip js-update" aria-busy="false" title="Clear cache and reload">
