@@ -1,8 +1,7 @@
-/* FarmVista — <fv-shell> v5.3
-   - Footer halved again:
-     • --ftr-h = 14px
-     • Footer text = 13px
-   - All other behavior from v5.1 retained (top drawer, sidebar, updater, version)
+/* FarmVista — <fv-shell> v5.4
+   - Maintenance: "Check for updates" now a row (matches Account/Feedback)
+   - Updater: version-aware toasts (announces target version when updating)
+   - Footer remains extra-slim (14px) from v5.3
 */
 (function () {
   const tpl = document.createElement('template');
@@ -141,7 +140,7 @@
       background:var(--brand-gold,var(--gold)); color:#111; border-color:transparent;
     }
 
-    /* Simple rows for Profile + Logout */
+    /* Rows (Profile, Maintenance, Logout) */
     .row{
       display:flex; align-items:center; justify-content:space-between;
       padding:14px 12px; text-decoration:none; color:#fff;
@@ -151,12 +150,6 @@
     .row .ico{ width:22px; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; }
     .row .chev{ opacity:.9; }
-
-    /* Spinner for update button */
-    .chip .spin{ font-size:15px; display:inline-block; transform-origin:center; }
-    .chip[aria-busy="true"] .spin{ animation: fvspin 900ms linear infinite; }
-    @keyframes fvspin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
-    .chip[aria-busy="true"]{ opacity:.9; pointer-events:none; }
 
     /* Toast */
     .toast{
@@ -216,7 +209,7 @@
     </footer>
   </aside>
 
-  <!-- ===== Top Drawer (Account) — cleaned ===== -->
+  <!-- ===== Top Drawer (Account) ===== -->
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
       <!-- Centered brand row -->
@@ -238,13 +231,12 @@
       <a class="row" href="#"><div class="left"><div class="ico">🧾</div><div class="txt">Account details</div></div><div class="chev">›</div></a>
       <a class="row" href="#"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
 
-      <!-- Maintenance -->
+      <!-- Maintenance (row style) -->
       <div class="section-h">MAINTENANCE</div>
-      <div class="chips">
-        <button class="chip js-update" aria-busy="false" title="Clear cache and reload">
-          <span class="spin">⟳</span> <span>Check for updates</span>
-        </button>
-      </div>
+      <a class="row js-update-row" href="#">
+        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div>
+        <div class="chev">›</div>
+      </a>
 
       <!-- Logout -->
       <a class="row" href="#" id="logoutRow">
@@ -287,7 +279,6 @@
         if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); }
       });
 
-      // Theme
       r.querySelectorAll('.js-theme').forEach(btn=>{
         btn.addEventListener('click', ()=> this.setTheme(btn.dataset.mode));
       });
@@ -314,8 +305,11 @@
       this._verEl.textContent = `v${verNumber}`;
       this._sloganEl.textContent = tagline;
 
-      // Update button
-      r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
+      // Update row click
+      r.querySelector('.js-update-row').addEventListener('click', (e)=> {
+        e.preventDefault();
+        this.checkForUpdates();
+      });
 
       // Mock logout (placeholder)
       const logoutRow = r.getElementById('logoutRow');
@@ -365,33 +359,55 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Updater ===== */
+    /* ===== Updater (version-aware) ===== */
     async checkForUpdates(){
-      const btn = this.shadowRoot.querySelector('.js-update');
-      const setBusy = (on)=> btn.setAttribute('aria-busy', on ? 'true' : 'false');
+      const current = (this._verEl && this._verEl.textContent || '').replace(/^v/i,'').trim();
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
+      const fetchLatestVersion = async () => {
+        try {
+          const resp = await fetch('/Farm-vista/js/version.js?rev=' + Date.now(), { cache:'reload' });
+          const txt = await resp.text();
+          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/);
+          return m ? m[1] : null;
+        } catch { return null; }
+      };
+      const cmp = (a,b)=>{
+        const pa=a.split('.').map(n=>parseInt(n||'0',10));
+        const pb=b.split('.').map(n=>parseInt(n||'0',10));
+        const len=Math.max(pa.length,pb.length);
+        for(let i=0;i<len;i++){ const da=pa[i]||0, db=pb[i]||0; if(da>db) return 1; if(da<db) return -1; }
+        return 0;
+      };
 
       try{
-        setBusy(true);
-        this._toastMsg('Clearing cache…', 900);
+        this._toastMsg('Checking for updates…', 1200);
+        const latest = await fetchLatestVersion();
+
+        if (latest && current && cmp(latest, current) <= 0) {
+          this._toastMsg(`You’re on v${current} — no update found.`, 1800);
+          return;
+        }
+
+        if (latest) this._toastMsg(`Updating to v${latest}…`, 1200);
+        else this._toastMsg('Updating…', 1000);
 
         if('caches' in window){
           const keys = await caches.keys();
           await Promise.all(keys.map(k=> caches.delete(k)));
         }
-        await sleep(250);
+        await sleep(200);
 
-        this._toastMsg('Unregistering service workers…', 1000);
         if('serviceWorker' in navigator){
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map(r=> r.unregister()));
         }
-        await sleep(250);
+        await sleep(200);
 
-        try{ await fetch('/Farm-vista/js/version.js', { cache:'reload' }); }catch{}
+        // One more fetch to make sure the browser sees the fresh file
+        try{ await fetch('/Farm-vista/js/version.js?rev=' + Date.now(), { cache:'reload' }); }catch{}
 
-        this._toastMsg('Reloading with fresh assets…', 1200);
-        await sleep(700);
+        this._toastMsg('Reloading with fresh assets…', 900);
+        await sleep(500);
 
         const url = new URL(location.href);
         url.searchParams.set('rev', Date.now().toString());
@@ -399,7 +415,6 @@
       }catch(e){
         console.error(e);
         this._toastMsg('Update failed. Try again.', 2200);
-        setBusy(false);
       }
     }
 
