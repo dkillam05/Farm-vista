@@ -1,6 +1,9 @@
-/* FarmVista — <fv-shell> v5.8
-   Based on your v5.7 file — styles and structure unchanged.
-   Only the update flow was upgraded to be truly version.js–driven.
+/* FarmVista — <fv-shell> v5.9
+   Based on your v5.8 file.
+   Changes (and only these):
+   • .main background/text now use tokens (var(--bg)/var(--text)) — no hard-coded colors
+   • Dark-context shell/MAIN use tokens too
+   • Sidebar dark rules read --sidebar-* tokens (with fallbacks), so it flips with theme
 */
 (function () {
   const tpl = document.createElement('template');
@@ -52,8 +55,9 @@
         16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box;
-      background: #F6F7F6; /* light mode page bg */
-      color: #141514;
+      /* Token-driven so it flips with theme */
+      background: var(--bg);
+      color: var(--text);
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
@@ -106,7 +110,7 @@
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
 
-    /* ===== Top Drawer (Account) — stays solid green in both modes ===== */
+    /* ===== Top Drawer (Account) ===== */
     .topdrawer{
       position:fixed; left:0; right:0; top:0;
       transform:translateY(-105%); transition:transform .26s ease;
@@ -144,7 +148,7 @@
       background:var(--gold); color:#111; border-color:transparent;
     }
 
-    /* Rows (Profile, Maintenance, Logout) */
+    /* Rows */
     .row{
       display:flex; align-items:center; justify-content:space-between;
       padding:14px 12px; text-decoration:none; color:#fff;
@@ -164,33 +168,42 @@
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* ===== DARK MODE ONLY (sidebar + surfaces tuned) ===== */
+    /* ===== DARK CONTEXT — token driven ===== */
     :host-context(.dark){
-      color:#E9EDE9; background:#0e0f0e;
+      color:var(--text); background:var(--bg);
     }
     :host-context(.dark) .main{
-      background:#0e100f; color:#E9EDE9;  /* page bg (very dark) */
+      background:var(--bg); color:var(--text);
     }
 
-    /* Sidebar surfaces in dark */
+    /* Sidebar surfaces in dark (tokenized with fallbacks) */
     :host-context(.dark) .drawer{
-      background:#171a18;           /* darker than cards */
-      color:#f1f3ef;
-      border-right:1px solid #2a2e2b;
+      background:var(--sidebar-surface, #171a18);
+      color:var(--sidebar-text, #f1f3ef);
+      border-right:1px solid var(--sidebar-border, #2a2e2b);
       box-shadow:0 0 36px rgba(0,0,0,.45);
     }
     :host-context(.dark) .drawer header{
-      background:#171a18; border-bottom:1px solid #2a2e2b;
+      background:var(--sidebar-surface, #171a18);
+      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
     }
-    :host-context(.dark) .org .org-loc{ color:#cdd2cd; }
-    :host-context(.dark) .drawer nav{ background:#141715; }
+    :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
+    :host-context(.dark) .drawer nav{
+      background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000);
+    }
     :host-context(.dark) .drawer nav a{
-      color:#f1f3ef; border-bottom:1px solid #232725;
+      color:var(--sidebar-text, #f1f3ef);
+      border-bottom:1px solid var(--sidebar-border, #232725);
     }
     :host-context(.dark) .drawer-footer{
-      background:#171a18; border-top:1px solid #2a2e2b; color:#f1f3ef;
+      background:var(--sidebar-surface, #171a18);
+      border-top:1px solid var(--sidebar-border, #2a2e2b);
+      color:var(--sidebar-text, #f1f3ef);
     }
-    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:#cdd2cd; }
+    :host-context(.dark) .df-left .slogan,
+    :host-context(.dark) .df-right{
+      color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
+    }
 
     /* Toast in dark */
     :host-context(.dark) .toast{
