@@ -1,258 +1,252 @@
 // ==========================================================
-// FarmVista — Shell (header, sidebar, footer, user menu)
-// - Uses App.* from core.js for theme + updater
-// - User menu: System / Light / Dark + "Check for updates"
-// - Single update button clears cache/SW and reloads (with spinner + toast)
-// - No hero content here (that stays in fv-hero.js / page)
+// FarmVista Shell (header + sidebar + footer)
+// - Uses theme tokens from /assets/css/theme.css
+// - Right-side "people" menu with Theme controls
+// - "Check for updates" clears SW caches, compares version,
+//    shows spinner + toast, then reloads if needed
+// - No hero logic here; <slot> renders page content
 // ==========================================================
 class FVShell extends HTMLElement {
-  constructor() {
+  constructor(){
     super();
-    const r = this.attachShadow({ mode: 'open' });
+    const r = this.attachShadow({mode:'open'});
     r.innerHTML = `
       <style>
         :host{ display:block; }
         .container{ width:min(1100px,100%); margin-inline:auto; padding:0 16px; }
 
-        /* Header */
-        header.fv-header{ position:sticky; top:0; z-index:1000; }
-        .hdr-top{
-          background: var(--header-bg, #3B7E46);
-          color: var(--header-fg, #fff);
-          border-bottom: 1px solid rgba(0,0,0,.15);
-        }
-        .hdr-top .bar{ height:56px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        /* HEADER */
+        header.hdr{ position:sticky; top:0; z-index:6; background:var(--header-bg); color:var(--header-fg); }
+        .top{ height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; border-bottom:1px solid rgba(0,0,0,.15); }
         .brand{ font-weight:800; letter-spacing:.3px; font-size:20px; color:inherit; }
-
-        .btn-plain{
-          display:inline-flex; align-items:center; justify-content:center;
-          width:40px; height:40px; border-radius:9px; cursor:pointer;
-          background: rgba(255,255,255,.08);
-          border:1px solid rgba(255,255,255,.28);
-          color:inherit;
+        .btn{
+          display:inline-grid; place-items:center; width:40px; height:40px; border-radius:9px;
+          background:transparent; border:1px solid color-mix(in srgb,#fff 25%, transparent); color:inherit; cursor:pointer;
         }
+        .btn:focus-visible{ outline:3px solid #b9e1c4; outline-offset:1px; }
+        .sub{ background:var(--header-bg); }
+        .accent{ height:3px; background:var(--brand-gold); }
 
-        /* Sidebar drawer (overlay) */
+        /* SIDEBAR (overlay drawer) */
         #navToggle{ display:none; }
-        aside.fv-sidebar{
-          position:fixed; inset:0 auto 0 0; width:300px; max-width:92vw;
-          background:#fff; color:#141514;
-          border-right:1px solid #e2e5e5;
-          transform:translateX(-100%); transition:transform .18s ease-out;
-          z-index:998; display:flex; flex-direction:column; overflow:auto;
-          box-shadow:0 10px 22px rgba(0,0,0,.18);
+        aside.sd{
+          position:fixed; inset:0 auto 0 0; width:300px; background:var(--surface); color:var(--text);
+          border-right:1px solid var(--border); transform:translateX(-100%); transition:transform .18s ease-out;
+          z-index:999; display:flex; flex-direction:column; box-shadow:0 10px 22px rgba(0,0,0,.20);
+          overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
         }
-        :host-context(.dark) aside.fv-sidebar{ background:#1b1d1b; color:#e8eee9; border-color:#253228; }
-        #navToggle:checked ~ aside.fv-sidebar{ transform:translateX(0); }
-        .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s; z-index:997; }
+        #navToggle:checked ~ aside.sd{ transform:translateX(0); }
+        .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s; z-index:998; }
         #navToggle:checked ~ .scrim{ opacity:1; pointer-events:auto; }
 
-        nav.sd-menu{ padding:10px; }
-        .nav-item{
-          display:flex; align-items:center; gap:12px;
-          padding:12px 10px; border-radius:10px; text-decoration:none; color:inherit;
+        .sd-head{ padding:16px; border-bottom:1px solid var(--border); }
+        .sd-head img{ height:44px; width:auto; display:block; }
+        .sd-menu{ padding:8px; }
+        .item{
+          display:flex; align-items:center; gap:12px; padding:12px 10px; border-radius:10px;
+          color:var(--text); text-decoration:none;
         }
-        .nav-item:hover{ background:rgba(0,0,0,.06); }
-        :host-context(.dark) .nav-item:hover{ background:rgba(255,255,255,.06); }
+        .item:hover{ background:color-mix(in srgb, var(--brand-gold) 8%, var(--surface)); }
+        .sd-foot{ margin-top:auto; padding:14px 16px; border-top:1px solid var(--border); font-size:13px; color:var(--muted); }
 
-        /* Main + footer */
-        main.fv-main{ padding:18px 16px 44px; }
-        footer.fv-footer{
-          background:var(--footer-bg, #0b1a10);
-          color:var(--footer-fg, #cfd7d1);
-          border-top:3px solid var(--brand-gold, #D0C542);
-          padding:10px 0;
+        /* MAIN + FOOTER */
+        main.main{ padding:18px 16px 44px; background:var(--bg); color:var(--text); min-height:40vh; }
+        footer.foot{
+          background:var(--footer-bg); color:var(--footer-fg); border-top:3px solid var(--brand-gold);
+          padding:10px max(16px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+          text-align:center;
         }
 
-        /* User menu panel (fixed so it never clips) */
-        .menu-anchor{ position:relative; }
-        .user-panel{
-          position:fixed; right:12px; top:56px;
-          width:min(520px, 94vw);
-          background:#fff; color:#141514;
-          border:1px solid #e3e6e2; border-radius:12px; box-shadow:0 12px 24px rgba(0,0,0,.18);
-          transform-origin: top right; transform:scale(.98); opacity:0; visibility:hidden;
-          transition:transform .16s ease, opacity .16s ease, visibility .16s;
-          z-index:1001;
+        /* USER MENU (right) */
+        .anchor{ position:relative; }
+        .menu{ position:absolute; right:0; top:48px; min-width:290px; background:var(--surface); color:var(--text);
+               border:1px solid var(--border); border-radius:12px; box-shadow:0 12px 24px rgba(0,0,0,.18); padding:10px; display:none; }
+        .menu.open{ display:block; }
+        .section{ margin:6px 6px 8px; font-size:.82rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+        .pillrow{ display:flex; gap:8px; padding:0 6px 8px; }
+        .pill{
+          border:1px solid var(--border); background:var(--surface); color:var(--text);
+          border-radius:999px; padding:8px 12px; cursor:pointer; user-select:none;
         }
-        :host-context(.dark) .user-panel{ background:#151b17; color:#e8eee9; border-color:#253228; box-shadow:0 12px 24px rgba(0,0,0,.5); }
-        .user-panel[aria-hidden="false"]{ transform:scale(1); opacity:1; visibility:visible; }
-        .up-sec{ padding:14px; border-bottom:1px solid #e3e6e2; }
-        :host-context(.dark) .up-sec{ border-color:#253228; }
-        .up-title{ font-size:.8rem; letter-spacing:.12em; text-transform:uppercase; opacity:.8; margin:0 0 10px; }
+        .pill[aria-pressed="true"]{ outline:2px solid var(--brand-gold); }
+        .menu-item{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border-radius:10px; cursor:pointer; }
+        .menu-item:hover{ background:color-mix(in srgb, var(--brand-gold) 8%, var(--surface)); }
+        .spin{ width:16px; height:16px; border:2px solid color-mix(in srgb, var(--text) 30%, transparent); border-top-color:var(--brand-gold); border-radius:50%; animation:sp 1s linear infinite; }
+        @keyframes sp{ to{ transform:rotate(360deg); } }
 
-        /* Theme chips */
-        .chips{ display:flex; gap:8px; flex-wrap:wrap; }
-        .chip{
-          border:1px solid #e3e6e2; border-radius:999px; padding:8px 12px; cursor:pointer; background:#fff; color:#141514;
-        }
-        :host-context(.dark) .chip{ border-color:#253228; background:#151b17; color:#e8eee9; }
-        .chip[aria-pressed="true"]{ outline:2px solid var(--brand-gold, #D0C542); }
-
-        /* Rows */
-        .row{ display:flex; align-items:center; justify-content:space-between; padding:12px 10px; border-radius:10px; }
-        .row:hover{ background:rgba(0,0,0,.04); }
-        :host-context(.dark) .row:hover{ background:rgba(255,255,255,.06); }
-        .muted{ opacity:.7; }
-
-        /* Spinner + toast */
-        .spin{ animation:sp 1s linear infinite; }
-        @keyframes sp { from{transform:rotate(0)} to{transform:rotate(360deg)} }
-        .toast{
-          position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
-          background:#141514; color:#fff; padding:10px 14px; border-radius:10px; box-shadow:0 8px 16px rgba(0,0,0,.28);
-          opacity:0; pointer-events:none; transition:opacity .18s ease;
-          z-index:1100;
-        }
-        .toast.show{ opacity:1; }
+        /* TOAST */
+        .toast{ position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--surface); color:var(--text);
+                border:1px solid var(--border); border-radius:999px; padding:10px 14px; box-shadow:0 12px 24px rgba(0,0,0,.18); display:none; z-index:1000; }
+        .toast.show{ display:block; }
       </style>
 
-      <input id="navToggle" type="checkbox" hidden />
+      <input id="navToggle" type="checkbox" />
 
-      <header class="fv-header">
-        <div class="hdr-top">
-          <div class="container bar">
-            <label for="navToggle" class="btn-plain" aria-label="Open menu" title="Menu">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-            </label>
-            <div class="brand">FarmVista</div>
-            <div class="menu-anchor">
-              <button class="btn-plain btn-user" aria-haspopup="menu" aria-expanded="false" title="User menu">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="8" r="4"/><path d="M6 20c2-3 10-3 12 0"/>
-                </svg>
-              </button>
+      <header class="hdr">
+        <div class="top container">
+          <label for="navToggle" class="btn" aria-label="Open menu">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+          </label>
+          <div class="brand">FarmVista</div>
+          <div class="anchor">
+            <button class="btn" id="btnPeople" aria-haspopup="menu" aria-expanded="false" title="User menu">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M2 21c0-3.3 2.7-6 6-6h2"/><path d="M14 15h2c3.3 0 6 2.7 6 6"/>
+              </svg>
+            </button>
+            <div class="menu" role="menu" aria-label="User menu">
+              <div class="section">Theme</div>
+              <div class="pillrow">
+                <button class="pill" data-theme="system" aria-pressed="false">System</button>
+                <button class="pill" data-theme="light"  aria-pressed="false">Light</button>
+                <button class="pill" data-theme="dark"   aria-pressed="false">Dark</button>
+              </div>
+
+              <div class="section">Profile</div>
+              <div class="menu-item">Account details <span style="color:var(--muted)">Coming soon</span></div>
+              <div class="menu-item">Feedback <span style="color:var(--muted)">Coming soon</span></div>
+              <div class="menu-item">Security <span style="color:var(--muted)">Coming soon</span></div>
+
+              <div class="section">Maintenance</div>
+              <div class="menu-item" id="btnUpdate">Check for updates <span id="updIcon" aria-hidden="true">⟳</span></div>
             </div>
           </div>
         </div>
+        <div class="sub">
+          <div class="accent"></div>
+        </div>
       </header>
 
-      <!-- Sidebar -->
-      <aside class="fv-sidebar" aria-label="Primary">
+      <aside class="sd" aria-label="Primary">
+        <div class="sd-head"><img class="logo-img" alt="FarmVista logo" /></div>
         <nav class="sd-menu">
-          <a class="nav-item" href="/Farm-vista/dashboard/">🏠 Home</a>
-          <a class="nav-item" href="#">🌱 Crop Production</a>
-          <a class="nav-item" href="#">🚜 Equipment</a>
-          <a class="nav-item" href="#">🌾 Grain</a>
-          <a class="nav-item" href="#">💵 Expenses</a>
-          <a class="nav-item" href="#">📊 Reports</a>
-          <a class="nav-item" href="#">⚙️ Setup</a>
+          <a class="item" data-route="dashboard" href="#">🏠 <span>Home</span></a>
+          <a class="item" href="#">🌱 <span>Crop Production</span></a>
+          <a class="item" href="#">🚜 <span>Equipment</span></a>
+          <a class="item" href="#">🌾 <span>Grain</span></a>
+          <a class="item" href="#">💵 <span>Expenses</span></a>
+          <a class="item" href="#">📊 <span>Reports</span></a>
+          <a class="item" href="#">⚙️ <span>Setup</span></a>
         </nav>
+        <div class="sd-foot">FarmVista <span class="ver">1.0.0</span></div>
       </aside>
       <label class="scrim" for="navToggle" aria-hidden="true"></label>
 
-      <main class="fv-main"><slot></slot></main>
+      <main class="main">
+        <slot></slot>
+      </main>
 
-      <footer class="fv-footer">
-        <div class="container">
-          <small>© <span class="y"></span> FarmVista • <span class="d"></span></small>
-        </div>
+      <footer class="foot">
+        <small>© <span id="y"></span> FarmVista • <span id="d"></span></small>
       </footer>
 
-      <!-- User Panel -->
-      <div class="user-panel" aria-hidden="true" role="menu" aria-label="User menu">
-        <div class="up-sec">
-          <p class="up-title">Theme</p>
-          <div class="chips">
-            <button class="chip th" data-mode="system" aria-pressed="false">System</button>
-            <button class="chip th" data-mode="light"  aria-pressed="false">Light</button>
-            <button class="chip th" data-mode="dark"   aria-pressed="false">Dark</button>
-          </div>
-        </div>
-
-        <div class="up-sec">
-          <p class="up-title">Profile</p>
-          <div class="row">Account details <span class="muted">Coming soon</span></div>
-          <div class="row">Feedback <span class="muted">Coming soon</span></div>
-          <div class="row">Security <span class="muted">Coming soon</span></div>
-        </div>
-
-        <div class="up-sec">
-          <p class="up-title">Maintenance</p>
-          <button class="row btn-update" title="Check for updates">
-            <span>Check for updates</span>
-            <span class="ico" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>
-              </svg>
-            </span>
-          </button>
-        </div>
-      </div>
-
-      <div class="toast" aria-live="polite"></div>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
     `;
 
-    // Footer year/date
-    const now = new Date();
-    const y = r.querySelector('.y'); if (y) y.textContent = now.getFullYear();
-    const d = r.querySelector('.d'); if (d) d.textContent = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    // Static wiring
+    const y = r.getElementById('y'); if (y) y.textContent = new Date().getFullYear();
+    const d = r.getElementById('d'); if (d) d.textContent = new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
-    // Menu open/close
-    const btnUser = r.querySelector('.btn-user');
-    const panel   = r.querySelector('.user-panel');
-    const openMenu = (open) => {
-      panel.setAttribute('aria-hidden', String(!open));
-      btnUser.setAttribute('aria-expanded', String(open));
-      if (open) document.addEventListener('click', onDoc, true);
-      else document.removeEventListener('click', onDoc, true);
-    };
-    const onDoc = (e) => {
-      const path = e.composedPath();
-      const inside = path.includes(panel) || path.includes(btnUser) || path.includes(this);
-      if (!inside) openMenu(false);
-    };
-    btnUser?.addEventListener('click', () => {
-      const want = panel.getAttribute('aria-hidden') !== 'false';
-      openMenu(want);
-      if (want) this._reflectThemeChips();
-    });
+    // repo-safe prefix (works on GH Pages and locally)
+    const parts = location.pathname.split('/').filter(Boolean);
+    const up = Math.max(0, parts.length - 1);
+    const prefix = '../'.repeat(up);
 
-    // Theme chips
-    this.shadowRoot.querySelectorAll('.chip.th').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const mode = chip.getAttribute('data-mode');
-        try { window.App?.setTheme(mode); } catch {}
-        this._reflectThemeChips();
+    // logo + active dashboard link
+    const logo = r.querySelector('.logo-img'); if (logo) logo.src = `${prefix}assets/icons/logo.png`;
+    const dash = r.querySelector('[data-route="dashboard"]');
+    if (dash) { dash.setAttribute('href', `${prefix}dashboard/`); if (location.pathname.includes('/dashboard/')) dash.classList.add('active'); }
+
+    // Version (if attribute present)
+    const verAttr = this.getAttribute('version');
+    if (verAttr) r.querySelector('.ver').textContent = verAttr;
+
+    // ===== Right menu open/close =====
+    const peopleBtn = r.getElementById('btnPeople');
+    const menu = r.querySelector('.menu');
+    const closeMenu = () => { menu.classList.remove('open'); peopleBtn.setAttribute('aria-expanded','false'); };
+    const openMenu  = () => { menu.classList.add('open'); peopleBtn.setAttribute('aria-expanded','true'); };
+    peopleBtn.addEventListener('click', (e)=>{ e.stopPropagation(); menu.classList.toggle('open'); peopleBtn.setAttribute('aria-expanded', String(menu.classList.contains('open'))); });
+    document.addEventListener('click', (e)=>{ if (!this.shadowRoot.contains(e.target)) closeMenu(); }, true);
+
+    // ===== Theme pills =====
+    const reflectPills = () => {
+      const mode = (localStorage.getItem('fv-theme') || 'system');
+      r.querySelectorAll('.pill').forEach(p => p.setAttribute('aria-pressed', String(p.dataset.theme === mode)));
+    };
+    r.querySelectorAll('.pill').forEach(p=>{
+      p.addEventListener('click', ()=>{
+        window.App?.setTheme(p.dataset.theme || 'system');
+        reflectPills();
       });
     });
-    // Also respond to outside theme changes
-    document.addEventListener('fv:theme', () => this._reflectThemeChips());
-    this._reflectThemeChips();
+    reflectPills();
+    document.addEventListener('fv:theme', reflectPills);
 
-    // Update button (single action: clear caches + SW, then reload)
-    const btnUpd = r.querySelector('.btn-update');
-    const ico = r.querySelector('.btn-update .ico');
-    btnUpd?.addEventListener('click', async () => {
-      // spinner
-      ico.classList.add('spin');
-      this._toast('Refreshing app…');
+    // ===== Check for updates (also clears cache) =====
+    const updBtn = r.getElementById('btnUpdate');
+    const updIcon = r.getElementById('updIcon');
+    const toast = r.getElementById('toast');
+
+    const showToast = (msg) => {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(()=> toast.classList.remove('show'), 2500);
+    };
+
+    async function clearCachesAndSW(){
       try {
-        await window.App?.checkForUpdates();
-        // page will reload; spinner just in case
-        setTimeout(()=>ico.classList.remove('spin'), 1500);
-      } catch {
-        ico.classList.remove('spin');
-        this._toast('Could not refresh (offline?)');
+        // delete caches
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      } catch {}
+      try {
+        // unregister service workers
+        const regs = await navigator.serviceWorker?.getRegistrations?.();
+        if (regs?.length) await Promise.all(regs.map(r => r.unregister()));
+      } catch {}
+    }
+
+    async function checkForUpdates(){
+      // spinner
+      updIcon.replaceWith(Object.assign(r.createElement('span'), { id:'updIcon', className:'spin', ariaHidden:'true' }));
+      try {
+        const current = (window.FV_VERSION && window.FV_VERSION.number) || '';
+        // try to fetch version file fresh
+        let latest = current;
+        try {
+          const res = await fetch(`${prefix}js/version.js?ts=${Date.now()}`, { cache:'no-store' });
+          const txt = await res.text();
+          const m = txt.match(/number\s*:\s*["'`]([^"'`]+)["'`]/);
+          if (m) latest = m[1];
+        } catch {}
+        // always clear caches so user gets files fresh
+        await clearCachesAndSW();
+
+        if (latest && latest !== current) {
+          showToast(`Updating to ${latest}…`);
+          location.reload();
+        } else {
+          showToast('You are up to date');
+          // soft reload to pick up any changed assets after cache clear
+          setTimeout(()=> location.reload(), 400);
+        }
+      } finally {
+        // restore icon (in case we didn't reload yet)
+        const spin = r.getElementById('updIcon');
+        if (spin) {
+          const span = r.createElement('span');
+          span.id = 'updIcon';
+          span.textContent = '⟳';
+          spin.replaceWith(span);
+        }
       }
-    });
+    }
+    updBtn.addEventListener('click', checkForUpdates);
   }
 
-  _reflectThemeChips() {
-    const mode = (window.App?.getTheme && window.App.getTheme()) || 'system';
-    this.shadowRoot.querySelectorAll('.chip.th').forEach(c =>
-      c.setAttribute('aria-pressed', String(c.getAttribute('data-mode') === mode))
-    );
-  }
-
-  _toast(msg) {
-    const t = this.shadowRoot.querySelector('.toast');
-    if (!t) return;
-    t.textContent = msg;
-    t.classList.add('show');
-    clearTimeout(this._to);
-    this._to = setTimeout(()=>t.classList.remove('show'), 1800);
+  connectedCallback(){
+    // nothing else; all wired in constructor for GH Pages safety
   }
 }
-
 customElements.define('fv-shell', FVShell);
