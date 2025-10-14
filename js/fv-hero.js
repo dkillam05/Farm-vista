@@ -1,28 +1,19 @@
-// FarmVista – Dashboard hero grid renderer (mounts 4 cards)
+// FarmVista – Dashboard hero grid renderer (robust auto-upgrade version)
 (function () {
+  const CARDS = [
+    { emoji: '🌱', title: 'Crop Production', subtitle: '🚧 Coming Soon' },
+    { emoji: '🚜', title: 'Equipment',       subtitle: '🚧 Coming Soon' },
+    { emoji: '🌾', title: 'Grain',           subtitle: '🚧 Coming Soon' },
+    { emoji: '📊', title: 'Reports',         subtitle: '🚧 Coming Soon' },
+  ];
+
   function mount() {
     const grid = document.getElementById('hero-grid');
     if (!grid) return;
 
-    // Ensure the custom element exists
-    if (!customElements.get('fv-hero-card')) {
-      grid.innerHTML = `
-        <div class="card" style="padding:12px">
-          Hero component not loaded. Check that /Farm-vista/js/fv-hero-card.js is present
-          and the cache-buster on the <script> tag is bumped.
-        </div>`;
-      return;
-    }
-
-    const cards = [
-      { emoji: '🌱', title: 'Crop Production', subtitle: '🚧 Coming Soon' },
-      { emoji: '🚜', title: 'Equipment',       subtitle: '🚧 Coming Soon' },
-      { emoji: '🌾', title: 'Grain',           subtitle: '🚧 Coming Soon' },
-      { emoji: '📊', title: 'Reports',         subtitle: '🚧 Coming Soon' },
-    ];
-
+    // Render immediately; custom element will upgrade when defined.
     grid.innerHTML = '';
-    for (const c of cards) {
+    for (const c of CARDS) {
       const el = document.createElement('fv-hero-card');
       el.setAttribute('emoji', c.emoji);
       el.setAttribute('title', c.title);
@@ -31,7 +22,6 @@
     }
   }
 
-  // Run after DOM is ready (safe if loaded late)
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mount, { once: true });
   } else {
