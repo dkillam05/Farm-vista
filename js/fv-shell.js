@@ -1,9 +1,7 @@
-// FarmVista — App Shell (people icon) v2025-10-13j
-// - Replaces gear with people icon (keeps same behavior/IDs)
-// - Gear sheet full-width, scrollable, safe-area padded
-// - Single "Check for updates (also clears cache)"
-// - Global scroll lock: only <main> scrolls (no gray rubber-band)
-// - Dev helper: ?gear=1 opens the sheet on load
+// FarmVista — App Shell (people icon + spinner + toasts) v2025-10-13k
+// - People menu button (👥) opens settings sheet
+// - One-button updater with spinner + progress + post-reload outcome toast
+// - Pinned footer; main is only scroller; safe-area aware
 
 class FVShell extends HTMLElement {
   constructor() {
@@ -99,15 +97,14 @@ class FVShell extends HTMLElement {
           white-space:nowrap; font-size:clamp(12px,1.6vw,14px); z-index:1;
         }
 
-        /* ===== People sheet (gear sheet) ===== */
+        /* ===== Settings sheet ===== */
         .gear{
           position:fixed; left:0; right:0;
-          top:calc(56px + var(--safe-top));  /* sits below header incl. notch */
+          top:calc(56px + var(--safe-top));
           background:var(--fv-green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15);
           transform-origin:top center; transform:scaleY(.98); opacity:0; visibility:hidden;
           transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002;
-          max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto;
-          -webkit-overflow-scrolling:touch;
+          max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto; -webkit-overflow-scrolling:touch;
         }
         .gear.show{ transform:scaleY(1); opacity:1; visibility:visible; }
         .gear-inner{ max-width:calc(var(--container-max) + 32px);
@@ -119,6 +116,15 @@ class FVShell extends HTMLElement {
         .row{ display:flex; align-items:center; justify-content:space-between; padding:12px 6px; border-radius:10px; cursor:pointer; }
         .row:hover{ background:rgba(255,255,255,.08); }
         .muted{ opacity:.8; font-size:.95em; }
+
+        /* tiny inline spinner for update action */
+        #updIcon .spin{
+          width:16px; height:16px; display:inline-block;
+          border:2px solid rgba(255,255,255,.35);
+          border-top-color:#fff; border-radius:50%;
+          animation: fvspin 0.9s linear infinite;
+        }
+        @keyframes fvspin { to { transform: rotate(360deg); } }
       </style>
 
       <div class="shell">
@@ -175,7 +181,7 @@ class FVShell extends HTMLElement {
 
         <footer class="foot"><div id="footLine">© 2025 FarmVista • </div></footer>
 
-        <!-- People sheet -->
+        <!-- Settings sheet -->
         <div class="gear" id="gearSheet" role="menu" aria-label="User menu">
           <div class="gear-inner">
             <div class="section-title">Theme</div>
@@ -191,7 +197,10 @@ class FVShell extends HTMLElement {
             <div class="row"><div>Security</div><div class="muted">Coming soon</div></div>
 
             <div class="section-title">Maintenance</div>
-            <div class="row" id="btnUpdateAll"><div>Check for updates (also clears cache)</div><div>↻</div></div>
+            <div class="row" id="btnUpdateAll" aria-busy="false">
+              <div>Check for updates (also clears cache)</div>
+              <div id="updIcon">↻</div>
+            </div>
           </div>
         </div>
       </div>
@@ -203,6 +212,34 @@ class FVShell extends HTMLElement {
     this._initVersion();
     this._initFooterDate();
     const logo = this.$("#farmLogo"); if (logo) logo.src = "/Farm-vista/assets/icons/logo.png";
+  }
+
+  /* ===== Toasts & spinners ===== */
+  _showToast(msg, ms=2200){
+    let el = this._root.getElementById('fvToast');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'fvToast';
+      el.style.cssText = `
+        position:fixed; left:50%; top:70px; transform:translateX(-50%);
+        z-index:2000; background:rgba(0,0,0,.85); color:#fff;
+        padding:10px 12px; border-radius:10px; font-size:14px;
+        box-shadow:0 8px 18px rgba(0,0,0,.25); transition:opacity .18s ease;
+      `;
+      this._root.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = '1';
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(()=>{ el.style.opacity='0'; }, ms);
+  }
+  _setUpdating(isOn){
+    const row = this.$('#btnUpdateAll');
+    const ico = this.$('#updIcon');
+    if(!row || !ico) return;
+    row.setAttribute('aria-busy', String(isOn));
+    row.style.pointerEvents = isOn ? 'none' : '';
+    ico.innerHTML = isOn ? '<span class="spin" aria-hidden="true"></span>' : '↻';
   }
 
   connectedCallback(){
@@ -248,7 +285,7 @@ class FVShell extends HTMLElement {
       }
     });
 
-    // open/close the people sheet
+    // open/close the settings sheet
     btnGear.addEventListener("click", () => {
       const open = !gear.classList.contains("show");
       gear.classList.toggle("show", open);
@@ -296,6 +333,13 @@ class FVShell extends HTMLElement {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/Farm-vista/serviceworker.js").catch(()=>{});
     }
+
+    // Post-reload outcome toast
+    const post = sessionStorage.getItem('fv-postUpdateMsg');
+    if (post) {
+      this._showToast(post, 2600);
+      sessionStorage.removeItem('fv-postUpdateMsg');
+    }
   }
 
   /* ===== Version + date ===== */
@@ -323,33 +367,56 @@ class FVShell extends HTMLElement {
   /* ===== Update utilities ===== */
   async _fetchLatestVersion(){
     try{
-      const res = await fetch("/Farm-vista/js/version.js?rev="+Date.now(), {cache:"no-store"});
+      const res  = await fetch("/Farm-vista/js/version.js?rev="+Date.now(), {cache:"no-store"});
       const text = await res.text();
       const m = text.match(/FarmVistaVersion\\s*=\\s*["']([^"']+)["']/);
       return m ? m[1] : null;
     }catch{ return null; }
   }
-  async _clearCachesAndReload(){
+
+  async _clearCachesAndReload(latestTag){
     try{
+      // show outcome after reload
+      if (latestTag) sessionStorage.setItem('fv-postUpdateMsg', \`Updated & refreshed (v\${latestTag}).\`);
+      else sessionStorage.setItem('fv-postUpdateMsg', 'Refreshed with latest files.');
+
+      // unregister all SWs
       if ("serviceWorker" in navigator) {
         const regs = await navigator.serviceWorker.getRegistrations();
-        for (const reg of regs) await reg.unregister();
+        for (const reg of regs) { await reg.unregister(); }
       }
+      // delete caches
       if ("caches" in window) {
         const keys = await caches.keys();
-        for (const k of keys) await caches.delete(k);
+        for (const k of keys) { await caches.delete(k); }
       }
+      // preserve theme only
       const theme = localStorage.getItem("fv-theme");
-      localStorage.clear();
+      localStorage.clear(); sessionStorage.removeItem('fv-postUpdateMsg'); // keep only our message
+      // re-set post message after clear
+      if (latestTag) sessionStorage.setItem('fv-postUpdateMsg', \`Updated & refreshed (v\${latestTag}).\`);
+      else sessionStorage.setItem('fv-postUpdateMsg', 'Refreshed with latest files.');
       if (theme) localStorage.setItem("fv-theme", theme);
-      const url = location.pathname + "?rev=" + Date.now();
-      location.replace(url);
-    }catch{ location.reload(); }
+
+      await new Promise(r => setTimeout(r, 150)); // let SW fully release
+      const stamp = latestTag || Date.now();
+      location.replace(location.pathname + "?rev=" + encodeURIComponent(stamp));
+    }catch(e){
+      sessionStorage.setItem('fv-postUpdateMsg', 'Refreshed.');
+      location.reload();
+    }
   }
+
   async _checkForUpdatesAndRefresh(){
-    const _current = (window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"0.0.0";
-    const _latest  = await this._fetchLatestVersion(); // not used to block; we refresh regardless
-    await this._clearCachesAndReload();
+    this._setUpdating(true);
+    this._showToast('Checking for updates…', 1200);
+    const current = (window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||"0.0.0";
+    let latest = await this._fetchLatestVersion();
+    if (!latest) latest = current || Date.now().toString();
+    this._showToast('Clearing cache…', 1000);
+    await this._clearCachesAndReload(latest);
+    // If reload is blocked for any reason, fall back to UI reset
+    setTimeout(()=>this._setUpdating(false), 4000);
   }
 }
 customElements.define("fv-shell", FVShell);
