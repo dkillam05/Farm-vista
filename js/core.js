@@ -1,15 +1,26 @@
 /* ==========================================================
    FarmVista — Core (minimal)
    - Applies saved theme ASAP (prevents flash)
+   - Uses data-theme="light|dark|auto" to match theme.css
    - Keeps "system" theme in sync with OS changes
    - Exposes a tiny App API you can use later
    - Surfaces version info from js/version.js (if present)
+   - NO UI WIRING here (fv-shell owns the menu/chips)
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";           // "system" | "light" | "dark"
   const html = doc.documentElement;
 
   // ----- Theme -----
+  function computeDark(mode) {
+    if (mode === "dark") return true;
+    if (mode === "light") return false;
+    // system
+    try {
+      return !!(global.matchMedia && global.matchMedia("(prefers-color-scheme: dark)").matches);
+    } catch { return false; }
+  }
+
   function applyTheme(mode) {
     // Default to "system"
     if (!mode) mode = "system";
@@ -17,17 +28,15 @@
     // Persist choice
     try { localStorage.setItem(THEME_KEY, mode); } catch {}
 
-    // Compute whether we should be dark
-    let dark = false;
-    if (mode === "dark") dark = true;
-    else if (mode === "system") {
-      try {
-        dark = global.matchMedia && global.matchMedia("(prefers-color-scheme: dark)").matches;
-      } catch { dark = false; }
-    }
+    // Set attribute expected by /assets/css/theme.css
+    // system => data-theme="auto"
+    const attr = (mode === "system") ? "auto" : mode; // "light" | "dark" | "auto"
+    html.setAttribute("data-theme", attr);
 
-    // Toggle class on <html> (fv-shell + components follow it)
-    html.classList.toggle("dark", !!dark);
+    // Also toggle a .dark class for components that rely on it (e.g., fv-hero-card)
+    const dark = computeDark(mode);
+    html.classList.toggle("dark", dark);
+
     return mode;
   }
 
@@ -39,7 +48,7 @@
     // Keep "system" in sync with OS changes
     try {
       const mq = global.matchMedia("(prefers-color-scheme: dark)");
-      mq.addEventListener && mq.addEventListener("change", () => {
+      mq.addEventListener?.("change", () => {
         const current = (localStorage.getItem(THEME_KEY) || "system");
         if (current === "system") applyTheme("system");
       });
@@ -71,9 +80,7 @@
 
   // Optional: broadcast a theme-change event (useful later)
   function notifyTheme(mode) {
-    try {
-      doc.dispatchEvent(new CustomEvent("fv:theme", { detail: { mode } }));
-    } catch {}
+    try { doc.dispatchEvent(new CustomEvent("fv:theme", { detail: { mode } })); } catch {}
   }
   const _setTheme = App.setTheme;
   App.setTheme = (mode) => { const m = _setTheme(mode); notifyTheme(m); return m; };
