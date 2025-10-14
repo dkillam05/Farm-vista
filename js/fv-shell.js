@@ -198,7 +198,7 @@ class FVShell extends HTMLElement {
 
             <div class="section-title">Maintenance</div>
             <div class="row" id="btnUpdateAll" aria-busy="false">
-              <div>Check for updates (also clears cache)</div>
+              <div>Check for updates</div>
               <div id="updIcon">↻</div>
             </div>
           </div>
