@@ -1,4 +1,4 @@
-/* FarmVista — <fv-shell> v4.2 (header icon sizing + panel right anchor) */
+/* FarmVista — <fv-shell> v4.3 (fix drawer selectors for shadow DOM) */
 (function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -6,8 +6,7 @@
     :host{
       --green:#3B7E46; --gold:#D0C542;
       --surface:var(--surface,#fff); --text:var(--text,#141514);
-      --hdr-h:56px; /* base, we add safe-area in runtime */
-      --ftr-h:42px;
+      --hdr-h:56px; --ftr-h:42px;
       display:block; color:var(--text); background:var(--page, var(--app-bg,#f5f7f4));
       min-height:100vh; position:relative;
     }
@@ -18,21 +17,17 @@
       height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px);
       background:var(--brand-green,var(--green)); color:#fff;
-      display:grid; grid-template-columns:56px 1fr 56px; align-items:center;   /* CHANGED */
+      display:grid; grid-template-columns:56px 1fr 56px; align-items:center;
       z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05);
     }
     .hdr .title{ text-align:center; font-weight:800; font-size:20px; }
     .iconbtn{
-      display:grid; place-items:center;
-      width:48px; height:48px;                                              /* CHANGED */
-      border:none; background:transparent; color:#fff;
-      font-size:28px; line-height:1;                                        /* CHANGED */
-      -webkit-tap-highlight-color: transparent;
-      margin:0 auto;                                                        /* centers inside 56px cell */
+      display:grid; place-items:center; width:48px; height:48px;
+      border:none; background:transparent; color:#fff; font-size:28px; line-height:1;
+      -webkit-tap-highlight-color: transparent; margin:0 auto;
     }
     .gold-bar{
-      position:fixed;
-      top:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
+      position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       left:0; right:0; height:3px; background:var(--brand-gold,var(--gold)); z-index:999;
     }
 
@@ -59,7 +54,10 @@
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
     /* ===== Sidebar (drawer) ===== */
-    .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
+    .scrim{
+      position:fixed; inset:0; background:rgba(0,0,0,.45);
+      opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;
+    }
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background:#fff; color:#222; box-shadow:0 0 36px rgba(0,0,0,.25);
@@ -70,13 +68,14 @@
     .drawer header{ padding:16px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:12px; }
     .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color:#222; border-bottom:1px solid #f3f3f3; }
     .drawer footer{ padding:14px 16px; font-size:14px; color:#777; }
-    .drawer-open .scrim{ opacity:1; pointer-events:auto; }
-    .drawer-open .drawer{ transform:translateX(0); }
+
+    /* ✅ Correct: react to a class on the HOST inside shadow DOM */
+    :host(.drawer-open) .scrim{ opacity:1; pointer-events:auto; }
+    :host(.drawer-open) .drawer{ transform:translateX(0); }
 
     /* ===== Account panel ===== */
     .panel{
-      position:fixed;
-      right:8px; left:auto;                                                 /* CHANGED: anchor to right */
+      position:fixed; right:8px; left:auto;
       top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 8px);
       background:#fff; color:#111; border:1px solid #e6e6e6; border-radius:12px; box-shadow:0 18px 44px rgba(0,0,0,.28);
       min-width:300px; max-width:92vw; z-index:1300; display:none; overflow:hidden;
@@ -195,7 +194,6 @@
 
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
 
-      /* --- Hero component detector: helps when fv-hero.js didn't load --- */
       setTimeout(()=>{
         if (!customElements.get('fv-hero-card')) {
           this._toastMsg('Hero components not loaded. Check /js/fv-hero.js path or cache.');
