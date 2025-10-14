@@ -1,6 +1,8 @@
-// FarmVista — App Shell (stable) v2025-10-13m
-// People menu, pinned footer, one-button updater with spinner + toasts,
-// safe-area padding, main-only scrolling (prevents gray rubber-band).
+// FarmVista — App Shell (theme fix) v2025-10-13n
+// - Theme chips guaranteed clickable (shows ring)
+// - Immediate Light/Dark visual switch (shell-level styles)
+// - One-button updater with spinner + toasts
+// - Pinned footer; main-only scrolling to avoid gray rubber-band
 
 class FVShell extends HTMLElement {
   constructor(){
@@ -8,96 +10,120 @@ class FVShell extends HTMLElement {
     const r = this.attachShadow({mode:'open'});
     r.innerHTML = `
 <style>
-:host{display:block;
-  --fv-green:#3B7E46; --fv-gold:#D0C542; --fv-bg:#0f1210; /* dark bg baseline */
-  --fv-gun:#CBCDCB; --fv-text:#141514;
-  --sidebar-w:280px; --sidebar-mini:72px; --container-max:1040px;
+:host{
+  display:block;
+  --fv-green:#3B7E46; --fv-gold:#D0C542;
+  --bg: #f0f2ef;      /* light default */
+  --ink:#141514;
+  --sb-bg:#ffffff; --sb-ink:#141514; --hair:rgba(0,0,0,.08);
+  --card-shadow:0 10px 22px rgba(0,0,0,.12);
   --safe-right: env(safe-area-inset-right,0px);
   --safe-left:  env(safe-area-inset-left,0px);
   --safe-top:   env(safe-area-inset-top,0px);
 }
-:host(.light){ --fv-bg:#f0f2ef; }
 
-.shell{height:100dvh; display:grid;
-  grid-template-columns: var(--sidebar-mini) 1fr;
-  grid-template-rows: auto 1fr auto;
-  overflow:hidden; background:var(--fv-bg); color:#000;
+/* Dark palette applied when html gets .dark (set by JS) */
+:host-context(.dark){
+  --bg: #0f1210;
+  --ink:#e8eee9;
+  --sb-bg:#151b17; --sb-ink:#e8eee9; --hair:#253228;
 }
-.shell.expanded{ grid-template-columns: var(--sidebar-w) 1fr; }
 
-/* Header */
-header.h{grid-column:1/-1; background:var(--fv-green); color:#fff;
+/* ===== Shell grid ===== */
+.shell{
+  height:100dvh; display:grid;
+  grid-template-columns: 72px 1fr;
+  grid-template-rows: auto 1fr auto;
+  overflow:hidden; background:var(--bg); color:var(--ink);
+}
+.shell.expanded{ grid-template-columns: 280px 1fr; }
+
+/* ===== Header ===== */
+header.h{
+  grid-column:1/-1; background:var(--fv-green); color:#fff;
   position:sticky; top:0; z-index:1000; border-bottom:1px solid rgba(0,0,0,.15);
 }
-.h-top{display:flex; align-items:center; justify-content:space-between; gap:12px;
+.h-top{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
   padding:10px max(14px,var(--safe-right)) 10px max(14px,var(--safe-left));
   padding-top:calc(10px + var(--safe-top));
-  max-width:calc(var(--container-max) + 32px); margin:0 auto;
+  max-width:1072px; margin:0 auto;
 }
 .word{font-weight:800; font-size:20px; letter-spacing:.3px; white-space:nowrap;}
-.btn{display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
-  border-radius:9px; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.28); cursor:pointer;}
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
+  border-radius:9px; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.28); cursor:pointer;
+}
 .h-accent{height:3px; background:var(--fv-gold);}
 .offline{display:none; background:var(--fv-gold); color:#141514; text-align:center; padding:8px 14px; font-weight:600;}
 .offline.show{display:block}
 
-/* Sidebar */
-aside.sb{grid-row:2/span 1; background:#fff; color:#141514; border-right:1px solid rgba(0,0,0,.08);
+/* ===== Sidebar ===== */
+aside.sb{
+  grid-row:2/span 1; background:var(--sb-bg); color:var(--sb-ink); border-right:1px solid var(--hair);
   position:sticky; top:0; height:100%; display:flex; flex-direction:column;
 }
-@media (min-width:1024px){ .sb{width:var(--sidebar-mini); transition:width .18s ease;}
-  .shell.expanded .sb{ width:var(--sidebar-w); }
+@media (min-width:1024px){
+  .shell{ grid-template-columns: 72px 1fr; }
+  .shell.expanded{ grid-template-columns: 280px 1fr; }
 }
 @media (max-width:1023px){
-  .shell{grid-template-columns:1fr;}
-  aside.sb{position:fixed; left:0; top:0; bottom:0; width:84vw; max-width:320px;
-    transform:translateX(-100%); transition:transform .2s ease; z-index:1001; box-shadow:0 10px 22px rgba(0,0,0,.18);}
+  .shell{ grid-template-columns: 1fr; }
+  aside.sb{
+    position:fixed; left:0; top:0; bottom:0; width:84vw; max-width:320px;
+    transform:translateX(-100%); transition:transform .2s ease; z-index:1001; box-shadow:var(--card-shadow);
+  }
   .shell.mopen aside.sb{ transform:translateX(0); }
 }
-.sb-head{padding:14px 12px; border-bottom:1px solid rgba(0,0,0,.08);}
+.sb-head{padding:14px 12px; border-bottom:1px solid var(--hair);}
 .farm{display:flex; align-items:center; gap:10px;}
-.flogo{width:36px; height:36px; border-radius:8px; object-fit:contain; background:#f0f2ef; border:1px solid rgba(0,0,0,.06);}
+.flogo{width:36px; height:36px; border-radius:8px; object-fit:contain; background:#f0f2ef; border:1px solid var(--hair);}
 .ftitle{font-weight:700;}
 .fsub{font-size:13px; opacity:.8;}
 @media (min-width:1024px){ .shell:not(.expanded) .ftitle, .shell:not(.expanded) .fsub{display:none} }
 nav.menu{padding:8px; overflow:auto; flex:1;}
 a.item{display:flex; align-items:center; gap:10px; padding:10px; border-radius:10px; text-decoration:none; color:inherit;}
-a.item:hover{background:#f4f6f4;}
+a.item:hover{background:color-mix(in srgb, var(--fv-green) 8%, transparent);}
 .em{width:24px; text-align:center;}
 .lbl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 @media (min-width:1024px){ .shell:not(.expanded) .lbl{display:none} }
-.sb-foot{border-top:1px solid rgba(0,0,0,.08); padding:12px; font-size:12.5px; color:#2b2e2b;}
+.sb-foot{border-top:1px solid var(--hair); padding:12px; font-size:12.5px;}
 .sb-foot strong{font-weight:800;}
-.sb-tag{margin-top:4px; color:#49514d;}
+.sb-tag{margin-top:4px; opacity:.8;}
 
 .scrim{position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s; z-index:1000;}
 .scrim.show{opacity:1; pointer-events:auto}
 
-/* Main (only scroller) */
+/* ===== Main (only scroller) ===== */
 main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; background:transparent;}
-.container{max-width:var(--container-max); margin:0 auto; padding:18px 14px 14px;}
+.container{max-width:1040px; margin:0 auto; padding:18px 14px 14px;}
 
-/* Footer pinned */
-footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green); color:#fff;
+/* ===== Footer pinned ===== */
+footer.f{
+  grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green); color:#fff;
   border-top:3px solid var(--fv-gold); display:grid; place-items:center;
-  padding:10px max(14px,var(--safe-right)); white-space:nowrap; font-size:clamp(12px,1.6vw,14px); z-index:1;}
+  padding:10px max(14px,var(--safe-right)); white-space:nowrap; font-size:clamp(12px,1.6vw,14px); z-index:1;
+}
 
-/* Settings sheet (people) */
-.sheet{position:fixed; left:0; right:0; top:calc(56px + var(--safe-top)); background:var(--fv-green); color:#fff;
+/* ===== Settings sheet ===== */
+.sheet{
+  position:fixed; left:0; right:0; top:calc(56px + var(--safe-top)); background:var(--fv-green); color:#fff;
   border-bottom:1px solid rgba(0,0,0,.15); transform:scaleY(.98); opacity:0; visibility:hidden;
   transform-origin:top center; transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002;
   max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto; -webkit-overflow-scrolling:touch;
 }
 .sheet.show{transform:scaleY(1); opacity:1; visibility:visible}
-.sheet-in{max-width:calc(var(--container-max) + 32px); margin:0 auto;
-  padding:8px max(14px,var(--safe-right)) 14px max(14px,var(--safe-left));}
+.sheet-in{max-width:1072px; margin:0 auto; padding:8px max(14px,var(--safe-right)) 14px max(14px,var(--safe-left));}
 .sttl{text-transform:uppercase; letter-spacing:.12em; font-size:12px; opacity:.9; margin:6px 0 2px 4px;}
 .chips{display:flex; gap:8px; flex-wrap:wrap; padding:6px 4px 8px;}
-.chip{border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff; padding:8px 12px; border-radius:999px; cursor:pointer;}
-.chip[aria-pressed="true"]{outline:2px solid #fff; outline-offset:2px;}
+.chip{
+  border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff;
+  padding:8px 12px; border-radius:999px; cursor:pointer; user-select:none;
+}
+.chip[aria-pressed="true"]{ outline:2px solid #fff; outline-offset:2px; }
 .row{display:flex; align-items:center; justify-content:space-between; padding:12px 6px; border-radius:10px; cursor:pointer;}
 .row:hover{background:rgba(255,255,255,.08);}
-.muted{opacity:.85;}
+.muted{opacity:.85}
 
 /* Spinner + toast */
 #updIcon .spin{width:16px; height:16px; display:inline-block; border:2px solid rgba(255,255,255,.35);
@@ -115,6 +141,7 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
       </button>
       <div class="word">FarmVista</div>
       <button class="btn" id="btnGear" title="User menu" aria-haspopup="menu" aria-expanded="false" aria-label="User menu">
+        <!-- People icon -->
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
           <circle cx="9" cy="7" r="4"/>
@@ -158,13 +185,14 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
 
   <footer class="f"><div id="footLine">© 2025 FarmVista • </div></footer>
 
+  <!-- Settings (people) -->
   <div class="sheet" id="sheet" role="menu" aria-label="User menu">
     <div class="sheet-in">
       <div class="sttl">Theme</div>
       <div class="chips">
-        <button class="chip" data-theme="system" aria-pressed="false">System</button>
-        <button class="chip" data-theme="light"  aria-pressed="false">Light</button>
-        <button class="chip" data-theme="dark"   aria-pressed="false">Dark</button>
+        <button class="chip" data-theme="system" aria-pressed="false" id="chipSystem">System</button>
+        <button class="chip" data-theme="light"  aria-pressed="false" id="chipLight">Light</button>
+        <button class="chip" data-theme="dark"   aria-pressed="false" id="chipDark">Dark</button>
       </div>
 
       <div class="sttl">Profile</div>
@@ -174,8 +202,7 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
 
       <div class="sttl">Maintenance</div>
       <div class="row" id="btnUpdateAll" aria-busy="false">
-        <div>Check for updates</div>
-        <div id="updIcon">↻</div>
+        <div>Check for updates (also clears cache)</div><div id="updIcon">↻</div>
       </div>
     </div>
   </div>
@@ -185,16 +212,16 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
     this._root = r;
     this.$ = (s)=>r.querySelector(s);
 
-    // Logo path
+    // Logo
     const logo=this.$('#farmLogo'); if (logo) logo.src='/Farm-vista/assets/icons/logo.png';
 
-    // Version & footer date
+    // Version + footer date
     this._initVersion();
     this._initFooterDate();
   }
 
   connectedCallback(){
-    /* Lock global scroll so only <main> scrolls (fixes gray bounce) */
+    // Lock global scroll so only <main> scrolls (fixes gray bounce)
     const ID='fv-global-lock-style';
     if(!document.getElementById(ID)){
       const s=document.createElement('style'); s.id=ID;
@@ -211,44 +238,46 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
       shell.classList.remove('mopen'); scrim.classList.remove('show');
       sheet.classList.remove('show'); btnGear.setAttribute('aria-expanded','false');
     };
-    const apply=()=>{
-      closeOverlays(); shell.classList.remove('expanded');
-    };
-    addEventListener('resize', apply); apply();
+    addEventListener('resize', ()=>closeOverlays());
 
     btnMenu.addEventListener('click', ()=>{
       if(isDesktop()) shell.classList.toggle('expanded');
-      else {
+      else{
         const on=!shell.classList.contains('mopen');
-        shell.classList.toggle('mopen', on);
-        scrim.classList.toggle('show', on);
+        shell.classList.toggle('mopen', on); scrim.classList.toggle('show', on);
         if(on) sheet.classList.remove('show');
       }
     });
+
     btnGear.addEventListener('click', ()=>{
       const on=!sheet.classList.contains('show');
       sheet.classList.toggle('show', on);
       btnGear.setAttribute('aria-expanded', String(on));
       scrim.classList.toggle('show', on);
       if(on) shell.classList.remove('mopen');
+      // reflect selection each time it opens so the ring is correct
+      this._reflectThemeChips();
     });
     scrim.addEventListener('click', closeOverlays);
 
-    // Theme chips
-    const reflect=()=>{
-      const m=localStorage.getItem('fv-theme')||'system';
-      this._root.querySelectorAll('.chip[data-theme]').forEach(b=>{
-        b.setAttribute('aria-pressed', String(b.getAttribute('data-theme')===m));
-      });
-      document.documentElement.classList.remove('dark');
-      if(m==='dark') document.documentElement.classList.add('dark');
-      else if(m==='system' && matchMedia('(prefers-color-scheme: dark)').matches)
-        document.documentElement.classList.add('dark');
-    };
-    this._root.querySelectorAll('.chip[data-theme]').forEach(b=>{
-      b.addEventListener('click', ()=>{ localStorage.setItem('fv-theme', b.getAttribute('data-theme')||'system'); reflect(); });
+    // Wire theme chips (robust listeners)
+    ['chipSystem','chipLight','chipDark'].forEach(id=>{
+      const el=this.$('#'+id);
+      el?.addEventListener('click', ()=>{
+        const mode = el.getAttribute('data-theme') || 'system';
+        try{ localStorage.setItem('fv-theme', mode); }catch{}
+        this._applyTheme(mode);
+        this._reflectThemeChips();
+      }, {passive:true});
     });
-    reflect();
+
+    // Apply saved theme on load
+    const saved = (()=>{ try{ return localStorage.getItem('fv-theme') || 'system'; }catch{ return 'system'; }})();
+    this._applyTheme(saved);
+    this._reflectThemeChips();
+
+    // Update action
+    this.$('#btnUpdateAll')?.addEventListener('click', ()=> this._checkForUpdatesAndRefresh());
 
     // Offline banner
     const onOff=()=>offline?.classList.add('show');
@@ -256,10 +285,7 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
     addEventListener('offline', onOff); addEventListener('online', onOn);
     if(!navigator.onLine) onOff();
 
-    // Update action
-    this.$('#btnUpdateAll')?.addEventListener('click', ()=> this._checkForUpdatesAndRefresh());
-
-    // SW register (safe no-op if file missing)
+    // Service worker
     if('serviceWorker' in navigator){
       navigator.serviceWorker.register('/Farm-vista/serviceworker.js').catch(()=>{});
     }
@@ -269,7 +295,22 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
     if(post){ this._toast(post, 2600); sessionStorage.removeItem('fv-postUpdateMsg'); }
   }
 
-  /* ===== Small UI helpers ===== */
+  /* ===== Theme helpers ===== */
+  _applyTheme(mode){
+    // Set html.dark class (drives :host-context(.dark) styles)
+    const root = document.documentElement;
+    root.classList.remove('dark');
+    if (mode === 'dark') root.classList.add('dark');
+    else if (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add('dark');
+  }
+  _reflectThemeChips(){
+    const m = (()=>{ try{ return localStorage.getItem('fv-theme') || 'system'; }catch{ return 'system'; }})();
+    this._root.querySelectorAll('.chip[data-theme]').forEach(ch=>{
+      ch.setAttribute('aria-pressed', String(ch.getAttribute('data-theme')===m));
+    });
+  }
+
+  /* ===== Toast + spinner ===== */
   _toast(msg, ms=2200){
     let el=this._root.getElementById('fvToast');
     if(!el){
@@ -302,7 +343,7 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
     const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'long',month:'long',day:'numeric',year:'numeric'});
     const parts=fmt.formatToParts(d).reduce((a,p)=> (a[p.type]=p.value,a),{});
     const n=parseInt(parts.day,10); const s=(n%10===1&&n%100!==11)?'st':(n%10===2&&n%100!==12)?'nd':(n%10===3&&n%100!==13)?'rd':'th';
-    el.textContent=`© ${parts.year} FarmVista • ${parts.weekday}, ${parts.month} ${n}${s}, ${parts.year}`;
+    el.textContent=\`© \${parts.year} FarmVista • \${parts.weekday}, \${parts.month} \${n}\${s}, \${parts.year}\`;
   }
 
   /* ===== Update logic ===== */
@@ -310,16 +351,14 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
     try{
       const res=await fetch('/Farm-vista/js/version.js?rev='+Date.now(), {cache:'no-store'});
       const text=await res.text();
-      const rx=new RegExp('FarmVistaVersion\\s*=\\s*["\\\']([^"\\\']+)["\\\']');
-      const m=text.match(rx);
+      const m=text.match(/FarmVistaVersion\\s*=\\s*["']([^"']+)["']/);
       return m?m[1]:null;
     }catch{ return null; }
   }
   async _clearCachesAndReload(tag){
     try{
-      if(tag) sessionStorage.setItem('fv-postUpdateMsg', `Updated & refreshed (v${tag}).`);
+      if(tag) sessionStorage.setItem('fv-postUpdateMsg', \`Updated & refreshed (v\${tag}).\`);
       else sessionStorage.setItem('fv-postUpdateMsg', 'Refreshed with latest files.');
-
       if('serviceWorker' in navigator){
         const regs=await navigator.serviceWorker.getRegistrations();
         for(const reg of regs){ await reg.unregister(); }
@@ -330,8 +369,7 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
       }
       const theme=localStorage.getItem('fv-theme');
       localStorage.clear();
-      if(theme) localStorage.setItem('fv-theme', theme);
-
+      if (theme) localStorage.setItem('fv-theme', theme);
       await new Promise(r=>setTimeout(r,150));
       const stamp=tag||Date.now();
       location.replace(location.pathname + '?rev=' + encodeURIComponent(stamp));
@@ -348,7 +386,7 @@ footer.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green)
     if(!latest) latest=current || String(Date.now());
     this._toast('Clearing cache…', 1000);
     await this._clearCachesAndReload(latest);
-    setTimeout(()=>this._spin(false), 4000); // safety
+    setTimeout(()=>this._spin(false), 4000);
   }
 }
 customElements.define('fv-shell', FVShell);
