@@ -206,7 +206,6 @@
       <h6>PROFILE</h6>
       <div class="linkrow"><a href="#">Account details</a><span class="tiny">Coming soon</span></div>
       <div class="linkrow"><a href="#">Feedback</a><span class="tiny">Coming soon</span></div>
-      <div class="linkrow"><a href="#">Security</a><span class="tiny">Coming soon</span></div>
     </div>
     <div class="sec seg">
       <h6>MAINTENANCE</h6>
@@ -278,7 +277,7 @@
       // Update button
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
 
-      // Small helper for debugging where the version came from
+      // Quick helper to verify source of version during debugging
       window.__fvWhereVersionFrom = function(){
         return {
           FV_VERSION: !!window.FV_VERSION,
