@@ -1,8 +1,10 @@
-/* FarmVista — <fv-shell> v4.8
-   - Sidebar header: logo LEFT, "Dowson Farms" + "Divernon, Illinois" RIGHT
-   - Drawer footer (pinned): LEFT (FarmVista + slogan), RIGHT (live version)
-   - Updater UX: spinner + sequenced toasts + real cache/SW clear + cache-busted reload
-   - Version source unified: window.FV_VERSION (SSOT)
+/* FarmVista — <fv-shell> v5.0
+   - Account UI is now a "Top Drawer" (John Deere style):
+     • Slides down, covers the header, brand-green background
+     • Brand row (logo + FarmVista)
+     • List rows with chevrons, logout row at bottom
+     • Tap outside or Esc to close
+   - Sidebar, footer, updater, and version (FV_VERSION) preserved
 */
 (function () {
   const tpl = document.createElement('template');
@@ -58,23 +60,25 @@
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
-    /* ===== Sidebar (drawer) ===== */
+    /* ===== Shared scrim (side + top drawers) ===== */
     .scrim{
       position:fixed; inset:0; background:rgba(0,0,0,.45);
       opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;
     }
+    :host(.drawer-open) .scrim,
+    :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
+
+    /* ===== Sidebar (left drawer) ===== */
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background:#fff; color:#222; box-shadow:0 0 36px rgba(0,0,0,.25);
       transform:translateX(-100%); transition:transform .25s; z-index:1200;
       -webkit-overflow-scrolling:touch;
-
-      /* Footer pinned / only nav scrolls */
       display:flex; flex-direction:column; height:100%; overflow:hidden;
       padding-bottom:env(safe-area-inset-bottom,0px);
     }
+    :host(.drawer-open) .drawer{ transform:translateX(0); }
 
-    /* Header (org block) */
     .drawer header{
       padding:16px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:12px; flex:0 0 auto;
     }
@@ -83,14 +87,10 @@
     .org .org-text{ display:flex; flex-direction:column; }
     .org .org-name{ font-weight:800; line-height:1.15; }
     .org .org-loc{ font-size:13px; color:#666; }
-
-    /* Nav */
     .drawer nav{ flex:1 1 auto; overflow:auto; }
     .drawer nav a{
       display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color:#222; border-bottom:1px solid #f3f3f3;
     }
-
-    /* Drawer footer (pinned bottom) */
     .drawer-footer{
       flex:0 0 auto;
       display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
@@ -103,37 +103,64 @@
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
 
-    /* State */
-    :host(.drawer-open) .scrim{ opacity:1; pointer-events:auto; }
-    :host(.drawer-open) .drawer{ transform:translateX(0); }
-
-    /* Account panel */
-    .panel{
-      position:fixed; right:8px; left:auto;
-      top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 8px);
-      background:#fff; color:#111; border:1px solid #e6e6e6; border-radius:12px; box-shadow:0 18px 44px rgba(0,0,0,.28);
-      min-width:300px; max-width:92vw; z-index:1300; display:none; overflow:hidden;
+    /* ===== Top Drawer (Account) — JD style ===== */
+    .topdrawer{
+      position:fixed; left:0; right:0; top:0;
+      transform:translateY(-105%); transition:transform .26s ease;
+      z-index:1300;
+      background:var(--brand-green, var(--green)); color:#fff;
+      box-shadow:0 20px 44px rgba(0,0,0,.35);
+      border-bottom-left-radius:16px; border-bottom-right-radius:16px;
+      padding-top:calc(env(safe-area-inset-top,0px) + 8px);
+      max-height:72vh; overflow:auto;
     }
-    .panel.open{ display:block; }
-    .panel .sec{ padding:14px 16px; }
-    .panel h6{ margin:0 0 10px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:#6c6f6a; }
-    .seg{ border-top:1px solid #eee; }
+    :host(.top-open) .topdrawer{ transform:translateY(0); }
 
+    .topwrap{ padding:6px 10px 14px; }
+
+    /* Brand row */
+    .brandrow{
+      display:flex; align-items:center; gap:10px;
+      padding:10px 8px 12px 8px;
+    }
+    .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
+    .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
+
+    /* JD-like list rows with chevrons */
+    .list{
+      display:block; margin-top:4px; border-top:1px solid color-mix(in srgb,#000 22%, var(--brand-green, var(--green)));
+      background:transparent;
+    }
+    .row{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 12px; text-decoration:none; color:#fff;
+      border-bottom:1px solid color-mix(in srgb,#000 22%, var(--brand-green, var(--green)));
+    }
+    .row .left{ display:flex; align-items:center; gap:10px; }
+    .row .ico{ width:22px; text-align:center; opacity:.95; }
+    .row .txt{ font-size:16px; }
+    .row .chev{ opacity:.9; }
+
+    /* Theme section: chips on green */
+    .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
+    .chips{ padding:0 12px 10px; }
     .chip{
-      appearance:none; border:1.5px solid #d7dbd3; padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700;
+      appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent);
+      padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700;
       display:inline-flex; align-items:center; gap:8px;
     }
-    .chip[aria-pressed="true"]{ outline:3px solid #fff; background:var(--brand-green,var(--green)); color:#fff; border-color:transparent; }
+    .chip[aria-pressed="true"]{
+      outline:3px solid color-mix(in srgb,#fff 25%, transparent);
+      background:var(--brand-gold,var(--gold)); color:#111; border-color:transparent;
+    }
 
-    /* Refresh icon for update button */
+    /* Update button spinner */
     .chip .spin{ font-size:15px; display:inline-block; transform-origin:center; }
     .chip[aria-busy="true"] .spin{ animation: fvspin 900ms linear infinite; }
     @keyframes fvspin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
     .chip[aria-busy="true"]{ opacity:.9; pointer-events:none; }
 
-    .linkrow{ display:flex; align-items:center; justify-content:space-between; padding:12px 0; }
-    .linkrow a{ color:#111; text-decoration:none; }
-    .tiny{ font-size:13px; color:#666; }
+    .hint{ font-size:13px; color:color-mix(in srgb,#fff 75%, transparent); padding-left:12px; }
 
     /* Toast */
     .toast{
@@ -144,15 +171,13 @@
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* Dark mode */
+    /* Dark mode for left drawer; top drawer stays green */
     :host-context(.dark) .drawer{ background:#171917; color:#f1f3ef; border-right:1px solid #1f231f; }
     :host-context(.dark) .drawer nav a{ color:#f1f3ef; border-color:#1f231f; }
     :host-context(.dark) .drawer-footer{ background:#171917; border-top:1px solid #1f231f; }
     :host-context(.dark) .df-left .slogan,
     :host-context(.dark) .df-right,
     :host-context(.dark) .org .org-loc{ color:#cfd3cf; }
-    :host-context(.dark) .panel{ background:#1b1d1b; color:#f1f3f1; border-color:#253228; }
-    :host-context(.dark) .chip{ background:#1b1d1b; color:#f1f3f1; border-color:#3a423a; }
   </style>
 
   <header class="hdr" part="header">
@@ -164,6 +189,7 @@
 
   <div class="scrim js-scrim"></div>
 
+  <!-- ===== Left Drawer ===== -->
   <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
       <div class="org">
@@ -185,7 +211,6 @@
       <a href="#"><span>⚙️</span> Setup</a>
     </nav>
 
-    <!-- Pinned footer -->
     <footer class="drawer-footer">
       <div class="df-left">
         <div class="brand">FarmVista</div>
@@ -195,26 +220,61 @@
     </footer>
   </aside>
 
-  <section class="panel js-panel" role="dialog" aria-label="Account & settings">
-    <div class="sec">
-      <h6>THEME</h6>
-      <button class="chip js-theme" data-mode="system" aria-pressed="true">System</button>
-      <button class="chip js-theme" data-mode="light"  aria-pressed="false">Light</button>
-      <button class="chip js-theme" data-mode="dark"   aria-pressed="false">Dark</button>
-    </div>
-    <div class="sec seg">
-      <h6>PROFILE</h6>
-      <div class="linkrow"><a href="#">Account details</a><span class="tiny">Coming soon</span></div>
-      <div class="linkrow"><a href="#">Feedback</a><span class="tiny">Coming soon</span></div>
-    </div>
-    <div class="sec seg">
-      <h6>MAINTENANCE</h6>
-      <div class="linkrow">
+  <!-- ===== JD-style Top Drawer (Account) ===== -->
+  <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
+    <div class="topwrap">
+      <div class="brandrow">
+        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
+        <div class="brandname">FarmVista</div>
+      </div>
+
+      <!-- Quick entries (rows with chevrons) -->
+      <div class="list" role="menu">
+        <a class="row" href="#" role="menuitem">
+          <div class="left"><div class="ico">👥</div><div class="txt">Change Organization</div></div>
+          <div class="chev">›</div>
+        </a>
+        <a class="row" href="#" role="menuitem">
+          <div class="left"><div class="ico">⚙️</div><div class="txt">Alert Settings</div></div>
+          <div class="chev">›</div>
+        </a>
+        <a class="row" href="#" role="menuitem">
+          <div class="left"><div class="ico">🚜</div><div class="txt">My Fields & Equipment</div></div>
+          <div class="chev">›</div>
+        </a>
+        <a class="row" href="#" role="menuitem">
+          <div class="left"><div class="ico">❓</div><div class="txt">Support</div></div>
+          <div class="chev">›</div>
+        </a>
+      </div>
+
+      <!-- Theme -->
+      <div class="section-h">THEME</div>
+      <div class="chips">
+        <button class="chip js-theme" data-mode="system" aria-pressed="true">System</button>
+        <button class="chip js-theme" data-mode="light"  aria-pressed="false">Light</button>
+        <button class="chip js-theme" data-mode="dark"   aria-pressed="false">Dark</button>
+      </div>
+
+      <!-- Profile (kept; labels like yours) -->
+      <div class="section-h">PROFILE</div>
+      <a class="row" href="#"><div class="left"><div class="ico">🧾</div><div class="txt">Account details</div></div><div class="chev">›</div></a>
+      <a class="row" href="#"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
+
+      <!-- Maintenance -->
+      <div class="section-h">MAINTENANCE</div>
+      <div class="chips" style="display:flex; align-items:center; gap:10px;">
         <button class="chip js-update" aria-busy="false" title="Clear cache and reload">
           <span class="spin">⟳</span> <span>Check for updates</span>
         </button>
-        <span class="tiny">Clears cache & reloads</span>
+        <span class="hint">Clears cache & reloads</span>
       </div>
+
+      <!-- Logout (mock) -->
+      <a class="row" href="#" id="logoutRow">
+        <div class="left"><div class="ico">⏻</div><div class="txt">Logout JOHNDOE</div></div>
+        <div class="chev">›</div>
+      </a>
     </div>
   </section>
 
@@ -235,7 +295,7 @@
       this._btnAccount = r.querySelector('.js-account');
       this._scrim = r.querySelector('.js-scrim');
       this._drawer = r.querySelector('.drawer');
-      this._panel = r.querySelector('.js-panel');
+      this._top = r.querySelector('.js-top');
       this._footerText = r.querySelector('.js-footer');
       this._toast = r.querySelector('.js-toast');
 
@@ -243,18 +303,22 @@
       this._verEl = r.querySelector('.js-ver');
       this._sloganEl = r.querySelector('.js-slogan');
 
-      this._btnMenu.addEventListener('click', ()=> this.toggleDrawer(true));
-      this._scrim.addEventListener('click', ()=> this.toggleDrawer(false));
-      this._btnAccount.addEventListener('click', ()=> this.togglePanel());
-      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.openPanel(false);} });
+      // Events
+      this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
+      this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
+      this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
+      document.addEventListener('keydown', (e)=>{
+        if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); }
+      });
 
+      // Theme
       r.querySelectorAll('.js-theme').forEach(btn=>{
         btn.addEventListener('click', ()=> this.setTheme(btn.dataset.mode));
       });
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
-      // Version + slogan (SSOT) + date
+      // Version + slogan + date
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
@@ -267,7 +331,7 @@
                    || (window.App && App.getVersion && App.getVersion().tagline)
                    || 'Farm data, simplified';
 
-      // Bottom app footer (green bar)
+      // Bottom app footer
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
       // Sidebar footer (left/right layout)
@@ -277,15 +341,14 @@
       // Update button
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
 
-      // Quick helper to verify source of version during debugging
-      window.__fvWhereVersionFrom = function(){
-        return {
-          FV_VERSION: !!window.FV_VERSION,
-          App_getVersion: !!(window.App && App.getVersion),
-          FV_BUILD: !!window.FV_BUILD,
-          value: verNumber
-        };
-      };
+      // Mock logout (for now just toast)
+      const logoutRow = r.getElementById('logoutRow');
+      if (logoutRow) {
+        logoutRow.addEventListener('click', (e)=>{
+          e.preventDefault();
+          this._toastMsg('Logout not implemented yet.', 2000);
+        });
+      }
 
       // Hero check
       setTimeout(()=>{
@@ -295,18 +358,21 @@
       }, 300);
     }
 
+    /* ===== Side Drawer ===== */
     toggleDrawer(open){
       const on = (open===undefined) ? !this.classList.contains('drawer-open') : open;
       this.classList.toggle('drawer-open', on);
-      document.documentElement.style.overflow = on ? 'hidden' : '';
-    }
-    togglePanel(){ this.openPanel(!this._panel.classList.contains('open')); }
-    openPanel(on){ this._panel.classList.toggle('open', !!on); if(on){ this._positionPanel(); } }
-    _positionPanel(){
-      const rect = this._panel.getBoundingClientRect();
-      if(rect.right > window.innerWidth - 8){ this._panel.style.right = '8px'; this._panel.style.left = 'auto'; }
+      document.documentElement.style.overflow = (on || this.classList.contains('top-open')) ? 'hidden' : '';
     }
 
+    /* ===== Top Drawer ===== */
+    toggleTop(open){
+      const on = (open===undefined) ? !this.classList.contains('top-open') : open;
+      this.classList.toggle('top-open', on);
+      document.documentElement.style.overflow = (on || this.classList.contains('drawer-open')) ? 'hidden' : '';
+    }
+
+    /* ===== Theme ===== */
     _syncThemeChips(mode){
       this.shadowRoot.querySelectorAll('.js-theme').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.mode===mode)));
     }
@@ -323,7 +389,7 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Improved Updater ===== */
+    /* ===== Updater ===== */
     async checkForUpdates(){
       const btn = this.shadowRoot.querySelector('.js-update');
       const setBusy = (on)=> btn.setAttribute('aria-busy', on ? 'true' : 'false');
@@ -346,10 +412,7 @@
         }
         await sleep(250);
 
-        // Force-fetch version.js so next load sees the new value
-        try{
-          await fetch('/Farm-vista/js/version.js', { cache: 'reload' });
-        }catch{}
+        try{ await fetch('/Farm-vista/js/version.js', { cache:'reload' }); }catch{}
 
         this._toastMsg('Reloading with fresh assets…', 1200);
         await sleep(700);
