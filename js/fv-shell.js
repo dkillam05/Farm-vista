@@ -1,9 +1,10 @@
-/* FarmVista — <fv-shell> v5.0
-   - Account UI is now a "Top Drawer" (John Deere style):
-     • Slides down, covers the header, brand-green background
-     • Brand row (logo + FarmVista)
-     • List rows with chevrons, logout row at bottom
-     • Tap outside or Esc to close
+/* FarmVista — <fv-shell> v5.1
+   - Top Drawer cleaned per request:
+     • Keep centered brand row (logo + FarmVista)
+     • Keep THEME (chips), PROFILE (Account details, Feedback)
+     • Keep MAINTENANCE (Check for updates button only)
+     • Keep Logout row
+     • Remove JD-style quick rows and "Clears cache & reloads" hint
    - Sidebar, footer, updater, and version (FV_VERSION) preserved
 */
 (function () {
@@ -103,7 +104,7 @@
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
 
-    /* ===== Top Drawer (Account) — JD style ===== */
+    /* ===== Top Drawer (Account) ===== */
     .topdrawer{
       position:fixed; left:0; right:0; top:0;
       transform:translateY(-105%); transition:transform .26s ease;
@@ -118,31 +119,20 @@
 
     .topwrap{ padding:6px 10px 14px; }
 
-    /* Brand row */
+    /* Centered brand row */
     .brandrow{
-      display:flex; align-items:center; gap:10px;
+      display:flex; align-items:center; justify-content:center; gap:10px;
       padding:10px 8px 12px 8px;
     }
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
 
-    /* JD-like list rows with chevrons */
-    .list{
-      display:block; margin-top:4px; border-top:1px solid color-mix(in srgb,#000 22%, var(--brand-green, var(--green)));
-      background:transparent;
+    /* Section headers & chips on green */
+    .section-h{
+      padding:12px 12px 6px;
+      font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent);
     }
-    .row{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:14px 12px; text-decoration:none; color:#fff;
-      border-bottom:1px solid color-mix(in srgb,#000 22%, var(--brand-green, var(--green)));
-    }
-    .row .left{ display:flex; align-items:center; gap:10px; }
-    .row .ico{ width:22px; text-align:center; opacity:.95; }
-    .row .txt{ font-size:16px; }
-    .row .chev{ opacity:.9; }
-
-    /* Theme section: chips on green */
-    .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
     .chips{ padding:0 12px 10px; }
     .chip{
       appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent);
@@ -154,13 +144,22 @@
       background:var(--brand-gold,var(--gold)); color:#111; border-color:transparent;
     }
 
-    /* Update button spinner */
+    /* Simple rows for Profile + Logout */
+    .row{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 12px; text-decoration:none; color:#fff;
+      border-top:1px solid color-mix(in srgb,#000 22%, var(--brand-green, var(--green)));
+    }
+    .row .left{ display:flex; align-items:center; gap:10px; }
+    .row .ico{ width:22px; text-align:center; opacity:.95; }
+    .row .txt{ font-size:16px; }
+    .row .chev{ opacity:.9; }
+
+    /* Spinner for update button */
     .chip .spin{ font-size:15px; display:inline-block; transform-origin:center; }
     .chip[aria-busy="true"] .spin{ animation: fvspin 900ms linear infinite; }
     @keyframes fvspin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
     .chip[aria-busy="true"]{ opacity:.9; pointer-events:none; }
-
-    .hint{ font-size:13px; color:color-mix(in srgb,#fff 75%, transparent); padding-left:12px; }
 
     /* Toast */
     .toast{
@@ -220,32 +219,13 @@
     </footer>
   </aside>
 
-  <!-- ===== JD-style Top Drawer (Account) ===== -->
+  <!-- ===== Top Drawer (Account) — cleaned ===== -->
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
+      <!-- Centered brand row -->
       <div class="brandrow">
         <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
         <div class="brandname">FarmVista</div>
-      </div>
-
-      <!-- Quick entries (rows with chevrons) -->
-      <div class="list" role="menu">
-        <a class="row" href="#" role="menuitem">
-          <div class="left"><div class="ico">👥</div><div class="txt">Change Organization</div></div>
-          <div class="chev">›</div>
-        </a>
-        <a class="row" href="#" role="menuitem">
-          <div class="left"><div class="ico">⚙️</div><div class="txt">Alert Settings</div></div>
-          <div class="chev">›</div>
-        </a>
-        <a class="row" href="#" role="menuitem">
-          <div class="left"><div class="ico">🚜</div><div class="txt">My Fields & Equipment</div></div>
-          <div class="chev">›</div>
-        </a>
-        <a class="row" href="#" role="menuitem">
-          <div class="left"><div class="ico">❓</div><div class="txt">Support</div></div>
-          <div class="chev">›</div>
-        </a>
       </div>
 
       <!-- Theme -->
@@ -256,21 +236,20 @@
         <button class="chip js-theme" data-mode="dark"   aria-pressed="false">Dark</button>
       </div>
 
-      <!-- Profile (kept; labels like yours) -->
+      <!-- Profile -->
       <div class="section-h">PROFILE</div>
       <a class="row" href="#"><div class="left"><div class="ico">🧾</div><div class="txt">Account details</div></div><div class="chev">›</div></a>
       <a class="row" href="#"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
 
-      <!-- Maintenance -->
+      <!-- Maintenance (no helper text) -->
       <div class="section-h">MAINTENANCE</div>
-      <div class="chips" style="display:flex; align-items:center; gap:10px;">
+      <div class="chips">
         <button class="chip js-update" aria-busy="false" title="Clear cache and reload">
           <span class="spin">⟳</span> <span>Check for updates</span>
         </button>
-        <span class="hint">Clears cache & reloads</span>
       </div>
 
-      <!-- Logout (mock) -->
+      <!-- Logout -->
       <a class="row" href="#" id="logoutRow">
         <div class="left"><div class="ico">⏻</div><div class="txt">Logout JOHNDOE</div></div>
         <div class="chev">›</div>
@@ -341,7 +320,7 @@
       // Update button
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
 
-      // Mock logout (for now just toast)
+      // Mock logout (placeholder)
       const logoutRow = r.getElementById('logoutRow');
       if (logoutRow) {
         logoutRow.addEventListener('click', (e)=>{
