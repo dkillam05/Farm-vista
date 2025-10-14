@@ -1,9 +1,8 @@
-// /js/fv-shell.js
-// FarmVista — App Shell v1.1.1
-// - Theme chips fixed (System/Light/Dark) with html[data-theme] support
-// - Update action label simplified to "Check for updates" (still clears cache)
-// - Footer pinned; main-only scrolling; mobile drawer; desktop expandable sidebar
-// - Absolute paths for GitHub Pages (/Farm-vista/...)
+// /js/fv-shell.js  — FarmVista App Shell v1.1.2
+// Fixes:
+// - Theme chips: unmistakable active state + reliable switching
+// - System theme reacts to OS changes immediately
+// - Update button: spinner + toast (unchanged)
 
 class FVShell extends HTMLElement {
   constructor(){
@@ -21,13 +20,12 @@ class FVShell extends HTMLElement {
   --safe-left:env(safe-area-inset-left,0px);
   --safe-right:env(safe-area-inset-right,0px);
 }
-/* Dark palette when html has .dark (we also set html[data-theme]) */
 :host-context(.dark){
   --bg:#0f1210; --ink:#e8eee9;
   --sb-bg:#151b17; --sb-ink:#e8eee9; --hair:#253228;
 }
 
-/* Shell grid */
+/* Shell */
 .shell{height:100dvh; display:grid; grid-template-columns:72px 1fr; grid-template-rows:auto 1fr auto; background:var(--bg); color:var(--ink);}
 .shell.expanded{grid-template-columns:280px 1fr;}
 @media (max-width:1023px){ .shell{grid-template-columns:1fr;} }
@@ -46,15 +44,12 @@ class FVShell extends HTMLElement {
 .flogo{width:36px; height:36px; border-radius:8px; background:#fff; object-fit:contain; border:1px solid var(--hair);}
 .ftitle{font-weight:700;}
 .fsub{font-size:13px; opacity:.8;}
-
 nav.menu{padding:8px; overflow:auto; flex:1;}
 a.item{display:flex; align-items:center; gap:10px; padding:10px; border-radius:10px; color:inherit; text-decoration:none;}
 a.item:hover{background:color-mix(in srgb, var(--green) 10%, transparent);}
 .em{width:24px; text-align:center;}
 .lbl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-@media (min-width:1024px){
-  .shell:not(.expanded) .ftitle, .shell:not(.expanded) .fsub, .shell:not(.expanded) .lbl{display:none}
-}
+@media (min-width:1024px){ .shell:not(.expanded) .ftitle, .shell:not(.expanded) .fsub, .shell:not(.expanded) .lbl{display:none}}
 @media (max-width:1023px){
   .sb{position:fixed; inset:0 auto 0 0; width:84vw; max-width:320px; transform:translateX(-100%); transition:transform .2s ease; z-index:1001; box-shadow:var(--shadow);}
   .shell.mopen .sb{transform:translateX(0);}
@@ -67,7 +62,7 @@ a.item:hover{background:color-mix(in srgb, var(--green) 10%, transparent);}
 .scrim{position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s; z-index:1000;}
 .scrim.show{opacity:1; pointer-events:auto}
 
-/* Main scroller */
+/* Main scroller (only thing that scrolls) */
 main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;}
 .container{max-width:1040px; margin:0 auto; padding:18px 14px 14px;}
 
@@ -79,9 +74,21 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
 .sheet.show{transform:scaleY(1); opacity:1; visibility:visible;}
 .sheet-in{max-width:1072px; margin:0 auto; padding:8px max(14px,var(--safe-right)) 14px max(14px,var(--safe-left));}
 .sttl{text-transform:uppercase; letter-spacing:.12em; font-size:12px; opacity:.9; margin:8px 0 4px 4px;}
+
+/* Theme chips — stronger active visual */
 .chips{display:flex; gap:8px; flex-wrap:wrap; padding:6px 4px;}
-.chip{border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff; padding:8px 12px; border-radius:999px; cursor:pointer;}
-.chip[aria-pressed="true"]{outline:2px solid #fff; outline-offset:2px;}
+.chip{position:relative; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff; padding:8px 12px; border-radius:999px; cursor:pointer; user-select:none;}
+.chip[aria-pressed="true"]{
+  outline:2px solid #fff; outline-offset:2px;
+  background:rgba(255,255,255,.18);
+  border-color:#fff;
+}
+.chip[aria-pressed="true"]::after{
+  content:"✓"; position:absolute; right:-10px; top:-10px;
+  width:20px; height:20px; border-radius:50%;
+  display:grid; place-items:center; background:#fff; color:#0a431f; font-weight:700; font-size:12px;
+}
+
 .row{display:flex; align-items:center; justify-content:space-between; padding:12px 6px; border-radius:10px; cursor:pointer;}
 .row:hover{background:rgba(255,255,255,.08);}
 .muted{opacity:.85}
@@ -166,7 +173,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
 </div>
     `;
 
-    // lock page so only <main> scrolls (prevents gray above/below)
+    // Lock page so only <main> scrolls
     if (!document.getElementById('fv-lock')) {
       const s=document.createElement('style'); s.id='fv-lock';
       s.textContent='html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;}';
@@ -175,20 +182,15 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
   }
 
   connectedCallback(){
-    // logo
-    const logo=this._r.getElementById('farmLogo');
-    if (logo) logo.src = '/Farm-vista/assets/icons/logo.png';
-
-    // footer date
+    // Logo + footer date + version/tagline
+    const logo=this._r.getElementById('farmLogo'); if (logo) logo.src='/Farm-vista/assets/icons/logo.png';
     this._setFooterDate();
+    const ver=(window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||'1.0.0';
+    const tag=(window.FV_TAGLINE)||'Clean farm data. Smarter reporting.';
+    const vEl=this._r.getElementById('ver'); if (vEl) vEl.textContent='v'+ver;
+    const tg=this._r.getElementById('tagline'); if (tg) tg.textContent=tag;
 
-    // version + tagline
-    const ver = (window.FarmVistaVersion) || (window.FV_VERSION && window.FV_VERSION.number) || '1.0.0';
-    const tag = (window.FV_TAGLINE) || 'Clean farm data. Smarter reporting.';
-    const vEl = this._r.getElementById('ver'); if (vEl) vEl.textContent = 'v'+ver;
-    const tg  = this._r.getElementById('tagline'); if (tg) tg.textContent = tag;
-
-    // wiring
+    // Wiring
     const shell=this._r.querySelector('.shell');
     const scrim=this._r.getElementById('scrim');
     const btnMenu=this._r.getElementById('btnMenu');
@@ -201,7 +203,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     btnMenu?.addEventListener('click', ()=>{
       if (isDesktop()) shell.classList.toggle('expanded');
       else {
-        const on = !shell.classList.contains('mopen');
+        const on=!shell.classList.contains('mopen');
         shell.classList.toggle('mopen', on);
         scrim.classList.toggle('show', on);
         if (on) sheet.classList.remove('show');
@@ -209,7 +211,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     });
 
     btnGear?.addEventListener('click', ()=>{
-      const on = !sheet.classList.contains('show');
+      const on=!sheet.classList.contains('show');
       sheet.classList.toggle('show', on);
       btnGear.setAttribute('aria-expanded', String(on));
       scrim.classList.toggle('show', on);
@@ -220,19 +222,28 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     scrim?.addEventListener('click', closeAll);
     addEventListener('resize', closeAll);
 
-    // Theme: restore + apply + reflect
+    // Theme init + listeners
     const saved = this._getTheme();
     this._applyTheme(saved);
     this._reflectThemeChips();
 
-    ['chipSystem','chipLight','chipDark'].forEach(id=>{
+    // Chip clicks
+    [['chipSystem','system'],['chipLight','light'],['chipDark','dark']].forEach(([id,mode])=>{
       const el=this._r.getElementById(id);
       el?.addEventListener('click', ()=>{
-        const mode = el.getAttribute('data-theme') || 'system';
         this._setTheme(mode);
         this._applyTheme(mode);
         this._reflectThemeChips();
-      }, {passive:true});
+      });
+    });
+
+    // React to OS theme if System is selected
+    this._mq = window.matchMedia('(prefers-color-scheme: dark)');
+    this._mq.addEventListener?.('change', ()=>{
+      if (this._getTheme()==='system') {
+        this._applyTheme('system');
+        this._reflectThemeChips();
+      }
     });
 
     // Update action
@@ -248,7 +259,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
     if (post) { this._toast(post, 2400); sessionStorage.removeItem('fv-postUpdateMsg'); }
   }
 
-  /* Helpers ----------------------------- */
+  /* Helpers ----------------------------------- */
   _setFooterDate(){
     try{
       const el=this._r.getElementById('footLine'); if (!el) return;
@@ -256,24 +267,31 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
       const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'long',month:'long',day:'numeric',year:'numeric'});
       const parts=fmt.formatToParts(d).reduce((a,p)=> (a[p.type]=p.value,a),{});
       const n=parseInt(parts.day,10); const s=(n%10===1&&n%100!==11)?'st':(n%10===2&&n%100!==12)?'nd':(n%10===3&&n%100!==13)?'rd':'th';
-      el.textContent=`© ${parts.year} FarmVista • ${parts.weekday}, ${parts.month} ${n}${s}, ${parts.year}`;
+      el.textContent=\`© \${parts.year} FarmVista • \${parts.weekday}, \${parts.month} \${n}\${s}, \${parts.year}\`;
     }catch{
-      this._r.getElementById('footLine').textContent = '© ' + new Date().getFullYear() + ' FarmVista';
+      this._r.getElementById('footLine').textContent='© '+new Date().getFullYear()+' FarmVista';
     }
   }
 
   _getTheme(){ try{ return localStorage.getItem('fv-theme') || 'system'; }catch{ return 'system'; } }
   _setTheme(m){ try{ localStorage.setItem('fv-theme', m); }catch{} }
+
   _applyTheme(mode){
     const root=document.documentElement;
-    // keep class for older CSS
+    const mqDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    // Class toggle (legacy)
     root.classList.remove('dark');
-    if (mode==='dark') root.classList.add('dark');
-    else if (mode==='system' && matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add('dark');
-    // ALSO set data-theme to work with your theme.css tokens
-    const token = (mode==='system') ? 'auto' : mode; // your CSS expects 'auto' not 'system'
-    try{ root.setAttribute('data-theme', token); }catch{}
+    if (mode==='dark' || (mode==='system' && mqDark)) root.classList.add('dark');
+
+    // data-theme token for theme.css
+    const token = (mode==='system') ? 'auto' : mode; // theme.css expects 'auto'
+    root.setAttribute('data-theme', token);
+
+    // color-scheme hint for UA controls
+    root.style.colorScheme = (mode==='dark') ? 'dark' : (mode==='light' ? 'light' : (mqDark ? 'dark' : 'light'));
   }
+
   _reflectThemeChips(){
     const m=this._getTheme();
     this._r.querySelectorAll('.chip[data-theme]').forEach(ch=>{
@@ -296,7 +314,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
       const res=await fetch('/Farm-vista/js/version.js?rev='+Date.now(), {cache:'no-store'});
       if(!res.ok) return null;
       const text=await res.text();
-      const m=text.match(/FarmVistaVersion\s*=\s*["']([^"']+)["']/);
+      const m=text.match(/FarmVistaVersion\\s*=\\s*["']([^"']+)["']/);
       return m?m[1]:null;
     }catch{ return null; }
   }
@@ -320,7 +338,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
       this._setTheme(theme);
     }catch{}
 
-    sessionStorage.setItem('fv-postUpdateMsg', latest ? `Updated & Refreshed (v${latest}).` : 'Refreshed with latest files.');
+    sessionStorage.setItem('fv-postUpdateMsg', latest ? \`Updated & refreshed (v\${latest}).\` : 'Refreshed with latest files.');
     const bust = latest || Date.now();
     setTimeout(()=>{ location.replace(location.pathname + '?rev=' + encodeURIComponent(bust)); }, 150);
   }
