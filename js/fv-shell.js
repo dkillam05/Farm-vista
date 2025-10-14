@@ -1,146 +1,106 @@
-// FarmVista — App Shell (theme fix) v2025-10-13n
-// - Theme chips guaranteed clickable (shows ring)
-// - Immediate Light/Dark visual switch (shell-level styles)
-// - One-button updater with spinner + toasts
-// - Pinned footer; main-only scrolling to avoid gray rubber-band
+// FarmVista — App Shell v1.1.0 (2025-10-13)
+// - Absolute paths for GitHub Pages (/Farm-vista/...)
+// - Theme chips: System/Light/Dark (works, shows ring)
+// - One-button updater: clears SW + caches, preserves theme, reloads with cache-buster
+// - Pinned footer; main-only scrolling (prevents gray rubber-band)
+// - Sidebar drawer (mobile) + collapsible (desktop)
 
 class FVShell extends HTMLElement {
   constructor(){
     super();
-    const r = this.attachShadow({mode:'open'});
-    r.innerHTML = `
+    this._r = this.attachShadow({mode:'open'});
+    this._r.innerHTML = `
 <style>
 :host{
   display:block;
-  --fv-green:#3B7E46; --fv-gold:#D0C542;
-  --bg: #f0f2ef;      /* light default */
-  --ink:#141514;
-  --sb-bg:#ffffff; --sb-ink:#141514; --hair:rgba(0,0,0,.08);
-  --card-shadow:0 10px 22px rgba(0,0,0,.12);
-  --safe-right: env(safe-area-inset-right,0px);
-  --safe-left:  env(safe-area-inset-left,0px);
-  --safe-top:   env(safe-area-inset-top,0px);
+  --green:#3B7E46; --gold:#D0C542;
+  --bg:#f0f2ef; --ink:#141514;
+  --sb-bg:#ffffff; --sb-ink:#141514; --hair:rgba(0,0,0,.10);
+  --shadow:0 10px 22px rgba(0,0,0,.14);
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-left:env(safe-area-inset-left,0px);
+  --safe-right:env(safe-area-inset-right,0px);
 }
-
-/* Dark palette applied when html gets .dark (set by JS) */
+/* Dark palette when html has .dark */
 :host-context(.dark){
-  --bg: #0f1210;
-  --ink:#e8eee9;
+  --bg:#0f1210; --ink:#e8eee9;
   --sb-bg:#151b17; --sb-ink:#e8eee9; --hair:#253228;
 }
 
-/* ===== Shell grid ===== */
-.shell{
-  height:100dvh; display:grid;
-  grid-template-columns: 72px 1fr;
-  grid-template-rows: auto 1fr auto;
-  overflow:hidden; background:var(--bg); color:var(--ink);
-}
-.shell.expanded{ grid-template-columns: 280px 1fr; }
-
-/* ===== Header ===== */
-header.h{
-  grid-column:1/-1; background:var(--fv-green); color:#fff;
-  position:sticky; top:0; z-index:1000; border-bottom:1px solid rgba(0,0,0,.15);
-}
-.h-top{
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
-  padding:10px max(14px,var(--safe-right)) 10px max(14px,var(--safe-left));
-  padding-top:calc(10px + var(--safe-top));
-  max-width:1072px; margin:0 auto;
-}
-.word{font-weight:800; font-size:20px; letter-spacing:.3px; white-space:nowrap;}
-.btn{
-  display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
-  border-radius:9px; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.28); cursor:pointer;
-}
-.h-accent{height:3px; background:var(--fv-gold);}
-.offline{display:none; background:var(--fv-gold); color:#141514; text-align:center; padding:8px 14px; font-weight:600;}
-.offline.show{display:block}
-
-/* ===== Sidebar ===== */
-aside.sb{
-  grid-row:2/span 1; background:var(--sb-bg); color:var(--sb-ink); border-right:1px solid var(--hair);
-  position:sticky; top:0; height:100%; display:flex; flex-direction:column;
-}
-@media (min-width:1024px){
-  .shell{ grid-template-columns: 72px 1fr; }
-  .shell.expanded{ grid-template-columns: 280px 1fr; }
-}
+/* Shell grid */
+.shell{height:100dvh; display:grid; grid-template-columns:72px 1fr; grid-template-rows:auto 1fr auto; background:var(--bg); color:var(--ink);}
+.shell.expanded{grid-template-columns:280px 1fr;}
 @media (max-width:1023px){
-  .shell{ grid-template-columns: 1fr; }
-  aside.sb{
-    position:fixed; left:0; top:0; bottom:0; width:84vw; max-width:320px;
-    transform:translateX(-100%); transition:transform .2s ease; z-index:1001; box-shadow:var(--card-shadow);
-  }
-  .shell.mopen aside.sb{ transform:translateX(0); }
+  .shell{grid-template-columns:1fr;}
 }
+
+/* Header */
+.h{grid-column:1/-1; position:sticky; top:0; z-index:1000; background:var(--green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15);}
+.h-top{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px max(14px,var(--safe-right)) 10px max(14px,var(--safe-left)); padding-top:calc(10px + var(--safe-top)); max-width:1072px; margin:0 auto;}
+.brand{font-weight:800; font-size:20px; letter-spacing:.3px;}
+.h-accent{height:3px; background:var(--gold);}
+.btn{display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:9px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.28); color:#fff; cursor:pointer;}
+
+/* Sidebar */
+.sb{grid-row:2; background:var(--sb-bg); color:var(--sb-ink); border-right:1px solid var(--hair); position:sticky; top:0; height:100%; display:flex; flex-direction:column;}
 .sb-head{padding:14px 12px; border-bottom:1px solid var(--hair);}
 .farm{display:flex; align-items:center; gap:10px;}
-.flogo{width:36px; height:36px; border-radius:8px; object-fit:contain; background:#f0f2ef; border:1px solid var(--hair);}
+.flogo{width:36px; height:36px; border-radius:8px; background:#fff; object-fit:contain; border:1px solid var(--hair);}
 .ftitle{font-weight:700;}
 .fsub{font-size:13px; opacity:.8;}
-@media (min-width:1024px){ .shell:not(.expanded) .ftitle, .shell:not(.expanded) .fsub{display:none} }
+
 nav.menu{padding:8px; overflow:auto; flex:1;}
-a.item{display:flex; align-items:center; gap:10px; padding:10px; border-radius:10px; text-decoration:none; color:inherit;}
-a.item:hover{background:color-mix(in srgb, var(--fv-green) 8%, transparent);}
+a.item{display:flex; align-items:center; gap:10px; padding:10px; border-radius:10px; color:inherit; text-decoration:none;}
+a.item:hover{background:color-mix(in srgb, var(--green) 10%, transparent);}
 .em{width:24px; text-align:center;}
 .lbl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-@media (min-width:1024px){ .shell:not(.expanded) .lbl{display:none} }
+@media (min-width:1024px){
+  .shell:not(.expanded) .ftitle, .shell:not(.expanded) .fsub, .shell:not(.expanded) .lbl{display:none}
+}
+@media (max-width:1023px){
+  .sb{position:fixed; inset:0 auto 0 0; width:84vw; max-width:320px; transform:translateX(-100%); transition:transform .2s ease; z-index:1001; box-shadow:var(--shadow);}
+  .shell.mopen .sb{transform:translateX(0);}
+}
 .sb-foot{border-top:1px solid var(--hair); padding:12px; font-size:12.5px;}
 .sb-foot strong{font-weight:800;}
-.sb-tag{margin-top:4px; opacity:.8;}
+.sb-foot .ver{opacity:.9}
 
+/* Scrim */
 .scrim{position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s; z-index:1000;}
 .scrim.show{opacity:1; pointer-events:auto}
 
-/* ===== Main (only scroller) ===== */
-main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; background:transparent;}
+/* Main scroller (prevents gray rubber-band elsewhere) */
+main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;}
 .container{max-width:1040px; margin:0 auto; padding:18px 14px 14px;}
 
-/* ===== Footer pinned ===== */
-footer.f{
-  grid-column:1/-1; position:sticky; bottom:0; background:var(--fv-green); color:#fff;
-  border-top:3px solid var(--fv-gold); display:grid; place-items:center;
-  padding:10px max(14px,var(--safe-right)); white-space:nowrap; font-size:clamp(12px,1.6vw,14px); z-index:1;
-}
+/* Footer pinned */
+.f{grid-column:1/-1; position:sticky; bottom:0; z-index:1; background:var(--green); color:#fff; border-top:3px solid var(--gold); display:grid; place-items:center; padding:10px max(14px,var(--safe-right)); white-space:nowrap; font-size:clamp(12px,1.6vw,14px);}
 
-/* ===== Settings sheet ===== */
-.sheet{
-  position:fixed; left:0; right:0; top:calc(56px + var(--safe-top)); background:var(--fv-green); color:#fff;
-  border-bottom:1px solid rgba(0,0,0,.15); transform:scaleY(.98); opacity:0; visibility:hidden;
-  transform-origin:top center; transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002;
-  max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto; -webkit-overflow-scrolling:touch;
-}
-.sheet.show{transform:scaleY(1); opacity:1; visibility:visible}
+/* Settings sheet */
+.sheet{position:fixed; left:0; right:0; top:calc(56px + var(--safe-top)); background:var(--green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15); transform:scaleY(.98); opacity:0; visibility:hidden; transform-origin:top; transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002; max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto;}
+.sheet.show{transform:scaleY(1); opacity:1; visibility:visible;}
 .sheet-in{max-width:1072px; margin:0 auto; padding:8px max(14px,var(--safe-right)) 14px max(14px,var(--safe-left));}
-.sttl{text-transform:uppercase; letter-spacing:.12em; font-size:12px; opacity:.9; margin:6px 0 2px 4px;}
-.chips{display:flex; gap:8px; flex-wrap:wrap; padding:6px 4px 8px;}
-.chip{
-  border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff;
-  padding:8px 12px; border-radius:999px; cursor:pointer; user-select:none;
-}
-.chip[aria-pressed="true"]{ outline:2px solid #fff; outline-offset:2px; }
+.sttl{text-transform:uppercase; letter-spacing:.12em; font-size:12px; opacity:.9; margin:8px 0 4px 4px;}
+.chips{display:flex; gap:8px; flex-wrap:wrap; padding:6px 4px;}
+.chip{border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff; padding:8px 12px; border-radius:999px; cursor:pointer;}
+.chip[aria-pressed="true"]{outline:2px solid #fff; outline-offset:2px;}
 .row{display:flex; align-items:center; justify-content:space-between; padding:12px 6px; border-radius:10px; cursor:pointer;}
 .row:hover{background:rgba(255,255,255,.08);}
 .muted{opacity:.85}
 
 /* Spinner + toast */
-#updIcon .spin{width:16px; height:16px; display:inline-block; border:2px solid rgba(255,255,255,.35);
-  border-top-color:#fff; border-radius:50%; animation:fvspin .9s linear infinite;}
+#updIcon .spin{width:16px; height:16px; display:inline-block; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:fvspin .9s linear infinite;}
 @keyframes fvspin{to{transform:rotate(360deg)}}
 </style>
 
 <div class="shell">
   <header class="h">
     <div class="h-top">
-      <button class="btn" id="btnMenu" title="Menu" aria-label="Menu">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M3 6h18M3 12h18M3 18h18"/>
-        </svg>
+      <button class="btn" id="btnMenu" aria-label="Menu" title="Menu">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
-      <div class="word">FarmVista</div>
-      <button class="btn" id="btnGear" title="User menu" aria-haspopup="menu" aria-expanded="false" aria-label="User menu">
+      <div class="brand">FarmVista</div>
+      <button class="btn" id="btnGear" aria-haspopup="menu" aria-expanded="false" title="User menu">
         <!-- People icon -->
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
@@ -150,17 +110,16 @@ footer.f{
         </svg>
       </button>
     </div>
-    <div class="offline" id="offlineBanner">You’re offline. Some data may be unavailable.</div>
     <div class="h-accent"></div>
   </header>
 
   <aside class="sb">
     <div class="sb-head">
       <div class="farm">
-        <img class="flogo" id="farmLogo" alt="Farm logo"/>
+        <img id="farmLogo" class="flogo" alt="Farm logo">
         <div>
-          <div class="ftitle">Dowson Farms</div>
-          <div class="fsub">Divernon, IL</div>
+          <div class="ftitle" id="farmName">Dowson Farms</div>
+          <div class="fsub" id="farmAddr">Divernon, IL</div>
         </div>
       </div>
     </div>
@@ -171,11 +130,11 @@ footer.f{
       <a class="item" href="#"><span class="em">🌾</span><span class="lbl">Grain</span></a>
       <a class="item" href="#"><span class="em">💵</span><span class="lbl">Expenses</span></a>
       <a class="item" href="#"><span class="em">📊</span><span class="lbl">Reports</span></a>
-      <a class="item" href="#"><span class="em">⚙️</span><span class="lbl">Setup</span></a>
+      <a class="item" href="#"><span class="em">🧰</span><span class="lbl">Setup</span></a>
     </nav>
     <div class="sb-foot">
-      <div><strong>FarmVista</strong> <span id="ver">v1.0.0</span></div>
-      <div class="sb-tag" id="tagline">Clean farm data. Smarter reporting.</div>
+      <div><strong>FarmVista</strong> <span class="ver" id="ver">v1.0.0</span></div>
+      <div class="fsub" id="tagline">Clean farm data. Smarter reporting.</div>
     </div>
   </aside>
 
@@ -183,16 +142,16 @@ footer.f{
 
   <main><div class="container"><slot></slot></div></main>
 
-  <footer class="f"><div id="footLine">© 2025 FarmVista • </div></footer>
+  <footer class="f"><div id="footLine">© 2025 FarmVista</div></footer>
 
-  <!-- Settings (people) -->
+  <!-- Settings -->
   <div class="sheet" id="sheet" role="menu" aria-label="User menu">
     <div class="sheet-in">
       <div class="sttl">Theme</div>
       <div class="chips">
-        <button class="chip" data-theme="system" aria-pressed="false" id="chipSystem">System</button>
-        <button class="chip" data-theme="light"  aria-pressed="false" id="chipLight">Light</button>
-        <button class="chip" data-theme="dark"   aria-pressed="false" id="chipDark">Dark</button>
+        <button class="chip" id="chipSystem" data-theme="system" aria-pressed="false">System</button>
+        <button class="chip" id="chipLight"  data-theme="light"  aria-pressed="false">Light</button>
+        <button class="chip" id="chipDark"   data-theme="dark"   aria-pressed="false">Dark</button>
       </div>
 
       <div class="sttl">Profile</div>
@@ -209,184 +168,156 @@ footer.f{
 </div>
     `;
 
-    this._root = r;
-    this.$ = (s)=>r.querySelector(s);
-
-    // Logo
-    const logo=this.$('#farmLogo'); if (logo) logo.src='/Farm-vista/assets/icons/logo.png';
-
-    // Version + footer date
-    this._initVersion();
-    this._initFooterDate();
+    // page-level locks so only <main> scrolls
+    if(!document.getElementById('fv-lock')){
+      const s=document.createElement('style'); s.id='fv-lock';
+      s.textContent='html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;}';
+      document.head.appendChild(s);
+    }
   }
 
   connectedCallback(){
-    // Lock global scroll so only <main> scrolls (fixes gray bounce)
-    const ID='fv-global-lock-style';
-    if(!document.getElementById(ID)){
-      const s=document.createElement('style'); s.id=ID;
-      s.textContent='html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;-webkit-overflow-scrolling:auto;}';
-      document.head.appendChild(s);
-    }
+    // Logo
+    const logo=this._r.getElementById('farmLogo');
+    if (logo) logo.src = '/Farm-vista/assets/icons/logo.png';
 
-    const shell=this.$('.shell'), scrim=this.$('#scrim');
-    const btnMenu=this.$('#btnMenu'), btnGear=this.$('#btnGear'), sheet=this.$('#sheet');
-    const offline=this.$('#offlineBanner');
+    // Footer date
+    this._setFooterDate();
 
-    const isDesktop=()=>matchMedia('(min-width:1024px)').matches;
-    const closeOverlays=()=>{
-      shell.classList.remove('mopen'); scrim.classList.remove('show');
-      sheet.classList.remove('show'); btnGear.setAttribute('aria-expanded','false');
-    };
-    addEventListener('resize', ()=>closeOverlays());
+    // Version + tagline (from window.FarmVistaVersion if present)
+    const ver = (window.FarmVistaVersion) || (window.FV_VERSION && window.FV_VERSION.number) || '1.0.0';
+    const tag = (window.FV_TAGLINE) || 'Clean farm data. Smarter reporting.';
+    const vEl = this._r.getElementById('ver'); if (vEl) vEl.textContent = 'v'+ver;
+    const tg  = this._r.getElementById('tagline'); if (tg) tg.textContent = tag;
 
-    btnMenu.addEventListener('click', ()=>{
-      if(isDesktop()) shell.classList.toggle('expanded');
-      else{
-        const on=!shell.classList.contains('mopen');
-        shell.classList.toggle('mopen', on); scrim.classList.toggle('show', on);
-        if(on) sheet.classList.remove('show');
+    // Menu + sheet
+    const shell=this._r.querySelector('.shell');
+    const scrim=this._r.getElementById('scrim');
+    const btnMenu=this._r.getElementById('btnMenu');
+    const btnGear=this._r.getElementById('btnGear');
+    const sheet=this._r.getElementById('sheet');
+
+    const isDesktop = ()=> matchMedia('(min-width:1024px)').matches;
+    const closeAll  = ()=>{ shell.classList.remove('mopen'); shell.classList.remove('expanded'); scrim.classList.remove('show'); sheet.classList.remove('show'); btnGear?.setAttribute('aria-expanded','false'); };
+
+    btnMenu?.addEventListener('click', ()=>{
+      if (isDesktop()) shell.classList.toggle('expanded');
+      else {
+        const on = !shell.classList.contains('mopen');
+        shell.classList.toggle('mopen', on);
+        scrim.classList.toggle('show', on);
+        if (on) sheet.classList.remove('show');
       }
     });
 
-    btnGear.addEventListener('click', ()=>{
-      const on=!sheet.classList.contains('show');
+    btnGear?.addEventListener('click', ()=>{
+      const on = !sheet.classList.contains('show');
       sheet.classList.toggle('show', on);
       btnGear.setAttribute('aria-expanded', String(on));
       scrim.classList.toggle('show', on);
-      if(on) shell.classList.remove('mopen');
-      // reflect selection each time it opens so the ring is correct
+      if (on) shell.classList.remove('mopen');
       this._reflectThemeChips();
     });
-    scrim.addEventListener('click', closeOverlays);
 
-    // Wire theme chips (robust listeners)
+    scrim?.addEventListener('click', closeAll);
+    addEventListener('resize', closeAll);
+
+    // Theme restore + handlers
+    const saved = this._getTheme();
+    this._applyTheme(saved);
+    this._reflectThemeChips();
+
     ['chipSystem','chipLight','chipDark'].forEach(id=>{
-      const el=this.$('#'+id);
-      el?.addEventListener('click', ()=>{
-        const mode = el.getAttribute('data-theme') || 'system';
-        try{ localStorage.setItem('fv-theme', mode); }catch{}
+      this._r.getElementById(id)?.addEventListener('click', ()=>{
+        const mode = this._r.getElementById(id).getAttribute('data-theme') || 'system';
+        this._setTheme(mode);
         this._applyTheme(mode);
         this._reflectThemeChips();
       }, {passive:true});
     });
 
-    // Apply saved theme on load
-    const saved = (()=>{ try{ return localStorage.getItem('fv-theme') || 'system'; }catch{ return 'system'; }})();
-    this._applyTheme(saved);
-    this._reflectThemeChips();
-
     // Update action
-    this.$('#btnUpdateAll')?.addEventListener('click', ()=> this._checkForUpdatesAndRefresh());
+    this._r.getElementById('btnUpdateAll')?.addEventListener('click', ()=> this._updateAndRefresh());
 
-    // Offline banner
-    const onOff=()=>offline?.classList.add('show');
-    const onOn =()=>offline?.classList.remove('show');
-    addEventListener('offline', onOff); addEventListener('online', onOn);
-    if(!navigator.onLine) onOff();
-
-    // Service worker
-    if('serviceWorker' in navigator){
+    // Service worker scope
+    if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/Farm-vista/serviceworker.js').catch(()=>{});
     }
 
-    // Post-reload toast
-    const post=sessionStorage.getItem('fv-postUpdateMsg');
-    if(post){ this._toast(post, 2600); sessionStorage.removeItem('fv-postUpdateMsg'); }
+    // Post-refresh toast
+    const post = sessionStorage.getItem('fv-postUpdateMsg');
+    if (post) { this._toast(post, 2400); sessionStorage.removeItem('fv-postUpdateMsg'); }
   }
 
-  /* ===== Theme helpers ===== */
+  /* Helpers --------------------------------------------------- */
+  _setFooterDate(){
+    try{
+      const el=this._r.getElementById('footLine'); if (!el) return;
+      const d=new Date();
+      const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'long',month:'long',day:'numeric',year:'numeric'});
+      const parts=fmt.formatToParts(d).reduce((a,p)=> (a[p.type]=p.value,a),{});
+      const n=parseInt(parts.day,10); const s=(n%10===1&&n%100!==11)?'st':(n%10===2&&n%100!==12)?'nd':(n%10===3&&n%100!==13)?'rd':'th';
+      el.textContent=`© ${parts.year} FarmVista • ${parts.weekday}, ${parts.month} ${n}${s}, ${parts.year}`;
+    }catch{
+      this._r.getElementById('footLine').textContent = '© ' + new Date().getFullYear() + ' FarmVista';
+    }
+  }
+
+  _getTheme(){ try{ return localStorage.getItem('fv-theme') || 'system'; }catch{ return 'system'; } }
+  _setTheme(m){ try{ localStorage.setItem('fv-theme', m); }catch{} }
   _applyTheme(mode){
-    // Set html.dark class (drives :host-context(.dark) styles)
-    const root = document.documentElement;
+    const root=document.documentElement;
     root.classList.remove('dark');
-    if (mode === 'dark') root.classList.add('dark');
-    else if (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add('dark');
+    if (mode==='dark') root.classList.add('dark');
+    else if (mode==='system' && matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add('dark');
   }
   _reflectThemeChips(){
-    const m = (()=>{ try{ return localStorage.getItem('fv-theme') || 'system'; }catch{ return 'system'; }})();
-    this._root.querySelectorAll('.chip[data-theme]').forEach(ch=>{
-      ch.setAttribute('aria-pressed', String(ch.getAttribute('data-theme')===m));
-    });
+    const m=this._getTheme();
+    this._r.querySelectorAll('.chip[data-theme]').forEach(ch=> ch.setAttribute('aria-pressed', String(ch.getAttribute('data-theme')===m)) );
   }
 
-  /* ===== Toast + spinner ===== */
   _toast(msg, ms=2200){
-    let el=this._root.getElementById('fvToast');
-    if(!el){
-      el=document.createElement('div'); el.id='fvToast';
-      el.style.cssText='position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:2000;background:rgba(0,0,0,.85);color:#fff;padding:10px 12px;border-radius:10px;font-size:14px;box-shadow:0 8px 18px rgba(0,0,0,.25);transition:opacity .18s ease;';
-      this._root.appendChild(el);
-    }
-    el.textContent=msg; el.style.opacity='1';
-    clearTimeout(this._t); this._t=setTimeout(()=>{ el.style.opacity='0'; }, ms);
+    let el=this._r.getElementById('fvToast');
+    if(!el){ el=document.createElement('div'); el.id='fvToast'; el.style.cssText='position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:3000;background:rgba(0,0,0,.88);color:#fff;padding:10px 12px;border-radius:10px;font-size:14px;box-shadow:0 8px 18px rgba(0,0,0,.25);transition:opacity .18s;'; this._r.appendChild(el); }
+    el.textContent=msg; el.style.opacity='1'; clearTimeout(this._t); this._t=setTimeout(()=> el.style.opacity='0', ms);
   }
   _spin(on){
-    const row=this.$('#btnUpdateAll'); const ico=this.$('#updIcon');
-    if(!row||!ico) return;
-    row.setAttribute('aria-busy', String(on));
-    row.style.pointerEvents = on ? 'none' : '';
-    ico.innerHTML = on ? '<span class="spin" aria-hidden="true"></span>' : '↻';
+    const row=this._r.getElementById('btnUpdateAll'); const ico=this._r.getElementById('updIcon');
+    if(row&&ico){ row.setAttribute('aria-busy', String(on)); row.style.pointerEvents= on?'none':''; ico.innerHTML = on ? '<span class="spin" aria-hidden="true"></span>' : '↻'; }
   }
 
-  /* ===== Version + date ===== */
-  _initVersion(){
-    const v=this.$('#ver'), t=this.$('#tagline');
-    const num=(window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||'1.0.0';
-    const tag=(window.FV_TAGLINE)||(window.FV_VERSION&&window.FV_VERSION.tagline)||'Clean farm data. Smarter reporting.';
-    if(v) v.textContent='v'+num;
-    if(t) t.textContent=tag;
-  }
-  _initFooterDate(){
-    const el=this.$('#footLine'); if(!el) return;
-    const d=new Date();
-    const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'long',month:'long',day:'numeric',year:'numeric'});
-    const parts=fmt.formatToParts(d).reduce((a,p)=> (a[p.type]=p.value,a),{});
-    const n=parseInt(parts.day,10); const s=(n%10===1&&n%100!==11)?'st':(n%10===2&&n%100!==12)?'nd':(n%10===3&&n%100!==13)?'rd':'th';
-    el.textContent=\`© \${parts.year} FarmVista • \${parts.weekday}, \${parts.month} \${n}\${s}, \${parts.year}\`;
-  }
-
-  /* ===== Update logic ===== */
-  async _fetchLatestVersion(){
+  async _fetchLatestTag(){
     try{
       const res=await fetch('/Farm-vista/js/version.js?rev='+Date.now(), {cache:'no-store'});
+      if(!res.ok) return null;
       const text=await res.text();
-      const m=text.match(/FarmVistaVersion\\s*=\\s*["']([^"']+)["']/);
+      const m=text.match(/FarmVistaVersion\s*=\s*["']([^"']+)["']/);
       return m?m[1]:null;
     }catch{ return null; }
   }
-  async _clearCachesAndReload(tag){
+  async _updateAndRefresh(){
+    this._spin(true);
+    this._toast('Checking for updates…', 900);
+    const latest = await this._fetchLatestTag();
+    this._toast('Clearing cache…', 900);
+
     try{
-      if(tag) sessionStorage.setItem('fv-postUpdateMsg', \`Updated & refreshed (v\${tag}).\`);
-      else sessionStorage.setItem('fv-postUpdateMsg', 'Refreshed with latest files.');
       if('serviceWorker' in navigator){
         const regs=await navigator.serviceWorker.getRegistrations();
-        for(const reg of regs){ await reg.unregister(); }
+        for(const r of regs){ await r.unregister(); }
       }
       if('caches' in window){
         const ks=await caches.keys();
         for(const k of ks){ await caches.delete(k); }
       }
-      const theme=localStorage.getItem('fv-theme');
+      const theme=this._getTheme();
       localStorage.clear();
-      if (theme) localStorage.setItem('fv-theme', theme);
-      await new Promise(r=>setTimeout(r,150));
-      const stamp=tag||Date.now();
-      location.replace(location.pathname + '?rev=' + encodeURIComponent(stamp));
-    }catch(e){
-      sessionStorage.setItem('fv-postUpdateMsg','Refreshed.');
-      location.reload();
-    }
-  }
-  async _checkForUpdatesAndRefresh(){
-    this._spin(true);
-    this._toast('Checking for updates…', 1200);
-    const current=(window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||'0.0.0';
-    let latest=await this._fetchLatestVersion();
-    if(!latest) latest=current || String(Date.now());
-    this._toast('Clearing cache…', 1000);
-    await this._clearCachesAndReload(latest);
-    setTimeout(()=>this._spin(false), 4000);
+      this._setTheme(theme);
+    }catch{}
+
+    sessionStorage.setItem('fv-postUpdateMsg', latest ? `Updated & refreshed (v${latest}).` : 'Refreshed with latest files.');
+    const bust = latest || Date.now();
+    setTimeout(()=>{ location.replace(location.pathname + '?rev=' + encodeURIComponent(bust)); }, 150);
   }
 }
 customElements.define('fv-shell', FVShell);
