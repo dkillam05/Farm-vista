@@ -1,4 +1,4 @@
-/* FarmVista — <fv-shell> v4.3 (fix drawer selectors for shadow DOM) */
+/* FarmVista — <fv-shell> v4.4 (drawer footer: tagline + version, pinned bottom) */
 (function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -61,13 +61,29 @@
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background:#fff; color:#222; box-shadow:0 0 36px rgba(0,0,0,.25);
-      transform:translateX(-100%); transition:transform .25s; z-index:1200; overflow-y:auto;
+      transform:translateX(-100%); transition:transform .25s; z-index:1200;
       -webkit-overflow-scrolling:touch;
-      padding-bottom:env(safe-area-inset-bottom,0px);
+
+      /* NEW: make footer stick to bottom and allow only nav to scroll */
+      display:flex; flex-direction:column; height:100%; overflow:hidden;
     }
-    .drawer header{ padding:16px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:12px; }
-    .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color:#222; border-bottom:1px solid #f3f3f3; }
-    .drawer footer{ padding:14px 16px; font-size:14px; color:#777; }
+    .drawer header{
+      padding:16px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:12px; flex:0 0 auto;
+    }
+    .drawer nav{
+      display:block; flex:1 1 auto; overflow:auto;
+    }
+    .drawer nav a{
+      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color:#222; border-bottom:1px solid #f3f3f3;
+    }
+    .drawer .drawer-footer{
+      flex:0 0 auto;
+      margin-top:auto;
+      padding:14px 16px;
+      padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));
+      font-size:13px; color:#777; border-top:1px solid #eee;
+      background:#fff;
+    }
 
     /* ✅ Correct: react to a class on the HOST inside shadow DOM */
     :host(.drawer-open) .scrim{ opacity:1; pointer-events:auto; }
@@ -102,6 +118,9 @@
     /* Dark surfaces */
     :host-context(.dark) .drawer{ background:#171917; color:#f1f3ef; border-right:1px solid #1f231f; }
     :host-context(.dark) .drawer nav a{ color:#f1f3ef; border-color:#1f231f; }
+    :host-context(.dark) .drawer .drawer-footer{
+      background:#171917; color:#cfd3cf; border-top:1px solid #1f231f;
+    }
     :host-context(.dark) .panel{ background:#1b1d1b; color:#f1f3ef; border-color:#253228; }
     :host-context(.dark) .chip{ background:#1b1d1b; color:#f1f3ef; border-color:#3a423a; }
   </style>
@@ -128,7 +147,10 @@
       <a href="#"><span>📊</span> Reports</a>
       <a href="#"><span>⚙️</span> Setup</a>
     </nav>
-    <footer><strong>FarmVista</strong> <span class="tiny js-ver">v0.0.0</span></footer>
+    <!-- NEW: pinned footer -->
+    <footer class="drawer-footer">
+      <div class="tiny js-drawer-footer">Loading…</div>
+    </footer>
   </aside>
 
   <section class="panel js-panel" role="dialog" aria-label="Account & settings">
@@ -173,7 +195,7 @@
       this._panel = r.querySelector('.js-panel');
       this._footerText = r.querySelector('.js-footer');
       this._toast = r.querySelector('.js-toast');
-      this._ver = r.querySelector('.js-ver');
+      this._drawerFooter = r.querySelector('.js-drawer-footer');
 
       this._btnMenu.addEventListener('click', ()=> this.toggleDrawer(true));
       this._scrim.addEventListener('click', ()=> this.toggleDrawer(false));
@@ -186,11 +208,24 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
+      // Version & date display
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-      const ver = (window.App && App.getVersion && (App.getVersion().number || '')) || (window.FV_BUILD || '');
-      this._ver.textContent = ver ? `v${ver}` : 'v0.0.0';
+
+      const verNumber =
+        (window.FV_VERSION && FV_VERSION.number) ||
+        (window.App && App.getVersion && (App.getVersion().number || '')) ||
+        (window.FV_BUILD || '0.0.0');
+
+      const tagline =
+        (window.FV_VERSION && FV_VERSION.tagline) ||
+        'Farm data, simplified';
+
+      // Bottom app footer (green bar)
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
+
+      // Sidebar footer (slogan + version)
+      this._drawerFooter.textContent = `${tagline} • v${verNumber}`;
 
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
 
