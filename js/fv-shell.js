@@ -320,7 +320,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
       this._setTheme(theme);
     }catch{}
 
-    sessionStorage.setItem('fv-postUpdateMsg', latest ? `Updated & refreshed (v${latest}).` : 'Refreshed with latest files.');
+    sessionStorage.setItem('fv-postUpdateMsg', latest ? `Updated & Refreshed (v${latest}).` : 'Refreshed with latest files.');
     const bust = latest || Date.now();
     setTimeout(()=>{ location.replace(location.pathname + '?rev=' + encodeURIComponent(bust)); }, 150);
   }
