@@ -1,12 +1,30 @@
 /* ==========================================================
-   FarmVista — Core (theme + version) v3
+   FarmVista — Core (theme + version) v3.1
    - Applies saved theme ASAP (prevents flash)
    - Keeps "system" synced with OS changes
    - Exposes App API used by fv-shell.js
+   - NEW: sets data-theme attr + updates <meta name="theme-color">
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";
   const html = doc.documentElement;
+
+  function ensureThemeMeta(){
+    let m = doc.querySelector('meta[name="theme-color"]');
+    if (!m) {
+      m = doc.createElement('meta');
+      m.setAttribute('name','theme-color');
+      doc.head.appendChild(m);
+    }
+    return m;
+  }
+  function applyThemeColorFromCSS(){
+    try{
+      const cs = getComputedStyle(html);
+      const headerBg = cs.getPropertyValue('--header-bg').trim() || '#3B7E46';
+      ensureThemeMeta().setAttribute('content', headerBg);
+    }catch{}
+  }
 
   // ----- Theme -----
   function computeDark(mode){
@@ -18,16 +36,20 @@
   function applyTheme(mode){
     mode = mode || "system";
     try { localStorage.setItem(THEME_KEY, mode); } catch {}
+    // Reflect both approaches so CSS and components agree:
+    html.setAttribute('data-theme', mode === 'system' ? 'auto' : mode);
     html.classList.toggle("dark", computeDark(mode));
     // broadcast for components
     try { doc.dispatchEvent(new CustomEvent("fv:theme", { detail:{ mode } })); } catch {}
+    // keep browser UI in sync
+    applyThemeColorFromCSS();
     return mode;
   }
   function initTheme(){
     let saved = "system";
     try { saved = localStorage.getItem(THEME_KEY) || "system"; } catch {}
     applyTheme(saved);
-    // keep system synced
+    // keep system synced if on "system"
     try {
       const mq = global.matchMedia("(prefers-color-scheme: dark)");
       mq.addEventListener && mq.addEventListener("change", ()=>{
@@ -64,4 +86,11 @@
   // Init immediately
   initTheme();
   readVersion();
+
+  // Also update theme-color after first paint in case fonts/CSS load late
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyThemeColorFromCSS, { once:true });
+  } else {
+    applyThemeColorFromCSS();
+  }
 })(window, document);
