@@ -1,8 +1,6 @@
-/* FarmVista — <fv-shell> v5.7
-   Scope of this update:
-   - LIGHT MODE: unchanged
-   - DARK MODE: sidebar & drawer made darker with readable text; borders/shadows tuned
-   - Hero cards are controlled via dashboard.css / <fv-hero-card> tokens (no change here)
+/* FarmVista — <fv-shell> v5.8
+   Based on your v5.7 file — styles and structure unchanged.
+   Only the update flow was upgraded to be truly version.js–driven.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -355,40 +353,58 @@
       this._syncThemeChips(mode);
     }
 
+    /* ===== Updater (version.js–driven, cache + SW reset, hard reload with ?rev=<ver>) ===== */
     async checkForUpdates(){
-      const current = (this._verEl && this._verEl.textContent || '').replace(/^v/i,'').trim();
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-      const fetchLatestVersion = async () => {
-        try {
-          const resp = await fetch('/Farm-vista/js/version.js?rev=' + Date.now(), { cache:'reload' });
-        const txt = await resp.text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/);
-          return m ? m[1] : null;
-        } catch { return null; }
-      };
-      const cmp = (a,b)=>{
-        const pa=a.split('.').map(n=>parseInt(n||'0',10));
-        const pb=b.split('.').map(n=>parseInt(n||'0',10));
-        const len=Math.max(pa.length,pb.length);
-        for(let i=0;i<len;i++){ const da=pa[i]||0, db=pb[i]||0; if(da>db) return 1; if(da<db) return -1; }
-        return 0;
-      };
+
+      async function readTargetVersion(){
+        // prefer in-memory version
+        const v = (window.FV_VERSION && window.FV_VERSION.number) || (window.FV_BUILD);
+        if (v) return v;
+        // fallback: fetch version.js and parse
+        try{
+          const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
+          const txt = await resp.text();
+          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          return (m && m[1]) || String(Date.now());
+        }catch{ return String(Date.now()); }
+      }
 
       try{
         this._toastMsg('Checking for updates…', 1200);
-        const latest = await fetchLatestVersion();
+        const targetVer = await readTargetVersion();
 
-        if (latest && current && cmp(latest, current) <= 0) { this._toastMsg(`You’re on v${current} — no update found.`, 1800); return; }
-        if (latest) this._toastMsg(`Updating to v${latest}…`, 1200); else this._toastMsg('Updating…', 1000);
+        // Ask the current SW (if any) to skip waiting so a new one can take control
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
+        }
 
-        if('caches' in window){ const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k))); }
-        await sleep(200);
-        if('serviceWorker' in navigator){ const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); }
-        await sleep(200);
-        try{ await fetch('/Farm-vista/js/version.js?rev=' + Date.now(), { cache:'reload' }); }catch{}
-        this._toastMsg('Reloading with fresh assets…', 900);
-        await sleep(500);
-        const url = new URL(location.href); url.searchParams.set('rev', Date.now().toString()); location.replace(url.toString());
+        // Clear all caches
+        if('caches' in window){
+          try{
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k=> caches.delete(k)));
+          }catch{}
+        }
+
+        // Unregister any existing SWs, then register fresh (timestamped URL)
+        if('serviceWorker' in navigator){
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r=> r.unregister()));
+          } catch {}
+          await sleep(150);
+          try {
+            await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now());
+          } catch {}
+        }
+
+        // Hard reload with the version as the rev param so every CSS/JS link updates
+        this._toastMsg(`Updating to v${targetVer}…`, 900);
+        await sleep(400);
+        const url = new URL(location.href);
+        url.searchParams.set('rev', targetVer);
+        location.replace(url.toString());
       }catch(e){
         console.error(e);
         this._toastMsg('Update failed. Try again.', 2200);
