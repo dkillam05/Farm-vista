@@ -1,6 +1,7 @@
-/* FarmVista — <fv-shell> v4.6
+/* FarmVista — <fv-shell> v4.7
    - Sidebar header: logo LEFT, "Dowson Farms" + "Divernon, Illinois" RIGHT
-   - Drawer footer pinned: LEFT (FarmVista + slogan), RIGHT (live version)
+   - Drawer footer (pinned): LEFT (FarmVista + slogan), RIGHT (live version)
+   - Updater UX: spinning refresh icon, sequenced toasts, real cache/SW clear, cache-busted reload
 */
 (function () {
   const tpl = document.createElement('template');
@@ -117,19 +118,30 @@
     .panel h6{ margin:0 0 10px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:#6c6f6a; }
     .seg{ border-top:1px solid #eee; }
 
-    .chip{ appearance:none; border:1.5px solid #d7dbd3; padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700; }
+    .chip{
+      appearance:none; border:1.5px solid #d7dbd3; padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700;
+      display:inline-flex; align-items:center; gap:8px;
+    }
     .chip[aria-pressed="true"]{ outline:3px solid #fff; background:var(--brand-green,var(--green)); color:#fff; border-color:transparent; }
+
+    /* Refresh icon for update button */
+    .chip .spin{ font-size:15px; display:inline-block; transform-origin:center; }
+    .chip[aria-busy="true"] .spin{ animation: fvspin 900ms linear infinite; }
+    @keyframes fvspin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+    .chip[aria-busy="true"]{ opacity:.9; pointer-events:none; }
 
     .linkrow{ display:flex; align-items:center; justify-content:space-between; padding:12px 0; }
     .linkrow a{ color:#111; text-decoration:none; }
     .tiny{ font-size:13px; color:#666; }
 
-    /* Toast */
+    /* Toast: improved style + transitions */
     .toast{
-      position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px); transform:translateX(-50%);
-      background:#111; color:#fff; padding:10px 14px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.3); z-index:1400; font-size:14px; display:none;
+      position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
+      transform:translateX(-50%); background:#111; color:#fff;
+      padding:12px 16px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
     }
-    .toast.show{ display:block; }
+    .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
     /* Dark mode */
     :host-context(.dark) .drawer{ background:#171917; color:#f1f3ef; border-right:1px solid #1f231f; }
@@ -198,7 +210,9 @@
     <div class="sec seg">
       <h6>MAINTENANCE</h6>
       <div class="linkrow">
-        <button class="chip js-update" aria-busy="false">Check for updates</button>
+        <button class="chip js-update" aria-busy="false" title="Clear cache and reload">
+          <span class="spin">⟳</span> <span>Check for updates</span>
+        </button>
         <span class="tiny">Clears cache & reloads</span>
       </div>
     </div>
@@ -260,11 +274,13 @@
       this._verEl.textContent = `v${verNumber}`;
       this._sloganEl.textContent = tagline;
 
+      // Update button
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
 
+      // Hero check
       setTimeout(()=>{
         if (!customElements.get('fv-hero-card')) {
-          this._toastMsg('Hero components not loaded. Check /js/fv-hero.js path or cache.');
+          this._toastMsg('Hero components not loaded. Check /js/fv-hero.js path or cache.', 2600);
         }
       }, 300);
     }
@@ -297,20 +313,59 @@
       this._syncThemeChips(mode);
     }
 
+    /* ===== Improved Updater ===== */
     async checkForUpdates(){
       const btn = this.shadowRoot.querySelector('.js-update');
-      btn.setAttribute('aria-busy','true');
-      const done = (m)=>{ btn.setAttribute('aria-busy','false'); this._toastMsg(m); };
+      const setBusy = (on)=> btn.setAttribute('aria-busy', on ? 'true' : 'false');
+
+      const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
+
       try{
-        if('caches' in window){ const keys = await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
-        if('serviceWorker' in navigator){ const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }
-        done('Updated. Reloading…');
-        const url = new URL(location.href); url.searchParams.set('rev', Date.now().toString()); location.replace(url.toString());
-      }catch(e){ console.error(e); done('Could not complete update.'); }
+        setBusy(true);
+        this._toastMsg('Clearing cache…', 900);
+
+        // Clear Cache Storage
+        if('caches' in window){
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k=> caches.delete(k)));
+        }
+        await sleep(250); // brief hold so user sees progress
+
+        // Unregister all Service Workers
+        this._toastMsg('Unregistering service workers…', 1000);
+        if('serviceWorker' in navigator){
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r=> r.unregister()));
+        }
+        await sleep(250);
+
+        // Optional: force-fetch version.js to warm the new version (non-blocking)
+        try{
+          const vReq = new Request('/Farm-vista/js/version.js', { cache: 'reload' });
+          fetch(vReq).catch(()=>{});
+        }catch{}
+
+        // Final toast then hard reload with cache-buster
+        this._toastMsg('Reloading with fresh assets…', 1200);
+        await sleep(700);
+
+        const url = new URL(location.href);
+        url.searchParams.set('rev', Date.now().toString());
+        // Also strip any SW scope leftovers
+        location.replace(url.toString());
+      }catch(e){
+        console.error(e);
+        this._toastMsg('Update failed. Try again.', 2200);
+        setBusy(false);
+      }
     }
-    _toastMsg(msg){
-      const t = this._toast; t.textContent = msg; t.classList.add('show');
-      clearTimeout(this._tt); this._tt = setTimeout(()=>t.classList.remove('show'), 2400);
+
+    _toastMsg(msg, ms=1600){
+      const t = this._toast;
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(this._tt);
+      this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
   }
   customElements.define('fv-shell', FVShell);
