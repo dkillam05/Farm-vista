@@ -1,7 +1,8 @@
-/* FarmVista — <fv-shell> v4.7
+/* FarmVista — <fv-shell> v4.8
    - Sidebar header: logo LEFT, "Dowson Farms" + "Divernon, Illinois" RIGHT
    - Drawer footer (pinned): LEFT (FarmVista + slogan), RIGHT (live version)
-   - Updater UX: spinning refresh icon, sequenced toasts, real cache/SW clear, cache-busted reload
+   - Updater UX: spinner + sequenced toasts + real cache/SW clear + cache-busted reload
+   - Version source unified: window.FV_VERSION (SSOT)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -134,7 +135,7 @@
     .linkrow a{ color:#111; text-decoration:none; }
     .tiny{ font-size:13px; color:#666; }
 
-    /* Toast: improved style + transitions */
+    /* Toast */
     .toast{
       position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
       transform:translateX(-50%); background:#111; color:#fff;
@@ -254,18 +255,18 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
-      // Version + slogan + date
+      // Version + slogan (SSOT) + date
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
-      const verNumber =
-        (window.FV_VERSION && FV_VERSION.number) ||
-        (window.App && App.getVersion && (App.getVersion().number || '')) ||
-        (window.FV_BUILD || '0.0.0');
+      const verNumber = (window.FV_VERSION && window.FV_VERSION.number)
+                     || (window.App && App.getVersion && App.getVersion().number)
+                     || (window.FV_BUILD)
+                     || '0.0.0';
 
-      const tagline =
-        (window.FV_VERSION && FV_VERSION.tagline) ||
-        'Farm data, simplified';
+      const tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
+                   || (window.App && App.getVersion && App.getVersion().tagline)
+                   || 'Farm data, simplified';
 
       // Bottom app footer (green bar)
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
@@ -276,6 +277,16 @@
 
       // Update button
       r.querySelector('.js-update').addEventListener('click', ()=> this.checkForUpdates());
+
+      // Small helper for debugging where the version came from
+      window.__fvWhereVersionFrom = function(){
+        return {
+          FV_VERSION: !!window.FV_VERSION,
+          App_getVersion: !!(window.App && App.getVersion),
+          FV_BUILD: !!window.FV_BUILD,
+          value: verNumber
+        };
+      };
 
       // Hero check
       setTimeout(()=>{
@@ -317,21 +328,18 @@
     async checkForUpdates(){
       const btn = this.shadowRoot.querySelector('.js-update');
       const setBusy = (on)=> btn.setAttribute('aria-busy', on ? 'true' : 'false');
-
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
       try{
         setBusy(true);
         this._toastMsg('Clearing cache…', 900);
 
-        // Clear Cache Storage
         if('caches' in window){
           const keys = await caches.keys();
           await Promise.all(keys.map(k=> caches.delete(k)));
         }
-        await sleep(250); // brief hold so user sees progress
+        await sleep(250);
 
-        // Unregister all Service Workers
         this._toastMsg('Unregistering service workers…', 1000);
         if('serviceWorker' in navigator){
           const regs = await navigator.serviceWorker.getRegistrations();
@@ -339,19 +347,16 @@
         }
         await sleep(250);
 
-        // Optional: force-fetch version.js to warm the new version (non-blocking)
+        // Force-fetch version.js so next load sees the new value
         try{
-          const vReq = new Request('/Farm-vista/js/version.js', { cache: 'reload' });
-          fetch(vReq).catch(()=>{});
+          await fetch('/Farm-vista/js/version.js', { cache: 'reload' });
         }catch{}
 
-        // Final toast then hard reload with cache-buster
         this._toastMsg('Reloading with fresh assets…', 1200);
         await sleep(700);
 
         const url = new URL(location.href);
         url.searchParams.set('rev', Date.now().toString());
-        // Also strip any SW scope leftovers
         location.replace(url.toString());
       }catch(e){
         console.error(e);
@@ -361,11 +366,8 @@
     }
 
     _toastMsg(msg, ms=1600){
-      const t = this._toast;
-      t.textContent = msg;
-      t.classList.add('show');
-      clearTimeout(this._tt);
-      this._tt = setTimeout(()=> t.classList.remove('show'), ms);
+      const t = this._toast; t.textContent = msg; t.classList.add('show');
+      clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
   }
   customElements.define('fv-shell', FVShell);
