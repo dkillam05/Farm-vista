@@ -1,14 +1,14 @@
-// /js/fv-shell.js  — FarmVista App Shell v1.1.2
-// Fixes:
-// - Theme chips: unmistakable active state + reliable switching
-// - System theme reacts to OS changes immediately
-// - Update button: spinner + toast (unchanged)
+// /js/fv-shell.js — FarmVista App Shell v1.1.3
+// - Restores header, sidebar, footer
+// - Theme chips work (System/Light/Dark) with clear active state
+// - "Check for updates" clears SW + caches, then reloads with a toast
+// - Only <main> scrolls (no gray rubber-band above/below)
 
 class FVShell extends HTMLElement {
   constructor(){
     super();
-    this._r = this.attachShadow({mode:'open'});
-    this._r.innerHTML = `
+    const r = this.attachShadow({mode:'open'});
+    r.innerHTML = `
 <style>
 :host{
   display:block;
@@ -25,7 +25,7 @@ class FVShell extends HTMLElement {
   --sb-bg:#151b17; --sb-ink:#e8eee9; --hair:#253228;
 }
 
-/* Shell */
+/* 3-row shell: header / main (scroll) / footer */
 .shell{height:100dvh; display:grid; grid-template-columns:72px 1fr; grid-template-rows:auto 1fr auto; background:var(--bg); color:var(--ink);}
 .shell.expanded{grid-template-columns:280px 1fr;}
 @media (max-width:1023px){ .shell{grid-template-columns:1fr;} }
@@ -49,7 +49,7 @@ a.item{display:flex; align-items:center; gap:10px; padding:10px; border-radius:1
 a.item:hover{background:color-mix(in srgb, var(--green) 10%, transparent);}
 .em{width:24px; text-align:center;}
 .lbl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-@media (min-width:1024px){ .shell:not(.expanded) .ftitle, .shell:not(.expanded) .fsub, .shell:not(.expanded) .lbl{display:none}}
+@media (min-width:1024px){ .shell:not(.expanded) .ftitle, .shell:not(.expanded) .fsub, .shell:not(.expanded) .lbl{display:none} }
 @media (max-width:1023px){
   .sb{position:fixed; inset:0 auto 0 0; width:84vw; max-width:320px; transform:translateX(-100%); transition:transform .2s ease; z-index:1001; box-shadow:var(--shadow);}
   .shell.mopen .sb{transform:translateX(0);}
@@ -62,33 +62,22 @@ a.item:hover{background:color-mix(in srgb, var(--green) 10%, transparent);}
 .scrim{position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .18s; z-index:1000;}
 .scrim.show{opacity:1; pointer-events:auto}
 
-/* Main scroller (only thing that scrolls) */
+/* Main — the only scroller */
 main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;}
 .container{max-width:1040px; margin:0 auto; padding:18px 14px 14px;}
 
-/* Footer pinned */
-.f{grid-column:1/-1; position:sticky; bottom:0; z-index:1; background:var(--green); color:#fff; border-top:3px solid var(--gold); display:grid; place-items:center; padding:10px max(14px,var(--safe-right)); white-space:nowrap; font-size:clamp(12px,1.6vw,14px);}
+/* Footer (pinned) */
+.f{grid-column:1/-1; position:sticky; bottom:0; background:var(--green); color:#fff; border-top:3px solid var(--gold); display:grid; place-items:center; padding:10px max(14px,var(--safe-right)); white-space:nowrap; font-size:clamp(12px,1.6vw,14px);}
 
 /* Settings sheet */
 .sheet{position:fixed; left:0; right:0; top:calc(56px + var(--safe-top)); background:var(--green); color:#fff; border-bottom:1px solid rgba(0,0,0,.15); transform:scaleY(.98); opacity:0; visibility:hidden; transform-origin:top; transition:transform .14s ease, opacity .14s ease, visibility .14s; z-index:1002; max-height:calc(100dvh - 56px - var(--safe-top)); overflow:auto;}
 .sheet.show{transform:scaleY(1); opacity:1; visibility:visible;}
 .sheet-in{max-width:1072px; margin:0 auto; padding:8px max(14px,var(--safe-right)) 14px max(14px,var(--safe-left));}
 .sttl{text-transform:uppercase; letter-spacing:.12em; font-size:12px; opacity:.9; margin:8px 0 4px 4px;}
-
-/* Theme chips — stronger active visual */
 .chips{display:flex; gap:8px; flex-wrap:wrap; padding:6px 4px;}
 .chip{position:relative; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:#fff; padding:8px 12px; border-radius:999px; cursor:pointer; user-select:none;}
-.chip[aria-pressed="true"]{
-  outline:2px solid #fff; outline-offset:2px;
-  background:rgba(255,255,255,.18);
-  border-color:#fff;
-}
-.chip[aria-pressed="true"]::after{
-  content:"✓"; position:absolute; right:-10px; top:-10px;
-  width:20px; height:20px; border-radius:50%;
-  display:grid; place-items:center; background:#fff; color:#0a431f; font-weight:700; font-size:12px;
-}
-
+.chip[aria-pressed="true"]{outline:2px solid #fff; outline-offset:2px; background:rgba(255,255,255,.18); border-color:#fff;}
+.chip[aria-pressed="true"]::after{content:"✓"; position:absolute; right:-10px; top:-10px; width:20px; height:20px; border-radius:50%; display:grid; place-items:center; background:#fff; color:#0a431f; font-weight:700; font-size:12px;}
 .row{display:flex; align-items:center; justify-content:space-between; padding:12px 6px; border-radius:10px; cursor:pointer;}
 .row:hover{background:rgba(255,255,255,.08);}
 .muted{opacity:.85}
@@ -173,7 +162,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
 </div>
     `;
 
-    // Lock page so only <main> scrolls
+    // lock page: only <main> should scroll (prevents gray gaps)
     if (!document.getElementById('fv-lock')) {
       const s=document.createElement('style'); s.id='fv-lock';
       s.textContent='html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;}';
@@ -182,23 +171,22 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
   }
 
   connectedCallback(){
-    // Logo + footer date + version/tagline
-    const logo=this._r.getElementById('farmLogo'); if (logo) logo.src='/Farm-vista/assets/icons/logo.png';
+    // logo + footer date + version/tagline
+    const logo=this.shadowRoot.getElementById('farmLogo'); if (logo) logo.src='/Farm-vista/assets/icons/logo.png';
     this._setFooterDate();
     const ver=(window.FarmVistaVersion)||(window.FV_VERSION&&window.FV_VERSION.number)||'1.0.0';
     const tag=(window.FV_TAGLINE)||'Clean farm data. Smarter reporting.';
-    const vEl=this._r.getElementById('ver'); if (vEl) vEl.textContent='v'+ver;
-    const tg=this._r.getElementById('tagline'); if (tg) tg.textContent=tag;
+    const vEl=this.shadowRoot.getElementById('ver'); if (vEl) vEl.textContent='v'+ver;
+    const tg=this.shadowRoot.getElementById('tagline'); if (tg) tg.textContent=tag;
 
-    // Wiring
-    const shell=this._r.querySelector('.shell');
-    const scrim=this._r.getElementById('scrim');
-    const btnMenu=this._r.getElementById('btnMenu');
-    const btnGear=this._r.getElementById('btnGear');
-    const sheet=this._r.getElementById('sheet');
-
+    // wiring
+    const shell=this.shadowRoot.querySelector('.shell');
+    const scrim=this.shadowRoot.getElementById('scrim');
+    const btnMenu=this.shadowRoot.getElementById('btnMenu');
+    const btnGear=this.shadowRoot.getElementById('btnGear');
+    const sheet=this.shadowRoot.getElementById('sheet');
     const isDesktop = ()=> matchMedia('(min-width:1024px)').matches;
-    const closeAll  = ()=>{ shell.classList.remove('mopen'); shell.classList.remove('expanded'); scrim.classList.remove('show'); sheet.classList.remove('show'); btnGear?.setAttribute('aria-expanded','false'); };
+    const closeAll  = ()=>{ shell.classList.remove('mopen','expanded'); scrim.classList.remove('show'); sheet.classList.remove('show'); btnGear?.setAttribute('aria-expanded','false'); };
 
     btnMenu?.addEventListener('click', ()=>{
       if (isDesktop()) shell.classList.toggle('expanded');
@@ -209,7 +197,6 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
         if (on) sheet.classList.remove('show');
       }
     });
-
     btnGear?.addEventListener('click', ()=>{
       const on=!sheet.classList.contains('show');
       sheet.classList.toggle('show', on);
@@ -218,58 +205,51 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
       if (on) shell.classList.remove('mopen');
       this._reflectThemeChips();
     });
-
     scrim?.addEventListener('click', closeAll);
     addEventListener('resize', closeAll);
 
-    // Theme init + listeners
-    const saved = this._getTheme();
-    this._applyTheme(saved);
+    // Theme: init + reflect + react to OS
+    const current=this._getTheme();
+    this._applyTheme(current);
     this._reflectThemeChips();
 
-    // Chip clicks
     [['chipSystem','system'],['chipLight','light'],['chipDark','dark']].forEach(([id,mode])=>{
-      const el=this._r.getElementById(id);
-      el?.addEventListener('click', ()=>{
+      this.shadowRoot.getElementById(id)?.addEventListener('click', ()=>{
         this._setTheme(mode);
         this._applyTheme(mode);
         this._reflectThemeChips();
       });
     });
 
-    // React to OS theme if System is selected
     this._mq = window.matchMedia('(prefers-color-scheme: dark)');
     this._mq.addEventListener?.('change', ()=>{
-      if (this._getTheme()==='system') {
-        this._applyTheme('system');
-        this._reflectThemeChips();
-      }
+      if (this._getTheme()==='system'){ this._applyTheme('system'); this._reflectThemeChips(); }
     });
 
     // Update action
-    this._r.getElementById('btnUpdateAll')?.addEventListener('click', ()=> this._updateAndRefresh());
+    this.shadowRoot.getElementById('btnUpdateAll')?.addEventListener('click', ()=> this._updateAndRefresh());
 
-    // SW
+    // Service worker (scoped to /Farm-vista/)
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/Farm-vista/serviceworker.js').catch(()=>{});
     }
 
     // Post-refresh toast
-    const post = sessionStorage.getItem('fv-postUpdateMsg');
-    if (post) { this._toast(post, 2400); sessionStorage.removeItem('fv-postUpdateMsg'); }
+    const post=sessionStorage.getItem('fv-postUpdateMsg');
+    if (post){ this._toast(post,2400); sessionStorage.removeItem('fv-postUpdateMsg'); }
   }
 
-  /* Helpers ----------------------------------- */
+  /* Helpers */
   _setFooterDate(){
     try{
-      const el=this._r.getElementById('footLine'); if (!el) return;
+      const el=this.shadowRoot.getElementById('footLine'); if (!el) return;
       const d=new Date();
       const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'long',month:'long',day:'numeric',year:'numeric'});
       const parts=fmt.formatToParts(d).reduce((a,p)=> (a[p.type]=p.value,a),{});
       const n=parseInt(parts.day,10); const s=(n%10===1&&n%100!==11)?'st':(n%10===2&&n%100!==12)?'nd':(n%10===3&&n%100!==13)?'rd':'th';
-      el.textContent=\`© \${parts.year} FarmVista • \${parts.weekday}, \${parts.month} \${n}\${s}, \${parts.year}\`;
+      el.textContent=`© ${parts.year} FarmVista • ${parts.weekday}, ${parts.month} ${n}${s}, ${parts.year}`;
     }catch{
-      this._r.getElementById('footLine').textContent='© '+new Date().getFullYear()+' FarmVista';
+      this.shadowRoot.getElementById('footLine').textContent='© '+new Date().getFullYear()+' FarmVista';
     }
   }
 
@@ -279,33 +259,32 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
   _applyTheme(mode){
     const root=document.documentElement;
     const mqDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-    // Class toggle (legacy)
     root.classList.remove('dark');
     if (mode==='dark' || (mode==='system' && mqDark)) root.classList.add('dark');
-
-    // data-theme token for theme.css
-    const token = (mode==='system') ? 'auto' : mode; // theme.css expects 'auto'
+    const token=(mode==='system')?'auto':mode;      // theme.css expects 'auto'
     root.setAttribute('data-theme', token);
-
-    // color-scheme hint for UA controls
     root.style.colorScheme = (mode==='dark') ? 'dark' : (mode==='light' ? 'light' : (mqDark ? 'dark' : 'light'));
   }
 
   _reflectThemeChips(){
     const m=this._getTheme();
-    this._r.querySelectorAll('.chip[data-theme]').forEach(ch=>{
+    this.shadowRoot.querySelectorAll('.chip[data-theme]').forEach(ch=>{
       ch.setAttribute('aria-pressed', String(ch.getAttribute('data-theme')===m));
     });
   }
 
   _toast(msg, ms=2200){
-    let el=this._r.getElementById('fvToast');
-    if(!el){ el=document.createElement('div'); el.id='fvToast'; el.style.cssText='position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:3000;background:rgba(0,0,0,.88);color:#fff;padding:10px 12px;border-radius:10px;font-size:14px;box-shadow:0 8px 18px rgba(0,0,0,.25);transition:opacity .18s;'; this._r.appendChild(el); }
-    el.textContent=msg; el.style.opacity='1'; clearTimeout(this._t); this._t=setTimeout(()=> el.style.opacity='0', ms);
+    let el=this.shadowRoot.getElementById('fvToast');
+    if(!el){
+      el=document.createElement('div'); el.id='fvToast';
+      el.style.cssText='position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:3000;background:rgba(0,0,0,.88);color:#fff;padding:10px 12px;border-radius:10px;font-size:14px;box-shadow:0 8px 18px rgba(0,0,0,.25);transition:opacity .18s;';
+      this.shadowRoot.appendChild(el);
+    }
+    el.textContent=msg; el.style.opacity='1';
+    clearTimeout(this._t); this._t=setTimeout(()=> el.style.opacity='0', ms);
   }
   _spin(on){
-    const row=this._r.getElementById('btnUpdateAll'); const ico=this._r.getElementById('updIcon');
+    const row=this.shadowRoot.getElementById('btnUpdateAll'); const ico=this.shadowRoot.getElementById('updIcon');
     if(row&&ico){ row.setAttribute('aria-busy', String(on)); row.style.pointerEvents= on?'none':''; ico.innerHTML = on ? '<span class="spin" aria-hidden="true"></span>' : '↻'; }
   }
 
@@ -314,7 +293,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
       const res=await fetch('/Farm-vista/js/version.js?rev='+Date.now(), {cache:'no-store'});
       if(!res.ok) return null;
       const text=await res.text();
-      const m=text.match(/FarmVistaVersion\\s*=\\s*["']([^"']+)["']/);
+      const m=text.match(/FarmVistaVersion\s*=\s*["']([^"']+)["']/);
       return m?m[1]:null;
     }catch{ return null; }
   }
@@ -338,7 +317,7 @@ main{grid-column:1/-1; overflow:auto; overscroll-behavior:contain; -webkit-overf
       this._setTheme(theme);
     }catch{}
 
-    sessionStorage.setItem('fv-postUpdateMsg', latest ? \`Updated & refreshed (v\${latest}).\` : 'Refreshed with latest files.');
+    sessionStorage.setItem('fv-postUpdateMsg', latest ? `Updated & refreshed (v${latest}).` : 'Refreshed with latest files.');
     const bust = latest || Date.now();
     setTimeout(()=>{ location.replace(location.pathname + '?rev=' + encodeURIComponent(bust)); }, 150);
   }
