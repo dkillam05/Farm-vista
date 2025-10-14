@@ -384,7 +384,7 @@
       }
 
       try{
-        this._toastMsg('Checking for updates…', 1200);
+        this._toastMsg('Checking For Updates…', 1200);
         const targetVer = await readTargetVersion();
 
         // Ask the current SW (if any) to skip waiting so a new one can take control
