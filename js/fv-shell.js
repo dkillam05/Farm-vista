@@ -1,7 +1,8 @@
-/* FarmVista — <fv-shell> v5.6
-   - Light mode: restored to your original look (solid green header, white drawer, dark text)
-   - Dark mode: added only in :host-context(.dark) blocks
-   - "Check for updates" remains a row (consistent with Account/Feedback)
+/* FarmVista — <fv-shell> v5.7
+   Scope of this update:
+   - LIGHT MODE: unchanged
+   - DARK MODE: sidebar & drawer made darker with readable text; borders/shadows tuned
+   - Hero cards are controlled via dashboard.css / <fv-hero-card> tokens (no change here)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -53,7 +54,7 @@
         16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box;
-      background: #F6F7F6; /* matches theme.css light bg */
+      background: #F6F7F6; /* light mode page bg */
       color: #141514;
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
@@ -156,7 +157,7 @@
     .row .txt{ font-size:16px; }
     .row .chev{ opacity:.9; }
 
-    /* Toast — LIGHT defaults (your original look) */
+    /* Toast — LIGHT defaults */
     .toast{
       position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
       transform:translateX(-50%); background:#111; color:#fff;
@@ -165,25 +166,38 @@
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* ===== DARK MODE ONLY (no changes to light) ===== */
+    /* ===== DARK MODE ONLY (sidebar + surfaces tuned) ===== */
     :host-context(.dark){
-      color:#E8EEE9; background:#151b17;
+      color:#E9EDE9; background:#0e0f0e;
     }
-    :host-context(.dark) .main{ background:#0d1210; color:#E8EEE9; }
-    :host-context(.dark) .drawer{
-      background:#171917; color:#f1f3ef; border-right:1px solid #1f231f;
+    :host-context(.dark) .main{
+      background:#0e100f; color:#E9EDE9;  /* page bg (very dark) */
     }
-    :host-context(.dark) .drawer header{ background:#171917; border-bottom:1px solid #1f231f; }
-    :host-context(.dark) .org .org-loc{ color:#cfd3cf; }
-    :host-context(.dark) .drawer nav{ background:#151b17; }
-    :host-context(.dark) .drawer nav a{ color:#f1f3ef; border-bottom:1px solid #1f231f; }
-    :host-context(.dark) .drawer-footer{
-      background:#171917; border-top:1px solid #1f231f; color:#f1f3ef;
-    }
-    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:#cfd3cf; }
 
+    /* Sidebar surfaces in dark */
+    :host-context(.dark) .drawer{
+      background:#171a18;           /* darker than cards */
+      color:#f1f3ef;
+      border-right:1px solid #2a2e2b;
+      box-shadow:0 0 36px rgba(0,0,0,.45);
+    }
+    :host-context(.dark) .drawer header{
+      background:#171a18; border-bottom:1px solid #2a2e2b;
+    }
+    :host-context(.dark) .org .org-loc{ color:#cdd2cd; }
+    :host-context(.dark) .drawer nav{ background:#141715; }
+    :host-context(.dark) .drawer nav a{
+      color:#f1f3ef; border-bottom:1px solid #232725;
+    }
+    :host-context(.dark) .drawer-footer{
+      background:#171a18; border-top:1px solid #2a2e2b; color:#f1f3ef;
+    }
+    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:#cdd2cd; }
+
+    /* Toast in dark */
     :host-context(.dark) .toast{
-      background:#1B1D1B; color:#F2F4F1; border:1px solid #253228; box-shadow:0 12px 32px rgba(0,0,0,.55);
+      background:#1b1f1c; color:#F2F4F1;
+      border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
     }
   </style>
 
@@ -347,7 +361,7 @@
       const fetchLatestVersion = async () => {
         try {
           const resp = await fetch('/Farm-vista/js/version.js?rev=' + Date.now(), { cache:'reload' });
-          const txt = await resp.text();
+        const txt = await resp.text();
           const m = txt.match(/number\s*:\s*["']([\d.]+)["']/);
           return m ? m[1] : null;
         } catch { return null; }
