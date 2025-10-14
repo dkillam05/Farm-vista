@@ -1,4 +1,4 @@
-/* FarmVista — <fv-shell> v4.1  (icons bigger + hero detector) */
+/* FarmVista — <fv-shell> v4.2 (header icon sizing + panel right anchor) */
 (function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -18,14 +18,17 @@
       height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px);
       background:var(--brand-green,var(--green)); color:#fff;
-      display:grid; grid-template-columns:64px 1fr 64px; align-items:center;
+      display:grid; grid-template-columns:56px 1fr 56px; align-items:center;   /* CHANGED */
       z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05);
     }
     .hdr .title{ text-align:center; font-weight:800; font-size:20px; }
     .iconbtn{
-      display:grid; place-items:center; width:64px; height:64px;
-      border:none; background:transparent; color:#fff; font-size:26px; line-height:1;
+      display:grid; place-items:center;
+      width:48px; height:48px;                                              /* CHANGED */
+      border:none; background:transparent; color:#fff;
+      font-size:28px; line-height:1;                                        /* CHANGED */
       -webkit-tap-highlight-color: transparent;
+      margin:0 auto;                                                        /* centers inside 56px cell */
     }
     .gold-bar{
       position:fixed;
@@ -72,7 +75,8 @@
 
     /* ===== Account panel ===== */
     .panel{
-      position:fixed; right:8px;
+      position:fixed;
+      right:8px; left:auto;                                                 /* CHANGED: anchor to right */
       top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 8px);
       background:#fff; color:#111; border:1px solid #e6e6e6; border-radius:12px; box-shadow:0 18px 44px rgba(0,0,0,.28);
       min-width:300px; max-width:92vw; z-index:1300; display:none; overflow:hidden;
