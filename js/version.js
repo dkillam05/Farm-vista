@@ -3,7 +3,7 @@
 
 const FV_NUMBER  = "3.3.0";                 // ← edit this when releasing
 const FV_DATE    = "2025-10-14";            // ← optional, informational
-const FV_TAGLINE = "Clean farm data - Smarter reporting";
+const FV_TAGLINE = "Farm Data - Smart Reporting";
 
 /* ===== DO NOT EDIT BELOW ===== */
 window.FV_VERSION = {
