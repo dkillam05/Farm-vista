@@ -3,7 +3,7 @@
    - Applies saved theme ASAP (prevents flash)
    - Keeps "system" synced with OS changes
    - Exposes App API used by fv-shell.js
-   - NEW: sets data-theme attr + updates <meta name="theme-color">
+   - Sets data-theme attr + updates <meta name="theme-color">
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";
@@ -11,11 +11,7 @@
 
   function ensureThemeMeta(){
     let m = doc.querySelector('meta[name="theme-color"]');
-    if (!m) {
-      m = doc.createElement('meta');
-      m.setAttribute('name','theme-color');
-      doc.head.appendChild(m);
-    }
+    if (!m) { m = doc.createElement('meta'); m.setAttribute('name','theme-color'); doc.head.appendChild(m); }
     return m;
   }
   function applyThemeColorFromCSS(){
@@ -26,7 +22,6 @@
     }catch{}
   }
 
-  // ----- Theme -----
   function computeDark(mode){
     if(mode === "dark") return true;
     if(mode === "light") return false;
@@ -36,12 +31,9 @@
   function applyTheme(mode){
     mode = mode || "system";
     try { localStorage.setItem(THEME_KEY, mode); } catch {}
-    // Reflect both approaches so CSS and components agree:
     html.setAttribute('data-theme', mode === 'system' ? 'auto' : mode);
     html.classList.toggle("dark", computeDark(mode));
-    // broadcast for components
     try { doc.dispatchEvent(new CustomEvent("fv:theme", { detail:{ mode } })); } catch {}
-    // keep browser UI in sync
     applyThemeColorFromCSS();
     return mode;
   }
@@ -49,7 +41,6 @@
     let saved = "system";
     try { saved = localStorage.getItem(THEME_KEY) || "system"; } catch {}
     applyTheme(saved);
-    // keep system synced if on "system"
     try {
       const mq = global.matchMedia("(prefers-color-scheme: dark)");
       mq.addEventListener && mq.addEventListener("change", ()=>{
@@ -59,7 +50,6 @@
     } catch {}
   }
 
-  // ----- Version helpers (optional) -----
   function readVersion(){
     const num  = global.FV_BUILD || (global.FV_VERSION && global.FV_VERSION.number) || "";
     const date = global.FV_BUILD_DATE || (global.FV_VERSION && global.FV_VERSION.date) || "";
@@ -70,7 +60,6 @@
     return { number:num, date, tagline:tag };
   }
 
-  // ----- App API -----
   const App = global.App || {};
   App.getTheme = () => { try { return localStorage.getItem(THEME_KEY) || "system"; } catch { return "system"; } };
   App.setTheme = (mode) => applyTheme(mode);
@@ -80,14 +69,11 @@
     return applyTheme(order[(i+1)%order.length]);
   };
   App.getVersion = () => readVersion();
-
   global.App = App;
 
-  // Init immediately
   initTheme();
   readVersion();
 
-  // Also update theme-color after first paint in case fonts/CSS load late
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', applyThemeColorFromCSS, { once:true });
   } else {
