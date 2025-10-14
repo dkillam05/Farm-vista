@@ -1,6 +1,6 @@
-/* FarmVista — <fv-shell> v5.9 (sidebar dark tweak only)
-   Change: In dark mode, .drawer nav now uses var(--sidebar-surface)
-           (no color-mix), so the whole sidebar is a single dark tone.
+/* FarmVista — <fv-shell> v5.9.1
+   Based on your v5.9 file.
+   Only change: safe custom element registration guard.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -184,13 +184,9 @@
       background:var(--sidebar-surface, #171a18);
       border-bottom:1px solid var(--sidebar-border, #2a2e2b);
     }
-    :host-context(.dark) .org .org-loc{
-      color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
-    }
-
-    /* >>> CHANGED: nav now matches sidebar surface exactly (no lighten) <<< */
+    :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{
-      background:var(--sidebar-surface, #171a18); /* CHANGED */
+      background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000);
     }
     :host-context(.dark) .drawer nav a{
       color:var(--sidebar-text, #f1f3ef);
@@ -372,12 +368,14 @@
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
       async function readTargetVersion(){
+        // prefer in-memory version
         const v = (window.FV_VERSION && window.FV_VERSION.number) || (window.FV_BUILD);
         if (v) return v;
+        // fallback: fetch version.js and parse
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
-          const m = txt.match(/number\\s*:\\s*["']([\\d.]+)["']/) || txt.match(/FV_NUMBER\\s*=\\s*["']([\\d.]+)["']/);
+          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || String(Date.now());
         }catch{ return String(Date.now()); }
       }
@@ -408,7 +406,7 @@
           } catch {}
         }
 
-        this._toastMsg(\`Updating to v\${targetVer}…\`, 900);
+        this._toastMsg(`Updating to v${targetVer}…`, 900);
         await sleep(400);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer);
@@ -424,5 +422,9 @@
       clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
   }
-  customElements.define('fv-shell', FVShell);
+
+  // ---- Safe define guard (prevents re-define crashes that can block stamping) ----
+  if (!customElements.get('fv-shell')) {
+    customElements.define('fv-shell', FVShell);
+  }
 })();
