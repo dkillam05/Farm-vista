@@ -166,7 +166,6 @@
         <div class="item-header">
           <div>
             <div style="font-weight:700">${m.title || '(Untitled)'}</div>
-            <div class="muted mono">${m.id}</div>
           </div>
           <div class="chips">
             ${m.pinned ? `<span class="chip">Pinned</span>` : ``}
