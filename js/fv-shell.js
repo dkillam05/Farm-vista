@@ -160,6 +160,14 @@
     }
     .row .left{ display:flex; align-items:center; gap:10px; }
     .row .ico{ width:22px; text-align:center; opacity:.95; }
+
+    /* Bigger "Check for updates" icon (only this addition) */
+    .js-update-row .ico{
+      font-size:22px;
+      width:26px;
+      line-height:1;
+    }
+
     .row .txt{ font-size:16px; }
     .row .chev{ opacity:.9; }
 
