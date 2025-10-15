@@ -2,7 +2,6 @@
    Based on your v5.9 file.
    Only change: safe custom element registration guard.
    + Tokenized sidebar rules (.drawer, .drawer header, .drawer nav, .drawer nav a, .drawer-footer)
-   + Collapsible "Setup" submenu with arrow toggle; Message Board nested under Setup
 */
 (function () {
   const tpl = document.createElement('template');
@@ -101,32 +100,6 @@
     }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
 
-    /* ===== Collapsible groups (NEW) ===== */
-    .nav-group{ border-bottom:1px solid var(--border); }
-    .nav-parent{
-      display:flex; align-items:center; justify-content:space-between; gap:8px;
-    }
-    .nav-parent .nav-link{
-      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none;
-      color:var(--text); flex:1 1 auto; border-right:1px solid var(--border);
-    }
-    .nav-toggle{
-      appearance:none; border:0; background:transparent; color:var(--text);
-      width:44px; height:44px; display:grid; place-items:center; cursor:pointer;
-    }
-    .nav-toggle .chev{ display:inline-block; transition:transform .18s ease; }
-    .nav-group[data-open="true"] .nav-toggle .chev{ transform:rotate(90deg); }
-
-    .nav-children{
-      display:none; background: var(--bg);
-    }
-    .nav-group[data-open="true"] .nav-children{ display:block; }
-    .nav-children a{
-      padding:14px 16px 14px 44px; /* indent children */
-      border-bottom:1px solid var(--border);
-      display:flex; align-items:center; gap:12px; text-decoration:none; color:var(--text);
-    }
-
     .drawer-footer{
       flex:0 0 auto;
       display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
@@ -179,29 +152,29 @@
       background:var(--gold); color:#111; border-color:transparent;
     }
 
-    /* Rows — normalized icon size/baseline */
-    .row{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:16px 12px; text-decoration:none; color:#fff;
-      border-top:1px solid color-mix(in srgb,#000 22%, var(--green));
-    }
-    .row .left{ display:flex; align-items:center; gap:14px; }
+/* Rows — normalized icon size/baseline */
+.row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 12px; text-decoration:none; color:#fff;
+  border-top:1px solid color-mix(in srgb,#000 22%, var(--green));
+}
+.row .left{ display:flex; align-items:center; gap:14px; }
 
-    /* same box for every icon + centered glyph */
-    .row .ico{
-      width:28px; height:28px;
-      display:grid; place-items:center;
-      font-size:24px; line-height:1;
-      text-align:center; opacity:.95;
-    }
+/* same box for every icon + centered glyph */
+.row .ico{
+  width:28px; height:28px;
+  display:grid; place-items:center;
+  font-size:24px; line-height:1;
+  text-align:center; opacity:.95;
+}
 
-    .row .txt{ font-size:16px; line-height:1.25; }
-    .row .chev{ opacity:.9; }
+.row .txt{ font-size:16px; line-height:1.25; }
+.row .chev{ opacity:.9; }
 
-    /* (Optional) keep this so the update row matches the same values) */
-    .js-update-row .ico{
-      width:28px; height:28px; font-size:24px; line-height:1;
-    }
+/* (Optional) keep this so the update row matches the same values */
+.js-update-row .ico{
+  width:28px; height:28px; font-size:24px; line-height:1;
+}
 
     /* Toast — LIGHT defaults */
     .toast{
@@ -239,10 +212,6 @@
       color:var(--sidebar-text, #f1f3ef);
       border-bottom:1px solid var(--sidebar-border, #232725);
     }
-    :host-context(.dark) .nav-group{ border-bottom:1px solid var(--sidebar-border, #232725); }
-    :host-context(.dark) .nav-parent .nav-link{ border-right:1px solid var(--sidebar-border, #232725); }
-    :host-context(.dark) .nav-children a{ border-bottom:1px solid var(--sidebar-border, #232725); }
-
     :host-context(.dark) .drawer-footer{
       background:var(--sidebar-surface, #171a18);
       border-top:1px solid var(--sidebar-border, #2a2e2b);
@@ -288,22 +257,7 @@
       <a href="#"><span>🌾</span> Grain</a>
       <a href="#"><span>💵</span> Expenses</a>
       <a href="#"><span>📊</span> Reports</a>
-
-      <!-- ===== Collapsible: Setup (click text to navigate, arrow toggles submenu) ===== -->
-      <div class="nav-group js-group" data-group="setup" data-open="false">
-        <div class="nav-parent">
-          <a class="nav-link" href="/Farm-vista/settings-setup/setup.html">
-            <span>⚙️</span> Setup
-          </a>
-          <button class="nav-toggle" aria-label="Expand Setup" aria-expanded="false">
-            <span class="chev">▶</span>
-          </button>
-        </div>
-        <div class="nav-children" role="group" aria-label="Setup submenu">
-          <a href="/Farm-vista/settings-setup/ss-message-board.html"><span>📢</span> Message Board</a>
-          <!-- add more setup items here as they’re built -->
-        </div>
-      </div>
+      <a href="#"><span>⚙️</span> Setup</a>
     </nav>
 
     <footer class="drawer-footer">
@@ -398,25 +352,7 @@
       const logoutRow = r.getElementById('logoutRow');
       if (logoutRow) logoutRow.addEventListener('click', (e)=>{ e.preventDefault(); this._toastMsg('Logout not implemented yet.', 2000); });
 
-      /* NEW: wire collapsible groups (arrow toggles only; link click still navigates) */
-      this._wireGroups();
-
       setTimeout(()=>{ if (!customElements.get('fv-hero-card')) this._toastMsg('Hero components not loaded. Check /js/fv-hero.js path or cache.', 2600); }, 300);
-    }
-
-    _wireGroups(){
-      const r = this.shadowRoot;
-      r.querySelectorAll('.js-group').forEach(group=>{
-        const toggle = group.querySelector('.nav-toggle');
-        if (!toggle) return;
-        toggle.addEventListener('click', (e)=>{
-          e.preventDefault();
-          e.stopPropagation(); // prevent the parent link from firing
-          const open = group.getAttribute('data-open') === 'true';
-          group.setAttribute('data-open', String(!open));
-          toggle.setAttribute('aria-expanded', String(!open));
-        });
-      });
     }
 
     toggleDrawer(open){
@@ -490,7 +426,7 @@
           } catch {}
         }
 
-        this._toastMsg(\`Updating to v\${targetVer}…\`, 900);
+        this._toastMsg(`Updating to v${targetVer}…`, 900);
         await sleep(400);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer);
