@@ -349,19 +349,8 @@
       // Render menu from /js/menu.js (toast-only on failure)
       this._initMenu();
 
-      // ---- Only warn about hero components on pages that actually use them
-setTimeout(() => {
-  try {
-    const needsHero =
-      (document && (document.querySelector('.hero-grid') || document.querySelector('fv-hero-card'))) || null;
-    if (needsHero && !customElements.get('fv-hero-card')) {
-      this._toastMsg('Hero components not loaded. Check /Farm-vista/js/fv-hero.js path or cache.', 2600);
+      setTimeout(()=>{ if (!customElements.get('fv-hero-card')) this._toastMsg('Hero components not loaded. Check /js/fv-hero.js path or cache.', 2600); }, 300);
     }
-  } catch (e) {
-    // Never let this check break shell rendering
-    console.error('Hero check skipped:', e);
-  }
-}, 300);
 
     async _initMenu(){
       try{
