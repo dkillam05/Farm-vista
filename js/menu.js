@@ -78,6 +78,14 @@ export const NAV_MENU = {
     },
     {
       type: 'link',
+      id: 'calculators',
+      icon: '🔢',
+      label: 'Calculators',
+      href: '/Farm-vista/calculators/',
+      activeMatch: 'starts-with'
+    },
+    {
+      type: 'link',
       id: 'expenses',
       icon: '💵',
       label: 'Expenses',
@@ -99,7 +107,7 @@ export const NAV_MENU = {
       id: 'setup',
       icon: '⚙️',
       label: 'Setup',
-      href: '/Farm-vista/pages/setup/index.html', // NEW: Setup dashboard path
+      href: '/Farm-vista/pages/setup/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
@@ -108,17 +116,16 @@ export const NAV_MENU = {
           id: 'setup-message-board',
           icon: '📢',
           label: 'Message Board',
-          href: '/Farm-vista/pages/setup/message-board.html', // NEW: Message Board path
+          href: '/Farm-vista/pages/setup/message-board.html',
           activeMatch: 'exact'
         }
         // Add more setup children here as you build them.
       ]
-      // roles: ['admin'], // (optional) enable later for role-based visibility
+      // roles: ['admin'],
     }
   ],
 
   options: {
-    // Where the shell should store open/closed state for groups
     stateKey: 'fv:nav:groups'
   }
 };
