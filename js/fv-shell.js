@@ -163,13 +163,6 @@
     .row .txt{ font-size:16px; }
     .row .chev{ opacity:.9; }
 
-    /* Make the “Check for updates” icon a touch larger (match Logout) */
-    .row.js-update-row .ico{
-      font-size:22px;
-      width:24px;
-      line-height:1;
-    }
-
     /* Toast — LIGHT defaults */
     .toast{
       position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
@@ -298,7 +291,7 @@
   <main class="main" part="main"><slot></slot></main>
 
   <footer class="ftr" part="footer">
-    <div class="text class=js-footer"></div>
+    <div class="text js-footer"></div>
   </footer>
 
   <div class="toast js-toast" role="status" aria-live="polite"></div>
