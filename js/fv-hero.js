@@ -39,33 +39,31 @@
 
   /** Populate from localStorage; never navigates */
   function populateMessageBoard(cardEl) {
-    const msg = getLatestMessage();
-    if (!msg) {
+    const list = getActiveMessages();
+
+    if (list.length === 0) {
+      cardEl.setAttribute('title', 'Dowson Farms Message Board');
       cardEl.setAttribute('subtitle', 'No active messages.');
       cardEl.style.minHeight = 'var(--hero-h)'; // default height
       return;
     }
 
-    const title = msg.title
-      ? `Dowson Farms Message Board — ${msg.title}`
-      : 'Dowson Farms Message Board';
+    // Build a compact, professional summary: up to 4 bullets
+    const subtitle = summarizeMessages(list, 4);
 
-    const expText = msg.expiresAt ? formatExpires(msg.expiresAt) : '';
-    const body = expText ? `${msg.body}\n\n${expText}` : msg.body;
+    cardEl.setAttribute('title', 'Dowson Farms Message Board'); // fixed header, no hyphen
+    cardEl.setAttribute('subtitle', subtitle);
 
-    cardEl.setAttribute('title', title);
-    cardEl.setAttribute('subtitle', body);
-
-    // If message is long, let this hero grow taller than the default clamp
-    if (body && body.length > 180) {
+    // If long, let the hero grow a bit; otherwise keep the standard height
+    if (subtitle.length > 220) {
       cardEl.style.minHeight = 'auto';
     } else {
       cardEl.style.minHeight = 'var(--hero-h)';
     }
   }
 
-  /** Read and select best active message from localStorage */
-  function getLatestMessage() {
+  /** Return active, normalized, sorted messages (pinned first, newest next) */
+  function getActiveMessages() {
     let list = [];
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -78,14 +76,30 @@
     const norm = list.map(normalizeDoc)
       .filter(m => m.body && (!m.expiresAt || m.expiresAt > now));
 
-    if (norm.length === 0) return null;
-
     norm.sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1; // pinned first
       return (b.createdAt || 0) - (a.createdAt || 0);       // newest first
     });
 
-    return norm[0];
+    return norm;
+  }
+
+  /** Summarize messages as bullets: • [📌]Title: snippet */
+  function summarizeMessages(list, limit = 4) {
+    const bullets = [];
+    for (const m of list.slice(0, limit)) {
+      const pin = m.pinned ? '📌 ' : '';
+      const title = m.title ? `${m.title}: ` : '';
+      const snippet = m.body.trim().split(/\s+/).slice(0, 12).join(' ');
+      const more = m.body.trim().split(/\s+/).length > 12 ? '…' : '';
+      bullets.push(`• ${pin}${title}${snippet}${more}`);
+    }
+    if (list.length > limit) {
+      bullets.push(`+${list.length - limit} more…`);
+    }
+    // Keep as a single string so <fv-hero-card> can render it gracefully
+    // The spaced " • " separators help line wrapping look natural
+    return bullets.join('   ');
   }
 
   function normalizeDoc(d) {
@@ -105,17 +119,7 @@
     };
   }
 
-  function formatExpires(ms) {
-    try {
-      const d = new Date(typeof ms === 'number' ? ms : Date.parse(ms));
-      return `Expires ${d.toLocaleString(undefined, {
-        weekday:'short', month:'short', day:'numeric',
-        hour:'numeric', minute:'2-digit'
-      })}`;
-    } catch { return ''; }
-  }
-
-  // Small global helper for seeding messages (until Admin composer exists)
+  // Small global helper for seeding/testing messages
   window.DFMessageBoard = {
     set(arr) {
       if (!Array.isArray(arr)) throw new Error('DFMessageBoard.set expects an array');
