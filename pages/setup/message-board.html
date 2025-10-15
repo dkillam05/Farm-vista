@@ -32,19 +32,8 @@
       margin: 0 0 16px 0;
     }
 
-    /* Form */
     .form-grid { display:grid; gap:12px; grid-template-columns: 1fr; max-width: 780px; }
-    label { font-weight: 700; display:block; margin-bottom:6px; }
-    input[type="text"], input[type="datetime-local"], textarea {
-      width: 100%; box-sizing: border-box;
-      border: 1px solid var(--border);
-      background: var(--bg); color: var(--text);
-      border-radius: 10px; padding: 10px 12px;
-      font: 500 16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-    }
-    textarea { min-height: 120px; resize: vertical; }
     .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .muted { color:var(--muted,#8a928c); font-size:13px; }
 
     .btn { appearance:none; border:0; border-radius:10px; padding:12px 16px; font-weight:800; font-size:16px; cursor:pointer; display:inline-flex; align-items:center; gap:10px; }
     .btn-primary { background:var(--green,#3B7E46); color:#fff; }
@@ -52,20 +41,14 @@
     .btn-ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
     .btn-danger { background:#a33; color:#fff; }
 
-    /* List */
-    .item {
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:12px;
-      background:var(--surface);
-      margin-bottom:10px;
-    }
+    .item { border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--surface); margin-bottom:10px; }
     .item-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
     .chips { display:flex; flex-wrap:wrap; gap:6px; }
     .chip { display:inline-block; padding:4px 8px; font-size:12px; border-radius:999px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
     .actions button { border:1px solid var(--border); background:var(--bg); color:var(--text); padding:8px 10px; border-radius:8px; cursor:pointer; }
     .actions .danger { background:#a33; color:#fff; border-color:#a33; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .muted { color:var(--muted,#8a928c); font-size:13px; }
   </style>
 </head>
 <body>
@@ -74,31 +57,33 @@
       <h1 class="page-title">Message Board</h1>
       <p class="page-sub">Create and manage notices that appear on the dashboard message hero. Messages can optionally expire and auto-remove.</p>
 
-      <!-- Composer (IDs match /js/mb-admin.js exactly) -->
+      <!-- Composer -->
       <section class="card" aria-labelledby="h-compose">
         <h2 id="h-compose" class="page-title" style="font-size:18px; margin-bottom:10px;">Add / Edit Message</h2>
 
         <div class="form-grid">
           <div>
-            <label for="title">Title (optional)</label>
-            <input id="title" type="text" placeholder="e.g., Team Meeting" />
+            <label for="title"><strong>Title</strong> <span class="muted">(optional)</span></label>
+            <input id="title" class="fv-input" type="text" placeholder="e.g., Team Meeting" />
           </div>
 
           <div>
-            <label for="author">Author (optional)</label>
-            <input id="author" type="text" placeholder="e.g., Mike Dowson" />
+            <label for="author"><strong>Author</strong> <span class="muted">(optional)</span></label>
+            <input id="author" class="fv-input" type="text" placeholder="e.g., Mike Dowson" />
           </div>
 
           <div>
-            <label for="body">Message <span class="muted">(required)</span></label>
-            <textarea id="body" placeholder="Write a short note to your team…" required></textarea>
+            <label for="body"><strong>Message</strong> <span class="muted">(required)</span></label>
+            <textarea id="body" class="fv-textarea" placeholder="Write a short note to your team…" required></textarea>
           </div>
 
           <div>
-            <label for="expires">Expires (optional)</label>
-            <!-- mb-admin.js expects datetime-like value (it uses toISOString().slice(0,16) on edit) -->
-            <input id="expires" type="datetime-local" />
-            <div class="muted" style="margin-top:6px">After this date/time, the message is considered expired and will be removed by “Remove Expired”.</div>
+            <label for="expires"><strong>Expires</strong> <span class="muted">(optional)</span></label>
+            <!-- Keep datetime-local (your admin JS expects it) -->
+            <input id="expires" class="fv-input" type="datetime-local" />
+            <div class="muted" style="margin-top:6px">
+              After this date/time, the message is considered expired and will be removed by “Remove Expired”.
+            </div>
           </div>
 
           <div class="row">
@@ -109,12 +94,15 @@
 
           <div class="row">
             <button id="saveBtn" class="btn btn-primary" type="button">Save Message</button>
-            <button class="btn btn-ghost" type="button" onclick="(function(){document.getElementById('title').value='';document.getElementById('author').value='';document.getElementById('body').value='';document.getElementById('expires').value='';document.getElementById('pinned').checked=false;})();">Clear</button>
+            <button class="btn btn-ghost" type="button"
+              onclick="(function(){['title','author','body','expires'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});document.getElementById('pinned').checked=false;})();">
+              Clear
+            </button>
           </div>
         </div>
       </section>
 
-      <!-- Bulk tools -->
+      <!-- Tools -->
       <section class="card" aria-labelledby="h-tools">
         <h2 id="h-tools" class="page-title" style="font-size:18px; margin-bottom:10px;">Tools</h2>
         <div class="row">
@@ -127,7 +115,7 @@
         </div>
       </section>
 
-      <!-- List (container IDs match your script) -->
+      <!-- List -->
       <section class="card" aria-labelledby="h-list">
         <h2 id="h-list" class="page-title" style="font-size:18px; margin-bottom:10px;">Messages</h2>
         <div id="list"></div>
@@ -135,7 +123,7 @@
     </div>
   </fv-shell>
 
-  <!-- Bootloader: load shell; then your admin module -->
+  <!-- Bootloader -->
   <script>
     (function () {
       const urlRev = new URL(location.href).searchParams.get('rev');
@@ -156,11 +144,9 @@
             document.body.appendChild(s);
           });
         }
-        // Load your admin script last
         const s = document.createElement('script');
         s.src = '/Farm-vista/js/mb-admin.js' + '?rev=' + REV;
         s.async = false;
-        s.onload = () => {};
         s.onerror = () => {
           const shell = document.querySelector('fv-shell');
           const toast = shell && shell.shadowRoot && shell.shadowRoot.querySelector('.js-toast');
@@ -171,9 +157,8 @@
           } else {
             alert('Message module failed to load. Please refresh.');
           }
-          // Disable all interactive controls to avoid confusion
-          const ids = ['saveBtn','purgeExpiredBtn','exportBtn','clearAllBtn','importFile','title','author','body','expires','pinned'];
-          ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+          ['saveBtn','purgeExpiredBtn','exportBtn','clearAllBtn','importFile','title','author','body','expires','pinned']
+            .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
         };
         document.body.appendChild(s);
       })().catch(err => console.error('Bootloader failed:', err));
