@@ -2,7 +2,7 @@
    Based on your v5.9 file.
    Only change: safe custom element registration guard.
    + Tokenized sidebar rules (.drawer, .drawer header, .drawer nav, .drawer nav a, .drawer-footer)
-   + (NEW) Drawer menu is rendered from /Farm-vista/js/menu.js (data only)
+   + Drawer menu now renders from /Farm-vista/js/menu.js; on failure shows toast (no fallback)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -54,7 +54,6 @@
         16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box;
-      /* Token-driven so it flips with theme */
       background: var(--bg);
       color: var(--text);
     }
@@ -203,7 +202,7 @@
     }
     :host-context(.dark) .drawer header{
       background:var(--sidebar-surface, #171a18);
-      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
+      border-bottom:1px solid var(--sidebar-border, #2a2eb);
     }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{
@@ -251,7 +250,7 @@
       </div>
     </header>
 
-    <!-- NOTE: nav content will be rendered dynamically from /js/menu.js -->
+    <!-- Menu is rendered dynamically from /Farm-vista/js/menu.js -->
     <nav class="js-nav"></nav>
 
     <footer class="drawer-footer">
@@ -347,7 +346,7 @@
       const logoutRow = r.getElementById('logoutRow');
       if (logoutRow) logoutRow.addEventListener('click', (e)=>{ e.preventDefault(); this._toastMsg('Logout not implemented yet.', 2000); });
 
-      // 🔹 NEW: render drawer menu from /js/menu.js
+      // Render menu from /js/menu.js (toast-only on failure)
       this._initMenu();
 
       setTimeout(()=>{ if (!customElements.get('fv-hero-card')) this._toastMsg('Hero components not loaded. Check /js/fv-hero.js path or cache.', 2600); }, 300);
@@ -356,10 +355,8 @@
     async _initMenu(){
       try{
         const mod = await import('/Farm-vista/js/menu.js');
-        const NAV_MENU = mod?.NAV_MENU || mod?.default;
-        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) {
-          throw new Error('Invalid NAV_MENU');
-        }
+        const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || null;
+        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU');
         this._renderMenu(NAV_MENU);
       }catch(err){
         console.error('Menu load failed:', err);
@@ -369,40 +366,41 @@
 
     _renderMenu(cfg){
       const nav = this._navEl;
-      nav.innerHTML = ''; // clear
+      if (!nav) return;
+      nav.innerHTML = '';
 
-      // Simple active test helper
       const path = location.pathname;
-
-      // Local storage for group state
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
-      const groupState = this._loadGroupState(stateKey);
+      let groupState = {};
+      try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
 
-      // Render helpers
       const mkLink = (item) => {
         const a = document.createElement('a');
         a.href = item.href || '#';
-        a.innerHTML = `<span>${item.icon || ''}</span> ${item.label}`;
-        // "Active" heuristic
-        if (item.activeMatch === 'exact') {
-          if (path === item.href) a.setAttribute('aria-current', 'page');
-        } else {
-          if (item.href && path.startsWith(item.href)) a.setAttribute('aria-current', 'page');
+        a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
+        const mode = item.activeMatch || 'starts-with';
+        if ((mode==='exact' && path === item.href) || (mode!=='exact' && item.href && path.startsWith(item.href))) {
+          a.setAttribute('aria-current', 'page');
         }
         return a;
       };
 
-      const mkGroup = (group) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'nav-group';
+      const setOpen = (open, kids, btn) => {
+        kids.style.display = open ? 'block' : 'none';
+        btn.setAttribute('aria-expanded', String(open));
+        const chev = btn.firstElementChild;
+        if (chev) chev.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
+      };
 
-        // Parent row: label is a link, plus an arrow button
+      const mkGroup = (g) => {
+        const wrap = document.createElement('div'); wrap.className = 'nav-group';
+
         const row = document.createElement('div');
         row.style.display = 'flex';
         row.style.alignItems = 'stretch';
         row.style.borderBottom = '1px solid var(--border)';
 
-        const link = mkLink(group);
+        const link = mkLink(g);
         link.style.flex = '1 1 auto';
         link.style.borderRight = '1px solid var(--border)';
         link.style.display = 'flex';
@@ -410,7 +408,7 @@
 
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.setAttribute('aria-label', `Toggle ${group.label}`);
+        btn.setAttribute('aria-label', 'Toggle ' + g.label);
         btn.setAttribute('aria-expanded', 'false');
         btn.style.width = '44px';
         btn.style.height = '44px';
@@ -427,65 +425,38 @@
         chev.style.transition = 'transform .18s ease';
         btn.appendChild(chev);
 
-        row.appendChild(link);
-        row.appendChild(btn);
-
-        // Children container
         const kids = document.createElement('div');
         kids.setAttribute('role','group');
         kids.style.display = 'none';
 
-        // Render children as standard links (indented via padding-left)
-        (group.children || []).forEach(child => {
-          const a = mkLink(child);
-          a.style.paddingLeft = '44px'; // indent
+        (g.children || []).forEach(ch=>{
+          const a = mkLink(ch);
+          a.style.paddingLeft = '44px';
           kids.appendChild(a);
         });
 
-        // Open/close state
-        const open = !!(groupState[group.id] ?? group.initialOpen);
-        this._setGroupOpen(open, kids, btn);
+        const open = !!(groupState[g.id] ?? g.initialOpen);
+        setOpen(open, kids, btn);
 
-        // Toggle only on button
         btn.addEventListener('click', (e)=>{
           e.preventDefault();
           const nowOpen = kids.style.display === 'none';
-          this._setGroupOpen(nowOpen, kids, btn);
-          groupState[group.id] = nowOpen;
-          this._saveGroupState(stateKey, groupState);
+          setOpen(nowOpen, kids, btn);
+          groupState[g.id] = nowOpen;
+          try { localStorage.setItem(stateKey, JSON.stringify(groupState)); } catch {}
         });
 
+        row.appendChild(link);
+        row.appendChild(btn);
         wrap.appendChild(row);
         wrap.appendChild(kids);
         return wrap;
       };
 
-      // Paint items
-      (cfg.items || []).forEach(item => {
-        if (item.type === 'group' && item.collapsible) {
-          nav.appendChild(mkGroup(item));
-        } else if (item.type === 'link') {
-          nav.appendChild(mkLink(item));
-        }
+      (cfg.items || []).forEach(item=>{
+        if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item));
+        else if (item.type === 'link') nav.appendChild(mkLink(item));
       });
-    }
-
-    _setGroupOpen(open, kidsEl, btn){
-      kidsEl.style.display = open ? 'block' : 'none';
-      const chev = btn.firstElementChild;
-      if (chev) chev.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
-      btn.setAttribute('aria-expanded', String(open));
-    }
-
-    _loadGroupState(key){
-      try {
-        return JSON.parse(localStorage.getItem(key) || '{}');
-      } catch { return {}; }
-    }
-    _saveGroupState(key, val){
-      try {
-        localStorage.setItem(key, JSON.stringify(val));
-      } catch {}
     }
 
     toggleDrawer(open){
@@ -521,10 +492,8 @@
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
       async function readTargetVersion(){
-        // prefer in-memory version
         const v = (window.FV_VERSION && window.FV_VERSION.number) || (window.FV_BUILD);
         if (v) return v;
-        // fallback: fetch version.js and parse
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
@@ -540,14 +509,12 @@
         if (navigator.serviceWorker && navigator.serviceWorker.controller) {
           try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
         }
-
         if('caches' in window){
           try{
             const keys = await caches.keys();
             await Promise.all(keys.map(k=> caches.delete(k)));
           }catch{}
         }
-
         if('serviceWorker' in navigator){
           try {
             const regs = await navigator.serviceWorker.getRegistrations();
@@ -559,7 +526,7 @@
           } catch {}
         }
 
-        this._toastMsg(\`Updating to v\${targetVer}…\`, 900);
+        this._toastMsg(`Updating to v${targetVer}…`, 900);
         await sleep(400);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer);
