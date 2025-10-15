@@ -152,24 +152,29 @@
       background:var(--gold); color:#111; border-color:transparent;
     }
 
-    /* Rows */
-    .row{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:14px 12px; text-decoration:none; color:#fff;
-      border-top:1px solid color-mix(in srgb,#000 22%, var(--green));
-    }
-    .row .left{ display:flex; align-items:center; gap:10px; }
-    .row .ico{ width:22px; text-align:center; opacity:.95; }
+/* Rows — normalized icon size/baseline */
+.row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 12px; text-decoration:none; color:#fff;
+  border-top:1px solid color-mix(in srgb,#000 22%, var(--green));
+}
+.row .left{ display:flex; align-items:center; gap:14px; }
 
-    /* Bigger "Check for updates" icon (only this addition) */
-    .js-update-row .ico{
-      font-size:30px;
-      width:30px;
-      line-height:1;
-    }
+/* same box for every icon + centered glyph */
+.row .ico{
+  width:28px; height:28px;
+  display:grid; place-items:center;
+  font-size:24px; line-height:1;
+  text-align:center; opacity:.95;
+}
 
-    .row .txt{ font-size:16px; }
-    .row .chev{ opacity:.9; }
+.row .txt{ font-size:16px; line-height:1.25; }
+.row .chev{ opacity:.9; }
+
+/* (Optional) keep this so the update row matches the same values */
+.js-update-row .ico{
+  width:28px; height:28px; font-size:24px; line-height:1;
+}
 
     /* Toast — LIGHT defaults */
     .toast{
