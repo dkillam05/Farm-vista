@@ -7,28 +7,28 @@
 (function () {
   const LS_KEY = 'df_message_board';
 
-  // DOM
+  // DOM helpers
   const $ = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const ui = {
-    title: $('#title'),
-    author: $('#author'),
-    body: $('#body'),
+    title:   $('#title'),
+    author:  $('#author'),
+    body:    $('#body'),
     expires: $('#expires'),
-    pinned: $('#pinned'),
+    pinned:  $('#pinned'),
     saveBtn: $('#saveBtn'),
-    exportBtn: $('#exportBtn'),
-    importFile: $('#importFile'),
+    exportBtn: $('#exportBtn'),         // may be null (we removed Import/Export from Tools)
+    importFile: $('#importFile'),       // may be null
     purgeExpiredBtn: $('#purgeExpiredBtn'),
     clearAllBtn: $('#clearAllBtn'),
-    list: $('#list'),
-    counts: $('#counts'),
+    list:    $('#list'),
+    counts:  $('#counts'),
   };
 
   // State
   let editingId = null;
 
-  // Helpers
+  // Utils
   const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
   const now = () => Date.now();
 
@@ -71,6 +71,19 @@
     authorName: (m.authorName || '').toString().trim(),
   });
 
+  // ---- Expiry helpers (validation + min for picker) ----
+  function toLocalDatetimeValue(d){
+    const p = (n)=> String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function setExpiresMin(){
+    if (!ui.expires) return;
+    try {
+      const oneMinuteAhead = new Date(Date.now() + 60_000);
+      ui.expires.min = toLocalDatetimeValue(oneMinuteAhead);
+    } catch {}
+  }
+
   // CRUD
   function upsert(msg) {
     const n = normalize(msg);
@@ -104,40 +117,63 @@
   function onSave() {
     const msg = {
       id: editingId || null,
-      title: ui.title.value,
-      body: ui.body.value,
-      pinned: ui.pinned.checked,
+      title: ui.title?.value || '',
+      body: ui.body?.value || '',
+      pinned: !!ui.pinned?.checked,
       createdAt: editingId ? undefined : now(),
-      expiresAt: ui.expires.value ? Date.parse(ui.expires.value) : null,
-      authorName: ui.author.value,
+      expiresAt: ui.expires?.value ? Date.parse(ui.expires.value) : null,
+      authorName: ui.author?.value || '',
     };
+
     if (!msg.body.trim()) {
       alert('Message body is required.');
       return;
     }
+
+    // Validate expiry >= 1 minute in the future (if provided)
+    if (ui.expires && ui.expires.value) {
+      const expMs = Date.parse(ui.expires.value);
+      if (!Number.isFinite(expMs)) {
+        ui.expires.setCustomValidity('Please enter a valid date/time.');
+        ui.expires.reportValidity();
+        return;
+      }
+      const minAllowed = Date.now() + 60_000; // 1 minute
+      if (expMs < minAllowed) {
+        ui.expires.setCustomValidity('Expiry must be at least 1 minute in the future.');
+        ui.expires.reportValidity();
+        return;
+      }
+      ui.expires.setCustomValidity('');
+    }
+
     const id = upsert(msg);
     editingId = null;
-    ui.saveBtn.textContent = 'Save Message';
+    if (ui.saveBtn) ui.saveBtn.textContent = 'Save Message';
     clearForm();
   }
 
   function clearForm() {
-    ui.title.value = '';
-    ui.author.value = '';
-    ui.body.value = '';
-    ui.expires.value = '';
-    ui.pinned.checked = false;
+    if (ui.title) ui.title.value = '';
+    if (ui.author) ui.author.value = '';
+    if (ui.body) ui.body.value = '';
+    if (ui.expires) ui.expires.value = '';
+    if (ui.pinned) ui.pinned.checked = false;
+    setExpiresMin();
   }
 
   function editItem(m) {
     editingId = m.id;
-    ui.title.value = m.title || '';
-    ui.author.value = m.authorName || '';
-    ui.body.value = m.body || '';
-    ui.pinned.checked = !!m.pinned;
-    ui.expires.value = m.expiresAt ? new Date(m.expiresAt).toISOString().slice(0,16) : '';
-    ui.saveBtn.textContent = 'Update Message';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (ui.title) ui.title.value = m.title || '';
+    if (ui.author) ui.author.value = m.authorName || '';
+    if (ui.body) ui.body.value = m.body || '';
+    if (ui.pinned) ui.pinned.checked = !!m.pinned;
+    if (ui.expires) {
+      ui.expires.value = m.expiresAt ? toLocalDatetimeValue(new Date(m.expiresAt)) : '';
+      setExpiresMin();
+    }
+    if (ui.saveBtn) ui.saveBtn.textContent = 'Update Message';
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
   }
 
   // Render list
@@ -154,8 +190,9 @@
     const active = list.filter(m => !m.expiresAt || m.expiresAt > t);
     const expired = list.filter(m => m.expiresAt && m.expiresAt <= t);
 
-    ui.counts.textContent = `${active.length} active · ${expired.length} expired`;
+    if (ui.counts) ui.counts.textContent = `${active.length} active · ${expired.length} expired`;
 
+    if (!ui.list) return;
     ui.list.innerHTML = '';
     for (const m of list) {
       const isExpired = !!(m.expiresAt && m.expiresAt <= t);
@@ -198,7 +235,7 @@
     }
   }
 
-  // Import/Export
+  // Import/Export (optional; only if buttons are present)
   function onExport() {
     const data = JSON.stringify(load(), null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -230,14 +267,17 @@
   }
 
   // Wire up events
-  ui.saveBtn.addEventListener('click', onSave);
-  ui.exportBtn.addEventListener('click', onExport);
-  ui.importFile.addEventListener('change', onImport);
-  ui.purgeExpiredBtn.addEventListener('click', purgeExpired);
-  ui.clearAllBtn.addEventListener('click', () => {
+  if (ui.saveBtn) ui.saveBtn.addEventListener('click', onSave);
+  if (ui.exportBtn) ui.exportBtn.addEventListener('click', onExport);
+  if (ui.importFile) ui.importFile.addEventListener('change', onImport);
+  if (ui.purgeExpiredBtn) ui.purgeExpiredBtn.addEventListener('click', purgeExpired);
+  if (ui.clearAllBtn) ui.clearAllBtn.addEventListener('click', () => {
     if (confirm('Clear ALL messages? This cannot be undone.')) clearAll();
   });
 
-  // Initial paint
+  // Initialize min guard for expiry and initial paint
+  setExpiresMin();
+  if (ui.expires) ui.expires.addEventListener('focus', setExpiresMin);
+
   render();
 })();
