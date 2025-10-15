@@ -163,8 +163,8 @@
 
     /* Bigger "Check for updates" icon (only this addition) */
     .js-update-row .ico{
-      font-size:22px;
-      width:26px;
+      font-size:30px;
+      width:30px;
       line-height:1;
     }
 
