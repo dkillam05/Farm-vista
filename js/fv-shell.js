@@ -1,5 +1,3 @@
-<!-- fv-shell v5.9.1 (full file) -->
-<script>
 /* FarmVista — <fv-shell> v5.9.1
    Based on your v5.9 file.
    Only change: safe custom element registration guard.
@@ -161,14 +159,12 @@
       border-top:1px solid color-mix(in srgb,#000 22%, var(--green));
     }
     .row .left{ display:flex; align-items:center; gap:14px; }
-
     .row .ico{
       width:28px; height:28px;
       display:grid; place-items:center;
       font-size:24px; line-height:1;
       text-align:center; opacity:.95;
     }
-
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
 
@@ -193,7 +189,7 @@
       background:var(--bg); color:var(--text);
     }
 
-    /* Sidebar surfaces in dark */
+    /* Sidebar surfaces in dark (tokenized with fallbacks still supported) */
     :host-context(.dark) .drawer{
       background:var(--sidebar-surface, #171a18);
       color:var(--sidebar-text, #f1f3ef);
@@ -202,7 +198,7 @@
     }
     :host-context(.dark) .drawer header{
       background:var(--sidebar-surface, #171a18);
-      border-bottom:1px solid var(--sidebar-border, #2a2eb);
+      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
     }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{
@@ -344,7 +340,7 @@
       r.querySelector('.js-update-row').addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
       // LOGOUT → redirect (pre-auth): close drawers, then go to login page
-      const logoutRow = r.getElementById('logoutRow');
+      const logoutRow = r.querySelector('#logoutRow');
       if (logoutRow) {
         logoutRow.addEventListener('click', (e) => {
           e.preventDefault();
@@ -367,6 +363,7 @@
             this._toastMsg('Hero components not loaded. Check /Farm-vista/js/fv-hero.js path or cache.', 2600);
           }
         } catch (e) {
+          // never break shell rendering
         }
       }, 300);
     }
@@ -465,7 +462,6 @@
           try { localStorage.setItem(stateKey, JSON.stringify(groupState)); } catch {}
         });
 
-        row.appendedChild = row.appendChild; // no-op safety
         row.appendChild(link);
         row.appendChild(btn);
         wrap.appendChild(row);
@@ -507,7 +503,7 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Updater (version.js–driven) ===== */
+    /* ===== Updater (version.js–driven, cache + SW reset, hard reload with ?rev=<ver>) ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
@@ -563,8 +559,8 @@
     }
   }
 
+  // ---- Safe define guard (prevents re-define crashes that can block stamping) ----
   if (!customElements.get('fv-shell')) {
     customElements.define('fv-shell', FVShell);
   }
 })();
-</script>
