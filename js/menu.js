@@ -99,7 +99,7 @@ export const NAV_MENU = {
       id: 'setup',
       icon: '⚙️',
       label: 'Setup',
-      href: '/Farm-vista/settings-setup/setup.html', // clicking label goes to Setup Dashboard
+      href: '/Farm-vista/pages/setup/index.html', // NEW: Setup dashboard path
       collapsible: true,
       initialOpen: false,
       children: [
@@ -108,7 +108,7 @@ export const NAV_MENU = {
           id: 'setup-message-board',
           icon: '📢',
           label: 'Message Board',
-          href: '/Farm-vista/settings-setup/ss-message-board.html',
+          href: '/Farm-vista/pages/setup/message-board.html', // NEW: Message Board path
           activeMatch: 'exact'
         }
         // Add more setup children here as you build them.
