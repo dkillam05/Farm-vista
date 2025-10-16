@@ -272,7 +272,7 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <a class="row" href="#"><div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div><div class="chev">›</div></a>
+      <a class="row" href="#"><div class="left"><div class="ico">🧾</div><div class="txt">Account details</div></div><div class="chev">›</div></a>
       <a class="row" href="#"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
 
       <div class="section-h">MAINTENANCE</div>
