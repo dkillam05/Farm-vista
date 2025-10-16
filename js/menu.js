@@ -49,7 +49,7 @@ export const NAV_MENU = {
       id: 'home',
       icon: '🏠',
       label: 'Home',
-      href: '/Farm-vista/index.html',
+      href: '/Farm-vista/dashboard/index.html',   // <-- UPDATED (lowercase "dashboard")
       activeMatch: 'exact'
     },
 
