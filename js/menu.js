@@ -154,7 +154,7 @@ export const NAV_MENU = {
           id: 'office-teams',
           icon: '👥',
           label: 'Teams & Partners',
-          href: '/Farm-vista/teams-partners/index.html',
+          href: '/Farm-vista/pages/teams-partners/index.html',
           collapsible: true,
           initialOpen: false,
           children: [
@@ -174,7 +174,7 @@ export const NAV_MENU = {
       id: 'calculators',
       icon: '🔢',
       label: 'Calculators',
-      href: '/Farm-vista/calculators/index.html',
+      href: '/Farm-vista/pages/calculators/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
@@ -193,7 +193,7 @@ export const NAV_MENU = {
       id: 'reports',
       icon: '📑',
       label: 'Reports',
-      href: '/Farm-vista/reports/index.html',
+      href: '/Farm-vista/pages/reports/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
