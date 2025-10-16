@@ -49,7 +49,7 @@ export const NAV_MENU = {
       id: 'home',
       icon: '🏠',
       label: 'Home',
-      href: '/Farm-vista/dashboard/index.html',   // <-- UPDATED (lowercase "dashboard")
+      href: '/Farm-vista/dashboard/index.html',
       activeMatch: 'exact'
     },
 
@@ -213,9 +213,6 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
-        { type: 'link', id: 'setup-farms',         icon: '🏷️', label: 'Farms',        href: '#', activeMatch: 'starts-with' },
-        { type: 'link', id: 'setup-fields',        icon: '🗺️', label: 'Fields',       href: '#', activeMatch: 'starts-with' },
         {
           type: 'group',
           id: 'setup-products',
@@ -231,6 +228,9 @@ export const NAV_MENU = {
             { type: 'link', id: 'setup-prod-grainbags',  icon: '👝', label: 'Grain Bags',  href: '#', activeMatch: 'starts-with' }
           ]
         },
+        { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
+        { type: 'link', id: 'setup-farms',         icon: '🏷️', label: 'Farms',        href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'setup-fields',        icon: '🗺️', label: 'Fields',       href: '#', activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-company', icon: '🏢', label: 'Company Details', href: '#', activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-roles',   icon: '👥', label: 'Account Roles',   href: '#', activeMatch: 'starts-with' }
       ]
