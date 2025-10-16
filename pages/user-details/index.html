@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • User Details</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- PWA + icons -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+
+  <!-- Early theme boot -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- Global CSS -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
+
+  <style>
+    .form { display:grid; gap:14px; max-width:720px; }
+    .field { display:grid; gap:6px; }
+    .field label { font-weight:700; font-size:14px; }
+    .field input, .field select, .field textarea {
+      padding:12px 12px; border-radius:10px; border:1px solid var(--border,#d9ddd9);
+      background:var(--surface,#fff); color:var(--text,#111); font:inherit;
+    }
+    .row2 { display:grid; gap:12px; grid-template-columns:1fr 1fr; }
+    @media (max-width:720px){ .row2 { grid-template-columns:1fr; } }
+    .actions { display:flex; gap:10px; margin-top:6px; }
+    .btn {
+      appearance:none; border:none; border-radius:10px; padding:12px 16px; font-weight:800; cursor:pointer;
+    }
+    .btn.primary { background:var(--green,#3B7E46); color:#fff; }
+    .btn.ghost { background:transparent; border:1px solid var(--border,#d9ddd9); }
+    .muted-small { color:var(--muted,#87908a); font-size:13px; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">User Details</h1>
+
+      <p class="muted" style="margin:0 0 18px 0; color:var(--muted,#87908a);">
+        Update your profile so your name and contact info are consistent across FarmVista (tickets, reports, comments, and assignments).
+      </p>
+
+      <div class="card" style="max-width:780px; margin-bottom:18px;">
+        <h2 class="card-title">Profile</h2>
+        <form class="form" onsubmit="event.preventDefault(); /* hook up save later */">
+          <div class="row2">
+            <div class="field">
+              <label for="ud-name">Full Name</label>
+              <input id="ud-name" name="name" type="text" autocomplete="name" placeholder="First Last" />
+            </div>
+            <div class="field">
+              <label for="ud-role">Role</label>
+              <input id="ud-role" name="role" type="text" placeholder="Operator, Agronomy, Office…" />
+            </div>
+          </div>
+
+          <div class="row2">
+            <div class="field">
+              <label for="ud-email">Email</label>
+              <input id="ud-email" name="email" type="email" autocomplete="email" placeholder="you@farm.com" />
+            </div>
+            <div class="field">
+              <label for="ud-phone">Mobile</label>
+              <input id="ud-phone" name="phone" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="ud-notes">Notes (optional)</label>
+            <textarea id="ud-notes" name="notes" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
+          </div>
+
+          <div class="row2">
+            <div class="field">
+              <label for="ud-theme">Preferred Theme</label>
+              <select id="ud-theme" name="theme">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+              <div class="muted-small">Tip: You can also toggle theme from the top drawer.</div>
+            </div>
+            <div class="field">
+              <label>MFA Status</label>
+              <input type="text" value="Not configured" readonly />
+              <div class="muted-small">Security options are managed by admins (coming soon).</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" type="submit">Save Changes</button>
+            <button class="btn ghost" type="reset">Reset</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card" style="max-width:780px;">
+        <h2 class="card-title">Visibility</h2>
+        <ul class="list">
+          <li>👤 Your name and role appear on activity logs and assignments.</li>
+          <li>📱 Contact info is visible to authenticated teammates only.</li>
+          <li>🔐 Profile edits are audit-logged (when backend is wired).</li>
+        </ul>
+      </div>
+    </div>
+  </fv-shell>
+
+  <!-- Bootloader -->
+  <script>
+    (function () {
+      const urlRev = new URL(location.href).searchParams.get('rev');
+      const REV = urlRev || String(Date.now());
+      const files = [
+        '/Farm-vista/js/version.js',
+        '/Farm-vista/js/core.js',
+        '/Farm-vista/js/fv-hero-card.js',
+        '/Farm-vista/js/fv-shell.js',
+        '/Farm-vista/js/fv-hero.js'
+      ];
+      (async function loadSeq() {
+        for (const src of files) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = src + '?rev=' + REV;
+            s.async = false;
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('Failed to load ' + s.src));
+            document.body.appendChild(s);
+          });
+        }
+
+        // Optional: map Preferred Theme select to App theme for a nice touch now
+        try {
+          const sel = document.getElementById('ud-theme');
+          if (sel && window.App && App.setTheme && App.getTheme) {
+            sel.value = App.getTheme();
+            sel.addEventListener('change', () => App.setTheme(sel.value));
+          }
+        } catch {}
+      })().catch(err => console.error('Bootloader failed:', err));
+    })();
+  </script>
+
+  <noscript>
+    <div class="container"><div class="card">JavaScript is required for User Details.</div></div>
+  </noscript>
+</body>
+</html>
