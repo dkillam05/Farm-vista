@@ -79,7 +79,7 @@ export const NAV_MENU = {
       id: 'grain',
       icon: '🌾',
       label: 'Grain',
-      href: '/Farm-vista/grain-tracking/index.html',
+      href: '/Farm-vista/pages/grain/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
