@@ -54,23 +54,24 @@ export const NAV_MENU = {
       activeMatch: 'exact'
     },
 
-    /* ===== Crop Production (under /pages) ===== */
+    /* ===== Crop Production — matches actual folder: /Pages/Crop Production/ ===== */
     {
       type: 'group',
       id: 'crop',
       icon: '🌱',
       label: 'Crop Production',
-      href: '/Farm-vista/pages/crop-production/index.html',
+      href: '/Farm-vista/Pages/Crop%20Production/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'crop-planting',   icon: '🌱', label: 'Planting',              href: '/Farm-vista/pages/crop-production/crop-planting.html' },
-        { type: 'link', id: 'crop-spraying',   icon: '💦', label: 'Spraying',              href: '/Farm-vista/pages/crop-production/crop-spraying.html' },
-        { type: 'link', id: 'crop-fertilizer', icon: '🧂', label: 'Fertilizer',            href: '/Farm-vista/pages/crop-production/crop-fertilizer.html' },
-        { type: 'link', id: 'crop-harvest',    icon: '🌾', label: 'Harvest',               href: '/Farm-vista/pages/crop-production/crop-harvest.html' },
-        { type: 'link', id: 'crop-aerial',     icon: '🚁', label: 'Aerial Applications',   href: '/Farm-vista/pages/crop-production/crop-aerial.html' },
-        { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',                href: '/Farm-vista/pages/crop-production/crop-trials.html' },
-        { type: 'link', id: 'crop-maint',      icon: '🛠️', label: 'Field Maintenance',    href: '/Farm-vista/pages/crop-production/crop-maintenance.html' }
+        // These point into the same folder. Create pages as you go.
+        { type: 'link', id: 'crop-planting',   icon: '🌱', label: 'Planting',              href: '/Farm-vista/Pages/Crop%20Production/Planting.html' },
+        { type: 'link', id: 'crop-spraying',   icon: '💦', label: 'Spraying',              href: '/Farm-vista/Pages/Crop%20Production/Spraying.html' },
+        { type: 'link', id: 'crop-fertilizer', icon: '🧂', label: 'Fertilizer',            href: '/Farm-vista/Pages/Crop%20Production/Fertilizer.html' },
+        { type: 'link', id: 'crop-harvest',    icon: '🌾', label: 'Harvest',               href: '/Farm-vista/Pages/Crop%20Production/Harvest.html' },
+        { type: 'link', id: 'crop-aerial',     icon: '🚁', label: 'Aerial Applications',   href: '/Farm-vista/Pages/Crop%20Production/Aerial%20Applications.html' },
+        { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',                href: '/Farm-vista/Pages/Crop%20Production/Trials.html' },
+        { type: 'link', id: 'crop-maint',      icon: '🛠️', label: 'Field Maintenance',    href: '/Farm-vista/Pages/Crop%20Production/Field%20Maintenance.html' }
       ]
     },
 
