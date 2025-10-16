@@ -154,7 +154,7 @@ export const NAV_MENU = {
           id: 'office-teams',
           icon: '👥',
           label: 'Teams & Partners',
-          href: '/Farm-vista/pages/teams-partners/index.html',
+          href: '/Farm-vista/pages/office/teams-and-partners/index.html',
           collapsible: true,
           initialOpen: false,
           children: [
