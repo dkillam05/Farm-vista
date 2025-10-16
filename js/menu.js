@@ -145,7 +145,7 @@ export const NAV_MENU = {
       id: 'office',
       icon: '🏢',
       label: 'Office',
-      href: '#',
+      href: '/Farm-vista/pages/office/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
