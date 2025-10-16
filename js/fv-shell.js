@@ -206,7 +206,7 @@
       color:var(--sidebar-text, #f1f3ef);
       border-bottom:1px solid var(--sidebar-border, #232725);
     }
-    :host-context(.dark) .drawer-footer{
+    .drawer-footer{
       background:var(--sidebar-surface, #171a18);
       border-top:1px solid var(--sidebar-border, #2a2e2b);
       color:var(--sidebar-text, #f1f3ef);
@@ -272,7 +272,11 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <a class="row" href="#"><div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div><div class="chev">›</div></a>
+      <!-- CHANGE 1: Link points to your new page and has an id -->
+      <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
+        <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
+        <div class="chev">›</div>
+      </a>
       <a class="row" href="#"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
 
       <div class="section-h">MAINTENANCE</div>
@@ -347,6 +351,12 @@
           // (Later) also clear auth/session here
           window.location.href = '/Farm-vista/pages/login/';
         });
+      }
+
+      // CHANGE 2: Close top drawer on "User Details" click before navigating
+      const ud = r.getElementById('userDetailsLink');
+      if (ud) {
+        ud.addEventListener('click', () => { this.toggleTop(false); });
       }
 
       // Render menu from /js/menu.js (toast-only on failure)
