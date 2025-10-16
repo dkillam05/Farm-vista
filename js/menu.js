@@ -44,6 +44,7 @@ export const NAV_MENU = {
   },
 
   items: [
+    /* ===== Top-level ===== */
     {
       type: 'link',
       id: 'home',
@@ -52,62 +53,132 @@ export const NAV_MENU = {
       href: '/Farm-vista/dashboard/',
       activeMatch: 'starts-with'
     },
+
+    /* ===== Crop Production (with submenus) ===== */
     {
-      type: 'link',
+      type: 'group',
       id: 'crop',
       icon: '🌱',
       label: 'Crop Production',
-      href: '#',
-      activeMatch: 'starts-with'
+      href: '#',                   // landing (placeholder)
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'crop-planting',   icon: '🌱', label: 'Planting',             href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'crop-spraying',   icon: '💦', label: 'Spraying',             href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'crop-fertilizer', icon: '🧂', label: 'Fertilizer',           href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'crop-harvest',    icon: '🌾', label: 'Harvest',              href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'crop-aerial',     icon: '🚁', label: 'Aerial Applications', href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',               href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'crop-maint',      icon: '🛠️', label: 'Field Maintenance',   href: '#', activeMatch: 'starts-with' }
+      ]
     },
+
+    /* ===== Equipment (with submenus) ===== */
     {
-      type: 'link',
+      type: 'group',
       id: 'equipment',
       icon: '🚜',
       label: 'Equipment',
       href: '#',
-      activeMatch: 'starts-with'
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'eq-tractors',    icon: '🚜', label: 'Tractors',               href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-sprayers',    icon: '💦', label: 'Sprayers',               href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-fertspread',  icon: '👨🏼‍🔬', label: 'Fertilizer Spreader',    href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-combines',    icon: '🌾', label: 'Combines',               href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-implements',  icon: '⚙️', label: 'Implements',             href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-construction',icon: '🏗️', label: 'Construction',          href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-starfire',    icon: '🛰️', label: 'StarFire / Technology',  href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-trucks',      icon: '🚚', label: 'Trucks',                  href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-trailers',    icon: '🚛', label: 'Trailers',                href: '#', activeMatch: 'starts-with' }
+      ]
     },
+
+    /* ===== Grain (with submenus) ===== */
     {
-      type: 'link',
+      type: 'group',
       id: 'grain',
       icon: '🌾',
       label: 'Grain',
       href: '#',
-      activeMatch: 'starts-with'
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'grain-bin',   icon: '🛢️', label: 'Grain Bin Inventory',  href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'grain-bag',   icon: '👝', label: 'Grain Bag Inventory',  href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'grain-ctr',   icon: '📄',  label: 'Grain Contracts',      href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'grain-tix',   icon: '🎟️', label: 'Grain Tickets',        href: '#', activeMatch: 'starts-with' }
+      ]
     },
+
+    /* ===== Calculators (with submenus) ===== */
     {
-      type: 'link',
+      type: 'group',
       id: 'calculators',
       icon: '🔢',
       label: 'Calculators',
-      href: '/Farm-vista/calculators/',
-      activeMatch: 'starts-with'
+      href: '/Farm-vista/calculators/',   // landing (placeholder route you created)
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'calc-area',       icon: '📐', label: 'Area Calculator',             href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'calc-bin',        icon: '🛢️', label: 'Bin Size Calculator',         href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'calc-shrink',     icon: '📉', label: 'Yield Shrink Calculator',      href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'calc-combinecal', icon: '⚙️', label: 'Combine Yield Calibration',    href: '#', activeMatch: 'starts-with' }
+      ]
     },
+
+    /* ===== Expenses (now with submenus) ===== */
     {
-      type: 'link',
+      type: 'group',
       id: 'expenses',
       icon: '💵',
       label: 'Expenses',
-      href: '#',
-      activeMatch: 'starts-with'
-    },
-    {
-      type: 'link',
-      id: 'reports',
-      icon: '📊',
-      label: 'Reports',
-      href: '#',
-      activeMatch: 'starts-with'
+      href: '/Farm-vista/pages/expenses/index.html',   // landing page to add/view expenses
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'exp-expenditures', icon: '🧾', label: 'Expenditures', href: '#', activeMatch: 'starts-with' },
+        {
+          type: 'group',
+          id: 'exp-reports',
+          icon: '📑',
+          label: 'Reports',
+          href: '#',
+          collapsible: true,
+          initialOpen: false,
+          children: [
+            { type: 'link', id: 'exp-reports-custom',   icon: '🛠️', label: 'Customized Reports', href: '#', activeMatch: 'starts-with' },
+            { type: 'link', id: 'exp-reports-predef',   icon: '📚', label: 'Predefined Reports', href: '#', activeMatch: 'starts-with' }
+          ]
+        }
+      ]
     },
 
-    // Collapsible Setup group — label navigates, arrow toggles children
+    /* ===== Reports (emoji changed to 📑; with submenus) ===== */
+    {
+      type: 'group',
+      id: 'reports',
+      icon: '📑',                      // changed from 📊 to 📑
+      label: 'Reports',
+      href: '#',
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'reports-custom', icon: '🛠️', label: 'Customized Reports', href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'reports-predef', icon: '📚', label: 'Predefined Reports', href: '#', activeMatch: 'starts-with' }
+      ]
+    },
+
+    /* ===== Setup (existing, expanded; Products subgroup) ===== */
     {
       type: 'group',
       id: 'setup',
       icon: '⚙️',
       label: 'Setup',
-      href: '/Farm-vista/pages/setup/index.html',
+      href: '/Farm-vista/pages/setup/index.html', // Setup dashboard path
       collapsible: true,
       initialOpen: false,
       children: [
@@ -118,14 +189,35 @@ export const NAV_MENU = {
           label: 'Message Board',
           href: '/Farm-vista/pages/setup/message-board.html',
           activeMatch: 'exact'
-        }
-        // Add more setup children here as you build them.
+        },
+        { type: 'link', id: 'setup-farms',  icon: '🏷️', label: 'Farms',  href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'setup-fields', icon: '🗺️', label: 'Fields', href: '#', activeMatch: 'starts-with' },
+
+        {
+          type: 'group',
+          id: 'setup-products',
+          icon: '🗂️',
+          label: 'Products',
+          href: '#',
+          collapsible: true,
+          initialOpen: false,
+          children: [
+            { type: 'link', id: 'setup-prod-seed',       icon: '🌱', label: 'Seed',        href: '#', activeMatch: 'starts-with' },
+            { type: 'link', id: 'setup-prod-chemical',   icon: '🧪', label: 'Chemical',    href: '#', activeMatch: 'starts-with' },
+            { type: 'link', id: 'setup-prod-fertilizer', icon: '🧂', label: 'Fertilizer',  href: '#', activeMatch: 'starts-with' },
+            { type: 'link', id: 'setup-prod-grainbags',  icon: '👝', label: 'Grain Bags', href: '#', activeMatch: 'starts-with' }
+          ]
+        },
+
+        { type: 'link', id: 'setup-company', icon: '🏢', label: 'Company Details', href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'setup-roles',   icon: '👥', label: 'Account Roles',   href: '#', activeMatch: 'starts-with' }
       ]
-      // roles: ['admin'],
+      // roles: ['admin'], // (optional) enable later for role-based visibility
     }
   ],
 
   options: {
+    // Where the shell should store open/closed state for groups
     stateKey: 'fv:nav:groups'
   }
 };
