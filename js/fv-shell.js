@@ -196,7 +196,7 @@
     }
     :host-context(.dark) .drawer header{
       background:var(--sidebar-surface, #171a18);
-      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
+      border-bottom:1px solid var(--sidebar-border, #2a2eb);
     }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{
@@ -272,12 +272,15 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <!-- CHANGE 1: Link points to your new page and has an id -->
       <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
         <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
         <div class="chev">›</div>
       </a>
-      <a class="row" href="#"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
+      <!-- CHANGE: feedback row now links to your feedback page and has an id -->
+      <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
+        <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
+        <div class="chev">›</div>
+      </a>
 
       <div class="section-h">MAINTENANCE</div>
       <a class="row js-update-row" href="#">
@@ -341,28 +344,27 @@
 
       r.querySelector('.js-update-row').addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      // LOGOUT → redirect (pre-auth): close drawers, then go to login page
+      // LOGOUT → redirect (pre-auth)
       const logoutRow = r.querySelector('#logoutRow');
       if (logoutRow) {
         logoutRow.addEventListener('click', (e) => {
           e.preventDefault();
           this.toggleTop(false);
           this.toggleDrawer(false);
-          // (Later) also clear auth/session here
           window.location.href = '/Farm-vista/pages/login/';
         });
       }
 
-      // CHANGE 2: Close top drawer on "User Details" click before navigating
+      // Close the top drawer on profile links before navigation
       const ud = r.getElementById('userDetailsLink');
-      if (ud) {
-        ud.addEventListener('click', () => { this.toggleTop(false); });
-      }
+      if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
 
-      // Render menu from /js/menu.js (toast-only on failure)
+      const fb = r.getElementById('feedbackLink');            // <-- NEW
+      if (fb) fb.addEventListener('click', () => { this.toggleTop(false); }); // <-- NEW
+
+      // Render menu
       this._initMenu();
 
-      // ---- Only warn about hero components on pages that actually use them
       setTimeout(() => {
         try {
           const needsHero =
@@ -370,8 +372,7 @@
           if (needsHero && !customElements.get('fv-hero-card')) {
             this._toastMsg('Hero components not loaded. Check /Farm-vista/js/fv-hero.js path or cache.', 2600);
           }
-        } catch (e) {
-        }
+        } catch {}
       }, 300);
     }
 
@@ -398,7 +399,6 @@
       let groupState = {};
       try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
 
-      // base left padding = 16px; each depth adds 18px
       const pad = (depth)=> `${16 + (depth * 18)}px`;
 
       const mkLink = (item, depth=0) => {
@@ -428,7 +428,6 @@
         row.style.alignItems = 'stretch';
         row.style.borderBottom = '1px solid var(--border)';
 
-        // group label is a link; indent same as sibling links at this depth
         const link = mkLink(g, depth);
         link.style.flex = '1 1 auto';
         link.style.borderRight = '1px solid var(--border)';
@@ -458,7 +457,6 @@
         kids.setAttribute('role','group');
         kids.style.display = 'none';
 
-        // children: groups get mkGroup(depth+1); links get mkLink(depth+1)
         (g.children || []).forEach(ch => {
           if (ch.type === 'group' && ch.collapsible) {
             const nested = mkGroup(ch, depth + 1);
@@ -493,7 +491,6 @@
       });
     }
 
-    // collapse all groups & clear saved state when drawer closes (NEW)
     _collapseAllNavGroups(){
       const nav = this._navEl;
       if (!nav) return;
