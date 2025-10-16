@@ -1,117 +1,151 @@
 /* /Farm-vista/js/fv-form-button.js
-   FarmVista — blue “form entry” tile button
-   - Registers <fv-form-button> (and alias <fv-formbutton>)
-   - No module/exports; safe to load as a classic script
+   FarmVista — Reusable form-entry tile (label top, icon bottom).
+   Standardized look/size lives here so every page is consistent.
 */
 (function () {
-  if (customElements.get('fv-form-button')) return;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = `
+  <style>
+    :host{
+      /* You can override any of these per-page if needed. */
+      --fvfb-width:  min(46vw, 360px);
+      --fvfb-height: 150px;
+      --fvfb-radius: 14px;
 
-  class FVFormButton extends HTMLElement {
-    static get observedAttributes() { return ['label','icon','href']; }
-    constructor(){
-      super();
-      const root = this.attachShadow({ mode: 'open' });
-      root.innerHTML = `
-        <style>
-          :host{ display:block; }
-          a.btn{
-            --tile-w: 100%;
-            --tile-h: 112px;
+      /* Brand blues (fallbacks if theme.css doesn't define them) */
+      --brand-blue:      var(--fv-blue, #23407D);
+      --brand-blue-700:  var(--fv-blue-700, #1A2E5C);
+      --brand-blue-300:  var(--fv-blue-300, #3E63B2);
 
-            display:flex; align-items:center; gap:14px;
-            width:var(--tile-w); height:var(--tile-h);
-            padding:16px 18px;
-            text-decoration:none; border-radius:14px;
+      /* Surfaces use your theme tokens with fallbacks */
+      --tile-bg:     var(--surface, #FFFFFF);
+      --tile-fg:     var(--text,    #142016);
+      --tile-border: var(--border,  #E3E6E2);
+      --tile-shadow: var(--shadow,  0 12px 24px rgba(0,0,0,.14));
 
-            background: var(--surface);
-            color: var(--text);
-            border: 1px solid var(--card-border, var(--border));
-            box-shadow: var(--shadow);
-
-            transition: transform .06s ease, box-shadow .12s ease, border-color .12s ease, background .12s ease;
-          }
-          a.btn:active{ transform: scale(.98); }
-
-          .icon{
-            flex:0 0 auto;
-            width:44px; height:44px;
-            display:grid; place-items:center;
-            border-radius:10px;
-            /* Blue tile */
-            background: var(--action-blue-50, #e9f0ff);
-            color: var(--action-blue-700, #143a8c);
-            border: 1px solid var(--action-blue-200, #cbd9ff);
-            font-size:26px; line-height:1;
-          }
-
-          .label{
-            font: 800 18px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-            color: var(--action-blue-900, #0f2f77);
-            letter-spacing:.2px;
-          }
-
-          /* Hover (desktop only) */
-          @media (hover:hover){
-            a.btn:hover{
-              box-shadow: 0 18px 34px rgba(0,0,0,.16);
-              border-color: color-mix(in srgb, var(--action-blue-300, #b0c4ff) 50%, var(--card-border, var(--border)));
-              background: color-mix(in srgb, var(--surface) 92%, var(--action-blue-50, #e9f0ff));
-            }
-          }
-
-          /* Dark mode tweaks via tokens */
-          :host-context(html.dark), :host-context(html[data-theme="auto"][class*="dark"]) {
-            .icon{
-              background: var(--action-blue-900, #0f2f77);
-              color: var(--surface);
-              border-color: color-mix(in srgb, var(--action-blue-700, #143a8c) 65%, transparent);
-            }
-            .label{ color: var(--action-blue-100, #e6eeff); }
-          }
-        </style>
-        <a class="btn" part="button" href="#">
-          <div class="icon" part="icon"></div>
-          <div class="label" part="label"></div>
-        </a>
-      `;
+      display:block;
+      width:var(--fvfb-width);
+      height:var(--fvfb-height);
     }
 
-    connectedCallback(){ this._upgrade(); }
-    attributeChangedCallback(){ this._render(); }
+    a.tile{
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      align-items:flex-start;
+      width:100%; height:100%;
+      padding:16px;
+      border-radius:var(--fvfb-radius);
+      background:var(--tile-bg);
+      color:var(--brand-blue);
+      border:1px solid var(--tile-border);
+      box-shadow:
+        0 10px 30px color-mix(in srgb, var(--brand-blue) 12%, transparent),
+        var(--tile-shadow);
+      text-decoration:none;
+      transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+    a.tile:active{ transform:translateY(1px) scale(.995); }
 
-    _upgrade(){
-      // populate and wire up
-      this._a = this.shadowRoot.querySelector('a.btn');
-      this._icon = this.shadowRoot.querySelector('.icon');
-      this._label = this.shadowRoot.querySelector('.label');
-      this._render();
+    /* Top: label (auto-scales but keeps the box size fixed) */
+    .label{
+      font-weight:800;
+      letter-spacing:.2px;
+      /* Scales with viewport but clamped for consistency */
+      font-size: clamp(15px, 2.6vw, 20px);
+      line-height:1.2;
+      color: var(--brand-blue);
+      text-wrap: balance;
+    }
 
-      this._a.addEventListener('click', (e)=>{
-        const href = this.getAttribute('href');
-        if (!href || href === '#') return;  // allow “dead” buttons for now
-        // Close the top drawer if this was tapped from there (nice-to-have)
-        try {
-          const shell = this.closest('fv-shell');
-          if (shell && shell.toggleTop) shell.toggleTop(false);
-        } catch {}
+    /* Bottom: icon pill */
+    .icon{
+      align-self:flex-start;
+      display:inline-grid; place-items:center;
+      width:44px; height:44px; border-radius:10px;
+      background: color-mix(in srgb, var(--brand-blue) 12%, transparent);
+      border:1px solid color-mix(in srgb, var(--brand-blue) 24%, transparent);
+      /* Scale icon but keep within the tile */
+      font-size: clamp(22px, 5.5vw, 28px);
+      line-height:1;
+      color: var(--brand-blue);
+      /* subtle inner lift for the icon chip */
+      box-shadow: inset 0 1px 0 color-mix(in srgb,#fff 65%, transparent);
+    }
+
+    /* Hover/Focus affordances (desktop + a11y) */
+    a.tile:hover{
+      border-color: color-mix(in srgb, var(--brand-blue) 30%, var(--tile-border));
+      box-shadow:
+        0 14px 36px color-mix(in srgb, var(--brand-blue) 18%, transparent),
+        var(--tile-shadow);
+    }
+    a.tile:focus-visible{
+      outline:3px solid color-mix(in srgb, var(--brand-blue) 55%, transparent);
+      outline-offset:3px;
+    }
+
+    /* Dark-mode specific nudges — still piggybacks your tokens */
+    :host-context(.dark) a.tile{
+      background: var(--surface, #151b17);
+      border-color: var(--tile-border, #2a342c);
+      box-shadow:
+        0 10px 30px color-mix(in srgb, var(--brand-blue) 20%, transparent),
+        var(--tile-shadow, 0 12px 24px rgba(0,0,0,.5));
+    }
+    :host-context(.dark) .icon{
+      background: color-mix(in srgb, var(--brand-blue) 20%, transparent);
+      border-color: color-mix(in srgb, var(--brand-blue) 36%, transparent);
+      color: #E8EEE9;
+    }
+  </style>
+
+  <a class="tile" part="tile" href="#" role="button" tabindex="0">
+    <div class="label"></div>
+    <div class="icon"></div>
+  </a>
+  `;
+
+  class FVFormButton extends HTMLElement {
+    static get observedAttributes(){ return ['label','icon','href']; }
+
+    constructor(){
+      super();
+      const r = this.attachShadow({mode:'open'});
+      r.appendChild(tpl.content.cloneNode(true));
+      this.$a = r.querySelector('a.tile');
+      this.$label = r.querySelector('.label');
+      this.$icon = r.querySelector('.icon');
+    }
+
+    connectedCallback(){
+      // init from attributes
+      this._apply();
+      // keyboard “Enter/Space” activates like a button
+      this.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.$a.click();
+        }
       });
     }
 
-    _render(){
-      if(!this._a) return;
-      const label = this.getAttribute('label') || '';
-      const icon = this.getAttribute('icon') || '';
-      const href = this.getAttribute('href') || '#';
+    attributeChangedCallback(){ this._apply(); }
 
-      this._label.textContent = label;
-      this._icon.textContent = icon;
-      this._a.setAttribute('href', href);
-      this.setAttribute('role','button');
-      this.setAttribute('aria-label', label || 'Form');
+    _apply(){
+      const label = this.getAttribute('label') || 'Open';
+      const icon  = this.getAttribute('icon')  || '📄';
+      const href  = this.getAttribute('href')  || '#';
+
+      this.$label.textContent = label;
+      this.$icon.textContent = icon;
+      this.$a.setAttribute('href', href);
+      // If href is “#”, keep it a no-op button
+      if (href === '#') this.$a.addEventListener('click', e => e.preventDefault(), { once:true });
     }
   }
 
-  customElements.define('fv-form-button', FVFormButton);
-  // Alias so legacy <fv-formbutton> still works if used anywhere
-  try { customElements.define('fv-formbutton', FVFormButton); } catch {}
+  if (!customElements.get('fv-form-button')) {
+    customElements.define('fv-form-button', FVFormButton);
+  }
 })();
