@@ -387,6 +387,7 @@
 
       const path = location.pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
+      this._navStateKey = stateKey; // remember for collapse-on-close (NEW)
       let groupState = {};
       try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
 
@@ -445,10 +446,16 @@
         kids.setAttribute('role','group');
         kids.style.display = 'none';
 
-        (g.children || []).forEach(ch=>{
-          const a = mkLink(ch);
-          a.style.paddingLeft = '44px';
-          kids.appendChild(a);
+        // --- support nested groups (NEW) ---
+        (g.children || []).forEach(ch => {
+          if (ch.type === 'group' && ch.collapsible) {
+            const nested = mkGroup(ch);
+            kids.appendChild(nested);
+          } else {
+            const a = mkLink(ch);
+            a.style.paddingLeft = '44px';
+            kids.appendChild(a);
+          }
         });
 
         const open = !!(groupState[g.id] ?? g.initialOpen);
@@ -475,10 +482,26 @@
       });
     }
 
+    // collapse all groups & clear saved state when drawer closes (NEW)
+    _collapseAllNavGroups(){
+      const nav = this._navEl;
+      if (!nav) return;
+      nav.querySelectorAll('div[role="group"]').forEach(kids=>{
+        kids.style.display = 'none';
+        const row = kids.previousElementSibling;
+        const btn = row && row.querySelector('button[aria-expanded]');
+        if (btn) btn.setAttribute('aria-expanded','false');
+      });
+      const key = this._navStateKey || 'fv:nav:groups';
+      try { localStorage.setItem(key, JSON.stringify({})); } catch {}
+    }
+
     toggleDrawer(open){
-      const on = (open===undefined) ? !this.classList.contains('drawer-open') : open;
+      const wasOpen = this.classList.contains('drawer-open'); // NEW
+      const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
       document.documentElement.style.overflow = (on || this.classList.contains('top-open')) ? 'hidden' : '';
+      if (wasOpen && !on) { this._collapseAllNavGroups(); } // NEW: collapse-on-close
     }
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
