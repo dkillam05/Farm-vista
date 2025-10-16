@@ -1,7 +1,7 @@
 /* FarmVista — version.js (SSOT for version + tagline)
    Bump these fields for each release. Everything else reads from here. */
 
-const FV_NUMBER  = "8.1.0";                 // ← edit this when releasing
+const FV_NUMBER  = "8.2.0";                 // ← edit this when releasing
 const FV_DATE    = "2025-10-14";            // ← optional, informational
 const FV_TAGLINE = "Farm Data - Smart Reporting";
 
