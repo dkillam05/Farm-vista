@@ -19,18 +19,11 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
 
   <style>
-    /* Page-local layout */
-    .stack {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      max-width: 460px;
-      margin-top: 16px;
+    .stack{
+      display:flex; flex-direction:column; gap:14px;
+      max-width: 460px; margin-top: 16px;
     }
-    .lead {
-      margin: 0 0 14px 0;
-      color: var(--muted, #87908a);
-    }
+    .lead{ margin:0 0 14px 0; color:var(--muted, #87908a); }
   </style>
 </head>
 <body>
@@ -43,36 +36,55 @@
       </p>
 
       <div class="stack">
-        <!-- Reusable blue hero-style buttons for form entry -->
-        <fv-formbutton icon="💡" label="New Ideas" href="#"></fv-formbutton>
-        <fv-formbutton icon="🪲" label="Bugs &amp; Issues" href="#"></fv-formbutton>
+        <!-- Use the hyphenated tag; size set to the squarer tiles -->
+        <fv-form-button icon="💡" label="New Ideas" href="#"
+          style="--tile-w:100%; --tile-h:112px;"></fv-form-button>
+
+        <fv-form-button icon="🪲" label="Bugs &amp; Issues" href="#"
+          style="--tile-w:100%; --tile-h:112px;"></fv-form-button>
       </div>
     </div>
   </fv-shell>
 
-  <!-- Bootloader (sequential, shared REV) -->
+  <!-- Bootloader with fallback: fv-form-button.js then fv-formbutton.js -->
   <script>
     (function () {
       const urlRev = new URL(location.href).searchParams.get('rev');
       const REV = urlRev || String(Date.now());
 
-      const files = [
+      const coreFiles = [
         '/Farm-vista/js/version.js',
         '/Farm-vista/js/core.js',
-        '/Farm-vista/js/fv-shell.js',
-        '/Farm-vista/js/fv-formbutton.js'   // <-- reusable blue hero buttons
+        '/Farm-vista/js/fv-shell.js'
       ];
 
-      (async function loadSeq() {
-        for (const src of files) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = src + '?rev=' + REV;
-            s.async = false;
-            s.onload = resolve;
-            s.onerror = () => reject(new Error('Failed to load ' + s.src));
-            document.body.appendChild(s);
-          });
+      function loadScript(src){
+        return new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = src + '?rev=' + REV;
+          s.async = false;
+          s.onload = resolve;
+          s.onerror = () => reject(new Error('Failed to load ' + s.src));
+          document.body.appendChild(s);
+        });
+      }
+
+      (async function loadSeq(){
+        // core
+        for (const src of coreFiles) { await loadScript(src); }
+
+        // component (prefer hyphenated file/name)
+        try {
+          await loadScript('/Farm-vista/js/fv-form-button.js');
+        } catch (e) {
+          console.warn('fv-form-button.js not found, trying fv-formbutton.js');
+          await loadScript('/Farm-vista/js/fv-formbutton.js');
+        }
+
+        // sanity check: warn if neither tag is defined
+        if (!customElements.get('fv-form-button') && !customElements.get('fv-formbutton')) {
+          console.error('Form button component not registered. Check file name and tag.');
+          alert('Form button component failed to load. Please hard refresh after Update.');
         }
       })().catch(err => console.error('Bootloader failed:', err));
     })();
