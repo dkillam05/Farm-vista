@@ -96,7 +96,7 @@ export const NAV_MENU = {
       id: 'equipment',
       icon: '🚜',
       label: 'Equipment',
-      href: '/Farm-vista/equipment/index.html',
+      href: '/Farm-vista/pages/equipment/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
