@@ -221,7 +221,7 @@ export const NAV_MENU = {
           id: 'setup-products',
           icon: '🗂️',
           label: 'Products',
-          href: '#',
+          href: '/Farm-vista/pages/setup/products/index.html',
           collapsible: true,
           initialOpen: false,
           children: [
