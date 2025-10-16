@@ -1,8 +1,6 @@
-/* FarmVista — <fv-shell> v5.9.1
-   Based on your v5.9 file.
-   Only change: safe custom element registration guard.
-   + Tokenized sidebar rules (.drawer, .drawer header, .drawer nav, .drawer nav a, .drawer-footer)
-   + Drawer menu now renders from /Farm-vista/js/menu.js; on failure shows toast (no fallback)
+/* FarmVista — <fv-shell> v5.9.2
+   Based on your v5.9.1 file.
+   CHANGE: Drawer indentation by depth (groups align with sibling links; grandchildren indent +1)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -363,7 +361,6 @@
             this._toastMsg('Hero components not loaded. Check /Farm-vista/js/fv-hero.js path or cache.', 2600);
           }
         } catch (e) {
-          // never break shell rendering
         }
       }, 300);
     }
@@ -387,14 +384,18 @@
 
       const path = location.pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
-      this._navStateKey = stateKey; // remember for collapse-on-close (NEW)
+      this._navStateKey = stateKey;
       let groupState = {};
       try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
 
-      const mkLink = (item) => {
+      // base left padding = 16px; each depth adds 18px
+      const pad = (depth)=> `${16 + (depth * 18)}px`;
+
+      const mkLink = (item, depth=0) => {
         const a = document.createElement('a');
         a.href = item.href || '#';
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
+        a.style.paddingLeft = pad(depth);
         const mode = item.activeMatch || 'starts-with';
         if ((mode==='exact' && path === item.href) || (mode!=='exact' && item.href && path.startsWith(item.href))) {
           a.setAttribute('aria-current', 'page');
@@ -409,7 +410,7 @@
         if (chev) chev.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
       };
 
-      const mkGroup = (g) => {
+      const mkGroup = (g, depth=0) => {
         const wrap = document.createElement('div'); wrap.className = 'nav-group';
 
         const row = document.createElement('div');
@@ -417,7 +418,8 @@
         row.style.alignItems = 'stretch';
         row.style.borderBottom = '1px solid var(--border)';
 
-        const link = mkLink(g);
+        // group label is a link; indent same as sibling links at this depth
+        const link = mkLink(g, depth);
         link.style.flex = '1 1 auto';
         link.style.borderRight = '1px solid var(--border)';
         link.style.display = 'flex';
@@ -446,14 +448,13 @@
         kids.setAttribute('role','group');
         kids.style.display = 'none';
 
-        // --- support nested groups (NEW) ---
+        // children: groups get mkGroup(depth+1); links get mkLink(depth+1)
         (g.children || []).forEach(ch => {
           if (ch.type === 'group' && ch.collapsible) {
-            const nested = mkGroup(ch);
+            const nested = mkGroup(ch, depth + 1);
             kids.appendChild(nested);
-          } else {
-            const a = mkLink(ch);
-            a.style.paddingLeft = '44px';
+          } else if (ch.type === 'link') {
+            const a = mkLink(ch, depth + 1);
             kids.appendChild(a);
           }
         });
@@ -477,8 +478,8 @@
       };
 
       (cfg.items || []).forEach(item=>{
-        if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item));
-        else if (item.type === 'link') nav.appendChild(mkLink(item));
+        if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
+        else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
     }
 
@@ -497,11 +498,11 @@
     }
 
     toggleDrawer(open){
-      const wasOpen = this.classList.contains('drawer-open'); // NEW
+      const wasOpen = this.classList.contains('drawer-open');
       const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
       document.documentElement.style.overflow = (on || this.classList.contains('top-open')) ? 'hidden' : '';
-      if (wasOpen && !on) { this._collapseAllNavGroups(); } // NEW: collapse-on-close
+      if (wasOpen && !on) { this._collapseAllNavGroups(); }
     }
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
@@ -582,7 +583,7 @@
     }
   }
 
-  // ---- Safe define guard (prevents re-define crashes that can block stamping) ----
+  // ---- Safe define guard ----
   if (!customElements.get('fv-shell')) {
     customElements.define('fv-shell', FVShell);
   }
