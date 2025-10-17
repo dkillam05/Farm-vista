@@ -1,6 +1,10 @@
 /* /Farm-vista/js/menu.js
    FarmVista navigation config (DATA ONLY).
    The shell will import this and render the drawer.
+
+   CROPPROD PATH PATTERN:
+   /Farm-vista/pages/crop-production/<subpage>.html
+   (e.g., planting.html, spraying.html, fertilizer.html, harvest.html, aerial.html, trials.html, maintenance.html)
 */
 
 /**
@@ -63,13 +67,14 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'crop-planting',   icon: '🌱', label: 'Planting',              href: '/Farm-vista/pages/crop-production/crop-planting.html' },
-        { type: 'link', id: 'crop-spraying',   icon: '💦', label: 'Spraying',              href: '/Farm-vista/pages/crop-production/crop-spraying.html' },
-        { type: 'link', id: 'crop-fertilizer', icon: '🧂', label: 'Fertilizer',            href: '/Farm-vista/pages/crop-production/crop-fertilizer.html' },
-        { type: 'link', id: 'crop-harvest',    icon: '🌾', label: 'Harvest',               href: '/Farm-vista/pages/crop-production/crop-harvest.html' },
-        { type: 'link', id: 'crop-aerial',     icon: '🚁', label: 'Aerial Applications',   href: '/Farm-vista/pages/crop-production/crop-aerial.html' },
-        { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',                href: '/Farm-vista/pages/crop-production/crop-trials.html' },
-        { type: 'link', id: 'crop-maint',      icon: '🛠️', label: 'Field Maintenance',    href: '/Farm-vista/pages/crop-production/crop-maintenance.html' }
+        // Updated to new file naming under /pages/crop-production/
+        { type: 'link', id: 'crop-planting',   icon: '🌱', label: 'Planting',            href: '/Farm-vista/pages/crop-production/planting.html',    activeMatch: 'exact' },
+        { type: 'link', id: 'crop-spraying',   icon: '💦', label: 'Spraying',            href: '/Farm-vista/pages/crop-production/spraying.html',    activeMatch: 'exact' },
+        { type: 'link', id: 'crop-fertilizer', icon: '🧂', label: 'Fertilizer',          href: '/Farm-vista/pages/crop-production/fertilizer.html',  activeMatch: 'exact' },
+        { type: 'link', id: 'crop-harvest',    icon: '🌾', label: 'Harvest',             href: '/Farm-vista/pages/crop-production/harvest.html',     activeMatch: 'exact' },
+        { type: 'link', id: 'crop-aerial',     icon: '🚁', label: 'Aerial Applications', href: '/Farm-vista/pages/crop-production/aerial.html',      activeMatch: 'exact' },
+        { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',              href: '/Farm-vista/pages/crop-production/trials.html',      activeMatch: 'exact' },
+        { type: 'link', id: 'crop-maint',      icon: '🛠️', label: 'Field Maintenance',  href: '/Farm-vista/pages/crop-production/maintenance.html', activeMatch: 'exact' }
       ]
     },
 
@@ -197,9 +202,9 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'reports-custom', icon: '🛠️', label: 'AI Reports (Custom)', href: '/Farm-vista/reports/reports-ai.html' },
-        { type: 'link', id: 'reports-predef', icon: '📚', label: 'Predefined Reports',  href: '/Farm-vista/reports/reports-predefined.html' },
-        { type: 'link', id: 'reports-history', icon: '🗂️', label: 'AI Report History', href: '/Farm-vista/reports/reports-ai-history.html' }
+        { type: 'link', id: 'reports-custom',  icon: '🛠️', label: 'AI Reports (Custom)', href: '/Farm-vista/reports/reports-ai.html' },
+        { type: 'link', id: 'reports-predef',  icon: '📚', label: 'Predefined Reports',  href: '/Farm-vista/reports/reports-predefined.html' },
+        { type: 'link', id: 'reports-history', icon: '🗂️', label: 'AI Report History',   href: '/Farm-vista/reports/reports-ai-history.html' }
       ]
     },
 
@@ -231,8 +236,8 @@ export const NAV_MENU = {
         { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
         { type: 'link', id: 'setup-farms',         icon: '🏷️', label: 'Farms',        href: '#', activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-fields',        icon: '🗺️', label: 'Fields',       href: '#', activeMatch: 'starts-with' },
-        { type: 'link', id: 'setup-company', icon: '🏢', label: 'Company Details', href: '#', activeMatch: 'starts-with' },
-        { type: 'link', id: 'setup-roles',   icon: '👥', label: 'Account Roles',   href: '#', activeMatch: 'starts-with' }
+        { type: 'link', id: 'setup-company',       icon: '🏢', label: 'Company Details', href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'setup-roles',         icon: '👥', label: 'Account Roles',   href: '#', activeMatch: 'starts-with' }
       ]
     }
   ],
