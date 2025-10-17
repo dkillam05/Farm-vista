@@ -1,7 +1,8 @@
-/* <fv-form-button> v2.6 — form entry tile
-   - Light: label uses Farm “action” blue
-   - Dark (like <fv-hero-card>): label color = var(--text)
-   - Label centered & lower; emoji centered & higher
+/* <fv-form-button> v2.7 — form entry tile
+   - Emoji unchanged (perfect placement)
+   - Label lifted slightly higher and centered
+   - Light: dark blue label
+   - Dark: label uses global --text (matches hero cards)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -10,26 +11,23 @@
       :host{
         display:block;
         --tile-h:160px;
-
-        /* Light-mode accent for the label */
-        --form-accent:#0F3B82;
+        --form-accent:#0F3B82; /* Light-mode blue */
       }
 
-      /* Match hero card’s dark handling: switch to global text color */
-      :host-context(.dark){ --form-accent: var(--text); }             /* explicit .dark */
-      :host-context(html.dark){ --form-accent: var(--text); }         /* safety */
-      :host-context(body.dark){ --form-accent: var(--text); }         /* safety */
+      /* Dark modes — identical rule set as hero cards */
+      :host-context(.dark),
+      :host-context(html.dark),
+      :host-context(body.dark){ --form-accent: var(--text); }
 
-      /* Auto-dark path (when you use data-theme="auto") */
       @media (prefers-color-scheme: dark){
         :host-context(html[data-theme="auto"]){ --form-accent: var(--text); }
       }
 
       a.tile{
         display:grid;
-        /* Push label lower, emoji higher */
-        grid-template-rows: 58% 42%;
+        grid-template-rows: 55% 45%;   /* label higher, emoji same */
         justify-items:center;
+        align-items:center;
 
         height:var(--tile-h);
         padding:18px;
@@ -45,8 +43,8 @@
       a.tile:active{ transform:scale(.985); }
 
       .label{
-        align-self:end;           /* anchor toward bottom of row 1 */
-        margin-bottom:8px;        /* push down a touch */
+        align-self:end;           /* positions within upper row */
+        margin-bottom:14px;       /* lifted higher */
         text-align:center;
         font-weight:800;
         font-size:clamp(18px,2.6vw,22px);
@@ -55,11 +53,11 @@
       }
 
       .icon{
-        align-self:start;         /* start of row 2 (higher) */
+        align-self:start;         /* emoji placement unchanged */
         transform:translateY(-10px);
         line-height:1;
         font-size:clamp(40px,10vw,60px);
-        filter:none;              /* pure emoji, no bubble */
+        filter:none;
       }
     </style>
 
