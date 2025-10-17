@@ -1,5 +1,5 @@
 // /js/fv-hero-card.js — FULL REPLACEMENT
-// Titles: big, bold, centered (h), top-aligned, underline, fixed-size across cards
+// Titles: big, bold, centered (h), top-aligned, underline, fixed max size across cards
 // Bullets: one per line. Font: TT Moons if present.
 (() => {
   if (customElements.get('fv-hero-card')) return;
@@ -54,9 +54,9 @@
             --fv-hero-underline-thickness: 3px;
             --fv-hero-underline-offset: 5px;
 
-            /* === Fixed headline size target (tweak this to taste) === */
-            --title-target-size: 36px;  /* Aim for this size on all cards */
-            --title-min-size: 20px;     /* Only shrink below target if needed */
+            /* === Fixed headline sizing === */
+            --title-max-size: 36px;  /* <- set the “Crop Production” look here */
+            --title-min-size: 20px;  /* only shrink below max if needed */
 
             display:block;
             border-radius:var(--hero-radius);
@@ -85,7 +85,7 @@
             opacity:.95; user-select:none; pointer-events:none;
           }
 
-          /* Title: top, centered horizontally, BIG + bold, underline (border-based), fixed-size */
+          /* Title: top, centered horizontally, BIG + bold, underline (border-based) */
           .title{
             margin:0;
             padding:0 var(--title-side-pad);
@@ -94,8 +94,8 @@
             line-height:1.12;                              /* avoid descender clipping */
             font-family:var(--fv-hero-title-font);
 
-            /* Start at the fixed target size; JS will only shrink if necessary */
-            font-size:var(--title-target-size);
+            /* Start at MAX; JS will only shrink if it overflows */
+            font-size:var(--title-max-size);
             white-space:nowrap; overflow:hidden;
 
             /* Robust underline */
@@ -194,16 +194,13 @@
         const csWrap  = getComputedStyle(w);
         const csTitle = getComputedStyle(t);
 
-        const targetPx = Math.max(
-          parseFloat(csHost.getPropertyValue('--title-min-size')) || 20,
-          parseFloat(csHost.getPropertyValue('--title-target-size')) || 36
-        );
+        const maxPx = parseFloat(csHost.getPropertyValue('--title-max-size')) || 36;
         const minPx = parseFloat(csHost.getPropertyValue('--title-min-size')) || 20;
 
-        // Start at the fixed target size
-        t.style.fontSize = targetPx + 'px';
+        // Start at the fixed MAX size for uniformity
+        t.style.fontSize = maxPx + 'px';
 
-        // Available width: wrapper inner width minus padding + the title's own side padding
+        // Available width inside the card (minus paddings)
         const wrapPadL = parseFloat(csWrap.paddingLeft) || 0;
         const wrapPadR = parseFloat(csWrap.paddingRight) || 0;
         const tPadL    = parseFloat(csTitle.paddingLeft) || 0;
@@ -213,7 +210,7 @@
         if (available <= 0) return;
 
         // Only shrink (never grow) until it fits on one line
-        let size = targetPx;
+        let size = maxPx;
         for (let i = 0; i < 48; i++) {
           if (t.scrollWidth <= available || size <= minPx) break;
           size = Math.max(minPx, size - 1);
