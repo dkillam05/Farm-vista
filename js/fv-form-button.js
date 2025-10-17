@@ -1,7 +1,8 @@
-/* <fv-form-button> v3.1 — form entry tile
+/* <fv-form-button> v3.2 — form entry tile
    ✅ Adds optional SVG icons via icon-svg (plus | edit | import | report)
-   ✅ 100% backward compatible with existing icon="…" usage (emoji/text)
-   ✅ Keeps your light/dark accent logic and layout exactly the same
+   ✅ Report icon simplified (clipboard + bars) to avoid text-like artifacts
+   ✅ Report icon rendered slightly larger by default for balance
+   ✅ 100% backward compatible with existing icon="…" usage
 */
 (function () {
   const tpl = document.createElement('template');
@@ -11,11 +12,13 @@
         display:block;
         --tile-h:160px;
         --form-accent:#0F3B82; /* Light-mode blue */
+        /* Extra pixel bump for SVG size; default 0, report sets +8px */
+        --icon-extra: 0px;
       }
 
       a.tile{
         display:grid;
-        grid-template-rows: 55% 45%;   /* label higher, emoji same */
+        grid-template-rows: 55% 45%;   /* label higher, icon same zone */
         justify-items:center;
         align-items:center;
 
@@ -46,15 +49,16 @@
         align-self:start;
         transform:translateY(-10px);
         line-height:1;
-        font-size:clamp(40px,10vw,60px);
+        /* text/emoji size */
+        font-size:calc(clamp(40px,10vw,60px) + var(--icon-extra));
         filter:none;
       }
 
-      /* --- ADDED: size SVG icons like the text icons --- */
+      /* SVG icons size like text icons, responsive + tunable with --icon-extra */
       .icon svg{
         display:block;
-        width:clamp(40px,10vw,60px);
-        height:clamp(40px,10vw,60px);
+        width:calc(clamp(40px,10vw,60px) + var(--icon-extra));
+        height:calc(clamp(40px,10vw,60px) + var(--icon-extra));
       }
     </style>
 
@@ -64,7 +68,7 @@
     </a>
   `;
 
-  /* --- ADDED: tiny internal SVG library (inherits currentColor) --- */
+  /* Inline SVG icon set (24x24, inherits currentColor) */
   const ICONS = {
     plus: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -83,24 +87,23 @@
         <path d="M12 4v10M8.5 10.5 12 14l3.5-3.5"
               fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
-    /* Clipboard + bars + pie (Reports) */
+    /* REPORT: simplified clipboard + three filled bars (no tiny lines/pie) */
     report: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
+        <!-- Clipboard frame -->
         <rect x="6" y="4.5" width="12" height="15.5" rx="2"
               fill="none" stroke="currentColor" stroke-width="1.6"/>
-        <rect x="9" y="2.5" width="6" height="3.5" rx="1.2"
+        <!-- Clip -->
+        <rect x="9" y="2.4" width="6" height="3.6" rx="1.2"
               fill="none" stroke="currentColor" stroke-width="1.6"/>
-        <path d="M8.5 9.5h4.6M8.5 11.8h3.9"
-              stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        <path d="M13.5 15.6v-2.8M15.5 15.6v-4.2M17.5 15.6v-1.6"
-              stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-        <path d="M8.8 15.2a2.6 2.6 0 1 0 0-5.2v2.6H6.2"
-              fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Bars (filled to read clearly at small sizes) -->
+        <rect x="8.5"  y="14.6" width="2.0" height="4.4" rx="0.6" fill="currentColor"/>
+        <rect x="11.1" y="12.6" width="2.0" height="6.4" rx="0.6" fill="currentColor"/>
+        <rect x="13.7" y="10.4" width="2.0" height="8.6" rx="0.6" fill="currentColor"/>
       </svg>`
   };
 
   class FVFormButton extends HTMLElement{
-    /* --- ADDED: 'icon-svg' attribute --- */
     static get observedAttributes(){ return ['label','icon','href','icon-svg']; }
 
     constructor(){
@@ -146,13 +149,15 @@
       r.querySelector('.label').textContent = this.getAttribute('label') || '';
       r.querySelector('a.tile').setAttribute('href', this.getAttribute('href') || '#');
 
-      /* --- UPDATED: prefer icon-svg when provided; fallback to text icon --- */
       const iconHost = r.querySelector('.icon');
       const svgKey = (this.getAttribute('icon-svg') || '').trim();
 
       if (svgKey && ICONS[svgKey]) {
-        iconHost.innerHTML = ICONS[svgKey];          // inject SVG
+        // Bump size slightly for 'report' by default
+        this.style.setProperty('--icon-extra', svgKey === 'report' ? '8px' : '0px');
+        iconHost.innerHTML = ICONS[svgKey];   // inject SVG
       } else {
+        this.style.setProperty('--icon-extra', '0px');
         iconHost.textContent = this.getAttribute('icon') || ''; // original behavior
       }
     }
