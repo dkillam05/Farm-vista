@@ -36,6 +36,34 @@
     .btn.primary { background:var(--green,#3B7E46); color:#fff; }
     .btn.ghost { background:transparent; border:1px solid var(--border,#d9ddd9); }
     .muted-small { color:var(--muted,#87908a); font-size:13px; }
+
+    /* --- Notifications switch styles (scoped to this page) --- */
+    .setting{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 12px; border-top:1px solid var(--border,#e2e5e5);
+      background:var(--surface,#fff); color:var(--text,#111);
+    }
+    .setting:first-of-type{ border-top:0; }
+    .setting .left .txt{ font-size:16px; font-weight:700; }
+    .setting .left .sub{ font-size:13px; opacity:.8; margin-top:2px; }
+
+    .switch{ position:relative; width:50px; height:28px; display:inline-block; }
+    .switch input{ opacity:0; width:0; height:0; }
+    .slider{
+      position:absolute; inset:0; cursor:pointer;
+      background:#e5e8e4; border:1px solid var(--border,#e2e5e5);
+      border-radius:999px; transition:.22s ease;
+    }
+    .slider::before{
+      content:""; position:absolute; width:24px; height:24px; left:1px; top:1px;
+      background:#fff; border-radius:50%; box-shadow:0 1px 2px rgba(0,0,0,.25);
+      transition:.22s ease;
+    }
+    .switch input:checked + .slider{ background:var(--green,#3B7E46); border-color:var(--green,#3B7E46); }
+    .switch input:checked + .slider::before{ transform:translateX(22px); }
+
+    /* Card spacing tweaks */
+    .card + .card{ margin-top:18px; }
   </style>
 </head>
 <body>
@@ -47,7 +75,8 @@
         Update your profile so your name and contact info are consistent across FarmVista (tickets, reports, comments, and assignments).
       </p>
 
-      <div class="card" style="max-width:780px; margin-bottom:18px;">
+      <!-- Profile -->
+      <div class="card" style="max-width:780px;">
         <h2 class="card-title">Profile</h2>
         <form class="form" onsubmit="event.preventDefault(); /* hook up save later */">
           <div class="row2">
@@ -101,6 +130,25 @@
         </form>
       </div>
 
+      <!-- Notifications (new) -->
+      <div class="card" style="max-width:780px;">
+        <h2 class="card-title">Notifications</h2>
+        <div class="setting" id="fv-notify-setting">
+          <div class="left">
+            <div class="txt">Notifications</div>
+            <div class="sub">Allow push notifications</div>
+          </div>
+          <label class="switch" aria-label="Notifications">
+            <input type="checkbox" id="fv-toggle-push" />
+            <span class="slider" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="muted-small" style="padding:10px 12px 14px;">
+          You can turn this on now; it will start working automatically once push is added.
+        </div>
+      </div>
+
+      <!-- Visibility -->
       <div class="card" style="max-width:780px;">
         <h2 class="card-title">Visibility</h2>
         <ul class="list">
@@ -136,7 +184,7 @@
           });
         }
 
-        // Optional: map Preferred Theme select to App theme for a nice touch now
+        // Map Preferred Theme select to App theme
         try {
           const sel = document.getElementById('ud-theme');
           if (sel && window.App && App.setTheme && App.getTheme) {
@@ -144,6 +192,23 @@
             sel.addEventListener('change', () => App.setTheme(sel.value));
           }
         } catch {}
+
+        // Initialize Notifications toggle (localStorage + event)
+        (function(){
+          const LS_KEY = 'fv:prefs:notifications';
+          const el = document.getElementById('fv-toggle-push');
+          if(!el) return;
+
+          let saved = '0';
+          try { saved = localStorage.getItem(LS_KEY) ?? '0'; } catch {}
+          el.checked = (saved === '1' || saved === 'true');
+
+          el.addEventListener('change', () => {
+            const on = el.checked;
+            try { localStorage.setItem(LS_KEY, on ? '1' : '0'); } catch {}
+            document.dispatchEvent(new CustomEvent('fv:prefs:notifications', { detail: { enabled: on } }));
+          });
+        })();
       })().catch(err => console.error('Bootloader failed:', err));
     })();
   </script>
