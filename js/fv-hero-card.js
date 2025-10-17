@@ -1,8 +1,10 @@
-// /js/fv-hero-card.js — FULL REPLACEMENT (responsive headline sizing + font-load refit)
+// /js/fv-hero-card.js — FULL REPLACEMENT
+// Big, bold, underlined titles (top-aligned, centered). Bullets on separate lines.
+// Fixes: underline visible everywhere; no descender clipping; emoji no longer overlaps title.
 (() => {
   if (customElements.get('fv-hero-card')) return;
 
-  // Works at "/" and "/Farm-vista/"
+  // Detect base so @font-face works at "/" and "/Farm-vista/"
   const BASE = (() => {
     try {
       const src = (document.currentScript && document.currentScript.src) || '';
@@ -22,6 +24,7 @@
       const r = this.attachShadow({ mode: 'open' });
       r.innerHTML = `
         <style>
+          /* Optional: use TT Moons if present; otherwise fall back to strong serif */
           @font-face{
             font-family:"TT Moons";
             src:url("${TTMOONS_URL}") format("woff2");
@@ -29,63 +32,75 @@
           }
 
           :host{
-            --fv-surface:#fff; --fv-text:#141514; --fv-border:#E3E6E2;
+            --fv-surface:#fff;
+            --fv-text:#141514;
+            --fv-border:#E3E6E2;
             --fv-shadow:0 10px 22px rgba(0,0,0,.12);
-            --hero-pad:16px; --hero-radius:12px; --title-side-pad:12px;
+
+            --hero-pad:16px;
+            --hero-radius:12px;
+            --title-side-pad:12px;
 
             --fv-hero-title-font:"TT Moons", ui-serif, Georgia, "Times New Roman", serif;
             --fv-hero-title-weight:800;
 
-            /* Underline */
-            --fv-hero-underline-thickness:2px;
+            /* Underline tune */
+            --fv-hero-underline-thickness:3px;
             --fv-hero-underline-offset:6px;
 
-            /* Guardrails (JS will compute a responsive max too) */
+            /* Title sizing guardrails */
             --title-max-size:64px;
             --title-min-size:20px;
 
-            display:block; border-radius:var(--hero-radius);
-            background:var(--fv-surface); color:var(--fv-text);
-            border:1px solid var(--fv-border); box-shadow:var(--fv-shadow);
+            display:block;
+            border-radius:var(--hero-radius);
+            background:var(--fv-surface);
+            color:var(--fv-text);
+            border:1px solid var(--fv-border);
+            box-shadow:var(--fv-shadow);
           }
           :host([hidden]){ display:none; }
 
           .wrap{
             position:relative;
             display:grid;
-            grid-template-rows:auto 1fr;
+            grid-template-rows:auto 1fr;   /* title row, then content row */
             gap:10px;
             padding:var(--hero-pad);
             min-height:var(--hero-h,120px);
-            align-items:start;
+            align-items:start;             /* keep content at the top */
           }
 
-          /* Emoji moved top-right so it never collides with the title */
+          /* Emoji: move to top-right so it never collides with title */
           .emoji{
             position:absolute; top:10px; right:10px;
-            font-size:22px; line-height:1; opacity:.95;
-            user-select:none; pointer-events:none;
+            font-size:22px; line-height:1;
+            opacity:.95; user-select:none; pointer-events:none;
           }
 
+          /* Title: top, centered horizontally, BIG + bold + underline, auto-fit */
           .title{
             margin:0;
+            /* center the element itself */
             justify-self:center;
+            /* and add comfy side pads */
             padding:0 var(--title-side-pad);
+            /* bold serif headline */
             font-family:var(--fv-hero-title-font);
             font-weight:var(--fv-hero-title-weight);
-            line-height:1.2;                 /* prevents descender clipping */
-            white-space:nowrap;
-
-            /* start large; JS shrinks if needed */
+            line-height:1.18;                    /* ↑ prevents 'g' descender clipping */
+            white-space:nowrap;                   /* single line */
+            /* Start large; JS will shrink if needed */
             font-size:var(--title-max-size);
 
-            /* underline that always shows */
-            display:inline-block;
+            /* Visible underline (works everywhere) */
+            display:inline-block;                 /* so the border hugs the text width */
             border-bottom: var(--fv-hero-underline-thickness) solid currentColor;
             padding-bottom: var(--fv-hero-underline-offset);
             text-align:center;
           }
 
+          /* Subtitle: bullets on their own lines when we render as <ul> */
           .subtitle{ margin:0; font-size:14px; opacity:.9; }
           ul.subtitle-list{ margin:0; padding-left:1.1em; font-size:14px; opacity:.9; }
           ul.subtitle-list li{ margin:.2em 0; }
@@ -107,32 +122,14 @@
       };
 
       this._fitTitleBound = () => this._fitTitle();
-      this._fontReadyBound = () => this._fitTitle();
     }
 
     connectedCallback(){
-      // Fit after first paint
       requestAnimationFrame(this._fitTitleBound);
-
-      // Refit on resize
       window.addEventListener('resize', this._fitTitleBound, { passive:true });
-
-      // Refit after font loads/swaps (prevents overshoot after TT Moons activates)
-      if (document.fonts) {
-        document.fonts.ready.then(this._fontReadyBound);
-        document.fonts.addEventListener?.('loadingdone', this._fontReadyBound);
-      }
-
-      // A tiny delayed refit catches any late layout shifts
-      setTimeout(this._fitTitleBound, 350);
-      setTimeout(this._fitTitleBound, 900);
     }
-
     disconnectedCallback(){
       window.removeEventListener('resize', this._fitTitleBound);
-      if (document.fonts && document.fonts.removeEventListener) {
-        document.fonts.removeEventListener('loadingdone', this._fontReadyBound);
-      }
     }
 
     attributeChangedCallback(name,_old,val){
@@ -153,6 +150,7 @@
     _renderSubtitle(text){
       if (this.$.subtitleList) { this.$.subtitleList.remove(); this.$.subtitleList = null; }
 
+      // Accept explicit newlines or "•" separators
       let lines = (text || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       if (lines.length <= 1 && text.includes('•')) {
         lines = text.split('•').map(s => s.trim()).filter(Boolean).map(s => '• ' + s);
@@ -184,15 +182,11 @@
         const csWrap  = getComputedStyle(w);
         const csTitle = getComputedStyle(t);
 
+        const maxPx = parseFloat(csHost.getPropertyValue('--title-max-size')) || 64;
         const minPx = parseFloat(csHost.getPropertyValue('--title-min-size')) || 20;
-        const cssMax = parseFloat(csHost.getPropertyValue('--title-max-size')) || 64;
 
-        // Responsive max: ~9% of card width (looks right on phone), clamped by cssMax
-        const responsiveMax = Math.max(minPx, Math.min(cssMax, Math.floor(w.clientWidth * 0.09)));
+        t.style.fontSize = maxPx + 'px';
 
-        t.style.fontSize = responsiveMax + 'px';
-
-        // Available width inside the card (minus paddings)
         const wrapPadL = parseFloat(csWrap.paddingLeft) || 0;
         const wrapPadR = parseFloat(csWrap.paddingRight) || 0;
         const tPadL    = parseFloat(csTitle.paddingLeft) || 0;
@@ -201,9 +195,7 @@
         const available = w.clientWidth - wrapPadL - wrapPadR - tPadL - tPadR;
         if (available <= 0) return;
 
-        // Shrink until it fits one line
-        let size = responsiveMax;
-        // Use scrollWidth to detect overflow beyond the visible width
+        let size = maxPx;
         for (let i=0;i<64;i++){
           if (t.scrollWidth <= available || size <= minPx) break;
           size = Math.max(minPx, size - 1);
