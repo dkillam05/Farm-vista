@@ -1,11 +1,10 @@
-l// /js/fv-hero-card.js — FULL REPLACEMENT
+// /js/fv-hero-card.js — FULL REPLACEMENT (stable build)
 // FarmVista — <fv-hero-card> with top-aligned, centered, auto-fit cursive+underlined titles
 (() => {
-  // Allow redefinition on hard reload only; normal reloads will redefine from scratch.
   if (customElements.get('fv-hero-card')) return;
 
   class FVHeroCard extends HTMLElement {
-    static get observedAttributes() { return ['emoji','title','subtitle']; }
+    static get observedAttributes() { return ['emoji', 'title', 'subtitle']; }
 
     constructor() {
       super();
@@ -24,12 +23,12 @@ l// /js/fv-hero-card.js — FULL REPLACEMENT
             --hero-radius:12px;
             --title-side-pad:12px;
 
-            /* Title typography (adjust in theme if desired) */
+            /* Title typography */
             --fv-hero-title-font: cursive;
             --fv-hero-underline-thickness: 2px;
             --fv-hero-underline-offset: 4px;
 
-            /* Auto-fit guardrails (px) */
+            /* Auto-fit guardrails */
             --title-max-size: 32px;
             --title-min-size: 18px;
 
@@ -49,11 +48,11 @@ l// /js/fv-hero-card.js — FULL REPLACEMENT
             grid-template-rows:auto 1fr; /* title row, then content row */
             gap:8px;
             padding:var(--hero-pad);
-            min-height:var(--hero-h, 120px);
+            min-height:var(--hero-h,120px);
             align-items:start; /* keep content starting at top */
           }
 
-          /* Emoji: keep for Message Board, but don't disturb title centering */
+          /* Emoji stays (e.g., Message Board) but won’t disturb title centering */
           .emoji{
             position:absolute;
             top:10px; left:10px;
@@ -63,29 +62,24 @@ l// /js/fv-hero-card.js — FULL REPLACEMENT
             pointer-events:none;
           }
 
-          /* Title row at the top, centered horizontally */
+          /* Top-aligned, horizontally centered title */
           .title{
             margin:0;
             padding:0 var(--title-side-pad);
             text-align:center;
             font-weight:700;
             line-height:1.15;
-
-            /* Cursive + underline for ALL titles */
             font-family: var(--fv-hero-title-font);
             text-decoration: underline;
             text-decoration-thickness: var(--fv-hero-underline-thickness);
             text-underline-offset: var(--fv-hero-underline-offset);
 
-            /* Start big; JS will shrink if needed to keep one line */
+            /* Start big; we shrink as needed to fit a single line */
             font-size: var(--title-max-size);
-
-            /* Keep it to a single line; JS ensures it fits without ellipsis */
             white-space: nowrap;
             overflow: hidden;
           }
 
-          /* Subtitle/content area */
           .subtitle{
             margin:0;
             font-size:14px;
@@ -99,7 +93,6 @@ l// /js/fv-hero-card.js — FULL REPLACEMENT
           <p class="subtitle" part="subtitle"></p>
         </div>
       `;
-
       this.$ = {
         wrap: r.querySelector('.wrap'),
         emoji: r.querySelector('.emoji'),
@@ -107,18 +100,17 @@ l// /js/fv-hero-card.js — FULL REPLACEMENT
         subtitle: r.querySelector('.subtitle'),
       };
 
-      // Observe size changes to keep title fitted
-      this._resizeObs = new ResizeObserver(() => this._fitTitle());
-      this._resizeObs.observe(this.$.wrap);
+      this._fitTitleBound = () => this._fitTitle();
     }
 
     connectedCallback(){
-      // Initial fit after first paint
-      requestAnimationFrame(() => this._fitTitle());
+      // Fit after paint and on window resize
+      requestAnimationFrame(this._fitTitleBound);
+      window.addEventListener('resize', this._fitTitleBound, { passive: true });
     }
 
     disconnectedCallback(){
-      this._resizeObs?.disconnect();
+      window.removeEventListener('resize', this._fitTitleBound);
     }
 
     attributeChangedCallback(name, _old, val) {
@@ -129,8 +121,7 @@ l// /js/fv-hero-card.js — FULL REPLACEMENT
       }
       if (name === 'title') {
         this.$.title.textContent = val || '';
-        // Refit when title changes
-        requestAnimationFrame(() => this._fitTitle());
+        requestAnimationFrame(this._fitTitleBound);
       }
       if (name === 'subtitle') {
         this.$.subtitle.textContent = val || '';
@@ -138,37 +129,39 @@ l// /js/fv-hero-card.js — FULL REPLACEMENT
     }
 
     _fitTitle(){
-      const t = this.$.title;
-      if (!t) return;
+      try {
+        const t = this.$.title;
+        const w = this.$.wrap;
+        if (!t || !w) return;
 
-      // Reset to max before measuring
-      const maxPx = parseFloat(getComputedStyle(this).getPropertyValue('--title-max-size')) || 32;
-      const minPx = parseFloat(getComputedStyle(this).getPropertyValue('--title-min-size')) || 18;
+        // Reset to max before measuring
+        const csHost = getComputedStyle(this);
+        const csWrap = getComputedStyle(w);
+        const csTitle = getComputedStyle(t);
 
-      t.style.fontSize = maxPx + 'px';
+        const maxPx = parseFloat(csHost.getPropertyValue('--title-max-size')) || 32;
+        const minPx = parseFloat(csHost.getPropertyValue('--title-min-size')) || 18;
 
-      // Available width: wrapper inner width minus side padding applied to title
-      const wrapStyle = getComputedStyle(this.$.wrap);
-      const padL = parseFloat(wrapStyle.paddingLeft) || 0;
-      const padR = parseFloat(wrapStyle.paddingRight) || 0;
+        t.style.fontSize = maxPx + 'px';
 
-      // Also subtract the title's own side padding
-      const titleStyle = getComputedStyle(t);
-      const tPadL = parseFloat(titleStyle.paddingLeft) || 0;
-      const tPadR = parseFloat(titleStyle.paddingRight) || 0;
+        // Available width: wrapper inner width minus padding and title padding
+        const wrapPadL = parseFloat(csWrap.paddingLeft) || 0;
+        const wrapPadR = parseFloat(csWrap.paddingRight) || 0;
+        const titlePadL = parseFloat(csTitle.paddingLeft) || 0;
+        const titlePadR = parseFloat(csTitle.paddingRight) || 0;
 
-      const available = this.$.wrap.clientWidth - padL - padR - tPadL - tPadR;
-      if (available <= 0) return;
+        const available = w.clientWidth - wrapPadL - wrapPadR - titlePadL - titlePadR;
+        if (available <= 0) return;
 
-      // Shrink font size until it fits on one line (no overflow)
-      let size = maxPx;
-      // Guard loop to avoid long repaints
-      for (let i = 0; i < 30; i++) {
-        const tooWide = t.scrollWidth > available;
-        if (!tooWide || size <= minPx) break;
-        size = Math.max(minPx, size - 1);
-        t.style.fontSize = size + 'px';
-      }
+        // Shrink font size until it fits on one line
+        let size = maxPx;
+        // Hard cap loop iterations to avoid long repaints
+        for (let i = 0; i < 32; i++) {
+          if (t.scrollWidth <= available || size <= minPx) break;
+          size = Math.max(minPx, size - 1);
+          t.style.fontSize = size + 'px';
+        }
+      } catch {}
     }
   }
 
