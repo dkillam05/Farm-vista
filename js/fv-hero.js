@@ -1,18 +1,23 @@
 /* /js/fv-hero.js — FULL REPLACEMENT (no Firestore)
    FarmVista – Dashboard hero grid + local Message Board (📢)
-   Consistent routing: always link to explicit index.html.
+   Uses localStorage key: "df_message_board"
+   Message object shape:
+   { title?: string, body: string, pinned?: boolean,
+     createdAt?: number|ISO, expiresAt?: number|ISO, authorName?: string }
 */
 (function () {
   const MSG_CARD_ID = 'msg-board-card';
   const LS_KEY = 'df_message_board';
 
+  // Initial cards (Message Board first)
+  // NOTE: Links point to /pages/<section>/index.html (per your screenshots).
   const CARDS = [
     { id: MSG_CARD_ID, emoji: '📢', title: 'Dowson Farms Message Board', subtitle: 'Loading…' },
 
-    { emoji: '🌱', title: 'Crop Production', subtitle: 'Open', href: './pages/crop-production/index.html' },
-    { emoji: '🚜', title: 'Equipment',       subtitle: 'Open', href: './pages/equipment/index.html' },
-    { emoji: '🌾', title: 'Grain',           subtitle: 'Open', href: './pages/grain/index.html' },
-    { emoji: '📊', title: 'Reports',         subtitle: 'Open', href: './pages/reports/index.html' },
+    { emoji: '🌱', title: 'Crop Production', subtitle: 'Open', href: './pages/crop-production/' },
+    { emoji: '🚜', title: 'Equipment',       subtitle: 'Open', href: './pages/equipment/' },
+    { emoji: '🌾', title: 'Grain',           subtitle: 'Open', href: './pages/grain/' },
+    { emoji: '📊', title: 'Reports',         subtitle: 'Open', href: './pages/reports/' },
   ];
 
   function mount() {
@@ -40,6 +45,7 @@
     if (msgEl) populateMessageBoard(msgEl);
   }
 
+  /** Turn a hero card into an accessible link-like element */
   function makeCardLink(cardEl, href, title = '') {
     cardEl.style.cursor = 'pointer';
     cardEl.setAttribute('role', 'link');
@@ -61,30 +67,46 @@
     });
   }
 
+  /** Populate from localStorage; never navigates */
   function populateMessageBoard(cardEl) {
     const list = getActiveMessages();
+
     if (list.length === 0) {
       cardEl.setAttribute('title', 'Dowson Farms Message Board');
       cardEl.setAttribute('subtitle', 'No active messages.');
       cardEl.style.minHeight = 'var(--hero-h)';
       return;
     }
+
     const subtitle = summarizeMessages(list, 4);
     cardEl.setAttribute('title', 'Dowson Farms Message Board');
     cardEl.setAttribute('subtitle', subtitle);
     cardEl.style.minHeight = subtitle.length > 220 ? 'auto' : 'var(--hero-h)';
   }
 
+  /** Return active, normalized, sorted messages (pinned first, newest next) */
   function getActiveMessages() {
     let list = [];
-    try { const raw = localStorage.getItem(LS_KEY); if (raw) list = JSON.parse(raw); } catch {}
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) list = JSON.parse(raw);
+    } catch { /* ignore */ }
+
     if (!Array.isArray(list)) list = [];
+
     const now = Date.now();
-    const norm = list.map(normalizeDoc).filter(m => m.body && (!m.expiresAt || m.expiresAt > now));
-    norm.sort((a, b) => (a.pinned !== b.pinned) ? (a.pinned ? -1 : 1) : (b.createdAt||0) - (a.createdAt||0));
+    const norm = list.map(normalizeDoc)
+      .filter(m => m.body && (!m.expiresAt || m.expiresAt > now));
+
+    norm.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+
     return norm;
   }
 
+  /** Summarize messages as bullets: • [📌]Title: snippet */
   function summarizeMessages(list, limit = 4) {
     const bullets = [];
     for (const m of list.slice(0, limit)) {
@@ -100,14 +122,39 @@
   }
 
   function normalizeDoc(d) {
-    const toMs = (v) => { if (!v) return null; if (typeof v === 'number') return v; const t = Date.parse(v); return Number.isFinite(t) ? t : null; };
-    return { title: (d.title||'').toString().trim(), body: (d.body||'').toString().trim(), pinned: !!d.pinned, createdAt: toMs(d.createdAt) ?? Date.now(), expiresAt: toMs(d.expiresAt), authorName: d.authorName || '' };
+    const toMs = (v) => {
+      if (!v) return null;
+      if (typeof v === 'number') return v;
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : null;
+    };
+    return {
+      title: (d.title || '').toString().trim(),
+      body: (d.body || '').toString().trim(),
+      pinned: !!d.pinned,
+      createdAt: toMs(d.createdAt) ?? Date.now(),
+      expiresAt: toMs(d.expiresAt),
+      authorName: d.authorName || ''
+    };
   }
 
+  // Small global helper for seeding/testing messages
   window.DFMessageBoard = {
-    set(arr){ if (!Array.isArray(arr)) throw new Error('DFMessageBoard.set expects an array'); localStorage.setItem('df_message_board', JSON.stringify(arr)); refresh(); },
-    add(msg){ const list = JSON.parse(localStorage.getItem('df_message_board') || '[]'); list.push(msg || {}); localStorage.setItem('df_message_board', JSON.stringify(list)); refresh(); },
-    clear(){ localStorage.removeItem('df_message_board'); refresh(); }
+    set(arr) {
+      if (!Array.isArray(arr)) throw new Error('DFMessageBoard.set expects an array');
+      localStorage.setItem(LS_KEY, JSON.stringify(arr));
+      refresh();
+    },
+    add(msg) {
+      const list = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      list.push(msg || {});
+      localStorage.setItem(LS_KEY, JSON.stringify(list));
+      refresh();
+    },
+    clear() {
+      localStorage.removeItem(LS_KEY);
+      refresh();
+    }
   };
 
   function refresh() {
@@ -115,6 +162,10 @@
     if (el) populateMessageBoard(el);
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once:true });
-  else mount();
+  // Boot
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount, { once: true });
+  } else {
+    mount();
+  }
 })();
