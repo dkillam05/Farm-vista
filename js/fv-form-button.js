@@ -1,9 +1,9 @@
-/* <fv-form-button> v2.2 — form entry tile
-   - Light: title uses dark blue
-   - Dark:  title uses global --text
-   - No emoji bubble
-   - Label on top, emoji at bottom
-   - Label lowered slightly; emoji raised & centered
+/* <fv-form-button> v2.3 — form entry tile
+   Tweaks:
+   - Uses CSS Grid inside the tile for stable positioning
+   - Label sits a bit lower
+   - Emoji is centered horizontally and raised visually
+   - Dark mode: title color = --text; Light mode: deep blue
 */
 (function () {
   const tpl = document.createElement('template');
@@ -11,17 +11,17 @@
     <style>
       :host{
         display:block;
-        --tile-h: 160px;
-        --form-accent: #0F3B82;            /* light mode title */
+        --tile-h:160px;
+        --form-accent:#0F3B82; /* light title color */
       }
-      /* Dark mode: title uses global text color for contrast */
+      /* Dark: match global text so it always contrasts the darker card */
       :host-context(.dark){ --form-accent: var(--text); }
       :host-context(html[data-theme="auto"].dark){ --form-accent: var(--text); }
 
       a.tile{
-        display:flex;
-        flex-direction:column;
-        justify-content:space-between;
+        display:grid;
+        grid-template-rows: auto 1fr auto;   /* label | flexible space | emoji */
+        align-items:center;
 
         height:var(--tile-h);
         padding:18px;
@@ -37,20 +37,21 @@
       a.tile:active{ transform:scale(.985); }
 
       .label{
+        justify-self:start;
+        margin-top:8px;                  /* ↓ a touch lower */
         font-weight:800;
-        font-size:clamp(18px, 2.6vw, 22px);  /* scales inside fixed tile */
+        font-size:clamp(18px,2.6vw,22px);
         line-height:1.25;
         color:var(--form-accent);
-        margin-top:6px;                      /* ↓ slightly lower */
-        text-wrap:balance;
       }
 
       .icon{
-        display:inline-block;
+        justify-self:center;
+        align-self:end;
+        margin:0 0 12px 0;               /* ↑ raised from bottom */
         line-height:1;
-        font-size:clamp(36px, 8vw, 48px);    /* a touch larger */
-        margin-bottom:12px;                   /* ↑ raised/centered */
-        filter:none;                          /* pure emoji (no bubble) */
+        font-size:clamp(36px,9vw,56px);  /* scales to tile height */
+        filter:none;                     /* pure emoji, no bubble */
       }
     </style>
 
@@ -69,14 +70,14 @@
     connectedCallback(){ this._sync(); }
     attributeChangedCallback(){ this._sync(); }
     _sync(){
-      const r = this.shadowRoot;
-      r.querySelector('.label').textContent = this.getAttribute('label') || '';
-      r.querySelector('.icon').textContent  = this.getAttribute('icon') || '';
-      r.querySelector('a.tile').setAttribute('href', this.getAttribute('href') || '#');
+      const r=this.shadowRoot;
+      r.querySelector('.label').textContent=this.getAttribute('label')||'';
+      r.querySelector('.icon').textContent=this.getAttribute('icon')||'';
+      r.querySelector('a.tile').setAttribute('href', this.getAttribute('href')||'#');
     }
   }
 
-  if (!customElements.get('fv-form-button')) {
+  if(!customElements.get('fv-form-button')){
     customElements.define('fv-form-button', FVFormButton);
   }
 })();
