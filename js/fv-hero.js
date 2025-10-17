@@ -1,10 +1,6 @@
 /* /js/fv-hero.js — FULL REPLACEMENT (no Firestore, no SW changes)
    FarmVista – Dashboard hero grid + local Message Board (📢)
-   Change scope: ONLY update the four section cards:
-   - remove emoji
-   - add "Overview" to title
-   - show three verbal bullet points
-   Everything else stays the same.
+   Update: four section cards now use MULTILINE subtitles (each bullet on its own line).
 */
 (function () {
   const MSG_CARD_ID = 'msg-board-card';
@@ -29,31 +25,28 @@
     return BASE + p;
   };
 
-  // Helper to make a single-line "verbal bullets" subtitle
-  const bullets = (arr) => arr.map(s => `• ${s}`).join('   ');
-
-  // Verbal bullets (static for now; swap to live data later)
+  // Multiline bullets so <fv-hero-card> renders them as a vertical list
   const TEXT = {
-    crop: bullets([
-      'Active trials this crop year',
-      'Pending field maintenance projects',
-      'Planted acres vs plan (YTD)'
-    ]),
-    equipment: bullets([
-      'Repair work orders made',
-      'Oil changes coming due',
-      'StarFire tracking location'
-    ]),
-    grain: bullets([
-      'Bushels hauled this week',
-      'Bin inventory snapshot',
-      'Grain bags remaining to pick up'
-    ]),
-    reports: bullets([
-      'AI-generated reports',
-      'Custom report templates',
-      'Prebuilt summaries (elevator & field)'
-    ]),
+    crop: [
+      '• Active trials this crop year',
+      '• Pending field maintenance projects',
+      '• Planted acres vs plan (YTD)'
+    ].join('\n'),
+    equipment: [
+      '• Repair work orders made',
+      '• Oil changes coming due',
+      '• StarFire tracking location'
+    ].join('\n'),
+    grain: [
+      '• Bushels hauled this week',
+      '• Bin inventory snapshot',
+      '• Grain bags remaining to pick up'
+    ].join('\n'),
+    reports: [
+      '• AI-generated reports',
+      '• Custom report templates',
+      '• Prebuilt summaries (elevator & field)'
+    ].join('\n'),
   };
 
   // Initial cards (Message Board first)
@@ -61,7 +54,7 @@
   const CARDS = [
     { id: MSG_CARD_ID, emoji: '📢', title: 'Dowson Farms Message Board', subtitle: 'Loading…' },
 
-    // Four section cards: NO emoji, "Overview" titles, bullet subtitles
+    // Four section cards: NO emoji, "Overview" titles, MULTILINE bullets
     { title: 'Crop Production Overview', subtitle: TEXT.crop,
       href: withBase('pages/crop-production/index.html') },
 
@@ -140,7 +133,7 @@
       return;
     }
 
-    // Build a compact, professional summary: up to 4 bullets
+    // Keep Message Board summary as a single line (component handles list for others)
     const subtitle = summarizeMessages(list, 4);
 
     cardEl.setAttribute('title', 'Dowson Farms Message Board'); // fixed header, no hyphen
