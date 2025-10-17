@@ -1,23 +1,47 @@
-/* /js/fv-hero.js — FULL REPLACEMENT (no Firestore)
+/* /js/fv-hero.js — FULL REPLACEMENT (no Firestore, no SW changes)
    FarmVista – Dashboard hero grid + local Message Board (📢)
-   Uses localStorage key: "df_message_board"
-   Message object shape:
-   { title?: string, body: string, pinned?: boolean,
-     createdAt?: number|ISO, expiresAt?: number|ISO, authorName?: string }
+   Strategy: always link to explicit index.html, and auto-detect base path.
+   Works at domain root AND under /Farm-vista/ (GitHub Pages).
 */
 (function () {
   const MSG_CARD_ID = 'msg-board-card';
   const LS_KEY = 'df_message_board';
 
+  // Detect the app base from this script’s path, e.g. "/Farm-vista/"
+  const BASE = (() => {
+    try {
+      const src = document.currentScript && document.currentScript.src || '';
+      const u = new URL(src, location.href);
+      // strip trailing "/js/<file>"
+      return u.pathname.replace(/\/js\/[^\/?#]+$/, '/');
+    } catch {
+      // Fallback: if path contains "/Farm-vista/", use it; else root
+      return location.pathname.startsWith('/Farm-vista/') ? '/Farm-vista/' : '/';
+    }
+  })();
+
+  const withBase = (p) => {
+    // Ensure no leading slash in p, then join with BASE (which ends with "/")
+    p = String(p || '').replace(/^\/+/, '');
+    return BASE + p;
+  };
+
   // Initial cards (Message Board first)
-  // NOTE: Links point to /pages/<section>/index.html (per your screenshots).
+  // NOTE: explicit index.html for consistent caching with current SW.
   const CARDS = [
     { id: MSG_CARD_ID, emoji: '📢', title: 'Dowson Farms Message Board', subtitle: 'Loading…' },
 
-    { emoji: '🌱', title: 'Crop Production', subtitle: 'Open', href: './pages/crop-production/' },
-    { emoji: '🚜', title: 'Equipment',       subtitle: 'Open', href: './pages/equipment/' },
-    { emoji: '🌾', title: 'Grain',           subtitle: 'Open', href: './pages/grain/' },
-    { emoji: '📊', title: 'Reports',         subtitle: 'Open', href: './pages/reports/' },
+    { emoji: '🌱', title: 'Crop Production', subtitle: 'Open',
+      href: withBase('pages/crop-production/index.html') },
+
+    { emoji: '🚜', title: 'Equipment', subtitle: 'Open',
+      href: withBase('pages/equipment/index.html') },
+
+    { emoji: '🌾', title: 'Grain', subtitle: 'Open',
+      href: withBase('pages/grain/index.html') },
+
+    { emoji: '📊', title: 'Reports', subtitle: 'Open',
+      href: withBase('pages/reports/index.html') },
   ];
 
   function mount() {
@@ -35,6 +59,7 @@
       if (c.href) {
         makeCardLink(el, c.href, c.title);
       } else {
+        // Message Board: view-only (no navigation)
         el.style.cursor = 'default';
         el.setAttribute('aria-disabled', 'true');
       }
@@ -60,8 +85,11 @@
       }
     };
 
+    // Mouse
     cardEl.addEventListener('click', (e) => go(e));
     cardEl.addEventListener('auxclick', (e) => { if (e.button === 1) go(e, true); });
+
+    // Keyboard
     cardEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(e); }
     });
@@ -74,13 +102,17 @@
     if (list.length === 0) {
       cardEl.setAttribute('title', 'Dowson Farms Message Board');
       cardEl.setAttribute('subtitle', 'No active messages.');
-      cardEl.style.minHeight = 'var(--hero-h)';
+      cardEl.style.minHeight = 'var(--hero-h)'; // default height
       return;
     }
 
+    // Build a compact, professional summary: up to 4 bullets
     const subtitle = summarizeMessages(list, 4);
-    cardEl.setAttribute('title', 'Dowson Farms Message Board');
+
+    cardEl.setAttribute('title', 'Dowson Farms Message Board'); // fixed header, no hyphen
     cardEl.setAttribute('subtitle', subtitle);
+
+    // If long, let the hero grow a bit; otherwise keep the standard height
     cardEl.style.minHeight = subtitle.length > 220 ? 'auto' : 'var(--hero-h)';
   }
 
@@ -99,8 +131,8 @@
       .filter(m => m.body && (!m.expiresAt || m.expiresAt > now));
 
     norm.sort((a, b) => {
-      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      return (b.createdAt || 0) - (a.createdAt || 0);
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1; // pinned first
+      return (b.createdAt || 0) - (a.createdAt || 0);       // newest first
     });
 
     return norm;
