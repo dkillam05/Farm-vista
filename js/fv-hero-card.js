@@ -1,5 +1,6 @@
 // /js/fv-hero-card.js — FULL REPLACEMENT
-// Titles: big, bold, underlined, centered (h), top-aligned, auto-fit; bullets on separate lines
+// Titles: big, bold, centered (h), top-aligned, auto-fit; bullets on separate lines
+// Update: add a robust underline under ALL titles (border-based)
 (() => {
   if (customElements.get('fv-hero-card')) return;
 
@@ -48,6 +49,8 @@
             /* Title typography */
             --fv-hero-title-font: "TT Moons", ui-serif, Georgia, "Times New Roman", serif;
             --fv-hero-title-weight: 800;
+
+            /* Underline controls */
             --fv-hero-underline-thickness: 3px;
             --fv-hero-underline-offset: 5px;
 
@@ -82,21 +85,24 @@
             opacity:.95; user-select:none; pointer-events:none;
           }
 
-          /* Title: top, centered horizontally, BIG + bold + underline, auto-fit */
+          /* Title: top, centered horizontally, BIG + bold, underline (border-based), auto-fit */
           .title{
             margin:0;
             padding:0 var(--title-side-pad);
             text-align:center;
             font-weight:var(--fv-hero-title-weight);
             line-height:1.05;
-
             font-family:var(--fv-hero-title-font);
-            text-decoration:underline;
-            text-decoration-thickness:var(--fv-hero-underline-thickness);
-            text-underline-offset:var(--fv-hero-underline-offset);
 
-            font-size:var(--title-max-size); /* JS will shrink if needed */
+            /* Start big; JS will shrink if needed to fit one line */
+            font-size:var(--title-max-size);
             white-space:nowrap; overflow:hidden;
+
+            /* NEW robust underline (works everywhere, not affected by decoration quirks) */
+            display:inline-block;                         /* make width hug text */
+            justify-self:center;                          /* center the inline-block in the grid */
+            border-bottom: var(--fv-hero-underline-thickness) solid currentColor;
+            padding-bottom: var(--fv-hero-underline-offset);
           }
 
           /* Subtitle: bullets on their own lines when we render as <ul> */
