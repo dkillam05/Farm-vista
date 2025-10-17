@@ -1,7 +1,7 @@
-/* <fv-form-button> v2.5 — form entry tile
-   - Label centered, placed lower
-   - Emoji centered and raised
-   - Dark mode label color = var(--text)
+/* <fv-form-button> v2.6 — form entry tile
+   - Light: label uses Farm “action” blue
+   - Dark (like <fv-hero-card>): label color = var(--text)
+   - Label centered & lower; emoji centered & higher
 */
 (function () {
   const tpl = document.createElement('template');
@@ -10,22 +10,25 @@
       :host{
         display:block;
         --tile-h:160px;
-        --form-accent:#0F3B82; /* light title color */
+
+        /* Light-mode accent for the label */
+        --form-accent:#0F3B82;
       }
 
-      /* Dark mode (explicit) */
-      :host-context(html.dark){ --form-accent: var(--text); }
+      /* Match hero card’s dark handling: switch to global text color */
+      :host-context(.dark){ --form-accent: var(--text); }             /* explicit .dark */
+      :host-context(html.dark){ --form-accent: var(--text); }         /* safety */
+      :host-context(body.dark){ --form-accent: var(--text); }         /* safety */
 
-      /* Dark mode when data-theme="auto" honors OS preference */
+      /* Auto-dark path (when you use data-theme="auto") */
       @media (prefers-color-scheme: dark){
         :host-context(html[data-theme="auto"]){ --form-accent: var(--text); }
       }
 
       a.tile{
         display:grid;
-        /* Push label lower by giving top track more height,
-           emoji lives in bottom track */
-        grid-template-rows: 60% 40%;
+        /* Push label lower, emoji higher */
+        grid-template-rows: 58% 42%;
         justify-items:center;
 
         height:var(--tile-h);
@@ -42,8 +45,8 @@
       a.tile:active{ transform:scale(.985); }
 
       .label{
-        align-self:end;           /* sits toward bottom of row 1 */
-        margin-bottom:8px;        /* nudge a bit lower */
+        align-self:end;           /* anchor toward bottom of row 1 */
+        margin-bottom:8px;        /* push down a touch */
         text-align:center;
         font-weight:800;
         font-size:clamp(18px,2.6vw,22px);
@@ -53,7 +56,7 @@
 
       .icon{
         align-self:start;         /* start of row 2 (higher) */
-        transform:translateY(-6px); /* raise emoji visually */
+        transform:translateY(-10px);
         line-height:1;
         font-size:clamp(40px,10vw,60px);
         filter:none;              /* pure emoji, no bubble */
