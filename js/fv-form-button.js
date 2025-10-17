@@ -43,7 +43,7 @@
 
       .label{
         align-self:end;           /* sits toward bottom of row 1 */
-        margin-bottom:4px;        /* nudge a bit lower */
+        margin-bottom:8px;        /* nudge a bit lower */
         text-align:center;
         font-weight:800;
         font-size:clamp(18px,2.6vw,22px);
