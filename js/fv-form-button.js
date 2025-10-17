@@ -1,8 +1,9 @@
-/* <fv-form-button> v2.1 — form entry tile
+/* <fv-form-button> v2.2 — form entry tile
    - Light: title uses dark blue
    - Dark:  title uses global --text
    - No emoji bubble
    - Label on top, emoji at bottom
+   - Label lowered slightly; emoji raised & centered
 */
 (function () {
   const tpl = document.createElement('template');
@@ -11,10 +12,9 @@
       :host{
         display:block;
         --tile-h: 160px;
-        /* Light accent (title) */
-        --form-accent: #0F3B82;
+        --form-accent: #0F3B82;            /* light mode title */
       }
-      /* In dark mode, just use the app text color so it always contrasts */
+      /* Dark mode: title uses global text color for contrast */
       :host-context(.dark){ --form-accent: var(--text); }
       :host-context(html[data-theme="auto"].dark){ --form-accent: var(--text); }
 
@@ -22,7 +22,6 @@
         display:flex;
         flex-direction:column;
         justify-content:space-between;
-        gap:10px;
 
         height:var(--tile-h);
         padding:18px;
@@ -39,18 +38,19 @@
 
       .label{
         font-weight:800;
-        /* Scales inside a fixed tile height */
-        font-size:clamp(18px, 2.6vw, 22px);
-        line-height:1.2;
+        font-size:clamp(18px, 2.6vw, 22px);  /* scales inside fixed tile */
+        line-height:1.25;
         color:var(--form-accent);
+        margin-top:6px;                      /* ↓ slightly lower */
+        text-wrap:balance;
       }
 
       .icon{
-        /* No background, no border — pure emoji */
         display:inline-block;
         line-height:1;
-        font-size:clamp(32px, 8vw, 44px);
-        filter:none;
+        font-size:clamp(36px, 8vw, 48px);    /* a touch larger */
+        margin-bottom:12px;                   /* ↑ raised/centered */
+        filter:none;                          /* pure emoji (no bubble) */
       }
     </style>
 
