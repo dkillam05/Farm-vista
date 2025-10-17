@@ -80,7 +80,7 @@
 
           /* Emoji (e.g., 📢) — keep but don't disturb title centering */
           .emoji{
-            position:absolute; top:10px; left:10px;
+            position:absolute; top:10px; left:2px;
             font-size:22px; line-height:1;
             opacity:.95; user-select:none; pointer-events:none;
           }
