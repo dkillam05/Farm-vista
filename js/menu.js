@@ -236,6 +236,29 @@ export const NAV_MENU = {
         { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
         { type: 'link', id: 'setup-farms',         icon: '🏷️', label: 'Farms',        href: '#', activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-fields',        icon: '🗺️', label: 'Fields',       href: '#', activeMatch: 'starts-with' },
+
+        /* NEW: Grain Bin Sites (inline SVG icon) */
+        { 
+          type: 'link',
+          id: 'setup-grain-sites',
+          label: 'Grain Bin Sites',
+          icon: `
+            <svg viewBox="0 0 24 24" aria-hidden="true"
+                 style="width:18px;height:18px;display:block;margin:0 auto;">
+              <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                <!-- roof -->
+                <path d="M6.5 7 L12 3.8 L17.5 7"/>
+                <!-- body -->
+                <rect x="7" y="7" width="10" height="13" rx="1.6"/>
+                <!-- ribs -->
+                <path d="M10 7v13M14 7v13" stroke-linecap="round"/>
+              </g>
+            </svg>
+          `,
+          href: '#',
+          activeMatch: 'starts-with'
+        },
+
         { type: 'link', id: 'setup-company',       icon: '🏢', label: 'Company Details', href: '#', activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-roles',         icon: '👥', label: 'Account Roles',   href: '#', activeMatch: 'starts-with' }
       ]
