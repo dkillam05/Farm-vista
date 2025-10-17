@@ -10,12 +10,14 @@
   const LS_KEY = 'df_message_board';
 
   // Initial cards (Message Board first)
+  // NOTE: Bottom four now link to their section home pages.
   const CARDS = [
     { id: MSG_CARD_ID, emoji: '📢', title: 'Dowson Farms Message Board', subtitle: 'Loading…' },
-    { emoji: '🌱', title: 'Crop Production', subtitle: '🚧 Coming Soon' },
-    { emoji: '🚜', title: 'Equipment',       subtitle: '🚧 Coming Soon' },
-    { emoji: '🌾', title: 'Grain',           subtitle: '🚧 Coming Soon' },
-    { emoji: '📊', title: 'Reports',         subtitle: '🚧 Coming Soon' },
+
+    { emoji: '🌱', title: 'Crop Production', subtitle: 'Open', href: './crop-production/' },
+    { emoji: '🚜', title: 'Equipment',       subtitle: 'Open', href: './equipment/' },
+    { emoji: '🌾', title: 'Grain',           subtitle: 'Open', href: './grain-tracking/' },
+    { emoji: '📊', title: 'Reports',         subtitle: 'Open', href: './reports/' },
   ];
 
   function mount() {
@@ -29,12 +31,56 @@
       el.setAttribute('title', c.title);
       el.setAttribute('subtitle', c.subtitle || '');
       if (c.id) el.id = c.id;
+
+      // Wire navigation only for cards with href (Message Board stays view-only)
+      if (c.href) {
+        makeCardLink(el, c.href, c.title);
+      } else {
+        // Explicitly non-interactive for Message Board
+        el.style.cursor = 'default';
+        el.setAttribute('aria-disabled', 'true');
+      }
+
       grid.appendChild(el);
     }
 
-    // Populate the Message Board hero
+    // Populate the Message Board hero (view-only)
     const msgEl = document.getElementById(MSG_CARD_ID);
     if (msgEl) populateMessageBoard(msgEl);
+  }
+
+  /** Turn a hero card into an accessible link-like element */
+  function makeCardLink(cardEl, href, title = '') {
+    // Visual affordance
+    cardEl.style.cursor = 'pointer';
+    // A11y affordances
+    cardEl.setAttribute('role', 'link');
+    cardEl.setAttribute('tabindex', '0');
+    if (title) cardEl.setAttribute('aria-label', `${title} — Open`);
+
+    const go = (evt, newTab = false) => {
+      // Support ctrl/cmd-click and middle click to open in new tab
+      if (evt && (evt.metaKey || evt.ctrlKey || evt.button === 1 || newTab)) {
+        window.open(href, '_blank', 'noopener,noreferrer');
+      } else {
+        location.href = href;
+      }
+    };
+
+    // Mouse
+    cardEl.addEventListener('click', (e) => go(e));
+    cardEl.addEventListener('auxclick', (e) => {
+      // Middle click
+      if (e.button === 1) go(e, true);
+    });
+
+    // Keyboard
+    cardEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        go(e);
+      }
+    });
   }
 
   /** Populate from localStorage; never navigates */
@@ -90,8 +136,9 @@
     for (const m of list.slice(0, limit)) {
       const pin = m.pinned ? '📌 ' : '';
       const title = m.title ? `${m.title}: ` : '';
-      const snippet = m.body.trim().split(/\s+/).slice(0, 12).join(' ');
-      const more = m.body.trim().split(/\s+/).length > 12 ? '…' : '';
+      const words = m.body.trim().split(/\s+/);
+      const snippet = words.slice(0, 12).join(' ');
+      const more = words.length > 12 ? '…' : '';
       bullets.push(`• ${pin}${title}${snippet}${more}`);
     }
     if (list.length > limit) {
