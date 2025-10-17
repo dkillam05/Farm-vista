@@ -1,6 +1,6 @@
 // /js/fv-hero-card.js — FULL REPLACEMENT
-// Titles: big, bold, centered (h), top-aligned, auto-fit; bullets on separate lines
-// Update: add a robust underline under ALL titles (border-based)
+// Titles: big, bold, centered (h), top-aligned, underline, fixed-size across cards
+// Bullets: one per line. Font: TT Moons if present.
 (() => {
   if (customElements.get('fv-hero-card')) return;
 
@@ -54,9 +54,9 @@
             --fv-hero-underline-thickness: 3px;
             --fv-hero-underline-offset: 5px;
 
-            /* Make headings MUCH bigger (auto-shrinks to fit) */
-            --title-max-size: 64px;
-            --title-min-size: 20px;
+            /* === Fixed headline size target (tweak this to taste) === */
+            --title-target-size: 36px;  /* Aim for this size on all cards */
+            --title-min-size: 20px;     /* Only shrink below target if needed */
 
             display:block;
             border-radius:var(--hero-radius);
@@ -85,22 +85,22 @@
             opacity:.95; user-select:none; pointer-events:none;
           }
 
-          /* Title: top, centered horizontally, BIG + bold, underline (border-based), auto-fit */
+          /* Title: top, centered horizontally, BIG + bold, underline (border-based), fixed-size */
           .title{
             margin:0;
             padding:0 var(--title-side-pad);
             text-align:center;
             font-weight:var(--fv-hero-title-weight);
-            line-height:1.05;
+            line-height:1.12;                              /* avoid descender clipping */
             font-family:var(--fv-hero-title-font);
 
-            /* Start big; JS will shrink if needed to fit one line */
-            font-size:var(--title-max-size);
+            /* Start at the fixed target size; JS will only shrink if necessary */
+            font-size:var(--title-target-size);
             white-space:nowrap; overflow:hidden;
 
-            /* NEW robust underline (works everywhere, not affected by decoration quirks) */
-            display:inline-block;                         /* make width hug text */
-            justify-self:center;                          /* center the inline-block in the grid */
+            /* Robust underline */
+            display:inline-block;                           /* width hugs text */
+            justify-self:center;                            /* center in grid */
             border-bottom: var(--fv-hero-underline-thickness) solid currentColor;
             padding-bottom: var(--fv-hero-underline-offset);
           }
@@ -190,23 +190,30 @@
         const t = this.$.title, w = this.$.wrap;
         if (!t || !w) return;
 
-        const csHost = getComputedStyle(this);
-        const csWrap = getComputedStyle(w);
+        const csHost  = getComputedStyle(this);
+        const csWrap  = getComputedStyle(w);
         const csTitle = getComputedStyle(t);
 
-        const maxPx = parseFloat(csHost.getPropertyValue('--title-max-size')) || 64;
+        const targetPx = Math.max(
+          parseFloat(csHost.getPropertyValue('--title-min-size')) || 20,
+          parseFloat(csHost.getPropertyValue('--title-target-size')) || 36
+        );
         const minPx = parseFloat(csHost.getPropertyValue('--title-min-size')) || 20;
 
-        t.style.fontSize = maxPx + 'px';
+        // Start at the fixed target size
+        t.style.fontSize = targetPx + 'px';
 
+        // Available width: wrapper inner width minus padding + the title's own side padding
         const wrapPadL = parseFloat(csWrap.paddingLeft) || 0;
         const wrapPadR = parseFloat(csWrap.paddingRight) || 0;
-        const tPadL = parseFloat(csTitle.paddingLeft) || 0;
-        const tPadR = parseFloat(csTitle.paddingRight) || 0;
+        const tPadL    = parseFloat(csTitle.paddingLeft) || 0;
+        const tPadR    = parseFloat(csTitle.paddingRight) || 0;
+
         const available = w.clientWidth - wrapPadL - wrapPadR - tPadL - tPadR;
         if (available <= 0) return;
 
-        let size = maxPx;
+        // Only shrink (never grow) until it fits on one line
+        let size = targetPx;
         for (let i = 0; i < 48; i++) {
           if (t.scrollWidth <= available || size <= minPx) break;
           size = Math.max(minPx, size - 1);
