@@ -44,7 +44,7 @@
 
       .label{
         align-self:end;           /* positions within upper row */
-        margin-bottom:14px;       /* lifted higher */
+        margin-bottom:20px;       /* lifted higher */
         text-align:center;
         font-weight:800;
         font-size:clamp(18px,2.6vw,22px);
