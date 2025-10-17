@@ -1,9 +1,7 @@
-/* <fv-form-button> v2.3 — form entry tile
-   Tweaks:
-   - Uses CSS Grid inside the tile for stable positioning
-   - Label sits a bit lower
-   - Emoji is centered horizontally and raised visually
-   - Dark mode: title color = --text; Light mode: deep blue
+/* <fv-form-button> v2.5 — form entry tile
+   - Label centered, placed lower
+   - Emoji centered and raised
+   - Dark mode label color = var(--text)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -14,14 +12,21 @@
         --tile-h:160px;
         --form-accent:#0F3B82; /* light title color */
       }
-      /* Dark: match global text so it always contrasts the darker card */
-      :host-context(.dark){ --form-accent: var(--text); }
-      :host-context(html[data-theme="auto"].dark){ --form-accent: var(--text); }
+
+      /* Dark mode (explicit) */
+      :host-context(html.dark){ --form-accent: var(--text); }
+
+      /* Dark mode when data-theme="auto" honors OS preference */
+      @media (prefers-color-scheme: dark){
+        :host-context(html[data-theme="auto"]){ --form-accent: var(--text); }
+      }
 
       a.tile{
         display:grid;
-        grid-template-rows: auto 1fr auto;   /* label | flexible space | emoji */
-        align-items:center;
+        /* Push label lower by giving top track more height,
+           emoji lives in bottom track */
+        grid-template-rows: 60% 40%;
+        justify-items:center;
 
         height:var(--tile-h);
         padding:18px;
@@ -37,8 +42,9 @@
       a.tile:active{ transform:scale(.985); }
 
       .label{
-        justify-self:start;
-        margin-top:8px;                  /* ↓ a touch lower */
+        align-self:end;           /* sits toward bottom of row 1 */
+        margin-bottom:4px;        /* nudge a bit lower */
+        text-align:center;
         font-weight:800;
         font-size:clamp(18px,2.6vw,22px);
         line-height:1.25;
@@ -46,12 +52,11 @@
       }
 
       .icon{
-        justify-self:center;
-        align-self:end;
-        margin:0 0 12px 0;               /* ↑ raised from bottom */
+        align-self:start;         /* start of row 2 (higher) */
+        transform:translateY(-6px); /* raise emoji visually */
         line-height:1;
-        font-size:clamp(36px,9vw,56px);  /* scales to tile height */
-        filter:none;                     /* pure emoji, no bubble */
+        font-size:clamp(40px,10vw,60px);
+        filter:none;              /* pure emoji, no bubble */
       }
     </style>
 
