@@ -3,6 +3,10 @@
    ✅ Report icon simplified (clipboard + bars) to avoid text-like artifacts
    ✅ Report icon rendered slightly larger by default for balance
    ✅ 100% backward compatible with existing icon="…" usage
+   ---
+   ➕ Additions (non-breaking):
+      - icon-svg: 'done' (circle with check)
+      - icon-svg: 'done-box' (rounded checkbox with check)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -100,6 +104,21 @@
         <rect x="8.5"  y="14.6" width="2.0" height="4.4" rx="0.6" fill="currentColor"/>
         <rect x="11.1" y="12.6" width="2.0" height="6.4" rx="0.6" fill="currentColor"/>
         <rect x="13.7" y="10.4" width="2.0" height="8.6" rx="0.6" fill="currentColor"/>
+      </svg>`,
+    /* ➕ NEW: circle with check */
+    done: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.7"/>
+        <path d="M8.7 12.2l2.4 2.4 4.2-4.7"
+              fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+    /* ➕ NEW: rounded checkbox with check */
+    "done-box": `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="5.5" y="5.5" width="13" height="13" rx="2.2"
+              fill="none" stroke="currentColor" stroke-width="1.7"/>
+        <path d="M8.5 12.5l2.2 2.2 4.3-4.8"
+              fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
