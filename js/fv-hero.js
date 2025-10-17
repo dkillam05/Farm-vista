@@ -1,7 +1,10 @@
 /* /js/fv-hero.js — FULL REPLACEMENT (no Firestore, no SW changes)
    FarmVista – Dashboard hero grid + local Message Board (📢)
-   Strategy: always link to explicit index.html, and auto-detect base path.
-   Works at domain root AND under /Farm-vista/ (GitHub Pages).
+   Change scope: ONLY update the four section cards:
+   - remove emoji
+   - add "Overview" to title
+   - show three verbal bullet points
+   Everything else stays the same.
 */
 (function () {
   const MSG_CARD_ID = 'msg-board-card';
@@ -10,7 +13,7 @@
   // Detect the app base from this script’s path, e.g. "/Farm-vista/"
   const BASE = (() => {
     try {
-      const src = document.currentScript && document.currentScript.src || '';
+      const src = (document.currentScript && document.currentScript.src) || '';
       const u = new URL(src, location.href);
       // strip trailing "/js/<file>"
       return u.pathname.replace(/\/js\/[^\/?#]+$/, '/');
@@ -26,21 +29,49 @@
     return BASE + p;
   };
 
+  // Helper to make a single-line "verbal bullets" subtitle
+  const bullets = (arr) => arr.map(s => `• ${s}`).join('   ');
+
+  // Verbal bullets (static for now; swap to live data later)
+  const TEXT = {
+    crop: bullets([
+      'Active trials this crop year',
+      'Pending field maintenance projects',
+      'Planted acres vs plan (YTD)'
+    ]),
+    equipment: bullets([
+      'Repair work orders made',
+      'Oil changes coming due',
+      'StarFire tracking location'
+    ]),
+    grain: bullets([
+      'Bushels hauled this week',
+      'Bin inventory snapshot',
+      'Grain bags remaining to pick up'
+    ]),
+    reports: bullets([
+      'AI-generated reports',
+      'Custom report templates',
+      'Prebuilt summaries (elevator & field)'
+    ]),
+  };
+
   // Initial cards (Message Board first)
-  // NOTE: explicit index.html for consistent caching with current SW.
+  // NOTE: explicit index.html for consistent caching with your current SW.
   const CARDS = [
     { id: MSG_CARD_ID, emoji: '📢', title: 'Dowson Farms Message Board', subtitle: 'Loading…' },
 
-    { emoji: '🌱', title: 'Crop Production', subtitle: 'Open',
+    // Four section cards: NO emoji, "Overview" titles, bullet subtitles
+    { title: 'Crop Production Overview', subtitle: TEXT.crop,
       href: withBase('pages/crop-production/index.html') },
 
-    { emoji: '🚜', title: 'Equipment', subtitle: 'Open',
+    { title: 'Equipment Overview', subtitle: TEXT.equipment,
       href: withBase('pages/equipment/index.html') },
 
-    { emoji: '🌾', title: 'Grain', subtitle: 'Open',
+    { title: 'Grain Overview', subtitle: TEXT.grain,
       href: withBase('pages/grain/index.html') },
 
-    { emoji: '📊', title: 'Reports', subtitle: 'Open',
+    { title: 'Reports Overview', subtitle: TEXT.reports,
       href: withBase('pages/reports/index.html') },
   ];
 
@@ -51,7 +82,10 @@
     grid.innerHTML = '';
     for (const c of CARDS) {
       const el = document.createElement('fv-hero-card');
-      el.setAttribute('emoji', c.emoji);
+
+      // Only set emoji if provided (Message Board); omit for the four section cards
+      if (c.emoji) el.setAttribute('emoji', c.emoji);
+
       el.setAttribute('title', c.title);
       el.setAttribute('subtitle', c.subtitle || '');
       if (c.id) el.id = c.id;
