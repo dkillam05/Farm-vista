@@ -1,9 +1,7 @@
-/* <fv-form-button> v3.0 — form entry tile
-   ✅ Light: title uses dark blue (#0F3B82)
-   ✅ Dark:  title uses global --text (matches hero cards)
-   ✅ Auto/system: follows OS preference
-   ✅ Emoji placement unchanged (perfect)
-   ✅ Label lifted slightly higher and always centered
+/* <fv-form-button> v3.1 — form entry tile
+   ✅ Adds optional SVG icons via icon-svg (plus | edit | import | report)
+   ✅ 100% backward compatible with existing icon="…" usage (emoji/text)
+   ✅ Keeps your light/dark accent logic and layout exactly the same
 */
 (function () {
   const tpl = document.createElement('template');
@@ -51,6 +49,13 @@
         font-size:clamp(40px,10vw,60px);
         filter:none;
       }
+
+      /* --- ADDED: size SVG icons like the text icons --- */
+      .icon svg{
+        display:block;
+        width:clamp(40px,10vw,60px);
+        height:clamp(40px,10vw,60px);
+      }
     </style>
 
     <a class="tile" part="tile">
@@ -59,8 +64,44 @@
     </a>
   `;
 
+  /* --- ADDED: tiny internal SVG library (inherits currentColor) --- */
+  const ICONS = {
+    plus: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>`,
+    edit: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z"
+              fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>`,
+    import: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"
+              fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M12 4v10M8.5 10.5 12 14l3.5-3.5"
+              fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+    /* Clipboard + bars + pie (Reports) */
+    report: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="6" y="4.5" width="12" height="15.5" rx="2"
+              fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <rect x="9" y="2.5" width="6" height="3.5" rx="1.2"
+              fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M8.5 9.5h4.6M8.5 11.8h3.9"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M13.5 15.6v-2.8M15.5 15.6v-4.2M17.5 15.6v-1.6"
+              stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M8.8 15.2a2.6 2.6 0 1 0 0-5.2v2.6H6.2"
+              fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`
+  };
+
   class FVFormButton extends HTMLElement{
-    static get observedAttributes(){ return ['label','icon','href']; }
+    /* --- ADDED: 'icon-svg' attribute --- */
+    static get observedAttributes(){ return ['label','icon','href','icon-svg']; }
 
     constructor(){
       super();
@@ -103,8 +144,17 @@
     _sync(){
       const r = this.shadowRoot;
       r.querySelector('.label').textContent = this.getAttribute('label') || '';
-      r.querySelector('.icon').textContent  = this.getAttribute('icon') || '';
       r.querySelector('a.tile').setAttribute('href', this.getAttribute('href') || '#');
+
+      /* --- UPDATED: prefer icon-svg when provided; fallback to text icon --- */
+      const iconHost = r.querySelector('.icon');
+      const svgKey = (this.getAttribute('icon-svg') || '').trim();
+
+      if (svgKey && ICONS[svgKey]) {
+        iconHost.innerHTML = ICONS[svgKey];          // inject SVG
+      } else {
+        iconHost.textContent = this.getAttribute('icon') || ''; // original behavior
+      }
     }
 
     _applyAccentFromTheme(){
