@@ -1,12 +1,8 @@
-/* <fv-form-button> v3.2 — form entry tile
-   ✅ Adds optional SVG icons via icon-svg (plus | edit | import | report)
-   ✅ Report icon simplified (clipboard + bars) to avoid text-like artifacts
-   ✅ Report icon rendered slightly larger by default for balance
-   ✅ 100% backward compatible with existing icon="…" usage
-   ---
-   ➕ Additions (non-breaking):
-      - icon-svg: 'done' (circle with check)
-      - icon-svg: 'done-box' (rounded checkbox with check)
+/* <fv-form-button> v3.2.1 — form entry tile
+   ✅ Uses global tokens (theme.css) and adapts to fv-shell theme events
+   ✅ Optional SVG icons via icon-svg: 'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box'
+   ✅ Report icon simplified (clipboard + bars) + slight size bump for balance
+   ✅ 100% backward compatible with icon="…" (emoji/text) usage
 */
 (function () {
   const tpl = document.createElement('template');
@@ -78,12 +74,20 @@
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>`,
+
+    /* Simple horizontal remove symbol */
+    minus: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 12h12" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      </svg>`,
+
     edit: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z"
               fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
         <path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
       </svg>`,
+
     import: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"
@@ -91,6 +95,7 @@
         <path d="M12 4v10M8.5 10.5 12 14l3.5-3.5"
               fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
+
     /* REPORT: simplified clipboard + three filled bars (no tiny lines/pie) */
     report: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -100,19 +105,21 @@
         <!-- Clip -->
         <rect x="9" y="2.4" width="6" height="3.6" rx="1.2"
               fill="none" stroke="currentColor" stroke-width="1.6"/>
-        <!-- Bars (filled to read clearly at small sizes) -->
+        <!-- Bars -->
         <rect x="8.5"  y="14.6" width="2.0" height="4.4" rx="0.6" fill="currentColor"/>
         <rect x="11.1" y="12.6" width="2.0" height="6.4" rx="0.6" fill="currentColor"/>
         <rect x="13.7" y="10.4" width="2.0" height="8.6" rx="0.6" fill="currentColor"/>
       </svg>`,
-    /* ➕ NEW: circle with check */
+
+    /* Circle with check */
     done: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.7"/>
         <path d="M8.7 12.2l2.4 2.4 4.2-4.7"
               fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
-    /* ➕ NEW: rounded checkbox with check */
+
+    /* Rounded checkbox with check */
     "done-box": `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect x="5.5" y="5.5" width="13" height="13" rx="2.2"
@@ -172,12 +179,12 @@
       const svgKey = (this.getAttribute('icon-svg') || '').trim();
 
       if (svgKey && ICONS[svgKey]) {
-        // Bump size slightly for 'report' by default
+        // Slight size bump for 'report'
         this.style.setProperty('--icon-extra', svgKey === 'report' ? '8px' : '0px');
         iconHost.innerHTML = ICONS[svgKey];   // inject SVG
       } else {
         this.style.setProperty('--icon-extra', '0px');
-        iconHost.textContent = this.getAttribute('icon') || ''; // original behavior
+        iconHost.textContent = this.getAttribute('icon') || ''; // original emoji/text behavior
       }
     }
 
