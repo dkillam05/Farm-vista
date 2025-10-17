@@ -28,6 +28,8 @@
       border:none; background:transparent; color:#fff; font-size:28px; line-height:1;
       -webkit-tap-highlight-color: transparent; margin:0 auto;
     }
+    /* ensure inline SVG icons match the old emoji sizing */
+    .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{
       position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       left:0; right:0; height:3px; background:var(--gold); z-index:999;
@@ -226,7 +228,14 @@
   <header class="hdr" part="header">
     <button class="iconbtn js-menu" aria-label="Open menu">≡</button>
     <div class="title">FarmVista</div>
-    <button class="iconbtn js-account" aria-label="Account">👥</button>
+    <button class="iconbtn js-account" aria-label="Account" title="Account">
+      <!-- Option B — User badge (user inside a circle) -->
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="12" cy="9.2" r="3.0" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M7 17.4c1.3-2.2 3.1-3.4 5-3.4s3.7 1.2 5 3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </button>
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
