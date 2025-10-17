@@ -1,6 +1,7 @@
-/* FarmVista — <fv-shell> v5.9.2
-   Based on your v5.9.1 file.
-   CHANGE: Drawer indentation by depth (groups align with sibling links; grandchildren indent +1)
+<!-- /Farm-vista/js/fv-shell.js -->
+/* FarmVista — <fv-shell> v5.9.3
+   Based on v5.9.2.
+   ADD: Inline "User Details" sub-panel in Account drawer + Notifications toggle (localStorage).
 */
 (function () {
   const tpl = document.createElement('template');
@@ -121,9 +122,22 @@
       box-shadow:0 20px 44px rgba(0,0,0,.35);
       border-bottom-left-radius:16px; border-bottom-right-radius:16px;
       padding-top:calc(env(safe-area-inset-top,0px) + 8px);
-      max-height:72vh; overflow:auto;
+      max-height:72vh; overflow:hidden;
     }
     :host(.top-open) .topdrawer{ transform:translateY(0); }
+
+    /* Panel slider (Account home <-> User Details) */
+    .topinner{ position:relative; height:100%; overflow:hidden; }
+    .panel{ height:100%; overflow:auto; will-change:transform; transition:transform .26s ease; }
+    .panel-home{ transform:translateX(0%); }
+    .panel-user{
+      position:absolute; inset:0;
+      background:var(--panel-surface,#fff); color:#111;
+      border-bottom-left-radius:16px; border-bottom-right-radius:16px;
+      transform:translateX(100%);
+    }
+    .topdrawer.show-user .panel-home{ transform:translateX(-100%); }
+    .topdrawer.show-user .panel-user{ transform:translateX(0%); }
 
     .topwrap{ padding:6px 10px 14px; }
 
@@ -169,6 +183,57 @@
     .js-update-row .ico{
       width:28px; height:28px; font-size:24px; line-height:1;
     }
+
+    /* ===== User Details panel styles ===== */
+    .ud-head{
+      display:flex; align-items:center; gap:10px;
+      padding:12px; background:transparent; color:#fff;
+      border-bottom:1px solid color-mix(in srgb,#000 22%, var(--green));
+    }
+    .ud-back{
+      appearance:none; border:0; background:transparent; color:#fff;
+      display:inline-grid; place-items:center; width:36px; height:36px; font-size:22px; line-height:1;
+      cursor:pointer;
+    }
+    .ud-title{ font-weight:800; font-size:16px; letter-spacing:.2px; }
+
+    .ud-card{
+      margin:10px 10px 16px;
+      background:var(--surface,#fff); color:var(--text,#111);
+      border:1px solid var(--border,#e2e5e5);
+      border-radius:14px; box-shadow:0 8px 26px rgba(0,0,0,.18);
+      overflow:hidden;
+    }
+    .ud-card h4{
+      margin:0; padding:12px; font:700 13px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      letter-spacing:.12em; color:#666; background:color-mix(in srgb,#fff 92%, #000 8%);
+      border-bottom:1px solid var(--border,#e2e5e5);
+    }
+    .settings{ padding:0; }
+    .setting{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 12px; border-top:1px solid var(--border,#e2e5e5);
+      background:var(--surface,#fff); color:var(--text,#111);
+    }
+    .setting:first-of-type{ border-top:0; }
+    .setting .left .txt{ font-size:16px; font-weight:700; }
+    .setting .left .sub{ font-size:13px; opacity:.8; margin-top:2px; }
+
+    /* Switch */
+    .switch{ position:relative; width:50px; height:28px; display:inline-block; }
+    .switch input{ opacity:0; width:0; height:0; }
+    .slider{
+      position:absolute; inset:0; cursor:pointer;
+      background:#e5e8e4; border:1px solid var(--border,#e2e5e5);
+      border-radius:999px; transition:.22s ease;
+    }
+    .slider::before{
+      content:""; position:absolute; width:24px; height:24px; left:1px; top:1px;
+      background:#fff; border-radius:50%; box-shadow:0 1px 2px rgba(0,0,0,.25);
+      transition:.22s ease;
+    }
+    .switch input:checked + .slider{ background:var(--green); border-color:var(--green); }
+    .switch input:checked + .slider::before{ transform:translateX(22px); }
 
     /* Toast — LIGHT defaults */
     .toast{
@@ -216,10 +281,27 @@
       color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
     }
 
-    /* Toast in dark */
-    :host-context(.dark) .toast{
-      background:#1b1f1c; color:#F2F4F1;
-      border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
+    /* Dark tokens for user panel */
+    :host-context(.dark) .panel-user{
+      background:var(--sidebar-surface,#171a18);
+      color:var(--sidebar-text,#f1f3ef);
+      border:1px solid var(--sidebar-border,#2a2e2b);
+    }
+    :host-context(.dark) .ud-card{
+      background:color-mix(in srgb, var(--sidebar-surface,#171a18) 92%, #000 8%);
+      color:var(--sidebar-text,#f1f3ef);
+      border-color:var(--sidebar-border,#2a2e2b);
+      box-shadow:0 8px 26px rgba(0,0,0,.55);
+    }
+    :host-context(.dark) .ud-card h4{
+      background:color-mix(in srgb, var(--sidebar-surface,#171a18) 88%, #000 12%);
+      border-color:var(--sidebar-border,#2a2e2b);
+      color:color-mix(in srgb, var(--sidebar-text,#f1f3ef) 80%, transparent);
+    }
+    :host-context(.dark) .setting{
+      background:color-mix(in srgb, var(--sidebar-surface,#171a18) 94%, #000 6%);
+      border-color:var(--sidebar-border,#2a2e2b);
+      color:var(--sidebar-text,#f1f3ef);
     }
   </style>
 
@@ -258,40 +340,70 @@
 
   <!-- ===== Top Drawer (Account) ===== -->
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
-    <div class="topwrap">
-      <div class="brandrow">
-        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
-        <div class="brandname">FarmVista</div>
+    <div class="topinner">
+      <!-- Panel: Account home -->
+      <div class="panel panel-home" aria-label="Account home">
+        <div class="topwrap">
+          <div class="brandrow">
+            <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
+            <div class="brandname">FarmVista</div>
+          </div>
+
+          <div class="section-h">THEME</div>
+          <div class="chips">
+            <button class="chip js-theme" data-mode="system" aria-pressed="true">System</button>
+            <button class="chip js-theme" data-mode="light"  aria-pressed="false">Light</button>
+            <button class="chip js-theme" data-mode="dark"   aria-pressed="false">Dark</button>
+          </div>
+
+          <div class="section-h">PROFILE</div>
+          <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
+            <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
+            <div class="chev">›</div>
+          </a>
+          <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
+            <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
+            <div class="chev">›</div>
+          </a>
+
+          <div class="section-h">MAINTENANCE</div>
+          <a class="row js-update-row" href="#">
+            <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div>
+            <div class="chev">›</div>
+          </a>
+
+          <a class="row" href="#" id="logoutRow">
+            <div class="left"><div class="ico">⏻</div><div class="txt">Logout JOHNDOE</div></div>
+            <div class="chev">›</div>
+          </a>
+        </div>
       </div>
 
-      <div class="section-h">THEME</div>
-      <div class="chips">
-        <button class="chip js-theme" data-mode="system" aria-pressed="true">System</button>
-        <button class="chip js-theme" data-mode="light"  aria-pressed="false">Light</button>
-        <button class="chip js-theme" data-mode="dark"   aria-pressed="false">Dark</button>
+      <!-- Panel: User Details (slides in) -->
+      <div class="panel panel-user" aria-label="User Details panel">
+        <div class="ud-head">
+          <button class="ud-back" id="udBack" aria-label="Back to Account">‹</button>
+          <div class="ud-title" id="ud-title">User Details</div>
+        </div>
+
+        <div class="ud-card" aria-labelledby="ud-title">
+          <h4>SETTINGS</h4>
+          <div class="settings">
+
+            <div class="setting">
+              <div class="left">
+                <div class="txt">Notifications</div>
+                <div class="sub">Allow push notifications</div>
+              </div>
+              <label class="switch" aria-label="Notifications">
+                <input type="checkbox" id="togglePush" />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
+
+          </div>
+        </div>
       </div>
-
-      <div class="section-h">PROFILE</div>
-      <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
-        <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
-        <div class="chev">›</div>
-      </a>
-      <!-- CHANGE: feedback row now links to your feedback page and has an id -->
-      <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
-        <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
-        <div class="chev">›</div>
-      </a>
-
-      <div class="section-h">MAINTENANCE</div>
-      <a class="row js-update-row" href="#">
-        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div>
-        <div class="chev">›</div>
-      </a>
-
-      <a class="row" href="#" id="logoutRow">
-        <div class="left"><div class="ico">⏻</div><div class="txt">Logout JOHNDOE</div></div>
-        <div class="chev">›</div>
-      </a>
     </div>
   </section>
 
@@ -318,6 +430,7 @@
       this._verEl = r.querySelector('.js-ver');
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
+      this._togglePush = r.getElementById('togglePush');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
@@ -355,16 +468,29 @@
         });
       }
 
-      // Close the top drawer on profile links before navigation
+      // ACCOUNT: User Details panel slide-in
       const ud = r.getElementById('userDetailsLink');
-      if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
+      if (ud) {
+        ud.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.toggleDrawer(false);
+          this.toggleTop(true);
+          this._showUserPanel(true);
+        });
+      }
+      const fb = r.getElementById('feedbackLink');
+      if (fb) fb.addEventListener('click', () => { this._showUserPanel(false); this.toggleTop(false); });
 
-      const fb = r.getElementById('feedbackLink');            // <-- NEW
-      if (fb) fb.addEventListener('click', () => { this.toggleTop(false); }); // <-- NEW
+      const udBack = r.getElementById('udBack');
+      if (udBack) udBack.addEventListener('click', () => this._showUserPanel(false));
 
       // Render menu
       this._initMenu();
 
+      // Init Notifications toggle (local only for now)
+      this._initNotificationsToggle();
+
+      // Hero detector toast
       setTimeout(() => {
         try {
           const needsHero =
@@ -374,6 +500,34 @@
           }
         } catch {}
       }, 300);
+    }
+
+    _showUserPanel(on){
+      if (!this._top) return;
+      this._top.classList.toggle('show-user', !!on);
+      // keep focus usable
+      const r = this.shadowRoot;
+      if (on) {
+        const t = r.getElementById('togglePush');
+        if (t) setTimeout(()=> t.focus({preventScroll:true}), 50);
+      }
+    }
+
+    _initNotificationsToggle(){
+      const LS_KEY = 'fv:prefs:notifications';
+      const el = this._togglePush;
+      if (!el) return;
+      let saved = '0';
+      try { saved = localStorage.getItem(LS_KEY) ?? '0'; } catch {}
+      const initial = (saved === '1' || saved === 'true');
+      el.checked = initial;
+
+      el.addEventListener('change', () => {
+        const on = el.checked;
+        try { localStorage.setItem(LS_KEY, on ? '1' : '0'); } catch {}
+        this._toastMsg(`Notifications ${on ? 'enabled' : 'disabled'} (saved)`, 1400);
+        document.dispatchEvent(new CustomEvent('fv:prefs:notifications', { detail: { enabled: on } }));
+      });
     }
 
     async _initMenu(){
@@ -514,6 +668,7 @@
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
       this.classList.toggle('top-open', on);
+      if (!on && this._top) this._top.classList.remove('show-user'); // ensure sub-panel closed when drawer closes
       document.documentElement.style.overflow = (on || this.classList.contains('drawer-open')) ? 'hidden' : '';
     }
 
