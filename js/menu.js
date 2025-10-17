@@ -244,7 +244,7 @@ export const NAV_MENU = {
           label: 'Grain Bin Sites',
           icon: `
             <svg viewBox="0 0 24 24" aria-hidden="true"
-                 style="width:18px;height:18px;display:block;margin:0 auto;">
+                 style="width:25px;height:25px;display:block;margin:0 auto;">
               <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
                 <!-- roof -->
                 <path d="M6.5 7 L12 3.8 L17.5 7"/>
