@@ -55,8 +55,8 @@
             --fv-hero-underline-offset: 5px;
 
             /* === Fixed headline sizing === */
-            --title-max-size: 24px;  /* <- set the “Crop Production” look here */
-            --title-min-size: 20px;  /* only shrink below max if needed */
+            --title-max-size: 20px;  /* <- set the “Crop Production” look here */
+            --title-min-size: 15px;  /* only shrink below max if needed */
 
             display:block;
             border-radius:var(--hero-radius);
