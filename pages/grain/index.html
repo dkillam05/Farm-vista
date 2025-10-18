@@ -33,23 +33,21 @@
       display:flex; align-items:center; justify-content:space-between;
       gap:14px; flex-wrap:wrap;
     }
+    .sum-title{ width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0; }
     .sum-card .muted{ color:var(--muted,#87908a); }
     .sum-card .big{ font-weight:900; font-size:clamp(22px,4.8vw,32px); line-height:1.15; }
-    .pill{ border:1px solid var(--border); border-radius:999px; padding:6px 10px;
-           background:var(--bg); color:var(--text); font-weight:700; font-size:14px; }
-    .sum-flex{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
-    .sum-title{ width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0; }
+    .sum-flex{display:flex; align-items:center; gap:18px; flex-wrap:wrap}
+    .selectors{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+    .selectors label{ font-weight:700; color:var(--muted,#87908a); }
     select.crop-select{
       appearance:none; border:1px solid var(--border); background:var(--surface);
       padding:8px 12px; border-radius:10px; font-weight:700; color:var(--text);
     }
-
-    /* small helper layout for bag metrics */
-    .bag-metrics{
+    .metrics{
       display:flex; align-items:center; gap:24px; flex-wrap:wrap;
     }
     .metric{
-      display:flex; flex-direction:column; gap:6px; min-width:180px;
+      display:flex; flex-direction:column; gap:6px; min-width:200px;
     }
   </style>
 </head>
@@ -87,22 +85,33 @@
       <section class="sum-card" aria-label="Grain Bin Inventory summary">
         <div class="sum-title">Grain Bin Inventory</div>
 
-        <div class="sum-flex" role="group" aria-labelledby="bin-crop-label">
-          <label id="bin-crop-label" for="bin-crop" class="muted">Crop</label>
-          <select id="bin-crop" class="crop-select" aria-label="Select crop for bin summary">
-            <option value="corn" selected>Corn</option>
-            <option value="soybeans">Soybeans</option>
-          </select>
+        <!-- Shared selectors row (Crop + Crop Year) -->
+        <div class="sum-flex selectors" role="group" aria-label="Bin selectors">
+          <div>
+            <label for="bin-crop">Crop</label><br/>
+            <select id="bin-crop" class="crop-select" aria-label="Select crop for bin summary">
+              <option value="corn" selected>Corn</option>
+              <option value="soybeans">Soybeans</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="bin-year">Crop Year</label><br/>
+            <select id="bin-year" class="crop-select" aria-label="Select crop year for bin summary">
+              <!-- Placeholder options; wire to data later -->
+              <option value="2025" selected>2025</option>
+              <option value="2024">2024</option>
+            </select>
+          </div>
         </div>
 
-        <div>
-          <div class="muted">Current bushels in bins</div>
-          <div id="bin-sum-bushels" class="big">— bu</div>
-        </div>
-
-        <div>
-          <span class="muted">Crop Year</span>
-          <span id="bin-sum-year" class="pill">TBD</span>
+        <!-- Metrics row (same layout component as bags) -->
+        <div class="metrics">
+          <div class="metric">
+            <div class="muted">Current Bushels</div>
+            <div id="bin-bushels" class="big">— bu</div>
+          </div>
+          <!-- Intentionally no "count" metric for bins to keep the only diff on bags -->
         </div>
       </section>
 
@@ -112,15 +121,28 @@
       <section class="sum-card" aria-label="Grain Bag Inventory summary">
         <div class="sum-title">Grain Bag Inventory</div>
 
-        <div class="sum-flex" role="group" aria-labelledby="bag-crop-label">
-          <label id="bag-crop-label" for="bag-crop" class="muted">Crop</label>
-          <select id="bag-crop" class="crop-select" aria-label="Select crop for bag summary">
-            <option value="corn" selected>Corn</option>
-            <option value="soybeans">Soybeans</option>
-          </select>
+        <!-- Shared selectors row (Crop + Crop Year) -->
+        <div class="sum-flex selectors" role="group" aria-label="Bag selectors">
+          <div>
+            <label for="bag-crop">Crop</label><br/>
+            <select id="bag-crop" class="crop-select" aria-label="Select crop for bag summary">
+              <option value="corn" selected>Corn</option>
+              <option value="soybeans">Soybeans</option>
+            </select>
+          </div>
+
+        <div>
+            <label for="bag-year">Crop Year</label><br/>
+            <select id="bag-year" class="crop-select" aria-label="Select crop year for bag summary">
+              <!-- Placeholder options; wire to data later -->
+              <option value="2025" selected>2025</option>
+              <option value="2024">2024</option>
+            </select>
+          </div>
         </div>
 
-        <div class="bag-metrics">
+        <!-- Metrics row (same layout as bins, plus Bag Count) -->
+        <div class="metrics">
           <div class="metric">
             <div class="muted">Bag Count</div>
             <div id="bag-count" class="big">—</div>
@@ -135,47 +157,51 @@
     </div>
   </fv-shell>
 
-  <!-- Minimal placeholder wiring (replace with real data feed later) -->
+  <!-- Minimal placeholder wiring (swap with real data later) -->
   <script>
     (function(){
-      // === BINS ===
-      const binSel = document.getElementById('bin-crop');
-      const binBu  = document.getElementById('bin-sum-bushels');
-      const binYr  = document.getElementById('bin-sum-year');
+      // ===== BINS =====
+      const binSelCrop = document.getElementById('bin-crop');
+      const binSelYear = document.getElementById('bin-year');
+      const binBushels = document.getElementById('bin-bushels');
 
-      const demoBinTotals = {
-        corn:     { bushels: '—', year: 'TBD' },
-        soybeans: { bushels: '—', year: 'TBD' }
+      // demo structure: totalsByBin[crop][year] = { bushels }
+      const totalsByBin = {
+        corn:     { "2025": { bushels: "—" }, "2024": { bushels: "—" } },
+        soybeans: { "2025": { bushels: "—" }, "2024": { bushels: "—" } }
       };
 
       function renderBins(){
-        const c = binSel.value;
-        const {bushels, year} = demoBinTotals[c] || {bushels:'—', year:'TBD'};
-        binBu.textContent = bushels + ' bu';
-        binYr.textContent = year;
+        const c = binSelCrop.value;
+        const y = binSelYear.value;
+        const rec = (totalsByBin[c] && totalsByBin[c][y]) || { bushels: "—" };
+        binBushels.textContent = rec.bushels + " bu";
       }
-
-      binSel.addEventListener('change', renderBins);
+      binSelCrop.addEventListener('change', renderBins);
+      binSelYear.addEventListener('change', renderBins);
       renderBins();
 
-      // === BAGS ===
-      const bagSel   = document.getElementById('bag-crop');
-      const bagCount = document.getElementById('bag-count');
-      const bagBu    = document.getElementById('bag-bushels');
+      // ===== BAGS =====
+      const bagSelCrop = document.getElementById('bag-crop');
+      const bagSelYear = document.getElementById('bag-year');
+      const bagCount   = document.getElementById('bag-count');
+      const bagBushels = document.getElementById('bag-bushels');
 
-      const demoBagTotals = {
-        corn:     { count: '—', estBushels: '—' },
-        soybeans: { count: '—', estBushels: '—' }
+      // demo structure: totalsByBag[crop][year] = { count, estBushels }
+      const totalsByBag = {
+        corn:     { "2025": { count: "—", estBushels: "—" }, "2024": { count: "—", estBushels: "—" } },
+        soybeans: { "2025": { count: "—", estBushels: "—" }, "2024": { count: "—", estBushels: "—" } }
       };
 
       function renderBags(){
-        const c = bagSel.value;
-        const {count, estBushels} = demoBagTotals[c] || {count:'—', estBushels:'—'};
-        bagCount.textContent = count;
-        bagBu.textContent    = estBushels + (String(estBushels).trim() ? ' bu' : '');
+        const c = bagSelCrop.value;
+        const y = bagSelYear.value;
+        const rec = (totalsByBag[c] && totalsByBag[c][y]) || { count: "—", estBushels: "—" };
+        bagCount.textContent   = rec.count;
+        bagBushels.textContent = rec.estBushels + (String(rec.estBushels).trim() ? " bu" : "");
       }
-
-      bagSel.addEventListener('change', renderBags);
+      bagSelCrop.addEventListener('change', renderBags);
+      bagSelYear.addEventListener('change', renderBags);
       renderBags();
     })();
   </script>
