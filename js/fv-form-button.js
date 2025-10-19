@@ -1,7 +1,7 @@
 /* <fv-form-button> v3.2.5 — form entry tile
    Icons via icon-svg:
    'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'camera'
-   'reconcile-sync' (clean dual-arc + check) — also aliased as 'reconcile'
+   'reconcile-sync' (aligned arc arrows + check) — also aliased as 'reconcile'
 */
 (function () {
   const tpl = document.createElement('template');
@@ -123,18 +123,26 @@
         <circle cx="17.3" cy="9.9" r="0.8" fill="currentColor"/>
       </svg>`,
 
-    /* ===== RECONCILE (clean dual-arc + check, no arrowheads) ===== */
+    /* ===== RECONCILE (aligned arc arrows + check) ===== */
     "reconcile-sync": `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <!-- top arc: centered, rounded ends for perfect alignment -->
-        <path d="M7 10.4a5.5 5.5 0 0 1 8.8-2.7"
-              fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
-        <!-- bottom arc -->
-        <path d="M17 13.6a5.5 5.5 0 0 1-8.8 2.7"
-              fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
-        <!-- center check -->
-        <path d="M9.3 12.4l2.1 2.1 3.9-4.3"
-              fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <!-- Arrowhead that rotates to match the arc tangent -->
+          <marker id="fv-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 0,8 2,4 Z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <!-- Top arc: left → right, arrow points right -->
+        <path d="M6.8 9.4 C 9.0 7.2 15.0 7.2 17.2 9.4"
+              fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round"
+              marker-end="url(#fv-arrow)"/>
+        <!-- Bottom arc: right → left, arrow points left (use marker at path end) -->
+        <path d="M17.2 14.6 C 15.0 16.8 9.0 16.8 6.8 14.6"
+              fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round"
+              marker-end="url(#fv-arrow)"/>
+        <!-- Center check -->
+        <path d="M9.2 12.2l2.1 2.1 3.7-4.1"
+              fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
