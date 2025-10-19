@@ -1,7 +1,7 @@
-/* <fv-form-button> v3.2.5 — form entry tile
+/* <fv-form-button> v3.2.7 — form entry tile
    Icons via icon-svg:
    'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'camera'
-   'reconcile-sync' (aligned arc arrows + check) — also aliased as 'reconcile'
+   'reconcile-scale' (balance scale, MIT) — also aliased as 'reconcile' and 'reconcile-sync'
 */
 (function () {
   const tpl = document.createElement('template');
@@ -11,7 +11,7 @@
         display:block;
         --tile-h:160px;
         --form-accent:#0F3B82; /* switches in _applyAccentFromTheme */
-        --icon-extra:0px;      /* 'report'/'reconcile' can bump this */
+        --icon-extra:0px;      /* certain icons bump this for balance */
       }
 
       a.tile{
@@ -123,31 +123,20 @@
         <circle cx="17.3" cy="9.9" r="0.8" fill="currentColor"/>
       </svg>`,
 
-    /* ===== RECONCILE (aligned arc arrows + check) ===== */
-    "reconcile-sync": `
+    /* ===== NEW: Reconcile (Balance Scale, Tabler Icons – MIT) ===== */
+    "reconcile-scale": `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <defs>
-          <!-- Arrowhead that rotates to match the arc tangent -->
-          <marker id="fv-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-            <path d="M0,0 L8,4 0,8 2,4 Z" fill="currentColor"/>
-          </marker>
-        </defs>
-        <!-- Top arc: left → right, arrow points right -->
-        <path d="M6.8 9.4 C 9.0 7.2 15.0 7.2 17.2 9.4"
-              fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round"
-              marker-end="url(#fv-arrow)"/>
-        <!-- Bottom arc: right → left, arrow points left (use marker at path end) -->
-        <path d="M17.2 14.6 C 15.0 16.8 9.0 16.8 6.8 14.6"
-              fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round"
-              marker-end="url(#fv-arrow)"/>
-        <!-- Center check -->
-        <path d="M9.2 12.2l2.1 2.1 3.7-4.1"
-              fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M7 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M6 6l6 -1l6 1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 3v17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9 12l-3 -6l-3 6a3 3 0 0 0 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M21 12l-3 -6l-3 6a3 3 0 0 0 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
-  // alias so icon-svg="reconcile" also uses this version
-  ICONS["reconcile"] = ICONS["reconcile-sync"];
+  /* Aliases so existing pages keep working, but now show the scale */
+  ICONS["reconcile"] = ICONS["reconcile-scale"];
+  ICONS["reconcile-sync"] = ICONS["reconcile-scale"];
 
   class FVFormButton extends HTMLElement{
     static get observedAttributes(){ return ['label','icon','href','icon-svg']; }
@@ -197,13 +186,14 @@
         // Size bumps for balance/clarity
         const bump =
           (key === 'report') ? '8px' :
-          (key === 'reconcile-sync' || key === 'reconcile') ? '12px' :
+          (key === 'reconcile-scale' || key === 'reconcile' || key === 'reconcile-sync') ? '12px' :
           '0px';
 
         this.style.setProperty('--icon-extra', bump);
         iconHost.innerHTML = ICONS[key];
       } else {
         this.style.setProperty('--icon-extra', '0px');
+        // Fallback to old emoji/text icon prop if provided
         iconHost.textContent = this.getAttribute('icon') || '';
       }
     }
