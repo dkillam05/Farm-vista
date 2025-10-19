@@ -35,6 +35,7 @@
     .sum-title{ width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0; }
     .muted{ color:var(--muted,#87908a); }
     .big{ font-weight:900; font-size:clamp(22px,4.8vw,32px); line-height:1.15; }
+
     .selectors{display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap}
     .selectors > div{min-width:160px}
     .selectors label{ font-weight:700; color:var(--muted,#87908a); }
@@ -43,6 +44,8 @@
       padding:8px 12px; border-radius:10px; font-weight:700; color:var(--text);
       width:100%;
     }
+    input.fv-input{ width:100%; } /* ensure full-width alignment in selectors */
+
     .metrics{
       display:flex; align-items:center; gap:24px; flex-wrap:wrap;
     }
@@ -85,7 +88,6 @@
       <section class="sum-card" aria-label="Grain Bin Inventory summary">
         <div class="sum-title">Grain Bin Inventory</div>
 
-        <!-- Selectors: Crop + Crop Year -->
         <div class="selectors" role="group" aria-label="Bin selectors">
           <div>
             <label for="bin-crop">Crop</label><br/>
@@ -97,14 +99,12 @@
           <div>
             <label for="bin-year">Crop Year</label><br/>
             <select id="bin-year" class="select" aria-label="Select crop year for bin summary">
-              <!-- Placeholder; will be data-driven -->
               <option value="2025" selected>2025</option>
               <option value="2024">2024</option>
             </select>
           </div>
         </div>
 
-        <!-- Metrics -->
         <div class="metrics">
           <div class="metric">
             <div class="muted">Current Bushels</div>
@@ -119,7 +119,6 @@
       <section class="sum-card" aria-label="Grain Bag Inventory summary">
         <div class="sum-title">Grain Bag Inventory</div>
 
-        <!-- Selectors: Crop + Crop Year -->
         <div class="selectors" role="group" aria-label="Bag selectors">
           <div>
             <label for="bag-crop">Crop</label><br/>
@@ -131,14 +130,12 @@
           <div>
             <label for="bag-year">Crop Year</label><br/>
             <select id="bag-year" class="select" aria-label="Select crop year for bag summary">
-              <!-- Placeholder; will be data-driven -->
               <option value="2025" selected>2025</option>
               <option value="2024">2024</option>
             </select>
           </div>
         </div>
 
-        <!-- Metrics (same layout as bins + extra Bag Count) -->
         <div class="metrics">
           <div class="metric">
             <div class="muted">Bag Count</div>
@@ -157,7 +154,6 @@
       <section class="sum-card" aria-label="Grain Contracts summary">
         <div class="sum-title">Grain Contracts</div>
 
-        <!-- Selectors: Crop + Month -->
         <div class="selectors" role="group" aria-label="Contracts selectors">
           <div>
             <label for="con-crop">Crop</label><br/>
@@ -169,7 +165,6 @@
           <div>
             <label for="con-month">Month</label><br/>
             <select id="con-month" class="select" aria-label="Select delivery month for contracts summary">
-              <!-- Placeholder favorites; can be populated from live contract months -->
               <option value="Dec" selected>Dec</option>
               <option value="Jan">Jan</option>
               <option value="Feb">Feb</option>
@@ -179,7 +174,6 @@
           </div>
         </div>
 
-        <!-- Metrics -->
         <div class="metrics">
           <div class="metric">
             <div class="muted">Bushels Hauled</div>
@@ -194,11 +188,11 @@
 
       <!-- ===========================
            SUMMARY 4: GRAIN TICKETS
+           (UPDATED: custom date range instead of Daily/Weekly/Monthly)
            =========================== -->
       <section class="sum-card" aria-label="Grain Tickets summary">
         <div class="sum-title">Grain Tickets</div>
 
-        <!-- Selectors: Crop + Range (Daily/Weekly/Monthly) -->
         <div class="selectors" role="group" aria-label="Tickets selectors">
           <div>
             <label for="tix-crop">Crop</label><br/>
@@ -208,16 +202,15 @@
             </select>
           </div>
           <div>
-            <label for="tix-range">Range</label><br/>
-            <select id="tix-range" class="select" aria-label="Select range for tickets summary">
-              <option value="daily" selected>Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
+            <label for="tix-start">Start Date</label><br/>
+            <input id="tix-start" type="date" class="fv-input" aria-label="Start date for tickets summary" />
+          </div>
+          <div>
+            <label for="tix-end">End Date</label><br/>
+            <input id="tix-end" type="date" class="fv-input" aria-label="End date for tickets summary" />
           </div>
         </div>
 
-        <!-- Metrics: Total Bushels + Avg grades -->
         <div class="metrics">
           <div class="metric">
             <div class="muted">Total Bushels</div>
@@ -247,13 +240,10 @@
       const binSelCrop = document.getElementById('bin-crop');
       const binSelYear = document.getElementById('bin-year');
       const binBushels = document.getElementById('bin-bushels');
-
-      // totalsByBin[crop][year] = { bushels }
       const totalsByBin = {
         corn:     { "2025": { bushels: "—" }, "2024": { bushels: "—" } },
         soybeans: { "2025": { bushels: "—" }, "2024": { bushels: "—" } }
       };
-
       function renderBins(){
         const c = binSelCrop.value, y = binSelYear.value;
         const rec = (totalsByBin[c] && totalsByBin[c][y]) || { bushels: "—" };
@@ -268,13 +258,10 @@
       const bagSelYear = document.getElementById('bag-year');
       const bagCount   = document.getElementById('bag-count');
       const bagBushels = document.getElementById('bag-bushels');
-
-      // totalsByBag[crop][year] = { count, estBushels }
       const totalsByBag = {
         corn:     { "2025": { count: "—", estBushels: "—" }, "2024": { count: "—", estBushels: "—" } },
         soybeans: { "2025": { count: "—", estBushels: "—" }, "2024": { count: "—", estBushels: "—" } }
       };
-
       function renderBags(){
         const c = bagSelCrop.value, y = bagSelYear.value;
         const rec = (totalsByBag[c] && totalsByBag[c][y]) || { count: "—", estBushels: "—" };
@@ -290,13 +277,10 @@
       const conSelMonth  = document.getElementById('con-month');
       const conHauled    = document.getElementById('con-hauled');
       const conRemaining = document.getElementById('con-remaining');
-
-      // totalsByContract[crop][month] = { hauled, remaining }
       const totalsByContract = {
         corn:     { "Dec": { hauled:"—", remaining:"—" }, "Jan": { hauled:"—", remaining:"—" }, "Feb": { hauled:"—", remaining:"—" }, "Mar": { hauled:"—", remaining:"—" }, "Apr": { hauled:"—", remaining:"—" } },
         soybeans: { "Dec": { hauled:"—", remaining:"—" }, "Jan": { hauled:"—", remaining:"—" }, "Feb": { hauled:"—", remaining:"—" }, "Mar": { hauled:"—", remaining:"—" }, "Apr": { hauled:"—", remaining:"—" } }
       };
-
       function renderContracts(){
         const c = conSelCrop.value, m = conSelMonth.value;
         const rec = (totalsByContract[c] && totalsByContract[c][m]) || { hauled:"—", remaining:"—" };
@@ -307,38 +291,24 @@
       conSelMonth.addEventListener('change', renderContracts);
       renderContracts();
 
-      /* ================= TICKETS ================= */
+      /* ================= TICKETS (custom date range) ================= */
       const tixSelCrop   = document.getElementById('tix-crop');
-      const tixSelRange  = document.getElementById('tix-range');
+      const tixStart     = document.getElementById('tix-start');
+      const tixEnd       = document.getElementById('tix-end');
       const tixBushels   = document.getElementById('tix-bushels');
       const tixAvgDamage = document.getElementById('tix-avg-damage');
       const tixAvgFM     = document.getElementById('tix-avg-fm');
       const tixAvgMoist  = document.getElementById('tix-avg-moisture');
 
-      // totalsByTickets[crop][range] = { bushels, avgDamage, avgFM, avgMoisture }
-      const totalsByTickets = {
-        corn: {
-          daily:   { bushels:"—", avgDamage:"—", avgFM:"—", avgMoisture:"—" },
-          weekly:  { bushels:"—", avgDamage:"—", avgFM:"—", avgMoisture:"—" },
-          monthly: { bushels:"—", avgDamage:"—", avgFM:"—", avgMoisture:"—" }
-        },
-        soybeans: {
-          daily:   { bushels:"—", avgDamage:"—", avgFM:"—", avgMoisture:"—" },
-          weekly:  { bushels:"—", avgDamage:"—", avgFM:"—", avgMoisture:"—" },
-          monthly: { bushels:"—", avgDamage:"—", avgFM:"—", avgMoisture:"—" }
-        }
-      };
-
+      // placeholder: totalsByTickets[crop][start|end] would be computed later
       function renderTickets(){
-        const c = tixSelCrop.value, r = tixSelRange.value;
-        const rec = (totalsByTickets[c] && totalsByTickets[c][r]) || { bushels:"—", avgDamage:"—", avgFM:"—", avgMoisture:"—" };
-        tixBushels.textContent   = rec.bushels + (String(rec.bushels).trim() ? " bu" : "");
-        tixAvgDamage.textContent = rec.avgDamage + (String(rec.avgDamage).trim() ? " %" : "");
-        tixAvgFM.textContent     = rec.avgFM + (String(rec.avgFM).trim() ? " %" : "");
-        tixAvgMoist.textContent  = rec.avgMoisture + (String(rec.avgMoisture).trim() ? " %" : "");
+        // For now just show placeholders; later compute from ticket data filtered by [start,end].
+        tixBushels.textContent   = "— bu";
+        tixAvgDamage.textContent = "— %";
+        tixAvgFM.textContent     = "— %";
+        tixAvgMoist.textContent  = "— %";
       }
-      tixSelCrop.addEventListener('change', renderTickets);
-      tixSelRange.addEventListener('change', renderTickets);
+      [tixSelCrop, tixStart, tixEnd].forEach(el => el.addEventListener('change', renderTickets));
       renderTickets();
     })();
   </script>
