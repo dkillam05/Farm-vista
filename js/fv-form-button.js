@@ -1,9 +1,7 @@
-/* <fv-form-button> v3.2.1 — form entry tile
-   ✅ Uses global tokens (theme.css) and adapts to fv-shell theme events
-   ✅ Optional SVG icons via icon-svg:
-      'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'reconcile'
-   ✅ Report icon simplified (clipboard + bars) + slight size bump for balance
-   ✅ 100% backward compatible with icon="…" (emoji/text) usage
+/* <fv-form-button> v3.2.3 — form entry tile
+   Icons via icon-svg:
+   'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'camera'
+   'reconcile' (ledger-check) | 'reconcile-scales' | 'reconcile-arrows'
 */
 (function () {
   const tpl = document.createElement('template');
@@ -12,47 +10,26 @@
       :host{
         display:block;
         --tile-h:160px;
-        --form-accent:#0F3B82; /* Light-mode blue */
-        /* Extra pixel bump for SVG size; default 0, report sets +8px */
-        --icon-extra: 0px;
+        --form-accent:#0F3B82; /* Light mode accent; switches in _applyAccentFromTheme */
+        --icon-extra:0px;      /* 'report' uses +8px */
       }
-
       a.tile{
-        display:grid;
-        grid-template-rows: 55% 45%;
-        justify-items:center;
-        align-items:center;
-
-        height:var(--tile-h);
-        padding:18px;
-        border-radius:16px;
-
+        display:grid; grid-template-rows:55% 45%;
+        justify-items:center; align-items:center;
+        height:var(--tile-h); padding:18px; border-radius:16px;
         background:var(--card-surface, var(--surface));
-        color:var(--text);
-        border:1px solid var(--card-border, var(--border));
-        box-shadow:var(--shadow);
-        text-decoration:none;
-        transition:transform .06s ease, box-shadow .12s ease, border-color .12s ease;
+        color:var(--text); border:1px solid var(--card-border, var(--border)); box-shadow:var(--shadow);
+        text-decoration:none; transition:transform .06s, box-shadow .12s, border-color .12s;
       }
       a.tile:active{ transform:scale(.985); }
-
       .label{
-        align-self:end;
-        margin-bottom:32px;
-        text-align:center;
-        font-weight:800;
-        font-size:clamp(18px,2.6vw,22px);
-        line-height:1.25;
-        color:var(--form-accent);
+        align-self:end; margin-bottom:32px; text-align:center;
+        font-weight:800; font-size:clamp(18px,2.6vw,22px); line-height:1.25; color:var(--form-accent);
       }
-
       .icon{
-        align-self:start;
-        transform:translateY(-10px);
-        line-height:1;
+        align-self:start; transform:translateY(-10px); line-height:1;
         font-size:calc(clamp(40px,10vw,60px) + var(--icon-extra));
       }
-
       .icon svg{
         display:block;
         width:calc(clamp(40px,10vw,60px) + var(--icon-extra));
@@ -66,7 +43,7 @@
     </a>
   `;
 
-  /* Inline SVG icon set (24x24, inherits currentColor) */
+  /* Inline SVGs (24x24, currentColor) — tuned for clarity at small sizes */
   const ICONS = {
     plus: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -119,22 +96,49 @@
               fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
 
-    /* RECONCILE — looped arrows + center check (clear at small sizes) */
+    camera: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 7h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <rect x="4" y="7" width="16" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="12" cy="12.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="17.3" cy="9.9" r="0.8" fill="currentColor"/>
+      </svg>`,
+
+    /* ===== RECONCILE ICONS ===== */
+
+    /* Default: LEDGER-CHECK — two ledgers with a confirming check */
     reconcile: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <!-- top curved flow -->
-        <path d="M6 9c2.6-3 9.4-3 12 0" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round"/>
-        <path d="M16.6 7.6l1.9 1.6-1.9 1.6" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-        <!-- bottom curved flow -->
-        <path d="M18 15c-2.6 3-9.4 3-12 0" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round"/>
-        <path d="M7.4 16.4l-1.9-1.6 1.9-1.6" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-        <!-- center check -->
-        <path d="M9.2 12.1l2 2.1 3.6-4.2" fill="none" stroke="currentColor"
-              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- ledgers -->
+        <rect x="3.8" y="5.5" width="6.6" height="13" rx="1.6"
+              fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <rect x="13.6" y="5.5" width="6.6" height="13" rx="1.6"
+              fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <!-- big matching check -->
+        <path d="M8.8 12.3l2.1 2.2 4.3-4.6"
+              fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+
+    /* Alt A: SCALES — balanced scale as a symbol of balance/reconciliation */
+    "reconcile-scales": `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 4v14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M6 7h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M7.5 7c-.9 2.5-2.1 4-3.5 4 1.4 0 2.6 1.5 3.5 4  .9-2.5 2.1-4 3.5-4-1.4 0-2.6-1.5-3.5-4Z"
+              fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M16.5 7c-.9 2.5-2.1 4-3.5 4 1.4 0 2.6 1.5 3.5 4  .9-2.5 2.1-4 3.5-4-1.4 0-2.6-1.5-3.5-4Z"
+              fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8 18h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>`,
+
+    /* Alt B: ARROWS + CHECK — opposing arrows with a central check */
+    "reconcile-arrows": `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M12 7l3 2-3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M20 15h-8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M12 13l-3 2 3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9.3 12.2l2 2.1 3.7-4.1" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
@@ -144,7 +148,6 @@
     constructor(){
       super();
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
-
       this._mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
       this._onMQ = () => this._applyAccentFromTheme();
       this._onFVTheme = () => this._applyAccentFromTheme();
@@ -186,7 +189,7 @@
 
     _applyAccentFromTheme(){
       const html = document.documentElement;
-      const mode = html.getAttribute('data-theme');
+      const mode = html.getAttribute('data-theme'); // 'light' | 'dark' | 'auto'
       const isDarkExplicit = html.classList.contains('dark');
       const isDarkAuto = (mode === 'auto' || mode === 'system') && (this._mq ? this._mq.matches : false);
 
