@@ -19,7 +19,7 @@
 
       a.tile{
         display:grid;
-        grid-template-rows: 55% 45%;   /* label higher, icon same zone */
+        grid-template-rows: 55% 45%;
         justify-items:center;
         align-items:center;
 
@@ -50,12 +50,9 @@
         align-self:start;
         transform:translateY(-10px);
         line-height:1;
-        /* text/emoji size */
         font-size:calc(clamp(40px,10vw,60px) + var(--icon-extra));
-        filter:none;
       }
 
-      /* SVG icons size like text icons, responsive + tunable with --icon-extra */
       .icon svg{
         display:block;
         width:calc(clamp(40px,10vw,60px) + var(--icon-extra));
@@ -76,7 +73,6 @@
         <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>`,
 
-    /* Simple horizontal remove symbol */
     minus: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6 12h12" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
@@ -97,22 +93,17 @@
               fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
 
-    /* REPORT: simplified clipboard + three filled bars (no tiny lines/pie) */
     report: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <!-- Clipboard frame -->
         <rect x="6" y="4.5" width="12" height="15.5" rx="2"
               fill="none" stroke="currentColor" stroke-width="1.6"/>
-        <!-- Clip -->
         <rect x="9" y="2.4" width="6" height="3.6" rx="1.2"
               fill="none" stroke="currentColor" stroke-width="1.6"/>
-        <!-- Bars -->
         <rect x="8.5"  y="14.6" width="2.0" height="4.4" rx="0.6" fill="currentColor"/>
         <rect x="11.1" y="12.6" width="2.0" height="6.4" rx="0.6" fill="currentColor"/>
         <rect x="13.7" y="10.4" width="2.0" height="8.6" rx="0.6" fill="currentColor"/>
       </svg>`,
 
-    /* Circle with check */
     done: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.7"/>
@@ -120,7 +111,6 @@
               fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
 
-    /* Rounded checkbox with check */
     "done-box": `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect x="5.5" y="5.5" width="13" height="13" rx="2.2"
@@ -129,20 +119,22 @@
               fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
 
-    /* RECONCILE: two directional arrows (tie-out) + small center check */
+    /* RECONCILE — looped arrows + center check (clear at small sizes) */
     reconcile: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <!-- top flow → -->
-        <path d="M6.5 7.5h7.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-        <path d="M13.2 6l2.8 1.9-2.8 1.9" fill="none" stroke="currentColor" stroke-width="1.7"
-              stroke-linecap="round" stroke-linejoin="round"/>
-        <!-- bottom flow ← -->
-        <path d="M17.5 16.5h-7.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-        <path d="M10.8 18l-2.8-1.9 2.8-1.9" fill="none" stroke="currentColor" stroke-width="1.7"
-              stroke-linecap="round" stroke-linejoin="round"/>
-        <!-- tie-out check -->
-        <path d="M9 12.2l2 2 3.6-4.1" fill="none" stroke="currentColor" stroke-width="1.8"
-              stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- top curved flow -->
+        <path d="M6 9c2.6-3 9.4-3 12 0" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M16.6 7.6l1.9 1.6-1.9 1.6" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- bottom curved flow -->
+        <path d="M18 15c-2.6 3-9.4 3-12 0" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M7.4 16.4l-1.9-1.6 1.9-1.6" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- center check -->
+        <path d="M9.2 12.1l2 2.1 3.6-4.2" fill="none" stroke="currentColor"
+              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
@@ -153,7 +145,6 @@
       super();
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
 
-      // media query for "auto" (system) dark mode
       this._mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
       this._onMQ = () => this._applyAccentFromTheme();
       this._onFVTheme = () => this._applyAccentFromTheme();
@@ -161,21 +152,10 @@
 
     connectedCallback(){
       this._sync();
-
-      // Listen for your shell’s theme changes (fv:theme event)
       document.addEventListener('fv:theme', this._onFVTheme);
-
-      // Watch OS-level dark mode if data-theme="auto"
       if (this._mq) this._mq.addEventListener('change', this._onMQ);
-
-      // Watch for changes to <html> class or data-theme attr
       this._mo = new MutationObserver(() => this._applyAccentFromTheme());
-      this._mo.observe(document.documentElement, {
-        attributes:true,
-        attributeFilter:['class','data-theme']
-      });
-
-      // Apply current theme accent on load
+      this._mo.observe(document.documentElement, { attributes:true, attributeFilter:['class','data-theme'] });
       this._applyAccentFromTheme();
     }
 
@@ -196,29 +176,25 @@
       const svgKey = (this.getAttribute('icon-svg') || '').trim();
 
       if (svgKey && ICONS[svgKey]) {
-        // Slight size bump for 'report'
         this.style.setProperty('--icon-extra', svgKey === 'report' ? '8px' : '0px');
-        iconHost.innerHTML = ICONS[svgKey];   // inject SVG
+        iconHost.innerHTML = ICONS[svgKey];
       } else {
         this.style.setProperty('--icon-extra', '0px');
-        iconHost.textContent = this.getAttribute('icon') || ''; // emoji/text fallback
+        iconHost.textContent = this.getAttribute('icon') || '';
       }
     }
 
     _applyAccentFromTheme(){
       const html = document.documentElement;
-      const mode = html.getAttribute('data-theme'); // 'light' | 'dark' | 'auto' (or null)
-      const isDarkExplicit = html.classList.contains('dark'); // manual dark toggle
-      const isDarkAuto = (mode === 'auto' || mode === 'system') &&
-                         (this._mq ? this._mq.matches : false);
+      const mode = html.getAttribute('data-theme');
+      const isDarkExplicit = html.classList.contains('dark');
+      const isDarkAuto = (mode === 'auto' || mode === 'system') && (this._mq ? this._mq.matches : false);
 
       const shouldUseText = isDarkExplicit || isDarkAuto;
       if (shouldUseText) {
-        // In dark or auto-dark → use global --text color
         const computed = getComputedStyle(html).getPropertyValue('--text').trim() || '#E8EEE9';
         this.style.setProperty('--form-accent', computed);
       } else {
-        // In light mode → blue accent
         this.style.setProperty('--form-accent', '#0F3B82');
       }
     }
