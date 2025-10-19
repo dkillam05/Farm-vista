@@ -11,7 +11,7 @@
         display:block;
         --tile-h:160px;
         --form-accent:#0F3B82; /* switches in _applyAccentFromTheme */
-        --icon-extra:0px;      /* 'report' uses +8px */
+        --icon-extra:0px;      /* 'report' (and now 'reconcile') can bump this */
       }
 
       a.tile{
@@ -185,8 +185,14 @@
       const key = (this.getAttribute('icon-svg') || '').trim();
 
       if (key && ICONS[key]) {
-        // Slight size bump for 'report' for visual balance
-        this.style.setProperty('--icon-extra', key === 'report' ? '8px' : '0px');
+        // 🔼 Size bumps for certain icons
+        // 'report' already bumped for balance; bump 'reconcile' too for clarity
+        const bump =
+          (key === 'report') ? '8px' :
+          (key === 'reconcile-sync' || key === 'reconcile') ? '12px' :
+          '0px';
+
+        this.style.setProperty('--icon-extra', bump);
         iconHost.innerHTML = ICONS[key];
       } else {
         this.style.setProperty('--icon-extra', '0px');
