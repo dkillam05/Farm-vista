@@ -1,7 +1,7 @@
 /* <fv-form-button> v3.2.5 — form entry tile
    Icons via icon-svg:
    'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'camera'
-   'reconcile-sync' (Option B)  — also aliased as 'reconcile'
+   'reconcile-sync' (clean dual-arc + check) — also aliased as 'reconcile'
 */
 (function () {
   const tpl = document.createElement('template');
@@ -11,7 +11,7 @@
         display:block;
         --tile-h:160px;
         --form-accent:#0F3B82; /* switches in _applyAccentFromTheme */
-        --icon-extra:0px;      /* 'report' (and now 'reconcile') can bump this */
+        --icon-extra:0px;      /* 'report'/'reconcile' can bump this */
       }
 
       a.tile{
@@ -123,21 +123,22 @@
         <circle cx="17.3" cy="9.9" r="0.8" fill="currentColor"/>
       </svg>`,
 
-    /* ===== RECONCILE (Option B: sync arrows + check) ===== */
+    /* ===== RECONCILE (clean dual-arc + check, no arrowheads) ===== */
     "reconcile-sync": `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <!-- top arc -->
-        <path d="M6.5 9a6.5 6.5 0 0 1 9.6-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M15.6 6.5l2.4 1.8-2.4 1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- top arc: centered, rounded ends for perfect alignment -->
+        <path d="M7 10.4a5.5 5.5 0 0 1 8.8-2.7"
+              fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
         <!-- bottom arc -->
-        <path d="M17.5 15a6.5 6.5 0 0 1-9.6 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M8.4 17.5L6 15.7 8.4 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        <!-- check -->
-        <path d="M9.2 12.3l2 2.1 3.6-4.1" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M17 13.6a5.5 5.5 0 0 1-8.8 2.7"
+              fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+        <!-- center check -->
+        <path d="M9.3 12.4l2.1 2.1 3.9-4.3"
+              fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
-  // alias so icon-svg="reconcile" also uses Option B
+  // alias so icon-svg="reconcile" also uses this version
   ICONS["reconcile"] = ICONS["reconcile-sync"];
 
   class FVFormButton extends HTMLElement{
@@ -185,8 +186,7 @@
       const key = (this.getAttribute('icon-svg') || '').trim();
 
       if (key && ICONS[key]) {
-        // 🔼 Size bumps for certain icons
-        // 'report' already bumped for balance; bump 'reconcile' too for clarity
+        // Size bumps for balance/clarity
         const bump =
           (key === 'report') ? '8px' :
           (key === 'reconcile-sync' || key === 'reconcile') ? '12px' :
@@ -196,7 +196,6 @@
         iconHost.innerHTML = ICONS[key];
       } else {
         this.style.setProperty('--icon-extra', '0px');
-        // Fallback to old emoji/text icon prop if provided
         iconHost.textContent = this.getAttribute('icon') || '';
       }
     }
