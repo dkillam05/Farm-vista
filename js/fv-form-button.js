@@ -1,6 +1,7 @@
 /* <fv-form-button> v3.2.1 — form entry tile
    ✅ Uses global tokens (theme.css) and adapts to fv-shell theme events
-   ✅ Optional SVG icons via icon-svg: 'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box'
+   ✅ Optional SVG icons via icon-svg:
+      'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'reconcile'
    ✅ Report icon simplified (clipboard + bars) + slight size bump for balance
    ✅ 100% backward compatible with icon="…" (emoji/text) usage
 */
@@ -126,6 +127,22 @@
               fill="none" stroke="currentColor" stroke-width="1.7"/>
         <path d="M8.5 12.5l2.2 2.2 4.3-4.8"
               fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+
+    /* RECONCILE: two directional arrows (tie-out) + small center check */
+    reconcile: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <!-- top flow → -->
+        <path d="M6.5 7.5h7.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M13.2 6l2.8 1.9-2.8 1.9" fill="none" stroke="currentColor" stroke-width="1.7"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- bottom flow ← -->
+        <path d="M17.5 16.5h-7.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M10.8 18l-2.8-1.9 2.8-1.9" fill="none" stroke="currentColor" stroke-width="1.7"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- tie-out check -->
+        <path d="M9 12.2l2 2 3.6-4.1" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
@@ -184,7 +201,7 @@
         iconHost.innerHTML = ICONS[svgKey];   // inject SVG
       } else {
         this.style.setProperty('--icon-extra', '0px');
-        iconHost.textContent = this.getAttribute('icon') || ''; // original emoji/text behavior
+        iconHost.textContent = this.getAttribute('icon') || ''; // emoji/text fallback
       }
     }
 
