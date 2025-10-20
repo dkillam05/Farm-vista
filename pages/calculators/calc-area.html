@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>FarmVista • Field Area</title>
+  <title>FarmVista - Area</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3B7E46">
   <link rel="manifest" href="../../manifest.webmanifest">
@@ -13,110 +13,359 @@
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/fv-shell.js"></script>
   <style>
-    :root { --page-bottom-gap: 56px; }
-    .wrap { max-width: 900px; margin: 0 auto; padding: clamp(14px,3vw,22px);
+    :root{ --page-bottom-gap:56px; --card-max:940px; --accent:#2F6C3C; --accent-2:#0F3B82; }
+    html { -webkit-text-size-adjust: 100%; }
+    body{ background: var(--app-bg, var(--surface)); }
+    .wrap{ max-width: var(--card-max); margin: 0 auto; padding: clamp(14px,3vw,22px);
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)); }
-    h1 { margin: 8px 0 6px; font-size: clamp(22px,3.5vw,28px); }
-    .form { display: grid; gap: 12px; margin: 14px 0 18px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
-    .out { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-    .muted { color: var(--muted, #67706B); }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
-    .hist h2 { margin: 18px 0 8px; font-size: 18px; }
-    .hist .actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .btn-link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+
+    .calc-card{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
+      box-shadow: var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; }
+    .card-head{ display:flex; align-items:center; gap:12px; padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border); }
+    .card-head .icon{ width:28px;height:28px; color:var(--accent); }
+    .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+    .muted{ color:var(--muted,#67706B); }
+
+    form{ padding:16px; display:grid; gap:14px; }
+    .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
+    label{ display:block; font-weight:600; margin-bottom:6px; }
+    .ctrl{ display:flex; align-items:center; gap:8px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); border-radius:10px; padding:10px 12px; }
+    input, select, button { font-size:16px; } /* avoid iOS zoom */
+    .ctrl input, .ctrl select{ width:100%; border:0; outline:0; background:transparent; line-height:1.3; color:var(--text); }
+    .unit{ font-size:12px; color:var(--muted,#67706B); white-space:nowrap; }
+    .hidden{ display:none !important; }
+
+    .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; }
+    .btn{ appearance:none; border:1px solid var(--border); background:var(--surface);
+      padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
+      transition: box-shadow .12s, transform .03s, background .12s, border-color .12s; }
+    .btn:active{ transform: translateY(1px); }
+    .btn-primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+    .btn-ghost{ background:transparent; }
+
+    .results{ padding:0 16px 16px; }
+    .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
+    .tile{ border:1px solid var(--border); border-radius:12px; padding:12px;
+      background: linear-gradient(180deg, rgba(47,108,60,.06), transparent 55%); }
+    .tile h3{ margin:0 0 6px; font-size:16px; }
+    .kv{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:baseline; }
+    .kv .val{ font-weight:800; }
+
+    .hist{ padding:16px; border-top:1px dashed var(--border); }
+    .hist h2{ margin:0 0 10px; font-size:16px; }
+    .hlist{ display:grid; gap:8px; }
+    .hitem{ display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface)); }
+    .hmain{ display:flex; gap:8px; flex-wrap:wrap; align-items:baseline; }
+    .hsummary{ font-weight:700; }
+    .hbtn{ border:0; background:transparent; color:var(--accent-2); font-weight:700; cursor:pointer; }
+    .muted-line{ font-size:12px; color:var(--muted,#67706B); }
+    .hist-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
+    .btn-link{ background:none; border:0; padding:0; text-decoration:underline; color:inherit; cursor:pointer; }
+
+    /* Centered modal dialog */
+    .modal{ position:fixed; inset:0; display:none; place-items:center;
+      background:rgba(0,0,0,.42); z-index:9999; transition:opacity .15s ease; opacity:0; }
+    .modal[open]{ display:grid; opacity:1; }
+    .dialog{ width:min(680px,92vw); max-height:85vh; display:flex; flex-direction:column;
+      background:var(--surface); color:var(--text); border-radius:14px; border:1px solid var(--border);
+      box-shadow:0 16px 36px rgba(0,0,0,.28); transform:translateY(6px) scale(.98); opacity:.98;
+      transition: transform .15s ease, opacity .15s ease; }
+    .modal[open] .dialog{ transform:none; opacity:1; }
+    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center; }
+    .dialog-head h3{ margin:0; font-size:18px; }
+    .closex{ border:1px solid var(--border); background:var(--surface);
+      border-radius:8px; padding:6px 10px; cursor:pointer; font-weight:700; }
+    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .kv2{ display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+    @media (max-width:640px){ .kv2{ grid-template-columns:1fr; } }
+    html.no-scroll, body.no-scroll { overflow:hidden; }
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="wrap">
-      <h1>Field Area</h1>
-      <p class="muted">Length x width with acres conversion. Auto-calculates as you type.</p>
-
-      <div class="form" id="areaForm">
-        <div class="row">
-          <label>Length (ft)
-            <input id="len" type="number" inputmode="decimal" step="any" min="0" autofocus>
-          </label>
-          <label>Width (ft)
-            <input id="wid" type="number" inputmode="decimal" step="any" min="0">
-          </label>
+      <div class="calc-card">
+        <div class="card-head">
+          <div class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
+              <circle cx="12" cy="12" r="8"></circle><rect x="4" y="4" width="6" height="6" rx="1.5"></rect>
+              <path d="M16 4l4 0l0 4"></path>
+            </svg>
+          </div>
+          <div>
+            <h1>Area</h1>
+            <div class="muted">Choose a shape, enter dimensions, then Calculate. Results in ft² and acres.</div>
+          </div>
         </div>
-      </div>
 
-      <div class="out" id="results" hidden>
-        <div><strong>Square Feet:</strong> <span id="sqft">-</span></div>
-        <div><strong>Acres:</strong> <span id="acres">-</span></div>
-      </div>
+        <!-- FORM -->
+        <form id="frm" novalidate>
+          <div class="grid">
+            <div>
+              <label for="shape">Shape</label>
+              <div class="ctrl">
+                <select id="shape">
+                  <option value="rect">Rectangle</option>
+                  <option value="square">Square</option>
+                  <option value="circle">Circle</option>
+                  <option value="tri">Triangle</option>
+                </select>
+              </div>
+            </div>
 
-      <section class="hist" id="history">
-        <div style="display:flex;align-items:center;gap:10px">
-          <h2 style="flex:1">Previous Calculations</h2>
-          <div class="actions"><button class="btn-link" id="clear">Clear</button></div>
+            <!-- Rectangle -->
+            <div data-pane="rect">
+              <label for="len">Length</label>
+              <div class="ctrl">
+                <input id="len" type="text" inputmode="decimal" placeholder="e.g. 120">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+            <div data-pane="rect">
+              <label for="wid">Width</label>
+              <div class="ctrl">
+                <input id="wid" type="text" inputmode="decimal" placeholder="e.g. 80">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+
+            <!-- Square -->
+            <div data-pane="square" class="hidden">
+              <label for="side">Side</label>
+              <div class="ctrl">
+                <input id="side" type="text" inputmode="decimal" placeholder="e.g. 100">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+            <div data-pane="square" class="hidden"></div>
+
+            <!-- Circle -->
+            <div data-pane="circle" class="hidden">
+              <label for="diam">Diameter</label>
+              <div class="ctrl">
+                <input id="diam" type="text" inputmode="decimal" placeholder="e.g. 300">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+            <div data-pane="circle" class="hidden"></div>
+
+            <!-- Triangle -->
+            <div data-pane="tri" class="hidden">
+              <label for="base">Base</label>
+              <div class="ctrl">
+                <input id="base" type="text" inputmode="decimal" placeholder="e.g. 200">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+            <div data-pane="tri" class="hidden">
+              <label for="height">Height</label>
+              <div class="ctrl">
+                <input id="height" type="text" inputmode="decimal" placeholder="e.g. 150">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="button" class="btn btn-ghost" id="clearInputs">Clear Inputs</button>
+            <button type="submit" class="btn btn-primary">Calculate</button>
+          </div>
+        </form>
+
+        <!-- RESULTS -->
+        <div class="results" id="results" hidden>
+          <div class="result-grid">
+            <div class="tile">
+              <h3>Area</h3>
+              <div class="kv">
+                <div>Square Feet</div> <div class="val" id="sqft">- ft²</div>
+                <div>Acres</div>       <div class="val" id="acres">- ac</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="muted" id="nohist">No previous area calculations.</div>
-        <table id="histTable" hidden><tbody></tbody></table>
-      </section>
+
+        <!-- HISTORY -->
+        <section class="hist">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h2 style="flex:1">Previous Calculations</h2>
+            <div class="hist-actions"><button class="btn-link" id="clearHist">Clear History</button></div>
+          </div>
+          <div class="hlist" id="hlist"></div>
+          <div class="muted-line" id="nohist">No previous area calculations.</div>
+        </section>
+      </div>
     </div>
   </fv-shell>
+
+  <!-- Centered modal dialog -->
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">Calculation Details</h3>
+        <button class="closex" id="mdClose" aria-label="Back">Back</button>
+      </div>
+      <div class="dialog-body" id="mdBody"></div>
+    </div>
+  </div>
 
   <script>
   (function(){
     "use strict";
-    var LS_KEY = "fv_calc_area_history";
-    function $(id){ return document.getElementById(id); }
-    var res = $("results"), sqftEl = $("sqft"), acresEl = $("acres");
-    var inputs = [ $("len"), $("wid") ];
 
-    function fmt(n, d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
-    function load(){ try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch(e){ return []; } }
-    function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
+    var SQFT_PER_ACRE = 43560;
+    function $(id){ return document.getElementById(id); }
+    function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
+    function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
+
+    var shapeEl=$("shape");
+    var panes=[].slice.call(document.querySelectorAll("[data-pane]"));
+    function showPane(shape){
+      panes.forEach(function(p){ p.classList.toggle("hidden", p.getAttribute("data-pane")!==shape); });
+    }
+    shapeEl.addEventListener("change", function(){ showPane(shapeEl.value); });
+
+    // inputs
+    var len=$("len"), wid=$("wid"), side=$("side"), diam=$("diam"), base=$("base"), height=$("height");
+
+    // simple numeric cleanup on blur -> keep as typed (no commas), just strip junk
+    [len,wid,side,diam,base,height].forEach(function(i){
+      if(!i) return;
+      i && i.addEventListener("blur", function(){ i.value = i.value.replace(/[^0-9.]/g,""); });
+    });
+
+    // results
+    var resWrap=$("results"), sqftEl=$("sqft"), acresEl=$("acres");
+
+    // history
+    var LS_KEY="fv_calc_area_history", hlist=$("hlist"), nohist=$("nohist");
+    function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }catch(e){ return []; } }
+    function save(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
+
+    function calc(){
+      var shape=shapeEl.value, sqft=0, detail={};
+      if(shape==="rect"){
+        var L=num(len.value), W=num(wid.value);
+        if(!(L>0 && W>0)) return alert("Enter length and width (ft)."), null;
+        sqft=L*W; detail={shape:"Rectangle", dims:`${fmt(L,2)} ft × ${fmt(W,2)} ft`};
+      } else if(shape==="square"){
+        var S=num(side.value);
+        if(!(S>0)) return alert("Enter side length (ft)."), null;
+        sqft=S*S; detail={shape:"Square", dims:`${fmt(S,2)} ft side`};
+      } else if(shape==="circle"){
+        var D=num(diam.value);
+        if(!(D>0)) return alert("Enter diameter (ft)."), null;
+        sqft=Math.PI*Math.pow(D/2,2); detail={shape:"Circle", dims:`${fmt(D,2)} ft diameter`};
+      } else { // tri
+        var B=num(base.value), H=num(height.value);
+        if(!(B>0 && H>0)) return alert("Enter base and height (ft)."), null;
+        sqft=0.5*B*H; detail={shape:"Triangle", dims:`${fmt(B,2)} ft base × ${fmt(H,2)} ft height`};
+      }
+      var acres = sqft / SQFT_PER_ACRE;
+      return { t:Date.now(), shape:detail.shape, dims:detail.dims, sqft:sqft, acres:acres };
+    }
+
+    function show(out){
+      if(!out){ resWrap.hidden=true; return; }
+      sqftEl.textContent = fmt(out.sqft,0)+" ft²";
+      acresEl.textContent = fmt(out.acres,4)+" ac";
+      resWrap.hidden=false;
+    }
+
+    function summary(it){
+      return it.shape+" "+it.dims+" → "+fmt(it.sqft,0)+" ft² ("+fmt(it.acres,4)+" ac)";
+    }
 
     function renderHist(){
-      var h = load(), no = $("nohist"), t = $("histTable"), tb = t.querySelector("tbody");
-      if(!h.length){ no.hidden = false; t.hidden = true; return; }
-      no.hidden = true; t.hidden = false; tb.innerHTML = "";
-      for(var i=0;i<h.length;i++){
-        var it = h[i];
-        var tr = document.createElement("tr");
-        tr.innerHTML =
-          "<td>" + new Date(it.t).toLocaleString() + "</td>" +
-          "<td>" + fmt(it.len) + " ft x " + fmt(it.wid) + " ft</td>" +
-          "<td>" + fmt(it.sqft,0) + " ft^2</td>" +
-          "<td>" + fmt(it.acres,4) + " ac</td>";
-        tb.appendChild(tr);
-      }
-    }
-
-    function computeAndShow(saveRun){
-      if(saveRun===void 0) saveRun = true;
-      var len = parseFloat($("len").value), wid = parseFloat($("wid").value);
-      if(!(len > 0 && wid > 0)){ res.hidden = true; return; }
-      var sqft = len * wid, acres = sqft / 43560;
-      sqftEl.textContent = fmt(sqft,0);
-      acresEl.textContent = fmt(acres,4);
-      res.hidden = false;
-      if(saveRun){
-        var h = load();
-        h.unshift({ t: Date.now(), len: len, wid: wid, sqft: sqft, acres: acres });
-        save(h); renderHist();
-      }
-    }
-
-    var to = null;
-    inputs.forEach(function(i){
-      i.addEventListener("input", function(){
-        if(to) window.clearTimeout(to);
-        to = window.setTimeout(function(){ computeAndShow(true); }, 150);
+      var h=load(); hlist.innerHTML="";
+      if(!h.length){ nohist.hidden=false; return; }
+      nohist.hidden=true;
+      h.forEach(function(it,idx){
+        var row=document.createElement("div");
+        row.className="hitem";
+        row.innerHTML =
+          '<div class="hmain"><div class="hsummary">'+summary(it)+'</div></div>'+
+          '<button class="hbtn" data-idx="'+idx+'">View</button>';
+        hlist.appendChild(row);
       });
-    });
-    $("clear").addEventListener("click", function(){
-      localStorage.removeItem(LS_KEY); renderHist();
-    });
+      hlist.querySelectorAll(".hbtn").forEach(function(btn){
+        btn.addEventListener("click", function(ev){
+          var idx=parseInt(ev.currentTarget.getAttribute("data-idx"),10);
+          openModal(load()[idx], ev.currentTarget);
+        });
+      });
+    }
 
-    renderHist();
+    // modal
+    var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    var lastOpener=null;
+
+    function openModal(it, opener){
+      lastOpener=opener||null;
+      mdBody.innerHTML =
+        '<div class="kv2">'
+        + '<div><strong>When</strong><br>'+ new Date(it.t).toLocaleString() +'</div>'
+        + '<div><strong>Shape</strong><br>'+ it.shape +'</div>'
+        + '<div><strong>Dimensions</strong><br>'+ it.dims +'</div>'
+        + '<div></div>'
+        + '<div><strong>Square Feet</strong><br>'+ fmt(it.sqft,0) +' ft²</div>'
+        + '<div><strong>Acres</strong><br>'+ fmt(it.acres,4) +' ac</div>'
+        + '</div>';
+      modal.setAttribute("open","");
+      modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
+      mdClose.focus();
+      trapFocus(modal);
+    }
+    function closeModal(){
+      modal.removeAttribute("open");
+      modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
+      releaseFocus(modal);
+      if(lastOpener) lastOpener.focus();
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
+
+    var trapHandler=null;
+    function trapFocus(root){
+      var focusables = Array.prototype.slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])'))
+        .filter(function(el){ return !el.disabled && el.offsetParent!==null; });
+      if(!focusables.length) return;
+      var first=focusables[0], last=focusables[focusables.length-1];
+      trapHandler=function(e){
+        if(e.key!=="Tab") return;
+        if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+        else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+      };
+      root.addEventListener("keydown", trapHandler);
+    }
+    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+
+    // submit + buttons
+    $("frm").addEventListener("submit", function(ev){
+      ev.preventDefault();
+      var out=calc(); show(out);
+      if(out){ var h=load(); h.unshift(out); save(h); renderHist(); }
+    });
+    $("clearInputs").addEventListener("click", function(){
+      [len,wid,side,diam,base,height].forEach(function(i){ if(i) i.value=""; });
+      resWrap.hidden=true;
+    });
+    $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+    // init
+    showPane(shapeEl.value); renderHist();
   })();
   </script>
 </body>
