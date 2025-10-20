@@ -1,159 +1,286 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>FarmVista - Combine Yield</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3B7E46">
-  <link rel="manifest" href="../../manifest.webmanifest">
-  <link rel="apple-touch-icon" href="../../assets/icons/apple-touch-icon.png">
-  <link rel="icon" href="../../assets/icons/icon-192.png">
-  <script defer src="../../js/theme-boot.js"></script>
-  <link rel="stylesheet" href="../../assets/css/theme.css">
-  <link rel="stylesheet" href="../../assets/css/app.css">
-  <script defer src="../../js/fv-shell.js"></script>
-  <style>
-    :root { --page-bottom-gap: 56px; }
-    .wrap { max-width: 900px; margin: 0 auto; padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)); }
-    h1 { margin: 8px 0 6px; font-size: clamp(22px,3.5vw,28px); }
-    .form { display: grid; gap: 12px; margin: 14px 0 18px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
-    .out { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-    .muted { color: var(--muted, #67706B); }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
-    .hist h2 { margin: 18px 0 8px; font-size: 18px; }
-    .hist .actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .btn-link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
-  </style>
+<meta charset="utf-8">
+<title>FarmVista - Combine Yield</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../../manifest.webmanifest">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<link rel="stylesheet" href="../../assets/css/app.css">
+<script defer src="../../js/theme-boot.js"></script>
+<script defer src="../../js/fv-shell.js"></script>
+<style>
+/* same shell styles as above (shortened for brevity) */
+:root{ --page-bottom-gap:56px; --card-max:940px; --accent:#2F6C3C; --accent-2:#0F3B82; }
+html{-webkit-text-size-adjust:100%} body{background:var(--app-bg,var(--surface))}
+.wrap{max-width:var(--card-max);margin:0 auto;padding:clamp(14px,3vw,22px);padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+var(--page-bottom-gap))}
+.calc-card{border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden}
+.card-head{display:flex;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);border-bottom:1px solid var(--border)}
+.card-head .icon{width:28px;height:28px;color:var(--accent)} .card-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
+.muted{color:var(--muted,#67706B)} form{padding:16px;display:grid;gap:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px} @media(max-width:760px){.grid{grid-template-columns:1fr}}
+label{display:block;font-weight:600;margin-bottom:6px}
+.ctrl{display:flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--card-surface,var(--surface));border-radius:10px;padding:10px 12px}
+input,select,button{font-size:16px} .ctrl input,.ctrl select{width:100%;border:0;outline:0;background:transparent;color:var(--text)}
+.unit{font-size:12px;color:var(--muted);white-space:nowrap}
+.actions{display:flex;gap:10px;justify-content:flex-end;padding:0 16px 16px}
+.btn{appearance:none;border:1px solid var(--border);background:var(--surface);padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
+.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.results{padding:0 16px 16px}
+.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px} @media(max-width:760px){.result-grid{grid-template-columns:1fr}}
+.tile{border:1px solid var(--border);border-radius:12px;padding:12px;background:linear-gradient(180deg,rgba(47,108,60,.06),transparent 55%)}
+.tile h3{margin:0 0 6px;font-size:16px} .kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:baseline} .kv .val{font-weight:800}
+.hist{padding:16px;border-top:1px dashed var(--border)} .hlist{display:grid;gap:8px} .hitem{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface))}
+.hsummary{font-weight:700} .btn-link{background:none;border:0;padding:0;text-decoration:underline;color:inherit;cursor:pointer} .muted-line{font-size:12px;color:var(--muted)}
+.modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0}
+.modal[open]{display:grid;opacity:1} .dialog{width:min(680px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28)}
+.dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.dialog-body{padding:14px;overflow:auto;flex:1 1 auto;min-height:0;-webkit-overflow-scrolling:touch} .closex{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:700}
+.kv2{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px} @media(max-width:640px){.kv2{grid-template-columns:1fr}} html.no-scroll, body.no-scroll{overflow:hidden}
+.hidden{display:none !important;}
+</style>
 </head>
 <body>
-  <fv-shell>
-    <div class="wrap">
-      <h1>Combine Yield</h1>
-      <p class="muted">Quick strip yield from weight and dimensions. Adjusts to standard moisture.</p>
-
-      <div class="form">
-        <div class="row">
-          <label>Crop
-            <select id="crop">
-              <option value="corn">Corn (56 lb/bu at 15.5%)</option>
-              <option value="soy">Soybeans (60 lb/bu at 13.0%)</option>
-            </select>
-          </label>
-          <label>Wet Weight (lb)
-            <input id="wt" type="number" inputmode="decimal" step="any" min="0" autofocus>
-          </label>
+<fv-shell>
+  <div class="wrap">
+    <div class="calc-card">
+      <div class="card-head">
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M4 17h16M6 17l2-8h8l2 8M9 9V5h6v4"></path>
+          </svg>
         </div>
-        <div class="row">
-          <label>Moisture (%)
-            <input id="mc" type="number" inputmode="decimal" step="any" min="0" max="100">
-          </label>
-          <label>Strip Width (ft)
-            <input id="w" type="number" inputmode="decimal" step="any" min="0">
-          </label>
-        </div>
-        <div class="row">
-          <label>Strip Length (ft)
-            <input id="l" type="number" inputmode="decimal" step="any" min="0">
-          </label>
-          <label>Standard Moisture (%)
-            <input id="std" type="number" inputmode="decimal" step="any" min="0" max="100" value="15.5">
-          </label>
+        <div>
+          <h1>Combine Yield</h1>
+          <div class="muted">Enter area, wet weight, and start moisture. Compare True vs Elevator.</div>
         </div>
       </div>
 
-      <div class="out" id="results" hidden>
-        <div><strong>Area:</strong> <span id="areaAc">-</span> acres</div>
-        <div><strong>Dry Bushels:</strong> <span id="bu">-</span> bu</div>
-        <div><strong>Dry Yield:</strong> <span id="bpa">-</span> bu/ac</div>
-        <div class="muted"><em>Method:</em> dryWeight = wet * (100 - mc) / (100 - std); bu = dryWeight / testWeight</div>
+      <form id="frm" novalidate autocomplete="off">
+        <div class="grid">
+          <div>
+            <label for="crop">Crop</label>
+            <div class="ctrl">
+              <select id="crop">
+                <option value="corn">Corn (TW 56, Std 15.5%)</option>
+                <option value="soy">Soybeans (TW 60, Std 13.0%)</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label for="mode">Shrink Mode</label>
+            <div class="ctrl">
+              <select id="mode">
+                <option value="both">Compare Both</option>
+                <option value="true">True Only</option>
+                <option value="elev">Elevator Only</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label for="areaMode">Area Input</label>
+            <div class="ctrl">
+              <select id="areaMode">
+                <option value="lw">Length × Width</option>
+                <option value="acres">Acres (known)</option>
+              </select>
+            </div>
+          </div>
+
+          <div data-pane="lw">
+            <label for="len">Cut Length</label>
+            <div class="ctrl">
+              <input id="len" type="text" inputmode="decimal" placeholder="e.g. 1320">
+              <span class="unit">ft</span>
+            </div>
+          </div>
+          <div data-pane="lw">
+            <label for="wid">Cut Width</label>
+            <div class="ctrl">
+              <input id="wid" type="text" inputmode="decimal" placeholder="e.g. 30">
+              <span class="unit">ft</span>
+            </div>
+          </div>
+
+          <div data-pane="acres" class="hidden">
+            <label for="ac">Area</label>
+            <div class="ctrl">
+              <input id="ac" type="text" inputmode="decimal" placeholder="e.g. 2.75">
+              <span class="unit">ac</span>
+            </div>
+          </div>
+          <div data-pane="acres" class="hidden"></div>
+
+          <div>
+            <label for="wt">Wet Weight</label>
+            <div class="ctrl">
+              <input id="wt" type="text" inputmode="numeric" placeholder="e.g. 20,000">
+              <span class="unit">lb</span>
+            </div>
+          </div>
+
+          <div>
+            <label for="start">Start Moisture</label>
+            <div class="ctrl">
+              <input id="start" type="text" inputmode="decimal" placeholder="e.g. 25.6" maxlength="4">
+              <span class="unit">%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn" id="clearInputs">Clear</button>
+          <button type="submit" class="btn btn-primary" id="doCalc">Calculate</button>
+        </div>
+      </form>
+
+      <div class="results" id="results" hidden>
+        <div class="result-grid">
+          <div class="tile" id="trueTile">
+            <h3>True Shrink Yield</h3>
+            <div class="kv">
+              <div>Yield</div> <div class="val" id="trueY">- bu/ac</div>
+              <div>Bushels</div> <div class="val" id="trueBu">- bu</div>
+            </div>
+          </div>
+          <div class="tile" id="elevTile">
+            <h3>Elevator Shrink Yield</h3>
+            <div class="kv">
+              <div>Yield</div> <div class="val" id="elevY">- bu/ac</div>
+              <div>Bushels</div> <div class="val" id="elevBu">- bu</div>
+            </div>
+          </div>
+        </div>
+        <div class="muted" style="margin-top:8px">Elevator (corn): linear from 15.5% to 29% (21% shrink), capped at 40%.</div>
       </div>
 
-      <section class="hist" id="history">
+      <section class="hist">
         <div style="display:flex;align-items:center;gap:10px">
           <h2 style="flex:1">Previous Calculations</h2>
-          <div class="actions"><button class="btn-link" id="clear">Clear</button></div>
+          <button class="btn-link" id="clearHist" type="button">Clear History</button>
         </div>
-        <div class="muted" id="nohist">No previous combine yield calculations.</div>
-        <table id="histTable" hidden><tbody></tbody></table>
+        <div class="hlist" id="hlist"></div>
+        <div class="muted-line" id="nohist">No previous combine yield calculations.</div>
       </section>
     </div>
-  </fv-shell>
+  </div>
+</fv-shell>
 
-  <script>
-  (function(){
-    "use strict";
-    var LS_KEY = "fv_calc_combine_yield";
-    function $(id){ return document.getElementById(id); }
-    var ids = ["crop","wt","mc","w","l","std"];
-    var inputs = [ $("crop"), $("wt"), $("mc"), $("w"), $("l"), $("std") ];
-    var res = $("results");
+<div class="modal" id="modal" aria-hidden="true">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+    <div class="dialog-head">
+      <h3 id="mdTitle">Yield Details</h3>
+      <button class="closex" id="mdClose" type="button">Back</button>
+    </div>
+    <div class="dialog-body" id="mdBody"></div>
+  </div>
+</div>
 
-    function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
-    function tw(c){ return c === "corn" ? 56 : 60; }
-    function defStd(c){ return c === "corn" ? 15.5 : 13.0; }
-    function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }catch(e){ return []; } }
-    function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
+<script>
+(function(){
+  "use strict";
+  if(window.__FV_COMBINE_V1__) return; window.__FV_COMBINE_V1__=true;
 
-    $("crop").addEventListener("change", function(e){ $("std").value = defStd(e.target.value); });
+  var SQFT_PER_ACRE=43560;
+  var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
+  var SOY_STD=13.0, SOY_TW=60;
 
-    function renderHist(){
-      var h = load(), no = $("nohist"), t = $("histTable"), tb = t.querySelector("tbody");
-      if(!h.length){ no.hidden = false; t.hidden = true; return; }
-      no.hidden = true; t.hidden = false; tb.innerHTML = "";
-      for(var i=0;i<h.length;i++){
-        var it = h[i];
-        var tr = document.createElement("tr");
-        tr.innerHTML =
-          "<td>" + new Date(it.t).toLocaleString() + "</td>" +
-          "<td>" + (it.crop==="corn"?"Corn":"Soy") + " - " + fmt(it.wt,0) + " lb at " + fmt(it.mc,1) + "%</td>" +
-          "<td>" + fmt(it.areaAc,4) + " ac</td>" +
-          "<td>" + fmt(it.bu,2) + " bu</td>" +
-          "<td>" + fmt(it.bpa,1) + " bu/ac</td>";
-        tb.appendChild(tr);
-      }
-    }
+  function $(id){ return document.getElementById(id); }
+  function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
+  function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
 
-    function computeAndShow(saveRun){
-      if(saveRun===void 0) saveRun = true;
-      var crop = $("crop").value;
-      var wt = parseFloat($("wt").value);
-      var mc = parseFloat($("mc").value);
-      var w = parseFloat($("w").value);
-      var l = parseFloat($("l").value);
-      var std = parseFloat($("std").value || defStd(crop));
-      if(!(wt>0 && w>0 && l>0 && mc>=0 && std>0)){ res.hidden = true; return; }
-      var areaAc = (w*l)/43560;
-      var dryWeight = wt * ((100 - mc)/(100 - std));
-      var bu = dryWeight / tw(crop);
-      var bpa = bu / areaAc;
+  var cropEl=$("crop"), modeEl=$("mode"), areaModeEl=$("areaMode");
+  var panes=[].slice.call(document.querySelectorAll("[data-pane]"));
+  function showPane(val){ panes.forEach(function(p){ p.classList.toggle("hidden", p.getAttribute("data-pane")!==val); }); }
+  areaModeEl.addEventListener("change", function(){ showPane(areaModeEl.value); });
 
-      $("areaAc").textContent = fmt(areaAc,4);
-      $("bu").textContent = fmt(bu,2);
-      $("bpa").textContent = fmt(bpa,1);
-      res.hidden = false;
+  var len=$("len"), wid=$("wid"), ac=$("ac"), wt=$("wt"), start=$("start");
+  [len,wid,ac,start].forEach(function(i){ i && i.addEventListener("blur", function(){ i.value=i.value.replace(/[^0-9.]/g,""); }); });
+  wt.addEventListener("blur", function(){ var raw=wt.value.replace(/,/g,"").replace(/[^\d]/g,""); wt.value=raw?Number(raw).toLocaleString():""; });
+  start.addEventListener("input", function(){ var s=start.value.replace(/[^\d.]/g,""); var parts=s.split("."); var a=(parts[0]||"").slice(0,2); var b=(parts[1]||"").slice(0,1); start.value=a+(b!=="" ? "."+b : (s.indexOf(".")>-1 ? "." : "")); });
+  start.addEventListener("blur", function(){ var s=start.value; if(!s) return; var m=s.match(/^(\d{1,2})(?:\.(\d))?$/); if(!m){ start.value=""; return; } var ip=m[1]; if(ip.length===1) ip="0"+ip; start.value=ip+"."+(m[2]?m[2]:"0"); });
 
-      if(saveRun){
-        var h = load();
-        h.unshift({t:Date.now(), crop:crop, wt:wt, mc:mc, w:w, l:l, std:std, areaAc:areaAc, bu:bu, bpa:bpa});
-        save(h); renderHist();
-      }
-    }
+  var results=$("results"), trueTile=$("trueTile"), elevTile=$("elevTile");
+  var trueY=$("trueY"), trueBu=$("trueBu"), elevY=$("elevY"), elevBu=$("elevBu");
 
-    var to = null;
-    for(var i=0;i<inputs.length;i++){
-      inputs[i].addEventListener("input", function(){
-        if(to) window.clearTimeout(to);
-        to = window.setTimeout(function(){ computeAndShow(true); }, 150);
-      });
-    }
-    $("clear").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+  function elevPct(crop, m){
+    if(crop!=="corn") return Math.max(0, (m-SOY_STD)*1.5); // simple soy placeholder
+    if(m<=CORN_STD) return 0; var used=Math.min(m, CORN_CAP_M); var pct=CORN_SLOPE*(used-CORN_STD); return Math.min(pct, CORN_CAP_SH);
+  }
 
-    renderHist();
-  })();
-  </script>
+  function calc(){
+    var crop=cropEl.value, mode=modeEl.value;
+    var areaA=0; if(areaModeEl.value==="lw"){ var L=num(len.value), W=num(wid.value); if(!(L>0 && W>0)) return alert("Enter length & width."), null; areaA=(L*W)/SQFT_PER_ACRE; }
+    else { areaA=num(ac.value); if(!(areaA>0)) return alert("Enter acres."), null; }
+    var Wt=Number(wt.value.replace(/,/g,"")); var M=parseFloat(start.value);
+    if(!(Wt>0 && M>0)) return alert("Enter wet weight and moisture."), null;
+
+    var std = (crop==="corn"?CORN_STD:SOY_STD), tw=(crop==="corn"?CORN_TW:SOY_TW);
+
+    var trueWt = Wt * ((100 - M)/(100 - std));
+    var trueBushels = trueWt / tw;
+    var trueYield = trueBushels / areaA;
+
+    var ePct = elevPct(crop, M);
+    var eWt = Wt * (1 - ePct/100);
+    var eBushels = eWt / tw;
+    var eYield = eBushels / areaA;
+
+    return { t:Date.now(), crop:crop, mode:mode, area:areaA, wt:Wt, m:M, trueY:trueYield, trueBu:trueBushels, elevY:eYield, elevBu:eBushels };
+  }
+
+  function show(o){
+    if(!o){ results.hidden=true; return; }
+    trueY.textContent = fmt(o.trueY,2)+" bu/ac"; trueBu.textContent = fmt(o.trueBu,2)+" bu";
+    elevY.textContent = fmt(o.elevY,2)+" bu/ac"; elevBu.textContent = fmt(o.elevBu,2)+" bu";
+    trueTile.style.display = (o.mode==="true") ? "block" : (o.mode==="elev" ? "none" : "block");
+    elevTile.style.display = (o.mode==="elev") ? "block" : (o.mode==="true" ? "none" : "block");
+    results.hidden=false; if(wt.value && wt.value.indexOf(",")===-1){ wt.dispatchEvent(new Event("blur")); }
+  }
+
+  /* history + modal */
+  var LS_KEY="fv_calc_combine_history", hlist=$("hlist"), nohist=$("nohist");
+  function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
+  function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
+  function summary(it){ return (it.crop==="corn"?"Corn":"Soy")+" "+fmt(it.area,3)+" ac, "+fmt(it.wt,0)+" lb @ "+fmt(it.m,1)+"% → T "+fmt(it.trueY,1)+" / E "+fmt(it.elevY,1)+" bu/ac"; }
+  function renderHist(){ var h=load(); hlist.innerHTML=""; if(!h.length){ nohist.hidden=false; return; } nohist.hidden=true;
+    h.forEach(function(it,idx){ var row=document.createElement("div"); row.className="hitem";
+      row.innerHTML='<div class="hsummary">'+summary(it)+'</div><button class="btn-link" data-idx="'+idx+'" type="button">View</button>'; hlist.appendChild(row); });
+    hlist.querySelectorAll("button[data-idx]").forEach(function(b){ b.addEventListener("click", function(ev){ var i=parseInt(b.getAttribute("data-idx"),10); openModal(load()[i], b); }); });
+  }
+  var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null;
+  function openModal(it, opener){
+    lastOpener=opener||null;
+    mdBody.innerHTML = '<div class="kv2">'
+      +'<div><strong>When</strong><br>'+new Date(it.t).toLocaleString()+'</div>'
+      +'<div><strong>Inputs</strong><br>'+(it.crop==="corn"?"Corn":"Soy")+' · '+fmt(it.area,3)+' ac · '+fmt(it.wt,0)+' lb @ '+fmt(it.m,1)+'%</div>'
+      +'<div><strong>True Yield</strong><br>'+fmt(it.trueY,2)+' bu/ac</div>'
+      +'<div><strong>True Bushels</strong><br>'+fmt(it.trueBu,2)+' bu</div>'
+      +'<div><strong>Elevator Yield</strong><br>'+fmt(it.elevY,2)+' bu/ac</div>'
+      +'<div><strong>Elevator Bushels</strong><br>'+fmt(it.elevBu,2)+' bu</div>'
+      +'</div>';
+    modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+    document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); mdClose.focus(); trapFocus(modal);
+  }
+  function closeModal(){ modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true"); document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll"); releaseFocus(modal); if(lastOpener) lastOpener.focus(); }
+  mdClose.addEventListener("click", closeModal); modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
+  document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
+
+  var trapHandler=null;
+  function trapFocus(root){ var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
+    if(!focusables.length) return; var first=focusables[0], last=focusables[focusables.length-1];
+    trapHandler=function(e){ if(e.key!=="Tab")return; if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();} else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}};
+    root.addEventListener("keydown", trapHandler); }
+  function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+
+  $("frm").addEventListener("submit", function(ev){ ev.preventDefault(); var out=calc(); show(out); if(out){ var h=load(); h.unshift(out); save(h); renderHist(); }});
+  $("clearInputs").addEventListener("click", function(){ [len,wid,ac,wt,start].forEach(function(i){ if(i) i.value=""; }); results.hidden=true; });
+  $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+  showPane(areaModeEl.value); renderHist();
+})();
+</script>
 </body>
 </html>
