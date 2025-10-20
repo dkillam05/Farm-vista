@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FarmVista - Chemical Mix</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../../manifest.webmanifest">
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<link rel="stylesheet" href="../../assets/css/app.css">
+<script defer src="../../js/theme-boot.js"></script>
+<script defer src="../../js/fv-shell.js"></script>
+<style>
+:root{ --page-bottom-gap:56px; --card-max:940px; --accent:#2F6C3C; --accent-2:#0F3B82; }
+html { -webkit-text-size-adjust: 100%; }
+body{ background: var(--app-bg, var(--surface)); }
+.wrap{ max-width: var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+  padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)); }
+.calc-card{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
+  box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; }
+.card-head{ display:flex; align-items:center; gap:12px; padding:14px 16px;
+  background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+  border-bottom:1px solid var(--border);}
+.card-head .icon{ width:28px;height:28px; color:var(--accent);}
+.card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2;}
+.muted{ color:var(--muted,#67706B); }
+form{ padding:16px; display:grid; gap:14px;}
+.grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+@media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
+label{ display:block; font-weight:600; margin-bottom:6px; }
+.ctrl{ display:flex; align-items:center; gap:8px; border:1px solid var(--border);
+  background:var(--card-surface,var(--surface)); border-radius:10px; padding:10px 12px;}
+input,select,button{ font-size:16px; } .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text);}
+.unit{ font-size:12px; color:var(--muted); white-space:nowrap;}
+.actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px;}
+.btn{ appearance:none; border:1px solid var(--border); background:var(--surface);
+  padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
+.btn-primary{ background:var(--accent); color:#fff; border-color:var(--accent);}
+.results{ padding:0 16px 16px;}
+.result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+@media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
+.tile{ border:1px solid var(--border); border-radius:12px; padding:12px; background:linear-gradient(180deg, rgba(47,108,60,.06), transparent 55%);}
+.tile h3{ margin:0 0 6px; font-size:16px; }
+.kv{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:baseline; }
+.kv .val{ font-weight:800; }
+.hist{ padding:16px; border-top:1px dashed var(--border); }
+.hlist{ display:grid; gap:8px; }
+.hitem{ display:flex; gap:10px; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface)); }
+.hsummary{ font-weight:700; }
+.muted-line{ font-size:12px; color:var(--muted); }
+.btn-link{ background:none; border:0; padding:0; text-decoration:underline; color:inherit; cursor:pointer; }
+.modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42); z-index:9999; transition:opacity .15s; opacity:0;}
+.modal[open]{ display:grid; opacity:1; }
+.dialog{ width:min(680px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
+  border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
+.dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;}
+.dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch;}
+.closex{ border:1px solid var(--border); background:var(--surface); border-radius:8px; padding:6px 10px; cursor:pointer; font-weight:700;}
+.kv2{ display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+@media (max-width:640px){ .kv2{ grid-template-columns:1fr; } }
+html.no-scroll, body.no-scroll{ overflow:hidden; }
+</style>
+</head>
+<body>
+<fv-shell>
+  <div class="wrap">
+    <div class="calc-card">
+      <div class="card-head">
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M5 3h14M7 3l2 4h6l2-4M7 7v11a3 3 0 003 3h4a3 3 0 003-3V7"></path>
+          </svg>
+        </div>
+        <div>
+          <h1>Chemical Mix</h1>
+          <div class="muted">Enter acres, carrier rate, and product rate. Optional: tank size for per-tank mix.</div>
+        </div>
+      </div>
+
+      <form id="frm" novalidate autocomplete="off">
+        <div class="grid">
+          <div>
+            <label for="acres">Field Area</label>
+            <div class="ctrl">
+              <input id="acres" type="text" inputmode="decimal" placeholder="e.g. 125">
+              <span class="unit">ac</span>
+            </div>
+          </div>
+
+          <div>
+            <label for="carrier">Carrier Rate</label>
+            <div class="ctrl">
+              <input id="carrier" type="text" inputmode="decimal" placeholder="e.g. 15">
+              <span class="unit">gal/ac</span>
+            </div>
+          </div>
+
+          <div>
+            <label for="prodRate">Product Rate</label>
+            <div class="ctrl">
+              <input id="prodRate" type="text" inputmode="decimal" placeholder="e.g. 32">
+              <span class="unit">
+                <select id="prodUnit" aria-label="Product Unit">
+                  <option value="oz">oz/ac</option>
+                  <option value="pt">pt/ac</option>
+                  <option value="qt">qt/ac</option>
+                  <option value="gal">gal/ac</option>
+                </select>
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label for="tank">Tank Size (optional)</label>
+            <div class="ctrl">
+              <input id="tank" type="text" inputmode="decimal" placeholder="e.g. 1000">
+              <span class="unit">gal</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn" id="clearInputs">Clear</button>
+          <button type="submit" class="btn btn-primary" id="doCalc">Calculate</button>
+        </div>
+      </form>
+
+      <div class="results" id="results" hidden>
+        <div class="result-grid">
+          <div class="tile">
+            <h3>Totals</h3>
+            <div class="kv">
+              <div>Total Water</div> <div class="val" id="totWater">- gal</div>
+              <div>Total Product</div> <div class="val" id="totProd">-</div>
+              <div>Total Product (gal)</div> <div class="val" id="totProdGal">- gal</div>
+            </div>
+          </div>
+          <div class="tile" id="tankTile" hidden>
+            <h3>Per Tank</h3>
+            <div class="kv">
+              <div>Acres / Tank</div> <div class="val" id="acPerTank">- ac</div>
+              <div>Tanks Needed</div> <div class="val" id="tanksNeed">-</div>
+              <div>Water / Tank</div> <div class="val" id="waterTank">- gal</div>
+              <div>Product / Tank</div> <div class="val" id="prodTank">-</div>
+              <div>Product / Tank (gal)</div> <div class="val" id="prodTankGal">- gal</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="hist">
+        <div style="display:flex;align-items:center;gap:10px">
+          <h2 style="flex:1">Previous Calculations</h2>
+          <button class="btn-link" id="clearHist" type="button">Clear History</button>
+        </div>
+        <div class="hlist" id="hlist"></div>
+        <div class="muted-line" id="nohist">No previous chem mix calculations.</div>
+      </section>
+    </div>
+  </div>
+</fv-shell>
+
+<div class="modal" id="modal" aria-hidden="true">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+    <div class="dialog-head">
+      <h3 id="mdTitle">Mix Details</h3>
+      <button class="closex" id="mdClose" type="button">Back</button>
+    </div>
+    <div class="dialog-body" id="mdBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  if (window.__FV_CHEMIX_V1__) return; window.__FV_CHEMIX_V1__ = true;
+
+  function $(id){ return document.getElementById(id); }
+  function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
+  function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
+
+  var acresEl=$("acres"), carrierEl=$("carrier"), prodRateEl=$("prodRate"), prodUnitEl=$("prodUnit"), tankEl=$("tank");
+
+  [acresEl,carrierEl,prodRateEl,tankEl].forEach(function(i){ i.addEventListener("blur", function(){ i.value=i.value.replace(/[^0-9.]/g,""); }); });
+
+  var totWater=$("totWater"), totProd=$("totProd"), totProdGal=$("totProdGal");
+  var acPerTank=$("acPerTank"), tanksNeed=$("tanksNeed"), waterTank=$("waterTank"), prodTank=$("prodTank"), prodTankGal=$("prodTankGal");
+  var results=$("results"), tankTile=$("tankTile");
+
+  var LS_KEY="fv_calc_chemix_history", hlist=$("hlist"), nohist=$("nohist");
+
+  function unitToGal(u){
+    if(u==="gal") return 1; if(u==="qt") return 0.25; if(u==="pt") return 0.125; /* 1 pt = 0.125 gal */
+    if(u==="oz") return 1/128; return 1;
+  }
+  function unitLabel(u){ return (u==="gal"?"gal":(u==="qt"?"qt":(u==="pt"?"pt":"oz"))); }
+
+  function calc(){
+    var ac = num(acresEl.value), car = num(carrierEl.value), pr = num(prodRateEl.value), u = prodUnitEl.value;
+    if(!(ac>0 && car>0 && pr>0)) { alert("Enter acres, carrier rate, and product rate."); return null; }
+    var tank = num(tankEl.value);
+    var prodRate_gal_ac = pr * unitToGal(u);
+    var totalWater = ac * car;
+    var totalProdGal = ac * prodRate_gal_ac;
+    var out = {
+      t:Date.now(), acres:ac, carrier:car, prodRate:pr, unit:u, tank:tank||0,
+      totalWater:totalWater, totalProdGal:totalProdGal
+    };
+    if(tank && tank>0){
+      var acresPerTank = tank / car;
+      var tanksNeeded = Math.ceil(ac / acresPerTank);
+      var waterPerTank = Math.min(tank, acresPerTank * car); // equals tank
+      var prodPerTankGal = acresPerTank * prodRate_gal_ac;
+      out.acresPerTank=acresPerTank; out.tanksNeeded=tanksNeeded; out.waterPerTank=waterPerTank; out.prodPerTankGal=prodPerTankGal;
+    }
+    return out;
+  }
+
+  function show(out){
+    if(!out){ results.hidden=true; return; }
+    totWater.textContent = fmt(out.totalWater,0)+" gal";
+    var u = unitLabel(out.unit);
+    var totalProdNative = out.totalProdGal / unitToGal(u);
+    totProd.textContent = fmt(totalProdNative,2)+" "+u;
+    totProdGal.textContent = fmt(out.totalProdGal,2)+" gal";
+
+    if(out.tank && out.tank>0){
+      tankTile.hidden=false;
+      acPerTank.textContent = fmt(out.acresPerTank,2)+" ac";
+      tanksNeed.textContent = fmt(out.tanksNeeded,0);
+      waterTank.textContent = fmt(out.waterPerTank,0)+" gal";
+      prodTank.textContent = fmt(out.prodPerTankGal / unitToGal(u),2)+" "+u;
+      prodTankGal.textContent = fmt(out.prodPerTankGal,2)+" gal";
+    } else {
+      tankTile.hidden=true;
+    }
+    results.hidden=false;
+  }
+
+  function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
+  function save(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
+
+  function summary(it){
+    var u = unitLabel(it.unit);
+    return fmt(it.acres,2)+" ac @ "+fmt(it.carrier,2)+" gpa, "+fmt(it.prodRate,2)+" "+u+"/ac"
+      + (it.tank? (" — tank "+fmt(it.tank,0)+" gal"): "");
+  }
+
+  function renderHist(){
+    var h=load(); hlist.innerHTML=""; if(!h.length){ nohist.hidden=false; return; } nohist.hidden=true;
+    h.forEach(function(it,idx){
+      var row=document.createElement("div"); row.className="hitem";
+      row.innerHTML='<div class="hsummary">'+summary(it)+'</div><button class="btn-link" data-idx="'+idx+'" type="button">View</button>';
+      hlist.appendChild(row);
+    });
+    hlist.querySelectorAll("button[data-idx]").forEach(function(b){
+      b.addEventListener("click", function(ev){ var i=parseInt(ev.currentTarget.getAttribute("data-idx"),10); openModal(load()[i], ev.currentTarget); });
+    });
+  }
+
+  var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null;
+  function openModal(it, opener){
+    lastOpener=opener||null;
+    var u = unitLabel(it.unit);
+    var html = '<div class="kv2">'
+      +'<div><strong>When</strong><br>'+new Date(it.t).toLocaleString()+'</div>'
+      +'<div><strong>Inputs</strong><br>'+fmt(it.acres,2)+' ac · '+fmt(it.carrier,2)+' gpa · '+fmt(it.prodRate,2)+' '+u+'/ac'
+      + (it.tank? (' · Tank '+fmt(it.tank,0)+' gal'):'') +'</div>'
+      +'<div><strong>Total Water</strong><br>'+fmt(it.totalWater,0)+' gal</div>'
+      +'<div><strong>Total Product</strong><br>'+fmt(it.totalProdGal / unitToGal(u),2)+' '+u+' ('+fmt(it.totalProdGal,2)+' gal)</div>'
+      + (it.tank? (
+          '<div><strong>Acres / Tank</strong><br>'+fmt(it.acresPerTank,2)+' ac</div>'
+        + '<div><strong>Tanks Needed</strong><br>'+fmt(it.tanksNeeded,0)+'</div>'
+        + '<div><strong>Water / Tank</strong><br>'+fmt(it.waterPerTank,0)+' gal</div>'
+        + '<div><strong>Product / Tank</strong><br>'+fmt(it.prodPerTankGal / unitToGal(u),2)+' '+u+' ('+fmt(it.prodPerTankGal,2)+' gal)</div>'
+      ):'')
+      +'</div>';
+    mdBody.innerHTML=html; modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+    document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); mdClose.focus(); trapFocus(modal);
+  }
+  function closeModal(){ modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+    document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll"); releaseFocus(modal);
+    if(lastOpener) lastOpener.focus(); }
+  mdClose.addEventListener("click", closeModal);
+  modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
+  document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
+
+  var trapHandler=null;
+  function trapFocus(root){
+    var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
+    if(!focusables.length) return; var first=focusables[0], last=focusables[focusables.length-1];
+    trapHandler=function(e){ if(e.key!=="Tab")return; if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();} else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}};
+    root.addEventListener("keydown", trapHandler);
+  }
+  function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+
+  $("frm").addEventListener("submit", function(ev){
+    ev.preventDefault();
+    var out=calc(); show(out);
+    if(out){ var h=load(); h.unshift(out); save(h); renderHist(); }
+  });
+  $("clearInputs").addEventListener("click", function(){ [acresEl,carrierEl,prodRateEl,tankEl].forEach(function(i){i.value="";}); results.hidden=true; });
+  $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+  renderHist();
+})();
+</script>
+</body>
+</html>
