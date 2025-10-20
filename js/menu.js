@@ -105,15 +105,15 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'eq-tractors',     icon: '🚜', label: 'Tractors',               href: '/Farm-vista/equipment/equipment-tractors.html' },
-        { type: 'link', id: 'eq-sprayers',     icon: '💦', label: 'Sprayers',               href: '/Farm-vista/equipment/equipment-sprayers.html' },
-        { type: 'link', id: 'eq-fertilizer',   icon: '🧂', label: 'Fertilizer Equipment',   href: '/Farm-vista/equipment/equipment-fertilizer.html' },
-        { type: 'link', id: 'eq-combines',     icon: '🌾', label: 'Combines',               href: '/Farm-vista/equipment/equipment-combines.html' },
-        { type: 'link', id: 'eq-implements',   icon: '⚙️', label: 'Implements',             href: '/Farm-vista/equipment/equipment-implements.html' },
-        { type: 'link', id: 'eq-construction', icon: '🏗️', label: 'Construction',          href: '/Farm-vista/equipment/equipment-construction.html' },
-        { type: 'link', id: 'eq-starfire',     icon: '🛰️', label: 'StarFire / Technology',  href: '/Farm-vista/equipment/equipment-starfire.html' },
-        { type: 'link', id: 'eq-trucks',       icon: '🚚', label: 'Trucks',                  href: '/Farm-vista/equipment/equipment-trucks.html' },
-        { type: 'link', id: 'eq-trailers',     icon: '🚛', label: 'Trailers',                href: '/Farm-vista/equipment/equipment-trailers.html' }
+        { type: 'link', id: 'eq-tractors',     icon: '🚜', label: 'Tractors',               href: '/Farm-vista/pages/equipment/equipment-tractors.html' },
+        { type: 'link', id: 'eq-sprayers',     icon: '💦', label: 'Sprayers',               href: '/Farm-vista/pages/equipment/equipment-sprayers.html' },
+        { type: 'link', id: 'eq-fertilizer',   icon: '🧂', label: 'Fertilizer Equipment',   href: '/Farm-vista/pages/equipment/equipment-fertilizer.html' },
+        { type: 'link', id: 'eq-combines',     icon: '🌾', label: 'Combines',               href: '/Farm-vista/pages/equipment/equipment-combines.html' },
+        { type: 'link', id: 'eq-implements',   icon: '⚙️', label: 'Implements',             href: '/Farm-vista/pages/equipment/equipment-implements.html' },
+        { type: 'link', id: 'eq-construction', icon: '🏗️', label: 'Construction',          href: '/Farm-vista/pages/equipment/equipment-construction.html' },
+        { type: 'link', id: 'eq-starfire',     icon: '🛰️', label: 'StarFire / Technology',  href: '/Farm-vista/pages/equipment/equipment-starfire.html' },
+        { type: 'link', id: 'eq-trucks',       icon: '🚚', label: 'Trucks',                  href: '/Farm-vista/pages/equipment/equipment-trucks.html' },
+        { type: 'link', id: 'eq-trailers',     icon: '🚛', label: 'Trailers',                href: '/Farm-vista/pages/equipment/equipment-trailers.html' }
       ]
     },
 
@@ -163,17 +163,17 @@ export const NAV_MENU = {
           collapsible: true,
           initialOpen: false,
           children: [
-            { type: 'link', id: 'teams-employees',       icon: '🧑🏼‍🌾',  label: 'Employees',        href: '/Farm-vista/teams-partners/teams-employees.html' },
-            { type: 'link', id: 'teams-sub-contractors', icon: '🧰',     label: 'Sub-Contractors',  href: '/Farm-vista/teams-partners/teams-sub-contractors.html' },
-            { type: 'link', id: 'teams-vendors',         icon: '🏪',     label: 'Vendors',          href: '/Farm-vista/teams-partners/teams-vendors.html' },
-            { type: 'link', id: 'teams-dictionary',      icon: '📖',     label: 'Dictionary',       href: '/Farm-vista/teams-partners/teams-dictionary.html' }
+            { type: 'link', id: 'teams-employees',       icon: '🧑🏼‍🌾',  label: 'Employees',        href: '/Farm-vista/pages/teams-partners/teams-employees.html' },
+            { type: 'link', id: 'teams-sub-contractors', icon: '🧰',     label: 'Sub-Contractors',  href: '/Farm-vista/pages/teams-partners/teams-sub-contractors.html' },
+            { type: 'link', id: 'teams-vendors',         icon: '🏪',     label: 'Vendors',          href: '/Farm-vista/pages/teams-partners/teams-vendors.html' },
+            { type: 'link', id: 'teams-dictionary',      icon: '📖',     label: 'Dictionary',       href: '/Farm-vista/pages/teams-partners/teams-dictionary.html' }
           ]
         },
 
         /* NEW: Vehicle Registration (added above Field Boundaries) */
         { type: 'link', id: 'office-vehicle-registration', icon: '🚗', label: 'Vehicle Registration', href: '/Farm-vista/pages/office/vehicle-registration.html', activeMatch: 'exact' },
 
-        { type: 'link', id: 'office-field-boundaries', icon: '🗺️', label: 'Field Boundaries', href: '#', activeMatch: 'starts-with' }
+        { type: 'link', id: 'office-field-boundaries', icon: '🗺️', label: 'Field Boundaries', href: '/Farm-vista/pages/office/field-boundaries.html', activeMatch: 'starts-with' }
       ]
     },
 
@@ -187,12 +187,12 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'calc-area',        icon: '📐', label: 'Area',                    href: '/Farm-vista/calculators/calc-area.html' },
-        { type: 'link', id: 'calc-bin',         icon: '🛢️', label: 'Grain Bin',               href: '/Farm-vista/calculators/calc-grain-bin.html' },
-        { type: 'link', id: 'calc-shrink',      icon: '📉', label: 'Grain Shrink',            href: '/Farm-vista/calculators/calc-grain-shrink.html' },
-        { type: 'link', id: 'calc-combine-yld', icon: '⚙️', label: 'Combine Yield Cal',       href: '/Farm-vista/calculators/calc-combine-yield.html' },
-        { type: 'link', id: 'calc-chem-mix',    icon: '🧪', label: 'Chemical Mix',            href: '/Farm-vista/calculators/calc-chemical-mix.html' },
-        { type: 'link', id: 'calc-trial-ylds',  icon: '🧬', label: 'Trial Yields',            href: '/Farm-vista/calculators/calc-trial-yields.html' }
+        { type: 'link', id: 'calc-area',        icon: '📐', label: 'Area',                    href: '/Farm-vista/pages/calculators/calc-area.html' },
+        { type: 'link', id: 'calc-bin',         icon: '🛢️', label: 'Grain Bin',               href: '/Farm-vista/pages/calculators/calc-grain-bin.html' },
+        { type: 'link', id: 'calc-shrink',      icon: '📉', label: 'Grain Shrink',            href: '/Farm-vista/pages/calculators/calc-grain-shrink.html' },
+        { type: 'link', id: 'calc-combine-yld', icon: '⚙️', label: 'Combine Yield Cal',       href: '/Farm-vista/pages/calculators/calc-combine-yield.html' },
+        { type: 'link', id: 'calc-chem-mix',    icon: '🧪', label: 'Chemical Mix',            href: '/Farm-vista/pages/calculators/calc-chemical-mix.html' },
+        { type: 'link', id: 'calc-trial-ylds',  icon: '🧬', label: 'Trial Yields',            href: '/Farm-vista/pages/calculators/calc-trial-yields.html' }
       ]
     },
 
@@ -206,9 +206,9 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'reports-custom',  icon: '🛠️', label: 'AI Reports (Custom)', href: '/Farm-vista/reports/reports-ai.html' },
-        { type: 'link', id: 'reports-predef',  icon: '📚', label: 'Predefined Reports',  href: '/Farm-vista/reports/reports-predefined.html' },
-        { type: 'link', id: 'reports-history', icon: '🗂️', label: 'AI Report History',   href: '/Farm-vista/reports/reports-ai-history.html' }
+        { type: 'link', id: 'reports-custom',  icon: '🛠️', label: 'AI Reports (Custom)', href: '/Farm-vista/pages/reports/reports-ai.html' },
+        { type: 'link', id: 'reports-predef',  icon: '📚', label: 'Predefined Reports',  href: '/Farm-vista/pages/reports/reports-predefined.html' },
+        { type: 'link', id: 'reports-history', icon: '🗂️', label: 'AI Report History',   href: '/Farm-vista/pages/reports/reports-ai-history.html' }
       ]
     },
 
