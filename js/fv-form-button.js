@@ -1,9 +1,7 @@
-<!-- /Farm-vista/js/fv-form-button.js -->
-/* <fv-form-button> v3.2.9 — form entry tile
-   Built-in icons via icon-svg:
-   'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'camera'
-   'reconcile-scale' (balance scale, MIT) — also aliased as 'reconcile' and 'reconcile-sync'
-   NEW: 'wrench' (maintenance), 'gauge' (engine-hours), 'checklist' (pre-check items)
+/* <fv-form-button> v3.2.11 — form entry tile
+   BASE: v3.2.10
+   Added icon: 'pin' (map/location pin, monochrome)
+   Aliases: 'location'→'pin', 'map-pin'→'pin', 'pin-drop'→'pin', 'update-location'→'pin'
 */
 (function () {
   const tpl = document.createElement('template');
@@ -50,7 +48,6 @@
         font-size:calc(clamp(40px,10vw,60px) + var(--icon-extra));
       }
 
-      /* SVG scales like text, responsive + tunable with --icon-extra */
       .icon svg{
         display:block;
         width:calc(clamp(40px,10vw,60px) + var(--icon-extra));
@@ -125,7 +122,7 @@
         <circle cx="17.3" cy="9.9" r="0.8" fill="currentColor"/>
       </svg>`,
 
-    /* ===== Reconcile (Balance Scale, Tabler Icons – MIT) ===== */
+    /* Reconcile (Balance Scale) */
     "reconcile-scale": `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M7 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -135,14 +132,14 @@
         <path d="M21 12l-3 -6l-3 6a3 3 0 0 0 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
 
-    /* ===== NEW: Maintenance (Wrench) ===== */
+    /* NEW: Maintenance (Wrench) */
     wrench: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M14.8 5.2a4.8 4.8 0 0 0-6.5 5.6L3.5 15.6a2.1 2.1 0 0 0 3 3l4.1-4.1a4.8 4.8 0 0 0 5.6-6.5l-2.1 2.1a2 2 0 1 1-2.8-2.8l2.1-2.1Z"
               fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
 
-    /* ===== NEW: Engine Hours (Gauge / Tachometer) ===== */
+    /* NEW: Engine Hours (Gauge) */
     gauge: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4.5 15.5a7.5 7.5 0 1 1 15 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
@@ -150,7 +147,7 @@
         <circle cx="12" cy="15.5" r="1.2" fill="currentColor"/>
       </svg>`,
 
-    /* ===== NEW: Pre-Check (Checklist / Clipboard) ===== */
+    /* NEW: Pre-Check (Checklist) */
     checklist: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect x="5" y="5" width="14" height="15" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -158,16 +155,29 @@
               fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M8 11l1.6 1.6L12 10.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M8 15h4.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>`,
+
+    /* NEW: Pin (Location) */
+    pin: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <!-- classic map-pin silhouette -->
+        <path d="M12 21s-5-6.1-5-9.5A5 5 0 0 1 12 6a5 5 0 0 1 5 5.5C17 14.9 12 21 12 21Z"
+              fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <circle cx="12" cy="11" r="1.9" fill="none" stroke="currentColor" stroke-width="1.7"/>
       </svg>`
   };
 
-  /* Aliases so existing pages keep working */
+  /* Aliases so existing and semantic names work */
   ICONS["reconcile"] = ICONS["reconcile-scale"];
   ICONS["reconcile-sync"] = ICONS["reconcile-scale"];
   ICONS["maintenance"] = ICONS["wrench"];
   ICONS["engine-hours"] = ICONS["gauge"];
   ICONS["pre-check"] = ICONS["checklist"];
   ICONS["seasonal-precheck"] = ICONS["checklist"];
+  ICONS["location"] = ICONS["pin"];
+  ICONS["map-pin"] = ICONS["pin"];
+  ICONS["pin-drop"] = ICONS["pin"];
+  ICONS["update-location"] = ICONS["pin"];
 
   class FVFormButton extends HTMLElement{
     static get observedAttributes(){ return ['label','icon','href','icon-svg']; }
@@ -183,17 +193,10 @@
 
     connectedCallback(){
       this._sync();
-
-      // Listen for shell theme changes and system dark mode
       document.addEventListener('fv:theme', this._onFVTheme);
       if (this._mq) this._mq.addEventListener('change', this._onMQ);
-
-      // React if <html> toggles classes/attributes
       this._mo = new MutationObserver(() => this._applyAccentFromTheme());
-      this._mo.observe(document.documentElement, {
-        attributes:true, attributeFilter:['class','data-theme']
-      });
-
+      this._mo.observe(document.documentElement, { attributes:true, attributeFilter:['class','data-theme'] });
       this._applyAccentFromTheme();
     }
 
@@ -220,13 +223,13 @@
           (key === 'gauge' || key === 'engine-hours') ? '10px' :
           (key === 'wrench' || key === 'maintenance') ? '6px' :
           (key === 'checklist' || key === 'pre-check' || key === 'seasonal-precheck') ? '8px' :
+          (key === 'pin' || key === 'location' || key === 'map-pin' || key === 'pin-drop' || key === 'update-location') ? '8px' :
           '0px';
 
         this.style.setProperty('--icon-extra', bump);
         iconHost.innerHTML = ICONS[key];
       } else {
         this.style.setProperty('--icon-extra', '0px');
-        // Fallback to old emoji/text icon prop if provided
         iconHost.textContent = this.getAttribute('icon') || '';
       }
     }
