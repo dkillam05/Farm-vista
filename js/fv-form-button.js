@@ -1,5 +1,4 @@
 <!-- /Farm-vista/js/fv-form-button.js -->
-<script>
 /* <fv-form-button> v3.2.9 — form entry tile
    Built-in icons via icon-svg:
    'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'camera'
@@ -250,4 +249,3 @@
     customElements.define('fv-form-button', FVFormButton);
   }
 })();
-</script>
