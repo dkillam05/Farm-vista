@@ -1,1 +1,167 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista - Grain Shrink</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+  <link rel="manifest" href="../../manifest.webmanifest">
+  <link rel="apple-touch-icon" href="../../assets/icons/apple-touch-icon.png">
+  <link rel="icon" href="../../assets/icons/icon-192.png">
+  <script defer src="../../js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../../assets/css/theme.css">
+  <link rel="stylesheet" href="../../assets/css/app.css">
+  <script defer src="../../js/fv-shell.js"></script>
+  <style>
+    :root { --page-bottom-gap: 56px; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)); }
+    h1 { margin: 8px 0 6px; font-size: clamp(22px,3.5vw,28px); }
+    .form { display: grid; gap: 12px; margin: 14px 0 18px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+    .out { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .muted { color: var(--muted, #67706B); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
+    .hist h2 { margin: 18px 0 8px; font-size: 18px; }
+    .hist .actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn-link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <h1>Grain Shrink</h1>
+      <p class="muted">Estimate shrink from starting to target moisture. Shows true moisture loss and linear elevator shrink.</p>
+
+      <div class="form">
+        <div class="row">
+          <label>Crop
+            <select id="crop">
+              <option value="corn">Corn (1.18% per pt)</option>
+              <option value="soy">Soybeans (1.5% per pt)</option>
+            </select>
+          </label>
+          <label>Wet Weight (lb)
+            <input id="wt" type="number" inputmode="decimal" step="any" min="0" autofocus>
+          </label>
+        </div>
+        <div class="row">
+          <label>Start Moisture (%)
+            <input id="start" type="number" inputmode="decimal" step="any" min="0" max="100">
+          </label>
+          <label>Target Moisture (%)
+            <input id="target" type="number" inputmode="decimal" step="any" min="0" max="100">
+          </label>
+        </div>
+        <div class="row">
+          <label>Elevator Shrink per Point (%)
+            <input id="perpt" type="number" inputmode="decimal" step="any" min="0" value="1.18">
+          </label>
+          <label>Test Weight (lb/bu)
+            <input id="tw" type="number" inputmode="decimal" step="any" min="0" value="56">
+          </label>
+        </div>
+      </div>
+
+      <div class="out" id="results" hidden>
+        <div><strong>True Dry Weight:</strong> <span id="trueWt">-</span> lb</div>
+        <div><strong>True Shrink:</strong> <span id="truePct">-</span>%</div>
+        <div><strong>Elevator Shrinked Weight:</strong> <span id="elevWt">-</span> lb</div>
+        <div><strong>Elevator Shrink:</strong> <span id="elevPct">-</span>%</div>
+        <div><strong>Bushels (True):</strong> <span id="trueBu">-</span> bu</div>
+      </div>
+
+      <section class="hist" id="history">
+        <div style="display:flex;align-items:center;gap:10px">
+          <h2 style="flex:1">Previous Calculations</h2>
+          <div class="actions"><button class="btn-link" id="clear">Clear</button></div>
+        </div>
+        <div class="muted" id="nohist">No previous shrink calculations.</div>
+        <table id="histTable" hidden><tbody></tbody></table>
+      </section>
+    </div>
+  </fv-shell>
+
+  <script>
+  (function(){
+    "use strict";
+    var LS_KEY = "fv_calc_shrink_history";
+    function $(id){ return document.getElementById(id); }
+    var inputs = [ $("crop"), $("wt"), $("start"), $("target"), $("perpt"), $("tw") ];
+    var res = $("results");
+
+    $("crop").addEventListener("change", function(e){
+      $("perpt").value = (e.target.value === "corn") ? 1.18 : 1.5;
+      $("tw").value    = (e.target.value === "corn") ? 56   : 60;
+    });
+
+    function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
+    function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }catch(e){ return []; } }
+    function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
+
+    function renderHist(){
+      var h = load(), no = $("nohist"), t = $("histTable"), tb = t.querySelector("tbody");
+      if(!h.length){ no.hidden = false; t.hidden = true; return; }
+      no.hidden = true; t.hidden = false; tb.innerHTML = "";
+      for(var i=0;i<h.length;i++){
+        var it = h[i];
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + new Date(it.t).toLocaleString() + "</td>" +
+          "<td>" + (it.crop==="corn"?"Corn":"Soy") + " " + fmt(it.wt,0) + " lb " + fmt(it.start,1) + "%->" + fmt(it.target,1) + "%</td>" +
+          "<td>True " + fmt(it.truePct,2) + "% (" + fmt(it.trueWt,0) + " lb)</td>" +
+          "<td>Elev " + fmt(it.elevPct,2) + "% (" + fmt(it.elevWt,0) + " lb)</td>" +
+          "<td>" + fmt(it.trueBu,2) + " bu @ " + fmt(it.tw) + " lb/bu</td>";
+        tb.appendChild(tr);
+      }
+    }
+
+    function computeAndShow(saveRun){
+      if(saveRun===void 0) saveRun = true;
+      var crop = $("crop").value;
+      var wt = parseFloat($("wt").value);
+      var start = parseFloat($("start").value);
+      var target = parseFloat($("target").value);
+      var perpt = parseFloat($("perpt").value);
+      var tw = parseFloat($("tw").value);
+      if(!(wt>0 && start>target && perpt>=0 && tw>0)){ res.hidden = true; return; }
+
+      var trueWt  = wt * ((100 - start)/(100 - target));
+      var truePct = (1 - trueWt/wt) * 100;
+
+      var points = start - target;
+      var elevPct = perpt * points;
+      var elevWt = wt * (1 - elevPct/100);
+
+      var trueBu = trueWt / tw;
+
+      $("trueWt").textContent = fmt(trueWt,0);
+      $("truePct").textContent = fmt(truePct,2);
+      $("elevWt").textContent = fmt(elevWt,0);
+      $("elevPct").textContent = fmt(elevPct,2);
+      $("trueBu").textContent = fmt(trueBu,2);
+      res.hidden = false;
+
+      if(saveRun){
+        var h = load();
+        h.unshift({t:Date.now(), crop:crop, wt:wt, start:start, target:target, perpt:perpt, tw:tw, trueWt:trueWt, truePct:truePct, elevWt:elevWt, elevPct:elevPct, trueBu:trueBu});
+        save(h); renderHist();
+      }
+    }
+
+    var to = null;
+    for(var i=0;i<inputs.length;i++){
+      inputs[i].addEventListener("input", function(){
+        if(to) window.clearTimeout(to);
+        to = window.setTimeout(function(){ computeAndShow(true); }, 150);
+      });
+    }
+    $("clear").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+    renderHist();
+  })();
+  </script>
+</body>
+</html>
