@@ -13,74 +13,243 @@
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/fv-shell.js"></script>
   <style>
-    :root { --page-bottom-gap: 56px; }
-    .wrap { max-width: 900px; margin: 0 auto; padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)); }
-    h1 { margin: 8px 0 6px; font-size: clamp(22px,3.5vw,28px); }
-    .form { display: grid; gap: 12px; margin: 14px 0 18px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
-    .out { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-    .muted { color: var(--muted, #67706B); }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
-    .hist h2 { margin: 18px 0 8px; font-size: 18px; }
-    .hist .actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .btn-link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+    :root{
+      --page-bottom-gap:56px;
+      --card-max:940px;
+      --accent:#2F6C3C; /* pulled from shell green family */
+      --soft:#e6efe9;
+    }
+    html { -webkit-text-size-adjust: 100%; }
+    body{ background: var(--app-bg, var(--surface)); }
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap));
+    }
+
+    /* Card */
+    .calc-card{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background: var(--surface);
+      box-shadow: var(--shadow, 0 8px 20px rgba(0,0,0,0.08));
+      overflow:hidden;
+    }
+    .card-head{
+      display:flex; align-items:center; gap:12px;
+      padding:14px 16px;
+      background: linear-gradient(90deg, rgba(47,108,60,0.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .card-head .icon{
+      width:28px;height:28px; line-height:0; color:var(--accent);
+    }
+    .card-head h1{
+      margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2;
+    }
+    .muted{ color:var(--muted, #67706B); }
+
+    /* Form layout */
+    form{ padding:16px; display:grid; gap:14px; }
+    .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width: 760px){ .grid{ grid-template-columns:1fr; } }
+
+    label{ display:block; font-weight:600; margin-bottom:6px; }
+    .ctrl{
+      display:flex; align-items:center; gap:8px;
+      border:1px solid var(--border); background:var(--card-surface, var(--surface));
+      border-radius:10px; padding:10px 12px;
+    }
+    .ctrl input, .ctrl select{
+      width:100%; border:0; outline:0; background:transparent;
+      font-size:16px; /* >=16 to prevent iOS zoom */
+      line-height:1.3; padding:2px 0;
+      color:var(--text);
+    }
+    .unit{ font-size:12px; color:var(--muted, #67706B); white-space:nowrap; }
+
+    /* Actions */
+    .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; }
+    .btn{
+      appearance:none; border:1px solid var(--border); background:var(--surface);
+      padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
+      transition: box-shadow .12s, transform .03s, background .12s, border-color .12s;
+    }
+    .btn:active{ transform: translateY(1px); }
+    .btn-primary{
+      background: var(--accent); color:#fff; border-color: var(--accent);
+    }
+    .btn-ghost{
+      background: transparent;
+    }
+
+    /* Results */
+    .results{ padding:0 16px 16px; }
+    .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width: 760px){ .result-grid{ grid-template-columns:1fr; } }
+
+    .tile{
+      border:1px solid var(--border); border-radius:12px; padding:12px;
+      background: linear-gradient(180deg, rgba(47,108,60,0.06), transparent 55%);
+    }
+    .tile h3{ margin:0 0 6px; font-size:16px; }
+    .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 12px; align-items:baseline; }
+    .kv div{ padding:2px 0; }
+    .kv .val{ font-weight:800; }
+
+    /* History */
+    .hist{ padding:16px; border-top:1px dashed var(--border); }
+    .hist h2{ margin:0 0 10px; font-size:16px; }
+    table{ width:100%; border-collapse:collapse; }
+    td,th{ padding:8px 6px; border-bottom:1px solid var(--border); text-align:left; }
+    .hist-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
+    .btn-link{ background:none; border:0; padding:0; text-decoration:underline; color:inherit; cursor:pointer; }
+
+    /* Focus styles */
+    .ctrl:focus-within{ box-shadow: 0 0 0 3px var(--soft); border-color: var(--accent); }
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="wrap">
-      <h1>Grain Shrink</h1>
-      <p class="muted">Estimate shrink from starting to target moisture. Shows true moisture loss and linear elevator shrink.</p>
+      <div class="calc-card">
+        <div class="card-head">
+          <div class="icon" aria-hidden="true">
+            <!-- Simple droplet + scale hybrid icon -->
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M7 20h10"></path>
+              <path d="M12 3v17"></path>
+              <path d="M6 6l6 -1l6 1"></path>
+              <path d="M9 12l-3 -6l-3 6a3 3 0 0 0 6 0"></path>
+              <path d="M21 12l-3 -6l-3 6a3 3 0 0 0 6 0"></path>
+            </svg>
+          </div>
+          <div>
+            <h1>Grain Shrink</h1>
+            <div class="muted">Compare True shrink vs Elevator shrink. Choose mode and calculate.</div>
+          </div>
+        </div>
 
-      <div class="form">
-        <div class="row">
-          <label>Crop
-            <select id="crop">
-              <option value="corn">Corn (1.18% per pt)</option>
-              <option value="soy">Soybeans (1.5% per pt)</option>
-            </select>
-          </label>
-          <label>Wet Weight (lb)
-            <input id="wt" type="number" inputmode="decimal" step="any" min="0" autofocus>
-          </label>
+        <!-- FORM -->
+        <form id="frm" novalidate>
+          <div class="grid">
+            <div>
+              <label for="crop">Crop</label>
+              <div class="ctrl">
+                <select id="crop">
+                  <option value="corn">Corn (TW 56 lb/bu, std 15.5%)</option>
+                  <option value="soy">Soybeans (TW 60 lb/bu, std 13.0%)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="mode">Shrink Mode</label>
+              <div class="ctrl">
+                <select id="mode">
+                  <option value="both">Compare Both</option>
+                  <option value="true">True Shrink Only</option>
+                  <option value="elev">Elevator Shrink Only</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="wt">Wet Weight</label>
+              <div class="ctrl">
+                <input id="wt" type="number" inputmode="decimal" step="any" min="0" placeholder="0">
+                <span class="unit">lb</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="start">Start Moisture</label>
+              <div class="ctrl">
+                <input id="start" type="number" inputmode="decimal" step="any" min="0" max="100" placeholder="e.g. 22">
+                <span class="unit">%</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="target">Target Moisture</label>
+              <div class="ctrl">
+                <input id="target" type="number" inputmode="decimal" step="any" min="0" max="100" placeholder="e.g. 15.5">
+                <span class="unit">%</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="perpt">Elevator Shrink per Point</label>
+              <div class="ctrl">
+                <input id="perpt" type="number" inputmode="decimal" step="any" min="0" value="1.18">
+                <span class="unit">% per pt</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="tw">Test Weight</label>
+              <div class="ctrl">
+                <input id="tw" type="number" inputmode="decimal" step="any" min="1" value="56">
+                <span class="unit">lb/bu</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="button" class="btn btn-ghost" id="clearInputs">Clear Inputs</button>
+            <button type="submit" class="btn btn-primary">Calculate</button>
+          </div>
+        </form>
+
+        <!-- RESULTS -->
+        <div class="results" id="results" hidden>
+          <div class="result-grid">
+            <div class="tile" id="trueTile">
+              <h3>True Shrink (to target moisture)</h3>
+              <div class="kv">
+                <div>Dry Weight</div> <div class="val" id="trueWt">- lb</div>
+                <div>Shrink</div>     <div class="val" id="truePct">- %</div>
+                <div>Bushels</div>    <div class="val" id="trueBu">- bu</div>
+              </div>
+            </div>
+
+            <div class="tile" id="elevTile">
+              <h3>Elevator Shrink (linear per point)</h3>
+              <div class="kv">
+                <div>Shrinked Weight</div> <div class="val" id="elevWt">- lb</div>
+                <div>Shrink</div>          <div class="val" id="elevPct">- %</div>
+                <div>Bushels</div>         <div class="val" id="elevBu">- bu</div>
+              </div>
+            </div>
+          </div>
+          <div class="muted" style="margin-top:8px">
+            Notes: True = wet * (100 - start) / (100 - target). Elevator = subtract linear % per point overage.
+          </div>
         </div>
-        <div class="row">
-          <label>Start Moisture (%)
-            <input id="start" type="number" inputmode="decimal" step="any" min="0" max="100">
-          </label>
-          <label>Target Moisture (%)
-            <input id="target" type="number" inputmode="decimal" step="any" min="0" max="100">
-          </label>
-        </div>
-        <div class="row">
-          <label>Elevator Shrink per Point (%)
-            <input id="perpt" type="number" inputmode="decimal" step="any" min="0" value="1.18">
-          </label>
-          <label>Test Weight (lb/bu)
-            <input id="tw" type="number" inputmode="decimal" step="any" min="0" value="56">
-          </label>
-        </div>
+
+        <!-- HISTORY -->
+        <section class="hist" id="history">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h2 style="flex:1">Previous Calculations</h2>
+            <div class="hist-actions">
+              <button class="btn-link" id="clearHist">Clear History</button>
+            </div>
+          </div>
+          <div class="muted" id="nohist">No previous shrink calculations.</div>
+          <table id="histTable" hidden>
+            <thead>
+              <tr>
+                <th>When</th><th>Crop</th><th>Wet lb</th>
+                <th>Start% -> Target%</th>
+                <th>True: lb / % / bu</th>
+                <th>Elev: lb / % / bu</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
       </div>
-
-      <div class="out" id="results" hidden>
-        <div><strong>True Dry Weight:</strong> <span id="trueWt">-</span> lb</div>
-        <div><strong>True Shrink:</strong> <span id="truePct">-</span>%</div>
-        <div><strong>Elevator Shrinked Weight:</strong> <span id="elevWt">-</span> lb</div>
-        <div><strong>Elevator Shrink:</strong> <span id="elevPct">-</span>%</div>
-        <div><strong>Bushels (True):</strong> <span id="trueBu">-</span> bu</div>
-      </div>
-
-      <section class="hist" id="history">
-        <div style="display:flex;align-items:center;gap:10px">
-          <h2 style="flex:1">Previous Calculations</h2>
-          <div class="actions"><button class="btn-link" id="clear">Clear</button></div>
-        </div>
-        <div class="muted" id="nohist">No previous shrink calculations.</div>
-        <table id="histTable" hidden><tbody></tbody></table>
-      </section>
     </div>
   </fv-shell>
 
@@ -89,17 +258,16 @@
     "use strict";
     var LS_KEY = "fv_calc_shrink_history";
     function $(id){ return document.getElementById(id); }
-    var inputs = [ $("crop"), $("wt"), $("start"), $("target"), $("perpt"), $("tw") ];
-    var res = $("results");
 
+    // Defaults by crop
     $("crop").addEventListener("change", function(e){
-      $("perpt").value = (e.target.value === "corn") ? 1.18 : 1.5;
-      $("tw").value    = (e.target.value === "corn") ? 56   : 60;
+      if (e.target.value === "corn") { $("perpt").value = 1.18; $("tw").value = 56; }
+      else { $("perpt").value = 1.5; $("tw").value = 60; }
     });
 
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }catch(e){ return []; } }
-    function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
+    function save(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
 
     function renderHist(){
       var h = load(), no = $("nohist"), t = $("histTable"), tb = t.querySelector("tbody");
@@ -110,55 +278,101 @@
         var tr = document.createElement("tr");
         tr.innerHTML =
           "<td>" + new Date(it.t).toLocaleString() + "</td>" +
-          "<td>" + (it.crop==="corn"?"Corn":"Soy") + " " + fmt(it.wt,0) + " lb " + fmt(it.start,1) + "%->" + fmt(it.target,1) + "%</td>" +
-          "<td>True " + fmt(it.truePct,2) + "% (" + fmt(it.trueWt,0) + " lb)</td>" +
-          "<td>Elev " + fmt(it.elevPct,2) + "% (" + fmt(it.elevWt,0) + " lb)</td>" +
-          "<td>" + fmt(it.trueBu,2) + " bu @ " + fmt(it.tw) + " lb/bu</td>";
+          "<td>" + (it.crop==="corn"?"Corn":"Soy") + "</td>" +
+          "<td>" + fmt(it.wt,0) + "</td>" +
+          "<td>" + fmt(it.start,1) + "% -> " + fmt(it.target,1) + "%</td>" +
+          "<td>" + fmt(it.trueWt,0) + " / " + fmt(it.truePct,2) + "% / " + fmt(it.trueBu,2) + "</td>" +
+          "<td>" + fmt(it.elevWt,0) + " / " + fmt(it.elevPct,2) + "% / " + fmt(it.elevBu,2) + "</td>";
         tb.appendChild(tr);
       }
     }
 
-    function computeAndShow(saveRun){
-      if(saveRun===void 0) saveRun = true;
+    function compute(){
       var crop = $("crop").value;
+      var mode = $("mode").value;
       var wt = parseFloat($("wt").value);
       var start = parseFloat($("start").value);
       var target = parseFloat($("target").value);
       var perpt = parseFloat($("perpt").value);
       var tw = parseFloat($("tw").value);
-      if(!(wt>0 && start>target && perpt>=0 && tw>0)){ res.hidden = true; return; }
 
-      var trueWt  = wt * ((100 - start)/(100 - target));
+      if(!(wt>0 && start>target && perpt>=0 && tw>0)){
+        alert("Please enter valid values. Wet>0, Start>Target, TW>0.");
+        return null;
+      }
+
+      // True shrink
+      var trueWt = wt * ((100 - start)/(100 - target));
       var truePct = (1 - trueWt/wt) * 100;
+      var trueBu = trueWt / tw;
 
+      // Elevator shrink
       var points = start - target;
       var elevPct = perpt * points;
       var elevWt = wt * (1 - elevPct/100);
+      var elevBu = elevWt / tw;
 
-      var trueBu = trueWt / tw;
+      return {
+        crop: crop, mode: mode, wt: wt, start: start, target: target,
+        perpt: perpt, tw: tw,
+        trueWt: trueWt, truePct: truePct, trueBu: trueBu,
+        elevWt: elevWt, elevPct: elevPct, elevBu: elevBu
+      };
+    }
 
-      $("trueWt").textContent = fmt(trueWt,0);
-      $("truePct").textContent = fmt(truePct,2);
-      $("elevWt").textContent = fmt(elevWt,0);
-      $("elevPct").textContent = fmt(elevPct,2);
-      $("trueBu").textContent = fmt(trueBu,2);
-      res.hidden = false;
+    function show(res){
+      var results = $("results");
+      if(!res){ results.hidden = true; return; }
+      var mode = res.mode;
 
-      if(saveRun){
+      // Fill values
+      $("trueWt").textContent  = fmt(res.trueWt,0) + " lb";
+      $("truePct").textContent = fmt(res.truePct,2) + " %";
+      $("trueBu").textContent  = fmt(res.trueBu,2) + " bu";
+
+      $("elevWt").textContent  = fmt(res.elevWt,0) + " lb";
+      $("elevPct").textContent = fmt(res.elevPct,2) + " %";
+      $("elevBu").textContent  = fmt(res.elevBu,2) + " bu";
+
+      // Toggle tiles by mode
+      $("trueTile").style.display = (mode === "true") ? "block" : (mode === "elev" ? "none" : "block");
+      $("elevTile").style.display = (mode === "elev") ? "block" : (mode === "true" ? "none" : "block");
+
+      results.hidden = false;
+    }
+
+    // Submit handler: manual Calculate
+    $("frm").addEventListener("submit", function(ev){
+      ev.preventDefault();
+      var out = compute();
+      show(out);
+      if(out){
         var h = load();
-        h.unshift({t:Date.now(), crop:crop, wt:wt, start:start, target:target, perpt:perpt, tw:tw, trueWt:trueWt, truePct:truePct, elevWt:elevWt, elevPct:elevPct, trueBu:trueBu});
-        save(h); renderHist();
+        h.unshift({ t: Date.now(),
+          crop: out.crop, wt: out.wt, start: out.start, target: out.target,
+          perpt: out.perpt, tw: out.tw,
+          trueWt: out.trueWt, truePct: out.truePct, trueBu: out.trueBu,
+          elevWt: out.elevWt, elevPct: out.elevPct, elevBu: out.elevBu
+        });
+        save(h);
+        renderHist();
       }
-    }
+    });
 
-    var to = null;
-    for(var i=0;i<inputs.length;i++){
-      inputs[i].addEventListener("input", function(){
-        if(to) window.clearTimeout(to);
-        to = window.setTimeout(function(){ computeAndShow(true); }, 150);
-      });
-    }
-    $("clear").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+    // Clear inputs
+    $("clearInputs").addEventListener("click", function(){
+      $("wt").value = "";
+      $("start").value = "";
+      $("target").value = "";
+      // keep perpt and tw and dropdowns
+      $("results").hidden = true;
+    });
+
+    // Clear history
+    $("clearHist").addEventListener("click", function(){
+      localStorage.removeItem(LS_KEY);
+      renderHist();
+    });
 
     renderHist();
   })();
