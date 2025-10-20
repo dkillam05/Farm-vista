@@ -12,13 +12,14 @@
   <script defer src="../../js/fv-shell.js"></script>
   <style>
     :root{
-      --page-bottom-gap: 96px;    /* big cushion above fixed footer */
+      --page-bottom-gap: 96px;  /* extra cushion above fixed footer */
       --card-max: 940px;
       --accent: #2F6C3C;
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
 
+    /* Only the white content scrolls; header/footer stay fixed via fv-shell */
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
@@ -60,10 +61,16 @@
     .hidden{ display:none !important; }
 
     .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; }
-    .btn{ appearance:none; border:1px solid var(--border); background:var(--surface);
-      padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
-    .btn-primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
-    .btn-link{ background:none; border:0; padding:0; text-decoration:underline; color:inherit; cursor:pointer; }
+    .btn{
+      appearance:none; border:1px solid var(--border); background:var(--surface);
+      padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
+      color: var(--text) !important;                /* <- ensure NOT blue */
+    }
+    .btn-primary{ background:var(--accent); color:#fff !important; border-color:var(--accent); }
+    .btn-link{
+      background:none; border:0; padding:0; text-decoration:underline; cursor:pointer;
+      color: var(--text) !important;                /* <- ensure NOT blue */
+    }
 
     .results{ padding:0 16px 16px; }
     .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
@@ -81,7 +88,7 @@
     .hsummary{ font-weight:700; }
     .muted-line{ font-size:12px; color:var(--muted); }
 
-    /* Modal */
+    /* Centered modal */
     .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
       z-index:9999; transition:opacity .15s; opacity:0; }
     .modal[open]{ display:grid; opacity:1; }
@@ -90,7 +97,10 @@
     .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border);
       display:flex; justify-content:space-between; align-items:center; }
     .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
-    .closex{ border:1px solid var(--border); background:var(--surface); border-radius:8px; padding:6px 10px; cursor:pointer; font-weight:700; }
+    .closex{
+      border:1px solid var(--border); background:var(--surface); border-radius:10px;
+      padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important;  /* <- ensure NOT blue */
+    }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
   </style>
 </head>
@@ -100,13 +110,17 @@
       <div class="calc-card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
-              <path d="M4 20c4-3 6-6 8-10 2 4 4 7 8 10M12 10V4M6 12V6m12 8V8" stroke-linecap="round"/>
+            <!-- Ear of corn (stroke-only, theme-aware) -->
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3c3 2 3.8 5.7 3.2 9.3-.6 3.7-2.9 6.9-7.2 8.7 1.4-2.9 1.4-5.9.5-8.7C7.7 9.1 9.3 5.7 12 3z"/>
+              <path d="M9 9c2 0 3 .8 3 2M8.5 12.5c1.6-.2 3 .3 3.7 1.5M8 15.5c1.6-.2 2.8.2 3.4 1.3"/>
+              <path d="M14 7c2.6.6 4.6 2.6 5.5 5.2-2.7-.6-5 .1-6.7 1.8"/>
+              <path d="M6.2 20.6c.8-3.4-.2-6.7-2.7-9.6 3.6.4 6.2 2.1 7.7 4.6"/>
             </svg>
           </div>
           <div>
             <h1>Combine Yield</h1>
-            <div class="muted">Choose area input (Length × Width with **Cut Width** dropdown) or Acres. Enter wet weight & moisture. Calculate.</div>
+            <div class="muted">Choose area input (Length × Width with <strong>Cut Width</strong> dropdown) or Acres. Enter wet weight & moisture. Calculate.</div>
           </div>
         </div>
 
@@ -148,7 +162,7 @@
             <div data-pane="lw">
               <label for="len">Cut Length</label>
               <div class="ctrl">
-                <input id="len" type="text" inputmode="decimal" placeholder="e.g. 1320">
+                <input id="len" type="text" inputmode="decimal" placeholder="e.g. 1,320">
                 <span class="unit">ft</span>
               </div>
             </div>
@@ -205,19 +219,19 @@
             <div class="tile" id="trueTile">
               <h3>True Shrink Yield</h3>
               <div class="kv">
-                <div>Yield</div> <div class="val" id="trueY">- bu/ac</div>
+                <div>Yield</div>  <div class="val" id="trueY">- bu/ac</div>
                 <div>Bushels</div> <div class="val" id="trueBu">- bu</div>
               </div>
             </div>
             <div class="tile" id="elevTile">
               <h3>Elevator Shrink Yield</h3>
               <div class="kv">
-                <div>Yield</div> <div class="val" id="elevY">- bu/ac</div>
+                <div>Yield</div>  <div class="val" id="elevY">- bu/ac</div>
                 <div>Bushels</div> <div class="val" id="elevBu">- bu</div>
               </div>
             </div>
           </div>
-          <div class="muted" style="margin-top:8px">Elevator (corn): linear from 15.5% to 29% (21% shrink), capped at 40%.</div>
+          <div class="muted" style="margin-top:8px">Elevator (corn): linear from 15.5% to 29% (21% shrink), capped at 40% moisture.</div>
         </div>
 
         <!-- HISTORY -->
@@ -247,7 +261,7 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_COMBINE_ADV_V2__) return; window.__FV_COMBINE_ADV_V2__=true;
+    if(window.__FV_COMBINE_ADV_V3__) return; window.__FV_COMBINE_ADV_V3__=true;
 
     var SQFT_PER_ACRE=43560;
     var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
@@ -267,11 +281,13 @@
     function showPane(val){ panes.forEach(function(p){ p.classList.toggle("hidden", p.getAttribute("data-pane")!==val); }); }
     areaModeEl.addEventListener("change", function(){ showPane(areaModeEl.value); });
 
-    // Sanitize inputs
-    [len, ac, start].forEach(function(i){ i && i.addEventListener("blur", function(){ i.value=i.value.replace(/[^0-9.]/g,""); }); });
+    // Sanitize + format
+    [len, ac].forEach(function(i){ if(!i) return;
+      i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; });
+    });
     wt.addEventListener("blur", function(){ var raw=wt.value.replace(/,/g,"").replace(/[^\d]/g,""); wt.value=raw?Number(raw).toLocaleString():""; });
 
-    // Moisture format: always XX.X (two digits + one decimal)
+    // Moisture: always XX.X
     start.addEventListener("input", function(){
       var s=start.value.replace(/[^\d.]/g,""); var parts=s.split(".");
       var a=(parts[0]||"").slice(0,2); var b=(parts[1]||"").slice(0,1);
@@ -293,7 +309,7 @@
       var areaA=0;
 
       if(areaModeEl.value==="lw"){
-        var L=num(len.value), Wft=parseFloat(wid.value); // wid is dropdown in feet
+        var L=num(len.value), Wft=parseFloat(wid.value);
         if(!(L>0 && Wft>0)) { alert("Enter cut length and choose a cut width."); return null; }
         areaA=(L * Wft)/SQFT_PER_ACRE;
       } else {
@@ -328,7 +344,7 @@
     }
 
     /* History + modal */
-    var LS_KEY="fv_calc_combine_history_v2", hlist=$("hlist"), nohist=$("nohist");
+    var LS_KEY="fv_calc_combine_history_v3", hlist=$("hlist"), nohist=$("nohist");
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
