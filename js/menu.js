@@ -164,11 +164,15 @@ export const NAV_MENU = {
           initialOpen: false,
           children: [
             { type: 'link', id: 'teams-employees',       icon: '🧑🏼‍🌾',  label: 'Employees',        href: '/Farm-vista/teams-partners/teams-employees.html' },
-            { type: 'link', id: 'teams-sub-contractors', icon: '🧰',  label: 'Sub-Contractors',  href: '/Farm-vista/teams-partners/teams-sub-contractors.html' },
-            { type: 'link', id: 'teams-vendors',         icon: '🏪',  label: 'Vendors',          href: '/Farm-vista/teams-partners/teams-vendors.html' },
-            { type: 'link', id: 'teams-dictionary',      icon: '📖',  label: 'Dictionary',       href: '/Farm-vista/teams-partners/teams-dictionary.html' }
+            { type: 'link', id: 'teams-sub-contractors', icon: '🧰',     label: 'Sub-Contractors',  href: '/Farm-vista/teams-partners/teams-sub-contractors.html' },
+            { type: 'link', id: 'teams-vendors',         icon: '🏪',     label: 'Vendors',          href: '/Farm-vista/teams-partners/teams-vendors.html' },
+            { type: 'link', id: 'teams-dictionary',      icon: '📖',     label: 'Dictionary',       href: '/Farm-vista/teams-partners/teams-dictionary.html' }
           ]
         },
+
+        /* NEW: Vehicle Registration (added above Field Boundaries) */
+        { type: 'link', id: 'office-vehicle-registration', icon: '🚗', label: 'Vehicle Registration', href: '/Farm-vista/pages/office/vehicle-registration.html', activeMatch: 'exact' },
+
         { type: 'link', id: 'office-field-boundaries', icon: '🗺️', label: 'Field Boundaries', href: '#', activeMatch: 'starts-with' }
       ]
     },
@@ -233,6 +237,7 @@ export const NAV_MENU = {
             { type: 'link', id: 'setup-prod-grainbags',  icon: '👝', label: 'Grain Bags',  href: '#', activeMatch: 'starts-with' }
           ]
         },
+
         { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
         { type: 'link', id: 'setup-farms',         icon: '🏷️', label: 'Farms',        href: '#', activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-fields',        icon: '🗺️', label: 'Fields',       href: '#', activeMatch: 'starts-with' },
