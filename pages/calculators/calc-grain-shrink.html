@@ -161,16 +161,16 @@
             </div>
 
             <div class="tile" id="elevTile">
-              <h3>Elevator Shrink (FarmVista curve)</h3>
+              <h3>Elevator Shrink (Linear @29% anchor, 40% cap)</h3>
               <div class="kv">
-                <div>Shrinked Weight</div> <div class="val" id="elevWt">- lb</div>
-                <div>Shrink</div>          <div class="val" id="elevPct">- %</div>
-                <div>Bushels</div>         <div class="val" id="elevBu">- bu</div>
+                <div>Shrunk Weight</div> <div class="val" id="elevWt">- lb</div>
+                <div>Shrink</div>        <div class="val" id="elevPct">- %</div>
+                <div>Bushels</div>       <div class="val" id="elevBu">- bu</div>
               </div>
             </div>
           </div>
           <div class="muted" style="margin-top:8px">
-            Notes: True = wet * (100 - start) / (100 - std). Elevator = nonlinear rate per overage point (tunable).
+            Notes: True = wet × (100 − start)/(100 − std). Corn elevator = slope(1.5556%/pt) × (min(moist,40) − 15.5).
           </div>
         </div>
 
@@ -202,45 +202,30 @@
   (function(){
     "use strict";
 
-    /* ===== Standards + Elevator curve (tuned, edit here) ===== */
+    /* ===== Constants from your spec ===== */
+    // Corn
+    var CORN_STD_MOIST = 15.5;     // base (no shrink at/below this)
+    var CORN_REF_MOIST = 29.0;     // anchor moisture
+    var CORN_REF_SHRINK = 21.0;    // % shrink at 29.0%
+    var CORN_CAP_MOIST = 40.0;     // cap moisture for linear curve
+    var CORN_SLOPE = CORN_REF_SHRINK / (CORN_REF_MOIST - CORN_STD_MOIST); // ≈ 1.5556 %/pt
+    var CORN_CAP_SHRINK = CORN_SLOPE * (CORN_CAP_MOIST - CORN_STD_MOIST); // ≈ 38.1111%
+
+    // Soy (placeholder simple linear; send your schedule if different)
+    var SOY_STD_MOIST = 13.0;
+    var SOY_SLOPE = 1.5;           // % per point
+    var SOY_CAP_MOIST = 30.0;      // soft cap
+
     var STANDARDS = {
-      corn: { std:15.5, tw:56, name:"Corn" },
-      soy:  { std:13.0, tw:60, name:"Soybeans" }
+      corn: { std: CORN_STD_MOIST, tw: 56, name: "Corn" },
+      soy:  { std: SOY_STD_MOIST,  tw: 60, name: "Soybeans" }
     };
 
-    // Nonlinear elevator curve (per-point rates). Anchored so that at ~29% corn
-    // (~13.5 points over 15.5) we are appreciably heavier than true shrink.
-    var ELEV_CURVE = {
-      corn: [
-        { upToPts: 2.0,  rate: 1.18 }, // 15.6–17.5
-        { upToPts: 5.0,  rate: 1.40 }, // 17.6–20.5
-        { upToPts: 10.0, rate: 1.75 }, // 20.6–25.5
-        { upToPts: 13.5, rate: 2.05 }, // 25.6–29.0  (your callout)
-        { upToPts: 99.0, rate: 2.30 }  // >29.0
-      ],
-      soy: [
-        { upToPts: 2.0,  rate: 1.50 },
-        { upToPts: 5.0,  rate: 1.65 },
-        { upToPts: 9.0,  rate: 1.85 },
-        { upToPts: 99.0, rate: 2.10 }
-      ]
-    };
-
-    function elevPercent(crop, overPts){
-      var table = ELEV_CURVE[crop] || [];
-      var remain = overPts; var pct = 0;
-      for(var i=0;i<table.length && remain>0;i++){
-        var startBound = (i ? table[i-1].upToPts : 0);
-        var span = Math.min(remain, table[i].upToPts - startBound);
-        if(span > 0){ pct += table[i].rate * span; remain -= span; }
-      }
-      return pct;
-    }
-
-    /* ===== DOM helpers ===== */
+    /* ===== Helpers ===== */
     function $(id){ return document.getElementById(id); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
 
+    /* ===== DOM ===== */
     var cropEl=$("crop"), modeEl=$("mode"), wtEl=$("wt"), startEl=$("start");
     var results=$("results"), trueTile=$("trueTile"), elevTile=$("elevTile");
     var trueWt=$("trueWt"), truePct=$("truePct"), trueBu=$("trueBu");
@@ -274,25 +259,35 @@
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }catch(e){ return []; } }
     function save(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
 
+    /* ===== Elevator shrink per your linear spec ===== */
+    function elevatorShrinkPct(crop, moist){
+      if(crop === "corn"){
+        if(moist <= CORN_STD_MOIST) return 0;
+        var used = Math.min(moist, CORN_CAP_MOIST);
+        var pct = CORN_SLOPE * (used - CORN_STD_MOIST);
+        return Math.min(pct, CORN_CAP_SHRINK);
+      } else { // soy placeholder
+        if(moist <= SOY_STD_MOIST) return 0;
+        var usedSoy = Math.min(moist, SOY_CAP_MOIST);
+        return SOY_SLOPE * (usedSoy - SOY_STD_MOIST);
+      }
+    }
+
     /* ===== Compute ===== */
     function compute(){
-      var crop = cropEl.value;
-      var s = STANDARDS[crop];
-      var mode = modeEl.value;
+      var crop = cropEl.value, s = STANDARDS[crop], mode = modeEl.value;
       var wt = Number((wtEl.value||"").replace(/,/g,""));
       var start = parseFloat(startEl.value);
-
       if(!(wt>0 && start>0)){ alert("Enter wet weight and start moisture."); return null; }
       if(start <= s.std){ alert("Start moisture must be greater than standard moisture ("+s.std+"%)."); return null; }
 
-      // True
+      // True -> to standard moisture
       var tWt = wt * ((100 - start)/(100 - s.std));
       var tPct = (1 - tWt/wt) * 100;
       var tBu = tWt / s.tw;
 
-      // Elevator via curve
-      var overPts = start - s.std;
-      var ePct = elevPercent(crop, overPts);
+      // Elevator -> your linear curve
+      var ePct = elevatorShrinkPct(crop, start);
       var eWt = wt * (1 - ePct/100);
       var eBu = eWt / s.tw;
 
@@ -314,11 +309,11 @@
       elevTile.style.display = (res.mode==="elev") ? "block" : (res.mode==="true" ? "none" : "block");
       results.hidden = false;
 
-      // ensure commas in the wt box after calc
+      // Ensure commas remain in the input
       if(wtEl.value && wtEl.value.indexOf(",")===-1){ wtEl.dispatchEvent(new Event("blur")); }
     }
 
-    /* ===== History ===== */
+    /* ===== History (single-line summary + modal) ===== */
     function summaryLine(it){
       return it.cropName+" "+fmt(it.wt,0)+" lb, "+fmt(it.start,1)+"% (T "+fmt(it.truePct,2)+"% / E "+fmt(it.elevPct,2)+"%)";
     }
@@ -344,7 +339,7 @@
       }
     }
 
-    /* ===== Modal (scrollable + freeze bg) ===== */
+    /* ===== Modal (scrollable + background freeze) ===== */
     function openModal(it){
       var html = ''
         + '<div class="kv2">'
