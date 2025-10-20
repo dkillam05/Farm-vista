@@ -1,7 +1,10 @@
-/* <fv-form-button> v3.2.7 — form entry tile
+<!-- /Farm-vista/js/fv-form-button.js -->
+<script>
+/* <fv-form-button> v3.2.8 — form entry tile
    Icons via icon-svg:
    'plus' | 'minus' | 'edit' | 'import' | 'report' | 'done' | 'done-box' | 'camera'
    'reconcile-scale' (balance scale, MIT) — also aliased as 'reconcile' and 'reconcile-sync'
+   NEW: 'wrench' (maintenance), 'gauge' (engine-hours), 'checklist' (pre-check items)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -123,7 +126,7 @@
         <circle cx="17.3" cy="9.9" r="0.8" fill="currentColor"/>
       </svg>`,
 
-    /* ===== NEW: Reconcile (Balance Scale, Tabler Icons – MIT) ===== */
+    /* ===== Reconcile (Balance Scale, Tabler Icons – MIT) ===== */
     "reconcile-scale": `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M7 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -131,12 +134,41 @@
         <path d="M12 3v17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M9 12l-3 -6l-3 6a3 3 0 0 0 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M21 12l-3 -6l-3 6a3 3 0 0 0 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+
+    /* ===== NEW: Maintenance (Wrench) ===== */
+    wrench: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M14.8 5.2a4.8 4.8 0 0 0-6.5 5.6L3.5 15.6a2.1 2.1 0 0 0 3 3l4.1-4.1a4.8 4.8 0 0 0 5.6-6.5l-2.1 2.1a2 2 0 1 1-2.8-2.8l2.1-2.1Z"
+              fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+
+    /* ===== NEW: Engine Hours (Gauge / Tachometer) ===== */
+    gauge: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.5 15.5a7.5 7.5 0 1 1 15 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M12 12l4-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="12" cy="15.5" r="1.2" fill="currentColor"/>
+      </svg>`,
+
+    /* ===== NEW: Pre-Check (Checklist / Clipboard) ===== */
+    checklist: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="5" y="5" width="14" height="15" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M9 4h6a1 1 0 0 1 1 1v0a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v0a1 1 0 0 1 1-1Z"
+              fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8 11l1.6 1.6L12 10.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8 15h4.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
       </svg>`
   };
 
-  /* Aliases so existing pages keep working, but now show the scale */
+  /* Aliases so existing pages keep working (and new semantic names just work) */
   ICONS["reconcile"] = ICONS["reconcile-scale"];
   ICONS["reconcile-sync"] = ICONS["reconcile-scale"];
+  ICONS["maintenance"] = ICONS["wrench"];
+  ICONS["engine-hours"] = ICONS["gauge"];
+  ICONS["pre-check"] = ICONS["checklist"];
+  ICONS["seasonal-precheck"] = ICONS["checklist"];
 
   class FVFormButton extends HTMLElement{
     static get observedAttributes(){ return ['label','icon','href','icon-svg']; }
@@ -187,6 +219,9 @@
         const bump =
           (key === 'report') ? '8px' :
           (key === 'reconcile-scale' || key === 'reconcile' || key === 'reconcile-sync') ? '12px' :
+          (key === 'gauge' || key === 'engine-hours') ? '10px' :
+          (key === 'wrench' || key === 'maintenance') ? '6px' :
+          (key === 'checklist' || key === 'pre-check' || key === 'seasonal-precheck') ? '8px' :
           '0px';
 
         this.style.setProperty('--icon-extra', bump);
@@ -216,3 +251,4 @@
     customElements.define('fv-form-button', FVFormButton);
   }
 })();
+</script>
