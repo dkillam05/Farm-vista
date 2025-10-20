@@ -4,149 +4,244 @@
   <meta charset="utf-8">
   <title>FarmVista - Trial Yields</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3B7E46">
   <link rel="manifest" href="../../manifest.webmanifest">
-  <link rel="apple-touch-icon" href="../../assets/icons/apple-touch-icon.png">
-  <link rel="icon" href="../../assets/icons/icon-192.png">
-  <script defer src="../../js/theme-boot.js"></script>
   <link rel="stylesheet" href="../../assets/css/theme.css">
   <link rel="stylesheet" href="../../assets/css/app.css">
+  <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
   <style>
-    :root { --page-bottom-gap: 56px; }
-    .wrap { max-width: 900px; margin: 0 auto; padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)); }
-    h1 { margin: 8px 0 6px; font-size: clamp(22px,3.5vw,28px); }
-    .form { display: grid; gap: 12px; margin: 14px 0 18px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
-    .out { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-    .muted { color: var(--muted, #67706B); }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
-    .hist h2 { margin: 18px 0 8px; font-size: 18px; }
-    .hist .actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .btn-link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+    :root{ --page-bottom-gap:56px; --card-max:940px; --accent:#2F6C3C; --accent-2:#0F3B82; }
+    html{-webkit-text-size-adjust:100%} body{background:var(--app-bg,var(--surface))}
+    .wrap{max-width:var(--card-max);margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+var(--page-bottom-gap))}
+    .calc-card{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden}
+    .card-head{display:flex;align-items:center;gap:12px;padding:14px 16px;
+      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);border-bottom:1px solid var(--border)}
+    .card-head .icon{width:28px;height:28px;color:var(--accent)}
+    .card-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
+    .muted{color:var(--muted)}
+    form{padding:16px;display:grid;gap:14px}
+    label{display:block;font-weight:600;margin-bottom:6px}
+    .ctrl{display:flex;align-items:center;gap:8px;border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));border-radius:10px;padding:10px 12px}
+    input,button{font-size:16px} .ctrl input{width:100%;border:0;outline:0;background:transparent;color:var(--text)}
+    .actions{display:flex;gap:10px;justify-content:flex-end;padding:0 16px 16px}
+    .btn{appearance:none;border:1px solid var(--border);background:var(--surface);
+      padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
+    .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .tlist{display:grid;gap:10px;padding:0 16px}
+    .trow{display:grid;grid-template-columns:180px 1fr auto;gap:10px;align-items:center}
+    .trow .ctrl{padding:8px 10px}
+    .results{padding:0 16px 16px}
+    table{width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+    thead th{background:rgba(47,108,60,.08);text-align:left;padding:10px;border-bottom:1px solid var(--border)}
+    tbody td{padding:10px;border-bottom:1px solid var(--border)}
+    tbody tr:last-child td{border-bottom:0}
+    .hist{padding:16px;border-top:1px dashed var(--border)} .hlist{display:grid;gap:8px}
+    .hitem{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface))}
+    .hsummary{font-weight:700} .btn-link{background:none;border:0;padding:0;text-decoration:underline;color:inherit;cursor:pointer}
+    .muted-line{font-size:12px;color:var(--muted)}
+
+    /* Modal */
+    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0}
+    .modal[open]{display:grid;opacity:1}
+    .dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28)}
+    .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+    .dialog-body{padding:14px;overflow:auto;flex:1 1 auto;min-height:0;-webkit-overflow-scrolling:touch}
+    .closex{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:700}
+    .kv2{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px} @media(max-width:640px){.kv2{grid-template-columns:1fr}}
+    html.no-scroll, body.no-scroll{overflow:hidden}
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="wrap">
-      <h1>Trial Yields</h1>
-      <p class="muted">Single-plot quick calc. Stores the last 10 locally.</p>
+      <div class="calc-card">
+        <div class="card-head">
+          <div class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M4 19l16-14M4 10l7 7M13 12l7 7"></path>
+            </svg>
+          </div>
+          <div>
+            <h1>Trial Yields</h1>
+            <div class="muted">Add treatments with comma-separated yields (bu/ac). Tap Calculate to rank.</div>
+          </div>
+        </div>
 
-      <div class="form">
-        <div class="row">
-          <label>Plot / Treatment
-            <input id="name" type="text" placeholder="e.g., Hybrid A - Fungicide X" autofocus>
-          </label>
-          <label>Crop
-            <select id="crop">
-              <option value="corn">Corn (56 lb/bu at 15.5%)</option>
-              <option value="soy">Soybeans (60 lb/bu at 13.0%)</option>
-            </select>
-          </label>
+        <!-- FORM (manual calculate only) -->
+        <form id="frm" novalidate autocomplete="off">
+          <div class="tlist" id="tlist"></div>
+          <div class="actions">
+            <button type="button" class="btn" id="addRow">Add Treatment</button>
+            <button type="button" class="btn" id="clearRows">Clear Rows</button>
+            <button type="submit" class="btn btn-primary">Calculate</button>
+          </div>
+        </form>
+
+        <!-- RESULTS -->
+        <div class="results" id="results" hidden>
+          <table aria-label="Trial Results">
+            <thead>
+              <tr><th>Treatment</th><th>Avg (bu/ac)</th><th>StDev</th><th>Reps</th><th>Rank</th></tr>
+            </thead>
+            <tbody id="tbl"></tbody>
+          </table>
         </div>
-        <div class="row">
-          <label>Wet Weight (lb)
-            <input id="wt" type="number" inputmode="decimal" step="any" min="0">
-          </label>
-          <label>Moisture (%)
-            <input id="mc" type="number" inputmode="decimal" step="any" min="0" max="100">
-          </label>
-        </div>
-        <div class="row">
-          <label>Strip Width (ft)
-            <input id="w" type="number" inputmode="decimal" step="any" min="0">
-          </label>
-          <label>Strip Length (ft)
-            <input id="l" type="number" inputmode="decimal" step="any" min="0">
-          </label>
-        </div>
+
+        <!-- HISTORY -->
+        <section class="hist">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h2 style="flex:1">Previous Calculations</h2>
+            <button class="btn-link" id="clearHist" type="button">Clear History</button>
+          </div>
+          <div class="hlist" id="hlist"></div>
+          <div class="muted-line" id="nohist">No previous trial yields calculations.</div>
+        </section>
       </div>
-
-      <div class="out" id="results" hidden>
-        <div><strong>Area:</strong> <span id="areaAc">-</span> acres</div>
-        <div><strong>Dry Bushels:</strong> <span id="bu">-</span> bu</div>
-        <div><strong>Dry Yield:</strong> <span id="bpa">-</span> bu/ac</div>
-      </div>
-
-      <section class="hist" id="history">
-        <div style="display:flex;align-items:center;gap:10px">
-          <h2 style="flex:1">Previous Calculations</h2>
-          <div class="actions"><button class="btn-link" id="clear">Clear</button></div>
-        </div>
-        <div class="muted" id="nohist">No previous trial yield calculations.</div>
-        <table id="histTable" hidden><tbody></tbody></table>
-      </section>
     </div>
   </fv-shell>
+
+  <!-- Modal -->
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">Trial Yields — Details</h3>
+        <button class="closex" id="mdClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="mdBody"></div>
+    </div>
+  </div>
 
   <script>
   (function(){
     "use strict";
-    var LS_KEY = "fv_calc_trial_yields";
-    function $(id){ return document.getElementById(id); }
-    var inputs = [ $("name"), $("crop"), $("wt"), $("mc"), $("w"), $("l") ];
-    var res = $("results");
+    if(window.__FV_TRIAL_YIELDS_V1__) return; window.__FV_TRIAL_YIELDS_V1__=true;
 
+    function $(id){ return document.getElementById(id); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
-    function tw(c){ return c === "corn" ? 56 : 60; }
-    function std(c){ return c === "corn" ? 15.5 : 13.0; }
-    function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }catch(e){ return []; } }
+
+    /* Rows */
+    var tlist=$("tlist");
+    function addRow(name,val){
+      var row=document.createElement("div"); row.className="trow";
+      row.innerHTML =
+        '<div class="ctrl"><input type="text" placeholder="Treatment name" value="'+(name||'')+'"></div>'
+      + '<div class="ctrl"><input type="text" placeholder="Yields, e.g. 230, 225.5, 219" value="'+(val||'')+'"></div>'
+      + '<button class="btn" type="button">Remove</button>';
+      row.querySelector("button").addEventListener("click", function(){ row.remove(); });
+      tlist.appendChild(row);
+    }
+    $("addRow").addEventListener("click", function(){ addRow(); });
+    $("clearRows").addEventListener("click", function(){ tlist.innerHTML=""; });
+    addRow(); // seed
+
+    /* Math */
+    function parseYields(s){
+      return String(s||"").split(/[, ]+/).map(function(x){ return parseFloat(x); }).filter(function(n){ return isFinite(n); });
+    }
+    function mean(a){ return a.reduce((x,y)=>x+y,0)/a.length; }
+    function stdev(a){ var m=mean(a); var v=a.reduce((s,x)=>s+Math.pow(x-m,2),0)/(a.length-1||1); return Math.sqrt(v); }
+
+    /* Results */
+    var results=$("results"), tbl=$("tbl");
+
+    /* History */
+    var LS_KEY="fv_calc_trialyields_history", hlist=$("hlist"), nohist=$("nohist");
+    function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
+    function calc(){
+      var rows=[].slice.call(tlist.querySelectorAll(".trow"));
+      if(!rows.length) { alert("Add at least one treatment."); return null; }
+      var out = rows.map(function(r){
+        var name=r.querySelectorAll("input")[0].value.trim() || "Treatment";
+        var ys=parseYields(r.querySelectorAll("input")[1].value);
+        if(!ys.length) return null;
+        return { name:name, reps:ys.length, avg:mean(ys), sd:stdev(ys), values:ys };
+      }).filter(Boolean);
+      if(!out.length){ alert("Enter yields for at least one treatment."); return null; }
+      out.sort(function(a,b){ return b.avg - a.avg; }); // rank by avg desc
+      out.forEach(function(t,i){ t.rank=i+1; });
+      return { t:Date.now(), trials:out };
+    }
+
+    function show(o){
+      if(!o){ results.hidden=true; return; }
+      tbl.innerHTML="";
+      o.trials.forEach(function(t){
+        var tr=document.createElement("tr");
+        tr.innerHTML = '<td>'+t.name+'</td><td>'+fmt(t.avg,2)+'</td><td>'+fmt(t.sd,2)+'</td><td>'+t.reps+'</td><td>'+t.rank+'</td>';
+        tbl.appendChild(tr);
+      });
+      results.hidden=false;
+    }
+
+    function summary(run){
+      var top = run.trials[0];
+      return 'Top: '+top.name+' '+fmt(top.avg,1)+' bu/ac (n='+top.reps+') — '+run.trials.length+' trt';
+    }
+
     function renderHist(){
-      var h = load(), no = $("nohist"), t = $("histTable"), tb = t.querySelector("tbody");
-      if(!h.length){ no.hidden = false; t.hidden = true; return; }
-      no.hidden = true; t.hidden = false; tb.innerHTML = "";
-      for(var i=0;i<h.length;i++){
-        var it = h[i];
-        var tr = document.createElement("tr");
-        tr.innerHTML =
-          "<td>" + new Date(it.t).toLocaleString() + "</td>" +
-          "<td>" + (it.name ? it.name + " - " : "") + (it.crop==="corn"?"Corn":"Soy") + "</td>" +
-          "<td>" + fmt(it.areaAc,4) + " ac</td>" +
-          "<td>" + fmt(it.bu,2) + " bu</td>" +
-          "<td>" + fmt(it.bpa,1) + " bu/ac</td>";
-        tb.appendChild(tr);
-      }
-    }
-
-    function computeAndShow(saveRun){
-      if(saveRun===void 0) saveRun = true;
-      var name = $("name").value.trim();
-      var crop = $("crop").value;
-      var wt = parseFloat($("wt").value);
-      var mc = parseFloat($("mc").value);
-      var w = parseFloat($("w").value);
-      var l = parseFloat($("l").value);
-      if(!(wt>0 && w>0 && l>0)){ res.hidden = true; return; }
-      var areaAc = (w*l)/43560;
-      var dryWeight = wt * ((100 - mc)/(100 - std(crop)));
-      var bu = dryWeight / tw(crop);
-      var bpa = bu / areaAc;
-
-      $("areaAc").textContent = fmt(areaAc,4);
-      $("bu").textContent = fmt(bu,2);
-      $("bpa").textContent = fmt(bpa,1);
-      res.hidden = false;
-
-      if(saveRun){
-        var h = load();
-        h.unshift({t:Date.now(), name:name, crop:crop, wt:wt, mc:mc, w:w, l:l, areaAc:areaAc, bu:bu, bpa:bpa});
-        save(h); renderHist();
-      }
-    }
-
-    var to = null;
-    for(var i=0;i<inputs.length;i++){
-      inputs[i].addEventListener("input", function(){
-        if(to) window.clearTimeout(to);
-        to = window.setTimeout(function(){ computeAndShow(true); }, 150);
+      var h=load(); hlist.innerHTML=""; if(!h.length){ nohist.hidden=false; return; } nohist.hidden=true;
+      h.forEach(function(run,idx){
+        var row=document.createElement("div"); row.className="hitem";
+        row.innerHTML='<div class="hsummary">'+summary(run)+'</div><button class="btn-link" data-idx="'+idx+'" type="button">View</button>';
+        hlist.appendChild(row);
+      });
+      hlist.querySelectorAll("button[data-idx]").forEach(function(b){
+        b.addEventListener("click", function(){ var i=parseInt(b.getAttribute("data-idx"),10); openModal(load()[i], b); });
       });
     }
-    $("clear").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+    /* Modal */
+    var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null;
+    function openModal(run, opener){
+      lastOpener=opener||null;
+      var html = '<div class="kv2"><div><strong>When</strong><br>'+new Date(run.t).toLocaleString()+'</div><div><strong>Treatments</strong><br>'+run.trials.length+'</div></div>';
+      html += '<hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">';
+      html += '<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px 0;">Treatment</th><th style="text-align:right;">Avg</th><th style="text-align:right;">StDev</th><th style="text-align:right;">Reps</th><th style="text-align:right;">Rank</th></tr></thead><tbody>';
+      run.trials.forEach(function(t){
+        html += '<tr><td>'+t.name+'</td><td style="text-align:right;">'+fmt(t.avg,2)+'</td><td style="text-align:right;">'+fmt(t.sd,2)+'</td><td style="text-align:right;">'+t.reps+'</td><td style="text-align:right;">'+t.rank+'</td></tr>';
+      });
+      html += '</tbody></table>';
+      mdBody.innerHTML=html;
+      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); mdClose.focus(); trapFocus(modal);
+    }
+    function closeModal(){
+      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      releaseFocus(modal); if(lastOpener) lastOpener.focus();
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
+
+    var trapHandler=null;
+    function trapFocus(root){
+      var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])'))
+        .filter(function(el){return !el.disabled && el.offsetParent!==null;});
+      if(!focusables.length) return;
+      var first=focusables[0], last=focusables[focusables.length-1];
+      trapHandler=function(e){
+        if(e.key!=="Tab")return;
+        if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();}
+        else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}
+      };
+      root.addEventListener("keydown", trapHandler);
+    }
+    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+
+    /* Submit (manual only) */
+    $("frm").addEventListener("submit", function(ev){
+      ev.preventDefault();
+      var out=calc(); show(out);
+      if(out){ var h=load(); h.unshift(out); save(h); renderHist(); }
+    });
+    $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
 
     renderHist();
   })();
