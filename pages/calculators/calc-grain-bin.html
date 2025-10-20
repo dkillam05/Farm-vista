@@ -1,1 +1,139 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista - Grain Bin Volume</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+  <link rel="manifest" href="../../manifest.webmanifest">
+  <link rel="apple-touch-icon" href="../../assets/icons/apple-touch-icon.png">
+  <link rel="icon" href="../../assets/icons/icon-192.png">
+  <script defer src="../../js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../../assets/css/theme.css">
+  <link rel="stylesheet" href="../../assets/css/app.css">
+  <script defer src="../../js/fv-shell.js"></script>
+  <style>
+    :root { --page-bottom-gap: 56px; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)); }
+    h1 { margin: 8px 0 6px; font-size: clamp(22px,3.5vw,28px); }
+    .form { display: grid; gap: 12px; margin: 14px 0 18px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+    .out { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .muted { color: var(--muted, #67706B); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
+    .hist h2 { margin: 18px 0 8px; font-size: 18px; }
+    .hist .actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn-link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <h1>Grain Bin Volume</h1>
+      <p class="muted">Cylindrical bin volume with optional top cone. Bushels = ft^3 / 1.244.</p>
+
+      <div class="form">
+        <div class="row">
+          <label>Diameter (ft)
+            <input id="dia" type="number" inputmode="decimal" step="any" min="0" autofocus>
+          </label>
+          <label>Grain Depth (ft)
+            <input id="depth" type="number" inputmode="decimal" step="any" min="0">
+          </label>
+        </div>
+        <div class="row">
+          <label>Peak Cone Height (ft)
+            <input id="cone" type="number" inputmode="decimal" step="any" min="0" value="0">
+          </label>
+          <label>Notes
+            <input id="note" type="text" placeholder="(optional)">
+          </label>
+        </div>
+      </div>
+
+      <div class="out" id="results" hidden>
+        <div><strong>Volume:</strong> <span id="ft3">-</span> ft^3</div>
+        <div><strong>Bushels:</strong> <span id="bu">-</span> bu</div>
+      </div>
+
+      <section class="hist" id="history">
+        <div style="display:flex;align-items:center;gap:10px">
+          <h2 style="flex:1">Previous Calculations</h2>
+          <div class="actions"><button class="btn-link" id="clear">Clear</button></div>
+        </div>
+        <div class="muted" id="nohist">No previous bin volume calculations.</div>
+        <table id="histTable" hidden><tbody></tbody></table>
+      </section>
+    </div>
+  </fv-shell>
+
+  <script>
+  (function(){
+    "use strict";
+    var LS_KEY = "fv_calc_bin_history";
+    function $(id){ return document.getElementById(id); }
+    var inputs = [ $("dia"), $("depth"), $("cone"), $("note") ];
+    var res = $("results");
+
+    function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
+    function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }catch(e){ return []; } }
+    function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
+
+    function renderHist(){
+      var h = load(), no = $("nohist"), t = $("histTable"), tb = t.querySelector("tbody");
+      if(!h.length){ no.hidden = false; t.hidden = true; return; }
+      no.hidden = true; t.hidden = false; tb.innerHTML = "";
+      for(var i=0;i<h.length;i++){
+        var it = h[i];
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + new Date(it.t).toLocaleString() + "</td>" +
+          "<td>Dia " + fmt(it.dia) + " ft x depth " + fmt(it.depth) + " ft" + (it.cone?(" + cone " + fmt(it.cone) + " ft"):"") + "</td>" +
+          "<td>" + fmt(it.ft3,0) + " ft^3</td>" +
+          "<td>" + fmt(it.bushels,0) + " bu</td>" +
+          "<td>" + (it.note? it.note : "") + "</td>";
+        tb.appendChild(tr);
+      }
+    }
+
+    function computeAndShow(saveRun){
+      if(saveRun===void 0) saveRun = true;
+      var dia = parseFloat($("dia").value);
+      var depth = parseFloat($("depth").value);
+      var cone = parseFloat($("cone").value || 0);
+      var note = $("note").value.trim();
+      if(!(dia>0 && depth>=0 && cone>=0)){ res.hidden = true; return; }
+      var r = dia/2;
+      var ft3_cyl = Math.PI*r*r*depth;
+      var ft3_cone = cone>0 ? (Math.PI*r*r*cone)/3 : 0;
+      var ft3 = ft3_cyl + ft3_cone;
+      var bu = ft3/1.244;
+
+      $("ft3").textContent = fmt(ft3,0);
+      $("bu").textContent = fmt(bu,0);
+      res.hidden = false;
+
+      if(saveRun){
+        var h = load();
+        h.unshift({t:Date.now(), dia:dia, depth:depth, cone:cone, ft3:ft3, bushels:bu, note:note});
+        save(h); renderHist();
+      }
+    }
+
+    var to = null;
+    for(var i=0;i<inputs.length;i++){
+      inputs[i].addEventListener("input", function(){
+        if(to) window.clearTimeout(to);
+        to = window.setTimeout(function(){ computeAndShow(true); }, 150);
+      });
+    }
+    $("clear").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+    renderHist();
+  })();
+  </script>
+</body>
+</html>
