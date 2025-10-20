@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista - Dictionary</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+
+  <!-- paths relative to Pages/Office/Teams-and-Partners/Dictionary.html -->
+  <link rel="manifest" href="../../../manifest.webmanifest">
+  <link rel="stylesheet" href="../../../assets/css/theme.css">
+  <link rel="stylesheet" href="../../../assets/css/app.css">
+  <script defer src="../../../js/theme-boot.js"></script>
+  <script defer src="../../../js/fv-shell.js"></script>
+
+  <style>
+    :root{
+      --page-bottom-gap: 96px;      /* keeps content clear of fixed footer */
+      --card-max: 1100px;
+      --accent: #2F6C3C;
+    }
+    html{-webkit-text-size-adjust:100%}
+    body{ background: var(--app-bg, var(--surface)); }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    }
+
+    .card{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .card-head{
+      display:flex; align-items:flex-start; gap:12px; padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .card-head .icon{ width:28px; height:28px; color:var(--accent); margin-top:2px; }
+    .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+    .muted{ color:var(--muted,#67706B); }
+
+    /* controls */
+    .controls{ padding:14px 16px; display:grid; gap:12px; border-bottom:1px solid var(--border); }
+    .searchbar{
+      display:flex; align-items:center; gap:10px;
+      border:1px solid var(--border); background:var(--card-surface,var(--surface));
+      border-radius:10px; padding:10px 12px;
+    }
+    .searchbar input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); font-size:16px; }
+    .filters{ display:flex; gap:8px; flex-wrap:wrap; }
+    .chip{
+      display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px;
+      border:1px solid var(--border); background:var(--card-surface,var(--surface)); cursor:pointer; user-select:none;
+      color:var(--text) !important;  /* ensure NOT blue */
+    }
+    .chip input{ appearance:none; width:16px; height:16px; border:1.6px solid var(--border); border-radius:4px; display:inline-block; }
+    .chip input:checked{ background:var(--accent); border-color:var(--accent); box-shadow:inset 0 0 0 2px #fff; }
+
+    /* list */
+    .list{ padding: 10px 8px 16px; display:grid; gap:6px; }
+    .row{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:12px 10px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+      cursor:pointer;
+    }
+    .name{ font-weight:800; }
+    .meta{ font-size:12px; color:var(--muted); }
+    .count{ padding:0 16px 14px; color:var(--muted); }
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
+      z-index:9999; transition:opacity .15s; opacity:0; }
+    .modal[open]{ display:grid; opacity:1; }
+    .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
+      border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
+    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .closex{
+      border:1px solid var(--border); background:var(--surface); border-radius:10px;
+      padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important; /* no blue */
+    }
+
+    /* small key/val grid in modal */
+    .kv{ display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:baseline; }
+    .kv .val{ font-weight:800; }
+    html.no-scroll, body.no-scroll{ overflow:hidden; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <div class="card">
+        <!-- Header -->
+        <div class="card-head">
+          <div class="icon" aria-hidden="true">
+            <!-- book/open index icon -->
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19a3 3 0 0 0 3 3h13V5H7a3 3 0 0 0-3 3z"/>
+              <path d="M7 22v-8"/>
+              <path d="M11 7h7M11 11h7M11 15h7"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Dictionary</h1>
+            <div class="muted">Search and filter your people. Tap a name to see details.</div>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+          <div class="searchbar">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="q" type="search" placeholder="Search by name or company…" autocomplete="off">
+          </div>
+          <div class="filters" role="group" aria-label="Filters">
+            <label class="chip"><input type="checkbox" id="fEmp" checked> Employees</label>
+            <label class="chip"><input type="checkbox" id="fSub" checked> Sub-Contractors</label>
+            <label class="chip"><input type="checkbox" id="fVen" checked> Vendors</label>
+          </div>
+        </div>
+
+        <!-- Count -->
+        <div class="count" id="count">— results</div>
+
+        <!-- List -->
+        <div class="list" id="list"></div>
+      </div>
+    </div>
+  </fv-shell>
+
+  <!-- Details modal -->
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">Details</h3>
+        <button class="closex" id="mdClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="mdBody"></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+    if(window.__FV_DICTIONARY_V1__) return; window.__FV_DICTIONARY_V1__=true;
+
+    /* ------- Helpers ------- */
+    function $(id){ return document.getElementById(id); }
+    function norm(s){ return (s||"").normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
+    function fmtPhone(s){ return s||""; } // keep simple; can format (###) ###-#### later
+
+    /* ------- Data loading ------- */
+    // Primary store key you (or your add/edit pages) can populate:
+    var LS_MAIN = "fv_directory_v1";
+
+    // If MAIN is empty, we try to merge from these (optional) keys if you already save them elsewhere:
+    var TRY_KEYS = ["fv_employees","fv_subcontractors","fv_vendors"];
+
+    // Fallback sample so the page renders even before wiring data:
+    var SEED = [
+      {id:"e1", type:"employee",       first:"Cole",   last:"Anderson", role:"Operator",    company:"Farm",  phone:"", email:""},
+      {id:"v1", type:"vendor",         first:"Megan",  last:"Keller",   role:"Rep",         company:"GrainCo", phone:"", email:""},
+      {id:"s1", type:"subcontractor",  first:"Riley",  last:"Martin",   role:"Mechanic",    company:"R&M",   phone:"", email:""}
+    ];
+
+    function normalizeRecord(r){
+      return {
+        id: r.id || cryptoRandom(),
+        type: (r.type||"").toLowerCase(),           // 'employee' | 'subcontractor' | 'vendor'
+        first: (r.first||"").trim(),
+        last: (r.last||"").trim(),
+        role: r.role||"",
+        company: r.company||"",
+        phone: r.phone||"",
+        email: r.email||"",
+        note: r.note||""
+      };
+    }
+
+    function cryptoRandom(){
+      try{
+        var a=new Uint32Array(2); crypto.getRandomValues(a);
+        return "x"+a[0].toString(36)+a[1].toString(36);
+      }catch(e){ return "x"+Math.random().toString(36).slice(2); }
+    }
+
+    function loadDirectory(){
+      // 1) Preferred: MAIN
+      try{
+        var raw = JSON.parse(localStorage.getItem(LS_MAIN)||"[]");
+        if(Array.isArray(raw) && raw.length){
+          return raw.map(normalizeRecord);
+        }
+      }catch(e){}
+
+      // 2) Merge from optional keys if present
+      var merged=[];
+      TRY_KEYS.forEach(function(k){
+        try{
+          var arr = JSON.parse(localStorage.getItem(k)||"[]");
+          if(Array.isArray(arr) && arr.length){
+            arr.forEach(function(x){
+              // allow either flat or nested shapes; map conservatively
+              merged.push(normalizeRecord({
+                id:x.id || x.uid || null,
+                type: k==="fv_employees" ? "employee" : (k==="fv_subcontractors" ? "subcontractor" : "vendor"),
+                first: x.first || x.first_name || x.fname,
+                last:  x.last  || x.last_name  || x.lname,
+                role:  x.role  || x.title,
+                company: x.company || x.org || "",
+                phone: x.phone || x.mobile || "",
+                email: x.email || ""
+              }));
+            });
+          }
+        }catch(e){}
+      });
+      if(merged.length) return merged;
+
+      // 3) Seed
+      return SEED.slice();
+    }
+
+    /* ------- Render ------- */
+    var listEl=$("list"), countEl=$("count"), modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    var q=$("q"), fEmp=$("fEmp"), fSub=$("fSub"), fVen=$("fVen");
+    var DATA = loadDirectory();
+
+    function passesType(r){
+      if(r.type==="employee") return fEmp.checked;
+      if(r.type==="subcontractor") return fSub.checked;
+      if(r.type==="vendor") return fVen.checked;
+      return false;
+    }
+
+    function filterAndSort(){
+      var needle = norm(q.value);
+      var out = DATA.filter(function(r){
+        if(!passesType(r)) return false;
+        if(!needle) return true;
+        var blob = norm(r.first+" "+r.last+" "+(r.company||""));
+        return blob.indexOf(needle) > -1;
+      }).sort(function(a,b){
+        var la=(a.last||"").toLowerCase(), lb=(b.last||"").toLowerCase();
+        if(la<lb) return -1; if(la>lb) return 1;
+        var fa=(a.first||"").toLowerCase(), fb=(b.first||"").toLowerCase();
+        if(fa<fb) return -1; if(fa>fb) return 1;
+        return 0;
+      });
+      return out;
+    }
+
+    function render(){
+      var rows = filterAndSort();
+      countEl.textContent = rows.length + (rows.length===1 ? " result" : " results");
+      listEl.innerHTML = "";
+      rows.forEach(function(r){
+        var div=document.createElement("button");
+        div.type="button";
+        div.className="row";
+        div.setAttribute("data-id", r.id);
+        div.innerHTML =
+          '<div class="name">'+escapeHTML(r.first)+' '+escapeHTML(r.last)+'</div>'
+        + '<div class="meta">'+labelType(r.type)+(r.company?(" • "+escapeHTML(r.company)):"")+'</div>';
+        div.addEventListener("click", function(){ openDetail(r, div); });
+        listEl.appendChild(div);
+      });
+    }
+
+    function labelType(t){
+      if(t==="employee") return "Employee";
+      if(t==="subcontractor") return "Sub-Contractor";
+      if(t==="vendor") return "Vendor";
+      return t||"";
+    }
+
+    function escapeHTML(s){ return String(s).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+
+    /* ------- Modal ------- */
+    var lastOpener=null, trapHandler=null;
+    function openDetail(r, opener){
+      lastOpener=opener||null;
+      var title = escapeHTML(r.first+" "+r.last);
+      document.getElementById("mdTitle").textContent = title;
+
+      mdBody.innerHTML =
+        '<div class="kv">'
+        + '<div>Type</div><div class="val">'+labelType(r.type)+'</div>'
+        + (r.company ? '<div>Company</div><div class="val">'+escapeHTML(r.company)+'</div>' : '')
+        + (r.role    ? '<div>Role</div><div class="val">'+escapeHTML(r.role)+'</div>' : '')
+        + (r.phone   ? '<div>Phone</div><div class="val">'+escapeHTML(fmtPhone(r.phone))+'</div>' : '')
+        + (r.email   ? '<div>Email</div><div class="val">'+escapeHTML(r.email)+'</div>' : '')
+        + (r.note    ? '<div>Notes</div><div class="val">'+escapeHTML(r.note)+'</div>' : '')
+        + '</div>';
+
+      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      mdClose.focus(); trapFocus(modal);
+    }
+    function closeModal(){
+      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      releaseFocus(modal); if(lastOpener && lastOpener.focus) lastOpener.focus();
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
+
+    function trapFocus(root){
+      var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
+      if(!focusables.length) return; var first=focusables[0], last=focusables[focusables.length-1];
+      trapHandler=function(e){ if(e.key!=="Tab")return;
+        if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();}
+        else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}
+      };
+      root.addEventListener("keydown", trapHandler);
+    }
+    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+
+    /* ------- Wiring ------- */
+    // Debounce search
+    var t=null; $("q").addEventListener("input", function(){ clearTimeout(t); t=setTimeout(render, 120); });
+    ["change","click"].forEach(function(ev){
+      $("fEmp").addEventListener(ev, render);
+      $("fSub").addEventListener(ev, render);
+      $("fVen").addEventListener(ev, render);
+    });
+
+    render(); // initial paint
+  })();
+  </script>
+</body>
+</html>
