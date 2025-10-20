@@ -163,10 +163,10 @@ export const NAV_MENU = {
           collapsible: true,
           initialOpen: false,
           children: [
-            { type: 'link', id: 'teams-employees',       icon: '🧑🏼‍🌾',  label: 'Employees',        href: '/Farm-vista/pages/teams-partners/employees.html' },
-            { type: 'link', id: 'teams-sub-contractors', icon: '🧰',     label: 'Sub-Contractors',  href: '/Farm-vista/pages/teams-partners/sub-contractors.html' },
-            { type: 'link', id: 'teams-vendors',         icon: '🏪',     label: 'Vendors',          href: '/Farm-vista/pages/teams-partners/vendors.html' },
-            { type: 'link', id: 'teams-dictionary',      icon: '📖',     label: 'Dictionary',       href: '/Farm-vista/pages/teams-partners/dictionary.html' }
+            { type: 'link', id: 'teams-employees',       icon: '🧑🏼‍🌾',  label: 'Employees',        href: '/Farm-vista/pages/teams-and-partners/employees.html' },
+            { type: 'link', id: 'teams-sub-contractors', icon: '🧰',     label: 'Sub-Contractors',  href: '/Farm-vista/pages/teams-and-partners/sub-contractors.html' },
+            { type: 'link', id: 'teams-vendors',         icon: '🏪',     label: 'Vendors',          href: '/Farm-vista/pages/teams-and-partners/vendors.html' },
+            { type: 'link', id: 'teams-dictionary',      icon: '📖',     label: 'Dictionary',       href: '/Farm-vista/pages/teams-and-partners/dictionary.html' }
           ]
         },
 
