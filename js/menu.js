@@ -127,7 +127,7 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'exp-expenditures', icon: '🧾', label: 'Expenditures', href: '#', activeMatch: 'starts-with' },
+        { type: 'link', id: 'exp-expenditures', icon: '🧾', label: 'Expenditures', href: '/Farm-vista/pages/expenses/expenditures.html', activeMatch: 'starts-with' },
         {
           type: 'group',
           id: 'exp-reports',
