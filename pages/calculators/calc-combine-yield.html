@@ -19,7 +19,6 @@
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
 
-    /* Only the white content scrolls; header/footer stay fixed via fv-shell */
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
@@ -64,17 +63,15 @@
     .btn{
       appearance:none; border:1px solid var(--border); background:var(--surface);
       padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
-      color: var(--text) !important;                /* <- ensure NOT blue */
+      color: var(--text) !important;
     }
     .btn-primary{ background:var(--accent); color:#fff !important; border-color:var(--accent); }
     .btn-link{
       background:none; border:0; padding:0; text-decoration:underline; cursor:pointer;
-      color: var(--text) !important;                /* <- ensure NOT blue */
+      color: var(--text) !important;
     }
 
     .results{ padding:0 16px 16px; }
-    .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
     .tile{ border:1px solid var(--border); border-radius:12px; padding:12px;
       background: linear-gradient(180deg, rgba(47,108,60,.06), transparent 55%); }
     .tile h3{ margin:0 0 8px; font-size:16px; }
@@ -99,7 +96,7 @@
     .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
     .closex{
       border:1px solid var(--border); background:var(--surface); border-radius:10px;
-      padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important;  /* <- ensure NOT blue */
+      padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important;
     }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
   </style>
@@ -120,7 +117,7 @@
           </div>
           <div>
             <h1>Combine Yield</h1>
-            <div class="muted">Choose area input (Length × Width with <strong>Cut Width</strong> dropdown) or Acres. Enter wet weight & moisture. Calculate.</div>
+            <div class="muted">Enter <strong>Distance</strong>, <strong>Head Width</strong>, <strong>Measured Bushels</strong> and <strong>Moisture</strong>. We’ll compute dry bushels and dry bu/ac for the test strip.</div>
           </div>
         </div>
 
@@ -131,77 +128,46 @@
               <label for="crop">Crop</label>
               <div class="ctrl">
                 <select id="crop">
-                  <option value="corn">Corn (TW 56, Std 15.5%)</option>
-                  <option value="soy">Soybeans (TW 60, Std 13.0%)</option>
+                  <option value="corn">Corn (Std 15.5%)</option>
+                  <option value="soy">Soybeans (Std 13.0%)</option>
                 </select>
               </div>
             </div>
 
+            <div></div>
+
+            <!-- Distance -->
             <div>
-              <label for="mode">Shrink Mode</label>
-              <div class="ctrl">
-                <select id="mode">
-                  <option value="both">Compare Both</option>
-                  <option value="true">True Only</option>
-                  <option value="elev">Elevator Only</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label for="areaMode">Area Input</label>
-              <div class="ctrl">
-                <select id="areaMode">
-                  <option value="lw">Length × Width</option>
-                  <option value="acres">Acres (known)</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Length -->
-            <div data-pane="lw">
-              <label for="len">Cut Length</label>
+              <label for="len">Distance</label>
               <div class="ctrl">
                 <input id="len" type="text" inputmode="decimal" placeholder="e.g. 1,320">
                 <span class="unit">ft</span>
               </div>
             </div>
 
-            <!-- Width DROPDOWN -->
-            <div data-pane="lw">
-              <label for="wid">Cut Width</label>
-              <div class="ctrl">
-                <select id="wid">
-                  <option value="30">30 ft</option>
-                  <option value="35" selected>35 ft</option>
-                  <option value="40">40 ft</option>
-                  <option value="45">45 ft</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Acres mode -->
-            <div data-pane="acres" class="hidden">
-              <label for="ac">Area</label>
-              <div class="ctrl">
-                <input id="ac" type="text" inputmode="decimal" placeholder="e.g. 2.75">
-                <span class="unit">ac</span>
-              </div>
-            </div>
-            <div data-pane="acres" class="hidden"></div>
-
+            <!-- Head width -->
             <div>
-              <label for="wt">Wet Weight</label>
+              <label for="wid">Head Width</label>
               <div class="ctrl">
-                <input id="wt" type="text" inputmode="numeric" placeholder="e.g. 20,000">
-                <span class="unit">lb</span>
+                <input id="wid" type="text" inputmode="decimal" placeholder="e.g. 20">
+                <span class="unit">ft</span>
               </div>
             </div>
 
+            <!-- Measured bushels (at field moisture) -->
             <div>
-              <label for="start">Start Moisture</label>
+              <label for="bu">Measured Bushels</label>
               <div class="ctrl">
-                <input id="start" type="text" inputmode="decimal" placeholder="e.g. 25.6" maxlength="4">
+                <input id="bu" type="text" inputmode="decimal" placeholder="e.g. 145.6">
+                <span class="unit">bu</span>
+              </div>
+            </div>
+
+            <!-- Moisture -->
+            <div>
+              <label for="moist">Moisture</label>
+              <div class="ctrl">
+                <input id="moist" type="text" inputmode="decimal" placeholder="e.g. 19.5" maxlength="4">
                 <span class="unit">%</span>
               </div>
             </div>
@@ -215,23 +181,14 @@
 
         <!-- RESULTS -->
         <div class="results" id="results" hidden>
-          <div class="result-grid">
-            <div class="tile" id="trueTile">
-              <h3>True Shrink Yield</h3>
-              <div class="kv">
-                <div>Yield</div>  <div class="val" id="trueY">- bu/ac</div>
-                <div>Bushels</div> <div class="val" id="trueBu">- bu</div>
-              </div>
-            </div>
-            <div class="tile" id="elevTile">
-              <h3>Elevator Shrink Yield</h3>
-              <div class="kv">
-                <div>Yield</div>  <div class="val" id="elevY">- bu/ac</div>
-                <div>Bushels</div> <div class="val" id="elevBu">- bu</div>
-              </div>
+          <div class="tile">
+            <h3>Result (Dry Basis)</h3>
+            <div class="kv">
+              <div>Area</div>            <div class="val" id="rArea">- ac</div>
+              <div>Dry Bushels</div>     <div class="val" id="rDryBu">- bu</div>
+              <div>Average Yield</div>   <div class="val" id="rYield">- bu/ac</div>
             </div>
           </div>
-          <div class="muted" style="margin-top:8px">Elevator (corn): linear from 15.5% to 29% (21% shrink), capped at 40% moisture.</div>
         </div>
 
         <!-- HISTORY -->
@@ -261,97 +218,77 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_COMBINE_ADV_V3__) return; window.__FV_COMBINE_ADV_V3__=true;
+    if(window.__FV_COMBINE_SIMPLE_BU_V1__) return; window.__FV_COMBINE_SIMPLE_BU_V1__=true;
 
-    var SQFT_PER_ACRE=43560;
-    var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
-    var SOY_STD=13.0, SOY_TW=60;
+    var SQFT_PER_ACRE = 43560;
+    var CORN_STD = 15.5, SOY_STD = 13.0;
 
     function $(id){ return document.getElementById(id); }
-    function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
+    function toNum(v){ var x = parseFloat(String(v||"").replace(/,/g,"")); return isFinite(x)?x:NaN; }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
 
-    var cropEl=$("crop"), modeEl=$("mode"), areaModeEl=$("areaMode");
-    var len=$("len"), wid=$("wid"), ac=$("ac"), wt=$("wt"), start=$("start");
-    var results=$("results"), trueTile=$("trueTile"), elevTile=$("elevTile");
-    var trueY=$("trueY"), trueBu=$("trueBu"), elevY=$("elevY"), elevBu=$("elevBu");
+    var cropEl=$("crop"), len=$("len"), wid=$("wid"), bu=$("bu"), moist=$("moist");
+    var rArea=$("rArea"), rDryBu=$("rDryBu"), rYield=$("rYield"), results=$("results");
 
-    // Show/hide panes for area mode
-    var panes=[].slice.call(document.querySelectorAll("[data-pane]"));
-    function showPane(val){ panes.forEach(function(p){ p.classList.toggle("hidden", p.getAttribute("data-pane")!==val); }); }
-    areaModeEl.addEventListener("change", function(){ showPane(areaModeEl.value); });
-
-    // Sanitize + format
-    [len, ac].forEach(function(i){ if(!i) return;
-      i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; });
+    // Format on blur
+    [len,wid,bu].forEach(function(el){
+      el.addEventListener("blur", function(){
+        var v=toNum(el.value); el.value = isNaN(v) ? "" : fmt(v);
+      });
     });
-    wt.addEventListener("blur", function(){ var raw=wt.value.replace(/,/g,"").replace(/[^\d]/g,""); wt.value=raw?Number(raw).toLocaleString():""; });
 
-    // Moisture: always XX.X
-    start.addEventListener("input", function(){
-      var s=start.value.replace(/[^\d.]/g,""); var parts=s.split(".");
+    // Moisture: XX.X
+    moist.addEventListener("input", function(){
+      var s=moist.value.replace(/[^\d.]/g,""); var parts=s.split(".");
       var a=(parts[0]||"").slice(0,2); var b=(parts[1]||"").slice(0,1);
-      start.value=a+(b!=="" ? "."+b : (s.indexOf(".")>-1 ? "." : ""));
+      moist.value=a+(b!=="" ? "."+b : (s.indexOf(".")>-1 ? "." : ""));
     });
-    start.addEventListener("blur", function(){
-      var s=start.value; if(!s) return;
-      var m=s.match(/^(\d{1,2})(?:\.(\d))?$/); if(!m){ start.value=""; return; }
-      var ip=m[1]; if(ip.length===1) ip="0"+ip; start.value=ip+"."+(m[2]?m[2]:"0");
+    moist.addEventListener("blur", function(){
+      var s=moist.value; if(!s) return;
+      var m=s.match(/^(\d{1,2})(?:\.(\d))?$/); if(!m){ moist.value=""; return; }
+      var ip=m[1]; if(ip.length===1) ip="0"+ip; moist.value=ip+"."+(m[2]?m[2]:"0");
     });
-
-    function elevPct(crop, m){
-      if(crop!=="corn") return Math.max(0, (m-SOY_STD)*1.5); // simple soy placeholder
-      if(m<=CORN_STD) return 0; var used=Math.min(m, CORN_CAP_M); var pct=CORN_SLOPE*(used-CORN_STD); return Math.min(pct, CORN_CAP_SH);
-    }
 
     function calc(){
-      var crop=cropEl.value, mode=modeEl.value;
-      var areaA=0;
+      var L = toNum(len.value), W = toNum(wid.value), B = toNum(bu.value), M = toNum(moist.value);
+      if(!(L>0)){ alert("Enter distance."); return null; }
+      if(!(W>0)){ alert("Enter head width."); return null; }
+      if(!(B>0)){ alert("Enter measured bushels."); return null; }
+      if(!(M>=0)){ alert("Enter moisture."); return null; }
 
-      if(areaModeEl.value==="lw"){
-        var L=num(len.value), Wft=parseFloat(wid.value);
-        if(!(L>0 && Wft>0)) { alert("Enter cut length and choose a cut width."); return null; }
-        areaA=(L * Wft)/SQFT_PER_ACRE;
-      } else {
-        areaA=num(ac.value); if(!(areaA>0)){ alert("Enter acres."); return null; }
-      }
+      var std = (cropEl.value==="corn") ? CORN_STD : SOY_STD;
 
-      var Wt=Number(wt.value.replace(/,/g,"")); var M=parseFloat(start.value);
-      if(!(Wt>0 && M>0)) { alert("Enter wet weight and moisture."); return null; }
+      // Area (acres)
+      var areaAc = (L * W) / SQFT_PER_ACRE;
 
-      var std = (crop==="corn"?CORN_STD:SOY_STD), tw=(crop==="corn"?CORN_TW:SOY_TW);
+      // Convert measured bushels at field moisture to dry-standard bushels
+      // (common agronomic correction)
+      var dryBu = B * ((100 - M) / (100 - std));
 
-      var trueWt = Wt * ((100 - M)/(100 - std));
-      var trueBushels = trueWt / tw;
-      var trueYield = trueBushels / areaA;
+      // Yield dry bu/ac
+      var y = dryBu / areaAc;
 
-      var ePct = elevPct(crop, M);
-      var eWt = Wt * (1 - ePct/100);
-      var eBushels = eWt / tw;
-      var eYield = eBushels / areaA;
-
-      return { t:Date.now(), crop:crop, mode:mode, area:areaA, len:areaModeEl.value==="lw"?num(len.value):null, wid:areaModeEl.value==="lw"?parseFloat(wid.value):null,
-               wt:Wt, m:M, trueY:trueYield, trueBu:trueBushels, elevY:eYield, elevBu:eBushels };
+      return { t:Date.now(), crop:cropEl.value, len:L, wid:W, bu:B, moist:M, std:std, area:areaAc, dryBu:dryBu, yield:y };
     }
 
     function show(o){
       if(!o){ results.hidden=true; return; }
-      trueY.textContent = fmt(o.trueY,2)+" bu/ac"; trueBu.textContent = fmt(o.trueBu,2)+" bu";
-      elevY.textContent = fmt(o.elevY,2)+" bu/ac"; elevBu.textContent = fmt(o.elevBu,2)+" bu";
-      trueTile.style.display = (o.mode==="true") ? "block" : (o.mode==="elev" ? "none" : "block");
-      elevTile.style.display = (o.mode==="elev") ? "block" : (o.mode==="true" ? "none" : "block");
-      results.hidden=false; if(wt.value && wt.value.indexOf(",")===-1){ wt.dispatchEvent(new Event("blur")); }
+      rArea.textContent = fmt(o.area,3) + " ac";
+      rDryBu.textContent = fmt(o.dryBu,2) + " bu";
+      rYield.textContent = fmt(o.yield,2) + " bu/ac";
+      results.hidden=false;
     }
 
     /* History + modal */
-    var LS_KEY="fv_calc_combine_history_v3", hlist=$("hlist"), nohist=$("nohist");
+    var LS_KEY="fv_calc_combine_yield_bu_v1", hlist=$("hlist"), nohist=$("nohist");
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function summary(it){
-      var areaTxt = fmt(it.area,3)+" ac";
-      var areaSpec = (it.len && it.wid) ? (" ("+fmt(it.len,0)+" ft × "+fmt(it.wid,0)+" ft)") : "";
-      return (it.crop==="corn"?"Corn":"Soy")+" "+areaTxt+areaSpec+", "+fmt(it.wt,0)+" lb @ "+fmt(it.m,1)+"% → T "+fmt(it.trueY,1)+" / E "+fmt(it.elevY,1)+" bu/ac";
+      return (it.crop==="corn"?"Corn":"Soy")
+        +" • "+fmt(it.len,0)+"ft × "+fmt(it.wid,0)+"ft"
+        +" • "+fmt(it.bu,2)+" bu @ "+fmt(it.moist,1)+"%"
+        +" → "+fmt(it.yield,1)+" bu/ac";
     }
 
     function renderHist(){
@@ -372,12 +309,13 @@
       mdBody.innerHTML = '<div class="kv">'
         +'<div>When</div><div>'+new Date(it.t).toLocaleString()+'</div>'
         +'<div>Crop</div><div>'+(it.crop==="corn"?"Corn":"Soybeans")+'</div>'
+        +'<div>Distance</div><div>'+fmt(it.len,0)+' ft</div>'
+        +'<div>Head Width</div><div>'+fmt(it.wid,1)+' ft</div>'
         +'<div>Area</div><div>'+fmt(it.area,3)+' ac</div>'
-        + (it.len&&it.wid?('<div>Cut</div><div>'+fmt(it.len,0)+' ft × '+fmt(it.wid,0)+' ft</div>'):'')
-        +'<div>Wet Weight</div><div>'+fmt(it.wt,0)+' lb</div>'
-        +'<div>Moisture</div><div>'+fmt(it.m,1)+'%</div>'
-        +'<div>True Yield</div><div>'+fmt(it.trueY,2)+' bu/ac ('+fmt(it.trueBu,2)+' bu)</div>'
-        +'<div>Elevator Yield</div><div>'+fmt(it.elevY,2)+' bu/ac ('+fmt(it.elevBu,2)+' bu)</div>'
+        +'<div>Measured Bushels</div><div>'+fmt(it.bu,2)+' bu</div>'
+        +'<div>Moisture</div><div>'+fmt(it.moist,1)+'% (Std '+fmt(it.std,1)+'%)</div>'
+        +'<div>Dry Bushels</div><div>'+fmt(it.dryBu,2)+' bu</div>'
+        +'<div>Average Yield</div><div>'+fmt(it.yield,2)+' bu/ac</div>'
         +'</div>';
       modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); mdClose.focus(); trapFocus(modal);
@@ -400,12 +338,12 @@
     });
 
     $("clearInputs").addEventListener("click", function(){
-      [len, ac, wt, start].forEach(function(i){ if(i) i.value=""; });
-      areaModeEl.value="lw"; showPane("lw"); results.hidden=true;
+      [len,wid,bu,moist].forEach(function(i){ if(i) i.value=""; });
+      results.hidden=true;
     });
     $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
 
-    showPane(areaModeEl.value); renderHist();
+    renderHist();
   })();
   </script>
 </body>
