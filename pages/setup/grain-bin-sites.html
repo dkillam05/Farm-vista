@@ -1,0 +1,407 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Setup → Grain Bin Sites</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:16px;display:grid;gap:14px;}
+
+    .row{display:grid;gap:10px;grid-template-columns:1fr auto}
+    @media(max-width:720px){.row{grid-template-columns:1fr}}
+
+    .field label{display:block;font-weight:800;margin:0 0 6px 0;}
+    .input, .select{width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px;padding:12px;outline:none;}
+
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
+      border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
+    .btn-quiet{min-width:auto;padding:8px 12px}
+
+    /* Bins card */
+    .bins-card{border:1px dashed var(--border);border-radius:12px;padding:12px;display:grid;gap:12px;background:var(--card-surface,var(--surface));}
+    .bins-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .bins-title{font-weight:800}
+    .bin-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center}
+    @media(max-width:720px){.bin-row{grid-template-columns:90px 1fr auto}}
+    .bin-num{display:flex;align-items:center;gap:8px}
+    .bin-num .badge{min-width:44px;text-align:center;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--surface);font-weight:800}
+    .bin-remove{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
+
+    .totals{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+    .pill{font-size:13px;border:1px solid var(--border);padding:6px 10px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface);}
+
+    /* List */
+    .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);}
+    .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
+    .list{padding:14px 16px;display:grid;gap:12px;}
+    .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
+      display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+    .name{font-weight:800}
+    .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
+
+    /* Modal */
+    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
+    .modal[open]{display:grid;opacity:1;}
+    .dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
+    .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+    .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
+    .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
+    .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
+
+    /* Toast */
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 2.8s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    .muted{ color:var(--muted,#67706B); }
+  </style>
+
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
+</head><body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Grain Bin Sites</h1>
+      <p class="page-sub">Create a site, add bins with capacity, and we’ll total it up for you.</p>
+
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">
+            <!-- Inline bin icon -->
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+              <path d="M6.5 7 L12 3.8 L17.5 7"/><rect x="7" y="7" width="10" height="13" rx="1.6"/>
+              <path d="M10 7v13M14 7v13" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div><strong>Add Bin Site</strong></div>
+        </header>
+
+        <div class="section-body">
+          <div class="row">
+            <div class="field">
+              <label for="siteName">Site Name</label>
+              <input id="siteName" class="input" placeholder="e.g., Home Site">
+            </div>
+            <div class="actions">
+              <button id="clear" class="btn" type="button">Clear</button>
+              <button id="save" class="btn btn-primary" type="button">Save</button>
+            </div>
+          </div>
+
+          <div class="bins-card">
+            <div class="bins-head">
+              <div class="bins-title">Bins</div>
+              <button id="addBin" class="btn" type="button">Add Bin</button>
+            </div>
+            <div id="bins"></div>
+            <div class="totals">
+              <span class="pill" id="binCountPill">0 bins</span>
+              <span class="pill" id="bushelTotalPill">0 bu</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="list-head">
+          <div class="list-title">Bin Sites</div>
+        </div>
+        <div id="list" class="list">
+          <div class="muted">No bin sites yet.</div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
+
+  <!-- Modal: View/Edit -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">View / Edit Bin Site</h3>
+        <button id="mdClose" class="closex" type="button">Back</button>
+      </div>
+      <div class="dialog-body">
+        <div class="field">
+          <label for="editName">Site Name</label>
+          <input id="editName" class="input" placeholder="Site name">
+        </div>
+
+        <div class="bins-card">
+          <div class="bins-head">
+            <div class="bins-title">Bins</div>
+            <button id="mdAddBin" class="btn" type="button">Add Bin</button>
+          </div>
+          <div id="mdBins"></div>
+          <div class="totals">
+            <span class="pill" id="mdBinCountPill">0 bins</span>
+            <span class="pill" id="mdBushelTotalPill">0 bu</span>
+          </div>
+        </div>
+
+        <div class="field" id="statusRow">
+          <span class="pill" id="statusPill">Active</span>
+          <span class="pill" id="usedPill" style="display:none">In use</span>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <div class="left-btns">
+          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the site is in use.">Delete</button>
+        </div>
+        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+
+    const $ = id => document.getElementById(id);
+    const toast = $("toast");
+    const LS_KEY = "fv_setup_grain_sites_v1";
+
+    // ---- Utils ----
+    function loadAll(){ try{ const a = JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+    function saveAll(a){ localStorage.setItem(LS_KEY, JSON.stringify(a)); }
+    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+    function fmtComma(n){ if(n==null||n==="") return ""; const v=Number(String(n).replace(/,/g,"")); return isFinite(v)? v.toLocaleString(): String(n); }
+    function toNum(v){ const n = Number(String(v||"").replace(/,/g,"").trim()); return isFinite(n)? n:0; }
+    function showToast(msg="Successfully saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
+
+    // ---- Add form state ----
+    let addBins = []; // [{num, bushels}]
+    const binsBox = $("bins"), binCountPill = $("binCountPill"), bushelTotalPill = $("bushelTotalPill");
+
+    function nextBinNumber(list){ return list.length ? Math.max(...list.map(b=>b.num))+1 : 1; }
+
+    function addBinRow(list, box, pills){
+      const num = nextBinNumber(list);
+      const row = { num, bushels: 0 };
+      list.push(row);
+      renderBins(list, box, pills);
+    }
+
+    function removeBinRow(list, idx, box, pills){
+      list.splice(idx,1);
+      renderBins(list, box, pills);
+    }
+
+    function renderBins(list, box, pills){
+      box.innerHTML = "";
+      list.forEach((b, idx)=>{
+        const row = document.createElement("div");
+        row.className = "bin-row";
+        row.innerHTML = `
+          <div class="bin-num"><span class="badge">Bin ${b.num}</span></div>
+          <input class="input bu" placeholder="Bushels" inputmode="decimal" value="${escapeHTML(fmtComma(b.bushels))}">
+          <button type="button" class="bin-remove">Remove</button>
+        `;
+        const bu = row.querySelector(".bu");
+        bu.addEventListener("blur", ()=>{ bu.value = fmtComma(bu.value); });
+        bu.addEventListener("input", ()=>{ b.bushels = toNum(bu.value); updateTotals(list, pills); });
+        row.querySelector(".bin-remove").addEventListener("click", ()=> removeBinRow(list, idx, box, pills));
+        box.appendChild(row);
+      });
+      updateTotals(list, pills);
+    }
+
+    function updateTotals(list, pills){
+      const count = list.length;
+      const total = list.reduce((s,b)=> s + toNum(b.bushels), 0);
+      pills.count.textContent = `${count} ${count===1?'bin':'bins'}`;
+      pills.total.textContent = `${fmtComma(total)} bu`;
+    }
+
+    $("addBin").addEventListener("click", ()=> addBinRow(addBins, binsBox, {count:binCountPill,total:bushelTotalPill}));
+
+    // ---- Save new site ----
+    $("save").addEventListener("click", ()=>{
+      const name = $("siteName").value.trim();
+      if(!name){ alert("Please enter a site name."); return; }
+      if(addBins.length===0){ if(!confirm("No bins added. Save site without bins?")) return; }
+
+      const bins = addBins.map(b=>({ num:b.num, bushels: toNum(b.bushels) }));
+      const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
+
+      const arr = loadAll();
+      arr.unshift({
+        id: String(Date.now()) + Math.random().toString(36).slice(2,7),
+        name,
+        bins,
+        totalBushels: total,
+        status: "active",  // 'active' | 'archived'
+        used: false,       // set true once referenced in ops
+        t: Date.now()
+      });
+      saveAll(arr);
+
+      showToast("Successfully saved.");
+      // reset form
+      $("siteName").value = "";
+      addBins = [];
+      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+      renderList();
+      window.scrollTo({top:0, behavior:"smooth"});
+    });
+
+    $("clear").addEventListener("click", ()=>{
+      $("siteName").value = "";
+      addBins = [];
+      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+    });
+
+    // ---- List + modal ----
+    const listBox = $("list");
+    function renderList(){
+      const arr = loadAll();
+      if(!arr.length){ listBox.innerHTML = '<div class="muted">No bin sites yet.</div>'; return; }
+      arr.sort((a,b)=>{
+        const sa = a.status==="archived", sb = b.status==="archived";
+        return (sa - sb) || (b.t - a.t);
+      });
+      listBox.innerHTML = "";
+      arr.forEach(it=>{
+        const div = document.createElement("div");
+        div.className = "item";
+        const pills = `
+          <span class="pill">${it.bins.length} ${it.bins.length===1?'bin':'bins'}</span>
+          <span class="pill">${fmtComma(it.totalBushels||0)} bu</span>
+          ${it.status==="archived" ? `<span class="pill">Archived</span>` : ""}
+        `;
+        div.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div class="name">${escapeHTML(it.name)}</div>
+            ${pills}
+          </div>
+          <button class="view" type="button">View / Edit</button>
+        `;
+        div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
+        listBox.appendChild(div);
+      });
+    }
+
+    // Modal elements
+    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
+    const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
+    let editId = null, mdBins = [];
+
+    function openEdit(id){
+      const arr = loadAll();
+      const it = arr.find(x=>x.id===id);
+      if(!it) return;
+      editId = id;
+      mdName.value = it.name;
+      mdBins = it.bins.map(b=>({num:b.num, bushels:b.bushels}));
+      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
+      $("usedPill").style.display = it.used ? "inline-block" : "none";
+      mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+      mdDelete.disabled = !!it.used;
+      mdDelete.title = it.used ? "This site is in use and cannot be deleted. Archive instead." : "Delete this site";
+      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill});
+      openModal();
+    }
+
+    function openModal(){
+      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      mdName.focus();
+    }
+    function closeModal(){
+      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      editId = null;
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
+
+    // Add bin inside modal
+    $("mdAddBin").addEventListener("click", ()=> addBinRow(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}));
+
+    mdSave.addEventListener("click", ()=>{
+      const name = mdName.value.trim();
+      if(!name){ alert("Please enter a site name."); return; }
+      const bins = mdBins.map(b=>({ num:b.num, bushels: toNum(b.bushels) }));
+      // ensure bin numbers unique & sequential-ish
+      const usedNums = new Set(); let dup=false;
+      bins.forEach(b=>{ if(usedNums.has(b.num)) dup=true; usedNums.add(b.num); });
+      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
+
+      const arr = loadAll();
+      const idx = arr.findIndex(x=>x.id===editId);
+      if(idx>=0){
+        const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
+        arr[idx] = { ...arr[idx], name, bins, totalBushels: total, updatedAt: Date.now() };
+        saveAll(arr);
+      }
+      renderList();
+      showToast("Changes saved.");
+      closeModal();
+    });
+
+    mdArchive.addEventListener("click", ()=>{
+      const arr = loadAll();
+      const idx = arr.findIndex(x=>x.id===editId);
+      if(idx<0) return;
+      const cur = arr[idx];
+      const next = cur.status==="archived" ? "active" : "archived";
+      arr[idx] = { ...cur, status: next, updatedAt: Date.now() };
+      saveAll(arr);
+      renderList();
+      showToast(next==="archived" ? "Site archived." : "Site unarchived.");
+      $("statusPill").textContent = next==="archived" ? "Archived" : "Active";
+      mdArchive.textContent = next==="archived" ? "Unarchive" : "Archive";
+    });
+
+    mdDelete.addEventListener("click", ()=>{
+      const arr = loadAll();
+      const idx = arr.findIndex(x=>x.id===editId);
+      if(idx<0) return;
+      const cur = arr[idx];
+      if(cur.used){ alert("This site is in use and cannot be deleted. Archive instead."); return; }
+      if(!confirm(`Delete site "${cur.name}"? This cannot be undone.`)) return;
+      arr.splice(idx,1);
+      saveAll(arr);
+      renderList();
+      showToast("Site deleted.");
+      closeModal();
+    });
+
+    // Init
+    renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+    renderList();
+  })();
+  </script>
+</body></html>
