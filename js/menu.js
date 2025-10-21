@@ -196,22 +196,6 @@ export const NAV_MENU = {
       ]
     },
 
-    /* ===== Reports ===== */
-    {
-      type: 'group',
-      id: 'reports',
-      icon: '📑',
-      label: 'Reports',
-      href: '/Farm-vista/pages/reports/index.html',
-      collapsible: true,
-      initialOpen: false,
-      children: [
-        { type: 'link', id: 'reports-custom',  icon: '🛠️', label: 'AI Reports (Custom)', href: '/Farm-vista/pages/reports/reports-ai.html' },
-        { type: 'link', id: 'reports-predef',  icon: '📚', label: 'Predefined Reports',  href: '/Farm-vista/pages/reports/reports-predefined.html' },
-        { type: 'link', id: 'reports-history', icon: '🗂️', label: 'AI Report History',   href: '/Farm-vista/pages/reports/reports-ai-history.html' }
-      ]
-    },
-
     /* ===== Setup ===== */
     {
       type: 'group',
@@ -231,10 +215,10 @@ export const NAV_MENU = {
           collapsible: true,
           initialOpen: false,
           children: [
-            { type: 'link', id: 'setup-prod-seed',       icon: '🌱', label: 'Seed',        href: '#', activeMatch: 'starts-with' },
-            { type: 'link', id: 'setup-prod-chemical',   icon: '🧪', label: 'Chemical',    href: '#', activeMatch: 'starts-with' },
-            { type: 'link', id: 'setup-prod-fertilizer', icon: '🧂', label: 'Fertilizer',  href: '#', activeMatch: 'starts-with' },
-            { type: 'link', id: 'setup-prod-grainbags',  icon: '👝', label: 'Grain Bags',  href: '#', activeMatch: 'starts-with' }
+            { type: 'link', id: 'setup-prod-seed',       icon: '🌱', label: 'Seed',        href: '/Farm-vista/pages/setup/products/seed.html',        activeMatch: 'starts-with' },
+            { type: 'link', id: 'setup-prod-chemical',   icon: '🧪', label: 'Chemical',    href: '/Farm-vista/pages/setup/products/chemical.html',    activeMatch: 'starts-with' },
+            { type: 'link', id: 'setup-prod-fertilizer', icon: '🧂', label: 'Fertilizer',  href: '/Farm-vista/pages/setup/products/fertilizer.html',  activeMatch: 'starts-with' },
+            { type: 'link', id: 'setup-prod-grainbags',  icon: '👝', label: 'Grain Bags',  href: '/Farm-vista/pages/setup/products/grain-bags.html',  activeMatch: 'starts-with' }
           ]
         },
 
