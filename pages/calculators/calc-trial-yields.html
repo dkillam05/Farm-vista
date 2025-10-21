@@ -5,14 +5,17 @@
   <title>FarmVista - Trial Yields</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3B7E46">
+
+  <!-- standard app includes -->
   <link rel="manifest" href="../../manifest.webmanifest">
   <link rel="stylesheet" href="../../assets/css/theme.css">
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
+
   <style>
     :root{
-      --page-bottom-gap: 96px;
+      --page-bottom-gap: 96px;      /* keep content clear of fixed footer */
       --card-max: 940px;
       --accent: #2F6C3C;
     }
@@ -67,25 +70,21 @@
       border:1px solid var(--border); background:var(--surface);
       border-radius:10px; padding:10px 12px;
     }
-    input,select,button{ font-size:16px; }
-    .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    input,select,button,textarea{ font-size:16px; } /* prevent iOS zoom */
+    .ctrl input,.ctrl select,.ctrl textarea{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .ctrl:focus-within{ border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent); }
-    .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
+    .textarea{ min-height:70px; resize:vertical; }
 
     .yieldline{
       display:flex; gap:10px; align-items:center; justify-content:space-between;
       padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:var(--surface);
-      flex-wrap: wrap;
     }
     .yieldval{ font-weight:800; }
 
-    .row-actions{ display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
+    .row-actions{ display:flex; gap:10px; justify-content:flex-end; }
     .rm{ appearance:none; border:1px solid var(--border); background:var(--surface); padding:8px 12px; border-radius:10px; font-weight:700; cursor:pointer; color:var(--text) !important; }
 
-    .notes-wrap{ display:none; }
-    .notes-wrap.open{ display:block; }
-    .textarea{ width:100%; min-height:84px; resize:vertical; border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--surface); color:var(--text); }
-
+    /* Summary + history */
     .summary{ padding:0 16px 16px; }
     .tile{
       border:1px solid var(--border); border-radius:12px; padding:12px;
@@ -100,6 +99,7 @@
       padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface)); }
     .hsummary{ font-weight:700; }
 
+    /* Modal shell */
     .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
       z-index:9999; transition:opacity .15s; opacity:0; }
     .modal[open]{ display:grid; opacity:1; }
@@ -110,17 +110,24 @@
     .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important; }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
 
+    /* Combine-yield mini form inside modal */
     .cg{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:760px){ .cg{ grid-template-columns:1fr; } }
+    .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
+
     .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
     @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
     .mini-tile{ border:1px solid var(--border); border-radius:12px; padding:10px; background:var(--surface); }
     .mini-tile h4{ margin:0 0 6px; font-size:14px; }
 
-    .actions-col{ display:grid; gap:10px; margin-top:12px; }
+    /* Modal action buttons layout */
+    .stack-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:12px; flex-wrap:wrap; }
+    @media (max-width:760px){
+      .stack-actions{ flex-direction:column; align-items:stretch; }
+      .stack-actions .ctrl{ width:100%; }
+    }
 
-    .preview-list{ display:grid; gap:8px; margin-top:10px; }
-    .row-mini{ border:1px solid var(--border); border-radius:10px; padding:8px; background:var(--card-surface,var(--surface)); }
+    /* tiny helper text */
     .muted-small{ color:var(--muted); font-size:12px; }
   </style>
 </head>
@@ -130,6 +137,7 @@
       <div class="calc-card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
+            <!-- Test plot flag + leaf icon -->
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 20V4M6 4h9l-3 3 3 3H6" />
               <path d="M16.5 13.5c2.2.4 3.8 2.1 4.2 4.2-2.2-.4-3.8.1-5.1 1.3" />
@@ -138,7 +146,7 @@
           </div>
           <div>
             <h1>Trial Yields</h1>
-            <div class="muted">Track treated vs. check strips, add notes, and compute group comparisons. Use <strong>Enter Yield…</strong> for each row.</div>
+            <div class="muted">Add treatments. For each, tap <strong>Enter Yield…</strong> to open the mini combine-yield calculator and pull back bu/ac.</div>
           </div>
         </div>
 
@@ -146,8 +154,8 @@
         <div class="controls">
           <div class="row-actions" style="justify-content:flex-start; gap:10px; flex-wrap:wrap;">
             <button class="btn" id="addTreatment" type="button">Add Treatment</button>
-            <button class="btn" id="importBtn" type="button">Import…</button>
             <button class="btn" id="clearTreatments" type="button">Clear Treatments</button>
+            <button class="btn" id="importBtn" type="button">Import (OCR)</button>
             <button class="btn btn-primary" id="saveTrial" type="button">Save Trial</button>
           </div>
         </div>
@@ -155,23 +163,14 @@
         <!-- Treatment list -->
         <div class="tlist" id="tlist"></div>
 
-        <!-- Trial-level notes -->
+        <!-- Summary -->
         <div class="summary">
-          <div class="tile" style="margin-bottom:12px;">
-            <h3 style="margin-top:0">Trial Notes</h3>
-            <textarea id="trialNotes" class="textarea" placeholder="Anything useful about this trial (weather, timings, etc.)…"></textarea>
-          </div>
-
-          <!-- Summary / comparison -->
           <div class="tile" id="sumTile" hidden>
             <h3>Summary</h3>
             <div class="kv">
-              <div>Treatments</div>       <div class="val" id="sumCount">—</div>
-              <div>Avg Treated</div>      <div class="val" id="sumAvgTrt">— bu/ac</div>
-              <div>Avg Check</div>        <div class="val" id="sumAvgChk">— bu/ac</div>
-              <div>Delta (T - C)</div>    <div class="val" id="sumDelta">— bu/ac</div>
-              <div>% vs Check</div>       <div class="val" id="sumPct">— %</div>
-              <div>High / Low (All)</div> <div class="val" id="sumHL">— / — bu/ac</div>
+              <div>Treatments</div> <div class="val" id="sumCount">—</div>
+              <div>Average Yield</div> <div class="val" id="sumAvg">— bu/ac</div>
+              <div>High / Low</div>   <div class="val" id="sumHL">— / — bu/ac</div>
             </div>
           </div>
         </div>
@@ -189,11 +188,11 @@
     </div>
   </fv-shell>
 
-  <!-- Calc Trial Yields MODAL -->
+  <!-- Combine Yield MODAL (auto area; no manual acres input) -->
   <div class="modal" id="cyModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cyTitle">
       <div class="dialog-head">
-        <h3 id="cyTitle">Calc Trial Yields</h3>
+        <h3 id="cyTitle">Trial Yields — Enter Yield</h3>
         <button class="closex" id="cyClose" type="button">Back</button>
       </div>
       <div class="dialog-body">
@@ -208,24 +207,26 @@
                 </select>
               </div>
             </div>
+
             <div>
-              <label>Mode</label>
+              <label>Use</label>
               <div class="ctrl">
-                <select id="cyMode">
-                  <option value="true">True</option>
-                  <option value="elev">Elevator</option>
-                  <option value="both">Compare</option>
+                <select id="cyUse">
+                  <option value="true">True Yield</option>
+                  <option value="elev">Elevator Yield</option>
                 </select>
               </div>
             </div>
 
+            <!-- Length & Width drive area (read-only) -->
             <div>
               <label>Cut Length</label>
               <div class="ctrl">
-                <input id="cyLen" type="text" inputmode="decimal" placeholder="e.g. 600">
+                <input id="cyLen" type="text" inputmode="decimal" placeholder="e.g. 1,320">
                 <span class="unit">ft</span>
               </div>
             </div>
+
             <div>
               <label>Cut Width</label>
               <div class="ctrl">
@@ -239,13 +240,12 @@
             </div>
 
             <div>
-              <label>Area (computed)</label>
-              <div class="ctrl">
-                <input id="cyAcRO" type="text" disabled placeholder="0.000">
+              <label>Area (auto)</label>
+              <div class="ctrl" title="Computed from Length × Width">
+                <input id="cyArea" type="text" inputmode="decimal" placeholder="—" aria-readonly="true" readonly>
                 <span class="unit">ac</span>
               </div>
             </div>
-            <div></div>
 
             <div>
               <label>Wet Weight</label>
@@ -254,6 +254,7 @@
                 <span class="unit">lb</span>
               </div>
             </div>
+
             <div>
               <label>Start Moisture</label>
               <div class="ctrl">
@@ -276,15 +277,8 @@
             </div>
           </div>
 
-          <div class="actions-col">
+          <div class="stack-actions">
             <button type="button" class="btn" id="cyCalc">Calculate</button>
-            <div class="ctrl" style="gap:6px;">
-              <label for="cyUse" style="margin:0; font-weight:600;">Use</label>
-              <select id="cyUse" style="min-width:130px;">
-                <option value="true">True Yield</option>
-                <option value="elev">Elevator Yield</option>
-              </select>
-            </div>
             <button type="button" class="btn btn-primary" id="cyUseBtn">Use This Yield</button>
           </div>
         </form>
@@ -292,19 +286,21 @@
     </div>
   </div>
 
-  <!-- Import MODAL -->
+  <!-- Import (OCR + paste) MODAL -->
   <div class="modal" id="impModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="impTitle">
       <div class="dialog-head">
-        <h3 id="impTitle">Import Treatments</h3>
+        <h3 id="impTitle">Import Treatments (OCR)</h3>
         <button class="closex" id="impClose" type="button">Back</button>
       </div>
       <div class="dialog-body">
         <div class="grid2">
           <div>
             <label for="impFile">Image/PDF</label>
-            <div class="ctrl">
-              <input id="impFile" type="file" accept="image/*,.pdf" capture="environment">
+            <div class="ctrl" style="display:flex;gap:10px;align-items:center;">
+              <!-- hidden input; no capture so gallery/files are allowed (screenshots ok) -->
+              <input id="impFile" type="file" accept="image/*,.pdf" style="display:none">
+              <button class="btn" id="impPick" type="button">Choose Photo / Screenshot…</button>
             </div>
             <div class="muted-small" id="impStatus">Choose a photo or screenshot of your trial sheet.</div>
           </div>
@@ -317,19 +313,18 @@
           </div>
         </div>
 
-        <div id="impPreview" hidden>
-          <div class="muted-small" style="margin-top:10px;">Preview (Field • Treatment • Group • Yield bu/ac)</div>
-          <div class="preview-list" id="impList"></div>
-          <div class="actions-col">
-            <button class="btn btn-primary" id="impAdd" type="button">Add Parsed to Treatments</button>
-            <button class="btn" id="impClearParsed" type="button">Clear Parsed</button>
+        <div class="tile" style="margin-top:12px;">
+          <h3 style="margin:0 0 8px;">Parsing Hints</h3>
+          <div class="muted-small">
+            Each line should look like: <code>Field, Treatment, Yield, Type, Notes</code>. Type can be <em>Treated</em> or <em>Check</em> (optional).
+            Example: <code>North 80, Hybrid A @ 34k, 217.5, Treated, Foliar pass on VT</code>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- History modal -->
+  <!-- Trial details modal (history view) -->
   <div class="modal" id="histModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="hmTitle">
       <div class="dialog-head">
@@ -343,53 +338,49 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_TRIALS_V4__) return; window.__FV_TRIALS_V4__=true;
+    if(window.__FV_TRIALS_V2__) return; window.__FV_TRIALS_V2__=true;
 
+    /* ---------- Helpers ---------- */
     function $(id){ return document.getElementById(id); }
     function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
     function fmt0(n){ return Number(n).toLocaleString(); }
-    const clamp=(x,min,max)=>Math.min(Math.max(x,min),max);
+    const SQFT_PER_ACRE=43560;
 
-    var tlist=$("tlist"), addBtn=$("addTreatment"), clearBtn=$("clearTreatments"), saveBtn=$("saveTrial");
-    var trialNotesEl=$("trialNotes");
-    var sumTile=$("sumTile"), sumCount=$("sumCount"), sumAvgTrt=$("sumAvgTrt"), sumAvgChk=$("sumAvgChk"),
-        sumDelta=$("sumDelta"), sumPct=$("sumPct"), sumHL=$("sumHL");
+    /* ---------- UI Elements ---------- */
+    var tlist=$("tlist"), addBtn=$("addTreatment"), clearBtn=$("clearTreatments"), saveBtn=$("saveTrial"), importBtn=$("importBtn");
+    var sumTile=$("sumTile"), sumCount=$("sumCount"), sumAvg=$("sumAvg"), sumHL=$("sumHL");
     var hlist=$("hlist"), nohist=$("nohist");
     var MAX_T=24;
 
-    function makeTreatment(field, name, y, group, notes){
+    function makeTreatment(field, name, y, typeVal, notesVal){
       var row=document.createElement("div"); row.className="trow";
       row.innerHTML =
         '<div class="grid2">'
         + '  <div><label>Field Name</label><div class="ctrl"><input data-k="field" type="text" placeholder="e.g. North 80"></div></div>'
-        + '  <div><label>Treatment Name</label><div class="ctrl"><input data-k="name" type="text" placeholder="e.g. Fungicide A / Hybrid X"></div></div>'
+        + '  <div><label>Treatment Name</label><div class="ctrl"><input data-k="name" type="text" placeholder="e.g. Hybrid A @ 34k"></div></div>'
+        + '</div>'
+        + '<div class="grid2">'
+        + '  <div><label>Type</label><div class="ctrl"><select data-k="type"><option value="">—</option><option value="Treated">Treated</option><option value="Check">Check</option></select></div></div>'
+        + '  <div><label>Notes</label><div class="ctrl"><textarea data-k="notes" class="textarea" placeholder="Optional notes for this treatment…"></textarea></div></div>'
         + '</div>'
         + '<div class="yieldline">'
         + '  <div><strong>Yield</strong> <span class="yieldval" data-k="yield">'+(y!=null?fmt(y,2)+" bu/ac":"—")+'</span></div>'
-        + '  <div class="ctrl" style="min-width:180px;"><label for="" style="margin:0;font-weight:600;">Group</label>'
-        + '    <select data-k="group" style="min-width:120px;"><option value="treated">Treated</option><option value="check">Check</option></select>'
-        + '  </div>'
         + '  <div style="display:flex; gap:8px; align-items:center;">'
         + '    <button type="button" class="btn" data-k="enter">Enter Yield…</button>'
-        + '    <button type="button" class="btn" data-k="toggleNotes">Notes…</button>'
         + '  </div>'
         + '</div>'
-        + '<div class="notes-wrap"><textarea class="textarea" data-k="notes" placeholder="Notes for this treatment (optional)…"></textarea></div>'
-        + '<div class="row-actions"><button type="button" class="rm">Remove Treatment</button></div>';
+        + '<div class="row-actions">'
+        + '  <button type="button" class="rm">Remove Treatment</button>'
+        + '</div>';
       tlist.appendChild(row);
-
       if(field) row.querySelector('[data-k="field"]').value=field;
       if(name)  row.querySelector('[data-k="name"]').value=name;
-      row.querySelector('[data-k="group"]').value = (group==="check"?"check":"treated");
-      if(notes){ row.querySelector('[data-k="notes"]').value=notes; }
+      if(typeVal) row.querySelector('[data-k="type"]').value=typeVal;
+      if(notesVal) row.querySelector('[data-k="notes"]').value=notesVal;
 
       row.querySelector(".rm").addEventListener("click", function(){ row.remove(); refreshSummary(); lockAdd(); });
       row.querySelector('[data-k="enter"]').addEventListener("click", function(){ openCY(row); });
-      row.querySelector('[data-k="toggleNotes"]').addEventListener("click", function(){
-        const box=row.querySelector(".notes-wrap");
-        box.classList.toggle("open");
-      });
       return row;
     }
 
@@ -402,68 +393,48 @@
       return allRows().map(function(r){
         const field=r.querySelector('[data-k="field"]').value.trim();
         const name=r.querySelector('[data-k="name"]').value.trim();
-        const group=r.querySelector('[data-k="group"]').value;
-        const note=r.querySelector('[data-k="notes"]').value.trim();
+        const type=r.querySelector('[data-k="type"]').value.trim();
+        const notes=r.querySelector('[data-k="notes"]').value.trim();
         const yTxt=r.querySelector('[data-k="yield"]').textContent;
-        const y=yTxt.includes("bu/ac") ? num(yTxt) : null;
-        return {field:field||"", name:name||"", group:group, notes:note||"", yield:y};
-      }).filter(x=>x.field || x.name || (x.yield!=null) || x.notes);
+        const y = yTxt.includes("bu/ac") ? num(yTxt) : null;
+        return {field, name, type, notes, yield:y};
+      }).filter(function(x){ return x.field || x.name || x.type || x.notes || (x.yield!=null); });
     }
 
     function refreshSummary(){
       const rows=getData();
       if(!rows.length){ sumTile.hidden=true; return; }
-      const ys = rows.map(r=>r.yield).filter(v=>v!=null);
-      const ysT = rows.filter(r=>r.group==="treated").map(r=>r.yield).filter(v=>v!=null);
-      const ysC = rows.filter(r=>r.group==="check").map(r=>r.yield).filter(v=>v!=null);
-
+      const ys=rows.map(r=>r.yield).filter(v=>v!=null);
       sumCount.textContent=fmt0(rows.length);
-      const avg = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
-      const aT=avg(ysT), aC=avg(ysC);
-      sumAvgTrt.textContent = aT!=null ? fmt(aT,2)+' bu/ac' : '— bu/ac';
-      sumAvgChk.textContent = aC!=null ? fmt(aC,2)+' bu/ac' : '— bu/ac';
-
-      if(aT!=null && aC!=null){
-        const d=aT-aC, p=aC? (d/aC*100) : null;
-        sumDelta.textContent = fmt(d,2)+' bu/ac';
-        sumPct.textContent = (p!=null? fmt(p,2)+' %' : '— %');
-      } else {
-        sumDelta.textContent='— bu/ac';
-        sumPct.textContent='— %';
-      }
-
-      if(ys.length){
-        const hi=Math.max.apply(null, ys), lo=Math.min.apply(null, ys);
-        sumHL.textContent = fmt(lo,2)+' / '+fmt(hi,2)+' bu/ac';
-      }else{
-        sumHL.textContent='— / — bu/ac';
-      }
+      if(!ys.length){ sumAvg.textContent="— bu/ac"; sumHL.textContent="— / — bu/ac"; sumTile.hidden=false; return; }
+      const avg=ys.reduce((a,b)=>a+b,0)/ys.length;
+      const hi=Math.max.apply(null, ys), lo=Math.min.apply(null, ys);
+      sumAvg.textContent=fmt(avg,2)+" bu/ac";
+      sumHL.textContent=fmt(lo,2)+" / "+fmt(hi,2)+" bu/ac";
       sumTile.hidden=false;
     }
 
-    /* --------- Calc Trial Yields (modal) --------- */
-    var SQFT_PER_ACRE=43560;
+    /* ---------- Combine Yield mini-calculator (modal) ---------- */
     var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
     var SOY_STD=13.0, SOY_TW=60;
 
     var cyModal=$("cyModal"), cyClose=$("cyClose");
-    var cyCrop=$("cyCrop"), cyMode=$("cyMode");
-    var cyLen=$("cyLen"), cyWid=$("cyWid"), cyAcRO=$("cyAcRO"), cyWt=$("cyWt"), cyM=$("cyM");
+    var cyCrop=$("cyCrop"), cyLen=$("cyLen"), cyWid=$("cyWid"), cyArea=$("cyArea"), cyWt=$("cyWt"), cyM=$("cyM");
     var cyRes=$("cyRes"), tYield=$("tYield"), tBu=$("tBu"), eYield=$("eYield"), eBu=$("eBu");
     var cyCalc=$("cyCalc"), cyUseSel=$("cyUse"), cyUseBtn=$("cyUseBtn");
-    var cyTargetRow=null;
+    var cyTargetRow=null; // treatment row to receive yield
 
-    function computeArea(){
-      var L=num(cyLen.value), W=parseFloat(cyWid.value);
-      var A=(L>0 && W>0) ? (L*W)/SQFT_PER_ACRE : NaN;
-      cyAcRO.value = isFinite(A) ? fmt(A,3) : "";
-      return isFinite(A) ? A : null;
+    function updateArea(){
+      const L = num(cyLen.value);
+      const W = parseFloat(cyWid.value);
+      const area = (L>0 && W>0) ? (L*W)/SQFT_PER_ACRE : "";
+      cyArea.value = area ? fmt(area,3) : "";
     }
-    cyLen.addEventListener("input", computeArea);
-    cyWid.addEventListener("change", computeArea);
+    cyLen.addEventListener("input", updateArea);
+    cyWid.addEventListener("change", updateArea);
 
     cyWt.addEventListener("blur", function(){ var raw=cyWt.value.replace(/[^0-9]/g,""); cyWt.value=raw?Number(raw).toLocaleString():""; });
-    cyLen.addEventListener("blur", function(){ var v=cyLen.value.replace(/[^0-9.]/g,""); cyLen.value=v?fmt(parseFloat(v),2):""; });
+    [cyLen].forEach(function(i){ i && i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; }); });
 
     cyM.addEventListener("input", function(){
       var s=cyM.value.replace(/[^\d.]/g,""); var parts=s.split(".");
@@ -481,18 +452,18 @@
     }
 
     function calcCY(){
-      var crop=cyCrop.value, mode=cyMode.value;
-      var area=computeArea(); if(!(area>0)){ alert("Enter cut length and choose a cut width."); return null; }
-      var Wt=Number(cyWt.value.replace(/,/g,"")); var M=parseFloat(cyM.value);
-      if(!(Wt>0 && M>0)) { alert("Enter wet weight and moisture."); return null; }
+      const crop=cyCrop.value;
+      const area = num(cyArea.value);
+      const Wt=Number(cyWt.value.replace(/,/g,""));
+      const M=parseFloat(cyM.value);
+      if(!(area>0)){ alert("Enter cut length & width to compute area."); return null; }
+      if(!(Wt>0 && M>0)){ alert("Enter wet weight and moisture."); return null; }
 
-      var std=(crop==="corn"?CORN_STD:SOY_STD), tw=(crop==="corn"?CORN_TW:CORN_TW?56:SOY_TW); // just clarity
-      tw=(crop==="corn")?CORN_TW:SOY_TW;
+      const std=(crop==="corn"?CORN_STD:SOY_STD), tw=(crop==="corn"?CORN_TW:SOY_TW);
+      const trueWt=Wt*((100-M)/(100-std)), trueBu=trueWt/tw, trueY=trueBu/area;
+      const ePct=elevPct(crop,M), eWt=Wt*(1-ePct/100), eBuV=eWt/tw, eY=eBuV/area;
 
-      var trueWt=Wt*((100-M)/(100-std)), trueBu=trueWt/tw, trueY=trueBu/area;
-      var ePct=elevPct(crop,M), eWt=Wt*(1-ePct/100), eBuV=eWt/tw, eY=eBuV/area;
-
-      return {crop, mode, area, Wt, M, trueBu, trueY, elevBu:eBuV, elevY:eY};
+      return {trueBu:trueBu, trueY:trueY, elevBu:eBuV, elevY:eY};
     }
 
     function showCY(o){
@@ -507,194 +478,166 @@
     function openCY(treatmentRow){
       cyTargetRow=treatmentRow;
       cyRes.hidden=true;
+      updateArea();
       openModal(cyModal, cyClose);
-      computeArea();
     }
-    cyCalc.addEventListener("click", function(){ var out=calcCY(); showCY(out); });
+    cyCalc.addEventListener("click", function(){ const out=calcCY(); showCY(out); });
     cyUseBtn.addEventListener("click", function(){
-      var out=calcCY(); if(!out) return;
-      var use=cyUseSel.value==="elev" ? out.elevY : out.trueY;
+      const out=calcCY(); if(!out) return;
+      const use = (cyUseSel.value==="elev") ? out.elevY : out.trueY;
       cyTargetRow.querySelector('[data-k="yield"]').textContent = fmt(use,2)+" bu/ac";
       refreshSummary(); closeModal(cyModal, cyClose);
     });
     cyClose.addEventListener("click", function(){ closeModal(cyModal, cyClose); });
     cyModal.addEventListener("click", function(e){ if(e.target===cyModal) closeModal(cyModal, cyClose); });
 
-    /* --------- Import (OCR + paste) --------- */
+    /* ---------- Import (OCR + paste) ---------- */
     const impModal=$("impModal"), impClose=$("impClose");
-    const impFile=$("impFile"), impStatus=$("impStatus");
+    const impFile=$("impFile"), impPick=$("impPick"), impStatus=$("impStatus");
     const impExtract=$("impExtract"), impPaste=$("impPaste");
-    const impPreview=$("impPreview"), impList=$("impList");
-    const impAdd=$("impAdd"), impClearParsed=$("impClearParsed");
-    const importBtn=$("importBtn");
-    let parsedRows=[];
 
-    importBtn.addEventListener("click", ()=>{ openModal(impModal, impClose); resetImportUI(); });
+    $("importBtn").addEventListener("click", ()=>openModal(impModal, impClose));
+    impClose.addEventListener("click", ()=>closeModal(impModal, impClose));
+    impModal.addEventListener("click", e=>{ if(e.target===impModal) closeModal(impModal, impClose); });
 
-    function resetImportUI(){
-      impFile.value=""; impStatus.textContent="Choose a photo or screenshot of your trial sheet.";
-      parsedRows=[]; renderParsed();
-    }
-
-    function renderParsed(){
-      impList.innerHTML="";
-      if(!parsedRows.length){ impPreview.hidden=true; impAdd.disabled=true; return; }
-      parsedRows.forEach(r=>{
-        const div=document.createElement("div");
-        div.className="row-mini";
-        div.textContent=`${r.field||"—"} • ${r.name||"—"} • ${r.group==='check'?'Check':'Treated'} • ${r.yield!=null?fmt(r.yield,2)+" bu/ac":"—"}`;
-        impList.appendChild(div);
-      });
-      impPreview.hidden=false;
-      impAdd.disabled=false;
-    }
-
-    async function doExtract(){
-      if(!impFile.files || !impFile.files.length){
-        alert("Select an image/PDF first."); return;
+    impPick.addEventListener("click", ()=>impFile.click());
+    impFile.addEventListener("change", ()=>{
+      if (impFile.files && impFile.files.length) {
+        impStatus.textContent = `Selected: ${impFile.files[0].name}`;
+      } else {
+        impStatus.textContent = "Choose a photo or screenshot of your trial sheet.";
       }
-      impStatus.textContent="Reading…";
+    });
+
+    impExtract.addEventListener("click", async ()=>{
+      if(!impFile.files || !impFile.files.length){ alert("Choose a photo or screenshot first."); return; }
+      impStatus.textContent = "Reading…";
       try{
-        let text="";
-        if(window.FV_OCR && typeof window.FV_OCR.imageToText==="function"){
+        let text = "";
+        if(window.FV_OCR && typeof window.FV_OCR.imageToText === "function"){
           const out = await window.FV_OCR.imageToText(impFile.files[0]);
           text = (out && out.text) || "";
         }else{
-          text = prompt("OCR service not wired yet.\nPaste recognized text here:", "") || "";
+          text = prompt("OCR service not wired yet.\nPaste text from your image here:", "") || "";
         }
-        if(!text.trim()){ impStatus.textContent="No text recognized. Try again or paste text."; return; }
-        impStatus.textContent="Parsing…";
-        parsedRows = parseTrialText(text);
-        if(!parsedRows.length){ impStatus.textContent="No rows detected. Ensure your text has yields like '185.4'."; }
-        else { impStatus.textContent=`Parsed ${parsedRows.length} row(s).`; }
-        renderParsed();
+        if(!text.trim()){ impStatus.textContent="No text detected. Try Paste Text…"; return; }
+        const items = parseTrialText(text);
+        if(!items.length){ impStatus.textContent="Parsed zero rows. Check formatting."; return; }
+        applyImported(items);
+        impStatus.textContent = `Imported ${items.length} row(s). Close this window.`;
       }catch(e){
-        console.error(e); impStatus.textContent="Import failed. Try paste.";
+        console.error(e); impStatus.textContent="OCR failed. Try Paste Text…";
       }
-    }
-
-    function doPaste(){
-      const text = prompt("Paste the trial table text here.\nExamples:\nNorth 80, Fungicide A, Treated, 214.5\nSouth 40  | Check | 201.2\nHybrid B untreated 198.7", "");
-      if(!text) return;
-      parsedRows = parseTrialText(text);
-      impStatus.textContent = parsedRows.length ? `Parsed ${parsedRows.length} row(s).` : "No rows detected.";
-      renderParsed();
-    }
-
-    // Heuristic parser: look for a yield number and optional group keyword.
-    function parseTrialText(t){
-      const lines = t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-      const out=[];
-      for(const raw0 of lines){
-        const raw = raw0.replace(/\s+/g,' ').trim();
-        const nums = Array.from(raw.matchAll(/(\d{2,3}(?:[.,]\d+)?)/g)).map(m=>m[1].replace(',','.')).map(parseFloat);
-        const cand = nums.find(n=>n>=10 && n<=400);
-        if(!isFinite(cand)) continue;
-
-        // Determine group
-        const g = /(?:^|\W)(check|untreated)(?:\W|$)/i.test(raw) ? "check" : "treated";
-
-        // Remove yield and obvious group words to get labels
-        const cleaned = raw.replace(String(cand),' ').replace(/check|untreated/ig,' ').replace(/\s{2,}/g,' ').trim();
-        let parts = cleaned.split(/\s*\|\s*|,|;\t*|\t+/).map(s=>s.trim()).filter(Boolean);
-        if(parts.length===0){ parts=[cleaned]; }
-        let field="", name="";
-        if(parts.length>=2){ field=parts[0]; name=parts.slice(1).join(" "); }
-        else{ name=parts[0]; }
-
-        out.push({ field, name, group:g, yield: cand });
-      }
-      return out;
-    }
-
-    impExtract.addEventListener("click", doExtract);
-    impPaste.addEventListener("click", doPaste);
-    impClearParsed.addEventListener("click", ()=>{ parsedRows=[]; renderParsed(); impStatus.textContent="Cleared."; });
-
-    impAdd.addEventListener("click", ()=>{
-      if(!parsedRows.length) return;
-      const spaceLeft = MAX_T - allRows().length;
-      const rowsToAdd = parsedRows.slice(0, Math.max(0, spaceLeft));
-      rowsToAdd.forEach(r=> makeTreatment(r.field||"", r.name||"", clamp(r.yield, 0, 500), r.group||"treated", ""));
-      refreshSummary(); lockAdd(); closeModal(impModal, impClose);
     });
 
-    impClose.addEventListener("click", ()=> closeModal(impModal, impClose));
-    impModal.addEventListener("click", (e)=>{ if(e.target===impModal) closeModal(impModal, impClose); });
+    impPaste.addEventListener("click", ()=>{
+      const t = prompt("Paste rows (one per line):\nField, Treatment, Yield, Type, Notes", "");
+      if(!t) return;
+      const items = parseTrialText(t);
+      if(!items.length){ alert("Could not parse any rows."); return; }
+      applyImported(items);
+      impStatus.textContent = `Imported ${items.length} row(s). Close this window.`;
+    });
 
-    /* --------- Save / History --------- */
-    var LS_KEY="fv_calc_trial_yields_history_v2";
+    function parseTrialText(t){
+      // Split into lines; accept commas or tabs; yield numeric; type optional
+      const lines = t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      const items=[];
+      lines.forEach(line=>{
+        // Try CSV first
+        let cells = line.split(/\t/);
+        if(cells.length < 2) cells = line.split(/\s*,\s*/);
+        // Ensure at least Field & Treatment
+        if(cells.length < 2) return;
+
+        const field = cells[0] || "";
+        const name  = cells[1] || "";
+
+        // Try to find a numeric cell for yield
+        let yieldVal = null, type = "", notes = "";
+        for(let i=2;i<cells.length;i++){
+          const c=cells[i];
+          if(yieldVal==null && /^[0-9]+(\.[0-9]+)?$/.test(c.replace(/,/g,""))){
+            yieldVal = parseFloat(c.replace(/,/g,""));
+            continue;
+          }
+          if(!type && /^(treated?|check)$/i.test(c)){
+            type = /^c/i.test(c) ? "Check" : "Treated";
+            continue;
+          }
+          notes = notes ? (notes + " " + c) : c;
+        }
+        items.push({field, name, yield: yieldVal, type, notes});
+      });
+      return items;
+    }
+
+    function applyImported(rows){
+      rows.forEach(r=>{
+        const row = makeTreatment(r.field||"", r.name||"", r.yield!=null?r.yield:null, r.type||"", r.notes||"");
+        // Update summary incrementally
+      });
+      refreshSummary(); lockAdd();
+    }
+
+    /* ---------- History ---------- */
+    const LS_KEY="fv_calc_trial_yields_history_v2";
     function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function saveH(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function summarizeTrial(tr){
       const n=tr.items.length;
       const ys=tr.items.map(x=>x.yield).filter(v=>v!=null);
-      const avg = ys.length? (ys.reduce((a,b)=>a+b,0)/ys.length) : null;
-      const trt=tr.items.filter(i=>i.group==="treated").length;
-      const chk=tr.items.filter(i=>i.group==="check").length;
-      return `${n} trts (T:${trt}/C:${chk}) — ${avg?('avg '+fmt(avg,1)+' bu/ac'):'no yields'}`;
+      if(!ys.length) return n+" trts — no yields";
+      const avg=ys.reduce((a,b)=>a+b,0)/ys.length;
+      return n+" trts — avg "+fmt(avg,1)+" bu/ac";
     }
 
     function renderHist(){
-      var h=loadH(); hlist.innerHTML=""; if(!h.length){ nohist.hidden=false; return; } nohist.hidden=true;
+      const h=loadH(); hlist.innerHTML=""; if(!h.length){ nohist.hidden=false; return; } nohist.hidden=true;
       h.forEach(function(it,idx){
-        var row=document.createElement("div"); row.className="hitem";
+        const row=document.createElement("div"); row.className="hitem";
         row.innerHTML='<div class="hsummary">'+summarizeTrial(it)+'</div><button class="btn-link" data-idx="'+idx+'" type="button">View</button>';
         hlist.appendChild(row);
       });
       hlist.querySelectorAll("button[data-idx]").forEach(function(b){
         b.addEventListener("click", function(){
-          var i=parseInt(b.getAttribute("data-idx"),10); openHist(loadH()[i], b);
+          const i=parseInt(b.getAttribute("data-idx"),10); openHist(loadH()[i], b);
         });
       });
     }
 
+    /* ---------- Trial save & view ---------- */
     saveBtn.addEventListener("click", function(){
-      var items=getData();
+      const items=getData();
       if(!items.length){ alert("Add at least one treatment."); return; }
-      var rec={ t:Date.now(), notes: (trialNotesEl.value||"").trim(), items:items };
-      var h=loadH(); h.unshift(rec); saveH(h); renderHist();
+      const rec={ t:Date.now(), items:items };
+      const h=loadH(); h.unshift(rec); saveH(h); renderHist();
     });
 
-    /* --------- History details modal --------- */
-    var histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
+    /* ---------- History details modal ---------- */
+    const histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
     function openHist(rec, opener){
-      var ys=rec.items.map(x=>x.yield).filter(v=>v!=null);
-      var avg = ys.length? (ys.reduce((a,b)=>a+b,0)/ys.length) : null;
-      var hi = ys.length? Math.max.apply(null, ys) : null;
-      var lo = ys.length? Math.min.apply(null, ys) : null;
+      const ys=rec.items.map(x=>x.yield).filter(v=>v!=null);
+      const avg = ys.length? (ys.reduce((a,b)=>a+b,0)/ys.length) : null;
+      const hi = ys.length? Math.max.apply(null, ys) : null;
+      const lo = ys.length? Math.min.apply(null, ys) : null;
 
-      const ysT=rec.items.filter(r=>r.group==="treated" && r.yield!=null).map(r=>r.yield);
-      const ysC=rec.items.filter(r=>r.group==="check" && r.yield!=null).map(r=>r.yield);
-      const aT=ysT.length? ysT.reduce((a,b)=>a+b,0)/ysT.length : null;
-      const aC=ysC.length? ysC.reduce((a,b)=>a+b,0)/ysC.length : null;
-      const d=(aT!=null && aC!=null)? aT-aC : null;
-      const p=(d!=null && aC)? (d/aC*100) : null;
-
-      var html='<div class="kv">'
+      let html='<div class="kv">'
         + '<div>When</div><div>'+new Date(rec.t).toLocaleString()+'</div>'
         + '<div>Treatments</div><div>'+fmt0(rec.items.length)+'</div>'
-        + '<div>Avg (All)</div><div>'+(avg?fmt(avg,2)+' bu/ac':'—')+'</div>'
-        + '<div>Avg Treated</div><div>'+(aT!=null?fmt(aT,2)+' bu/ac':'—')+'</div>'
-        + '<div>Avg Check</div><div>'+(aC!=null?fmt(aC,2)+' bu/ac':'—')+'</div>'
-        + '<div>Delta T-C</div><div>'+(d!=null?fmt(d,2)+' bu/ac':'—')+'</div>'
-        + '<div>% vs Check</div><div>'+(p!=null?fmt(p,2)+' %':'—')+'</div>'
+        + '<div>Average</div><div>'+(avg?fmt(avg,2)+' bu/ac':'—')+'</div>'
         + '<div>High / Low</div><div>'+(hi?fmt(lo,2)+' / '+fmt(hi,2)+' bu/ac':'—')+'</div>'
-        +'</div>';
-
-      if(rec.notes){
-        html+='<div class="tile" style="margin:12px 0;"><strong>Trial Notes</strong><div style="white-space:pre-wrap">'+rec.notes+'</div></div>';
-      }
+        +'</div><hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">';
 
       html += '<div style="display:grid;gap:8px">';
-      rec.items.forEach(function(it,ix){
+      rec.items.forEach(function(it){
         html+='<div class="mini-tile">'
-          +'<div><strong>Group:</strong> '+(it.group==='check'?'Check':'Treated')+'</div>'
           +'<div><strong>Field:</strong> '+(it.field||'—')+'</div>'
           +'<div><strong>Treatment:</strong> '+(it.name||'—')+'</div>'
+          +'<div><strong>Type:</strong> '+(it.type||'—')+'</div>'
           +'<div><strong>Yield:</strong> '+(it.yield!=null?fmt(it.yield,2)+' bu/ac':'—')+'</div>'
-          + (it.notes?('<div><strong>Notes:</strong> '+it.notes+'</div>'):'')
+          + (it.notes ? '<div><strong>Notes:</strong> '+it.notes+'</div>' : '')
           +'</div>';
       });
       html+='</div>';
@@ -705,7 +648,7 @@
     hmClose.addEventListener("click", function(){ closeModal(histModal, hmClose); });
     histModal.addEventListener("click", function(e){ if(e.target===histModal) closeModal(histModal, hmClose); });
 
-    /* --------- Generic modal helpers --------- */
+    /* ---------- Generic modal helpers ---------- */
     var lastOpener=null, trapHandler=null;
     function openModal(el, closeBtn, opener){
       lastOpener=opener||null;
@@ -737,14 +680,8 @@
     }
     function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
 
-    /* --------- Boot --------- */
-    makeTreatment("", "", null, "treated", "");
-    lockAdd(); refreshSummary(); renderHist();
-
-    // Recompute summary on edits to fields that might affect grouping/notes
-    tlist.addEventListener("change", function(e){
-      if(e.target && (e.target.getAttribute("data-k")==="group")) refreshSummary();
-    });
+    /* ---------- Boot ---------- */
+    makeTreatment("", "", null, "", ""); lockAdd(); refreshSummary(); renderHist();
   })();
   </script>
 </body>
