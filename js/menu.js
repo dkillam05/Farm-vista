@@ -194,6 +194,22 @@ export const NAV_MENU = {
       ]
     },
 
+    /* ===== Reports ===== */
+    {
+      type: 'group',
+      id: 'reports',
+      icon: '📑',
+      label: 'Reports',
+      href: '/Farm-vista/pages/reports/index.html',
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'reports-custom',  icon: '🛠️', label: 'AI Reports (Custom)', href: '/Farm-vista/pages/reports/reports-ai.html' },
+        { type: 'link', id: 'reports-predef',  icon: '📚', label: 'Predefined Reports',  href: '/Farm-vista/pages/reports/reports-predefined.html' },
+        { type: 'link', id: 'reports-history', icon: '🗂️', label: 'AI Report History',   href: '/Farm-vista/pages/reports/reports-ai-history.html' }
+      ]
+    },
+
     /* ===== Setup ===== */
     {
       type: 'group',
@@ -247,10 +263,9 @@ export const NAV_MENU = {
           activeMatch: 'starts-with'
         },
 
-        /* NEW: RTK Tower Information */
+        /* RTK Tower Information */
         { type: 'link', id: 'setup-rtk-towers', icon: '🛰️', label: 'RTK Tower Information', href: '/Farm-vista/pages/setup/rtk-tower-information.html', activeMatch: 'starts-with' },
 
-        /* Linked: Company details & roles */
         { type: 'link', id: 'setup-company', label: 'Company Details', icon: '🏢', href: '/Farm-vista/pages/setup/company-details.html', activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-roles',   label: 'Account Roles',   icon: '👥', href: '/Farm-vista/pages/setup/account-roles.html',   activeMatch: 'starts-with' }
       ]
