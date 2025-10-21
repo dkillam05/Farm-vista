@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista • Field Boundary Fix Request</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+
+  <!-- Absolute paths to match your app -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png">
+
+  <!-- Early theme boot + shell (provided by your app) -->
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
+  <script defer src="/Farm-vista/js/fv-shell.js"></script>
+
+  <!-- Global CSS -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css">
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css">
+
+  <style>
+    :root{
+      --card-max: 1100px;
+      --page-bottom-gap: 96px;
+      --accent:#2F6C3C;
+    }
+    html{-webkit-text-size-adjust:100%}
+    body{ background: var(--app-bg, var(--surface)); }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    }
+
+    /* Hero card */
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom: var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:flex; gap:12px; align-items:flex-start;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{ width:28px; height:28px; color:var(--accent); margin-top:2px; }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{ padding:16px; display:grid; gap:14px; }
+
+    /* Responsive form rows */
+    .row{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
+    .row-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .row-4{ grid-template-columns: 1fr 1fr 1fr 1fr; }
+    @media (max-width:880px){ .row, .row-3, .row-4 { grid-template-columns: 1fr; } }
+
+    .field label{ display:block; font-weight:800; margin:0 0 6px 0; }
+    .input, .select, .textarea{
+      width:100%; font:inherit; font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px 12px;
+      outline:none;
+    }
+    .textarea{ min-height:110px; resize:vertical; }
+
+    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:6px; }
+
+    /* Buttons */
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:160px; padding:12px 16px; border-radius:12px;
+      border:1px solid var(--border); background:var(--card-surface,var(--surface));
+      font-weight:800; color:var(--text) !important; text-decoration:none; cursor:pointer; user-select:none;
+    }
+    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff !important; }
+
+    /* Inline panels */
+    .panel{
+      border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
+    }
+    .panel h3{ margin:0 0 8px 0; font-size:16px; }
+
+    /* Open-for-field list */
+    .open-list{ display:grid; gap:10px; }
+    .open-item{
+      border:1px solid var(--border); border-radius:10px; padding:10px;
+      display:grid; gap:6px; background:var(--surface);
+    }
+    .open-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .badge{
+      display:inline-block; font-size:12px; font-weight:800; padding:4px 8px; border-radius:999px;
+      color:#114; background:rgba(47,108,60,.12); border:1px solid var(--border);
+    }
+
+    /* Thumbs */
+    .thumbs{ display:flex; gap:10px; flex-wrap:wrap; }
+    .thumb{
+      width:92px; height:92px; border:1px solid var(--border); border-radius:10px; overflow:hidden; display:grid; place-items:center; background:#f6f7f6;
+      position:relative;
+    }
+    .thumb img{ width:100%; height:100%; object-fit:cover; }
+    .thumb button{
+      position:absolute; inset:auto 6px 6px auto; font-size:12px; padding:4px 6px; border-radius:8px;
+      border:1px solid var(--border); background:var(--surface); cursor:pointer;
+    }
+
+    /* History */
+    .hist-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border); }
+    .hist-title{ font-size:clamp(18px, 2.6vw, 22px); font-weight:800; }
+    .hist-clear{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important; }
+    .hist{ padding:14px 16px; display:grid; gap:12px; }
+    .hist-item{
+      border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
+      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    }
+    .hist-item .hline{ font-weight:800; }
+    .hist-item .view{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important; }
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
+      z-index:9999; transition:opacity .15s; opacity:0; }
+    .modal[open]{ display:grid; opacity:1; }
+    .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
+      border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
+    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .closex{
+      border:1px solid var(--border); background:var(--surface); border-radius:10px;
+      padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important;
+    }
+    .kv{ display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:baseline; }
+    .kv .val{ font-weight:800; }
+
+    html.no-scroll, body.no-scroll{ overflow:hidden; }
+
+    .note{ font-size:13px; padding:8px 10px; border-radius:10px; border:1px dashed var(--border); background:linear-gradient(180deg, rgba(47,108,60,.06), transparent); }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3l7 7M3 10l7-7M14 7h7v10h-7zM14 17l-2 4M14 7l-2-4"/>
+            </svg>
+          </div>
+          <div>
+            <h1 id="title">Field Boundary Fix Request</h1>
+            <p id="subtitle" class="muted">Pick a field, mark Interior or Exterior, describe what’s off, and attach photos if helpful.</p>
+          </div>
+        </header>
+
+        <div id="form" class="body">
+          <!-- Row 1 -->
+          <div class="row">
+            <div class="field">
+              <label for="fieldName">Field</label>
+              <select id="fieldName" class="select"
+                      data-field="field" data-label="Field" data-summary="1">
+                <option value="">— Select field —</option>
+              </select>
+              <div class="help">Fields load from Setup (if available). Start typing to jump.</div>
+            </div>
+
+            <div class="field">
+              <label for="boundaryType">Boundary Type</label>
+              <select id="boundaryType" class="select"
+                      data-field="boundaryType" data-label="Boundary Type" data-summary="2">
+                <option value="">—</option>
+                <option>Exterior</option>
+                <option>Interior</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Row 2 -->
+          <div class="row">
+            <div class="field">
+              <label for="scope">Scope</label>
+              <select id="scope" class="select"
+                      data-field="scope" data-label="Scope" data-summary="3">
+                <option value="">—</option>
+                <option>Small section</option>
+                <option>Entire field</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="when">Date</label>
+              <input id="when" type="date" class="input"
+                     data-field="when" data-label="Date">
+            </div>
+          </div>
+
+          <!-- Row 3 -->
+          <div class="row">
+            <div class="field">
+              <label for="submittedBy">Submitted By</label>
+              <input id="submittedBy" class="input" placeholder="Your name"
+                     data-field="submittedBy" data-label="Submitted By">
+            </div>
+            <div class="field">
+              <label for="contact">Contact (optional)</label>
+              <input id="contact" class="input" placeholder="Phone or email"
+                     data-field="contact" data-label="Contact">
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="textarea" placeholder="Describe what’s wrong and where (e.g., NW corner 50–80 ft too wide)"
+                      data-field="notes" data-label="Notes"></textarea>
+          </div>
+
+          <!-- Photos -->
+          <div class="field">
+            <label for="photos">Photos (optional)</label>
+            <input id="photos" class="input" type="file" accept="image/*" multiple capture="environment">
+            <div id="thumbs" class="thumbs" aria-live="polite"></div>
+            <div id="photoNote" class="help"></div>
+          </div>
+
+          <!-- Open requests for this field -->
+          <div id="openPanel" class="panel" hidden>
+            <h3>Open requests already on <span id="openFieldLabel"></span></h3>
+            <div id="openList" class="open-list"></div>
+            <div id="openNone" class="muted">No other open requests for this field.</div>
+          </div>
+
+          <!-- Actions -->
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear Inputs</button>
+            <button id="primary" class="btn btn-primary" type="button">Submit Request</button>
+          </div>
+
+          <!-- Submission note -->
+          <div id="summary" class="panel note" hidden></div>
+        </div>
+
+        <!-- History -->
+        <div class="hist-head">
+          <div class="hist-title" id="histTitle">Recent Requests</div>
+          <button id="clearHist" class="hist-clear" type="button">Clear Local History</button>
+        </div>
+        <div id="history" class="hist">
+          <div class="muted">No recent requests.</div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Modal -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">Details</h3>
+        <button class="closex" id="mdClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="mdBody"></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+
+    /* ===== CONFIG ===== */
+    const STORAGE_KEY_LOCAL  = "df_boundary_requests_local_v1"; // local fallback history
+    const HISTORY_TITLE_LOCAL = "Recent Requests (this device)";
+    const HISTORY_TITLE_FS    = "Recent Requests";
+    const MAX_HIST_LOCAL = 20;
+
+    // Collection / storage names when Firebase is present
+    const FS_COLLECTION = "boundary_requests";
+    const FS_STORAGE_FOLDER = "boundary-photos";
+
+    /* ===== Shortcuts ===== */
+    const $ = id => document.getElementById(id);
+    const todayISO = ()=> new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+    const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const fmtDate = (iso)=> iso ? new Date(iso).toLocaleDateString() : "";
+
+    // Firebase detection
+    const HAS_FS = !!(window.firebase && firebase.firestore && typeof firebase.firestore === "function");
+    const HAS_STG = !!(window.firebase && firebase.storage && typeof firebase.storage === "function");
+    const db  = HAS_FS ? firebase.firestore() : null;
+    const stg = HAS_STG ? firebase.storage() : null;
+
+    // UI elements
+    const fieldSel = $("fieldName");
+    const boundaryType = $("boundaryType");
+    const scope = $("scope");
+    const when = $("when");
+    const submittedBy = $("submittedBy");
+    const contact = $("contact");
+    const notes = $("notes");
+    const photos = $("photos");
+    const thumbs = $("thumbs");
+    const photoNote = $("photoNote");
+    const openPanel = $("openPanel");
+    const openFieldLabel = $("openFieldLabel");
+    const openList = $("openList");
+    const openNone = $("openNone");
+    const summary = $("summary");
+
+    /* ===== Prefill ===== */
+    function prefillUser(){
+      // Try several sources for friendly autofill
+      try{
+        if(window.__FV_USER && window.__FV_USER.displayName){
+          submittedBy.value = window.__FV_USER.displayName;
+          return;
+        }
+        if(window.firebase && firebase.auth && firebase.auth().currentUser){
+          const u = firebase.auth().currentUser;
+          submittedBy.value = u.displayName || u.email || submittedBy.value;
+          return;
+        }
+        const saved = localStorage.getItem("df_user_name");
+        if(saved) submittedBy.value = saved;
+      }catch(e){}
+    }
+
+    function saveUserHint(){
+      // Remember last submitter locally to speed up the next form
+      const name = submittedBy.value.trim();
+      if(name) localStorage.setItem("df_user_name", name);
+    }
+
+    /* ===== Fields list ===== */
+    async function loadFields(){
+      // Sources (first one that works wins):
+      // 1) window.DF?.fields (array of strings or {name})
+      // 2) localStorage 'df_fields' (array)
+      // 3) /Farm-vista/assets/data/fields.json (array)
+      let arr = [];
+      try{
+        if(window.DF && Array.isArray(window.DF.fields)){
+          arr = window.DF.fields.map(x => typeof x==="string" ? x : (x.name||"")).filter(Boolean);
+        }
+      }catch(e){}
+
+      if(!arr.length){
+        try{
+          const raw = localStorage.getItem("df_fields");
+          if(raw){
+            const tmp = JSON.parse(raw);
+            if(Array.isArray(tmp)) arr = tmp.map(x => typeof x==="string" ? x : (x.name||"")).filter(Boolean);
+          }
+        }catch(e){}
+      }
+
+      if(!arr.length){
+        try{
+          const res = await fetch("/Farm-vista/assets/data/fields.json",{cache:"no-store"});
+          if(res.ok){
+            const tmp = await res.json();
+            if(Array.isArray(tmp)) arr = tmp.map(x => typeof x==="string" ? x : (x.name||"")).filter(Boolean);
+          }
+        }catch(e){}
+      }
+
+      // Dedup + sort
+      arr = Array.from(new Set(arr)).sort((a,b)=>a.localeCompare(b));
+
+      // Paint
+      fieldSel.innerHTML = '<option value="">— Select field —</option>' + arr.map(n=>`<option>${escapeHTML(n)}</option>`).join("");
+    }
+
+    /* ===== Photos handling (preview; upload later if Firebase present) ===== */
+    let selectedFiles = []; // File objects
+
+    photos.addEventListener("change", ()=>{
+      selectedFiles = Array.from(photos.files||[]);
+      renderThumbs();
+      photoNote.textContent = HAS_STG ? "Photos will upload with the request." : "Preview only (no cloud upload available). The request will submit without photos.";
+    });
+
+    function renderThumbs(){
+      thumbs.innerHTML = "";
+      selectedFiles.forEach((file, idx)=>{
+        const div = document.createElement("div");
+        div.className = "thumb";
+        const img = document.createElement("img");
+        img.alt = file.name;
+        img.src = URL.createObjectURL(file);
+        const rm = document.createElement("button");
+        rm.type = "button";
+        rm.textContent = "Remove";
+        rm.addEventListener("click", ()=>{
+          selectedFiles.splice(idx,1);
+          renderThumbs();
+        });
+        div.appendChild(img);
+        div.appendChild(rm);
+        thumbs.appendChild(div);
+      });
+    }
+
+    /* ===== Collect + Validate ===== */
+    const FIELDS = Array.from(document.querySelectorAll("[data-field]"));
+
+    function collect(){
+      const o = {};
+      FIELDS.forEach(el => {
+        const key = el.dataset.field;
+        let v = el.value;
+        o[key] = v;
+      });
+      o.status = "Open";
+      o.t = Date.now();
+      o.timestampISO = new Date(o.t).toISOString();
+      return o;
+    }
+
+    function validate(o){
+      if(!o.field) return "Please select a field.";
+      if(!o.boundaryType) return "Please choose Interior or Exterior.";
+      if(!o.scope) return "Please choose Small section or Entire field.";
+      if(!o.submittedBy || !o.submittedBy.trim()) return "Please enter who is submitting this.";
+      if(!o.when) return "Please set the date.";
+      return "";
+    }
+
+    /* ===== Local storage helpers ===== */
+    function loadLocal(){
+      try{ const arr = JSON.parse(localStorage.getItem(STORAGE_KEY_LOCAL)||"[]"); return Array.isArray(arr)?arr:[]; }
+      catch(e){ return []; }
+    }
+    function saveLocal(arr){ localStorage.setItem(STORAGE_KEY_LOCAL, JSON.stringify(arr.slice(0,MAX_HIST_LOCAL))); }
+
+    /* ===== Firestore helpers ===== */
+    async function fsAddRequest(obj){
+      const ref = await db.collection(FS_COLLECTION).add({
+        ...obj,
+        createdAt: (firebase.firestore && firebase.firestore.FieldValue && firebase.firestore.FieldValue.serverTimestamp) ? firebase.firestore.FieldValue.serverTimestamp() : null
+      });
+      return ref.id;
+    }
+    async function fsUpdate(id, patch){
+      await db.collection(FS_COLLECTION).doc(id).update(patch);
+    }
+    async function fsQueryOpenByField(fieldName){
+      const snap = await db.collection(FS_COLLECTION)
+        .where("field","==", fieldName)
+        .where("status","==","Open")
+        .orderBy("timestampISO","desc")
+        .limit(25)
+        .get();
+      return snap.docs.map(d=>({id:d.id, ...d.data()}));
+    }
+    async function fsRecent(limit=20){
+      const snap = await db.collection(FS_COLLECTION)
+        .orderBy("timestampISO","desc")
+        .limit(limit)
+        .get();
+      return snap.docs.map(d=>({id:d.id, ...d.data()}));
+    }
+
+    async function stgUploadMany(docId, files){
+      if(!files.length) return [];
+      const urls=[];
+      for(const f of files){
+        const safeName = (Date.now()+"-"+f.name).replace(/[^\w.\-]+/g,"_");
+        const ref = stg.ref().child(`${FS_STORAGE_FOLDER}/${docId}/${safeName}`);
+        await ref.put(f);
+        const url = await ref.getDownloadURL();
+        urls.push({name:f.name, url});
+      }
+      return urls;
+    }
+
+    /* ===== Open-for-field display ===== */
+    async function refreshOpenForField(){
+      const fieldName = fieldSel.value;
+      if(!fieldName){ openPanel.hidden = true; return; }
+      openFieldLabel.textContent = fieldName;
+
+      // Load from FS if available; else from local
+      let items = [];
+      if(HAS_FS){
+        try{ items = await fsQueryOpenByField(fieldName); }
+        catch(e){ console.warn("FS open-by-field failed:", e); items = []; }
+      }else{
+        const all = loadLocal();
+        items = all.filter(x => x.field===fieldName && x.status==="Open");
+      }
+
+      openList.innerHTML = "";
+      if(!items.length){
+        openNone.hidden = false;
+      }else{
+        openNone.hidden = true;
+        items.forEach(it=>{
+          const div = document.createElement("div");
+          div.className = "open-item";
+          const head = document.createElement("div");
+          head.className = "open-head";
+          head.innerHTML = `<div><strong>${escapeHTML(it.boundaryType||"-")}</strong> • ${escapeHTML(it.scope||"-")}</div>
+                            <span class="badge">${escapeHTML(it.status||"Open")}</span>`;
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = `${fmtDate(it.when)} • ${it.submittedBy||"Unknown"}`;
+          const txt = document.createElement("div");
+          txt.textContent = it.notes || "(no notes)";
+          div.appendChild(head);
+          div.appendChild(meta);
+          div.appendChild(txt);
+          openList.appendChild(div);
+        });
+      }
+      openPanel.hidden = false;
+    }
+
+    fieldSel.addEventListener("change", refreshOpenForField);
+
+    /* ===== History render ===== */
+    function summaryLine(o){
+      const parts = [];
+      if(o.field) parts.push(o.field);
+      if(o.boundaryType) parts.push(o.boundaryType);
+      if(o.when) parts.push(new Date(o.when).toLocaleDateString());
+      return parts.join(" • ");
+    }
+
+    async function renderHistory(){
+      const box = $("history");
+      $("histTitle").textContent = HAS_FS ? HISTORY_TITLE_FS : HISTORY_TITLE_LOCAL;
+
+      // Prefer Firestore for a cross-device recent list
+      let items = [];
+      if(HAS_FS){
+        try{ items = await fsRecent(20); }
+        catch(e){ console.warn("FS recent failed:", e); items = []; }
+      } else {
+        items = loadLocal();
+      }
+
+      if(!items.length){ box.innerHTML = '<div class="muted">No recent requests.</div>'; return; }
+      box.innerHTML = "";
+      items.forEach((it)=>{
+        const div = document.createElement("div");
+        div.className = "hist-item";
+        const line = summaryLine(it) || "(untitled)";
+        div.innerHTML = `<div class="hline">${escapeHTML(line)}</div>
+                         <button class="view" type="button">View</button>`;
+        div.querySelector(".view").addEventListener("click", ()=> openDetail(it));
+        box.appendChild(div);
+      });
+    }
+
+    $("clearHist").addEventListener("click", ()=>{
+      if(!confirm("Clear local device history?")) return;
+      saveLocal([]); renderHistory();
+    });
+
+    /* ===== Modal ===== */
+    const modal = $("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    let lastFocus=null;
+
+    function openDetail(it){
+      $("mdTitle").textContent = "Request Details";
+      const rows = [
+        ["Field", it.field],
+        ["Boundary Type", it.boundaryType],
+        ["Scope", it.scope],
+        ["Date", it.when ? new Date(it.when).toLocaleDateString() : ""],
+        ["Submitted By", it.submittedBy],
+        ["Contact", it.contact],
+        ["Status", it.status||"Open"],
+        ["Notes", it.notes]
+      ].map(([k,v])=>`<div>${escapeHTML(k)}</div><div class="val">${escapeHTML(v||"")}</div>`).join("");
+      const photosBlock = Array.isArray(it.photos) && it.photos.length
+        ? `<div style="grid-column:1/-1"><div class="thumbs">${
+            it.photos.map(p=>`<a href="${escapeHTML(p.url||"#")}" target="_blank" class="thumb" title="${escapeHTML(p.name||"photo")}">${p.url?`<img src="${escapeHTML(p.url)}" alt="">`:"<span>No URL</span>"}</a>`).join("")
+          }</div></div>` : "";
+      mdBody.innerHTML = `<div class="kv">${rows}${photosBlock}</div>`;
+      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      lastFocus=document.activeElement; mdClose.focus();
+    }
+    function closeModal(){
+      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      if(lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
+
+    /* ===== Submit flow ===== */
+    $("primary").addEventListener("click", async ()=>{
+      const o = collect();
+      const err = validate(o);
+      if(err){ alert(err); return; }
+
+      // Persist name locally for next time
+      saveUserHint();
+
+      // Default date if somehow empty
+      if(!o.when) o.when = todayISO();
+
+      summary.hidden = false;
+      summary.textContent = "Submitting…";
+
+      try{
+        let id = null;
+        if(HAS_FS){
+          // 1) Create doc
+          id = await fsAddRequest(o);
+          // 2) Upload photos (optional)
+          let uploaded = [];
+          if(HAS_STG && selectedFiles.length){
+            uploaded = await stgUploadMany(id, selectedFiles);
+          }
+          if(uploaded.length){
+            await fsUpdate(id, { photos: uploaded });
+            o.photos = uploaded;
+          }
+        }
+
+        // Always keep a local "recent" for this device as well
+        const rec = loadLocal();
+        rec.unshift({ ...o, id: id || ("local-"+o.t) });
+        saveLocal(rec);
+
+        summary.innerHTML = `<strong>Submitted:</strong> ${escapeHTML(summaryLine(o) || "Saved")}`;
+        // Reset inputs (except submittedBy/contact)
+        fieldSel.selectedIndex = 0;
+        boundaryType.selectedIndex = 0;
+        scope.selectedIndex = 0;
+        when.value = todayISO();
+        notes.value = "";
+        photos.value = "";
+        selectedFiles = [];
+        renderThumbs();
+
+        // Refresh panels
+        await renderHistory();
+        await refreshOpenForField();
+        window.scrollTo({top:0, behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        alert("Sorry, something went wrong saving the request.");
+        summary.hidden = true;
+      }
+    });
+
+    $("clear").addEventListener("click", ()=>{
+      fieldSel.selectedIndex = 0;
+      boundaryType.selectedIndex = 0;
+      scope.selectedIndex = 0;
+      when.value = todayISO();
+      // keep submittedBy/contact so they don't retype every time
+      notes.value = "";
+      photos.value = "";
+      selectedFiles = [];
+      renderThumbs();
+      openPanel.hidden = true;
+      summary.hidden = true;
+    });
+
+    /* ===== Boot ===== */
+    (async function init(){
+      when.value = todayISO();
+      prefillUser();
+      await loadFields();
+      await renderHistory();
+    })();
+  })();
+  </script>
+</body>
+</html>
