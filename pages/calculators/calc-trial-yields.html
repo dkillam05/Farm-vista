@@ -111,7 +111,6 @@
     /* Combine-yield mini form inside modal */
     .cg{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:760px){ .cg{ grid-template-columns:1fr; } }
-    .note{ color:var(--muted); font-size:12px; margin-top:-4px; }
     .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
     @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
     .mini-tile{ border:1px solid var(--border); border-radius:12px; padding:10px; background:var(--surface); }
@@ -133,7 +132,7 @@
           </div>
           <div>
             <h1>Trial Yields</h1>
-            <div class="muted">Add treatments. For each, tap <strong>Enter Yield…</strong> to open the Combine Yield calculator and pull back the bu/ac.</div>
+            <div class="muted">Add treatments. For each, tap <strong>Enter Yield…</strong> to open the calculator and pull back bu/ac.</div>
           </div>
         </div>
 
@@ -174,11 +173,11 @@
     </div>
   </fv-shell>
 
-  <!-- Combine Yield MODAL -->
+  <!-- Trial Yield MODAL (updated per your requests) -->
   <div class="modal" id="cyModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cyTitle">
       <div class="dialog-head">
-        <h3 id="cyTitle">Combine Yield</h3>
+        <h3 id="cyTitle">Trial Yield — Enter Sample</h3>
         <button class="closex" id="cyClose" type="button">Back</button>
       </div>
       <div class="dialog-body">
@@ -212,14 +211,14 @@
                   <option value="acres">Acres (known)</option>
                 </select>
               </div>
-              <div class="note">Use Cut Width dropdown 30/35/40/45 ft.</div>
             </div>
             <div></div>
 
+            <!-- Length/Width inputs -->
             <div data-pane="lw">
               <label>Cut Length</label>
               <div class="ctrl">
-                <input id="cyLen" type="text" inputmode="decimal" placeholder="e.g. 1,320">
+                <input id="cyLen" type="text" inputmode="decimal" placeholder="e.g. 600">
                 <span class="unit">ft</span>
               </div>
             </div>
@@ -235,6 +234,17 @@
               </div>
             </div>
 
+            <!-- Computed Area (read-only) -->
+            <div data-pane="lw">
+              <label>Area (computed)</label>
+              <div class="ctrl">
+                <input id="cyAcRO" type="text" disabled placeholder="0.000">
+                <span class="unit">ac</span>
+              </div>
+            </div>
+            <div data-pane="lw"></div>
+
+            <!-- Acres mode (manual) -->
             <div data-pane="acres" class="hidden">
               <label>Area</label>
               <div class="ctrl">
@@ -254,12 +264,13 @@
             <div>
               <label>Start Moisture</label>
               <div class="ctrl">
-                <input id="cyM" type="text" inputmode="decimal" placeholder="e.g. 25.6" maxlength="4">
+                <input id="cyM" type="text" inputmode="decimal" placeholder="e.g. 16.5" maxlength="4">
                 <span class="unit">%</span>
               </div>
             </div>
           </div>
 
+          <!-- Results -->
           <div class="result-grid" id="cyRes" hidden>
             <div class="mini-tile" id="tTile">
               <h4>True Shrink</h4>
@@ -273,7 +284,8 @@
             </div>
           </div>
 
-          <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
+          <!-- Actions (stacked for easier tapping) -->
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:12px;">
             <button type="button" class="btn" id="cyCalc">Calculate</button>
             <div class="ctrl" style="gap:6px;">
               <label for="cyUse" style="margin:0; font-weight:600;">Use</label>
@@ -378,7 +390,7 @@
 
     var cyModal=$("cyModal"), cyClose=$("cyClose");
     var cyCrop=$("cyCrop"), cyMode=$("cyMode"), cyAreaMode=$("cyAreaMode");
-    var cyLen=$("cyLen"), cyWid=$("cyWid"), cyAc=$("cyAc"), cyWt=$("cyWt"), cyM=$("cyM");
+    var cyLen=$("cyLen"), cyWid=$("cyWid"), cyAcRO=$("cyAcRO"), cyAc=$("cyAc"), cyWt=$("cyWt"), cyM=$("cyM");
     var cyRes=$("cyRes"), tYield=$("tYield"), tBu=$("tBu"), eYield=$("eYield"), eBu=$("eBu");
     var cyCalc=$("cyCalc"), cyUseSel=$("cyUse"), cyUseBtn=$("cyUseBtn");
     var cyTargetRow=null; // treatment row to receive yield
@@ -387,8 +399,18 @@
     function paneShow(v){ panes.forEach(p=>p.classList.toggle("hidden", p.getAttribute("data-pane")!==v)); }
     cyAreaMode.addEventListener("change", ()=>paneShow(cyAreaMode.value)); paneShow(cyAreaMode.value);
 
+    // compute area from Length×Width and display (read-only)
+    function computeROArea(){
+      var L=num(cyLen.value), W=parseFloat(cyWid.value);
+      var A=(L>0 && W>0) ? (L*W)/SQFT_PER_ACRE : NaN;
+      cyAcRO.value = isFinite(A) ? fmt(A,3) : "";
+      return isFinite(A) ? A : null;
+    }
+    cyLen.addEventListener("input", computeROArea);
+    cyWid.addEventListener("change", computeROArea);
+
     cyWt.addEventListener("blur", function(){ var raw=cyWt.value.replace(/[^0-9]/g,""); cyWt.value=raw?Number(raw).toLocaleString():""; });
-    [cyLen, cyAc].forEach(function(i){ i && i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; }); });
+    [cyAc].forEach(function(i){ i && i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; }); });
 
     cyM.addEventListener("input", function(){
       var s=cyM.value.replace(/[^\d.]/g,""); var parts=s.split(".");
@@ -406,12 +428,11 @@
     }
 
     function calcCY(){
-      var crop=cyCrop.value, mode=cyMode.value;
+      var crop=cyCrop.value;
       var area=0;
       if(cyAreaMode.value==="lw"){
-        var L=num(cyLen.value), W=parseFloat(cyWid.value);
-        if(!(L>0 && W>0)) { alert("Enter cut length and choose a cut width."); return null; }
-        area=(L*W)/SQFT_PER_ACRE;
+        area = computeROArea();
+        if(!(area>0)){ alert("Enter cut length and choose a cut width."); return null; }
       } else {
         area=num(cyAc.value); if(!(area>0)){ alert("Enter acres."); return null; }
       }
@@ -422,7 +443,7 @@
       var trueWt=Wt*((100-M)/(100-std)), trueBu=trueWt/tw, trueY=trueBu/area;
       var ePct=elevPct(crop,M), eWt=Wt*(1-ePct/100), eBuV=eWt/tw, eY=eBuV/area;
 
-      return {crop:crop, mode:mode, area:area, Wt:Wt, M:M, trueBu:trueBu, trueY:trueY, elevBu:eBuV, elevY:eY};
+      return {crop:crop, trueBu:trueBu, trueY:trueY, elevBu:eBuV, elevY:eY};
     }
 
     function showCY(o){
@@ -436,9 +457,9 @@
 
     function openCY(treatmentRow){
       cyTargetRow=treatmentRow;
-      // reset fields (keep last choices if you want — for now just keep as-is)
       cyRes.hidden=true;
       openModal(cyModal, cyClose);
+      computeROArea(); // initialize computed area display
     }
     cyCalc.addEventListener("click", function(){ var out=calcCY(); showCY(out); });
     cyUseBtn.addEventListener("click", function(){
@@ -484,6 +505,9 @@
       var rec={ t:Date.now(), items:items };
       var h=loadH(); h.unshift(rec); saveH(h); renderHist();
     });
+    document.getElementById("clearHist").addEventListener("click", function(){
+      localStorage.removeItem(LS_KEY); renderHist();
+    });
 
     /* ---------- History details modal ---------- */
     var histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
@@ -501,7 +525,7 @@
         +'</div><hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">';
 
       html += '<div style="display:grid;gap:8px">';
-      rec.items.forEach(function(it,ix){
+      rec.items.forEach(function(it){
         html+='<div class="mini-tile">'
           +'<div><strong>Field:</strong> '+(it.field||'—')+'</div>'
           +'<div><strong>Treatment:</strong> '+(it.name||'—')+'</div>'
@@ -524,15 +548,15 @@
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
       closeBtn && closeBtn.focus(); trapFocus(el);
     }
-    function closeModal(el, closeBtn){
+    function closeModal(el){
       el.removeAttribute("open"); el.setAttribute("aria-hidden","true");
       document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
       releaseFocus(el); if(lastOpener && lastOpener.focus) lastOpener.focus();
     }
     document.addEventListener("keydown", function(e){
       if(e.key==="Escape"){
-        if(cyModal.hasAttribute("open")) closeModal(cyModal, cyClose);
-        if(histModal.hasAttribute("open")) closeModal(histModal, hmClose);
+        if(cyModal.hasAttribute("open")) closeModal(cyModal);
+        if(histModal.hasAttribute("open")) closeModal(histModal);
       }
     });
     function trapFocus(root){
