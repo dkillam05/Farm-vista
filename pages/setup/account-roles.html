@@ -4,7 +4,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes (match rest of app) -->
+  <!-- Standard includes -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -44,28 +44,24 @@
     /* Tree */
     .tree{border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--card-surface,var(--surface));}
     details.node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:8px 0;}
-    summary{list-style:none;cursor:pointer}
-    summary::-webkit-details-marker{display:none}
-
-    .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px}
+    summary{cursor:pointer;padding:10px 12px}
+    .sum-line{display:flex;align-items:center;gap:10px}
     .indent-0{padding-left:0}
     .indent-1{padding-left:12px}
     .indent-2{padding-left:24px}
     .indent-3{padding-left:36px}
     .indent-4{padding-left:48px}
-
-    .left{display:flex;align-items:center;gap:10px;min-width:0;}
     .label{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .meta{display:none} /* hide paths/urls entirely */
 
-    .pill-col{display:grid;gap:6px;grid-auto-flow:row}      /* vertical stack by default */
-    @media(min-width:840px){ .pill-col{grid-auto-flow:column} } /* horizontal on wide */
+    .content{padding:8px 12px 12px}
+    .pill-col{display:grid;gap:6px;grid-auto-flow:row;margin-bottom:8px}
+    @media(min-width:840px){ .pill-col{grid-auto-flow:column} }
     .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:6px 10px;
       font-weight:800;background:var(--surface);color:var(--text);cursor:pointer;user-select:none;min-height:36px}
     .pill[data-on="true"]{background:#2F6C3C;color:#fff;border-color:#2F6C3C;}
     .tiny{font-size:12px;opacity:.92;font-weight:700}
 
-    .children{display:grid;gap:6px;padding:8px 10px 12px}
+    .children{display:grid;gap:6px}
 
     /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
@@ -74,14 +70,14 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
-  <!-- Load your menu config as a module so we mirror it -->
+  <!-- Make NAV available so we can mirror it -->
   <script type="module">
     import NAV_MENU from '/Farm-vista/js/menu.js';
     window.FV_NAV_MENU = NAV_MENU;
     window.dispatchEvent(new Event('fv:menu-ready'));
   </script>
 
-  <!-- Ensure fv-shell is registered (lazy, same as other pages) -->
+  <!-- Ensure fv-shell is loaded (same pattern as others) -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
@@ -91,7 +87,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Account Roles</h1>
-      <p class="page-sub">Create roles and choose which menus users can see and what actions they can perform.</p>
+      <p class="page-sub">Create a role, then expand menus to choose what the role can see and do. Group switches cascade to children; open a child to override.</p>
 
       <!-- Role header -->
       <section class="section">
@@ -157,9 +153,10 @@
     function saveRoles(arr){ localStorage.setItem(LS_ROLES, JSON.stringify(arr)); }
     function getMenu(){ return window.FV_NAV_MENU; }
 
-    /* ---------- Build a simple tree from NAV (only labels; no paths) ---------- */
+    /* ===== Build a simple tree from NAV (labels only; hide Home) ===== */
     function flatten(items, depth=0, parent=null, out=[]){
       items.forEach(it=>{
+        if(it.id === "home") return; // hide Home dashboard from roles UI
         const node = { id: it.id, type: it.type, label: it.label, depth, parent, children: (it.children||[]).map(c=>c.id) };
         out.push(node);
         if(it.children && it.children.length) flatten(it.children, depth+1, it.id, out);
@@ -167,19 +164,18 @@
       return out;
     }
 
-    /* ---------- Permissions ---------- */
-    function defaultPerm(node){
-      // Links default: Visible+View true, others false; Groups Visible true so they show in nav.
+    /* ===== Permissions ===== */
+    function defPerm(node){
       return node.type==="group"
         ? { visible:true, view:false, add:false, edit:false, archive:false }
         : { visible:true, view:true,  add:false, edit:false, archive:false };
     }
     function ensurePerm(nodeId, nodeObj){
-      if(!roleDraft.perms[nodeId]) roleDraft.perms[nodeId] = defaultPerm(nodeObj);
+      if(!roleDraft.perms[nodeId]) roleDraft.perms[nodeId] = defPerm(nodeObj);
       return roleDraft.perms[nodeId];
     }
 
-    /* ---------- Render ---------- */
+    /* ===== Render ===== */
     function renderTree(){
       const NAV = getMenu();
       const tree = $("tree");
@@ -212,16 +208,14 @@
         btn.setAttribute("aria-checked", String(state));
         btn.innerHTML = `<span class="tiny">${label}</span>`;
         btn.addEventListener("click", (e)=>{
-          e.stopPropagation(); // don’t toggle details
+          e.stopPropagation();
           const cur = ensurePerm(node.id, node);
           const next = !cur[key];
           cur[key] = next;
           btn.dataset.on = String(next);
           btn.setAttribute("aria-checked", String(next));
-          // If this is a GROUP pill, cascade to all children immediately.
           if(isGroup){
             cascade(node.id, key, next);
-            // re-render to refresh child pills
             renderTree();
           }
         });
@@ -230,57 +224,83 @@
 
       function renderNode(node){
         const isGroup = node.type==="group";
-        const details = document.createElement("details");
-        details.className = "node";
-        // collapsed by default
-        const summary = document.createElement("summary");
-        const bar = document.createElement("div");
-        bar.className = "bar indent-"+Math.min(node.depth,4);
+        const d = document.createElement("details");
+        d.className = "node";
 
-        const left = document.createElement("div");
-        left.className = "left";
+        const sum = document.createElement("summary");
+        const sumLine = document.createElement("div");
+        sumLine.className = "sum-line indent-"+Math.min(node.depth,4);
         const label = document.createElement("div");
-        label.className = "label"; label.textContent = node.label;
-        left.appendChild(label);
+        label.className = "label";
+        label.textContent = node.label;
+        sumLine.appendChild(label);
+        sum.appendChild(sumLine);
+        d.appendChild(sum);
 
-        const pills = document.createElement("div");
-        pills.className = "pill-col";
+        const content = document.createElement("div");
+        content.className = "content";
 
-        // For groups, show full set and cascade; for links, show own set
         if(isGroup){
+          // group-level pills that cascade
+          const pills = document.createElement("div");
+          pills.className = "pill-col";
           pills.appendChild(makePill("Visible","visible",node,true));
           pills.appendChild(makePill("View","view",node,true));
           pills.appendChild(makePill("Add","add",node,true));
           pills.appendChild(makePill("Edit","edit",node,true));
           pills.appendChild(makePill("Archive/Delete","archive",node,true));
-        }else{
-          pills.appendChild(makePill("Visible","visible",node,false));
-          pills.appendChild(makePill("View","view",node,false));
-          pills.appendChild(makePill("Add","add",node,false));
-          pills.appendChild(makePill("Edit","edit",node,false));
-          pills.appendChild(makePill("Archive/Delete","archive",node,false));
-        }
+          content.appendChild(pills);
 
-        bar.appendChild(left);
-        bar.appendChild(pills);
-        summary.appendChild(bar);
-        details.appendChild(summary);
-
-        if(isGroup){
+          // children list (each child is its own collapsible row showing its own pills inside)
           const kidsWrap = document.createElement("div");
           kidsWrap.className = "children";
-          (byParent[node.id]||[]).forEach(k => kidsWrap.appendChild(renderNode(k)));
-          details.appendChild(kidsWrap);
+          (byParent[node.id]||[]).forEach(k=>{
+            kidsWrap.appendChild(renderLeaf(k));
+          });
+          content.appendChild(kidsWrap);
+        }else{
+          // link nodes normally rendered via renderLeaf() (so this path rarely runs)
+          content.appendChild(renderLeafInner(node));
         }
 
-        return details;
+        d.appendChild(content);
+        return d;
+      }
+
+      function renderLeaf(node){
+        const d = document.createElement("details");
+        d.className = "node";
+        const sum = document.createElement("summary");
+        const sumLine = document.createElement("div");
+        sumLine.className = "sum-line indent-"+Math.min(node.depth+1,4);
+        const label = document.createElement("div"); label.className="label"; label.textContent=node.label;
+        sumLine.appendChild(label);
+        sum.appendChild(sumLine);
+        d.appendChild(sum);
+
+        const content = document.createElement("div");
+        content.className = "content";
+        content.appendChild(renderLeafInner(node));
+        d.appendChild(content);
+        return d;
+      }
+
+      function renderLeafInner(node){
+        const pills = document.createElement("div");
+        pills.className = "pill-col";
+        pills.appendChild(makePill("Visible","visible",node,false));
+        pills.appendChild(makePill("View","view",node,false));
+        pills.appendChild(makePill("Add","add",node,false));
+        pills.appendChild(makePill("Edit","edit",node,false));
+        pills.appendChild(makePill("Archive/Delete","archive",node,false));
+        return pills;
       }
 
       tree.innerHTML = "";
       (byParent["__ROOT__"]||[]).forEach(n => tree.appendChild(renderNode(n)));
     }
 
-    /* ---------- Role picker ---------- */
+    /* ===== Role picker & actions ===== */
     function populateRolePicker(){
       const sel = $("rolePicker");
       const all = loadRoles();
@@ -348,15 +368,11 @@
     $("expandAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=true); });
     $("collapseAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=false); });
 
-    /* ---------- Init (wait for menu) ---------- */
-    function init(){
-      populateRolePicker();
-      newDraft();
-    }
+    /* ===== Init ===== */
+    function init(){ populateRolePicker(); newDraft(); }
     if(window.FV_NAV_MENU){ init(); }
     else{
       window.addEventListener('fv:menu-ready', init, { once:true });
-      // safety retry in case event missed
       setTimeout(()=>{ if(window.FV_NAV_MENU) init(); }, 300);
     }
   })();
