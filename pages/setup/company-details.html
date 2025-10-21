@@ -94,7 +94,7 @@
               <div class="row">
                 <div class="field">
                   <label for="coPhone">Phone</label>
-                  <input id="coPhone" class="input" type="tel" placeholder="(217) 555-0123">
+                  <input id="coPhone" class="input" type="tel" inputmode="tel" placeholder="(217) 555-0123">
                 </div>
                 <div class="field">
                   <label for="coEmail">Primary Email</label>
@@ -155,12 +155,37 @@
 
     let logoDataUrl = ""; // current (unsaved) logo
 
-    function showToast(msg="Saved."){
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
-    }
+    function showToast(msg="Saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
     function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+
+    /* ===== Phone & Email helpers ===== */
+    function onlyDigits(s){ return String(s||"").replace(/\D+/g,""); }
+    function formatUSPhone(s){
+      const d = onlyDigits(s);
+      if(d.length===11 && d.startsWith("1")){
+        return `+1 (${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7,11)}`;
+      }
+      if(d.length>=10){
+        return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}` + (d.length>10 ? ` x${d.slice(10)}` : "");
+      }
+      return d; // not enough digits; leave as digits
+    }
+    function normalizeEmail(s){ return String(s||"").trim().toLowerCase(); }
+    function isLikelyValidEmail(s){
+      const e = normalizeEmail(s);
+      // basic syntax check
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e)) return false;
+      // catch very common typo: ".con"
+      const tld = e.split(".").pop();
+      if(!tld) return false;
+      if(tld.toLowerCase()==="con") return false;
+      // length sanity
+      if(tld.length<2 || tld.length>24) return false;
+      return true;
+    }
+
+    coPhone.addEventListener("blur", ()=>{ coPhone.value = formatUSPhone(coPhone.value); });
+    coEmail.addEventListener("blur", ()=>{ coEmail.value = normalizeEmail(coEmail.value); });
 
     /* -------- Load/Save -------- */
     function load(){
@@ -169,8 +194,8 @@
         if(!obj || typeof obj !== "object") return;
         coName.value = obj.name || "";
         coAddr.value = obj.address || "";
-        coPhone.value = obj.phone || "";
-        coEmail.value = obj.email || "";
+        coPhone.value = obj.phone ? formatUSPhone(obj.phone) : "";
+        coEmail.value = obj.email ? normalizeEmail(obj.email) : "";
         logoDataUrl = obj.logo || "";
         renderLogo();
         renderSummary(obj);
@@ -178,24 +203,27 @@
     }
     function save(){
       const name = coName.value.trim();
-      const email = coEmail.value.trim();
       if(!name){ alert("Please enter the farm/company name."); return; }
-      if(!email){ alert("Please enter the primary email."); return; }
+
+      // format phone for storage/display
+      const phoneFormatted = formatUSPhone(coPhone.value);
+      const emailNorm = normalizeEmail(coEmail.value);
+      const emailToStore = isLikelyValidEmail(emailNorm) ? emailNorm : "";
 
       const obj = {
         name,
         address: coAddr.value.trim(),
-        phone: coPhone.value.trim(),
-        email,
+        phone: phoneFormatted,
+        email: emailToStore,  // empty means "Not available"
         logo: logoDataUrl || "",
         t: Date.now()
       };
       localStorage.setItem(LS_KEY, JSON.stringify(obj));
       renderSummary(obj);
-      showToast("Saved.");
       // expose for other pages
       window.FV_COMPANY = window.FV_COMPANY || {};
       window.FV_COMPANY.get = () => ({...obj});
+      showToast("Saved.");
     }
 
     /* -------- Logo handling (compress + preview) -------- */
@@ -245,16 +273,13 @@
             c.width = Math.round(w * scale);
             c.height = Math.round(h * scale);
             ctx.clearRect(0,0,c.width,c.height);
-            // fill white for JPEGs to avoid black background if original had transparency
             ctx.fillStyle = "#fff";
             ctx.fillRect(0,0,c.width,c.height);
             ctx.drawImage(img, 0, 0, c.width, c.height);
-            // Prefer PNG for logos (keeps transparency if any)
             try {
-              const dataUrl = c.toDataURL("image/png"); // PNG preserves alpha
+              const dataUrl = c.toDataURL("image/png");
               resolve(dataUrl);
             } catch(err){
-              // Fallback to JPEG
               resolve(c.toDataURL("image/jpeg", 0.9));
             }
           };
@@ -268,9 +293,9 @@
     /* -------- Summary -------- */
     function renderSummary(obj){
       sName.textContent = obj.name ? obj.name : "—";
-      sAddr.innerHTML = obj.address ? escapeHTML(obj.address).replace(/\n/g,"<br>") : "—";
-      sPhone.textContent = obj.phone ? obj.phone : "—";
-      sEmail.textContent = obj.email ? obj.email : "—";
+      sAddr.innerHTML   = obj.address ? escapeHTML(obj.address).replace(/\n/g,"<br>") : "—";
+      sPhone.textContent = obj.phone ? formatUSPhone(obj.phone) : "—";
+      sEmail.textContent = obj.email && isLikelyValidEmail(obj.email) ? obj.email : "Not available";
       summary.hidden = false;
     }
 
@@ -279,8 +304,7 @@
     $("clear").addEventListener("click", ()=>{
       if(!confirm("Clear unsaved changes?")) return;
       coName.value = ""; coAddr.value = ""; coPhone.value = ""; coEmail.value = "";
-      logoDataUrl = "";
-      renderLogo();
+      logoDataUrl = ""; renderLogo();
     });
 
     /* -------- Expose getter globally -------- */
