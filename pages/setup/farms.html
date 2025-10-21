@@ -34,6 +34,8 @@
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
+    .btn-quiet{min-width:auto;padding:8px 12px}
 
     /* List */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);}
@@ -42,6 +44,7 @@
     .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
       display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
     .name{font-weight:800}
+    .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
     .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
 
     /* Modal */
@@ -51,6 +54,8 @@
       border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
     .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
     .dialog-body{padding:14px;display:grid;gap:12px;}
+    .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
+    .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
 
     /* Toast */
@@ -76,6 +81,7 @@
           <div class="icon" aria-hidden="true">🏷️</div>
           <div><strong>Add Farm</strong></div>
         </header>
+
         <div class="section-body">
           <div class="row">
             <div class="field">
@@ -91,7 +97,7 @@
 
         <div class="list-head">
           <div class="list-title">Farms</div>
-          <button id="clearAll" class="btn" type="button">Clear All</button>
+          <!-- (Intentionally no 'Clear All' button) -->
         </div>
         <div id="list" class="list">
           <div class="muted">No farms yet.</div>
@@ -115,9 +121,17 @@
           <label for="editName">Farm Name</label>
           <input id="editName" class="input" placeholder="Farm name">
         </div>
-        <div class="actions">
-          <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <div class="field" id="statusRow">
+          <span class="pill" id="statusPill">Active</span>
+          <span class="pill" id="usedPill" style="display:none">In use</span>
         </div>
+      </div>
+      <div class="dialog-footer">
+        <div class="left-btns">
+          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the farm is in use.">Delete</button>
+        </div>
+        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
       </div>
     </div>
   </div>
@@ -138,36 +152,53 @@
     }
     function saveAll(a){ localStorage.setItem(LS_KEY, JSON.stringify(a)); }
 
-    /* ===== UI helpers ===== */
+    /* ===== Utils ===== */
+    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
     function showToast(msg="Successfully saved."){
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth;
       toast.classList.add("show");
     }
+
+    /* ===== Render list ===== */
     function render(){
       const box = $("list");
       const arr = loadAll();
       if(!arr.length){ box.innerHTML = '<div class="muted">No farms yet.</div>'; return; }
+      // active first, archived after
+      arr.sort((a,b)=>{
+        const sa = a.status==="archived", sb = b.status==="archived";
+        return (sa-sb) || (b.t-a.t);
+      });
       box.innerHTML = "";
       arr.forEach(it=>{
         const div = document.createElement("div");
         div.className = "item";
+        const status = it.status==="archived" ? '<span class="pill">Archived</span>' : '';
         div.innerHTML = `
-          <div class="name">${escapeHTML(it.name)}</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="name">${escapeHTML(it.name)}</div>
+            ${status}
+          </div>
           <button class="view" type="button">View / Edit</button>
         `;
         div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
         box.appendChild(div);
       });
     }
-    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
 
-    /* ===== Add / Save ===== */
+    /* ===== Add / Save new ===== */
     $("save").addEventListener("click", ()=>{
       const name = $("farmName").value.trim();
       if(!name){ alert("Please enter a farm name."); return; }
       const arr = loadAll();
-      const item = { id: String(Date.now()) + Math.random().toString(36).slice(2,7), name, t: Date.now() };
+      const item = {
+        id: String(Date.now()) + Math.random().toString(36).slice(2,7),
+        name,
+        status: "active", // 'active' | 'archived'
+        used: false,      // placeholder; set true when referenced elsewhere
+        t: Date.now()
+      };
       arr.unshift(item);
       saveAll(arr);
       showToast("Successfully saved.");
@@ -177,19 +208,21 @@
     });
     $("clear").addEventListener("click", ()=>{ $("farmName").value=""; });
 
-    $("clearAll").addEventListener("click", ()=>{
-      if(!confirm("Clear all farms?")) return;
-      saveAll([]); render();
-    });
-
-    /* ===== Modal (View/Edit) ===== */
-    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave");
+    /* ===== Modal (View/Edit/Archive/Delete) ===== */
+    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
     function openEdit(id){
       const arr = loadAll();
       const it = arr.find(x=>x.id===id);
       if(!it) return;
       editId = id;
       $("editName").value = it.name;
+      // status/used pills
+      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
+      $("usedPill").style.display = it.used ? "inline-block" : "none";
+      // button labels/states
+      mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+      mdDelete.disabled = !!it.used;
+      mdDelete.title = it.used ? "This farm is in use and cannot be deleted. Archive instead." : "Delete this farm";
       openModal();
     }
     function openModal(){
@@ -214,6 +247,38 @@
       if(idx>=0){ arr[idx] = {...arr[idx], name, updatedAt: Date.now()}; saveAll(arr); }
       render();
       showToast("Changes saved.");
+      closeModal();
+    });
+
+    mdArchive.addEventListener("click", ()=>{
+      const arr = loadAll();
+      const idx = arr.findIndex(x=>x.id===editId);
+      if(idx<0) return;
+      const cur = arr[idx];
+      const nextStatus = cur.status==="archived" ? "active" : "archived";
+      arr[idx] = {...cur, status: nextStatus, updatedAt: Date.now()};
+      saveAll(arr);
+      render();
+      showToast(nextStatus==="archived" ? "Farm archived." : "Farm unarchived.");
+      // keep modal open and update its controls
+      $("statusPill").textContent = nextStatus==="archived" ? "Archived" : "Active";
+      mdArchive.textContent = nextStatus==="archived" ? "Unarchive" : "Archive";
+    });
+
+    mdDelete.addEventListener("click", ()=>{
+      const arr = loadAll();
+      const idx = arr.findIndex(x=>x.id===editId);
+      if(idx<0) return;
+      const cur = arr[idx];
+      if(cur.used){
+        alert("This farm is in use and cannot be deleted. Archive instead.");
+        return;
+        }
+      if(!confirm(`Delete farm "${cur.name}"? This cannot be undone.`)) return;
+      arr.splice(idx,1);
+      saveAll(arr);
+      render();
+      showToast("Farm deleted.");
       closeModal();
     });
 
