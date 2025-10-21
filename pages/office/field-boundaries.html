@@ -6,12 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3B7E46">
 
-  <!-- Absolute paths to match your app -->
+  <!-- Absolute paths -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png">
 
-  <!-- Early theme boot + shell -->
+  <!-- Early boot + shell -->
   <script defer src="/Farm-vista/js/theme-boot.js"></script>
   <script defer src="/Farm-vista/js/fv-shell.js"></script>
 
@@ -24,6 +24,8 @@
       --card-max: 1100px;
       --page-bottom-gap: 96px;
       --accent:#2F6C3C;
+      --hero-icon-col: 36px;     /* match calculators */
+      --hero-icon-size: 24px;    /* match calculators */
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
@@ -44,13 +46,23 @@
       overflow:hidden;
       margin-bottom: var(--page-bottom-gap);
     }
+    /* === MATCH GRAIN SHRINK HEADER LAYOUT === */
     .hero-head{
-      display:flex; gap:12px; align-items:flex-start;
+      display:grid;
+      grid-template-columns: var(--hero-icon-col) 1fr;  /* fixed icon column */
+      gap:12px;
+      align-items:center;                               /* center vertically */
       padding:14px 16px;
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);
     }
-    .hero-head .icon{ width:28px; height:28px; color:var(--accent); margin-top:2px; }
+    .hero-head .icon{
+      width:var(--hero-icon-size);
+      height:var(--hero-icon-size);
+      color:var(--accent);
+      margin-top:0;                                     /* no offset */
+      display:grid; place-items:center;
+    }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B); }
 
@@ -154,28 +166,15 @@
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">
-            <!-- Icon: Tabler Icons (MIT) – device-desktop-cog (inline variant) -->
-            <svg xmlns="http://www.w3.org/2000/svg"
-                 class="icon icon-tabler icon-tabler-device-desktop-cog"
-                 width="28" height="28" viewBox="0 0 24 24"
-                 stroke-width="2" stroke="currentColor" fill="none"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- Tabler Icons (MIT) – device-desktop-cog (inline) -->
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                 width="24" height="24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-              <!-- monitor -->
               <rect x="3" y="4" width="18" height="12" rx="2"/>
-              <path d="M7 20h10"/>
-              <path d="M9 16v4"/>
-              <path d="M15 16v4"/>
-              <!-- small cog (request/repair) -->
+              <path d="M7 20h10M9 16v4M15 16v4"/>
               <circle cx="17.5" cy="9.5" r="2"/>
-              <path d="M17.5 6.5v1"/>
-              <path d="M17.5 11.5v1"/>
-              <path d="M14.9 9.5h1"/>
-              <path d="M19.1 9.5h1"/>
-              <path d="M15.6 7.6l.7.7"/>
-              <path d="M18.7 10.7l.7.7"/>
-              <path d="M15.6 11.4l.7-.7"/>
-              <path d="M18.7 8.3l.7-.7"/>
+              <path d="M17.5 6.5v1M17.5 11.5v1M14.9 9.5h1M19.1 9.5h1M15.6 7.6l.7.7M18.7 10.7l.7.7M15.6 11.4l.7-.7M18.7 8.3l.7-.7"/>
             </svg>
           </div>
           <div>
@@ -300,12 +299,11 @@
     "use strict";
 
     /* ===== CONFIG ===== */
-    const STORAGE_KEY_LOCAL  = "df_boundary_requests_local_v1"; // local fallback history
+    const STORAGE_KEY_LOCAL  = "df_boundary_requests_local_v1";
     const HISTORY_TITLE_LOCAL = "Recent Requests (this device)";
     const HISTORY_TITLE_FS    = "Recent Requests";
     const MAX_HIST_LOCAL = 20;
 
-    // Collection / storage names when Firebase is present
     const FS_COLLECTION = "boundary_requests";
     const FS_STORAGE_FOLDER = "boundary-photos";
 
@@ -338,7 +336,6 @@
     const openNone = $("openNone");
     const summary = $("summary");
 
-    /* ===== Prefill ===== */
     function prefillUser(){
       try{
         if(window.__FV_USER && window.__FV_USER.displayName){
@@ -360,12 +357,7 @@
       if(name) localStorage.setItem("df_user_name", name);
     }
 
-    /* ===== Fields list ===== */
     async function loadFields(){
-      // Sources:
-      // 1) window.DF?.fields (array of strings or {name})
-      // 2) localStorage 'df_fields' (array)
-      // 3) /Farm-vista/assets/data/fields.json (array)
       let arr = [];
       try{
         if(window.DF && Array.isArray(window.DF.fields)){
@@ -393,22 +385,17 @@
         }catch(e){}
       }
 
-      // Dedup + sort
       arr = Array.from(new Set(arr)).sort((a,b)=>a.localeCompare(b));
-
-      // Paint
       fieldSel.innerHTML = '<option value="">— Select field —</option>' + arr.map(n=>`<option>${escapeHTML(n)}</option>`).join("");
     }
 
-    /* ===== Photos handling (preview; upload later if Firebase present) ===== */
+    /* Photos */
     let selectedFiles = [];
-
     photos.addEventListener("change", ()=>{
       selectedFiles = Array.from(photos.files||[]);
       renderThumbs();
       photoNote.textContent = HAS_STG ? "Photos will upload with the request." : "Preview only (no cloud upload available). The request will submit without photos.";
     });
-
     function renderThumbs(){
       thumbs.innerHTML = "";
       selectedFiles.forEach((file, idx)=>{
@@ -430,22 +417,16 @@
       });
     }
 
-    /* ===== Collect + Validate ===== */
+    /* Collect + Validate */
     const FIELDS = Array.from(document.querySelectorAll("[data-field]"));
-
     function collect(){
       const o = {};
-      FIELDS.forEach(el => {
-        const key = el.dataset.field;
-        let v = el.value;
-        o[key] = v;
-      });
+      FIELDS.forEach(el => o[el.dataset.field] = el.value);
       o.status = "Open";
       o.t = Date.now();
       o.timestampISO = new Date(o.t).toISOString();
       return o;
     }
-
     function validate(o){
       if(!o.field) return "Please select a field.";
       if(!o.boundaryType) return "Please choose Interior or Exterior.";
@@ -455,14 +436,14 @@
       return "";
     }
 
-    /* ===== Local storage helpers ===== */
+    /* Local history */
     function loadLocal(){
       try{ const arr = JSON.parse(localStorage.getItem(STORAGE_KEY_LOCAL)||"[]"); return Array.isArray(arr)?arr:[]; }
       catch(e){ return []; }
     }
     function saveLocal(arr){ localStorage.setItem(STORAGE_KEY_LOCAL, JSON.stringify(arr.slice(0,MAX_HIST_LOCAL))); }
 
-    /* ===== Firestore helpers ===== */
+    /* Firestore */
     async function fsAddRequest(obj){
       const ref = await db.collection(FS_COLLECTION).add({
         ...obj,
@@ -470,32 +451,26 @@
       });
       return ref.id;
     }
-    async function fsUpdate(id, patch){
-      await db.collection(FS_COLLECTION).doc(id).update(patch);
-    }
+    async function fsUpdate(id, patch){ await db.collection(FS_COLLECTION).doc(id).update(patch); }
     async function fsQueryOpenByField(fieldName){
       const snap = await db.collection(FS_COLLECTION)
         .where("field","==", fieldName)
         .where("status","==","Open")
         .orderBy("timestampISO","desc")
-        .limit(25)
-        .get();
+        .limit(25).get();
       return snap.docs.map(d=>({id:d.id, ...d.data()}));
     }
     async function fsRecent(limit=20){
       const snap = await db.collection(FS_COLLECTION)
-        .orderBy("timestampISO","desc")
-        .limit(limit)
-        .get();
+        .orderBy("timestampISO","desc").limit(limit).get();
       return snap.docs.map(d=>({id:d.id, ...d.data()}));
     }
-
     async function stgUploadMany(docId, files){
       if(!files.length) return [];
       const urls=[];
       for(const f of files){
         const safeName = (Date.now()+"-"+f.name).replace(/[^\w.\-]+/g,"_");
-        const ref = stg.ref().child(`${FS_STORAGE_FOLDER}/${docId}/${safeName}`);
+        const ref = stg.ref().child(`boundary-photos/${docId}/${safeName}`);
         await ref.put(f);
         const url = await ref.getDownloadURL();
         urls.push({name:f.name, url});
@@ -503,7 +478,7 @@
       return urls;
     }
 
-    /* ===== Open-for-field display ===== */
+    /* Open-for-field */
     async function refreshOpenForField(){
       const fieldName = fieldSel.value;
       if(!fieldName){ openPanel.hidden = true; return; }
@@ -543,10 +518,9 @@
       }
       openPanel.hidden = false;
     }
-
     fieldSel.addEventListener("change", refreshOpenForField);
 
-    /* ===== History render ===== */
+    /* History render */
     function summaryLine(o){
       const parts = [];
       if(o.field) parts.push(o.field);
@@ -554,11 +528,9 @@
       if(o.when) parts.push(new Date(o.when).toLocaleDateString());
       return parts.join(" • ");
     }
-
     async function renderHistory(){
       const box = $("history");
-      $("histTitle").textContent = HAS_FS ? HISTORY_TITLE_FS : HISTORY_TITLE_LOCAL;
-
+      $("histTitle").textContent = HAS_FS ? "Recent Requests" : "Recent Requests (this device)";
       let items = [];
       if(HAS_FS){
         try{ items = await fsRecent(20); }
@@ -566,7 +538,6 @@
       } else {
         items = loadLocal();
       }
-
       if(!items.length){ box.innerHTML = '<div class="muted">No recent requests.</div>'; return; }
       box.innerHTML = "";
       items.forEach((it)=>{
@@ -580,15 +551,8 @@
       });
     }
 
-    $("clearHist").addEventListener("click", ()=>{
-      if(!confirm("Clear local device history?")) return;
-      saveLocal([]); renderHistory();
-    });
-
-    /* ===== Modal ===== */
-    const modal = $("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
-    let lastFocus=null;
-
+    /* Modal */
+    const modal = $("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); let lastFocus=null;
     function openDetail(it){
       $("mdTitle").textContent = "Request Details";
       const rows = [
@@ -619,14 +583,13 @@
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
-    /* ===== Submit flow ===== */
+    /* Submit */
     $("primary").addEventListener("click", async ()=>{
       const o = collect();
       const err = validate(o);
       if(err){ alert(err); return; }
 
       saveUserHint();
-
       if(!o.when) o.when = todayISO();
 
       $("summary").hidden = false;
@@ -645,13 +608,11 @@
             o.photos = uploaded;
           }
         }
-
         const rec = loadLocal();
         rec.unshift({ ...o, id: id || ("local-"+o.t) });
         saveLocal(rec);
 
         $("summary").innerHTML = `<strong>Submitted:</strong> ${escapeHTML((o.field||"") + (o.boundaryType? " • "+o.boundaryType : "") + (o.when? " • "+new Date(o.when).toLocaleDateString() : ""))}`;
-        // Reset inputs (except submittedBy/contact)
         $("fieldName").selectedIndex = 0;
         $("boundaryType").selectedIndex = 0;
         $("scope").selectedIndex = 0;
@@ -660,7 +621,6 @@
         $("photos").value = "";
         selectedFiles = [];
         renderThumbs();
-
         await renderHistory();
         await refreshOpenForField();
         window.scrollTo({top:0, behavior:"smooth"});
@@ -684,7 +644,6 @@
       $("summary").hidden = true;
     });
 
-    /* ===== Boot ===== */
     (async function init(){
       $("when").value = todayISO();
       prefillUser();
