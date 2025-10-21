@@ -116,33 +116,6 @@ export const NAV_MENU = {
       ]
     },
 
-    /* ===== Expenses ===== */
-    {
-      type: 'group',
-      id: 'expenses',
-      icon: '💵',
-      label: 'Expenses',
-      href: '/Farm-vista/pages/expenses/index.html',
-      collapsible: true,
-      initialOpen: false,
-      children: [
-        { type: 'link', id: 'exp-expenditures', icon: '🧾', label: 'Expenditures', href: '/Farm-vista/pages/expenses/expenditures.html', activeMatch: 'starts-with' },
-        {
-          type: 'group',
-          id: 'exp-reports',
-          icon: '📑',
-          label: 'Reports',
-          href: '/Farm-vista/pages/expenses/reports/index.html',
-          collapsible: true,
-          initialOpen: false,
-          children: [
-            { type: 'link', id: 'exp-reports-custom',  icon: '🛠️', label: 'Customized Reports', href: '/Farm-vista/pages/expenses/reports/custom.html',     activeMatch: 'starts-with' },
-            { type: 'link', id: 'exp-reports-predef',  icon: '📚', label: 'Predefined Reports', href: '/Farm-vista/pages/expenses/reports/predefined.html', activeMatch: 'starts-with' }
-          ]
-        }
-      ]
-    },
-
     /* ===== Office ===== */
     {
       type: 'group',
@@ -171,6 +144,47 @@ export const NAV_MENU = {
 
         { type: 'link', id: 'office-vehicle-registration', icon: '🚗', label: 'Vehicle Registration', href: '/Farm-vista/pages/office/vehicle-registration.html', activeMatch: 'exact' },
         { type: 'link', id: 'office-field-boundaries',     icon: '🗺️', label: 'Field Boundaries',      href: '/Farm-vista/pages/office/field-boundaries.html',     activeMatch: 'starts-with' }
+      ]
+    },
+
+    /* ===== Inventory (NEW) ===== */
+    {
+      type: 'group',
+      id: 'inventory',
+      icon: '📦',
+      label: 'Inventory',
+      href: '/Farm-vista/pages/inventory/index.html',
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'inv-grain-bags', icon: '👝', label: 'Grain Bag Inventory', href: '/Farm-vista/pages/inventory/grain-bags.html', activeMatch: 'starts-with' }
+      ]
+    },
+
+    /* ===== Expenses ===== */
+    {
+      type: 'group',
+      id: 'expenses',
+      icon: '💵',
+      label: 'Expenses',
+      href: '/Farm-vista/pages/expenses/index.html',
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        { type: 'link', id: 'exp-expenditures', icon: '🧾', label: 'Expenditures', href: '/Farm-vista/pages/expenses/expenditures.html', activeMatch: 'starts-with' },
+        {
+          type: 'group',
+          id: 'exp-reports',
+          icon: '📑',
+          label: 'Reports',
+          href: '/Farm-vista/pages/expenses/reports/index.html',
+          collapsible: true,
+          initialOpen: false,
+          children: [
+            { type: 'link', id: 'exp-reports-custom',  icon: '🛠️', label: 'Customized Reports', href: '/Farm-vista/pages/expenses/reports/custom.html',     activeMatch: 'starts-with' },
+            { type: 'link', id: 'exp-reports-predef',  icon: '📚', label: 'Predefined Reports', href: '/Farm-vista/pages/expenses/reports/predefined.html', activeMatch: 'starts-with' }
+          ]
+        }
       ]
     },
 
@@ -250,11 +264,8 @@ export const NAV_MENU = {
             <svg viewBox="0 0 24 24" aria-hidden="true"
                  style="width:28px;height:28px;display:block;margin:0 auto;">
               <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
-                <!-- roof -->
                 <path d="M6.5 7 L12 3.8 L17.5 7"/>
-                <!-- body -->
                 <rect x="7" y="7" width="10" height="13" rx="1.6"/>
-                <!-- ribs -->
                 <path d="M10 7v13M14 7v13" stroke-linecap="round"/>
               </g>
             </svg>
