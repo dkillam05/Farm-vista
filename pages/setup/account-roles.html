@@ -4,7 +4,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes -->
+  <!-- Standard includes (match rest of app) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
   <style>
+    body{background:var(--app-bg,var(--surface));min-height:100vh}
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .page-title{margin:0 0 8px 0;}
@@ -37,49 +38,50 @@
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:140px;padding:10px 14px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-quiet{min-width:auto;padding:8px 12px}
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
+    .btn-quiet{min-width:auto;padding:8px 12px}
 
     /* Tree */
     .tree{border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--card-surface,var(--surface));}
-    .node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:8px 0;}
-    .node .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;}
-    .node .left{display:flex;align-items:center;gap:10px;min-width:0;}
-    .node .label{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    details.node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:8px 0;}
+    summary{list-style:none;cursor:pointer}
+    summary::-webkit-details-marker{display:none}
+
+    .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px}
     .indent-0{padding-left:0}
     .indent-1{padding-left:12px}
     .indent-2{padding-left:24px}
     .indent-3{padding-left:36px}
     .indent-4{padding-left:48px}
 
-    .pill-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:6px 10px;
-      font-weight:800;background:var(--surface);color:var(--text);cursor:pointer;user-select:none;}
-    .pill[data-on="true"]{background:#2F6C3C;color:#fff;border-color:#2F6C3C;}
-    .pill .tiny{font-size:12px;opacity:.85;font-weight:700}
-    .meta{font-size:12px;color:var(--muted,#67706B)}
-    .meta .sep{margin:0 6px;color:var(--border)}
+    .left{display:flex;align-items:center;gap:10px;min-width:0;}
+    .label{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .meta{display:none} /* hide paths/urls entirely */
 
-    /* Collapsible content */
-    details{border-top:1px solid var(--border)}
-    details[open] > .children{padding:8px 10px 12px}
-    .children{display:grid;gap:6px}
+    .pill-col{display:grid;gap:6px;grid-auto-flow:row}      /* vertical stack by default */
+    @media(min-width:840px){ .pill-col{grid-auto-flow:column} } /* horizontal on wide */
+    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:6px 10px;
+      font-weight:800;background:var(--surface);color:var(--text);cursor:pointer;user-select:none;min-height:36px}
+    .pill[data-on="true"]{background:#2F6C3C;color:#fff;border-color:#2F6C3C;}
+    .tiny{font-size:12px;opacity:.92;font-weight:700}
+
+    .children{display:grid;gap:6px;padding:8px 10px 12px}
 
     /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-
-    .help{font-size:13px;color:var(--muted,#67706B)}
   </style>
 
-  <!-- We import the menu config as a module so we can mirror it -->
+  <!-- Load your menu config as a module so we mirror it -->
   <script type="module">
     import NAV_MENU from '/Farm-vista/js/menu.js';
     window.FV_NAV_MENU = NAV_MENU;
+    window.dispatchEvent(new Event('fv:menu-ready'));
   </script>
 
+  <!-- Ensure fv-shell is registered (lazy, same as other pages) -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
@@ -89,7 +91,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Account Roles</h1>
-      <p class="page-sub">Create roles and choose which menus users can see and what actions they can perform. All sections are collapsed by default for a compact, phone-friendly view.</p>
+      <p class="page-sub">Create roles and choose which menus users can see and what actions they can perform.</p>
 
       <!-- Role header -->
       <section class="section">
@@ -115,7 +117,6 @@
             <button id="newRole" class="btn" type="button">New</button>
             <button id="saveRole" class="btn btn-primary" type="button">Save Role</button>
             <button id="deleteRole" class="btn btn-danger" type="button">Delete Role</button>
-            <span class="help">Saving stores the permissions locally (fv_account_roles_v1). You can wire this to Firestore later.</span>
           </div>
         </div>
       </section>
@@ -124,13 +125,12 @@
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🔒</div>
-          <div><strong>Permissions</strong><div class="help">Toggle visibility and actions per menu/sub-menu. Groups have an “Apply to children” option.</div></div>
+          <div><strong>Permissions</strong></div>
         </header>
         <div class="section-body">
           <div class="actions">
             <button id="expandAll" class="btn btn-quiet" type="button">Expand All</button>
             <button id="collapseAll" class="btn btn-quiet" type="button">Collapse All</button>
-            <span class="help">Defaults: links → Visible + View on; Add/Edit/Archive off.</span>
           </div>
           <div id="tree" class="tree" aria-live="polite"></div>
         </div>
@@ -146,183 +146,153 @@
     "use strict";
     const $ = id => document.getElementById(id);
     const toast = $("toast");
-
     const LS_ROLES = "fv_account_roles_v1";
 
-    /** Role in memory */
     let currentRoleId = "";
-    let roleDraft = null; // {id,name,perms:{[navId]:{visible,view,add,edit,archive}}}
+    let roleDraft = { id:"", name:"", perms:{} };
 
-    /** ===== Utilities ===== */
     function showToast(msg="Saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
     function uid(){ return String(Date.now()) + Math.random().toString(36).slice(2,7); }
     function loadRoles(){ try{ const a=JSON.parse(localStorage.getItem(LS_ROLES)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
     function saveRoles(arr){ localStorage.setItem(LS_ROLES, JSON.stringify(arr)); }
     function getMenu(){ return window.FV_NAV_MENU; }
 
+    /* ---------- Build a simple tree from NAV (only labels; no paths) ---------- */
     function flatten(items, depth=0, parent=null, out=[]){
       items.forEach(it=>{
-        const n = { id: it.id, type: it.type, label: it.label, icon: it.icon, href: it.href||"", depth, parent };
-        out.push(n);
-        if(it.children && it.children.length){
-          flatten(it.children, depth+1, it.id, out);
-        }
+        const node = { id: it.id, type: it.type, label: it.label, depth, parent, children: (it.children||[]).map(c=>c.id) };
+        out.push(node);
+        if(it.children && it.children.length) flatten(it.children, depth+1, it.id, out);
       });
       return out;
     }
 
-    function defaultPermFor(node){
-      // groups: visible on, others off (not used)
-      if(node.type==="group"){
-        return { visible:true, view:false, add:false, edit:false, archive:false };
-      }
-      // links: visible on, view on by default
-      return { visible:true, view:true, add:false, edit:false, archive:false };
+    /* ---------- Permissions ---------- */
+    function defaultPerm(node){
+      // Links default: Visible+View true, others false; Groups Visible true so they show in nav.
+      return node.type==="group"
+        ? { visible:true, view:false, add:false, edit:false, archive:false }
+        : { visible:true, view:true,  add:false, edit:false, archive:false };
+    }
+    function ensurePerm(nodeId, nodeObj){
+      if(!roleDraft.perms[nodeId]) roleDraft.perms[nodeId] = defaultPerm(nodeObj);
+      return roleDraft.perms[nodeId];
     }
 
-    /** ===== Render tree ===== */
+    /* ---------- Render ---------- */
     function renderTree(){
-      const tree = $("tree");
       const NAV = getMenu();
-      if(!NAV){ tree.textContent = "Menu not available"; return; }
-      const flat = flatten(NAV.items, 0, null, []);
-      // Build a map for children to render collapsibles
+      const tree = $("tree");
+      if(!NAV){ tree.textContent = "Menu not available."; return; }
+
+      const flat = flatten(NAV.items);
+      const byId = Object.fromEntries(flat.map(n=>[n.id,n]));
       const byParent = {};
       flat.forEach(n=>{
         const p = n.parent || "__ROOT__";
         (byParent[p]||(byParent[p]=[])).push(n);
       });
 
-      // Helper to get/set perms
-      const perms = roleDraft.perms;
-
-      function ensurePerm(id, node){
-        if(!perms[id]) perms[id] = defaultPermFor(node);
-        return perms[id];
+      function cascade(nodeId, key, value){
+        const stack = (byParent[nodeId]||[]).slice();
+        while(stack.length){
+          const n = stack.pop();
+          const cur = ensurePerm(n.id, n);
+          cur[key] = value;
+          if(n.type==="group"){ (byParent[n.id]||[]).forEach(c=>stack.push(c)); }
+        }
       }
 
-      function makePill(label, key, node){
-        const perm = ensurePerm(node.id, node);
+      function makePill(label, key, node, isGroup){
         const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "pill";
-        btn.dataset.nodeId = node.id;
-        btn.dataset.key = key;
+        btn.type = "button"; btn.className="pill";
+        const state = !!ensurePerm(node.id, node)[key];
+        btn.dataset.on = String(state);
         btn.setAttribute("role","switch");
-        btn.setAttribute("aria-checked", String(!!perm[key]));
-        btn.dataset.on = String(!!perm[key]);
+        btn.setAttribute("aria-checked", String(state));
         btn.innerHTML = `<span class="tiny">${label}</span>`;
-        btn.addEventListener("click", ()=>{
-          const cur = perms[node.id] || defaultPermFor(node);
+        btn.addEventListener("click", (e)=>{
+          e.stopPropagation(); // don’t toggle details
+          const cur = ensurePerm(node.id, node);
           const next = !cur[key];
           cur[key] = next;
-          perms[node.id] = cur;
           btn.dataset.on = String(next);
           btn.setAttribute("aria-checked", String(next));
+          // If this is a GROUP pill, cascade to all children immediately.
+          if(isGroup){
+            cascade(node.id, key, next);
+            // re-render to refresh child pills
+            renderTree();
+          }
         });
         return btn;
       }
 
       function renderNode(node){
         const isGroup = node.type==="group";
-        const perm = ensurePerm(node.id, node);
-
-        const wrap = document.createElement("div");
-        wrap.className = "node";
-
+        const details = document.createElement("details");
+        details.className = "node";
+        // collapsed by default
+        const summary = document.createElement("summary");
         const bar = document.createElement("div");
         bar.className = "bar indent-"+Math.min(node.depth,4);
+
         const left = document.createElement("div");
         left.className = "left";
         const label = document.createElement("div");
-        label.className = "label";
-        label.textContent = node.label;
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.innerHTML = (isGroup? "Group" : "Link") + (node.href? `<span class="sep">•</span>${node.href}`:"");
-
+        label.className = "label"; label.textContent = node.label;
         left.appendChild(label);
-        left.appendChild(meta);
 
         const pills = document.createElement("div");
-        pills.className = "pill-row";
+        pills.className = "pill-col";
 
-        // Always show Visible
-        pills.appendChild(makePill("Visible", "visible", node));
-
-        if(!isGroup){
-          pills.appendChild(makePill("View", "view", node));
-          pills.appendChild(makePill("Add", "add", node));
-          pills.appendChild(makePill("Edit", "edit", node));
-          pills.appendChild(makePill("Archive/Delete", "archive", node));
+        // For groups, show full set and cascade; for links, show own set
+        if(isGroup){
+          pills.appendChild(makePill("Visible","visible",node,true));
+          pills.appendChild(makePill("View","view",node,true));
+          pills.appendChild(makePill("Add","add",node,true));
+          pills.appendChild(makePill("Edit","edit",node,true));
+          pills.appendChild(makePill("Archive/Delete","archive",node,true));
         }else{
-          // Group-only helper: apply visible to children
-          const applyBtn = document.createElement("button");
-          applyBtn.type = "button";
-          applyBtn.className = "pill";
-          applyBtn.innerHTML = `<span class="tiny">Apply to children</span>`;
-          applyBtn.addEventListener("click", ()=>{
-            const want = (roleDraft.perms[node.id]||{}).visible ?? true;
-            cascadeVisible(node.id, want);
-            // re-render to reflect new states
-            renderTree();
-          });
-          pills.appendChild(applyBtn);
+          pills.appendChild(makePill("Visible","visible",node,false));
+          pills.appendChild(makePill("View","view",node,false));
+          pills.appendChild(makePill("Add","add",node,false));
+          pills.appendChild(makePill("Edit","edit",node,false));
+          pills.appendChild(makePill("Archive/Delete","archive",node,false));
         }
 
         bar.appendChild(left);
         bar.appendChild(pills);
-        wrap.appendChild(bar);
+        summary.appendChild(bar);
+        details.appendChild(summary);
 
-        // Children (for groups)
         if(isGroup){
-          const details = document.createElement("details");
-          // collapsed by default
-          const childrenBox = document.createElement("div");
-          childrenBox.className = "children";
-          const kids = byParent[node.id] || [];
-          kids.forEach(k => childrenBox.appendChild(renderNode(k)));
-          details.appendChild(childrenBox);
-          wrap.appendChild(details);
+          const kidsWrap = document.createElement("div");
+          kidsWrap.className = "children";
+          (byParent[node.id]||[]).forEach(k => kidsWrap.appendChild(renderNode(k)));
+          details.appendChild(kidsWrap);
         }
 
-        return wrap;
+        return details;
       }
 
-      // Cascade helper
-      function cascadeVisible(parentId, state){
-        const stack = (byParent[parentId] || []).slice();
-        while(stack.length){
-          const n = stack.pop();
-          const cur = perms[n.id] || defaultPermFor(n);
-          cur.visible = !!state;
-          perms[n.id] = cur;
-          if(n.type==="group"){
-            (byParent[n.id]||[]).forEach(c=>stack.push(c));
-          }
-        }
-      }
-
-      // Root render: top-level items (parent null)
       tree.innerHTML = "";
-      (byParent["__ROOT__"] || []).forEach(n => tree.appendChild(renderNode(n)));
+      (byParent["__ROOT__"]||[]).forEach(n => tree.appendChild(renderNode(n)));
     }
 
-    /** ===== Role load/save UI ===== */
+    /* ---------- Role picker ---------- */
     function populateRolePicker(){
       const sel = $("rolePicker");
       const all = loadRoles();
-      const curVal = sel.value;
+      const keep = sel.value;
       sel.innerHTML = '<option value="">— New role —</option>';
       all.forEach(r=>{
-        const o = document.createElement("option");
-        o.value = r.id;
-        o.textContent = r.name || "(unnamed)";
+        const o=document.createElement("option");
+        o.value=r.id; o.textContent=r.name||"(unnamed)";
         sel.appendChild(o);
       });
-      if(all.some(r=>r.id===curVal)) sel.value = curVal;
+      if(keep && all.some(r=>r.id===keep)) sel.value = keep;
     }
-
     function newDraft(){
       currentRoleId = "";
       roleDraft = { id:"", name:"", perms:{} };
@@ -338,33 +308,30 @@
       if(!name){ alert("Please enter a role name."); return; }
       const all = loadRoles();
       if(currentRoleId){
-        const idx = all.findIndex(r=>r.id===currentRoleId);
-        if(idx>=0){
-          all[idx] = { id: currentRoleId, name, perms: roleDraft.perms, t: Date.now() };
-        }
+        const i = all.findIndex(r=>r.id===currentRoleId);
+        if(i>=0) all[i] = { id: currentRoleId, name, perms: roleDraft.perms, t: Date.now() };
       }else{
         const id = uid();
         all.unshift({ id, name, perms: roleDraft.perms, t: Date.now() });
-        currentRoleId = id;
-        roleDraft.id = id;
+        currentRoleId = id; roleDraft.id = id;
       }
       saveRoles(all);
       populateRolePicker();
       $("rolePicker").value = currentRoleId;
-      showToast("Role saved.");
+      showToast("Saved.");
     });
 
     $("deleteRole").addEventListener("click", ()=>{
       if(!currentRoleId){ alert("No role selected."); return; }
       const all = loadRoles();
       const r = all.find(x=>x.id===currentRoleId);
-      if(!r){ return; }
+      if(!r) return;
       if(!confirm(`Delete role "${r.name}"? This cannot be undone.`)) return;
       const next = all.filter(x=>x.id!==currentRoleId);
       saveRoles(next);
-      showToast("Role deleted.");
       populateRolePicker();
       newDraft();
+      showToast("Role deleted.");
     });
 
     $("rolePicker").addEventListener("change", ()=>{
@@ -378,24 +345,20 @@
       renderTree();
     });
 
-    $("expandAll").addEventListener("click", ()=>{
-      document.querySelectorAll("#tree details").forEach(d=>{ d.open = true; });
-    });
-    $("collapseAll").addEventListener("click", ()=>{
-      document.querySelectorAll("#tree details").forEach(d=>{ d.open = false; });
-    });
+    $("expandAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=true); });
+    $("collapseAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=false); });
 
-    /** ===== Init ===== */
-    function initWhenMenuReady(){
-      if(window.FV_NAV_MENU){ // module import placed it on window
-        populateRolePicker();
-        newDraft(); // also renders tree
-        return;
-      }
-      // If menu hasn't loaded yet, wait a tick
-      setTimeout(initWhenMenuReady, 50);
+    /* ---------- Init (wait for menu) ---------- */
+    function init(){
+      populateRolePicker();
+      newDraft();
     }
-    initWhenMenuReady();
+    if(window.FV_NAV_MENU){ init(); }
+    else{
+      window.addEventListener('fv:menu-ready', init, { once:true });
+      // safety retry in case event missed
+      setTimeout(()=>{ if(window.FV_NAV_MENU) init(); }, 300);
+    }
   })();
   </script>
 </body></html>
