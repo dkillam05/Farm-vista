@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png">
 
-  <!-- Early theme boot + shell (provided by your app) -->
+  <!-- Early theme boot + shell -->
   <script defer src="/Farm-vista/js/theme-boot.js"></script>
   <script defer src="/Farm-vista/js/fv-shell.js"></script>
 
@@ -154,8 +154,28 @@
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 3l7 7M3 10l7-7M14 7h7v10h-7zM14 17l-2 4M14 7l-2-4"/>
+            <!-- Icon: Tabler Icons (MIT) – device-desktop-cog (inline variant) -->
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 class="icon icon-tabler icon-tabler-device-desktop-cog"
+                 width="28" height="28" viewBox="0 0 24 24"
+                 stroke-width="2" stroke="currentColor" fill="none"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+              <!-- monitor -->
+              <rect x="3" y="4" width="18" height="12" rx="2"/>
+              <path d="M7 20h10"/>
+              <path d="M9 16v4"/>
+              <path d="M15 16v4"/>
+              <!-- small cog (request/repair) -->
+              <circle cx="17.5" cy="9.5" r="2"/>
+              <path d="M17.5 6.5v1"/>
+              <path d="M17.5 11.5v1"/>
+              <path d="M14.9 9.5h1"/>
+              <path d="M19.1 9.5h1"/>
+              <path d="M15.6 7.6l.7.7"/>
+              <path d="M18.7 10.7l.7.7"/>
+              <path d="M15.6 11.4l.7-.7"/>
+              <path d="M18.7 8.3l.7-.7"/>
             </svg>
           </div>
           <div>
@@ -320,7 +340,6 @@
 
     /* ===== Prefill ===== */
     function prefillUser(){
-      // Try several sources for friendly autofill
       try{
         if(window.__FV_USER && window.__FV_USER.displayName){
           submittedBy.value = window.__FV_USER.displayName;
@@ -337,14 +356,13 @@
     }
 
     function saveUserHint(){
-      // Remember last submitter locally to speed up the next form
       const name = submittedBy.value.trim();
       if(name) localStorage.setItem("df_user_name", name);
     }
 
     /* ===== Fields list ===== */
     async function loadFields(){
-      // Sources (first one that works wins):
+      // Sources:
       // 1) window.DF?.fields (array of strings or {name})
       // 2) localStorage 'df_fields' (array)
       // 3) /Farm-vista/assets/data/fields.json (array)
@@ -383,7 +401,7 @@
     }
 
     /* ===== Photos handling (preview; upload later if Firebase present) ===== */
-    let selectedFiles = []; // File objects
+    let selectedFiles = [];
 
     photos.addEventListener("change", ()=>{
       selectedFiles = Array.from(photos.files||[]);
@@ -491,7 +509,6 @@
       if(!fieldName){ openPanel.hidden = true; return; }
       openFieldLabel.textContent = fieldName;
 
-      // Load from FS if available; else from local
       let items = [];
       if(HAS_FS){
         try{ items = await fsQueryOpenByField(fieldName); }
@@ -542,7 +559,6 @@
       const box = $("history");
       $("histTitle").textContent = HAS_FS ? HISTORY_TITLE_FS : HISTORY_TITLE_LOCAL;
 
-      // Prefer Firestore for a cross-device recent list
       let items = [];
       if(HAS_FS){
         try{ items = await fsRecent(20); }
@@ -609,21 +625,17 @@
       const err = validate(o);
       if(err){ alert(err); return; }
 
-      // Persist name locally for next time
       saveUserHint();
 
-      // Default date if somehow empty
       if(!o.when) o.when = todayISO();
 
-      summary.hidden = false;
-      summary.textContent = "Submitting…";
+      $("summary").hidden = false;
+      $("summary").textContent = "Submitting…";
 
       try{
         let id = null;
         if(HAS_FS){
-          // 1) Create doc
           id = await fsAddRequest(o);
-          // 2) Upload photos (optional)
           let uploaded = [];
           if(HAS_STG && selectedFiles.length){
             uploaded = await stgUploadMany(id, selectedFiles);
@@ -634,50 +646,47 @@
           }
         }
 
-        // Always keep a local "recent" for this device as well
         const rec = loadLocal();
         rec.unshift({ ...o, id: id || ("local-"+o.t) });
         saveLocal(rec);
 
-        summary.innerHTML = `<strong>Submitted:</strong> ${escapeHTML(summaryLine(o) || "Saved")}`;
+        $("summary").innerHTML = `<strong>Submitted:</strong> ${escapeHTML((o.field||"") + (o.boundaryType? " • "+o.boundaryType : "") + (o.when? " • "+new Date(o.when).toLocaleDateString() : ""))}`;
         // Reset inputs (except submittedBy/contact)
-        fieldSel.selectedIndex = 0;
-        boundaryType.selectedIndex = 0;
-        scope.selectedIndex = 0;
-        when.value = todayISO();
-        notes.value = "";
-        photos.value = "";
+        $("fieldName").selectedIndex = 0;
+        $("boundaryType").selectedIndex = 0;
+        $("scope").selectedIndex = 0;
+        $("when").value = todayISO();
+        $("notes").value = "";
+        $("photos").value = "";
         selectedFiles = [];
         renderThumbs();
 
-        // Refresh panels
         await renderHistory();
         await refreshOpenForField();
         window.scrollTo({top:0, behavior:"smooth"});
       }catch(e){
         console.error(e);
         alert("Sorry, something went wrong saving the request.");
-        summary.hidden = true;
+        $("summary").hidden = true;
       }
     });
 
     $("clear").addEventListener("click", ()=>{
-      fieldSel.selectedIndex = 0;
-      boundaryType.selectedIndex = 0;
-      scope.selectedIndex = 0;
-      when.value = todayISO();
-      // keep submittedBy/contact so they don't retype every time
-      notes.value = "";
-      photos.value = "";
+      $("fieldName").selectedIndex = 0;
+      $("boundaryType").selectedIndex = 0;
+      $("scope").selectedIndex = 0;
+      $("when").value = todayISO();
+      $("notes").value = "";
+      $("photos").value = "";
       selectedFiles = [];
       renderThumbs();
-      openPanel.hidden = true;
-      summary.hidden = true;
+      $("openPanel").hidden = true;
+      $("summary").hidden = true;
     });
 
     /* ===== Boot ===== */
     (async function init(){
-      when.value = todayISO();
+      $("when").value = todayISO();
       prefillUser();
       await loadFields();
       await renderHistory();
