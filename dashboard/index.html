@@ -1,79 +1,316 @@
-<!-- Save as: /Farm-vista/dashboard/index.html -->
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>FarmVista • Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#3B7E46" />
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Home</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"/>
+  <meta name="theme-color" content="#3B7E46"/>
 
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
-
+  <!-- Standard includes -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
-  <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
-</head>
-<body>
+  <style>
+    body{background:var(--app-bg,var(--surface));min-height:100vh}
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    /* Optional role chooser (visible only when roles exist) */
+    .role-bar{display:flex;align-items:center;gap:8px;margin:0 0 10px 0;justify-content:flex-end}
+    .role-bar label{font-size:.9rem;color:var(--muted,#67706B)}
+    .role-sel{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));}
+
+    /* Sections as cards */
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;margin:0 0 16px 0;}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:16px;display:grid;gap:14px;}
+
+    /* tiles inside each overview */
+    .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    @media(min-width:900px){.tiles{grid-template-columns:repeat(4,minmax(0,1fr))}}
+    .tile{display:flex;flex-direction:column;gap:6px;border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));
+      padding:12px;text-decoration:none;color:inherit;cursor:pointer}
+    .tile h4{margin:0;font-size:1rem}
+    .tile .muted{color:var(--muted,#67706B);font-size:.9rem}
+
+    .empty{color:var(--muted,#67706B);font-style:italic}
+
+    /* toast */
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 2.4s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  </style>
+
+  <!-- Make NAV available (for ids/icons if needed) -->
+  <script type="module">
+    import NAV_MENU from '/Farm-vista/js/menu.js';
+    window.FV_NAV_MENU = NAV_MENU;
+    window.dispatchEvent(new Event('fv:menu-ready'));
+  </script>
+
+  <!-- Ensure fv-shell is loaded -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
+</head><body>
   <fv-shell>
     <div class="page container">
-      <h1 class="page-title">Welcome to Dowson Farms Dashboard </h1>
+      <h1 class="page-title">Home</h1>
+      <p class="page-sub">Your day at a glance.</p>
 
-      <p class="muted" style="margin:0 0 18px 0; color:var(--muted,#87908a);">
-        <strong>FarmVista</strong> is your all-in-one platform for managing day-to-day farm operations, records, and performance insights.
-        It brings together every corner of your operation—crop production, grain tracking, equipment, reports, and more—into one simple, connected workspace.
-      </p>
-      <p class="muted" style="margin:0 0 22px 0; color:var(--muted,#87908a);">
-        From planting to harvest, FarmVista helps you organize data, monitor progress, and make decisions with confidence.
-        Use the sidebar to jump between modules, track yields, record inputs, analyze results, and keep your entire team aligned—all in one clean, modern app built for agriculture.
-      </p>
+      <!-- Role switcher (shown only if roles exist locally) -->
+      <div id="roleBar" class="role-bar" hidden>
+        <label for="roleSel">Role:</label>
+        <select id="roleSel" class="role-sel" aria-label="Active role"></select>
+      </div>
 
-      <section class="hero-grid" id="hero-grid" aria-label="Quick overview"></section>
+      <!-- Message Board (always) -->
+      <section class="section" id="mod-board">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">📢</div>
+          <div><strong>Message Board</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="empty">No messages yet.</div>
+          <a class="tile" href="/Farm-vista/pages/setup/message-board.html">
+            <h4>Open Board</h4>
+            <div class="muted">Post updates and pin notes for the team.</div>
+          </a>
+        </div>
+      </section>
+
+      <!-- Crop Production -->
+      <section class="section" id="mod-crop" hidden>
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🌱</div>
+          <div><strong>Crop Production</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="tiles" id="crop-tiles"></div>
+        </div>
+      </section>
+
+      <!-- Equipment -->
+      <section class="section" id="mod-eq" hidden>
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🚜</div>
+          <div><strong>Equipment</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="tiles" id="eq-tiles"></div>
+        </div>
+      </section>
+
+      <!-- Grain -->
+      <section class="section" id="mod-grain" hidden>
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🌾</div>
+          <div><strong>Grain</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="tiles" id="grain-tiles"></div>
+        </div>
+      </section>
+
+      <!-- Reports -->
+      <section class="section" id="mod-reports" hidden>
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">📑</div>
+          <div><strong>Reports</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="tiles" id="reports-tiles"></div>
+        </div>
+      </section>
     </div>
   </fv-shell>
 
-  <script>
-    (function () {
-      const urlRev = new URL(location.href).searchParams.get('rev');
-      const REV = urlRev || String(Date.now());
-      const files = [
-        '/Farm-vista/js/version.js',
-        '/Farm-vista/js/core.js',
-        '/Farm-vista/js/fv-hero-card.js',
-        '/Farm-vista/js/fv-shell.js',
-        '/Farm-vista/js/fv-hero.js'
-      ];
-      (async function loadSeq() {
-        for (const src of files) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = src + '?rev=' + REV;
-            s.async = false;
-            s.onload = resolve;
-            s.onerror = () => reject(new Error('Failed to load ' + s.src));
-            document.body.appendChild(s);
-          });
-        }
-        (function ensureShellPresent(){
-          if (document.querySelector('fv-shell')) return;
-          const shell = document.createElement('fv-shell');
-          const container = document.createElement('div');
-          container.className = 'container';
-          const frag = document.createDocumentFragment();
-          while (document.body.firstChild) frag.appendChild(document.body.firstChild);
-          container.appendChild(frag);
-          shell.appendChild(container);
-          document.body.appendChild(shell);
-        })();
-      })().catch(err => console.error('Bootloader failed:', err));
-    })();
-  </script>
+  <div id="toast" class="toast" role="status" aria-live="polite">Access denied.</div>
 
-  <noscript>
-    <div class="container"><div class="card">JavaScript is required for the FarmVista dashboard.</div></div>
-  </noscript>
-</body>
-</html>
+  <script>
+  (function(){
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const toast = $("toast");
+    const ROLES_KEY = "fv_account_roles_v1";
+    const ACTIVE_ROLE_KEY = "fv_active_role_id";
+
+    const NAV = window.FV_NAV_MENU;  // optional, not required
+
+    /* ===== Helpers: roles & permissions ===== */
+    function loadRoles(){
+      try{ const a = JSON.parse(localStorage.getItem(ROLES_KEY)||"[]"); return Array.isArray(a)?a:[]; }
+      catch(e){ return []; }
+    }
+    function getActiveRoleId(){
+      return localStorage.getItem(ACTIVE_ROLE_KEY) || "";
+    }
+    function setActiveRoleId(id){
+      localStorage.setItem(ACTIVE_ROLE_KEY, id||"");
+    }
+    function getActiveRole(){
+      const roles = loadRoles();
+      const activeId = getActiveRoleId();
+      if(activeId){
+        const r = roles.find(x=>x.id===activeId);
+        if(r) return r;
+      }
+      // default to latest saved if exists
+      return roles.length ? roles[0] : null;
+    }
+
+    // Default perms mirror Account Roles defaults
+    function defaultPermFor(id, type){
+      return type==="group"
+        ? {visible:true, view:false, add:false, edit:false, archive:false}
+        : {visible:true, view:true,  add:false, edit:false, archive:false};
+    }
+    function perm(role, id, type){
+      if(!role) return defaultPermFor(id, type);
+      const p = (role.perms && role.perms[id]) || null;
+      return p ? p : defaultPermFor(id, type);
+    }
+    function canView(role, groupId, childIds, groupType="group"){
+      const gp = perm(role, groupId, groupType);
+      if(!gp.visible) return false; // group hidden → module hidden
+      if(gp.view) return true;
+      // else show if any child is visible+view
+      return (childIds||[]).some(cid=>{
+        const cp = perm(role, cid, "link");
+        return cp.visible && cp.view;
+      });
+    }
+    function linkAllowed(role, linkId){
+      const p = perm(role, linkId, "link");
+      return !!(p.visible && p.view);
+    }
+    function guardLink(a, role, linkId){
+      a.addEventListener("click", (e)=>{
+        if(!linkAllowed(role, linkId)){
+          e.preventDefault(); e.stopPropagation();
+          showToast("Access denied.");
+        }
+      });
+    }
+    function showToast(msg){
+      toast.textContent = msg || "Access denied.";
+      toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+    }
+
+    /* ===== Render tiles with permission filters ===== */
+    function addTile(parent, title, desc, href, linkId, role){
+      // Only add the tile if the role can view that link
+      if(!linkAllowed(role, linkId)) return;
+      const a = document.createElement("a");
+      a.href = href;
+      a.className = "tile";
+      a.innerHTML = `<h4>${title}</h4><div class="muted">${desc}</div>`;
+      // (extra guard just in case perms change between render and click)
+      guardLink(a, role, linkId);
+      parent.appendChild(a);
+    }
+
+    function render(){
+      const role = getActiveRole();
+
+      /* Role switcher */
+      const roles = loadRoles();
+      const bar = $("roleBar"), sel = $("roleSel");
+      if(roles.length){
+        bar.hidden = false;
+        sel.innerHTML = roles.map(r=>`<option value="${r.id}">${r.name||"(unnamed role)"}</option>`).join("");
+        const activeId = getActiveRoleId() || (roles[0] && roles[0].id) || "";
+        sel.value = activeId;
+        if(activeId !== getActiveRoleId()) setActiveRoleId(activeId);
+        sel.onchange = ()=>{ setActiveRoleId(sel.value); render(); };
+      }else{
+        bar.hidden = true;
+      }
+
+      /* Crop Production */
+      const cropChildren = ["crop-planting","crop-spraying","crop-fertilizer","crop-harvest","crop-aerial","crop-trials","crop-maint"];
+      const cropModule = $("mod-crop");
+      const cropTiles = $("crop-tiles"); cropTiles.innerHTML = "";
+      if(canView(role, "crop", cropChildren, "group")){
+        cropModule.hidden = false;
+        addTile(cropTiles,"Planting","Add/edit planting records","/Farm-vista/pages/crop-production/planting.html","crop-planting",role);
+        addTile(cropTiles,"Spraying","Applications & mixes","/Farm-vista/pages/crop-production/spraying.html","crop-spraying",role);
+        addTile(cropTiles,"Fertilizer","Applications & rates","/Farm-vista/pages/crop-production/fertilizer.html","crop-fertilizer",role);
+        addTile(cropTiles,"Harvest","Loads & passes","/Farm-vista/pages/crop-production/harvest.html","crop-harvest",role);
+        addTile(cropTiles,"Aerial","Aerial applications","/Farm-vista/pages/crop-production/aerial.html","crop-aerial",role);
+        addTile(cropTiles,"Trials","Side-by-sides","/Farm-vista/pages/crop-production/trials.html","crop-trials",role);
+        addTile(cropTiles,"Field Maintenance","Edging & fixes","/Farm-vista/pages/crop-production/maintenance.html","crop-maint",role);
+        if(!cropTiles.children.length) cropModule.hidden = true;
+      }else{
+        cropModule.hidden = true;
+      }
+
+      /* Equipment */
+      const eqChildren = ["equipment","eq-tractors","eq-sprayers","eq-fertilizer","eq-combines","eq-implements","eq-construction","eq-starfire","eq-trucks","eq-trailers"];
+      const eqModule = $("mod-eq");
+      const eqTiles = $("eq-tiles"); eqTiles.innerHTML = "";
+      if(canView(role, "equipment", eqChildren, "group")){
+        eqModule.hidden = false;
+        addTile(eqTiles,"Tractors","Fleet list","/Farm-vista/pages/equipment/equipment-tractors.html","eq-tractors",role);
+        addTile(eqTiles,"Sprayers","Machine profiles","/Farm-vista/pages/equipment/equipment-sprayers.html","eq-sprayers",role);
+        addTile(eqTiles,"Fertilizer Equip.","Spreaders & tenders","/Farm-vista/pages/equipment/equipment-fertilizer.html","eq-fertilizer",role);
+        addTile(eqTiles,"Combines","Harvest machines","/Farm-vista/pages/equipment/equipment-combines.html","eq-combines",role);
+        addTile(eqTiles,"Implements","Tool inventory","/Farm-vista/pages/equipment/equipment-implements.html","eq-implements",role);
+        addTile(eqTiles,"Construction","Dozers & loaders","/Farm-vista/pages/equipment/equipment-construction.html","eq-construction",role);
+        addTile(eqTiles,"StarFire / Tech","Receivers & RTK","/Farm-vista/pages/equipment/equipment-starfire.html","eq-starfire",role);
+        addTile(eqTiles,"Trucks","Road fleet","/Farm-vista/pages/equipment/equipment-trucks.html","eq-trucks",role);
+        addTile(eqTiles,"Trailers","Haul inventory","/Farm-vista/pages/equipment/equipment-trailers.html","eq-trailers",role);
+        if(!eqTiles.children.length) eqModule.hidden = true;
+      }else{
+        eqModule.hidden = true;
+      }
+
+      /* Grain */
+      const grainChildren = ["grain-bins","grain-bags","grain-ctr","grain-tix"];
+      const grainModule = $("mod-grain");
+      const grainTiles = $("grain-tiles"); grainTiles.innerHTML = "";
+      if(canView(role, "grain", grainChildren, "group")){
+        grainModule.hidden = false;
+        addTile(grainTiles,"Grain Bins","Site & bin inventory","/Farm-vista/pages/grain/grain-bins.html","grain-bins",role);
+        addTile(grainTiles,"Grain Bags","Bag inventory","/Farm-vista/pages/grain/grain-bags.html","grain-bags",role);
+        addTile(grainTiles,"Contracts","Contract tracking","/Farm-vista/pages/grain/grain-contracts.html","grain-ctr",role);
+        addTile(grainTiles,"Tickets (OCR)","Scan & capture","/Farm-vista/pages/grain/grain-ticket-ocr.html","grain-tix",role);
+        if(!grainTiles.children.length) grainModule.hidden = true;
+      }else{
+        grainModule.hidden = true;
+      }
+
+      /* Reports */
+      const reportChildren = ["reports-custom","reports-predef","reports-history"];
+      const repModule = $("mod-reports");
+      const repTiles = $("reports-tiles"); repTiles.innerHTML = "";
+      if(canView(role, "reports", reportChildren, "group")){
+        repModule.hidden = false;
+        addTile(repTiles,"AI Reports (Custom)","Ask and analyze","/Farm-vista/pages/reports/reports-ai.html","reports-custom",role);
+        addTile(repTiles,"Predefined Reports","Common snapshots","/Farm-vista/pages/reports/reports-predefined.html","reports-predef",role);
+        addTile(repTiles,"AI Report History","Past outputs","/Farm-vista/pages/reports/reports-ai-history.html","reports-history",role);
+        if(!repTiles.children.length) repModule.hidden = true;
+      }else{
+        repModule.hidden = true;
+      }
+    }
+
+    // first render (wait briefly in case NAV loads async)
+    if(window.FV_NAV_MENU){ render(); } else {
+      window.addEventListener('fv:menu-ready', render, { once:true });
+      setTimeout(render, 300);
+    }
+  })();
+  </script>
+</body></html>
