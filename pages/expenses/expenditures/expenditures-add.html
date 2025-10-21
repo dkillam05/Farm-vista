@@ -4,7 +4,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- keep identical includes to the rest of the app -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -13,7 +12,6 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
   <style>
-    /* minimal, consistent form styling */
     .section{border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));}
     .section-head{display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border); background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px; height:24px; color:#2F6C3C; display:grid; place-items:center;}
@@ -31,18 +29,15 @@
     }
     .textarea{min-height:96px; resize:vertical;}
 
-    .receipt-card{border:1px dashed var(--border); border-radius:12px; padding:12px; display:grid; gap:10px; background:var(--card-surface,var(--surface));}
-    .thumbs{display:flex; gap:10px; flex-wrap:wrap;}
-    .thumb{width:96px; height:96px; border:1px solid var(--border); border-radius:10px; overflow:hidden; display:grid; place-items:center; background:#f6f7f6; position:relative;}
+    .receipt-card{border:1px dashed var(--border); border-radius:12px; padding:12px; display:grid; gap:12px; background:var(--card-surface,var(--surface));}
+    .rc-actions{display:flex; gap:10px; flex-wrap:wrap}
+    .btn{display:inline-flex; align-items:center; justify-content:center; min-width:140px; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text); cursor:pointer;}
+    .btn-primary{border-color:transparent; background:#2F6C3C; color:#fff;}
+    .linklike{border:0; background:none; color:var(--accent,#2F6C3C); font-weight:700; cursor:pointer; padding:0}
+    .thumb{width:120px; height:120px; border:1px solid var(--border); border-radius:10px; overflow:hidden; display:grid; place-items:center; background:#f6f7f6;}
     .thumb img{width:100%; height:100%; object-fit:cover;}
-    .thumb button{position:absolute; right:6px; bottom:6px; font-size:12px; padding:4px 6px; border-radius:8px; border:1px solid var(--border); background:var(--surface); cursor:pointer;}
     .help{font-size:13px; color:var(--muted,#67706B);}
 
-    .actions{display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px;}
-    .btn{display:inline-flex; align-items:center; justify-content:center; min-width:148px; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text); cursor:pointer;}
-    .btn-primary{border-color:transparent; background:#2F6C3C; color:#fff;}
-
-    /* toast */
     .toast{position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); transform:translateX(-50%); background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none;}
     .toast.show{display:block; animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1} 85%{opacity:1} 100%{opacity:0}}
@@ -51,14 +46,16 @@
     .page-sub{margin:0 0 14px 0; color:var(--muted,#67706B);}
   </style>
 
-  <script>(function(){ // lazy-load custom elements just like other pages
-    if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s)}
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+    }
   })();</script>
 </head><body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">New Expenditure</h1>
-      <p class="page-sub">Snap a receipt and extract details with OCR, or fill in manually. Save will show a toast—no history on this page.</p>
+      <p class="page-sub">Take a photo or import your receipt and we’ll read it automatically. You can edit any field before saving.</p>
 
       <section class="section">
         <header class="section-head">
@@ -72,35 +69,31 @@
             </svg>
           </div>
           <div>
-            <strong>Receipt & Details</strong>
-            <div class="help">Attach a photo or PDF of the receipt. Tap “Extract with OCR” to auto-fill fields; you can edit anything.</div>
+            <strong>Receipt</strong>
+            <div class="help">Choose one: Take Photo or Import. OCR will auto-run.</div>
           </div>
         </header>
 
         <div class="section-body">
-          <!-- Receipt capture -->
+          <!-- Simple receipt capture -->
           <div class="receipt-card">
-            <div class="grid-2">
-              <div class="field">
-                <label for="receipt">Receipt files</label>
-                <input id="receipt" type="file" accept="image/*,.pdf" multiple capture="environment" class="input">
-                <div class="help" id="ocrStatus">OCR ready. Add a receipt then tap Extract.</div>
-              </div>
-              <div class="field">
-                <label>&nbsp;</label>
-                <div class="actions">
-                  <button id="btnExtract" class="btn">Extract with OCR</button>
-                  <button id="btnReplace" class="btn">Clear Receipts</button>
-                </div>
-              </div>
+            <div class="rc-actions">
+              <button id="btnTake" class="btn">Take Photo</button>
+              <button id="btnImport" class="btn">Import</button>
+              <button id="btnReplace" class="linklike" type="button" hidden>Replace</button>
             </div>
-            <div id="thumbs" class="thumbs" aria-live="polite"></div>
+            <div id="thumb" class="thumb" hidden aria-live="polite"></div>
+            <div class="help" id="ocrStatus">Waiting for receipt…</div>
+
+            <!-- hidden inputs -->
+            <input id="camInput"   type="file" accept="image/*,.pdf" capture="environment" hidden>
+            <input id="fileInput"  type="file" accept="image/*,.pdf" hidden>
           </div>
 
           <!-- Who & when -->
           <div class="grid-2">
             <div class="field">
-              <label for="who">For (employee)</label>
+              <label for="who">Submitted By</label>
               <input id="who" class="input" placeholder="Your name">
             </div>
             <div class="field">
@@ -129,22 +122,12 @@
             </div>
           </div>
 
-          <div class="grid-3">
-            <div class="field">
-              <label for="total">Total</label>
-              <input id="total" class="input" inputmode="decimal" placeholder="e.g., 123.45">
-            </div>
-            <div class="field">
-              <label for="tax">Tax</label>
-              <input id="tax" class="input" inputmode="decimal" placeholder="e.g., 7.89">
-            </div>
-            <div class="field">
-              <label for="tip">Tip</label>
-              <input id="tip" class="input" inputmode="decimal" placeholder="e.g., 5.00">
-            </div>
-          </div>
-
+          <!-- Single total in USD -->
           <div class="grid-2">
+            <div class="field">
+              <label for="total">Total (USD)</label>
+              <input id="total" class="input" inputmode="decimal" placeholder="$0.00">
+            </div>
             <div class="field">
               <label for="paymethod">Payment Method</label>
               <select id="paymethod" class="select">
@@ -153,10 +136,11 @@
                 <option value="card">Company card</option>
               </select>
             </div>
-            <div class="field">
-              <label for="project">Project/Field (optional)</label>
-              <input id="project" class="input" placeholder="Project, field, or tag">
-            </div>
+          </div>
+
+          <div class="field">
+            <label for="project">Project/Field (optional)</label>
+            <input id="project" class="input" placeholder="Project, field, or tag">
           </div>
 
           <div class="field">
@@ -164,7 +148,7 @@
             <textarea id="notes" class="textarea" placeholder="Anything helpful for accounting…"></textarea>
           </div>
 
-          <div class="actions">
+          <div class="rc-actions">
             <button id="btnClear" class="btn" type="button">Clear</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save</button>
           </div>
@@ -181,93 +165,99 @@
     "use strict";
     const $ = id => document.getElementById(id);
     const todayISO = () => new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-    const toNum = v => { const n = Number(String(v||"").replace(/[^0-9.]/g,"")); return isFinite(n)?n:""; };
 
-    const receipt = $("receipt"), thumbs = $("thumbs"), ocrStatus = $("ocrStatus");
-    const who=$("who"), submitted=$("submitted"), merchant=$("merchant"), rdate=$("rdate"),
-          category=$("category"), total=$("total"), tax=$("tax"), tip=$("tip"),
+    const who=$("who"), submitted=$("submitted"), merchant=$("merchant"),
+          rdate=$("rdate"), category=$("category"), total=$("total"),
           paymethod=$("paymethod"), project=$("project"), notes=$("notes");
 
     submitted.value = todayISO();
 
-    let files = [];
-    receipt.addEventListener("change", () => { files = Array.from(receipt.files||[]); renderThumbs(); });
+    /* ===== USD formatting ===== */
+    const usdFmt = new Intl.NumberFormat("en-US", {style:"currency", currency:"USD"});
+    function parseUSD(str){
+      if(!str) return "";
+      const n = Number(String(str).replace(/[^0-9.-]/g,""));
+      return isFinite(n) ? n : "";
+    }
+    function formatUSDInput(e){
+      const v = parseUSD(e.target.value);
+      e.target.value = v==="" ? "" : usdFmt.format(v);
+    }
+    total.addEventListener("blur", formatUSDInput);
 
-    function renderThumbs(){
-      thumbs.innerHTML = "";
-      files.forEach((f, i)=>{
-        const d = document.createElement("div"); d.className="thumb";
-        const img = document.createElement("img"); img.alt = f.name; img.src = URL.createObjectURL(f);
-        const rm = document.createElement("button"); rm.type="button"; rm.textContent="Remove";
-        rm.addEventListener("click", ()=>{ files.splice(i,1); renderThumbs(); });
-        d.appendChild(img); d.appendChild(rm); thumbs.appendChild(d);
-      });
-      ocrStatus.textContent = files.length ? "Tap Extract to read the receipt." : "OCR ready. Add a receipt then tap Extract.";
+    /* ===== Receipt capture (auto OCR) ===== */
+    const btnTake=$("btnTake"), btnImport=$("btnImport"), btnReplace=$("btnReplace");
+    const camInput=$("camInput"), fileInput=$("fileInput"), thumb=$("thumb"), ocrStatus=$("ocrStatus");
+    let file=null;
+
+    btnTake.addEventListener("click", ()=> camInput.click());
+    btnImport.addEventListener("click", ()=> fileInput.click());
+    btnReplace.addEventListener("click", ()=> fileInput.click());
+
+    camInput.addEventListener("change", () => handleFiles(camInput.files));
+    fileInput.addEventListener("change", () => handleFiles(fileInput.files));
+
+    function handleFiles(list){
+      if(!list || !list.length) return;
+      file = list[0];
+      // show thumbnail preview for images (not pdf)
+      thumb.innerHTML = "";
+      if(file.type.startsWith("image/")){
+        const img = document.createElement("img");
+        img.alt = file.name; img.src = URL.createObjectURL(file);
+        thumb.appendChild(img); thumb.hidden = false;
+      }else{
+        thumb.hidden = true;
+      }
+      btnReplace.hidden = false;
+      runOCR(file);
     }
 
-    // ===== OCR hook =====
-    async function extractOCR(){
-      if(!files.length){ alert("Add a receipt first."); return; }
-      ocrStatus.textContent = "Reading…";
+    async function runOCR(f){
+      ocrStatus.textContent = "Reading receipt…";
       try{
-        // Expect a global helper if you wire one (Cloud Function, Tesseract, etc.)
-        // API contract: await window.FV_OCR.imageToText(file) -> { text: "..." }
         let text = "";
         if(window.FV_OCR && typeof window.FV_OCR.imageToText === "function"){
-          const out = await window.FV_OCR.imageToText(files[0]);
+          const out = await window.FV_OCR.imageToText(f);
           text = (out && out.text) || "";
         }else{
-          // Fallback: ask user to paste OCR text (keeps page functional without libs)
-          text = prompt("OCR service not wired yet.\nPaste receipt text here to auto-fill:", "") || "";
+          // Fallback so page still works without an OCR lib wired in
+          text = prompt("OCR service not wired yet.\nPaste receipt text to auto-fill:", "") || "";
         }
-        if(!text.trim()){ ocrStatus.textContent = "No text found. Fill in manually."; return; }
+        if(!text.trim()){ ocrStatus.textContent = "No text detected. Fill in manually."; return; }
         ocrStatus.textContent = "Parsing…";
         autoFillFromText(text);
-        ocrStatus.textContent = "Fields filled from OCR (edit as needed).";
+        ocrStatus.textContent = "Auto-filled from receipt. Review and save.";
       }catch(e){
         console.error(e);
         ocrStatus.textContent = "OCR failed. You can fill in manually.";
       }
     }
-    $("btnExtract").addEventListener("click", extractOCR);
-    $("btnReplace").addEventListener("click", ()=>{ receipt.value=""; files=[]; renderThumbs(); });
 
-    // Simple parser for common receipt patterns (dates, totals, merchant)
+    // Simple parser (merchant, date, total, heuristics for category)
     function autoFillFromText(t){
       try{
         const lines = t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
 
-        // Merchant: first non-numeric line with letters, not totals
         const merch = lines.find(s=>/[A-Za-z]/.test(s) && !/total/i.test(s) && s.length>2);
         if(merch && !merchant.value) merchant.value = merch.slice(0,64);
 
-        // Date: look for mm/dd/yyyy, mm-dd-yy, yyyy-mm-dd, etc.
         const dateMatch = t.match(/(\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b)/);
         if(dateMatch && !rdate.value){
           const raw = dateMatch[1].replace(/-/g,'/');
-          const parts = raw.split('/');
-          let iso = "";
-          if(parts[0].length===4){ // yyyy/mm/dd
-            iso = [parts[0], parts[1].padStart(2,'0'), parts[2].padStart(2,'0')].join('-');
-          }else{
-            const m = parts[0].padStart(2,'0'), d = parts[1].padStart(2,'0'), y = parts[2].length===2?('20'+parts[2]):parts[2];
-            iso = [y, m, d].join('-');
-          }
+          const p = raw.split('/');
+          let iso="";
+          if(p[0].length===4) iso = [p[0], p[1].padStart(2,'0'), p[2].padStart(2,'0')].join('-');
+          else iso = [(p[2].length===2?('20'+p[2]):p[2]), p[0].padStart(2,'0'), p[1].padStart(2,'0')].join('-');
           rdate.value = iso;
         }
 
-        // Totals
         const totalMatch = t.match(/(?:grand\s*total|amount\s*due|total)\s*[:$]?\s*([0-9]+[.,][0-9]{2})/i)
                          || t.match(/^\s*([0-9]+[.,][0-9]{2})\s*$/m);
-        if(totalMatch) total.value = total.value || String(totalMatch[1]).replace(',', '');
+        if(totalMatch && !total.value){
+          total.value = usdFmt.format(Number(String(totalMatch[1]).replace(',','')));
+        }
 
-        const taxMatch = t.match(/tax(?:\s*total)?\s*[:$]?\s*([0-9]+[.,][0-9]{2})/i);
-        if(taxMatch) tax.value = tax.value || String(taxMatch[1]).replace(',', '');
-
-        const tipMatch = t.match(/tip\s*[:$]?\s*([0-9]+[.,][0-9]{2})/i);
-        if(tipMatch) tip.value = tip.value || String(tipMatch[1]).replace(',', '');
-
-        // Category heuristics
         if(!category.value){
           if(/diesel|gas|fuel|pump/i.test(t)) category.value = "Fuel";
           else if(/hotel|motel|inn|lodging/i.test(t)) category.value = "Lodging";
@@ -279,16 +269,16 @@
       }catch(e){ console.warn("parse fail", e); }
     }
 
-    // Save → show toast; leave storage/back-end wiring for later
+    /* ===== Toast & Save ===== */
     function showToast(msg="Saved."){
       const t = $("toast"); t.textContent = msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show");
     }
 
     $("btnSave").addEventListener("click", async ()=>{
-      // Basic validation
-      if(!who.value.trim()){ alert("Please enter who this is for."); return; }
+      if(!who.value.trim()){ alert("Please enter who submitted this."); return; }
       if(!rdate.value){ alert("Please set the receipt date."); return; }
-      if(!total.value){ alert("Please enter the total."); return; }
+      const totalNum = parseUSD(total.value);
+      if(totalNum===""){ alert("Please enter the total."); return; }
 
       const payload = {
         who: who.value.trim(),
@@ -296,9 +286,7 @@
         merchant: merchant.value.trim(),
         rdate: rdate.value,
         category: category.value,
-        total: toNum(total.value),
-        tax: toNum(tax.value),
-        tip: toNum(tip.value),
+        total: totalNum, // numeric USD amount
         paymethod: paymethod.value,
         project: project.value.trim(),
         notes: notes.value.trim(),
@@ -307,7 +295,6 @@
       };
 
       try{
-        // If you have Firebase available, save to a collection
         if(window.firebase?.firestore){
           const db = firebase.firestore();
           await db.collection("expenditures").add({
@@ -316,18 +303,17 @@
           });
         }
         showToast("Saved.");
-        // Optional: clear most fields after save
-        // merchant.value = ""; category.value=""; total.value=""; tax.value=""; tip.value=""; paymethod.value=""; project.value=""; notes.value="";
       }catch(e){
         console.error(e);
-        showToast("Saved locally."); // still acknowledge
+        showToast("Saved locally.");
       }
     });
 
     $("btnClear").addEventListener("click", ()=>{
-      ["merchant","rdate","category","total","tax","tip","paymethod","project","notes"].forEach(id=>{
+      ["merchant","rdate","category","total","paymethod","project","notes"].forEach(id=>{
         const el=$(id); if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
       });
+      thumb.hidden = true; btnReplace.hidden = true; ocrStatus.textContent = "Waiting for receipt…";
       // keep 'who' and 'submitted'
     });
   })();
