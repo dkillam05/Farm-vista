@@ -1,0 +1,276 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Setup → Products → Seed</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- App includes (same as the rest of FarmVista) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    .section{border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));}
+    .section-head{display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border); background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px; height:24px; color:#2F6C3C; display:grid; place-items:center;}
+    .section-body{padding:16px; display:grid; gap:14px;}
+
+    .grid-2{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
+    .grid-3{display:grid; gap:10px; grid-template-columns:1fr 1fr 1fr;}
+    @media(max-width:880px){ .grid-2, .grid-3 { grid-template-columns:1fr; } }
+
+    .field label{display:block; font-weight:800; margin:0 0 6px 0;}
+    .input, .select, .textarea{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:12px; outline:none;
+    }
+    .textarea{min-height:96px; resize:vertical;}
+    .help{font-size:13px; color:var(--muted,#67706B);}
+
+    .actions{display:flex; gap:12px; flex-wrap:wrap}
+    .btn{display:inline-flex; align-items:center; justify-content:center; min-width:148px; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text); cursor:pointer;}
+    .btn-primary{border-color:transparent; background:#2F6C3C; color:#fff;}
+
+    /* toast */
+    .toast{position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); transform:translateX(-50%); background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none;}
+    .toast.show{display:block; animation:fadeout 2.8s forwards;}
+    @keyframes fadeout{0%{opacity:1} 85%{opacity:1} 100%{opacity:0}}
+
+    .page{max-width:1100px; margin:0 auto; padding:clamp(14px,3vw,22px); padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0; color:var(--muted,#67706B);}
+  </style>
+
+  <script>(function(){
+    // lazy-load custom shell
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+    }
+  })();</script>
+</head><body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Seed Setup</h1>
+      <p class="page-sub">Add seed products that power reports and workflows. Choose Crop, then enter Brand, Variety, Maturity, and Traits. Corn and soybeans have different trait systems.</p>
+
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">
+            <!-- Tabler (MIT) plant icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+              <path d="M12 13v8"/>
+              <path d="M10 21h4"/>
+              <path d="M12 13c0-3.333 1-5 3-6s5-1 7 1c-2 2-4 3-7 3-2 0-3 1-3 2z"/>
+              <path d="M12 13c0-3.333-1-5-3-6s-5-1-7 1c2 2 4 3 7 3 2 0 3 1 3 2z"/>
+            </svg>
+          </div>
+          <div>
+            <strong>New Seed Product</strong>
+            <div class="help">Crop determines maturity units and available trait systems.</div>
+          </div>
+        </header>
+
+        <div class="section-body">
+          <!-- Crop first -->
+          <div class="grid-2">
+            <div class="field">
+              <label for="crop">Crop Type</label>
+              <select id="crop" class="select">
+                <option value="">—</option>
+                <option value="corn">Corn</option>
+                <option value="soybean">Soybean</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="brand">Brand</label>
+              <input id="brand" class="input" placeholder="e.g., DEKALB, Pioneer, NK">
+            </div>
+          </div>
+
+          <div class="grid-3">
+            <div class="field">
+              <label for="variety">Product / Variety</label>
+              <input id="variety" class="input" placeholder="Hybrid/Variety name or number">
+            </div>
+
+            <div class="field">
+              <label for="maturity" id="matLabel">Maturity</label>
+              <input id="maturity" class="input" inputmode="decimal" placeholder="—">
+              <div class="help" id="matHelp"></div>
+            </div>
+
+            <div class="field">
+              <label for="traits">Trait System</label>
+              <select id="traits" class="select">
+                <option value="">—</option>
+              </select>
+              <div class="help" id="traitHelp">Select crop to load trait options.</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes (optional)</label>
+            <textarea id="notes" class="textarea" placeholder="Anything helpful (seed size, treatment, comments)…"></textarea>
+          </div>
+
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear</button>
+            <button id="save" class="btn btn-primary" type="button">Save Seed</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <script>
+  (function(){
+    "use strict";
+    const $ = id => document.getElementById(id);
+
+    /* === Trait options by crop (inline, simple) === */
+    const TRAITS = {
+      corn: [
+        {v:"CONV",     t:"Conventional (Non-GMO)"},
+        {v:"VT2P",     t:"VT Double PRO (VT2P)"},
+        {v:"TRE",      t:"Trecepta"},
+        {v:"SS",       t:"SmartStax"},
+        {v:"SSPRO",    t:"SmartStax PRO"},
+        {v:"QROME",    t:"Qrome"},
+        {v:"PC",       t:"PowerCore"},
+        {v:"PCU",      t:"PowerCore Ultra"},
+        {v:"VIPTERA",  t:"Agrisure Viptera"},
+        {v:"DURACADE", t:"Agrisure Duracade"},
+        {v:"ENLISTC",  t:"Enlist Corn (herbicide)"},
+        {v:"CLEAR",    t:"CLEARFIELD (IMI)"}
+      ],
+      soybean: [
+        {v:"E3",       t:"Enlist E3 (2,4-D + Glyphosate + Glufosinate)"},
+        {v:"XF",       t:"XtendFlex (Dicamba + Glyphosate + Glufosinate)"},
+        {v:"RR2X",     t:"Roundup Ready 2 Xtend (Dicamba + Glyphosate)"},
+        {v:"RR2Y",     t:"Roundup Ready 2 Yield (Glyphosate)"},
+        {v:"LL",       t:"LibertyLink (Glufosinate)"},
+        {v:"LLGT27",   t:"LibertyLink GT27 (Glufosinate + Glyphosate)"},
+        {v:"STS",      t:"STS (Sulfonylurea Tolerant)"},
+        {v:"CONV",     t:"Conventional (Non-GMO)"}
+      ]
+    };
+
+    const crop=$("crop"), brand=$("brand"), variety=$("variety"),
+          maturity=$("maturity"), matLabel=$("matLabel"), matHelp=$("matHelp"),
+          traits=$("traits"), traitHelp=$("traitHelp"), notes=$("notes");
+
+    function fillTraitOptions(c){
+      traits.innerHTML = '<option value="">—</option>';
+      (TRAITS[c]||[]).forEach(o=>{
+        const opt=document.createElement("option"); opt.value=o.v; opt.textContent=o.t; traits.appendChild(opt);
+      });
+      traitHelp.textContent = (TRAITS[c] && TRAITS[c].length) ? "Pick the matching trait system on the bag tag." : "Select crop to load trait options.";
+    }
+
+    function setMaturityUI(c){
+      maturity.value = "";
+      if(c==="corn"){
+        matLabel.textContent = "Maturity (CRM days)";
+        maturity.placeholder = "e.g., 108";
+        matHelp.textContent = "Enter CRM (relative maturity) in days.";
+      }else if(c==="soybean"){
+        matLabel.textContent = "Maturity (RM group)";
+        maturity.placeholder = "e.g., 3.4";
+        matHelp.textContent = "Enter RM as a decimal (e.g., 2.8).";
+      }else{
+        matLabel.textContent = "Maturity";
+        maturity.placeholder = "—";
+        matHelp.textContent = "";
+      }
+    }
+
+    crop.addEventListener("change", ()=>{
+      const c = crop.value;
+      fillTraitOptions(c);
+      setMaturityUI(c);
+    });
+
+    /* Basic number hygiene for maturity */
+    maturity.addEventListener("blur", ()=>{
+      const c=crop.value;
+      const raw = maturity.value.trim();
+      if(!raw) return;
+      let n = Number(raw);
+      if(!isFinite(n)){ maturity.value=""; return; }
+      if(c==="corn"){ n = Math.round(n); }
+      else if(c==="soybean"){ n = Math.round(n*10)/10; }
+      maturity.value = String(n);
+    });
+
+    /* Save (local only for now) */
+    const STORAGE_KEY = "fv_seed_products_v1";
+    const toast = $("toast");
+
+    function showToast(msg="Saved."){
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth;
+      toast.classList.add("show");
+    }
+
+    function validate(){
+      if(!crop.value) return "Choose a crop.";
+      if(!brand.value.trim()) return "Enter a brand.";
+      if(!variety.value.trim()) return "Enter a product/variety.";
+      if(!maturity.value.trim()) return "Enter maturity.";
+      if(!traits.value) return "Select a trait system.";
+      return "";
+    }
+
+    function loadAll(){
+      try{ const arr = JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]"); return Array.isArray(arr)?arr:[]; }
+      catch(e){ return []; }
+    }
+    function saveAll(arr){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+    }
+
+    $("save").addEventListener("click", ()=>{
+      const err = validate();
+      if(err){ alert(err); return; }
+
+      const item = {
+        t: Date.now(),
+        crop: crop.value,
+        brand: brand.value.trim(),
+        variety: variety.value.trim(),
+        maturity: maturity.value.trim(),   // CRM (corn) or RM (soybean)
+        trait: traits.value,               // code
+        traitLabel: traits.selectedOptions[0]?.textContent || "",
+        notes: notes.value.trim()
+      };
+
+      const arr = loadAll();
+      arr.unshift(item);
+      saveAll(arr);
+      showToast("Seed saved.");
+    });
+
+    $("clear").addEventListener("click", ()=>{
+      ["crop","brand","variety","maturity","traits","notes"].forEach(id=>{
+        const el=$(id); if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
+      });
+      setMaturityUI("");
+      fillTraitOptions("");
+    });
+
+    // initial paint (empty)
+    setMaturityUI("");
+    fillTraitOptions("");
+  })();
+  </script>
+</body></html>
