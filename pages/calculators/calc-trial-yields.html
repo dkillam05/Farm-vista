@@ -72,6 +72,7 @@
     input,select,button{ font-size:16px; } /* prevent iOS zoom */
     .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .ctrl:focus-within{ border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent); }
+    .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
 
     .yieldline{
       display:flex; gap:10px; align-items:center; justify-content:space-between;
@@ -108,13 +109,21 @@
     .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important; }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
 
-    /* Combine-yield mini form inside modal */
+    /* Trial-yield mini form inside modal */
     .cg{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:760px){ .cg{ grid-template-columns:1fr; } }
     .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
     @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
     .mini-tile{ border:1px solid var(--border); border-radius:12px; padding:10px; background:var(--surface); }
     .mini-tile h4{ margin:0 0 6px; font-size:14px; }
+
+    /* Stacked actions for phone usability */
+    .actions-col{ display:grid; gap:10px; margin-top:12px; }
+
+    /* Import modal preview */
+    .preview-list{ display:grid; gap:8px; margin-top:10px; }
+    .row-mini{ border:1px solid var(--border); border-radius:10px; padding:8px; background:var(--card-surface,var(--surface)); }
+    .muted-small{ color:var(--muted); font-size:12px; }
   </style>
 </head>
 <body>
@@ -132,14 +141,15 @@
           </div>
           <div>
             <h1>Trial Yields</h1>
-            <div class="muted">Add treatments. For each, tap <strong>Enter Yield…</strong> to open the calculator and pull back bu/ac.</div>
+            <div class="muted">Add treatments manually or import from a photo/screenshot. For each row, tap <strong>Enter Yield…</strong> to calculate bu/ac and pull it back.</div>
           </div>
         </div>
 
         <!-- Controls -->
         <div class="controls">
-          <div class="row-actions" style="justify-content:flex-start; gap:10px;">
+          <div class="row-actions" style="justify-content:flex-start; gap:10px; flex-wrap:wrap;">
             <button class="btn" id="addTreatment" type="button">Add Treatment</button>
+            <button class="btn" id="importBtn" type="button">Import…</button>
             <button class="btn" id="clearTreatments" type="button">Clear Treatments</button>
             <button class="btn btn-primary" id="saveTrial" type="button">Save Trial</button>
           </div>
@@ -173,11 +183,11 @@
     </div>
   </fv-shell>
 
-  <!-- Trial Yield MODAL (updated per your requests) -->
+  <!-- Trial Yield MODAL -->
   <div class="modal" id="cyModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cyTitle">
       <div class="dialog-head">
-        <h3 id="cyTitle">Trial Yield — Enter Sample</h3>
+        <h3 id="cyTitle">Calc Trial Yields</h3>
         <button class="closex" id="cyClose" type="button">Back</button>
       </div>
       <div class="dialog-body">
@@ -203,26 +213,15 @@
               </div>
             </div>
 
+            <!-- Length × Width only (area computed, read-only) -->
             <div>
-              <label>Area Input</label>
-              <div class="ctrl">
-                <select id="cyAreaMode">
-                  <option value="lw">Length × Width</option>
-                  <option value="acres">Acres (known)</option>
-                </select>
-              </div>
-            </div>
-            <div></div>
-
-            <!-- Length/Width inputs -->
-            <div data-pane="lw">
               <label>Cut Length</label>
               <div class="ctrl">
                 <input id="cyLen" type="text" inputmode="decimal" placeholder="e.g. 600">
                 <span class="unit">ft</span>
               </div>
             </div>
-            <div data-pane="lw">
+            <div>
               <label>Cut Width</label>
               <div class="ctrl">
                 <select id="cyWid">
@@ -234,25 +233,14 @@
               </div>
             </div>
 
-            <!-- Computed Area (read-only) -->
-            <div data-pane="lw">
+            <div>
               <label>Area (computed)</label>
               <div class="ctrl">
                 <input id="cyAcRO" type="text" disabled placeholder="0.000">
                 <span class="unit">ac</span>
               </div>
             </div>
-            <div data-pane="lw"></div>
-
-            <!-- Acres mode (manual) -->
-            <div data-pane="acres" class="hidden">
-              <label>Area</label>
-              <div class="ctrl">
-                <input id="cyAc" type="text" inputmode="decimal" placeholder="e.g. 2.75">
-                <span class="unit">ac</span>
-              </div>
-            </div>
-            <div data-pane="acres" class="hidden"></div>
+            <div></div>
 
             <div>
               <label>Wet Weight</label>
@@ -270,7 +258,6 @@
             </div>
           </div>
 
-          <!-- Results -->
           <div class="result-grid" id="cyRes" hidden>
             <div class="mini-tile" id="tTile">
               <h4>True Shrink</h4>
@@ -284,8 +271,8 @@
             </div>
           </div>
 
-          <!-- Actions (stacked for easier tapping) -->
-          <div style="display:flex; flex-direction:column; gap:10px; margin-top:12px;">
+          <!-- Stacked actions -->
+          <div class="actions-col">
             <button type="button" class="btn" id="cyCalc">Calculate</button>
             <div class="ctrl" style="gap:6px;">
               <label for="cyUse" style="margin:0; font-weight:600;">Use</label>
@@ -297,6 +284,43 @@
             <button type="button" class="btn btn-primary" id="cyUseBtn">Use This Yield</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import MODAL -->
+  <div class="modal" id="impModal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="impTitle">
+      <div class="dialog-head">
+        <h3 id="impTitle">Import Treatments</h3>
+        <button class="closex" id="impClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body">
+        <div class="grid2">
+          <div>
+            <label for="impFile">Image/PDF</label>
+            <div class="ctrl">
+              <input id="impFile" type="file" accept="image/*,.pdf" capture="environment">
+            </div>
+            <div class="muted-small" id="impStatus">Choose a photo or screenshot of your trial sheet.</div>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button class="btn" id="impExtract" type="button">Extract Text</button>
+              <button class="btn" id="impPaste" type="button">Paste Text…</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="impPreview" hidden>
+          <div class="muted-small" style="margin-top:10px;">Preview (Field • Treatment • Yield bu/ac)</div>
+          <div class="preview-list" id="impList"></div>
+          <div class="actions-col">
+            <button class="btn btn-primary" id="impAdd" type="button">Add Parsed to Treatments</button>
+            <button class="btn" id="impClearParsed" type="button">Clear Parsed</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -315,13 +339,14 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_TRIALS_V1__) return; window.__FV_TRIALS_V1__=true;
+    if(window.__FV_TRIALS_V3__) return; window.__FV_TRIALS_V3__=true;
 
     /* ---------- Helpers ---------- */
     function $(id){ return document.getElementById(id); }
     function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
     function fmt0(n){ return Number(n).toLocaleString(); }
+    const clamp = (x,min,max)=>Math.min(Math.max(x,min),max);
 
     /* ---------- UI Elements ---------- */
     var tlist=$("tlist"), addBtn=$("addTreatment"), clearBtn=$("clearTreatments"), saveBtn=$("saveTrial");
@@ -337,7 +362,7 @@
         + '  <div><label>Treatment Name</label><div class="ctrl"><input data-k="name" type="text" placeholder="e.g. Hybrid A @ 34k"></div></div>'
         + '</div>'
         + '<div class="yieldline">'
-        + '  <div><strong>Yield</strong> <span class="yieldval" data-k="yield">'+(y?fmt(y,2)+" bu/ac":"—")+'</span></div>'
+        + '  <div><strong>Yield</strong> <span class="yieldval" data-k="yield">'+(y!=null?fmt(y,2)+" bu/ac":"—")+'</span></div>'
         + '  <div style="display:flex; gap:8px; align-items:center;">'
         + '    <button type="button" class="btn" data-k="enter">Enter Yield…</button>'
         + '  </div>'
@@ -383,34 +408,29 @@
       sumTile.hidden=false;
     }
 
-    /* ---------- Combine Yield mini-calculator (modal) ---------- */
+    /* ---------- Trial Yield mini-calculator (modal) ---------- */
     var SQFT_PER_ACRE=43560;
     var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
     var SOY_STD=13.0, SOY_TW=60;
 
     var cyModal=$("cyModal"), cyClose=$("cyClose");
-    var cyCrop=$("cyCrop"), cyMode=$("cyMode"), cyAreaMode=$("cyAreaMode");
-    var cyLen=$("cyLen"), cyWid=$("cyWid"), cyAcRO=$("cyAcRO"), cyAc=$("cyAc"), cyWt=$("cyWt"), cyM=$("cyM");
+    var cyCrop=$("cyCrop"), cyMode=$("cyMode");
+    var cyLen=$("cyLen"), cyWid=$("cyWid"), cyAcRO=$("cyAcRO"), cyWt=$("cyWt"), cyM=$("cyM");
     var cyRes=$("cyRes"), tYield=$("tYield"), tBu=$("tBu"), eYield=$("eYield"), eBu=$("eBu");
     var cyCalc=$("cyCalc"), cyUseSel=$("cyUse"), cyUseBtn=$("cyUseBtn");
     var cyTargetRow=null; // treatment row to receive yield
-    var panes=[].slice.call(document.querySelectorAll('[data-pane]'));
 
-    function paneShow(v){ panes.forEach(p=>p.classList.toggle("hidden", p.getAttribute("data-pane")!==v)); }
-    cyAreaMode.addEventListener("change", ()=>paneShow(cyAreaMode.value)); paneShow(cyAreaMode.value);
-
-    // compute area from Length×Width and display (read-only)
-    function computeROArea(){
+    function computeArea(){
       var L=num(cyLen.value), W=parseFloat(cyWid.value);
       var A=(L>0 && W>0) ? (L*W)/SQFT_PER_ACRE : NaN;
       cyAcRO.value = isFinite(A) ? fmt(A,3) : "";
       return isFinite(A) ? A : null;
     }
-    cyLen.addEventListener("input", computeROArea);
-    cyWid.addEventListener("change", computeROArea);
+    cyLen.addEventListener("input", computeArea);
+    cyWid.addEventListener("change", computeArea);
 
     cyWt.addEventListener("blur", function(){ var raw=cyWt.value.replace(/[^0-9]/g,""); cyWt.value=raw?Number(raw).toLocaleString():""; });
-    [cyAc].forEach(function(i){ i && i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; }); });
+    cyLen.addEventListener("blur", function(){ var v=cyLen.value.replace(/[^0-9.]/g,""); cyLen.value=v?fmt(parseFloat(v),2):""; });
 
     cyM.addEventListener("input", function(){
       var s=cyM.value.replace(/[^\d.]/g,""); var parts=s.split(".");
@@ -428,14 +448,8 @@
     }
 
     function calcCY(){
-      var crop=cyCrop.value;
-      var area=0;
-      if(cyAreaMode.value==="lw"){
-        area = computeROArea();
-        if(!(area>0)){ alert("Enter cut length and choose a cut width."); return null; }
-      } else {
-        area=num(cyAc.value); if(!(area>0)){ alert("Enter acres."); return null; }
-      }
+      var crop=cyCrop.value, mode=cyMode.value;
+      var area=computeArea(); if(!(area>0)){ alert("Enter cut length and choose a cut width."); return null; }
       var Wt=Number(cyWt.value.replace(/,/g,"")); var M=parseFloat(cyM.value);
       if(!(Wt>0 && M>0)) { alert("Enter wet weight and moisture."); return null; }
 
@@ -443,7 +457,7 @@
       var trueWt=Wt*((100-M)/(100-std)), trueBu=trueWt/tw, trueY=trueBu/area;
       var ePct=elevPct(crop,M), eWt=Wt*(1-ePct/100), eBuV=eWt/tw, eY=eBuV/area;
 
-      return {crop:crop, trueBu:trueBu, trueY:trueY, elevBu:eBuV, elevY:eY};
+      return {crop:crop, mode:mode, area:area, Wt:Wt, M:M, trueBu:trueBu, trueY:trueY, elevBu:eBuV, elevY:eY};
     }
 
     function showCY(o){
@@ -459,7 +473,7 @@
       cyTargetRow=treatmentRow;
       cyRes.hidden=true;
       openModal(cyModal, cyClose);
-      computeROArea(); // initialize computed area display
+      computeArea();
     }
     cyCalc.addEventListener("click", function(){ var out=calcCY(); showCY(out); });
     cyUseBtn.addEventListener("click", function(){
@@ -470,6 +484,104 @@
     });
     cyClose.addEventListener("click", function(){ closeModal(cyModal, cyClose); });
     cyModal.addEventListener("click", function(e){ if(e.target===cyModal) closeModal(cyModal, cyClose); });
+
+    /* ---------- Import (OCR) ---------- */
+    const impModal=$("impModal"), impClose=$("impClose");
+    const impFile=$("impFile"), impStatus=$("impStatus");
+    const impExtract=$("impExtract"), impPaste=$("impPaste");
+    const impPreview=$("impPreview"), impList=$("impList");
+    const impAdd=$("impAdd"), impClearParsed=$("impClearParsed");
+    const importBtn=$("importBtn");
+    let parsedRows=[];
+
+    importBtn.addEventListener("click", ()=>{ openModal(impModal, impClose); resetImportUI(); });
+
+    function resetImportUI(){
+      impFile.value=""; impStatus.textContent="Choose a photo or screenshot of your trial sheet.";
+      parsedRows=[]; renderParsed();
+    }
+
+    function renderParsed(){
+      impList.innerHTML="";
+      if(!parsedRows.length){ impPreview.hidden=true; impAdd.disabled=true; return; }
+      parsedRows.forEach(r=>{
+        const div=document.createElement("div");
+        div.className="row-mini";
+        div.textContent=`${r.field||"—"} • ${r.name||"—"} • ${r.yield!=null?fmt(r.yield,2)+" bu/ac":"—"}`;
+        impList.appendChild(div);
+      });
+      impPreview.hidden=false;
+      impAdd.disabled=false;
+    }
+
+    async function doExtract(){
+      if(!impFile.files || !impFile.files.length){
+        alert("Select an image/PDF first."); return;
+      }
+      impStatus.textContent="Reading…";
+      try{
+        let text="";
+        if(window.FV_OCR && typeof window.FV_OCR.imageToText==="function"){
+          const out = await window.FV_OCR.imageToText(impFile.files[0]);
+          text = (out && out.text) || "";
+        }else{
+          text = prompt("OCR service not wired yet.\nPaste recognized text here:", "") || "";
+        }
+        if(!text.trim()){ impStatus.textContent="No text recognized. Try again or paste text."; return; }
+        impStatus.textContent="Parsing…";
+        parsedRows = parseTrialText(text);
+        if(!parsedRows.length){ impStatus.textContent="No rows detected. Ensure your text has yields like '185.4'."; }
+        else { impStatus.textContent=`Parsed ${parsedRows.length} row(s).`; }
+        renderParsed();
+      }catch(e){
+        console.error(e); impStatus.textContent="Import failed. Try paste.";
+      }
+    }
+
+    function doPaste(){
+      const text = prompt("Paste the trial table text here.\nFormat examples:\nFieldA, Hybrid X, 214.5\nNorth 80  | Fungicide A  | 201.2\nHybrid B 198.7", "");
+      if(!text) return;
+      parsedRows = parseTrialText(text);
+      impStatus.textContent = parsedRows.length ? `Parsed ${parsedRows.length} row(s).` : "No rows detected.";
+      renderParsed();
+    }
+
+    // Heuristic parser: finds lines with a yield number (10..400). Splits remaining text into field & treatment.
+    function parseTrialText(t){
+      const lines = t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      const out=[];
+      for(const raw of lines){
+        // find a yield-like number (allow comma or dot)
+        const nums = Array.from(raw.matchAll(/(\d{2,3}(?:[.,]\d+)?)/g)).map(m=>m[1].replace(',','.')).map(parseFloat);
+        const cand = nums.find(n=>n>=10 && n<=400);
+        if(!isFinite(cand)) continue;
+        // remove the chosen number from the line to get labels
+        const without = raw.replace(String(cand), ' ').replace(/\s{2,}/g,' ').trim();
+        // split on common separators
+        let parts = without.split(/\s*\|\s*|,|;\t*|\t+/).map(s=>s.trim()).filter(Boolean);
+        if(parts.length===0){ parts=[without]; }
+        let field="", name="";
+        if(parts.length>=2){ field=parts[0]; name=parts.slice(1).join(" "); }
+        else{ name=parts[0]; }
+        out.push({ field, name, yield: cand });
+      }
+      return out;
+    }
+
+    impExtract.addEventListener("click", doExtract);
+    impPaste.addEventListener("click", doPaste);
+    impClearParsed.addEventListener("click", ()=>{ parsedRows=[]; renderParsed(); impStatus.textContent="Cleared."; });
+
+    impAdd.addEventListener("click", ()=>{
+      if(!parsedRows.length) return;
+      const spaceLeft = MAX_T - allRows().length;
+      const rowsToAdd = parsedRows.slice(0, Math.max(0, spaceLeft));
+      rowsToAdd.forEach(r=> makeTreatment(r.field||"", r.name||"", clamp(r.yield, 0, 500)));
+      refreshSummary(); lockAdd(); closeModal(impModal, impClose);
+    });
+
+    impClose.addEventListener("click", ()=> closeModal(impModal, impClose));
+    impModal.addEventListener("click", (e)=>{ if(e.target===impModal) closeModal(impModal, impClose); });
 
     /* ---------- History ---------- */
     var LS_KEY="fv_calc_trial_yields_history_v1";
@@ -505,9 +617,6 @@
       var rec={ t:Date.now(), items:items };
       var h=loadH(); h.unshift(rec); saveH(h); renderHist();
     });
-    document.getElementById("clearHist").addEventListener("click", function(){
-      localStorage.removeItem(LS_KEY); renderHist();
-    });
 
     /* ---------- History details modal ---------- */
     var histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
@@ -525,7 +634,7 @@
         +'</div><hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">';
 
       html += '<div style="display:grid;gap:8px">';
-      rec.items.forEach(function(it){
+      rec.items.forEach(function(it,ix){
         html+='<div class="mini-tile">'
           +'<div><strong>Field:</strong> '+(it.field||'—')+'</div>'
           +'<div><strong>Treatment:</strong> '+(it.name||'—')+'</div>'
@@ -548,15 +657,16 @@
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
       closeBtn && closeBtn.focus(); trapFocus(el);
     }
-    function closeModal(el){
+    function closeModal(el, closeBtn){
       el.removeAttribute("open"); el.setAttribute("aria-hidden","true");
       document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
       releaseFocus(el); if(lastOpener && lastOpener.focus) lastOpener.focus();
     }
     document.addEventListener("keydown", function(e){
       if(e.key==="Escape"){
-        if(cyModal.hasAttribute("open")) closeModal(cyModal);
-        if(histModal.hasAttribute("open")) closeModal(histModal);
+        if(cyModal.hasAttribute("open")) closeModal(cyModal, cyClose);
+        if(impModal.hasAttribute("open")) closeModal(impModal, impClose);
+        if(histModal.hasAttribute("open")) closeModal(histModal, hmClose);
       }
     });
     function trapFocus(root){
