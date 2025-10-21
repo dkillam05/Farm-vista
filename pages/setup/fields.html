@@ -26,10 +26,15 @@
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:14px;}
 
-    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr auto}
-    @media(max-width:900px){.row{grid-template-columns:1fr}}
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr}
+    .row-2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    .row-3{display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr}
+    @media(max-width:980px){.row{grid-template-columns:1fr 1fr}.row-3{grid-template-columns:1fr 1fr}}
+    @media(max-width:720px){.row,.row-2,.row-3{grid-template-columns:1fr}}
+
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
-    .input, .select{width:100%;font:inherit;font-size:16px;color:var(--text);
+    .input, .select{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
@@ -39,10 +44,14 @@
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
+    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+    .switch{display:flex;gap:10px;align-items:center}
+    .switch input{width:22px;height:22px}
+
     /* List + filter */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
     .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
-    .list-filters{display:flex;gap:10px;align-items:center}
+    .list-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .list{padding:14px 16px;display:grid;gap:12px;}
     .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
       display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
@@ -53,13 +62,17 @@
     /* Modal */
     .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
     .modal[open]{display:grid;opacity:1;}
-    .dialog{width:min(560px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+    .dialog{width:min(640px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
       border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
     .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
-    .dialog-body{padding:14px;display:grid;gap:12px;}
+    .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
     .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
     .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
+
+    /* County mini modal */
+    .mini-dialog{width:min(420px,92vw);max-height:60vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
 
     /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
@@ -79,7 +92,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Fields</h1>
-      <p class="page-sub">Assign fields to farms for organization and reporting.</p>
+      <p class="page-sub">Assign fields to farms, track county and acres (tillable, HEL, CRP).</p>
 
       <section class="section">
         <header class="section-head">
@@ -91,6 +104,7 @@
           <div id="noFarms" class="muted" style="display:none">
             No farms found. Add farms in <em>Setup → Farms</em> first.
           </div>
+
           <div class="row">
             <div class="field">
               <label for="farmSelect">Farm</label>
@@ -100,10 +114,47 @@
               <label for="fieldName">Field Name</label>
               <input id="fieldName" class="input" placeholder="e.g., North 80">
             </div>
-            <div class="actions">
-              <button id="clear" class="btn" type="button">Clear</button>
-              <button id="save" class="btn btn-primary" type="button">Save</button>
+            <div class="field">
+              <label for="tillable">Tillable Acres</label>
+              <input id="tillable" class="input" inputmode="decimal" placeholder="e.g., 80.0">
             </div>
+          </div>
+
+          <div class="row-3">
+            <div class="field">
+              <label for="countySelect">County</label>
+              <div class="inline">
+                <select id="countySelect" class="select" style="min-width:220px;flex:1"></select>
+                <button id="addCountyBtn" class="btn" type="button">+ County</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>HEL</label>
+              <div class="switch">
+                <input id="hasHEL" type="checkbox" />
+                <label for="hasHEL" class="muted" style="font-weight:700">Highly Erodible Land</label>
+              </div>
+              <div class="field" id="helAcreWrap" style="margin-top:8px;display:none">
+                <label for="helAcres" class="muted">HEL Acres</label>
+                <input id="helAcres" class="input" inputmode="decimal" placeholder="e.g., 10.0">
+              </div>
+            </div>
+            <div class="field">
+              <label>CRP</label>
+              <div class="switch">
+                <input id="hasCRP" type="checkbox" />
+                <label for="hasCRP" class="muted" style="font-weight:700">Conservation Reserve Program</label>
+              </div>
+              <div class="field" id="crpAcreWrap" style="margin-top:8px;display:none">
+                <label for="crpAcres" class="muted">CRP Acres</label>
+                <input id="crpAcres" class="input" inputmode="decimal" placeholder="e.g., 5.0">
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear</button>
+            <button id="save" class="btn btn-primary" type="button">Save</button>
           </div>
         </div>
 
@@ -124,7 +175,7 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
-  <!-- Modal: View/Edit -->
+  <!-- Modal: View/Edit Field -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -132,17 +183,57 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
       <div class="dialog-body">
-        <div class="field">
-          <label for="editFarm">Farm</label>
-          <select id="editFarm" class="select"></select>
+        <div class="row-2">
+          <div class="field">
+            <label for="editFarm">Farm</label>
+            <select id="editFarm" class="select"></select>
+          </div>
+          <div class="field">
+            <label for="editName">Field Name</label>
+            <input id="editName" class="input" placeholder="Field name">
+          </div>
         </div>
-        <div class="field">
-          <label for="editName">Field Name</label>
-          <input id="editName" class="input" placeholder="Field name">
+
+        <div class="row-3">
+          <div class="field">
+            <label for="editCounty">County</label>
+            <div class="inline">
+              <select id="editCounty" class="select" style="min-width:220px;flex:1"></select>
+              <button id="mdAddCountyBtn" class="btn" type="button">+ County</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="editTillable">Tillable Acres</label>
+            <input id="editTillable" class="input" inputmode="decimal">
+          </div>
+          <div class="field">
+            <div class="switch" style="margin-top:28px">
+              <input id="editHasHEL" type="checkbox"/>
+              <label for="editHasHEL"><strong>HEL</strong> (Highly Erodible Land)</label>
+            </div>
+            <div class="field" id="editHelAcreWrap" style="margin-top:8px;display:none">
+              <label for="editHelAcres" class="muted">HEL Acres</label>
+              <input id="editHelAcres" class="input" inputmode="decimal">
+            </div>
+          </div>
         </div>
-        <div class="field" id="statusRow">
-          <span class="pill" id="statusPill">Active</span>
-          <span class="pill" id="usedPill" style="display:none">In use</span>
+
+        <div class="row-2">
+          <div class="field">
+            <div class="switch">
+              <input id="editHasCRP" type="checkbox"/>
+              <label for="editHasCRP"><strong>CRP</strong> (Conservation Reserve Program)</label>
+            </div>
+            <div class="field" id="editCrpAcreWrap" style="margin-top:8px;display:none">
+              <label for="editCrpAcres" class="muted">CRP Acres</label>
+              <input id="editCrpAcres" class="input" inputmode="decimal">
+            </div>
+          </div>
+
+          <div class="field" id="statusRow" style="align-self:end">
+            <span class="pill" id="statusPill">Active</span>
+            <span class="pill" id="usedPill" style="display:none">In use</span>
+          </div>
         </div>
       </div>
       <div class="dialog-footer">
@@ -155,17 +246,56 @@
     </div>
   </div>
 
+  <!-- Mini Modal: Add County -->
+  <div id="modalCounty" class="modal" aria-hidden="true">
+    <div class="mini-dialog" role="dialog" aria-modal="true" aria-labelledby="ctyTitle">
+      <div class="dialog-head">
+        <h3 id="ctyTitle">Add County</h3>
+        <button class="closex" id="ctyClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body">
+        <div class="field">
+          <label for="newCountyName">County Name</label>
+          <input id="newCountyName" class="input" placeholder="e.g., Sangamon">
+        </div>
+        <div class="actions">
+          <button id="ctySave" class="btn btn-primary" type="button">Save County</button>
+        </div>
+        <p class="muted" style="margin:0">Counties are shared across all fields.</p>
+      </div>
+    </div>
+  </div>
+
   <script>
   (function(){
     "use strict";
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
-    // LS keys (same scheme as Farms page)
-    const LS_FARMS  = "fv_setup_farms_v1";
-    const LS_FIELDS = "fv_setup_fields_v1";
+    // Storage keys
+    const LS_FARMS   = "fv_setup_farms_v1";
+    const LS_FIELDS  = "fv_setup_fields_v1";
+    const LS_COUNTY  = "fv_setup_counties_v1";
 
     let editId = null;
+    let countySelectTarget = null; // which select to set after adding a county
+
+    /* ===== Utilities ===== */
+    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+    function showToast(msg="Successfully saved."){
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth;
+      toast.classList.add("show");
+    }
+    function toNum(v){
+      const n = Number(String(v||"").replace(/,/g,"").trim());
+      return isFinite(n) ? n : 0;
+    }
+    function fmt(n, dec=1){
+      if(n==null || n==="") return "";
+      const v = Number(n);
+      return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
+    }
 
     /* ===== Data access ===== */
     function loadFarms(){
@@ -178,18 +308,18 @@
     }
     function saveFields(a){ localStorage.setItem(LS_FIELDS, JSON.stringify(a)); }
 
-    /* ===== Utils ===== */
-    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
-    function showToast(msg="Successfully saved."){
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
+    function loadCounties(){
+      try{
+        const a = JSON.parse(localStorage.getItem(LS_COUNTY)||"[]");
+        if(Array.isArray(a)) return a.filter(Boolean).map(String);
+        return [];
+      }catch(e){ return []; }
     }
-    function farmById(id){ return loadFarms().find(f=>f.id===id); }
-    function farmLabel(id){
-      const f = farmById(id);
-      if(!f) return "(Unknown)";
-      return f.name + (f.status==="archived" ? " (Archived)" : "");
+    function saveCounties(a){
+      const unique = Array.from(new Set(a.map(s=>String(s).trim()).filter(Boolean)));
+      unique.sort((a,b)=> a.localeCompare(b, undefined, {sensitivity:"base"}));
+      localStorage.setItem(LS_COUNTY, JSON.stringify(unique));
+      return unique;
     }
 
     /* ===== Populate selects ===== */
@@ -202,67 +332,67 @@
       const active = farms.filter(f=>f.status!=="archived");
       const archived = farms.filter(f=>f.status==="archived");
 
-      // Add form select
+      // Add form
       addSel.innerHTML = "";
       if(!farms.length){
         $("noFarms").style.display = "block";
-        addSel.disabled = true;
-        $("save").disabled = true;
+        addSel.disabled = true; $("save").disabled = true;
       }else{
         $("noFarms").style.display = "none";
         $("save").disabled = false;
-        // active first
         active.forEach(f=>{
-          const o = document.createElement("option");
-          o.value = f.id; o.textContent = f.name;
+          const o=document.createElement("option");
+          o.value=f.id; o.textContent=f.name;
           addSel.appendChild(o);
         });
-        // archived (disabled)
         if(archived.length){
-          const grp = document.createElement("optgroup");
-          grp.label = "Archived";
+          const grp = document.createElement("optgroup"); grp.label = "Archived";
           archived.forEach(f=>{
-            const o = document.createElement("option");
-            o.value = f.id; o.textContent = f.name + " (Archived)"; o.disabled = true;
+            const o=document.createElement("option");
+            o.value=f.id; o.textContent=f.name + " (Archived)"; o.disabled=true;
             grp.appendChild(o);
           });
           addSel.appendChild(grp);
         }
       }
 
-      // Edit modal select (include all; archived selectable? we’ll allow for fixes)
+      // Edit modal
       editSel.innerHTML = "";
       farms.forEach(f=>{
-        const o = document.createElement("option");
-        o.value = f.id; o.textContent = f.name + (f.status==="archived"?" (Archived)":"");
+        const o=document.createElement("option");
+        o.value=f.id; o.textContent=f.name + (f.status==="archived"?" (Archived)":"");
         editSel.appendChild(o);
       });
 
-      // Filter select
+      // Filter
       filterSel.innerHTML = "";
       const optAll = document.createElement("option");
-      optAll.value = ""; optAll.textContent = "All Farms";
+      optAll.value=""; optAll.textContent="All Farms";
       filterSel.appendChild(optAll);
       farms.forEach(f=>{
-        const o = document.createElement("option");
-        o.value = f.id; o.textContent = f.name + (f.status==="archived"?" (Archived)":"");
+        const o=document.createElement("option");
+        o.value=f.id; o.textContent=f.name + (f.status==="archived"?" (Archived)":"");
         filterSel.appendChild(o);
       });
     }
 
+    function populateCountySelect(sel, val){
+      const counties = loadCounties();
+      sel.innerHTML = '<option value="">—</option>' + counties.map(c=>`<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join("");
+      if(val) sel.value = val;
+    }
+
     /* ===== Render list ===== */
+    function farmById(id){ return loadFarms().find(f=>f.id===id); }
+    function farmLabel(id){ const f = farmById(id); return f ? (f.name + (f.status==="archived"?" (Archived)":"")) : "(Unknown)"; }
+
     function renderList(){
       const box = $("list");
       const fields = loadFields();
       const farmFilter = $("filterFarm").value || "";
-
       const filtered = farmFilter ? fields.filter(x=>x.farmId===farmFilter) : fields.slice();
 
-      if(!filtered.length){
-        box.innerHTML = '<div class="muted">No fields yet.</div>';
-        return;
-      }
-      // Active first, then archived; newest first
+      if(!filtered.length){ box.innerHTML = '<div class="muted">No fields yet.</div>'; return; }
       filtered.sort((a,b)=>{
         const sa = a.status==="archived", sb = b.status==="archived";
         return (sa - sb) || (b.t - a.t);
@@ -274,6 +404,10 @@
         div.className = "item";
         const pills = [
           `<span class="pill">${escapeHTML(farmLabel(it.farmId))}</span>`,
+          it.county ? `<span class="pill">${escapeHTML(it.county)} Co.</span>` : "",
+          (it.tillable? `<span class="pill">${fmt(it.tillable)} ac</span>` : ""),
+          (it.hasHEL && it.helAcres ? `<span class="pill">HEL ${fmt(it.helAcres)} ac</span>` : ""),
+          (it.hasCRP && it.crpAcres ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : ""),
           it.status==="archived" ? `<span class="pill">Archived</span>` : ""
         ].filter(Boolean).join(" ");
         div.innerHTML = `
@@ -288,34 +422,102 @@
       });
     }
 
-    /* ===== Add new field ===== */
-    $("save").addEventListener("click", ()=>{
-      const farmId = $("farmSelect").value;
-      const name = $("fieldName").value.trim();
-      if(!$("farmSelect").disabled && !farmId){ alert("Please choose a farm."); return; }
-      if(!name){ alert("Please enter a field name."); return; }
+    /* ===== Add County mini-modal ===== */
+    const ctyModal = $("modalCounty"), ctyClose = $("ctyClose"), ctySave = $("ctySave"), newCountyName = $("newCountyName");
+    function openCountyModal(targetSelect){
+      countySelectTarget = targetSelect || null;
+      newCountyName.value = "";
+      ctyModal.setAttribute("open",""); ctyModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      setTimeout(()=>newCountyName.focus(), 0);
+    }
+    function closeCountyModal(){
+      ctyModal.removeAttribute("open"); ctyModal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      countySelectTarget = null;
+    }
+    ctyClose.addEventListener("click", closeCountyModal);
+    ctyModal.addEventListener("click", e=>{ if(e.target===ctyModal) closeCountyModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && ctyModal.hasAttribute("open")) closeCountyModal(); });
+    ctySave.addEventListener("click", ()=>{
+      const name = newCountyName.value.trim();
+      if(!name){ alert("Enter a county name."); return; }
+      const list = saveCounties(loadCounties().concat([name]));
+      // refresh selects
+      populateCountySelect($("countySelect"));
+      populateCountySelect($("editCounty"));
+      // select the newly added in whichever select launched it
+      if(countySelectTarget){
+        countySelectTarget.value = list.find(c=>c.toLowerCase()===name.toLowerCase()) || name;
+      }
+      showToast("County added.");
+      closeCountyModal();
+    });
 
-      const fields = loadFields();
+    $("addCountyBtn").addEventListener("click", ()=> openCountyModal($("countySelect")));
+    $("mdAddCountyBtn").addEventListener("click", ()=> openCountyModal($("editCounty")));
+
+    /* ===== Add new field ===== */
+    function validateAdd(){
+      if($("farmSelect").disabled) return "Please add a Farm first.";
+      if(!$("farmSelect").value) return "Please choose a Farm.";
+      if(!$("fieldName").value.trim()) return "Please enter a Field Name.";
+      if(!$("countySelect").value) return "Please choose a County.";
+      const till = toNum($("tillable").value);
+      if(!(till>0)) return "Please enter Tillable Acres.";
+      if($("hasHEL").checked){
+        const ha = toNum($("helAcres").value);
+        if(!(ha>0)) return "Enter HEL Acres (must be > 0).";
+        if(ha > till) return "HEL Acres cannot exceed Tillable Acres.";
+      }
+      if($("hasCRP").checked){
+        const ca = toNum($("crpAcres").value);
+        if(!(ca>=0)) return "Enter CRP Acres (0 or more).";
+        if(ca > till) return "CRP Acres cannot exceed Tillable Acres.";
+      }
+      return "";
+    }
+
+    $("hasHEL").addEventListener("change", ()=>{ $("helAcreWrap").style.display = $("hasHEL").checked ? "block" : "none"; });
+    $("hasCRP").addEventListener("change", ()=>{ $("crpAcreWrap").style.display = $("hasCRP").checked ? "block" : "none"; });
+
+    $("save").addEventListener("click", ()=>{
+      const err = validateAdd();
+      if(err){ alert(err); return; }
+
       const item = {
         id: String(Date.now()) + Math.random().toString(36).slice(2,7),
-        name,
-        farmId,
-        status: "active", // 'active' | 'archived'
-        used: false,      // flip to true once referenced elsewhere
+        farmId: $("farmSelect").value,
+        name: $("fieldName").value.trim(),
+        county: $("countySelect").value,
+        tillable: toNum($("tillable").value),
+        hasHEL: $("hasHEL").checked,
+        helAcres: $("hasHEL").checked ? toNum($("helAcres").value) : 0,
+        hasCRP: $("hasCRP").checked,
+        crpAcres: $("hasCRP").checked ? toNum($("crpAcres").value) : 0,
+        status: "active",
+        used: false,
         t: Date.now()
       };
-      fields.unshift(item);
-      saveFields(fields);
+
+      const arr = loadFields(); arr.unshift(item); saveFields(arr);
       showToast("Successfully saved.");
+
+      // Keep Farm & County selections for quick entry; clear others
       $("fieldName").value = "";
-      // keep selected farm for quicker entry
+      $("tillable").value = "";
+      $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
+      $("hasCRP").checked = false; $("crpAcreWrap").style.display = "none"; $("crpAcres").value = "";
+
       renderList();
       window.scrollTo({top:0, behavior:"smooth"});
     });
 
     $("clear").addEventListener("click", ()=>{
       $("fieldName").value = "";
-      // keep farm selection
+      $("tillable").value = "";
+      $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
+      $("hasCRP").checked = false; $("crpAcreWrap").style.display = "none"; $("crpAcres").value = "";
     });
 
     $("filterFarm").addEventListener("change", renderList);
@@ -324,17 +526,29 @@
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
     function openEdit(id){
       editId = id;
-      const fields = loadFields();
-      const it = fields.find(x=>x.id===id);
+      const it = loadFields().find(x=>x.id===id);
       if(!it) return;
-      $("editName").value = it.name;
-      populateFarmSelects(); // ensure latest farms appear
+
+      populateFarmSelects(); // ensure latest farms
+      populateCountySelect($("editCounty"), it.county);
+
       $("editFarm").value = it.farmId || "";
+      $("editName").value = it.name || "";
+      $("editTillable").value = it.tillable ?? "";
+      $("editHasHEL").checked = !!it.hasHEL;
+      $("editHelAcreWrap").style.display = it.hasHEL ? "block" : "none";
+      $("editHelAcres").value = it.hasHEL ? (it.helAcres ?? "") : "";
+
+      $("editHasCRP").checked = !!it.hasCRP;
+      $("editCrpAcreWrap").style.display = it.hasCRP ? "block" : "none";
+      $("editCrpAcres").value = it.hasCRP ? (it.crpAcres ?? "") : "";
+
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
+
       openModal();
     }
     function openModal(){
@@ -351,15 +565,34 @@
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
+    $("editHasHEL").addEventListener("change", ()=>{ $("editHelAcreWrap").style.display = $("editHasHEL").checked ? "block" : "none"; });
+    $("editHasCRP").addEventListener("change", ()=>{ $("editCrpAcreWrap").style.display = $("editHasCRP").checked ? "block" : "none"; });
+
     mdSave.addEventListener("click", ()=>{
       const name = $("editName").value.trim();
       const farmId = $("editFarm").value;
+      const county = $("editCounty").value;
+      const tillable = toNum($("editTillable").value);
+      const hasHEL = $("editHasHEL").checked;
+      const helAcres = hasHEL ? toNum($("editHelAcres").value) : 0;
+      const hasCRP = $("editHasCRP").checked;
+      const crpAcres = hasCRP ? toNum($("editCrpAcres").value) : 0;
+
       if(!name){ alert("Please enter a field name."); return; }
-      if(!farmId){ alert("Please choose a farm."); return; }
+      if(!farmId){ alert("Please choose a Farm."); return; }
+      if(!county){ alert("Please choose a County."); return; }
+      if(!(tillable>0)){ alert("Please enter Tillable Acres."); return; }
+      if(hasHEL && (!helAcres || helAcres>tillable)){ alert("HEL Acres must be > 0 and ≤ Tillable."); return; }
+      if(hasCRP && (crpAcres>tillable)){ alert("CRP Acres must be ≤ Tillable."); return; }
+
       const arr = loadFields();
       const idx = arr.findIndex(x=>x.id===editId);
       if(idx>=0){
-        arr[idx] = {...arr[idx], name, farmId, updatedAt: Date.now()};
+        arr[idx] = {
+          ...arr[idx],
+          name, farmId, county, tillable, hasHEL, helAcres, hasCRP, crpAcres,
+          updatedAt: Date.now()
+        };
         saveFields(arr);
       }
       renderList();
@@ -377,7 +610,6 @@
       saveFields(arr);
       renderList();
       showToast(nextStatus==="archived" ? "Field archived." : "Field unarchived.");
-      // keep modal open and update its controls
       $("statusPill").textContent = nextStatus==="archived" ? "Archived" : "Active";
       mdArchive.textContent = nextStatus==="archived" ? "Unarchive" : "Archive";
     });
@@ -387,10 +619,7 @@
       const idx = arr.findIndex(x=>x.id===editId);
       if(idx<0) return;
       const cur = arr[idx];
-      if(cur.used){
-        alert("This field is in use and cannot be deleted. Archive instead.");
-        return;
-      }
+      if(cur.used){ alert("This field is in use and cannot be deleted. Archive instead."); return; }
       if(!confirm(`Delete field "${cur.name}"? This cannot be undone.`)) return;
       arr.splice(idx,1);
       saveFields(arr);
@@ -401,6 +630,8 @@
 
     /* ===== Init ===== */
     populateFarmSelects();
+    populateCountySelect($("countySelect"));
+    populateCountySelect($("editCounty"));
     renderList();
   })();
   </script>
