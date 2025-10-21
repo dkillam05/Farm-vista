@@ -67,7 +67,6 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        // Updated to new file naming under /pages/crop-production/
         { type: 'link', id: 'crop-planting',   icon: '🌱', label: 'Planting',            href: '/Farm-vista/pages/crop-production/planting.html',    activeMatch: 'exact' },
         { type: 'link', id: 'crop-spraying',   icon: '💦', label: 'Spraying',            href: '/Farm-vista/pages/crop-production/spraying.html',    activeMatch: 'exact' },
         { type: 'link', id: 'crop-fertilizer', icon: '🧂', label: 'Fertilizer',          href: '/Farm-vista/pages/crop-production/fertilizer.html',  activeMatch: 'exact' },
@@ -133,12 +132,12 @@ export const NAV_MENU = {
           id: 'exp-reports',
           icon: '📑',
           label: 'Reports',
-          href: '#',
+          href: '/Farm-vista/pages/expenses/reports/index.html',
           collapsible: true,
           initialOpen: false,
           children: [
-            { type: 'link', id: 'exp-reports-custom', icon: '🛠️', label: 'Customized Reports', href: '#', activeMatch: 'starts-with' },
-            { type: 'link', id: 'exp-reports-predef', icon: '📚', label: 'Predefined Reports', href: '#', activeMatch: 'starts-with' }
+            { type: 'link', id: 'exp-reports-custom',  icon: '🛠️', label: 'Customized Reports', href: '/Farm-vista/pages/expenses/reports/custom.html',     activeMatch: 'starts-with' },
+            { type: 'link', id: 'exp-reports-predef',  icon: '📚', label: 'Predefined Reports', href: '/Farm-vista/pages/expenses/reports/predefined.html', activeMatch: 'starts-with' }
           ]
         }
       ]
@@ -170,10 +169,8 @@ export const NAV_MENU = {
           ]
         },
 
-        /* NEW: Vehicle Registration (added above Field Boundaries) */
         { type: 'link', id: 'office-vehicle-registration', icon: '🚗', label: 'Vehicle Registration', href: '/Farm-vista/pages/office/vehicle-registration.html', activeMatch: 'exact' },
-
-        { type: 'link', id: 'office-field-boundaries', icon: '🗺️', label: 'Field Boundaries', href: '/Farm-vista/pages/office/field-boundaries.html', activeMatch: 'starts-with' }
+        { type: 'link', id: 'office-field-boundaries',     icon: '🗺️', label: 'Field Boundaries',      href: '/Farm-vista/pages/office/field-boundaries.html',     activeMatch: 'starts-with' }
       ]
     },
 
@@ -187,32 +184,13 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'calc-area',        icon: '📐', label: 'Area',                         href: '/Farm-vista/pages/calculators/calc-area.html' },
-        { type: 'link', id: 'calc-bin',         icon: '🛢️', label: 'Grain Bin',                    href: '/Farm-vista/pages/calculators/calc-grain-bin.html' },
-        { type: 'link', id: 'calc-shrink',      icon: '📉', label: 'Grain Shrink',                 href: '/Farm-vista/pages/calculators/calc-grain-shrink.html' },
-
-        /* NEW: Combine Grain Loss Calculator */
-        { type: 'link', id: 'calc-combine-loss', icon: '🌾', label: 'Combine Grain Loss',          href: '/Farm-vista/pages/calculators/calc-combine-grain-loss.html' },
-
-        { type: 'link', id: 'calc-combine-yld', icon: '⚙️', label: 'Combine Yield Cal',            href: '/Farm-vista/pages/calculators/calc-combine-yield.html' },
-        { type: 'link', id: 'calc-chem-mix',    icon: '🧪', label: 'Chemical Mix',                 href: '/Farm-vista/pages/calculators/calc-chemical-mix.html' },
-        { type: 'link', id: 'calc-trial-ylds',  icon: '🧬', label: 'Trial Yields',                 href: '/Farm-vista/pages/calculators/calc-trial-yields.html' }
-      ]
-    },
-
-    /* ===== Reports ===== */
-    {
-      type: 'group',
-      id: 'reports',
-      icon: '📑',
-      label: 'Reports',
-      href: '/Farm-vista/pages/reports/index.html',
-      collapsible: true,
-      initialOpen: false,
-      children: [
-        { type: 'link', id: 'reports-custom',  icon: '🛠️', label: 'AI Reports (Custom)', href: '/Farm-vista/pages/reports/reports-ai.html' },
-        { type: 'link', id: 'reports-predef',  icon: '📚', label: 'Predefined Reports',  href: '/Farm-vista/pages/reports/reports-predefined.html' },
-        { type: 'link', id: 'reports-history', icon: '🗂️', label: 'AI Report History',   href: '/Farm-vista/pages/reports/reports-ai-history.html' }
+        { type: 'link', id: 'calc-area',         icon: '📐', label: 'Area',                         href: '/Farm-vista/pages/calculators/calc-area.html' },
+        { type: 'link', id: 'calc-bin',          icon: '🛢️', label: 'Grain Bin',                    href: '/Farm-vista/pages/calculators/calc-grain-bin.html' },
+        { type: 'link', id: 'calc-shrink',       icon: '📉', label: 'Grain Shrink',                 href: '/Farm-vista/pages/calculators/calc-grain-shrink.html' },
+        { type: 'link', id: 'calc-combine-loss', icon: '🌾', label: 'Combine Grain Loss',           href: '/Farm-vista/pages/calculators/calc-combine-grain-loss.html' },
+        { type: 'link', id: 'calc-combine-yld',  icon: '⚙️', label: 'Combine Yield Cal',            href: '/Farm-vista/pages/calculators/calc-combine-yield.html' },
+        { type: 'link', id: 'calc-chem-mix',     icon: '🧪', label: 'Chemical Mix',                 href: '/Farm-vista/pages/calculators/calc-chemical-mix.html' },
+        { type: 'link', id: 'calc-trial-ylds',   icon: '🧬', label: 'Trial Yields',                 href: '/Farm-vista/pages/calculators/calc-trial-yields.html' }
       ]
     },
 
@@ -244,7 +222,6 @@ export const NAV_MENU = {
 
         { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
 
-        /* Linked: Farms & Fields setup */
         { type: 'link', id: 'setup-farms',   icon: '🏷️', label: 'Farms',  href: '/Farm-vista/pages/setup/farms.html',  activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-fields',  icon: '🗺️', label: 'Fields', href: '/Farm-vista/pages/setup/fields.html', activeMatch: 'starts-with' },
 
@@ -269,6 +246,9 @@ export const NAV_MENU = {
           href: '/Farm-vista/pages/setup/grain-bin-sites.html',
           activeMatch: 'starts-with'
         },
+
+        /* NEW: RTK Tower Information */
+        { type: 'link', id: 'setup-rtk-towers', icon: '🛰️', label: 'RTK Tower Information', href: '/Farm-vista/pages/setup/rtk-tower-information.html', activeMatch: 'starts-with' },
 
         /* Linked: Company details & roles */
         { type: 'link', id: 'setup-company', label: 'Company Details', icon: '🏢', href: '/Farm-vista/pages/setup/company-details.html', activeMatch: 'starts-with' },
