@@ -9,17 +9,20 @@
   <link rel="stylesheet" href="../../assets/css/theme.css" />
   <script defer src="../../js/theme-boot.js"></script>
 
+  <!-- Mark this page public so global guard won't redirect -->
+  <meta name="fv-auth" content="public">
+
   <style>
     /* ===== Scoped to the login page ===== */
     .login * { box-sizing: border-box; }
     .login a { text-decoration: none; }
 
     :root{
-      --green: var(--green, #3B7E46);
-      --gold: var(--gold, #D0C542);
-      --page: var(--app-bg, #f5f7f4);
-      --text: var(--text, #141514);
-      --surface: var(--surface, #ffffff);
+      --green: #3B7E46;
+      --gold: #D0C542;
+      --page: #f5f7f4;
+      --text: #141514;
+      --surface: #ffffff;
       --muted: color-mix(in srgb, var(--text) 55%, #9aa09a);
       --ring: color-mix(in srgb, var(--green) 28%, transparent);
       --line: color-mix(in srgb, var(--text) 12%, transparent);
@@ -58,7 +61,6 @@
     .title .byline{ margin:0; font-size:14px; font-weight:600; color:color-mix(in srgb,var(--text) 80%, var(--green)); }
     .title .slogan{ margin:0; font-size:14px; font-style:italic; color:var(--muted); }
 
-    /* Form */
     form{ display:grid; gap:14px; margin-top:14px; }
     .field{ display:grid; gap:6px; }
     .field label{ font-size:14px; font-weight:600; }
@@ -81,12 +83,11 @@
     .eye{
       position:absolute; right:8px; top:0; bottom:0;
       width:34px; display:grid; place-items:center;
-      color:#8a8f8a; cursor:pointer; touch-action:manipulation;
-      background:none !important; border:none !important; outline:none !important; -webkit-appearance:none !important; box-shadow:none !important;
+      color:#8a8f8a; cursor:pointer;
+      background:none !important; border:none !important; outline:none !important;
+      -webkit-appearance:none !important; box-shadow:none !important;
     }
     .eye svg{ width:22px; height:22px; display:block; }
-    .eye:hover{ color:#6f746f; }
-    .eye:focus-visible{ outline:none !important; box-shadow:none !important; }
 
     .actions{ display:grid; gap:10px; margin-top:6px; }
 
@@ -114,8 +115,6 @@
     .link:hover{ text-decoration:underline; }
 
     .meta{ margin-top:16px; font-size:12px; text-align:center; color:var(--muted); }
-
-    /* Inline error */
     .err{ color:#b3261e; font-size:13px; min-height:1.2em; }
   </style>
 </head>
@@ -172,40 +171,31 @@
     </main>
   </div>
 
-  <script>
-    // Eyelash toggle
-    (function(){
-      const pwd = document.getElementById('password');
-      const btn = document.getElementById('togglePwd');
-      const open = document.getElementById('lashOpen');
-      const closed = document.getElementById('lashClosed');
-      btn.addEventListener('click', () => {
-        const show = pwd.type !== 'text';
-        pwd.type = show ? 'text' : 'password';
-        btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-        open.style.display = show ? 'block' : 'none';
-        closed.style.display = show ? 'none' : 'block';
-      }, { passive: true });
-    }());
-
-    // Footer date (no timezone)
-    (function(){
-      const el = document.getElementById('brandMeta');
-      const fmt = new Intl.DateTimeFormat('en-US', { year:'numeric', month:'long', day:'2-digit' });
-      el.textContent = `© ${new Date().getFullYear()} Dowson Farms — ${fmt.format(new Date())}`;
-    }());
-  </script>
-
-  <!-- Real Firebase sign-in -->
   <script type="module">
-    // Ensure firebase-init ran (theme-boot injects it globally)
-    if (!window.firebaseApp) {
-      try { await import('../../js/firebase-init.js'); } catch (e) {}
+    // Wait for Firebase app to be ready before Auth
+    async function ensureFirebaseApp() {
+      if (!window.firebaseApp) {
+        try { await import('../../js/firebase-init.js'); } catch {}
+      }
+      return new Promise((resolve, reject) => {
+        let tries = 0;
+        const id = setInterval(() => {
+          if (window.firebaseApp) { clearInterval(id); resolve(window.firebaseApp); }
+          if (++tries > 50) { clearInterval(id); reject(new Error('firebaseApp not found')); }
+        }, 100);
+      });
     }
 
-    import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+    const app = await ensureFirebaseApp();
 
-    const auth = getAuth(window.firebaseApp);
+    import {
+      getAuth,
+      signInWithEmailAndPassword,
+      sendPasswordResetEmail
+    } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+
+    const auth = getAuth(app);
+
     const form = document.getElementById('loginForm');
     const email = document.getElementById('email');
     const password = document.getElementById('password');
@@ -217,23 +207,21 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       errBox.textContent = '';
+      errBox.style.color = '#b3261e';
       const em = (email.value || '').trim();
       const pw = password.value || '';
-
       if (!em || !pw) { errBox.textContent = 'Enter email and password.'; return; }
 
       try {
         await signInWithEmailAndPassword(auth, em, pw);
-        // auth-guard will also redirect, but we do it eagerly here for snap
         location.replace(nextUrl);
       } catch (err) {
-        // Friendly errors
-        const code = (err && err.code) || '';
+        const code = err?.code || '';
         let msg = 'Sign-in failed.';
         if (code.includes('invalid-credential') || code.includes('wrong-password')) msg = 'Wrong email or password.';
         else if (code.includes('user-not-found')) msg = 'No account found for this email.';
         else if (code.includes('too-many-requests')) msg = 'Too many attempts. Try again later.';
-        errBox.textContent = msg;
+        errBox.textContent = `${msg} (${code || 'no-code'})`;
         console.warn('[FV] sign-in error:', err);
       }
     });
@@ -241,6 +229,7 @@
     document.getElementById('forgot').addEventListener('click', async (e) => {
       e.preventDefault();
       errBox.textContent = '';
+      errBox.style.color = '#b3261e';
       const em = (email.value || '').trim();
       if (!em) { errBox.textContent = 'Enter your email first, then tap “Forgot password?”.'; return; }
       try {
@@ -249,7 +238,7 @@
         errBox.textContent = 'Password reset link sent (if the email exists).';
         setTimeout(()=>{ errBox.textContent=''; errBox.style.color=''; }, 4500);
       } catch (err) {
-        errBox.textContent = 'Unable to send reset email.';
+        errBox.textContent = `Unable to send reset email. (${err?.code || 'no-code'})`;
         console.warn('[FV] reset error:', err);
       }
     });
