@@ -1,89 +1,94 @@
-<script type="module">
-// /Farm-vista/js/firebase-init.js
-// Single source of truth for Firebase + global auth guard + reliable signOut.
+/* /Farm-vista/js/firebase-init.js
+   Single, global Firebase bootstrap with offline-aware retry.
+   Exposes:
+     window.firebaseApp
+     window.firebaseAuth
+     window.firebaseDB
+     window.firebaseStorage
+     window.firebaseAnalytics (may be null)
+     window.firebaseReady  -> Promise that resolves when app is ready
+*/
 
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
-import {
-  getAuth, setPersistence, browserLocalPersistence,
-  onAuthStateChanged, signOut
-} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
-import { getStorage } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js';
-import {
-  getAnalytics, isSupported as analyticsSupported
-} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js';
+if (!window.__FV_FB_LOADER__) {
+  window.__FV_FB_LOADER__ = (async () => {
+    // CDN ESM imports
+    const [
+      appMod,
+      authMod,
+      dbMod,
+      storageMod,
+      analyticsMod
+    ] = await Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js').catch(()=>({}))
+    ]);
 
-// --- Your project config (from Firebase console) ---
-const firebaseConfig = {
-  apiKey: "AIzaSyB3sLBWFDsoZRLmfQ19hKLoH_nMrHEFQME",
-  authDomain: "dowsonfarms-illinois.firebaseapp.com",
-  projectId: "dowsonfarms-illinois",
-  // IMPORTANT: bucket uses appspot.com (bucket ID), not firebasestorage.app
-  storageBucket: "dowsonfarms-illinois.appspot.com",
-  messagingSenderId: "300398089669",
-  appId: "1:300398089669:web:def2c52650a7eb67ea27ac",
-  measurementId: "G-QHBEXVGNJT"
-};
+    const { initializeApp, getApps } = appMod;
+    const { getAuth, setPersistence, browserLocalPersistence } = authMod;
+    const { getFirestore } = dbMod;
+    const { getStorage } = storageMod;
+    const { getAnalytics, isSupported: analyticsSupported } = analyticsMod || {};
 
-// --- Init (idempotent) ---
-if (!window.firebaseApp) {
-  window.firebaseApp = initializeApp(firebaseConfig);
-  window.firebaseAuth = getAuth(window.firebaseApp);
-  window.firebaseDB   = getFirestore(window.firebaseApp);
-  window.firebaseStore = getStorage(window.firebaseApp);
+    // ---- YOUR CONFIG (unchanged except bucket host) ----
+    const firebaseConfig = {
+      apiKey: "AIzaSyB3sLBWFDsoZRLmfQ19hKLoH_nMrHEFQME",
+      authDomain: "dowsonfarms-illinois.firebaseapp.com",
+      projectId: "dowsonfarms-illinois",
+      storageBucket: "dowsonfarms-illinois.appspot.com", // <- bucket ID host
+      messagingSenderId: "300398089669",
+      appId: "1:300398089669:web:def2c52650a7eb67ea27ac",
+      measurementId: "G-QHBEXVGNJT"
+    };
 
-  try {
-    await setPersistence(window.firebaseAuth, browserLocalPersistence);
-  } catch (_) {}
+    // Initialize exactly once
+    const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
-  try {
-    if (await analyticsSupported()) {
-      window.firebaseAnalytics = getAnalytics(window.firebaseApp);
-    }
-  } catch (_) {}
+    // Core services
+    const auth = getAuth(app);
+    // Persist session so you stay signed in until you explicitly logout
+    await setPersistence(auth, browserLocalPersistence);
+
+    const db = getFirestore(app);
+    const storage = getStorage(app); // can also pass gs:// if you ever need
+
+    // Analytics (optional/safe)
+    let analytics = null;
+    try {
+      if (analyticsSupported && (await analyticsSupported())) {
+        analytics = getAnalytics(app);
+      }
+    } catch (_) {}
+
+    // Expose globals for non-module pages to consume
+    window.firebaseApp = app;
+    window.firebaseAuth = auth;
+    window.firebaseDB = db;
+    window.firebaseStorage = storage;
+    window.firebaseAnalytics = analytics;
+
+    return { app, auth, db, storage, analytics };
+  })();
 }
 
-// ===== Reliable Sign Out (awaits completion, then hard-redirects to login) =====
-window.fvSignOut = async function fvSignOut() {
+// Public Promise other pages can await
+window.firebaseReady = (async () => {
   try {
-    await signOut(window.firebaseAuth);
+    const ready = await window.__FV_FB_LOADER__;
+    return ready;
   } catch (e) {
-    // even if it throws, nuke any local state and move on
-    console.warn('[FV] signOut error (continuing):', e);
+    throw e;
   }
-  try { sessionStorage.clear(); } catch(_) {}
-  try { localStorage.removeItem('fv_auth_skip'); } catch(_) {}
-  // Use replace() to prevent the back-button from restoring an authed page
-  location.replace('/Farm-vista/pages/login/');
-};
+})();
 
-// ===== Global Auth Guard (waits for real auth state before redirecting) =====
-(function authGuard(){
-  const path = location.pathname;
-  const isLogin = /\/pages\/login\/?$/i.test(path) || /\/pages\/login\/index\.html$/i.test(path);
-
-  // Promise that resolves exactly once with the first stable auth state.
-  if (!window.__FV_AUTH_READY__) {
-    window.__FV_AUTH_READY__ = new Promise(resolve => {
-      const off = onAuthStateChanged(window.firebaseAuth, user => {
-        try { off(); } catch(_){}
-        resolve(user || null);
-      });
-    });
-  }
-
-  window.__FV_AUTH_READY__.then(user => {
-    // On login page:
-    //  - if user exists, keep them here until they actively sign out or submit form
-    //    (we do NOT auto-bounce to dashboard; avoids the “logout then bounce back” race)
-    if (isLogin) return;
-
-    // On all other pages:
-    if (!user) {
-      // Not signed in → send to login with return URL
-      const next = encodeURIComponent(location.pathname + location.search + location.hash);
-      location.replace(`/Farm-vista/pages/login/?next=${next}`);
-    }
+// Auto-retry on reconnect if first load ever failed
+(function attachOnlineRetry(){
+  if (window.__FV_FB_ONLINE_BOUND__) return;
+  window.__FV_FB_ONLINE_BOUND__ = true;
+  window.addEventListener('online', async () => {
+    if (window.firebaseApp) return; // already good
+    try { await import('/Farm-vista/js/firebase-init.js?retry=' + Date.now()); } catch {}
   });
 })();
-</script>
