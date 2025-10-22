@@ -10,19 +10,16 @@
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
-  <!-- QUICK OCR (5-minute drop-in) -->
+  <!-- Quick local OCR (images/screenshots) -->
   <script defer src="../../js/ocr-tesseract.js"></script>
   <style>
     :root{ --page-bottom-gap:96px; --card-max:940px; --accent:#2F6C3C; }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
-
     .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
            padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+var(--page-bottom-gap))!important; }
-
     .calc-card{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
                 box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
-
     .card-head{ display:flex; gap:12px; padding:14px 16px; align-items:flex-start;
                 background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
                 border-bottom:1px solid var(--border); }
@@ -45,6 +42,7 @@
            border-radius:10px; padding:10px 12px; }
     input,select,textarea,button{ font-size:16px; } /* prevent iOS zoom */
     .ctrl input,.ctrl select,.ctrl textarea{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    .ctrl .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
 
     .yieldline{ display:flex; gap:10px; align-items:center; justify-content:space-between;
                 padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:var(--surface);}
@@ -74,10 +72,8 @@
     .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
     .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
     .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text)!important; }
-
     html.no-scroll, body.no-scroll{ overflow:hidden; }
 
-    /* Combine-yield mini form inside modal */
     .cg{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:760px){ .cg{ grid-template-columns:1fr; } }
     .mini-tile{ border:1px solid var(--border); border-radius:12px; padding:10px; background:var(--surface); }
@@ -90,7 +86,7 @@
       <div class="calc-card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
-            <!-- Flag + leaf -->
+            <!-- Test plot flag + leaf -->
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 20V4M6 4h9l-3 3 3 3H6" />
               <path d="M16.5 13.5c2.2.4 3.8 2.1 4.2 4.2-2.2-.4-3.8.1-5.1 1.3" />
@@ -156,7 +152,7 @@
     </div>
   </div>
 
-  <!-- Combine Yield MODAL (area computed from length×width, read-only display) -->
+  <!-- Combine Yield MODAL (auto area from L×W) -->
   <div class="modal" id="cyModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cyTitle">
       <div class="dialog-head">
@@ -274,7 +270,7 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_TRIALS_V2__) return; window.__FV_TRIALS_V2__=true;
+    if(window.__FV_TRIALS_V3__) return; window.__FV_TRIALS_V3__=true;
 
     /* ---------- Helpers ---------- */
     const SQFT_PER_ACRE = 43560;
@@ -289,50 +285,124 @@
     function openModal(el, closeBtn){ el.setAttribute("open",""); el.setAttribute("aria-hidden","false"); document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); closeBtn && closeBtn.focus(); }
     function closeModal(el){ el.removeAttribute("open"); el.setAttribute("aria-hidden","true"); document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll"); }
 
+    /* ---------- Option sources ---------- */
+    // Fields were saved by your Fields setup page under 'fv:setup:fields'
+    function getFieldOptions(){
+      try{
+        const arr = JSON.parse(localStorage.getItem('fv:setup:fields')||'[]');
+        // each item: { farm, field, county, acres, ... } from earlier page
+        return arr.map(x => ({ value: x.field || (x.farm?`${x.farm} - (unnamed)`:'(unnamed)'), label: x.farm ? `${x.field} (${x.farm})` : (x.field || '(unnamed)') }));
+      }catch(e){ return []; }
+    }
+    // Treatments list (you can seed/manage later)
+    function getTreatmentOptions(){
+      try{
+        const arr = JSON.parse(localStorage.getItem('fv:trial:treatments')||'[]');
+        if(Array.isArray(arr) && arr.length) return arr.map(v=>({value:v,label:v}));
+      }catch(e){}
+      // fallback demo options
+      return [
+        { value:"Hybrid A @ 34k", label:"Hybrid A @ 34k" },
+        { value:"Hybrid B @ 34k", label:"Hybrid B @ 34k" },
+        { value:"Foliar pass @ VT", label:"Foliar pass @ VT" },
+      ];
+    }
+
     /* ---------- Page els ---------- */
-    const tlist=$("tlist"), addBtn=$("addTreatment"), clearBtn=$("clearTreatments"), saveBtn=$("saveTrial");
+    const tlist=$("tlist"), addBtn=$("addTreatment"), clearBtn=$("clearTreatments"),
+          saveBtn=$("saveTrial"), importBtn=$("importBtn");
     const sumTile=$("sumTile"), sumCount=$("sumCount"), sumAvg=$("sumAvg"), sumHL=$("sumHL");
     const hlist=$("hlist"), nohist=$("nohist");
 
-    /* ---------- Treatment rows ---------- */
-    function makeTreatment(field, name, y, type, notes){
+    /* ---------- Row builder (Field & Treatment DROPDOWNS) ---------- */
+    function makeSelect(opts, placeholderText, withCustom){
+      const wrap=document.createElement("div"); wrap.className="ctrl";
+      const sel=document.createElement("select");
+      sel.innerHTML = `<option value="">${placeholderText}</option>` +
+                      opts.map(o=>`<option value="${o.value}">${o.label}</option>`).join('') +
+                      (withCustom?`<option value="__custom__">Custom…</option>`:'');
+      wrap.appendChild(sel);
+      const custom=document.createElement("input");
+      custom.type="text"; custom.placeholder="Enter custom…"; custom.style.display="none"; custom.className="";
+      wrap.appendChild(custom);
+      sel.addEventListener("change", ()=>{
+        const isCustom = sel.value==="__custom__";
+        custom.style.display = isCustom ? "block" : "none";
+        if(!isCustom) custom.value="";
+      });
+      return {wrap, sel, custom};
+    }
+
+    function makeTreatment(fieldVal, treatVal, y, typeVal, notesVal){
       const row=document.createElement("div"); row.className="trow";
+
+      // Field select
+      const fsel = makeSelect(getFieldOptions(), "— Select Field —", true);
+      // Treatment select
+      const tsel = makeSelect(getTreatmentOptions(), "— Select Treatment —", true);
+
+      const typeCtrl = document.createElement("div");
+      typeCtrl.className="ctrl";
+      typeCtrl.innerHTML = `<select data-k="type">
+        <option value="Treated">Treated</option>
+        <option value="Check">Check</option>
+      </select>`;
+      const notesCtrl = document.createElement("div");
+      notesCtrl.className="ctrl";
+      notesCtrl.innerHTML = `<input data-k="notes" type="text" placeholder="Notes (optional)">`;
+
       row.innerHTML =
-      '<div class="grid2">'
-      + '  <div><label>Field Name</label><div class="ctrl"><input data-k="field" type="text" placeholder="e.g. North 80"></div></div>'
-      + '  <div><label>Treatment Name</label><div class="ctrl"><input data-k="name" type="text" placeholder="e.g. Hybrid A @ 34k"></div></div>'
-      + '</div>'
-      + '<div class="grid2">'
-      + '  <div><label>Type</label><div class="ctrl"><select data-k="type"><option value="Treated">Treated</option><option value="Check">Check</option></select></div></div>'
-      + '  <div><label>Notes</label><div class="ctrl"><input data-k="notes" type="text" placeholder="Notes (optional)"></div></div>'
-      + '</div>'
-      + '<div class="yieldline">'
-      + '  <div><strong>Yield</strong> <span class="yieldval" data-k="yield">'+(y!=null?fmt(y,2)+" bu/ac":"—")+'</span></div>'
-      + '  <button type="button" class="btn" data-k="enter">Enter Yield…</button>'
-      + '</div>'
-      + '<div class="row-actions"><button type="button" class="rm">Remove Treatment</button></div>';
+        '<div class="grid2" data-k="top"></div>' +
+        '<div class="grid2" data-k="mid"></div>' +
+        '<div class="yieldline">' +
+        '  <div><strong>Yield</strong> <span class="yieldval" data-k="yield">'+(y!=null?fmt(y,2)+" bu/ac":"—")+'</span></div>' +
+        '  <button type="button" class="btn" data-k="enter">Enter Yield…</button>' +
+        '</div>' +
+        '<div class="row-actions"><button type="button" class="rm">Remove Treatment</button></div>';
+
       tlist.appendChild(row);
+      row.querySelector('[data-k="top"]').appendChild(labeled("Field", fsel.wrap));
+      row.querySelector('[data-k="top"]').appendChild(labeled("Treatment", tsel.wrap));
+      row.querySelector('[data-k="mid"]').appendChild(labeled("Type", typeCtrl));
+      row.querySelector('[data-k="mid"]').appendChild(labeled("Notes", notesCtrl));
 
-      if(field) row.querySelector('[data-k="field"]').value = field;
-      if(name)  row.querySelector('[data-k="name"]').value  = name;
-      if(type)  row.querySelector('[data-k="type"]').value  = type;
-      if(notes) row.querySelector('[data-k="notes"]').value = notes;
+      // Set initial values (select or custom)
+      if(fieldVal){
+        if([...fsel.sel.options].some(o=>o.value===fieldVal)) fsel.sel.value=fieldVal;
+        else { fsel.sel.value="__custom__"; fsel.custom.style.display="block"; fsel.custom.value=fieldVal; }
+      }
+      if(treatVal){
+        if([...tsel.sel.options].some(o=>o.value===treatVal)) tsel.sel.value=treatVal;
+        else { tsel.sel.value="__custom__"; tsel.custom.style.display="block"; tsel.custom.value=treatVal; }
+      }
+      if(typeVal){ typeCtrl.querySelector('select').value = typeVal; }
+      if(notesVal){ notesCtrl.querySelector('input').value = notesVal; }
 
+      // actions
       row.querySelector(".rm").addEventListener("click", ()=>{ row.remove(); refreshSummary(); });
       row.querySelector('[data-k="enter"]').addEventListener("click", ()=>openCY(row));
+
+      // expose getters on the row for collection
+      row._get = () => ({
+        field: fsel.sel.value==="__custom__" ? (fsel.custom.value||"") : (fsel.sel.value||""),
+        name:  tsel.sel.value==="__custom__" ? (tsel.custom.value||"") : (tsel.sel.value||""),
+        type:  typeCtrl.querySelector('select').value,
+        notes: notesCtrl.querySelector('input').value,
+        yield: (function(){ const ytxt=row.querySelector('[data-k="yield"]').textContent; return /bu\/ac/.test(ytxt)? num(ytxt) : null; })()
+      });
+
       return row;
     }
+
+    function labeled(title, el){
+      const wrap=document.createElement("div");
+      wrap.innerHTML = `<label>${title}</label>`;
+      wrap.appendChild(el);
+      return wrap;
+    }
+
     const allRows = () => Array.from(tlist.querySelectorAll(".trow"));
-    const getData = () => allRows().map(r => {
-      const yTxt = r.querySelector('[data-k="yield"]').textContent;
-      return {
-        field: r.querySelector('[data-k="field"]').value.trim(),
-        name:  r.querySelector('[data-k="name"]').value.trim(),
-        type:  r.querySelector('[data-k="type"]').value,
-        notes: r.querySelector('[data-k="notes"]').value.trim(),
-        yield: /bu\/ac/.test(yTxt) ? num(yTxt) : null
-      };
-    }).filter(x => x.field || x.name || x.yield!=null);
+    const getData = () => allRows().map(r => r._get()).filter(x => x.field || x.name || x.yield!=null);
 
     function refreshSummary(){
       const rows=getData();
@@ -364,7 +434,6 @@
     }
     cyLen.addEventListener("input", syncArea);
     cyWid.addEventListener("change", syncArea);
-
     cyWt.addEventListener("blur", ()=>{ const raw=cyWt.value.replace(/[^0-9]/g,""); cyWt.value=raw?Number(raw).toLocaleString():""; });
     cyM.addEventListener("input", ()=>{
       const s=cyM.value.replace(/[^\d.]/g,""); const parts=s.split(".");
@@ -388,7 +457,6 @@
       const std=(crop==="corn"?CORN_STD:SOY_STD), tw=(crop==="corn"?CORN_TW:SOY_TW);
       const trueWt=Wt*((100-M)/(100-std)), trueBu=trueWt/tw, trueY=trueBu/area;
       const ePct=elevPct(crop,M), eWt=Wt*(1-ePct/100), eBuV=eWt/tw, eY=eBuV/area;
-
       return { crop, mode, area, Wt, M, trueBu, trueY, elevBu:eBuV, elevY:eY };
     }
     function showCY(o){
@@ -410,7 +478,7 @@
     cyModal.addEventListener("click", e=>{ if(e.target===cyModal) closeModal(cyModal); });
 
     /* ---------- History ---------- */
-    const LS_KEY="fv_calc_trial_yields_history_v2";
+    const LS_KEY="fv_calc_trial_yields_history_v3";
     const loadH=()=>{ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } };
     const saveH=a=>localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10)));
 
@@ -453,4 +521,67 @@
         +'<div>Average</div><div>'+(avg?fmt(avg,2)+' bu/ac':'—')+'</div>'
         +'<div>High / Low</div><div>'+(hi?fmt(lo,2)+' / '+fmt(hi,2)+' bu/ac':'—')+'</div>'
         +'</div><hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">';
-      html+='<div style="display
+      html+='<div style="display:grid;gap:8px">';
+      rec.items.forEach(it=>{
+        html+='<div class="mini-tile">'
+          +'<div><strong>Field:</strong> '+(it.field||'—')+'</div>'
+          +'<div><strong>Treatment:</strong> '+(it.name||'—')+'</div>'
+          +'<div><strong>Type:</strong> '+(it.type||'—')+'</div>'
+          +'<div><strong>Yield:</strong> '+(it.yield!=null?fmt(it.yield,2)+' bu/ac':'—')+'</div>'
+          + (it.notes?('<div><strong>Notes:</strong> '+it.notes+'</div>'):'')
+          +'</div>';
+      });
+      html+='</div>';
+      hmBody.innerHTML=html; openModal(histModal, hmClose);
+    }
+    hmClose.addEventListener("click", ()=>closeModal(histModal));
+    histModal.addEventListener("click", e=>{ if(e.target===histModal) closeModal(histModal); });
+
+    /* ---------- Import (simple) ---------- */
+    const impModal=$("impModal"), impClose=$("impClose"), impFile=$("impFile");
+    importBtn.addEventListener("click", ()=>{ impFile.value=""; openModal(impModal, impClose); });
+    impClose.addEventListener("click", ()=>closeModal(impModal));
+    impModal.addEventListener("click", e=>{ if(e.target===impModal) closeModal(impModal); });
+
+    impFile.addEventListener("change", async () => {
+      const f = impFile.files && impFile.files[0];
+      if(!f) return;
+      try{
+        if(!window.FV_OCR || !window.FV_OCR.imageToText){ throw new Error("OCR engine not ready"); }
+        const { text } = await window.FV_OCR.imageToText(f);
+        const added = applyImportedText(text||"");
+        refreshSummary(); closeModal(impModal);
+        if(!added) alert("No lines recognized.");
+      }catch(err){
+        console.error(err);
+        alert((err && err.message) || "Import failed");
+      }
+    });
+
+    // Each line: Field, Treatment, Yield[, Type][, Notes...]
+    function applyImportedText(t){
+      const lines = String(t).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      let added=0;
+      lines.forEach(line=>{
+        const parts = line.split(/\s*,\s*/);
+        if(parts.length >= 3){
+          const field = parts[0] || "";
+          const name  = parts[1] || "";
+          const yRaw  = parts[2] || "";
+          const type  = (parts[3] && /check/i.test(parts[3])) ? "Check" : "Treated";
+          const notes = parts.slice(4).join(", ");
+          const y = parseFloat(String(yRaw).replace(/[^\d.]/g,""));
+          makeTreatment(field, name, isFinite(y)?y:null, type, notes);
+          added++;
+        }
+      });
+      return added;
+    }
+
+    /* ---------- Boot ---------- */
+    makeTreatment("", "", null, "Treated", "");
+    refreshSummary(); renderHist();
+  })();
+  </script>
+</body>
+</html>
