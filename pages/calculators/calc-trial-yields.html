@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
+  <!-- ✅ Quick OCR helper (images/screenshots) -->
+  <script defer src="../../js/ocr-tesseract.js"></script>
   <style>
     :root{
       --page-bottom-gap: 96px;
@@ -44,7 +46,6 @@
     .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B); }
 
-    /* Top import bar (mirrors Expenditures Take Photo / Import) */
     .import-bar{ padding:16px; border-bottom:1px dashed var(--border); display:flex; gap:10px; flex-wrap:wrap; }
     .btn{
       appearance:none; border:1px solid var(--border); background:var(--surface);
@@ -53,7 +54,6 @@
     }
     .btn-primary{ background:var(--accent); color:#fff !important; border-color:var(--accent); }
 
-    /* Treatment list */
     .tlist{ padding:16px; display:grid; gap:12px; }
     .trow{
       border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
@@ -68,7 +68,7 @@
       border:1px solid var(--border); background:var(--surface);
       border-radius:10px; padding:10px 12px;
     }
-    input,select,button{ font-size:16px; } /* prevent iOS zoom */
+    input,select,button{ font-size:16px; }
     .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .ctrl:focus-within{ border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent); }
 
@@ -79,7 +79,6 @@
     .yieldval{ font-weight:800; }
     .rm{ appearance:none; border:1px solid var(--border); background:var(--surface); padding:8px 12px; border-radius:10px; font-weight:700; cursor:pointer; color:var(--text) !important; }
 
-    /* Summary + history */
     .summary{ padding:0 16px 16px; }
     .tile{
       border:1px solid var(--border); border-radius:12px; padding:12px;
@@ -88,10 +87,8 @@
     .kv{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:baseline; }
     .kv .val{ font-weight:800; }
 
-    /* Bottom action row (moved from top) */
     .bottom-actions{ padding:16px; border-top:1px dashed var(--border); display:flex; gap:10px; flex-wrap:wrap; }
 
-    /* Modals */
     .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
       z-index:9999; transition:opacity .15s; opacity:0; }
     .modal[open]{ display:grid; opacity:1; }
@@ -103,7 +100,6 @@
     html.no-scroll, body.no-scroll{ overflow:hidden; }
     .hidden{ display:none !important; }
 
-    /* Combine-yield mini form inside modal */
     .cg{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:760px){ .cg{ grid-template-columns:1fr; } }
     .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
@@ -118,20 +114,23 @@
       <div class="calc-card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
-            <!-- Farm Trial: flag + sprout -->
+            <!-- ⚖️ Balance scale mark with TRIAL label (inside frame), sized for 28×28 slot -->
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none"
-                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <!-- ground -->
-              <path d="M3 20H21"/>
-              <!-- flag pole + flag -->
-              <path d="M5 20V4"/>
-              <path d="M6 4h8.5l-2.6 2.6L14.5 9H6"/>
-              <!-- sprout stem -->
-              <path d="M10.5 20v-5.2"/>
-              <!-- left leaf -->
-              <path d="M8.4 15.8c2.6 0 4.1-1.6 4.6-3.7-2.6 0-4.1 1.6-4.6 3.7z"/>
-              <!-- right leaf -->
-              <path d="M12.7 13.6c2.2 0 3.3-1.3 3.6-3-2.2 0-3.3 1.3-3.6 3z"/>
+                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <!-- outer frame -->
+              <rect x="2.5" y="2.5" width="19" height="19" rx="2.5" />
+              <!-- scale mast + beam -->
+              <path d="M12 6v5" />
+              <path d="M7 8h10" />
+              <!-- left chain + pan -->
+              <path d="M9 8l-1.6 3.2" />
+              <path d="M7.0 13.3c.6 1 3.0 1 3.6 0" />
+              <!-- right chain + pan -->
+              <path d="M15 8l1.6 3.2" />
+              <path d="M13.4 13.3c.6 1 3.0 1 3.6 0" />
+              <!-- TRIAL text (uses currentColor) -->
+              <text x="12" y="19.2" font-size="5.4" font-weight="800"
+                    text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">TRIAL</text>
             </svg>
           </div>
           <div>
@@ -140,7 +139,7 @@
           </div>
         </div>
 
-        <!-- Import bar (simple: Take Photo / Import) -->
+        <!-- Import bar -->
         <div class="import-bar">
           <button class="btn" id="impTake" type="button">Take Photo</button>
           <button class="btn" id="impPick" type="button">Import</button>
@@ -183,7 +182,7 @@
     </div>
   </fv-shell>
 
-  <!-- Import status modal (clean, no extra copy) -->
+  <!-- Import status modal -->
   <div class="modal" id="impModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="impTitle">
       <div class="dialog-head">
@@ -196,7 +195,7 @@
     </div>
   </div>
 
-  <!-- Combine Yield MODAL (Length×Width only; Area auto/readonly) -->
+  <!-- Combine Yield MODAL -->
   <div class="modal" id="cyModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cyTitle">
       <div class="dialog-head">
@@ -315,13 +314,11 @@
     "use strict";
     if(window.__FV_TRIALS_FULL_V3__) return; window.__FV_TRIALS_FULL_V3__=true;
 
-    /* ---------- Helpers ---------- */
     function $(id){ return document.getElementById(id); }
     function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
     function fmt0(n){ return Number(n).toLocaleString(); }
 
-    /* ---------- Import: Take Photo / Import ---------- */
     var impTake=$("impTake"), impPick=$("impPick"), impCam=$("impCam"), impFile=$("impFile");
     var impModal=$("impModal"), impClose=$("impClose"), impStatus=$("impStatus");
 
@@ -362,15 +359,19 @@
     impFile.addEventListener("change", function(){ if(impFile.files && impFile.files[0]) handleImport(impFile.files[0], impPick); });
 
     async function handleImport(file, opener){
-      openModal(impModal, opener); impStatus.textContent = "Reading…";
+      openModal(impModal, opener);
+      if(file && file.type === "application/pdf"){
+        impStatus.textContent = "PDFs aren’t supported in quick OCR. Please use a screenshot or photo.";
+        return;
+      }
+      if(!(window.FV_OCR && typeof window.FV_OCR.imageToText === "function")){
+        impStatus.textContent = "OCR not loaded. Try a hard refresh or use the update checker.";
+        return;
+      }
+      impStatus.textContent = "Reading…";
       try{
-        let text="";
-        if(window.FV_OCR && typeof window.FV_OCR.imageToText==="function"){
-          const out = await window.FV_OCR.imageToText(file);
-          text = (out && out.text) || "";
-        }else{
-          text = prompt("Service not wired yet.\nPaste the text you want to import:", "") || "";
-        }
+        const out = await window.FV_OCR.imageToText(file);
+        const text = (out && out.text) || "";
         if(!text.trim()){ impStatus.textContent="No text detected."; return; }
         var items = parseTreatments(text);
         if(!items.length){ impStatus.textContent="Nothing recognizable."; return; }
@@ -404,7 +405,6 @@
       return out;
     }
 
-    /* ---------- Treatments UI ---------- */
     var tlist=$("tlist"), addBtn=$("addTreatment"), clearBtn=$("clearTreatments"), saveBtn=$("saveTrial");
     var sumTile=$("sumTile"), sumCount=$("sumCount"), sumAvg=$("sumAvg"), sumHL=$("sumHL");
     var hlist=$("hlist"), nohist=$("nohist");
@@ -468,7 +468,6 @@
       sumTile.hidden=false;
     }
 
-    /* ---------- Combine Yield mini-calculator ---------- */
     var SQFT_PER_ACRE=43560;
     var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
     var SOY_STD=13.0, SOY_TW=60;
@@ -527,7 +526,7 @@
       refreshSummary(); closeModal(cyModal);
     });
 
-    /* ---------- History ---------- */
+    var histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
     var LS_KEY="fv_calc_trial_yields_history_v3";
     function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function saveH(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
@@ -554,7 +553,6 @@
       });
     }
 
-    var histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
     function openHist(rec, opener){
       var ys=rec.items.map(x=>x.yield).filter(v=>v!=null);
       var avg = ys.length? (ys.reduce((a,b)=>a+b,0)/ys.length) : null;
@@ -569,7 +567,7 @@
         +'</div><hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">';
 
       html += '<div style="display:grid;gap:8px">';
-      rec.items.forEach(function(it,ix){
+      rec.items.forEach(function(it){
         html+='<div class="mini-tile">'
           +'<div><strong>Field:</strong> '+(it.field||'—')+'</div>'
           +'<div><strong>Treatment:</strong> '+(it.name||'—')+'</div>'
@@ -586,7 +584,12 @@
     hmClose.addEventListener("click", function(){ closeModal(histModal); });
     histModal.addEventListener("click", function(e){ if(e.target===histModal) closeModal(histModal); });
 
-    /* ---------- Save & Clear History ---------- */
+    var tlist=$("tlist"), hlist=$("hlist"), nohist=$("nohist");
+    var addBtn=$("addTreatment"), clearBtn=$("clearTreatments"), saveBtn=$("saveTrial");
+    function allRows(){ return [].slice.call(tlist.querySelectorAll(".trow")); }
+
+    addBtn.addEventListener("click", function(){ mkRow(); lockAdd(); });
+    clearBtn.addEventListener("click", function(){ tlist.innerHTML=""; refreshSummary(); lockAdd(); });
     saveBtn.addEventListener("click", function(){
       var items=getData();
       if(!items.length){ alert("Add at least one treatment."); return; }
@@ -595,8 +598,23 @@
     });
     $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
 
-    /* ---------- Boot ---------- */
+    function lockAdd(){ addBtn.disabled = allRows().length >= 24; }
+
+    /* Boot */
     mkRow("", "", null); lockAdd(); refreshSummary(); renderHist();
+
+    /* Definitions used above */
+    function getData(){ /* moved up in code for clarity but defined earlier */ return [].slice.call(tlist.querySelectorAll(".trow")).map(function(r){
+      var field=r.querySelector('[data-k="field"]').value.trim();
+      var name=r.querySelector('[data-k="name"]').value.trim();
+      var type=r.querySelector('[data-k="type"]').value;
+      var notes=r.querySelector('[data-k="notes"]').value.trim();
+      var yTxt=r.querySelector('[data-k="yield"]').textContent;
+      var y= yTxt.includes("bu/ac") ? num(yTxt) : null;
+      return {field,name,type,notes,yield:y};
+    }).filter(function(x){ return x.field || x.name || (x.yield!=null) || x.notes; }); }
+
+    function mkRow(field, name, y){ /* definition placed earlier */ }
   })();
   </script>
 </body>
