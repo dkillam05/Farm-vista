@@ -339,17 +339,10 @@
 
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-      const verNumber = (window.FV_VERSION && window.FV_VERSION.number)
-                     || (window.App && App.getVersion && App.getVersion().number)
-                     || (window.FV_BUILD)
-                     || '0.0.0';
-      const tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
-                   || (window.App && App.getVersion && App.getVersion().tagline)
-                   || 'Farm data, simplified';
-
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
-      this._verEl.textContent = `v${verNumber}`;
-      this._sloganEl.textContent = tagline;
+
+      // NEW: Load version & tagline from /Farm-vista/js/version.js (supports globals or ESM exports)
+      this._loadVersionIntoUI();
 
       r.querySelector('.js-update-row').addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
@@ -368,8 +361,8 @@
       const ud = r.getElementById('userDetailsLink');
       if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
 
-      const fb = r.getElementById('feedbackLink');            // <-- NEW
-      if (fb) fb.addEventListener('click', () => { this.toggleTop(false); }); // <-- NEW
+      const fb = r.getElementById('feedbackLink');
+      if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       // Render menu
       this._initMenu();
@@ -383,6 +376,47 @@
           }
         } catch {}
       }, 300);
+    }
+
+    async _loadVersionIntoUI(){
+      const setUI = (num, tag) => {
+        this._verEl.textContent = `v${num || '0.0.0'}`;
+        this._sloganEl.textContent = tag || 'Farm data, simplified';
+      };
+
+      // 1) Try globals first (legacy)
+      let number = (window.FV_VERSION && window.FV_VERSION.number)
+                || (window.App && App.getVersion && App.getVersion().number)
+                || (window.FV_BUILD);
+      let tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
+                 || (window.App && App.getVersion && App.getVersion().tagline);
+
+      if (number) { setUI(number, tagline); return; }
+
+      // 2) Try importing /Farm-vista/js/version.js as an ES module (works whether it exports or sets window)
+      try{
+        const mod = await import('/Farm-vista/js/version.js?ts=' + Date.now());
+        const pick = (m)=> {
+          if (!m) return {};
+          // common shapes
+          if (m.default && (m.default.number || m.default.tagline)) return m.default;
+          if (m.FV_VERSION && (m.FV_VERSION.number || m.FV_VERSION.tagline)) return m.FV_VERSION;
+          if (m.APP_VERSION && (m.APP_VERSION.number || m.APP_VERSION.tagline)) return m.APP_VERSION;
+          const obj = {};
+          if (m.FV_NUMBER) obj.number = m.FV_NUMBER;
+          if (m.APP_NUMBER) obj.number = m.APP_NUMBER;
+          if (m.FV_TAGLINE) obj.tagline = m.FV_TAGLINE;
+          if (m.APP_TAGLINE) obj.tagline = m.APP_TAGLINE;
+          return obj;
+        };
+        const v = pick(mod);
+        number = v.number || (window.FV_VERSION && window.FV_VERSION.number) || window.FV_BUILD || '0.0.0';
+        tagline = v.tagline || (window.FV_VERSION && window.FV_VERSION.tagline) || 'Farm data, simplified';
+        setUI(number, tagline);
+      }catch{
+        // 3) Last resort
+        setUI('0.0.0', 'Farm data, simplified');
+      }
     }
 
     async _initMenu(){
