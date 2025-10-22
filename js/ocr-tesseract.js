@@ -1,45 +1,75 @@
 /* /Farm-vista/js/ocr-tesseract.js
-   Quick client-side OCR using Tesseract.js.
-   Exposes: window.FV_OCR.imageToText(file) -> Promise<{ text:string }>
-   Notes:
-   - Works great for phone photos and screenshots.
-   - PDFs are NOT supported here (use Cloud Vision later).
+   Quick, zero-backend OCR using Tesseract.js in the browser.
+   Exposes: window.FV_OCR.imageToText(file|blob) -> { text }
+   Notes: PDF isn’t handled in this quick path (images only).
 */
 (function () {
-  if (window.FV_OCR && typeof window.FV_OCR.imageToText === "function") return;
+  // ---- Config
+  var CDN = "https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js";
+  var LANG = "eng";
 
-  const CDN = "https://unpkg.com/tesseract.js@5/dist/tesseract.min.js";
-  let loading = null;
-
-  function loadTesseract() {
-    if (window.Tesseract) return Promise.resolve();
-    if (loading) return loading;
-    loading = new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = CDN;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Failed to load Tesseract.js"));
+  // ---- Utils
+  function loadScriptOnce(src) {
+    return new Promise(function (res, rej) {
+      var s = document.createElement("script");
+      s.src = src; s.async = true; s.defer = true;
+      s.onload = res; s.onerror = function () { rej(new Error("Failed to load " + src)); };
       document.head.appendChild(s);
     });
-    return loading;
   }
 
-  async function imageToText(file) {
-    if (!file) throw new Error("No file provided");
-    // Simple guard: images only in this quick client build
-    if (!/^image\//i.test(file.type)) {
-      throw new Error("This quick OCR handles images/screenshots only (use a photo, PNG, or JPG).");
+  async function ensureTesseract() {
+    if (window.Tesseract && window.Tesseract.createWorker) return;
+    await loadScriptOnce(CDN);
+  }
+
+  // ---- Worker lifecycle (re-used across calls)
+  var workerPromise = null;
+  async function getWorker() {
+    await ensureTesseract();
+    if (workerPromise) return workerPromise;
+
+    workerPromise = (async function () {
+      try {
+        var worker = await window.Tesseract.createWorker({
+          logger: function (m) { /* console.debug("[OCR]", m); */ }
+        });
+        await worker.loadLanguage(LANG);
+        await worker.initialize(LANG);
+        return worker;
+      } catch (e) {
+        workerPromise = null;
+        throw e;
+      }
+    })();
+    return workerPromise;
+  }
+
+  async function imageToText(input) {
+    if (!input) throw new Error("No file provided");
+    // Quick mode: images only. (PDF would need a PDF->image step.)
+    if (String(input.type || "").toLowerCase() === "application/pdf") {
+      throw new Error("Quick OCR doesn’t support PDF. Please use a photo/image.");
     }
-
-    await loadTesseract();
-
-    // Hint: can pass { logger:m=>console.log(m) } to see progress
-    const { data } = await window.Tesseract.recognize(file, "eng");
-    return { text: (data && data.text) ? String(data.text) : "" };
+    var worker = await getWorker();
+    var result = await worker.recognize(input);
+    var text = (result && result.data && result.data.text) || "";
+    return { text: text };
   }
 
-  window.FV_OCR = Object.freeze({
-    imageToText
-  });
+  async function teardown() {
+    try {
+      if (workerPromise) {
+        var w = await workerPromise;
+        await w.terminate();
+      }
+    } finally {
+      workerPromise = null;
+    }
+  }
+
+  // ---- Public API
+  window.FV_OCR = window.FV_OCR || {};
+  window.FV_OCR.imageToText = imageToText;
+  window.FV_OCR.teardown = teardown;
 })();
