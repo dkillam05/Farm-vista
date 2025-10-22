@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>Login — Dowson Farms • FarmVista</title>
 
-  <!-- Global theme file -->
+  <!-- Global theme (includes Firebase boot) -->
   <link rel="stylesheet" href="../../assets/css/theme.css" />
+  <script defer src="../../js/theme-boot.js"></script>
 
   <style>
     /* ===== Scoped to the login page ===== */
@@ -82,13 +83,7 @@
       position:absolute; right:8px; top:0; bottom:0;
       width:34px; display:grid; place-items:center;
       color:#8a8f8a; cursor:pointer; touch-action:manipulation;
-
-      /* FIX: remove iOS gray background box */
-      background:none !important;
-      border:none !important;
-      outline:none !important;
-      -webkit-appearance:none !important;
-      box-shadow:none !important;
+      background:none !important; border:none !important; outline:none !important; -webkit-appearance:none !important; box-shadow:none !important;
     }
     .eye svg{ width:22px; height:22px; display:block; }
     .eye:hover{ color:#6f746f; }
@@ -96,7 +91,7 @@
 
     .actions{ display:grid; gap:10px; margin-top:6px; }
 
-    /* Sign In Button */
+    /* Primary button */
     .login .actions button.btn,
     .login .btn,
     .login button.btn[type="submit"]{
@@ -127,6 +122,13 @@
     .link:hover{ text-decoration:underline; }
 
     .meta{ margin-top:16px; font-size:12px; text-align:center; color:var(--muted); }
+
+    /* Inline error */
+    .err{ display:none; margin:6px 0 0; padding:8px 10px; border-radius:10px;
+          background:color-mix(in srgb, #b3261e 12%, var(--surface));
+          color:color-mix(in srgb, #b3261e 80%, #000);
+          border:1px solid color-mix(in srgb, #b3261e 35%, transparent); font-size:13px; }
+    .err.show{ display:block; }
   </style>
 </head>
 <body class="login">
@@ -157,12 +159,12 @@
               <input id="password" name="password" class="input" type="password" autocomplete="current-password" placeholder="••••••••" />
               <button type="button" class="eye" id="togglePwd" aria-controls="password" aria-label="Show password" title="Show/Hide password">
                 <!-- eyelash closed -->
-                <svg id="lashClosed" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <svg id="lashClosed" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
                 </svg>
                 <!-- eyelash open -->
-                <svg id="lashOpen" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:none">
+                <svg id="lashOpen" viewBox="0 0 24 24" aria-hidden="true" style="display:none">
                   <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
                   <circle cx="12" cy="13.5" r="1.8" fill="currentColor"/>
@@ -170,6 +172,8 @@
               </button>
             </div>
           </div>
+
+          <div id="err" class="err" role="alert" aria-live="polite"></div>
 
           <div class="actions">
             <button class="btn" id="signIn" type="submit">Sign In</button>
@@ -183,7 +187,7 @@
   </div>
 
   <script>
-    // Eyelash toggle
+    // Eyelash toggle (unchanged)
     (function(){
       const pwd = document.getElementById('password');
       const btn = document.getElementById('togglePwd');
@@ -198,22 +202,95 @@
       }, { passive: true });
     }());
 
-    // Mock sign-in → dashboard
-    (function(){
-      const form = document.getElementById('loginForm');
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        window.location.href = '/Farm-vista/dashboard/';
-      });
-    }());
-
     // Footer date (no timezone)
     (function(){
       const el = document.getElementById('brandMeta');
       const fmt = new Intl.DateTimeFormat('en-US', { year:'numeric', month:'long', day:'2-digit' });
-      const d = fmt.format(new Date());
-      el.textContent = `© ${new Date().getFullYear()} Dowson Farms — ${d}`;
+      el.textContent = `© ${new Date().getFullYear()} Dowson Farms — ${fmt.format(new Date())}`;
     }());
+  </script>
+
+  <!-- Real Firebase Auth (modular). theme-boot initializes the app; we import Auth only here. -->
+  <script type="module">
+    import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+    const errBox = document.getElementById('err');
+    const form   = document.getElementById('loginForm');
+    const email  = document.getElementById('email');
+    const pwd    = document.getElementById('password');
+    const btn    = document.getElementById('signIn');
+    const forgot = document.getElementById('forgot');
+
+    // Helper: show errors nicely
+    function showErr(msg){
+      errBox.textContent = msg;
+      errBox.classList.add('show');
+    }
+    function clearErr(){ errBox.textContent=""; errBox.classList.remove('show'); }
+    function qs(key){ return new URLSearchParams(location.search).get(key); }
+    function nextUrl(){ return qs('next') || "/Farm-vista/dashboard/"; }
+
+    // Get Auth using the app we initialized in theme-boot
+    // window.firebaseApp was set in theme-boot via firebaseinit.js
+    const auth = getAuth(window.firebaseApp);
+
+    // If already signed-in, bounce right away
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // Small delay to let UI paint (prevents flicker)
+        setTimeout(() => { location.replace(nextUrl()); }, 10);
+      }
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearErr();
+
+      const em = (email.value || "").trim();
+      const pw = pwd.value || "";
+      if (!em || !pw){
+        showErr("Enter your email and password.");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Signing in…";
+      try{
+        await signInWithEmailAndPassword(auth, em, pw);
+        location.replace(nextUrl());
+      }catch(err){
+        // Friendly messages for common cases
+        let msg = "Sign-in failed. Please check your email and password.";
+        if (err && err.code){
+          if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
+            msg = "Incorrect email or password.";
+          } else if (err.code === "auth/user-not-found") {
+            msg = "No account found for that email.";
+          } else if (err.code === "auth/too-many-requests") {
+            msg = "Too many attempts. Try again later.";
+          }
+        }
+        showErr(msg);
+      }finally{
+        btn.disabled = false;
+        btn.textContent = "Sign In";
+      }
+    });
+
+    forgot.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearErr();
+      const em = (email.value || "").trim();
+      if (!em){ showErr("Enter your email above, then tap “Forgot password?”"); return; }
+      try{
+        await sendPasswordResetEmail(auth, em);
+        showErr("Reset link sent. Check your email.");
+      }catch(err){
+        let msg = "Could not send reset link.";
+        if (err && err.code === "auth/user-not-found") msg = "No account found for that email.";
+        showErr(msg);
+      }
+    });
   </script>
 </body>
 </html>
