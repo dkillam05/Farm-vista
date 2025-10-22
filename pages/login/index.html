@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>Login — Dowson Farms • FarmVista</title>
 
-  <!-- Global theme (includes Firebase boot) -->
+  <!-- Global theme + guard + firebase boot -->
   <link rel="stylesheet" href="../../assets/css/theme.css" />
   <script defer src="../../js/theme-boot.js"></script>
 
@@ -65,7 +65,7 @@
     .control{ position:relative; }
 
     .input{
-      width:100%; padding:12px 14px; padding-right:42px; /* eyelash space */
+      width:100%; padding:12px 14px; padding-right:42px;
       background:#fff; border:1px solid color-mix(in srgb,var(--text) 18%, transparent);
       border-radius:12px; color:var(--text); outline:none;
       box-shadow:0 0 0 0 var(--ring);
@@ -78,7 +78,6 @@
     }
     .input:focus{ border-color: color-mix(in srgb, var(--green) 60%, #0000); box-shadow:0 0 0 3px var(--ring); }
 
-    /* Eyelash inside input */
     .eye{
       position:absolute; right:8px; top:0; bottom:0;
       width:34px; display:grid; place-items:center;
@@ -91,10 +90,7 @@
 
     .actions{ display:grid; gap:10px; margin-top:6px; }
 
-    /* Primary button */
-    .login .actions button.btn,
-    .login .btn,
-    .login button.btn[type="submit"]{
+    .login .btn{
       -webkit-appearance:none !important;
       appearance:none !important;
       display:grid !important;
@@ -104,19 +100,15 @@
       padding:12px 16px !important;
       border-radius:12px !important;
       background-color:#3B7E46 !important;
-      background-image:none !important;
       color:#ffffff !important;
       border:1px solid color-mix(in srgb,#3B7E46 55%, var(--line)) !important;
       box-shadow:0 2px 0 color-mix(in srgb,#000 25%, #3B7E46) !important;
       font-weight:800 !important;
       letter-spacing:.2px !important;
-      user-select:none !important;
       cursor:pointer !important;
       touch-action:manipulation !important;
-      opacity:1 !important;
-      filter:none !important;
     }
-    .login .actions button.btn:active{ transform:translateY(1px); }
+    .login .btn:active{ transform:translateY(1px); }
 
     .link{ text-align:center; font-size:14px; color:color-mix(in srgb,var(--text) 78%, var(--green)); }
     .link:hover{ text-decoration:underline; }
@@ -124,11 +116,7 @@
     .meta{ margin-top:16px; font-size:12px; text-align:center; color:var(--muted); }
 
     /* Inline error */
-    .err{ display:none; margin:6px 0 0; padding:8px 10px; border-radius:10px;
-          background:color-mix(in srgb, #b3261e 12%, var(--surface));
-          color:color-mix(in srgb, #b3261e 80%, #000);
-          border:1px solid color-mix(in srgb, #b3261e 35%, transparent); font-size:13px; }
-    .err.show{ display:block; }
+    .err{ color:#b3261e; font-size:13px; min-height:1.2em; }
   </style>
 </head>
 <body class="login">
@@ -158,12 +146,10 @@
             <div class="control">
               <input id="password" name="password" class="input" type="password" autocomplete="current-password" placeholder="••••••••" />
               <button type="button" class="eye" id="togglePwd" aria-controls="password" aria-label="Show password" title="Show/Hide password">
-                <!-- eyelash closed -->
                 <svg id="lashClosed" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
                 </svg>
-                <!-- eyelash open -->
                 <svg id="lashOpen" viewBox="0 0 24 24" aria-hidden="true" style="display:none">
                   <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -173,7 +159,7 @@
             </div>
           </div>
 
-          <div id="err" class="err" role="alert" aria-live="polite"></div>
+          <div class="err" id="errBox"></div>
 
           <div class="actions">
             <button class="btn" id="signIn" type="submit">Sign In</button>
@@ -187,7 +173,7 @@
   </div>
 
   <script>
-    // Eyelash toggle (unchanged)
+    // Eyelash toggle
     (function(){
       const pwd = document.getElementById('password');
       const btn = document.getElementById('togglePwd');
@@ -210,85 +196,61 @@
     }());
   </script>
 
-  <!-- Real Firebase Auth (modular). theme-boot initializes the app; we import Auth only here. -->
+  <!-- Real Firebase sign-in -->
   <script type="module">
-    import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-
-    const errBox = document.getElementById('err');
-    const form   = document.getElementById('loginForm');
-    const email  = document.getElementById('email');
-    const pwd    = document.getElementById('password');
-    const btn    = document.getElementById('signIn');
-    const forgot = document.getElementById('forgot');
-
-    // Helper: show errors nicely
-    function showErr(msg){
-      errBox.textContent = msg;
-      errBox.classList.add('show');
+    // Ensure firebase-init ran (theme-boot injects it globally)
+    if (!window.firebaseApp) {
+      try { await import('../../js/firebase-init.js'); } catch (e) {}
     }
-    function clearErr(){ errBox.textContent=""; errBox.classList.remove('show'); }
-    function qs(key){ return new URLSearchParams(location.search).get(key); }
-    function nextUrl(){ return qs('next') || "/Farm-vista/dashboard/"; }
 
-    // Get Auth using the app we initialized in theme-boot
-    // window.firebaseApp was set in theme-boot via firebaseinit.js
+    import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+
     const auth = getAuth(window.firebaseApp);
+    const form = document.getElementById('loginForm');
+    const email = document.getElementById('email');
+    const password = document.getElementById('password');
+    const errBox = document.getElementById('errBox');
 
-    // If already signed-in, bounce right away
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        // Small delay to let UI paint (prevents flicker)
-        setTimeout(() => { location.replace(nextUrl()); }, 10);
-      }
-    });
+    const qs = new URLSearchParams(location.search);
+    const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      clearErr();
+      errBox.textContent = '';
+      const em = (email.value || '').trim();
+      const pw = password.value || '';
 
-      const em = (email.value || "").trim();
-      const pw = pwd.value || "";
-      if (!em || !pw){
-        showErr("Enter your email and password.");
-        return;
-      }
+      if (!em || !pw) { errBox.textContent = 'Enter email and password.'; return; }
 
-      btn.disabled = true;
-      btn.textContent = "Signing in…";
-      try{
+      try {
         await signInWithEmailAndPassword(auth, em, pw);
-        location.replace(nextUrl());
-      }catch(err){
-        // Friendly messages for common cases
-        let msg = "Sign-in failed. Please check your email and password.";
-        if (err && err.code){
-          if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
-            msg = "Incorrect email or password.";
-          } else if (err.code === "auth/user-not-found") {
-            msg = "No account found for that email.";
-          } else if (err.code === "auth/too-many-requests") {
-            msg = "Too many attempts. Try again later.";
-          }
-        }
-        showErr(msg);
-      }finally{
-        btn.disabled = false;
-        btn.textContent = "Sign In";
+        // auth-guard will also redirect, but we do it eagerly here for snap
+        location.replace(nextUrl);
+      } catch (err) {
+        // Friendly errors
+        const code = (err && err.code) || '';
+        let msg = 'Sign-in failed.';
+        if (code.includes('invalid-credential') || code.includes('wrong-password')) msg = 'Wrong email or password.';
+        else if (code.includes('user-not-found')) msg = 'No account found for this email.';
+        else if (code.includes('too-many-requests')) msg = 'Too many attempts. Try again later.';
+        errBox.textContent = msg;
+        console.warn('[FV] sign-in error:', err);
       }
     });
 
-    forgot.addEventListener('click', async (e) => {
+    document.getElementById('forgot').addEventListener('click', async (e) => {
       e.preventDefault();
-      clearErr();
-      const em = (email.value || "").trim();
-      if (!em){ showErr("Enter your email above, then tap “Forgot password?”"); return; }
-      try{
+      errBox.textContent = '';
+      const em = (email.value || '').trim();
+      if (!em) { errBox.textContent = 'Enter your email first, then tap “Forgot password?”.'; return; }
+      try {
         await sendPasswordResetEmail(auth, em);
-        showErr("Reset link sent. Check your email.");
-      }catch(err){
-        let msg = "Could not send reset link.";
-        if (err && err.code === "auth/user-not-found") msg = "No account found for that email.";
-        showErr(msg);
+        errBox.style.color = '#2F6C3C';
+        errBox.textContent = 'Password reset link sent (if the email exists).';
+        setTimeout(()=>{ errBox.textContent=''; errBox.style.color=''; }, 4500);
+      } catch (err) {
+        errBox.textContent = 'Unable to send reset email.';
+        console.warn('[FV] reset error:', err);
       }
     });
   </script>
