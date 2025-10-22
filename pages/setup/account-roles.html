@@ -44,8 +44,11 @@
     /* Tree */
     .tree{border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--card-surface,var(--surface));}
     details.node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:8px 0;}
-    summary{cursor:pointer;padding:10px 12px}
-    .sum-line{display:flex;align-items:center;gap:10px}
+    summary{cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:10px;list-style:none;}
+    /* custom caret for consistent alignment */
+    summary::before{content:"▸";display:inline-block;transform:translateY(1px);transition:transform .15s ease;}
+    details[open] > summary::before{transform:rotate(90deg) translateY(0);}
+    .sum-line{display:flex;align-items:center;gap:10px;flex:1;}
     .indent-0{padding-left:0}
     .indent-1{padding-left:12px}
     .indent-2{padding-left:24px}
@@ -54,12 +57,11 @@
     .label{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
     .content{padding:8px 12px 12px}
-    .pill-col{display:grid;gap:6px;grid-auto-flow:row;margin-bottom:8px}
-    @media(min-width:840px){ .pill-col{grid-auto-flow:column} }
-    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:6px 10px;
+    .switch-col{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+    .switch{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:6px 12px;
       font-weight:800;background:var(--surface);color:var(--text);cursor:pointer;user-select:none;min-height:36px}
-    .pill[data-on="true"]{background:#2F6C3C;color:#fff;border-color:#2F6C3C;}
-    .tiny{font-size:12px;opacity:.92;font-weight:700}
+    .switch[data-on="true"]{background:#2F6C3C;color:#fff;border-color:#2F6C3C;}
+    .switch .tiny{font-size:12px;opacity:.92;font-weight:700}
 
     .children{display:grid;gap:6px}
 
@@ -77,7 +79,7 @@
     window.dispatchEvent(new Event('fv:menu-ready'));
   </script>
 
-  <!-- Ensure fv-shell is loaded (same pattern as others) -->
+  <!-- Ensure fv-shell is loaded -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
@@ -87,7 +89,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Account Roles</h1>
-      <p class="page-sub">Create a role, then expand menus to choose what the role can see and do. Group switches cascade to children; open a child to override.</p>
+      <p class="page-sub">Turn menus **on or off**. Parent switches cascade to children. Open a child to override it.</p>
 
       <!-- Role header -->
       <section class="section">
@@ -142,10 +144,10 @@
     "use strict";
     const $ = id => document.getElementById(id);
     const toast = $("toast");
-    const LS_ROLES = "fv_account_roles_v1";
+    const LS_ROLES = "fv_account_roles_v1_simple";
 
     let currentRoleId = "";
-    let roleDraft = { id:"", name:"", perms:{} };
+    let roleDraft = { id:"", name:"", perms:{} }; // perms: { [nodeId]: { on: boolean } }
 
     function showToast(msg="Saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
     function uid(){ return String(Date.now()) + Math.random().toString(36).slice(2,7); }
@@ -153,10 +155,10 @@
     function saveRoles(arr){ localStorage.setItem(LS_ROLES, JSON.stringify(arr)); }
     function getMenu(){ return window.FV_NAV_MENU; }
 
-    /* ===== Build a simple tree from NAV (labels only; hide Home) ===== */
+    /* ---- Build a simple tree from NAV (hide Home) ---- */
     function flatten(items, depth=0, parent=null, out=[]){
       items.forEach(it=>{
-        if(it.id === "home") return; // hide Home dashboard from roles UI
+        if(it.id === "home") return;
         const node = { id: it.id, type: it.type, label: it.label, depth, parent, children: (it.children||[]).map(c=>c.id) };
         out.push(node);
         if(it.children && it.children.length) flatten(it.children, depth+1, it.id, out);
@@ -164,105 +166,85 @@
       return out;
     }
 
-    /* ===== Permissions ===== */
-    function defPerm(node){
-      return node.type==="group"
-        ? { visible:true, view:false, add:false, edit:false, archive:false }
-        : { visible:true, view:true,  add:false, edit:false, archive:false };
-    }
+    /* ---- Permissions helpers ---- */
     function ensurePerm(nodeId, nodeObj){
-      if(!roleDraft.perms[nodeId]) roleDraft.perms[nodeId] = defPerm(nodeObj);
+      // Back-compat: if old model present, map visible->on
+      const p = roleDraft.perms[nodeId];
+      if(p && typeof p.on === "boolean") return p;
+      if(p && ("visible" in p)) return (roleDraft.perms[nodeId] = { on: !!p.visible });
+
+      if(!roleDraft.perms[nodeId]) roleDraft.perms[nodeId] = { on:false }; // default OFF
       return roleDraft.perms[nodeId];
     }
 
-    /* ===== Render ===== */
+    /* ---- Render ---- */
     function renderTree(){
       const NAV = getMenu();
       const tree = $("tree");
       if(!NAV){ tree.textContent = "Menu not available."; return; }
 
       const flat = flatten(NAV.items);
-      const byId = Object.fromEntries(flat.map(n=>[n.id,n]));
       const byParent = {};
       flat.forEach(n=>{
         const p = n.parent || "__ROOT__";
         (byParent[p]||(byParent[p]=[])).push(n);
       });
 
-      function cascade(nodeId, key, value){
+      function cascade(nodeId, value){
         const stack = (byParent[nodeId]||[]).slice();
         while(stack.length){
           const n = stack.pop();
-          const cur = ensurePerm(n.id, n);
-          cur[key] = value;
+          ensurePerm(n.id, n).on = value;
           if(n.type==="group"){ (byParent[n.id]||[]).forEach(c=>stack.push(c)); }
         }
       }
 
-      function makePill(label, key, node, isGroup){
+      function makeSwitch(label, node, isGroup){
         const btn = document.createElement("button");
-        btn.type = "button"; btn.className="pill";
-        const state = !!ensurePerm(node.id, node)[key];
+        btn.type = "button"; btn.className="switch";
+        const state = !!ensurePerm(node.id, node).on;
         btn.dataset.on = String(state);
         btn.setAttribute("role","switch");
         btn.setAttribute("aria-checked", String(state));
         btn.innerHTML = `<span class="tiny">${label}</span>`;
         btn.addEventListener("click", (e)=>{
           e.stopPropagation();
-          const cur = ensurePerm(node.id, node);
-          const next = !cur[key];
-          cur[key] = next;
+          const perm = ensurePerm(node.id, node);
+          const next = !perm.on;
+          perm.on = next;
           btn.dataset.on = String(next);
           btn.setAttribute("aria-checked", String(next));
           if(isGroup){
-            cascade(node.id, key, next);
-            renderTree();
+            cascade(node.id, next);
+            renderTree(); // refresh child switch states
           }
         });
         return btn;
       }
 
-      function renderNode(node){
-        const isGroup = node.type==="group";
+      function renderGroup(node){
         const d = document.createElement("details");
         d.className = "node";
-
         const sum = document.createElement("summary");
-        const sumLine = document.createElement("div");
-        sumLine.className = "sum-line indent-"+Math.min(node.depth,4);
-        const label = document.createElement("div");
-        label.className = "label";
-        label.textContent = node.label;
-        sumLine.appendChild(label);
-        sum.appendChild(sumLine);
+        const line = document.createElement("div");
+        line.className = "sum-line indent-"+Math.min(node.depth,4);
+        const label = document.createElement("div"); label.className="label"; label.textContent=node.label;
+        line.appendChild(label);
+        sum.appendChild(line);
+        const right = document.createElement("div");
+        right.className="switch-col";
+        right.appendChild(makeSwitch("Enabled", node, true));
+        sum.appendChild(right);
         d.appendChild(sum);
 
         const content = document.createElement("div");
         content.className = "content";
-
-        if(isGroup){
-          // group-level pills that cascade
-          const pills = document.createElement("div");
-          pills.className = "pill-col";
-          pills.appendChild(makePill("Visible","visible",node,true));
-          pills.appendChild(makePill("View","view",node,true));
-          pills.appendChild(makePill("Add","add",node,true));
-          pills.appendChild(makePill("Edit","edit",node,true));
-          pills.appendChild(makePill("Archive/Delete","archive",node,true));
-          content.appendChild(pills);
-
-          // children list (each child is its own collapsible row showing its own pills inside)
-          const kidsWrap = document.createElement("div");
-          kidsWrap.className = "children";
-          (byParent[node.id]||[]).forEach(k=>{
-            kidsWrap.appendChild(renderLeaf(k));
-          });
-          content.appendChild(kidsWrap);
-        }else{
-          // link nodes normally rendered via renderLeaf() (so this path rarely runs)
-          content.appendChild(renderLeafInner(node));
-        }
-
+        const kidsWrap = document.createElement("div");
+        kidsWrap.className = "children";
+        (byParent[node.id]||[]).forEach(k=>{
+          kidsWrap.appendChild(renderLeaf(k));
+        });
+        content.appendChild(kidsWrap);
         d.appendChild(content);
         return d;
       }
@@ -271,36 +253,26 @@
         const d = document.createElement("details");
         d.className = "node";
         const sum = document.createElement("summary");
-        const sumLine = document.createElement("div");
-        sumLine.className = "sum-line indent-"+Math.min(node.depth+1,4);
+        const line = document.createElement("div");
+        line.className = "sum-line indent-"+Math.min(node.depth+1,4);
         const label = document.createElement("div"); label.className="label"; label.textContent=node.label;
-        sumLine.appendChild(label);
-        sum.appendChild(sumLine);
+        line.appendChild(label);
+        sum.appendChild(line);
+        const right = document.createElement("div");
+        right.className="switch-col";
+        right.appendChild(makeSwitch("Enabled", node, false));
+        sum.appendChild(right);
         d.appendChild(sum);
-
-        const content = document.createElement("div");
-        content.className = "content";
-        content.appendChild(renderLeafInner(node));
-        d.appendChild(content);
         return d;
       }
 
-      function renderLeafInner(node){
-        const pills = document.createElement("div");
-        pills.className = "pill-col";
-        pills.appendChild(makePill("Visible","visible",node,false));
-        pills.appendChild(makePill("View","view",node,false));
-        pills.appendChild(makePill("Add","add",node,false));
-        pills.appendChild(makePill("Edit","edit",node,false));
-        pills.appendChild(makePill("Archive/Delete","archive",node,false));
-        return pills;
-      }
-
       tree.innerHTML = "";
-      (byParent["__ROOT__"]||[]).forEach(n => tree.appendChild(renderNode(n)));
+      (byParent["__ROOT__"]||[]).forEach(n=>{
+        tree.appendChild(n.type==="group" ? renderGroup(n) : renderLeaf(n));
+      });
     }
 
-    /* ===== Role picker & actions ===== */
+    /* ---- Role picker & actions ---- */
     function populateRolePicker(){
       const sel = $("rolePicker");
       const all = loadRoles();
@@ -368,7 +340,7 @@
     $("expandAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=true); });
     $("collapseAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=false); });
 
-    /* ===== Init ===== */
+    /* ---- Init ---- */
     function init(){ populateRolePicker(); newDraft(); }
     if(window.FV_NAV_MENU){ init(); }
     else{
