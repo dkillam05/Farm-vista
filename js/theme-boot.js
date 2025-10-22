@@ -78,3 +78,55 @@
     console.warn('[FV] Firebase boot error:', e);
   }
 })();
+
+// === Global AUTH GUARD (added; requires /Farm-vista/js/firebase-init.js) ===
+(function(){
+  try{
+    var LOGIN_PATH = "/Farm-vista/pages/login/";
+    var DASHBOARD_DEFAULT = "/Farm-vista/dashboard/";
+
+    function isPublicPath(pathname){
+      // Add more public paths here if you ever need them.
+      return pathname.startsWith(LOGIN_PATH);
+    }
+
+    // Inject a tiny ESM so we can import firebase-auth cleanly.
+    var mod = document.createElement('script');
+    mod.type = 'module';
+    mod.textContent = `
+      (async () => {
+        try{
+          // Ensure Firebase app is initialized (firebase-init.js should set window.firebaseApp)
+          if (!window.firebaseApp) {
+            try { await import('/Farm-vista/js/firebase-init.js'); } catch {}
+          }
+
+          const { getAuth, onAuthStateChanged } =
+            await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+
+          const auth = getAuth(window.firebaseApp);
+          const here = location.pathname;
+          const onLoginPage = here.startsWith('${LOGIN_PATH}');
+
+          onAuthStateChanged(auth, (user) => {
+            if (!user && !(${isPublicPath.toString()})(here)) {
+              const next = encodeURIComponent(location.pathname + location.search + location.hash);
+              location.replace('${LOGIN_PATH}?next=' + next);
+              return;
+            }
+            if (user && onLoginPage) {
+              const qs = new URLSearchParams(location.search);
+              const next = qs.get('next') || '${DASHBOARD_DEFAULT}';
+              location.replace(next);
+            }
+          }, { onlyOnce: true });
+        }catch(e){
+          console.warn('[FV] Auth guard failed:', e);
+        }
+      })();
+    `;
+    document.head.appendChild(mod);
+  }catch(e){
+    console.warn('[FV] Auth guard injection error:', e);
+  }
+})();
