@@ -298,7 +298,7 @@
       </a>
 
       <a class="row" href="#" id="logoutRow">
-        <div class="left"><div class="ico">⏻</div><div class="txt">Logout JOHNDOE</div></div>
+        <div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout JOHNDOE</div></div>
         <div class="chev">›</div>
       </a>
     </div>
@@ -346,16 +346,8 @@
 
       r.querySelector('.js-update-row').addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      // LOGOUT → redirect (pre-auth)
-      const logoutRow = r.querySelector('#logoutRow');
-      if (logoutRow) {
-        logoutRow.addEventListener('click', (e) => {
-          e.preventDefault();
-          this.toggleTop(false);
-          this.toggleDrawer(false);
-          window.location.href = '/Farm-vista/pages/login/';
-        });
-      }
+      // ===== AUTH+ Logout & user label =====
+      this._wireAuthLogout(r);
 
       // Close the top drawer on profile links before navigation
       const ud = r.getElementById('userDetailsLink');
@@ -377,6 +369,64 @@
         } catch {}
       }, 300);
     }
+
+    // ===== AUTH+ (added) =====
+    async _wireAuthLogout(r){
+      const logoutRow = r.getElementById('logoutRow');
+      const logoutLabel = r.getElementById('logoutLabel');
+
+      // Show current user name/email in the label
+      // Wait for firebase-init to set window.firebaseApp/firebaseAuth
+      const needAuthFns = async () => {
+        if (!window.firebaseAuth) {
+          try { await import('/Farm-vista/js/firebase-init.js'); } catch(_){}
+        }
+        // load modular helpers for onAuthStateChanged/signOut if we need them
+        const mod = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+        return { onAuthStateChanged: mod.onAuthStateChanged, signOut: mod.signOut, getAuth: mod.getAuth };
+      };
+
+      try{
+        const { onAuthStateChanged, getAuth, signOut } = await needAuthFns();
+        const auth = window.firebaseAuth || getAuth(window.firebaseApp);
+
+        onAuthStateChanged(auth, (user)=>{
+          const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
+          if (logoutLabel) logoutLabel.textContent = `Logout ${name}`;
+        });
+
+        if (logoutRow) {
+          logoutRow.addEventListener('click', async (e)=>{
+            e.preventDefault();
+            this.toggleTop(false);
+            this.toggleDrawer(false);
+            try{
+              if (typeof window.fvSignOut === 'function') {
+                await window.fvSignOut();   // defined in firebase-init.js (awaits and redirects)
+              } else {
+                await signOut(auth);
+                location.replace('/Farm-vista/pages/login/');
+              }
+            }catch(err){
+              console.warn('[FV] logout error:', err);
+              location.replace('/Farm-vista/pages/login/');
+            }
+          });
+        }
+      }catch(err){
+        console.warn('[FV] auth wiring skipped (offline or no firebase):', err);
+        // Fallback: simple redirect (previous behavior)
+        if (logoutRow) {
+          logoutRow.addEventListener('click', (e)=> {
+            e.preventDefault();
+            this.toggleTop(false);
+            this.toggleDrawer(false);
+            location.replace('/Farm-vista/pages/login/');
+          });
+        }
+      }
+    }
+    // ===== end AUTH+ =====
 
     async _loadVersionIntoUI(){
       const setUI = (num, tag) => {
