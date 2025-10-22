@@ -67,7 +67,6 @@
     s.src = '/Farm-vista/js/firebase-init.js'; // <-- make sure this file exists
     document.head.appendChild(s);
 
-    // Optional: light console breadcrumb for verification
     s.addEventListener('load', function(){
       console.log('[FV] firebase-init loaded');
     });
@@ -79,54 +78,47 @@
   }
 })();
 
-// === Global AUTH GUARD (added; requires /Farm-vista/js/firebase-init.js) ===
+// === Global Auth Guard (runs on every page) ===
 (function(){
-  try{
-    var LOGIN_PATH = "/Farm-vista/pages/login/";
-    var DASHBOARD_DEFAULT = "/Farm-vista/dashboard/";
+  // run after DOM is interactive so redirects are clean
+  const run = async () => {
+    try{
+      // Dynamically import init + auth
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      await mod.ready; // wait until initialized
+      const { auth } = mod;
 
-    function isPublicPath(pathname){
-      // Add more public paths here if you ever need them.
-      return pathname.startsWith(LOGIN_PATH);
-    }
+      const here = location.pathname + location.search + location.hash;
 
-    // Inject a tiny ESM so we can import firebase-auth cleanly.
-    var mod = document.createElement('script');
-    mod.type = 'module';
-    mod.textContent = `
-      (async () => {
-        try{
-          // Ensure Firebase app is initialized (firebase-init.js should set window.firebaseApp)
-          if (!window.firebaseApp) {
-            try { await import('/Farm-vista/js/firebase-init.js'); } catch {}
+      // Allow-list public pages (login only)
+      const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
+
+      // Listen once; decide where to go
+      const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+      onAuthStateChanged(auth, (user) => {
+        if (!user) {
+          // Not signed in → always send to login (unless we're already there)
+          if (!isLogin) {
+            const next = encodeURIComponent(here);
+            location.replace('/Farm-vista/pages/login/?next=' + next);
           }
-
-          const { getAuth, onAuthStateChanged } =
-            await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-
-          const auth = getAuth(window.firebaseApp);
-          const here = location.pathname;
-          const onLoginPage = here.startsWith('${LOGIN_PATH}');
-
-          onAuthStateChanged(auth, (user) => {
-            if (!user && !(${isPublicPath.toString()})(here)) {
-              const next = encodeURIComponent(location.pathname + location.search + location.hash);
-              location.replace('${LOGIN_PATH}?next=' + next);
-              return;
-            }
-            if (user && onLoginPage) {
-              const qs = new URLSearchParams(location.search);
-              const next = qs.get('next') || '${DASHBOARD_DEFAULT}';
-              location.replace(next);
-            }
-          }, { onlyOnce: true });
-        }catch(e){
-          console.warn('[FV] Auth guard failed:', e);
+        } else {
+          // Signed in → if stuck on login, send to next or dashboard
+          if (isLogin) {
+            const qs = new URLSearchParams(location.search);
+            const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
+            location.replace(nextUrl);
+          }
         }
-      })();
-    `;
-    document.head.appendChild(mod);
-  }catch(e){
-    console.warn('[FV] Auth guard injection error:', e);
+      }, { onlyOnce: true });
+    }catch(e){
+      console.warn('[FV] auth-guard error:', e);
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once:true });
+  } else {
+    run();
   }
 })();
