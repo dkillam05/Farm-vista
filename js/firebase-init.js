@@ -1,55 +1,89 @@
-// /Farm-vista/js/firebase-init.js  (no <script> tags!)
+<script type="module">
+// /Farm-vista/js/firebase-init.js
+// Single source of truth for Firebase + global auth guard + reliable signOut.
 
-// Firebase CDN ESM imports
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {
-  getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence,
+  getAuth, setPersistence, browserLocalPersistence,
+  onAuthStateChanged, signOut
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 import { getStorage } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js';
-import { getAnalytics, isSupported as analyticsSupported }
-  from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js';
+import {
+  getAnalytics, isSupported as analyticsSupported
+} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js';
 
-// Your project config (from Firebase console)
+// --- Your project config (from Firebase console) ---
 const firebaseConfig = {
   apiKey: "AIzaSyB3sLBWFDsoZRLmfQ19hKLoH_nMrHEFQME",
   authDomain: "dowsonfarms-illinois.firebaseapp.com",
   projectId: "dowsonfarms-illinois",
-  // Bucket uses appspot.com (bucket ID), not firebasestorage.app (download host)
+  // IMPORTANT: bucket uses appspot.com (bucket ID), not firebasestorage.app
   storageBucket: "dowsonfarms-illinois.appspot.com",
   messagingSenderId: "300398089669",
   appId: "1:300398089669:web:def2c52650a7eb67ea27ac",
   measurementId: "G-QHBEXVGNJT"
 };
 
-// Guard against double-init (theme-boot injects this once per page)
+// --- Init (idempotent) ---
 if (!window.firebaseApp) {
-  console.log('[FV] Initializing Firebase…');
+  window.firebaseApp = initializeApp(firebaseConfig);
+  window.firebaseAuth = getAuth(window.firebaseApp);
+  window.firebaseDB   = getFirestore(window.firebaseApp);
+  window.firebaseStore = getStorage(window.firebaseApp);
 
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-  const storage = getStorage(app);
+  try {
+    await setPersistence(window.firebaseAuth, browserLocalPersistence);
+  } catch (_) {}
 
-  try { await setPersistence(auth, browserLocalPersistence); } catch(e) {}
-
-  let analytics = null;
-  try { if (await analyticsSupported()) analytics = getAnalytics(app); } catch (_) {}
-
-  // Expose globally so other pages can use them
-  window.firebaseApp = app;
-  window.firebaseAuth = auth;
-  window.firebaseDB = db;
-  window.firebaseStorage = storage;
-  window.firebaseAnalytics = analytics;
-
-  onAuthStateChanged(auth, (user) => {
-    console.log('[FV] auth state:', user ? `SIGNED IN (${user.email || user.uid})` : 'SIGNED OUT');
-    window.dispatchEvent(new CustomEvent('fv:auth-state', { detail: { user } }));
-  });
-
-  console.log('[FV] Firebase ready. authDomain:', firebaseConfig.authDomain,
-              'storageBucket:', firebaseConfig.storageBucket);
-} else {
-  console.log('[FV] firebase-init already loaded; skipping re-init.');
+  try {
+    if (await analyticsSupported()) {
+      window.firebaseAnalytics = getAnalytics(window.firebaseApp);
+    }
+  } catch (_) {}
 }
+
+// ===== Reliable Sign Out (awaits completion, then hard-redirects to login) =====
+window.fvSignOut = async function fvSignOut() {
+  try {
+    await signOut(window.firebaseAuth);
+  } catch (e) {
+    // even if it throws, nuke any local state and move on
+    console.warn('[FV] signOut error (continuing):', e);
+  }
+  try { sessionStorage.clear(); } catch(_) {}
+  try { localStorage.removeItem('fv_auth_skip'); } catch(_) {}
+  // Use replace() to prevent the back-button from restoring an authed page
+  location.replace('/Farm-vista/pages/login/');
+};
+
+// ===== Global Auth Guard (waits for real auth state before redirecting) =====
+(function authGuard(){
+  const path = location.pathname;
+  const isLogin = /\/pages\/login\/?$/i.test(path) || /\/pages\/login\/index\.html$/i.test(path);
+
+  // Promise that resolves exactly once with the first stable auth state.
+  if (!window.__FV_AUTH_READY__) {
+    window.__FV_AUTH_READY__ = new Promise(resolve => {
+      const off = onAuthStateChanged(window.firebaseAuth, user => {
+        try { off(); } catch(_){}
+        resolve(user || null);
+      });
+    });
+  }
+
+  window.__FV_AUTH_READY__.then(user => {
+    // On login page:
+    //  - if user exists, keep them here until they actively sign out or submit form
+    //    (we do NOT auto-bounce to dashboard; avoids the “logout then bounce back” race)
+    if (isLogin) return;
+
+    // On all other pages:
+    if (!user) {
+      // Not signed in → send to login with return URL
+      const next = encodeURIComponent(location.pathname + location.search + location.hash);
+      location.replace(`/Farm-vista/pages/login/?next=${next}`);
+    }
+  });
+})();
+</script>
