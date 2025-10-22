@@ -202,7 +202,13 @@ export const NAV_MENU = {
         { type: 'link', id: 'calc-bin',          icon: '🛢️', label: 'Grain Bin',                    href: '/Farm-vista/pages/calculators/calc-grain-bin.html' },
         { type: 'link', id: 'calc-shrink',       icon: '📉', label: 'Grain Shrink',                 href: '/Farm-vista/pages/calculators/calc-grain-shrink.html' },
         { type: 'link', id: 'calc-combine-loss', icon: '🌾', label: 'Combine Grain Loss',           href: '/Farm-vista/pages/calculators/calc-combine-grain-loss.html' },
-        { type: 'link', id: 'calc-combine-yld',  icon: '⚙️', label: 'Combine Yield Cal',            href: '/Farm-vista/pages/calculators/calc-combine-yield.html' },
+
+        /* renamed + icon updated */
+        { type: 'link', id: 'calc-combine-yld',  icon: '✅', label: 'Combine Yield Check',           href: '/Farm-vista/pages/calculators/calc-combine-yield.html' },
+
+        /* new calibration page with balance scale icon */
+        { type: 'link', id: 'calc-combine-calibration', icon: '⚖️', label: 'Combine Yield Calibration', href: '/Farm-vista/pages/calculators/calc-combine-yield-calibration.html', activeMatch: 'exact' },
+
         { type: 'link', id: 'calc-chem-mix',     icon: '🧪', label: 'Chemical Mix',                 href: '/Farm-vista/pages/calculators/calc-chemical-mix.html' },
         { type: 'link', id: 'calc-trial-ylds',   icon: '🧬', label: 'Trial Yields',                 href: '/Farm-vista/pages/calculators/calc-trial-yields.html' }
       ]
