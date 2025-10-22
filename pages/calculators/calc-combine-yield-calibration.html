@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista - Combine Yield Calibration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+
+  <link rel="manifest" href="../../manifest.webmanifest">
+  <link rel="stylesheet" href="../../assets/css/theme.css">
+  <link rel="stylesheet" href="../../assets/css/app.css">
+  <script defer src="../../js/theme-boot.js"></script>
+  <script defer src="../../js/fv-shell.js"></script>
+
+  <style>
+    :root{
+      --page-bottom-gap: 96px;
+      --card-max: 940px;
+      --accent: #2F6C3C;
+    }
+    html{-webkit-text-size-adjust:100%}
+    body{ background: var(--app-bg, var(--surface)); }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    }
+
+    .card{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom: var(--page-bottom-gap);
+    }
+    .card-head{
+      display:flex; align-items:flex-start; gap:12px; padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .card-head .icon{ width:28px; height:28px; color:var(--accent); margin-top:2px; }
+    .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+    .muted{ color:var(--muted,#67706B); }
+
+    form{ padding:16px; display:grid; gap:12px; }
+    .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
+
+    label{ display:block; font-weight:600; margin-bottom:6px; }
+    .ctrl{
+      display:flex; align-items:center; gap:8px;
+      border:1px solid var(--border); background:var(--card-surface,var(--surface));
+      border-radius:10px; padding:10px 12px;
+    }
+    input,select,button{ font-size:16px; }
+    .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
+
+    .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; flex-wrap:wrap; }
+    .btn{
+      appearance:none; border:1px solid var(--border); background:var(--surface);
+      padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
+      color: var(--text) !important;
+    }
+    .btn-primary{ background:var(--accent); color:#fff !important; border-color:var(--accent); }
+
+    .results{ padding:0 16px 16px; }
+    .tile{
+      border:1px solid var(--border); border-radius:12px; padding:12px;
+      background: linear-gradient(180deg, rgba(47,108,60,.06), transparent 55%);
+      margin-top:8px;
+    }
+    .kv{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:baseline; }
+    .kv .val{ font-weight:800; }
+
+    .hist{ padding:16px; border-top:1px dashed var(--border); }
+    .hlist{ display:grid; gap:8px; }
+    .hitem{
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+    }
+    .hsummary{ font-weight:700; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <div class="card">
+        <div class="card-head">
+          <div class="icon" aria-hidden="true">
+            <!-- Gear icon -->
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 3.3l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 10.42 2.2V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06A2 2 0 1 1 20.7 7.04l-.06.06a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.8 10.42H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"></path>
+            </svg>
+          </div>
+          <div>
+            <h1>Combine Yield Calibration</h1>
+            <div class="muted">Pick a combine and crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</div>
+          </div>
+        </div>
+
+        <!-- FORM -->
+        <form id="frm" novalidate autocomplete="off">
+          <div class="grid">
+            <div>
+              <label for="combine">Combine</label>
+              <div class="ctrl">
+                <select id="combine">
+                  <option value="">— Select Combine —</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="crop">Crop</label>
+              <div class="ctrl">
+                <select id="crop">
+                  <option value="corn">Corn</option>
+                  <option value="soy">Soybeans</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="cw">Combine Weight (monitor)</label>
+              <div class="ctrl">
+                <input id="cw" type="text" inputmode="numeric" placeholder="e.g. 56,320">
+                <span class="unit">lb</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="gw">Grain Cart Weight (scale)</label>
+              <div class="ctrl">
+                <input id="gw" type="text" inputmode="numeric" placeholder="e.g. 54,250">
+                <span class="unit">lb</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn" type="button" id="clearBtn">Clear</button>
+            <button class="btn btn-primary" type="submit" id="calcBtn">Calculate</button>
+          </div>
+        </form>
+
+        <!-- RESULTS -->
+        <div class="results" id="res" hidden>
+          <div class="tile">
+            <h3 style="margin:0 0 8px;">Result</h3>
+            <div class="kv">
+              <div>Status</div>            <div class="val" id="rStatus">—</div>
+              <div>Percent Off</div>       <div class="val" id="rPct">—</div>
+              <div>Combine Weight</div>    <div class="val" id="rCw">—</div>
+              <div>Grain Cart Weight</div> <div class="val" id="rGw">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HISTORY -->
+        <section class="hist">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h2 style="flex:1">Recent Calibrations</h2>
+            <button class="btn" id="clearHist" type="button">Clear History</button>
+          </div>
+          <div class="hlist" id="hlist"></div>
+          <div class="muted" id="nohist">No previous calibrations.</div>
+        </section>
+      </div>
+    </div>
+  </fv-shell>
+
+  <script>
+  (function(){
+    "use strict";
+    if(window.__FV_COMBINE_CALIB_V1__) return; window.__FV_COMBINE_CALIB_V1__=true;
+
+    /* ---------- Helpers ---------- */
+    const $ = id => document.getElementById(id);
+    const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
+    const num = v => parseFloat(String(v).replace(/,/g,""));
+    const LS_KEY = "fv_calc_combine_calibration_history_v1";
+
+    const combineSel = $("combine"), cropSel = $("crop");
+    const cw = $("cw"), gw = $("gw");
+    const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
+
+    /* ---------- Populate combines from any available source ---------- */
+    async function populateCombines(){
+      // Preferred: a global list/window helper you may wire later
+      let list = [];
+
+      // 1) App-provided helper
+      try {
+        if (window.FV && typeof window.FV.getCombines === "function") {
+          list = await window.FV.getCombines();
+        }
+      } catch(e){}
+
+      // 2) Global constant array
+      if (!list.length && Array.isArray(window.FV_COMBINES)) {
+        list = window.FV_COMBINES;
+      }
+
+      // 3) LocalStorage fallback (expect array of {model, serial})
+      if (!list.length) {
+        try {
+          const raw = localStorage.getItem("fv:equipment:combines");
+          const arr = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(arr)) list = arr;
+        } catch(e){}
+      }
+
+      // If still nothing, leave placeholder only.
+      if (!list.length) return;
+
+      // Build options: "Model • SN 1234"
+      list.forEach(it=>{
+        const model = (it.model || it.makeModel || "Combine").toString();
+        const sn = (it.serial || it.sn || "").toString();
+        const last4 = sn.slice(-4);
+        const opt = document.createElement("option");
+        opt.value = (it.id || sn || model); // value can be id/sn/model
+        opt.textContent = last4 ? `${model} • SN ${last4}` : model;
+        combineSel.appendChild(opt);
+      });
+    }
+
+    populateCombines();
+
+    /* ---------- Input formatting ---------- */
+    [cw, gw].forEach(inp=>{
+      inp.addEventListener("blur", ()=>{
+        const raw = inp.value.replace(/[^0-9]/g,"");
+        inp.value = raw ? Number(raw).toLocaleString() : "";
+      });
+    });
+
+    /* ---------- History ---------- */
+    function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
+    function saveH(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
+    function addHistRow(it, idx){
+      const row = document.createElement("div"); row.className="hitem";
+      const combineTxt = it.combineLabel || "—";
+      row.innerHTML = `
+        <div class="hsummary">${combineTxt} • ${it.crop==="corn"?"Corn":"Soy"} — ${it.status} (${fmt(it.pct,2)}%)</div>
+        <div class="muted">${fmt(it.cw,0)} lb vs ${fmt(it.gw,0)} lb • ${new Date(it.t).toLocaleString()}</div>
+      `;
+      $("hlist").appendChild(row);
+    }
+    function renderHist(){
+      const h = loadH();
+      $("hlist").innerHTML = "";
+      if (!h.length){ $("nohist").hidden=false; return; }
+      $("nohist").hidden = true;
+      h.forEach(addHistRow);
+    }
+    $("clearHist").addEventListener("click", ()=>{ localStorage.removeItem(LS_KEY); renderHist(); });
+
+    /* ---------- Calculation ---------- */
+    function calc(){
+      const cwv = Number((cw.value||"").replace(/,/g,""));
+      const gwv = Number((gw.value||"").replace(/,/g,""));
+      if(!(cwv>0 && gwv>0)){ alert("Enter both weights."); return null; }
+
+      const diff = cwv - gwv;               // positive: combine reads high
+      const pct = Math.abs(diff) / gwv * 100;
+      const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
+
+      return { cw: cwv, gw: gwv, pct, status };
+    }
+
+    function show(o){
+      if(!o){ res.hidden = true; return; }
+      rStatus.textContent = o.status;
+      rPct.textContent = fmt(o.pct,2) + " %";
+      rCw.textContent = fmt(o.cw,0) + " lb";
+      rGw.textContent = fmt(o.gw,0) + " lb";
+      res.hidden = false;
+    }
+
+    $("frm").addEventListener("submit", (ev)=>{
+      ev.preventDefault();
+      const out = calc(); if(!out) return;
+
+      // Build combine label for history
+      const selOpt = combineSel.options[combineSel.selectedIndex];
+      const combineLabel = selOpt ? selOpt.textContent : "—";
+      const rec = {
+        t: Date.now(),
+        combineId: combineSel.value || "",
+        combineLabel,
+        crop: cropSel.value,
+        cw: out.cw,
+        gw: out.gw,
+        pct: out.pct,
+        status: out.status
+      };
+
+      // Save to history (last 10)
+      const h = loadH(); h.unshift(rec); saveH(h); renderHist();
+
+      // Show results
+      show(out);
+
+      // (Future) persist to that combine’s profile if/when backend is wired:
+      // e.g., window.FV.saveCombineCalibration?.(rec)
+    });
+
+    $("clearBtn").addEventListener("click", ()=>{
+      cw.value=""; gw.value="";
+      res.hidden = true;
+    });
+
+    // Boot
+    renderHist();
+  })();
+  </script>
+</body>
+</html>
