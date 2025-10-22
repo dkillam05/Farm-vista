@@ -10,8 +10,6 @@
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
-  <!-- OCR quick helper (Tesseract) -->
-  <script defer src="../../js/ocr-tesseract.js?rev=2"></script>
   <style>
     :root{
       --page-bottom-gap: 96px;
@@ -42,7 +40,7 @@
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);
     }
-    .card-head .icon{ width:28px; height:28px; color:var(--accent); }
+    .card-head .icon{ width:34px; height:34px; color:var(--accent); }
     .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B); }
 
@@ -99,8 +97,9 @@
     .modal[open]{ display:grid; opacity:1; }
     .dialog{ width:min(860px,94vw); max-height:88vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
       border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
-    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; gap:8px; }
     .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .head-actions{ display:flex; gap:8px; margin-left:auto; }
     .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important; }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
 
@@ -120,9 +119,9 @@
         <div class="card-head">
           <div class="icon" aria-hidden="true">
             <!-- Balance scale + TRIAL (built-in) -->
-            <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <!-- pillar + beam -->
-              <path d="M16 4v15M10 8h12"/>
+              <path d="M16 3.5v15M9.5 8h13"/>
               <!-- pans / frames -->
               <path d="M12 8l-4 7h8l-4-7zM24 8l-4 7h8l-4-7z" fill="currentColor" fill-opacity=".07"/>
               <!-- implied curves / weights -->
@@ -130,7 +129,7 @@
               <!-- base -->
               <path d="M11 20h10M9 24h14"/>
               <!-- label -->
-              <text x="16" y="30" text-anchor="middle" font-size="6" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif" fill="currentColor" stroke="none">TRIAL</text>
+              <text x="16" y="30" text-anchor="middle" font-size="7" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif" fill="currentColor" stroke="none">TRIAL</text>
             </svg>
           </div>
           <div>
@@ -187,7 +186,10 @@
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="impTitle">
       <div class="dialog-head">
         <h3 id="impTitle">Import Treatments</h3>
-        <button class="closex" id="impClose" type="button">Back</button>
+        <div class="head-actions">
+          <button class="closex" id="impCancel" type="button">Cancel</button>
+          <button class="closex" id="impDone" type="button">Done</button>
+        </div>
       </div>
       <div class="dialog-body">
         <div id="impStatus" class="muted">Reading…</div>
@@ -322,7 +324,7 @@
 
     /* ---------- Import ---------- */
     var impTake=$("impTake"), impPick=$("impPick"), impCam=$("impCam"), impFile=$("impFile");
-    var impModal=$("impModal"), impClose=$("impClose"), impStatus=$("impStatus");
+    var impModal=$("impModal"), impDone=$("impDone"), impCancel=$("impCancel"), impStatus=$("impStatus");
 
     function openModal(el, opener){
       lastOpener = opener || null;
@@ -351,8 +353,8 @@
       }
     });
 
-    impClose.addEventListener("click", function(){ closeModal(impModal); });
-    impModal.addEventListener("click", function(e){ if(e.target===impModal) closeModal(impModal); });
+    impDone.addEventListener("click", function(){ closeModal(impModal); });
+    impCancel.addEventListener("click", function(){ closeModal(impModal); });
 
     impTake.addEventListener("click", function(){ impCam.click(); });
     impPick.addEventListener("click", function(){ impFile.click(); });
@@ -382,23 +384,33 @@
       }
     }
 
-    // Each line like: Field, Treatment, Yield, [Type], [Notes]
+    // Recognizes CSV-like rows OR lines like:
+    // "16.5% - 600 ft 5990lbs Treated"
     function parseTreatments(t){
-      var rows = t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      var lines = t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
       var out=[];
-      rows.forEach(function(line){
+      lines.forEach(function(line){
+        // pattern line
+        var m = line.match(/(\d{1,2}(?:\.\d+)?)%\D+(\d{2,4})\s*ft\D+(\d{3,6})\s*lb/i);
+        if(m){
+          var type = /untreated/i.test(line) ? "Check" : (/treated/i.test(line) ? "Treated" : "Treated");
+          var notes = `Moist ${m[1]}% • ${m[2]}ft • ${Number(m[3]).toLocaleString()} lb`;
+          out.push({field:"", name:"", yield:null, type, notes});
+          return;
+        }
+        // fallback CSV-ish: Field, Treatment, Yield, [Type], [Notes]
         var parts=line.split(/[,;|\t]\s*/);
         if(!parts.length) return;
-        var field=parts[0]||"", name=parts[1]||"", yieldN=null, type="Treated", notes="";
+        var field=parts[0]||"", name=parts[1]||"", yieldN=null, type2="Treated", notes2="";
         for(var i=2;i<parts.length;i++){
           var p=parts[i];
           var n=parseFloat(p.replace(/[^0-9.]/g,""));
           if(!isNaN(n) && yieldN===null){ yieldN=n; continue; }
-          if(/check/i.test(p)) type="Check";
-          else if(/treat/i.test(p)) type="Treated";
-          else notes += (notes?"; ":"")+p;
+          if(/check/i.test(p)) type2="Check";
+          else if(/treat/i.test(p)) type2="Treated";
+          else notes2 += (notes2?"; ":"")+p;
         }
-        out.push({field,name,yield:yieldN,type,notes});
+        out.push({field,name,yield:yieldN,type:type2,notes:notes2});
       });
       return out;
     }
@@ -435,7 +447,11 @@
       row.querySelector('[data-k="enter"]').addEventListener("click", function(){ openCY(row); });
       return row;
     }
-    function addTreatmentFromObj(o){ var r=mkRow(o.field||"", o.name||"", o.yield!=null?o.yield:null); if(o.type) r.querySelector('[data-k="type"]').value=o.type; if(o.notes) r.querySelector('[data-k="notes"]').value=o.notes; }
+    function addTreatmentFromObj(o){
+      var r=mkRow(o.field||"", o.name||"", o.yield!=null?o.yield:null);
+      if(o.type)  r.querySelector('[data-k="type"]').value=o.type;
+      if(o.notes) r.querySelector('[data-k="notes"]').value=o.notes;
+    }
 
     function allRows(){ return [].slice.call(tlist.querySelectorAll(".trow")); }
     function lockAdd(){ addBtn.disabled = allRows().length >= MAX_T; }
@@ -586,6 +602,8 @@
     histModal.addEventListener("click", function(e){ if(e.target===histModal) closeModal(histModal); });
 
     /* ---------- Save & Clear History ---------- */
+    var hlist=$("hlist"), nohist=$("nohist");
+    var saveBtn=$("saveTrial");
     saveBtn.addEventListener("click", function(){
       var items=getData();
       if(!items.length){ alert("Add at least one treatment."); return; }
