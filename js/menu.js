@@ -116,37 +116,6 @@ export const NAV_MENU = {
       ]
     },
 
-    /* ===== Office ===== */
-    {
-      type: 'group',
-      id: 'office',
-      icon: '🏢',
-      label: 'Office',
-      href: '/Farm-vista/pages/office/index.html',
-      collapsible: true,
-      initialOpen: false,
-      children: [
-        {
-          type: 'group',
-          id: 'office-teams',
-          icon: '👥',
-          label: 'Teams & Partners',
-          href: '/Farm-vista/pages/office/teams-and-partners/index.html',
-          collapsible: true,
-          initialOpen: false,
-          children: [
-            { type: 'link', id: 'teams-employees',       icon: '👤',     label: 'Employees',        href: '/Farm-vista/pages/office/teams-and-partners/employees.html' },
-            { type: 'link', id: 'teams-sub-contractors', icon: '🧰',     label: 'Sub-Contractors',  href: '/Farm-vista/pages/office/teams-and-partners/sub-contractors.html' },
-            { type: 'link', id: 'teams-vendors',         icon: '🏪',     label: 'Vendors',          href: '/Farm-vista/pages/office/teams-and-partners/vendors.html' },
-            { type: 'link', id: 'teams-dictionary',      icon: '📖',     label: 'Dictionary',       href: '/Farm-vista/pages/office/teams-and-partners/dictionary.html' }
-          ]
-        },
-
-        { type: 'link', id: 'office-vehicle-registration', icon: '🚗', label: 'Vehicle Registration', href: '/Farm-vista/pages/office/vehicle-registration.html', activeMatch: 'exact' },
-        { type: 'link', id: 'office-field-boundaries',     icon: '🗺️', label: 'Field Boundaries',      href: '/Farm-vista/pages/office/field-boundaries.html',     activeMatch: 'starts-with' }
-      ]
-    },
-
     /* ===== Inventory (NEW) ===== */
     {
       type: 'group',
@@ -202,7 +171,15 @@ export const NAV_MENU = {
         { type: 'link', id: 'calc-bin',          icon: '🛢️', label: 'Grain Bin',                    href: '/Farm-vista/pages/calculators/calc-grain-bin.html' },
         { type: 'link', id: 'calc-shrink',       icon: '📉', label: 'Grain Shrink',                 href: '/Farm-vista/pages/calculators/calc-grain-shrink.html' },
         { type: 'link', id: 'calc-combine-loss', icon: '🌾', label: 'Combine Grain Loss',           href: '/Farm-vista/pages/calculators/calc-combine-grain-loss.html' },
-        { type: 'link', id: 'calc-combine-yld',  icon: '⚙️', label: 'Combine Yield Cal',            href: '/Farm-vista/pages/calculators/calc-combine-yield.html' },
+
+        /* renamed */
+        { type: 'link', id: 'calc-combine-yld',  icon: '⚙️', label: 'Combine Yield Check',          href: '/Farm-vista/pages/calculators/calc-combine-yield.html' },
+
+        /* new */
+        { type: 'link', id: 'calc-combine-calibration', icon: '⚙️', label: 'Combine Yield Calibration', href: '/Farm-vista/pages/calculators/calc-combine-yield-calibration.html', activeMatch: 'exact' },
+
+        { type: 'link', id: 'calc-combine-yld-old',  icon: '⚙️', label: 'Combine Yield Cal',            href: '/Farm-vista/pages/calculators/calc-combine-yield.html', style: 'display:none' }, // (safety: ignore; not rendered by shell if style not supported)
+
         { type: 'link', id: 'calc-chem-mix',     icon: '🧪', label: 'Chemical Mix',                 href: '/Farm-vista/pages/calculators/calc-chemical-mix.html' },
         { type: 'link', id: 'calc-trial-ylds',   icon: '🧬', label: 'Trial Yields',                 href: '/Farm-vista/pages/calculators/calc-trial-yields.html' }
       ]
@@ -255,7 +232,6 @@ export const NAV_MENU = {
         { type: 'link', id: 'setup-farms',   icon: '🏷️', label: 'Farms',  href: '/Farm-vista/pages/setup/farms.html',  activeMatch: 'starts-with' },
         { type: 'link', id: 'setup-fields',  icon: '🗺️', label: 'Fields', href: '/Farm-vista/pages/setup/fields.html', activeMatch: 'starts-with' },
 
-        /* Linked: Grain Bin Sites */
         { 
           type: 'link',
           id: 'setup-grain-sites',
@@ -274,7 +250,6 @@ export const NAV_MENU = {
           activeMatch: 'starts-with'
         },
 
-        /* RTK Tower Information */
         { type: 'link', id: 'setup-rtk-towers', icon: '🛰️', label: 'RTK Tower Information', href: '/Farm-vista/pages/setup/rtk-tower-information.html', activeMatch: 'starts-with' },
 
         { type: 'link', id: 'setup-company', label: 'Company Details', icon: '🏢', href: '/Farm-vista/pages/setup/company-details.html', activeMatch: 'starts-with' },
