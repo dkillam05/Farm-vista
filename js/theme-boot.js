@@ -52,3 +52,29 @@
     );
   }catch(e){}
 })();
+
+// === Global Firebase boot: load once as a module across the whole app ===
+// We don't convert this file to a module; instead we inject a module script safely.
+(function(){
+  try{
+    // Avoid double-loading if another page already added it.
+    if (window.__FV_FIREBASE_INIT_LOADED__) return;
+    window.__FV_FIREBASE_INIT_LOADED__ = true;
+
+    var s = document.createElement('script');
+    s.type = 'module';
+    s.defer = true;
+    s.src = '/Farm-vista/js/firebase-init.js'; // <-- make sure this file exists
+    document.head.appendChild(s);
+
+    // Optional: light console breadcrumb for verification
+    s.addEventListener('load', function(){
+      console.log('[FV] firebase-init loaded');
+    });
+    s.addEventListener('error', function(){
+      console.warn('[FV] firebase-init failed to load — check path /Farm-vista/js/firebase-init.js');
+    });
+  }catch(e){
+    console.warn('[FV] Firebase boot error:', e);
+  }
+})();
