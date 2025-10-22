@@ -1,21 +1,13 @@
-/* /Farm-vista/js/firebase-init.js
-   Single, global Firebase bootstrap with offline-aware retry.
-   Exposes:
-     window.firebaseApp
-     window.firebaseAuth
-     window.firebaseDB
-     window.firebaseStorage
-     window.firebaseAnalytics (may be null)
-     window.firebaseReady  -> Promise that resolves when app is ready
-*/
+// /Farm-vista/js/firebase-init.js  (ES module)
 
-if (!window.__FV_FB_LOADER__) {
-  window.__FV_FB_LOADER__ = (async () => {
-    // CDN ESM imports
+// Guard against double init
+if (!window.__FV_FIREBASE_READY__) {
+  window.__FV_FIREBASE_READY__ = (async () => {
+    // Load Firebase SDK (ESM from Google CDN)
     const [
       appMod,
       authMod,
-      dbMod,
+      firestoreMod,
       storageMod,
       analyticsMod
     ] = await Promise.all([
@@ -23,72 +15,54 @@ if (!window.__FV_FB_LOADER__) {
       import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js'),
       import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'),
       import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js'),
-      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js').catch(()=>({}))
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js').catch(() => null),
     ]);
 
     const { initializeApp, getApps } = appMod;
     const { getAuth, setPersistence, browserLocalPersistence } = authMod;
-    const { getFirestore } = dbMod;
+    const { getFirestore } = firestoreMod;
     const { getStorage } = storageMod;
-    const { getAnalytics, isSupported: analyticsSupported } = analyticsMod || {};
+    const getAnalytics = analyticsMod?.getAnalytics;
 
-    // ---- YOUR CONFIG (unchanged except bucket host) ----
+    // Your config (bucket uses appspot.com)
     const firebaseConfig = {
       apiKey: "AIzaSyB3sLBWFDsoZRLmfQ19hKLoH_nMrHEFQME",
       authDomain: "dowsonfarms-illinois.firebaseapp.com",
       projectId: "dowsonfarms-illinois",
-      storageBucket: "dowsonfarms-illinois.appspot.com", // <- bucket ID host
+      storageBucket: "dowsonfarms-illinois.appspot.com",
       messagingSenderId: "300398089669",
       appId: "1:300398089669:web:def2c52650a7eb67ea27ac",
       measurementId: "G-QHBEXVGNJT"
     };
 
-    // Initialize exactly once
-    const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-
-    // Core services
+    const app = getApps().length ? appMod.getApp() : initializeApp(firebaseConfig);
     const auth = getAuth(app);
-    // Persist session so you stay signed in until you explicitly logout
-    await setPersistence(auth, browserLocalPersistence);
-
+    await setPersistence(auth, browserLocalPersistence);   // stay signed in until explicit logout
     const db = getFirestore(app);
-    const storage = getStorage(app); // can also pass gs:// if you ever need
-
-    // Analytics (optional/safe)
+    const storage = getStorage(app);
     let analytics = null;
-    try {
-      if (analyticsSupported && (await analyticsSupported())) {
-        analytics = getAnalytics(app);
-      }
-    } catch (_) {}
+    try { if (location.protocol === 'https:') analytics = getAnalytics?.(app) || null; } catch {}
 
-    // Expose globals for non-module pages to consume
+    // Expose as ESM exports AND globals (for non-module pages)
     window.firebaseApp = app;
     window.firebaseAuth = auth;
     window.firebaseDB = db;
     window.firebaseStorage = storage;
-    window.firebaseAnalytics = analytics;
 
-    return { app, auth, db, storage, analytics };
+    return { app, auth, db, storage, analytics,
+      // re-export helpers other modules may want
+      _mods: { authMod, firestoreMod, storageMod }
+    };
   })();
 }
 
-// Public Promise other pages can await
-window.firebaseReady = (async () => {
-  try {
-    const ready = await window.__FV_FB_LOADER__;
-    return ready;
-  } catch (e) {
-    throw e;
-  }
-})();
-
-// Auto-retry on reconnect if first load ever failed
-(function attachOnlineRetry(){
-  if (window.__FV_FB_ONLINE_BOUND__) return;
-  window.__FV_FB_ONLINE_BOUND__ = true;
-  window.addEventListener('online', async () => {
-    if (window.firebaseApp) return; // already good
-    try { await import('/Farm-vista/js/firebase-init.js?retry=' + Date.now()); } catch {}
-  });
-})();
+// ESM exports for module imports
+export const ready = window.__FV_FIREBASE_READY__;
+const env = await window.__FV_FIREBASE_READY__;
+export const app = env.app;
+export const auth = env.auth;
+export const db = env.db;
+export const storage = env.storage;
+export const authMod = env._mods.authMod;
+export const firestoreMod = env._mods.firestoreMod;
+export const storageMod = env._mods.storageMod;
