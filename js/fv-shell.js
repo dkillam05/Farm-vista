@@ -221,7 +221,7 @@
     /* Toast in dark */
     :host-context(.dark) .toast{
       background:#1b1f1c; color:#F2F4F1;
-      border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
+      border:1px solid #2a2eb; box-shadow:0 12px 32px rgba(0,0,0,.55);
     }
   </style>
 
@@ -346,7 +346,7 @@
 
       r.querySelector('.js-update-row').addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      // ===== AUTH+ Logout & user label =====
+      // ===== AUTH+ Logout & user label (added) =====
       this._wireAuthLogout(r);
 
       // Close the top drawer on profile links before navigation
@@ -375,13 +375,11 @@
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
 
-      // Show current user name/email in the label
-      // Wait for firebase-init to set window.firebaseApp/firebaseAuth
+      // Helper: import auth SDK + get auth instance that firebase-init created
       const needAuthFns = async () => {
         if (!window.firebaseAuth) {
           try { await import('/Farm-vista/js/firebase-init.js'); } catch(_){}
         }
-        // load modular helpers for onAuthStateChanged/signOut if we need them
         const mod = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
         return { onAuthStateChanged: mod.onAuthStateChanged, signOut: mod.signOut, getAuth: mod.getAuth };
       };
@@ -390,11 +388,13 @@
         const { onAuthStateChanged, getAuth, signOut } = await needAuthFns();
         const auth = window.firebaseAuth || getAuth(window.firebaseApp);
 
+        // Live label: "Logout <name/email>"
         onAuthStateChanged(auth, (user)=>{
           const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
           if (logoutLabel) logoutLabel.textContent = `Logout ${name}`;
         });
 
+        // Actual sign-out
         if (logoutRow) {
           logoutRow.addEventListener('click', async (e)=>{
             e.preventDefault();
@@ -402,10 +402,12 @@
             this.toggleDrawer(false);
             try{
               if (typeof window.fvSignOut === 'function') {
-                await window.fvSignOut();   // defined in firebase-init.js (awaits and redirects)
+                await window.fvSignOut(); // if firebase-init exported helper
               } else {
                 await signOut(auth);
-                location.replace('/Farm-vista/pages/login/');
+                // preserve where you were so login can bounce back
+                const next = encodeURIComponent(location.pathname + location.search + location.hash);
+                location.replace('/Farm-vista/pages/login/?next=' + next);
               }
             }catch(err){
               console.warn('[FV] logout error:', err);
@@ -415,7 +417,7 @@
         }
       }catch(err){
         console.warn('[FV] auth wiring skipped (offline or no firebase):', err);
-        // Fallback: simple redirect (previous behavior)
+        // Fallback: keep prior behavior (simple redirect)
         if (logoutRow) {
           logoutRow.addEventListener('click', (e)=> {
             e.preventDefault();
