@@ -170,37 +170,16 @@
   else checkFirestore();
 })();
 
-// === Inline Global Firestore Sync (AUTO: localStorage ⇄ Firestore) ===
+// === Inline Global Firestore Sync (localStorage → Firestore) ===
 (function(){
-  // ----- Helpers: key<->collection mapping by convention -----
-  function keyToCollection(lsKey){
-    // fv_[optional category]_name[_vN]
-    if (!lsKey || typeof lsKey !== 'string' || !lsKey.startsWith('fv_')) return null;
-    let s = lsKey.replace(/^fv_/, '');
-    // drop one optional category prefix
-    s = s.replace(/^(setup|contacts|calc|pages|app|settings|data)_/, '');
-    // drop version suffix
-    s = s.replace(/_v\d+$/, '');
-    return s || null;
-  }
-  function collectionToLikelyKeys(coll){
-    const out = new Set();
-    out.add(`fv_${coll}_v1`);
-    out.add(`fv_setup_${coll}_v1`);
-    out.add(`fv_contacts_${coll}_v1`);
-    try{
-      for (let i=0;i<localStorage.length;i++){
-        const k = localStorage.key(i);
-        if (keyToCollection(k) === coll) out.add(k);
-      }
-    }catch{}
-    return Array.from(out);
+  // Map your localStorage keys → Firestore collections
+  function mapKeyToCollection(key){
+    if (key === 'fv_setup_farms_v1') return 'farms';        // Farms page
+    // fallback: strip 'fv_' prefix and _v<number> suffix → e.g., fv_setup_fields_v1 → setup_fields
+    return key.replace(/^fv_/, '').replace(/_v\d+$/, '');
   }
 
-  // ----- Anti-echo flag when we write localStorage from Firestore -----
-  let MUTED_SETITEM = false;
-
-  // Normalize items before upsync
+  // Minimum shape normalization for items saved locally
   function normalizeItem(it){
     if (!it || typeof it !== 'object') return {};
     const out = { ...it };
@@ -208,8 +187,8 @@
     return out;
   }
 
-  // Debounced upsync queue (local → Firestore)
-  const pending = new Map(); // lsKey -> latest array
+  // Debounce queue so we don’t hammer Firestore on rapid saves
+  const pending = new Map(); // key -> latest array
   let flushTimer = null;
   function scheduleFlush(){ clearTimeout(flushTimer); flushTimer = setTimeout(flush, 250); }
 
@@ -220,18 +199,24 @@
       const mod = await import('/Farm-vista/js/firebase-init.js');
       env = await mod.ready;
       if (!env || !env.auth || !env.db) throw new Error('Firebase not ready');
-    }catch(e){ return diag('Firebase not ready for sync'); }
+    }catch(e){
+      diag('Firebase not ready for sync');
+      return;
+    }
 
     const user = env.auth.currentUser;
-    if (!user) return diag('No signed-in user for sync');
+    if (!user) { diag('No signed-in user for sync'); return; }
 
+    // Lazy-load Firestore ops
     let f;
-    try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
-    catch{ return diag('Failed to load Firestore SDK'); }
+    try{
+      f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
+    }catch{ diag('Failed to load Firestore SDK'); return; }
 
+    // Attempt to push each dataset
     for (const [lsKey, arr] of pending.entries()){
       pending.delete(lsKey);
-      const coll = keyToCollection(lsKey);
+      const coll = mapKeyToCollection(lsKey);
       if (!coll) continue;
 
       try{
@@ -254,6 +239,7 @@
   }
 
   function diag(msg){
+    // Only show visible diagnostics if something actually failed
     try{
       const box = document.createElement('div');
       box.textContent = '[FV] Firestore sync error: ' + msg;
@@ -267,12 +253,12 @@
     }catch{}
   }
 
-  // Intercept localStorage.setItem globally and queue upsync
+  // Intercept localStorage.setItem globally and queue a sync
   const _setItem = localStorage.setItem;
   localStorage.setItem = function(key, val){
     try { _setItem.apply(this, arguments); } catch {}
     try{
-      if (!MUTED_SETITEM && typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
+      if (typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
         const parsed = JSON.parse(val);
         pending.set(key, parsed);
         scheduleFlush();
@@ -280,86 +266,18 @@
     }catch{}
   };
 
-  // ----- Downsync: subscribe automatically -----
-  async function hydrateAndListen(){
+  // One-time initial sweep (in case there’s already data saved locally)
+  function initialSweep(){
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      const env = await mod.ready;
-      const { auth, db } = env;
-      if (!auth || !db) return;
-      const user = auth.currentUser;
-      if (!user) return;
-
-      const f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
-
-      const subscribeFor = new Set();
-
-      // 1) From existing keys
-      try{
-        for (let i=0;i<localStorage.length;i++){
-          const k = localStorage.key(i);
-          const c = keyToCollection(k);
-          if (c) subscribeFor.add(c);
-        }
-      }catch{}
-
-      // 2) From registry doc (live)
-      const regRef = f.doc(f.collection(db, '_sync'), 'collections');
-      f.onSnapshot(regRef, (snap)=>{
-        const data = snap.exists() ? snap.data() : {};
-        const list = Array.isArray(data.list) ? data.list : [];
-        list.forEach(c => { if (typeof c === 'string' && c.trim()) subscribeFor.add(c.trim()); });
-        startSubscriptions();
-      }, ()=>{ /* ignore; heartbeat will show if core is broken */ });
-
-      // Kick off immediately with what we have so far
-      startSubscriptions();
-
-      const started = new Set();
-      function startSubscriptions(){
-        subscribeFor.forEach(coll => {
-          if (started.has(coll)) return;
-          started.add(coll);
-          const q = f.query(
-            f.collection(db, coll),
-            f.where('uid','==', user.uid),
-            f.orderBy('createdAt','desc')
-          );
-          f.onSnapshot(q, (snap)=>{
-            const rows = [];
-            snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
-
-            const keys = collectionToLikelyKeys(coll);
-            try{
-              MUTED_SETITEM = true;
-              keys.forEach(k => _setItem.call(localStorage, k, JSON.stringify(rows)));
-            }finally{
-              MUTED_SETITEM = false;
-            }
-
-            const flag = 'fv:reloaded:'+coll;
-            if (!sessionStorage.getItem(flag)){
-              try{ sessionStorage.setItem(flag,'1'); location.reload(); }catch{}
-            }
-          }, (err)=>{ diag(`Live read failed for ${coll}: ${err && err.message ? err.message : err}`); });
-        });
-      }
-    }catch(e){
-      // Silent; heartbeat/upsync will surface if anything core is wrong
-    }
-  }
-
-  // One-time initial upsync sweep (push any existing local cache up on first run)
-  function initialUpsyncSweep(){
-    try{
-      for (let i=0;i<localStorage.length;i++){
+      for (let i=0; i<localStorage.length; i++){
         const k = localStorage.key(i);
-        const coll = keyToCollection(k);
-        if (!coll) continue;
+        if (!k || !k.startsWith('fv_')) continue;
         try{
           const raw = localStorage.getItem(k);
           const parsed = JSON.parse(raw || '[]');
-          if (Array.isArray(parsed) && parsed.length) pending.set(k, parsed);
+          if (Array.isArray(parsed) && parsed.length){
+            pending.set(k, parsed);
+          }
         }catch{}
       }
       if (pending.size) scheduleFlush();
@@ -367,10 +285,8 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', hydrateAndListen, { once:true });
-    document.addEventListener('DOMContentLoaded', initialUpsyncSweep, { once:true });
+    document.addEventListener('DOMContentLoaded', initialSweep, { once:true });
   } else {
-    hydrateAndListen();
-    initialUpsyncSweep();
+    initialSweep();
   }
 })();
