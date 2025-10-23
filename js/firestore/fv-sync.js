@@ -1,8 +1,8 @@
 // /Farm-vista/js/firestore/fv-sync.js
 // Quiet, non-blocking sync for the whole app.
-// TODAY: Upsync only (localStorage → Firestore). No UI, no downsync.
+// TODAY: Upsync only (localStorage → Firestore). No UI. Robust retries.
 
-// ------- Utilities -------
+// ========= Utilities =========
 function keyToCollection(lsKey){
   if (!lsKey || typeof lsKey !== 'string' || !lsKey.startsWith('fv_')) return null;
   let s = lsKey.replace(/^fv_/, '');
@@ -19,63 +19,91 @@ function normalizeItem(it){
   return o;
 }
 
-// ------- Queue + monkeypatch localStorage.setItem so existing pages trigger sync -------
+// ========= Queue & monkey-patch =========
 const _setItem = localStorage.setItem;
-const pending = new Map();
+const pending = new Map();   // key -> latest array
 let flushTimer = null;
 
+// Schedule a flush soon
+function scheduleFlush(delayMs = 250){
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flush, delayMs);
+}
+
+// Patch localStorage.setItem so existing pages trigger sync
 localStorage.setItem = function(key, val){
   try { _setItem.apply(this, arguments); } catch {}
   try{
     if (typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
       const parsed = JSON.parse(val);
       pending.set(key, parsed);
-      scheduleFlush();
+      scheduleFlush(200); // quick nudge
     }
   }catch{}
 };
 
-function scheduleFlush(){ clearTimeout(flushTimer); flushTimer = setTimeout(flush, 250); }
+// ========= Firebase helpers =========
+async function getEnv(){
+  try{
+    const mod = await import('/Farm-vista/js/firebase-init.js');
+    const env = await mod.ready;
+    if (!env || !env.auth || !env.db) return null;
+    return env;
+  }catch(_){ return null; }
+}
 
-// ------- Flush: pushes all pending datasets to Firestore -------
+let authHooked = false;
+async function waitForUser(env){
+  if (env.auth.currentUser) return env.auth.currentUser;
+  // hook once so when auth hydrates we flush automatically
+  if (!authHooked){
+    authHooked = true;
+    try{
+      const { onAuthStateChanged } =
+        await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+      onAuthStateChanged(env.auth, () => {
+        // user arrived; kick the queue
+        if (pending.size) scheduleFlush(0);
+      });
+    }catch{}
+  }
+  return null;
+}
+
+// ========= Core flush (pushes all pending) =========
+let sdkFirestore = null;
+
 async function flush(){
   if (!pending.size) return;
 
-  // Wait for Firebase init
-  let env;
-  try{
-    const mod = await import('/Farm-vista/js/firebase-init.js');
-    env = await mod.ready;
-    if (!env || !env.auth || !env.db) return;
-  }catch(e){ return; }
-
-  // Auth may not have hydrated yet on first load — hook and retry
-  const user = env.auth.currentUser;
-  if (!user) {
-    try {
-      if (!window.__fv_sync_auth_hooked__) {
-        window.__fv_sync_auth_hooked__ = true;
-        const { onAuthStateChanged } =
-          await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-        onAuthStateChanged(env.auth, () => {
-          // when the user appears, try again
-          scheduleFlush();
-        });
-      }
-    } catch {}
-    // backoff too, in case listener is late
-    setTimeout(scheduleFlush, 800);
+  const env = await getEnv();
+  if (!env) { // firebase-init not ready yet; try again soon
+    scheduleFlush(800);
     return;
   }
 
-  // Load Firestore ops
-  let f;
-  try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
-  catch{ return; }
+  const user = await waitForUser(env);
+  if (!user) { // auth not hydrated yet; short retry
+    scheduleFlush(800);
+    return;
+  }
 
-  // Push each dataset
+  if (!sdkFirestore){
+    try{
+      sdkFirestore = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
+    }catch(_){
+      // SDK failed to load (offline / blocked) — try again later
+      scheduleFlush(backoffGrow());
+      return;
+    }
+  }
+
+  const f = sdkFirestore;
+  let hadError = false;
+
   for (const [lsKey, arr] of Array.from(pending.entries())){
     pending.delete(lsKey);
+
     const coll = keyToCollection(lsKey);
     if (!coll) continue;
 
@@ -92,19 +120,29 @@ async function flush(){
         }, { merge: true });
       }
 
-      // Opportunistically register the collection for future downsync builds
+      // Opportunistically register the collection for later downsync builds
       try{
         const regRef = f.doc(f.collection(env.db, '_sync'), 'collections');
         const { arrayUnion, setDoc } = f;
         await setDoc(regRef, { list: arrayUnion(coll) }, { merge: true });
       }catch(_){}
     }catch(_err){
-      // Quiet in stable build
+      hadError = true;
+      // put it back in the queue so we don't lose data
+      pending.set(lsKey, arr);
     }
+  }
+
+  if (pending.size || hadError){
+    // retry with backoff
+    scheduleFlush(backoffGrow());
+  }else{
+    // success — reset backoff
+    resetBackoff();
   }
 }
 
-// ------- One-time initial sweep: push anything already in local caches -------
+// ========= Initial sweep (push existing local) =========
 function initialSweep(){
   try{
     for (let i=0;i<localStorage.length;i++){
@@ -119,19 +157,49 @@ function initialSweep(){
         }
       }catch{}
     }
-    if (pending.size) scheduleFlush();
+    if (pending.size) scheduleFlush(0);
   }catch{}
 }
-
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initialSweep, { once:true });
 } else {
   initialSweep();
 }
 
-// Optional: retry when tab becomes active (helps PWAs after background)
+// ========= Lifecyle helpers (ensure we push without user action) =========
+// 1) When the page/app becomes visible again
 window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && pending.size) {
-    scheduleFlush();
+    scheduleFlush(0);
   }
 });
+
+// 2) When navigating away or closing
+window.addEventListener('pagehide', () => { if (pending.size) scheduleFlush(0); }, { passive:true });
+window.addEventListener('beforeunload', () => { if (pending.size) scheduleFlush(0); }, { passive:true });
+
+// 3) Heartbeat: keep trying while there’s anything pending (handles slow auth/SW)
+//    Starts aggressive (1s), backs off up to 15s, resets on success.
+let beatTimer = null;
+let beatMs = 1000;           // start at 1s
+const BEAT_MAX = 15000;      // cap at 15s
+function startHeartbeat(){
+  clearInterval(beatTimer);
+  beatTimer = setInterval(()=>{
+    if (pending.size) flush(); // call flush directly so we don’t postpone via scheduleFlush
+  }, beatMs);
+}
+function backoffGrow(){
+  beatMs = Math.min(Math.floor(beatMs * 1.8), BEAT_MAX);
+  startHeartbeat();
+  return beatMs; // also use as delay for scheduleFlush
+}
+function resetBackoff(){
+  beatMs = 1000;
+  startHeartbeat();
+}
+resetBackoff(); // start the heartbeat immediately
+
+// 4) Manual external nudge (if you ever want to call this from code)
+//    window.dispatchEvent(new CustomEvent('fv:sync:nudge'))
+window.addEventListener('fv:sync:nudge', ()=> scheduleFlush(0));
