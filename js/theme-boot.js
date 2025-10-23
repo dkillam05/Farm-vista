@@ -35,6 +35,8 @@
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       /* Reduce accidental double-tap zooms while keeping natural panning */
       html, body { touch-action: pan-x pan-y; }
+      /* Hide user-name placeholders until auth is ready */
+      html:not(.fv-user-ready) [data-user-name] { visibility: hidden; }
     `;
     document.head.appendChild(style);
   }catch(e){}
@@ -50,6 +52,22 @@
       t === 'dark' ||
       (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
     );
+  }catch(e){}
+})();
+
+// === Light app bus so we can announce auth readiness across pages ===
+(function(){
+  try{
+    window.FV = window.FV || {};
+    if (!FV.bus) FV.bus = new EventTarget();
+    if (typeof FV.announce !== 'function') {
+      FV.announce = function(evtName, detail){
+        try {
+          FV.bus.dispatchEvent(new CustomEvent(evtName, { detail }));
+          window.dispatchEvent(new CustomEvent('fv:' + evtName, { detail })); // legacy mirror
+        } catch {}
+      };
+    }
   }catch(e){}
 })();
 
@@ -120,5 +138,35 @@
     document.addEventListener('DOMContentLoaded', run, { once:true });
   } else {
     run();
+  }
+})();
+
+// === NEW: Announce user readiness immediately on first auth resolve (prevents "JOHNDOE" flash) ===
+(function(){
+  const start = async () => {
+    try{
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      await mod.ready;
+      const { auth } = mod;
+      const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+
+      // First fire: initial user (including null)
+      onAuthStateChanged(auth, (user) => {
+        // Mark UI ready and announce the very first time we get any user value
+        document.documentElement.classList.add('fv-user-ready');
+        FV.announce('user-ready', user || null);
+        // Also keep broadcasting subsequent changes
+        FV.announce('user-change', user || null);
+      });
+    }catch(e){
+      // If Firebase isn't available, still avoid placeholder flashes
+      document.documentElement.classList.add('fv-user-ready');
+      FV.announce('user-ready', null);
+    }
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once:true });
+  } else {
+    start();
   }
 })();
