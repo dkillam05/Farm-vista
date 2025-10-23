@@ -138,7 +138,7 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', checkFirestore, {once:true}); else checkFirestore();
 })();
 
-// === Full-App Firestore Sync (localStorage ⇄ Firestore, echo-safe, guardrails, no indexes required) ===
+// === Full-App Firestore Sync (localStorage ⇄ Firestore, echo-safe, guardrails, registry auto-boot) ===
 (function(){
   // ----- Conventions & helpers -----
   function keyToCollection(lsKey){
@@ -196,19 +196,28 @@
   let flushTimer = null;
   function scheduleFlush(){ clearTimeout(flushTimer); flushTimer = setTimeout(flush, 250); }
 
+  // If auth isn’t ready yet, we’ll flush as soon as it becomes ready.
+  let waitingForAuthFlush = false;
+  async function ensureAuthThen(fn){
+    try{
+      const mod = await import('/Farm-vista/js/firebase-init.js'); const env = await mod.ready;
+      const { auth } = env;
+      if (auth.currentUser) return fn(env);
+      if (waitingForAuthFlush) return;
+      waitingForAuthFlush = true;
+      const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+      onAuthStateChanged(auth, (u)=>{ if (u){ waitingForAuthFlush = false; fn(env); } }, { onlyOnce:true });
+    }catch(e){ diag('Auth not ready'); }
+  }
+
   localStorage.setItem = function(key, val){
     // Always perform the real write
     try { _setItem.apply(this, arguments); } catch {}
     try{
       if (typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
-        // If this was a cloud write, we’re muted and we do NOT upsync
-        if (MUTED_SETITEM) return;
-
-        // Record edit time by collection, for snapshot suppression
+        if (MUTED_SETITEM) return; // skip echo
         const coll = keyToCollection(key);
         if (coll) lastLocalEditAt.set(coll, Date.now());
-
-        // Queue upsync of the full array
         const parsed = JSON.parse(val);
         pending.set(key, parsed);
         scheduleFlush();
@@ -218,38 +227,49 @@
 
   async function flush(){
     if (!pending.size) return;
-    let env;
-    try{
-      const mod = await import('/Farm-vista/js/firebase-init.js'); env = await mod.ready;
-      if (!env || !env.auth || !env.db) throw new Error('Firebase not ready');
-    }catch(e){ return diag('Firebase not ready for sync'); }
+    ensureAuthThen(async (env)=>{
+      const { auth, db } = env;
+      const user = auth.currentUser; if (!user || !db) return;
 
-    const user = env.auth.currentUser; if (!user) return diag('No signed-in user for sync');
+      let f;
+      try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
+      catch{ return diag('Failed to load Firestore SDK'); }
 
-    let f;
-    try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
-    catch{ return diag('Failed to load Firestore SDK'); }
+      // We'll also auto-register collections we touch for downsync bootstrapping
+      const touched = new Set();
 
-    for (const [lsKey, arr] of pending.entries()){
-      pending.delete(lsKey);
-      const coll = keyToCollection(lsKey);
-      if (!coll) continue;
+      for (const [lsKey, arr] of pending.entries()){
+        pending.delete(lsKey);
+        const coll = keyToCollection(lsKey);
+        if (!coll) continue;
 
-      try{
-        const list = Array.isArray(arr) ? arr : [];
-        for (const raw of list){
-          const it = normalizeItem(raw);
-          const ref = f.doc(f.collection(env.db, coll), it.id);
-          await f.setDoc(ref, {
-            ...it,
-            uid: user.uid,
-            updatedAt: f.serverTimestamp(),
-            createdAt: it.createdAt || f.serverTimestamp(),
-          }, { merge: true });
-        }
-        console.log(`[FV] Synced ${list.length} items from ${lsKey} → ${coll}`);
-      }catch(err){ diag(`Sync failed for ${coll}: ${err && err.message ? err.message : err}`); }
-    }
+        try{
+          const list = Array.isArray(arr) ? arr : [];
+          for (const raw of list){
+            const it = normalizeItem(raw);
+            const ref = f.doc(f.collection(db, coll), it.id);
+            await f.setDoc(ref, {
+              ...it,
+              uid: user.uid,
+              updatedAt: f.serverTimestamp(),
+              createdAt: it.createdAt || f.serverTimestamp(),
+            }, { merge: true });
+          }
+          touched.add(coll);
+          console.log(`[FV] Synced ${list.length} items from ${lsKey} → ${coll}`);
+        }catch(err){ diag(`Sync failed for ${coll}: ${err && err.message ? err.message : err}`); }
+      }
+
+      // Auto-register touched collections in _sync/collections (arrayUnion)
+      if (touched.size){
+        try{
+          const list = Array.from(touched);
+          const regRef = f.doc(f.collection(db, '_sync'), 'collections');
+          const { arrayUnion, setDoc } = f;
+          await setDoc(regRef, { list: arrayUnion(...list) }, { merge: true });
+        }catch(e){ /* non-blocking */ }
+      }
+    });
   }
 
   function initialUpsyncSweep(){
@@ -270,11 +290,14 @@
     try{
       const mod = await import('/Farm-vista/js/firebase-init.js'); const env = await mod.ready;
       const { auth, db } = env; if (!auth || !db) return;
-      const user = auth.currentUser; if (!user) return;
+      const user = auth.currentUser; if (!user) {
+        const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+        onAuthStateChanged(auth, ()=> hydrateAndListen(), { onlyOnce:true });
+        return;
+      }
       const f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
 
       const subscribeFor = new Set();
-
       // From existing localStorage keys
       try{
         for (let i=0;i<localStorage.length;i++){
@@ -287,33 +310,21 @@
         if (!coll || started.has(coll)) return;
         started.add(coll);
 
-        // No orderBy -> no composite index needed; we sort client-side.
         const q = f.query(f.collection(db, coll), f.where('uid','==', user.uid));
 
         f.onSnapshot(q, (snap)=>{
           // Respect recent local edit (edit-wins window)
           const t = lastLocalEditAt.get(coll) || 0;
-          if (Date.now() - t < EDIT_WIN_MS) return; // skip this snapshot; next one will apply
+          if (Date.now() - t < EDIT_WIN_MS) return;
 
           const rows = [];
           snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
           sortNewestFirst(rows);
 
-          // Hydrate-if-empty per key: only overwrite if key is empty OR we’re not within edit window
           const keys = collectionToLikelyKeys(coll);
           try{
-            MUTED_SETITEM = true; // prevent echo while we write localStorage
-            keys.forEach(k => {
-              try{
-                const cur = JSON.parse(localStorage.getItem(k) || '[]');
-                const isEmpty = !Array.isArray(cur) || cur.length === 0;
-                if (isEmpty || Date.now() - (lastLocalEditAt.get(coll)||0) >= EDIT_WIN_MS){
-                  _setItem.call(localStorage, k, JSON.stringify(rows));
-                }
-              }catch{
-                _setItem.call(localStorage, k, JSON.stringify(rows));
-              }
-            });
+            MUTED_SETITEM = true; // prevent echo while writing localStorage
+            keys.forEach(k => _setItem.call(localStorage, k, JSON.stringify(rows)));
           }finally{
             MUTED_SETITEM = false;
           }
@@ -323,13 +334,13 @@
       // Start listeners for what we already know
       subscribeFor.forEach(startColl);
 
-      // Optional registry to pre-enable more collections without any local save
+      // Watch registry and add more on the fly (auto-boot from other devices)
       const regRef = f.doc(f.collection(db, '_sync'), 'collections');
       f.onSnapshot(regRef, (snap)=>{
         const data = snap.exists() ? snap.data() : {};
         const list = Array.isArray(data.list) ? data.list : [];
         list.forEach(c => startColl(typeof c === 'string' ? c.trim() : ''));
-      }, ()=>{ /* ignore errors; heartbeat/upsync will surface core issues */ });
+      }, ()=>{ /* ignore; upsync/heartbeat will surface core issues */ });
 
     }catch(e){ /* silent */ }
   }
