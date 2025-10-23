@@ -61,8 +61,6 @@
     var s = document.createElement('script');
     s.type = 'module'; s.defer = true; s.src = '/Farm-vista/js/firebase-init.js';
     document.head.appendChild(s);
-    s.addEventListener('load', ()=> console.log('[FV] firebase-init loaded'));
-    s.addEventListener('error', ()=> console.warn('[FV] firebase-init failed to load — check path'));
   }catch(e){ console.warn('[FV] Firebase boot error:', e); }
 })();
 
@@ -108,45 +106,15 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true }); else start();
 })();
 
-// === Firestore Heartbeat (diagnostics only if broken) ===
-(function(){
-  const OWNER_UID = "zD2ssHGNE6RmBSqAyg8r3s3tBKl2"; // harmless check; doesn’t block
-  async function checkFirestore(){
-    try{
-      const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
-      const { app, auth, db } = mod;
-      if (!app || !auth || !db) throw new Error('Missing Firebase core');
-      const user = auth.currentUser; if (!user) throw new Error('No signed-in user');
-      if (user.uid !== OWNER_UID) console.warn('[FV] Firestore heartbeat: non-owner', user.email || user.uid);
-      const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
-      const ref = doc(db, '_heartbeat', 'ping'); await getDoc(ref);
-      console.log('[FV] ✅ Firestore connection OK');
-    }catch(err){ showDiag(err.message || String(err)); }
-  }
-  function showDiag(msg){
-    try{
-      const box = document.createElement('div');
-      box.textContent = '[FV] Firestore error: ' + msg;
-      box.style.cssText = `
-        position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
-        background:#B71C1C; color:#fff; padding:10px 16px; border-radius:8px;
-        font-size:14px; z-index:99999; box-shadow:0 6px 20px rgba(0,0,0,.4);
-      `;
-      document.body.appendChild(box); setTimeout(()=> box.remove(), 6000);
-    }catch{}
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', checkFirestore, {once:true}); else checkFirestore();
-})();
-
 // === Full-App Firestore Sync (localStorage ⇄ Firestore) + Spinner & Full-width Status Bar ===
 (function(){
-  // --- Timings (tweakable) ---
+  // --- Timings ---
   const MIN_SPIN_MS = 2000;   // min 2s to avoid blip
   const MAX_SPIN_MS = 20000;  // max 20s before handing off to banner
 
   // --- UI: overlay spinner + full-width sticky status bar ---
   let uiReady = false, spinnerShownAt = 0, minTimer = null, maxTimer = null, backoffTimer = null;
-  let backoffMs = 1200; const BACKOFF_MAX = 15000;
+  let backoffMs = 1200; const BACKOFF_MAX = 20000;
 
   function ensureUI(){
     if (uiReady) return;
@@ -201,16 +169,17 @@
 
     window.__FV_SYNC_UI__ = {
       overlay, bar,
-      setBarState(ok){
+      setBarState(ok, msg){
         const dot = bar.querySelector('.fv-sync-dot');
         const txt = bar.querySelector('.fv-sync-text');
         if (ok){
           dot.classList.add('fv-sync-ok');
-          txt.textContent = 'Synced.';
+          txt.textContent = 'Synced';
           setTimeout(()=>{ bar.classList.remove('show'); dot.classList.remove('fv-sync-ok'); }, 1200);
         } else {
           dot.classList.remove('fv-sync-ok');
-          txt.textContent = navigator.onLine ? 'Still syncing… we’ll keep trying.' : 'Offline — will sync when back online.';
+          txt.textContent = msg || (navigator.onLine ? 'Still syncing… we’ll keep trying.' : 'Offline — will sync when back online.');
+          bar.classList.add('show');
         }
       }
     };
@@ -219,16 +188,13 @@
   function showSpinner(){
     ensureUI();
     const ui = window.__FV_SYNC_UI__;
-    if (!ui) return;
     spinnerShownAt = Date.now();
     ui.overlay.classList.add('show');
     clearTimeout(minTimer); clearTimeout(maxTimer);
     minTimer = setTimeout(()=>{}, MIN_SPIN_MS);
     maxTimer = setTimeout(()=>{
-      // hard stop overlay; show sticky bar and keep retrying
       ui.overlay.classList.remove('show');
       ui.setBarState(false);
-      ui.bar.classList.add('show');
     }, MAX_SPIN_MS);
   }
   function hideSpinnerIfAllowed(){
@@ -238,10 +204,9 @@
     if (!ui.overlay.classList.contains('show')) return;
     if (elapsed >= MIN_SPIN_MS) doHide(); else setTimeout(doHide, MIN_SPIN_MS - elapsed);
   }
-  function showBarPending(){
+  function showBarPending(msg){
     const ui = window.__FV_SYNC_UI__; if (!ui) return;
-    ui.setBarState(false);
-    ui.bar.classList.add('show');
+    ui.setBarState(false, msg);
   }
   function hideBarAsSynced(){
     const ui = window.__FV_SYNC_UI__; if (!ui) return;
@@ -278,18 +243,6 @@
       return tb - ta;
     });
   }
-  function diag(msg){
-    try{
-      const box = document.createElement('div');
-      box.textContent = '[FV] Firestore sync error: ' + msg;
-      box.style.cssText = `
-        position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
-        background:#B71C1C; color:#fff; padding:10px 16px; border-radius:8px;
-        font-size:14px; z-index:99999; box-shadow:0 6px 20px rgba(0,0,0,.4);
-      `;
-      document.body.appendChild(box); setTimeout(()=> box.remove(), 6000);
-    }catch{}
-  }
 
   // --- Echo control & edit window ---
   const _setItem = localStorage.setItem;
@@ -316,7 +269,7 @@
       waitingForAuthFlush = true;
       const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
       onAuthStateChanged(auth, (u)=>{ if (u){ waitingForAuthFlush = false; fn(env); } }, { onlyOnce:true });
-    }catch(e){ diag('Auth not ready'); }
+    }catch(e){ showBarPending('Auth not ready'); }
   }
 
   localStorage.setItem = function(key, val){
@@ -348,12 +301,12 @@
     ensureAuthThen(async (env)=>{
       const { auth, db } = env;
       const user = auth.currentUser; if (!user || !db){
-        showSpinner(); rescheduleBackoff(); return;
+        showSpinner(); showBarPending(!user ? 'Sign in to sync' : 'Database not ready'); return rescheduleBackoff();
       }
 
       let f;
       try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
-      catch{ showSpinner(); rescheduleBackoff(); return; }
+      catch{ showSpinner(); showBarPending('Network / SDK load failed'); return rescheduleBackoff(); }
 
       const touched = new Set();
       let hadError = false;
@@ -376,13 +329,14 @@
             }, { merge: true });
           }
           touched.add(coll);
-          console.log(`[FV] Synced ${list.length} items from ${lsKey} → ${coll}`);
         }catch(err){
           hadError = true;
-          diag(`Sync failed for ${coll}: ${err && err.message ? err.message : err}`);
+          const code = (err && (err.code || err.message)) || 'write failed';
+          showBarPending(code.includes('permission') ? 'Permission denied' : String(code));
         }
       }
 
+      // Register touched collections (so other devices subscribe)
       if (touched.size){
         try{
           const list = Array.from(touched);
@@ -406,7 +360,6 @@
 
   function rescheduleBackoff(){
     clearTimeout(backoffTimer);
-    ensureUI(); showBarPending();
     backoffTimer = setTimeout(()=>{
       scheduleFlush(true);
       backoffMs = Math.min(Math.floor(backoffMs * 1.8), BACKOFF_MAX);
@@ -469,7 +422,10 @@
           }finally{
             MUTED_SETITEM = false;
           }
-        }, (err)=>{ diag(`Live read failed for ${coll}: ${err && err.message ? err.message : err}`); });
+        }, (err)=>{
+          const code = (err && (err.code || err.message)) || 'read failed';
+          showBarPending(String(code));
+        });
       }
 
       subscribeFor.forEach(startColl);
@@ -479,15 +435,28 @@
         const data = snap.exists() ? snap.data() : {};
         const list = Array.isArray(data.list) ? data.list : [];
         list.forEach(c => startColl(typeof c === 'string' ? c.trim() : ''));
-      }, ()=>{});
-    }catch(e){ /* silent */ }
+      });
+    }catch(e){ showBarPending('Listener failed'); }
+  }
+
+  // Flush if user navigates away (prevents stranded saves)
+  function attachVisibilityFlush(){
+    try{
+      window.addEventListener('pagehide', ()=> scheduleFlush(true), { passive:true });
+      window.addEventListener('beforeunload', ()=> scheduleFlush(true), { passive:true });
+      document.addEventListener('visibilitychange', ()=>{
+        if (document.visibilityState === 'hidden') scheduleFlush(true);
+      });
+    }catch{}
   }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initialUpsyncSweep, { once:true });
     document.addEventListener('DOMContentLoaded', hydrateAndListen, { once:true });
+    document.addEventListener('DOMContentLoaded', attachVisibilityFlush, { once:true });
   } else {
     initialUpsyncSweep();
     hydrateAndListen();
+    attachVisibilityFlush();
   }
 })();
