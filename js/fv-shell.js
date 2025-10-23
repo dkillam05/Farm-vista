@@ -221,7 +221,7 @@
     /* Toast in dark */
     :host-context(.dark) .toast{
       background:#1b1f1c; color:#F2F4F1;
-      border:1px solid #2a2eb; box-shadow:0 12px 32px rgba(0,0,0,.55);
+      border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
     }
   </style>
 
@@ -285,7 +285,6 @@
         <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
         <div class="chev">›</div>
       </a>
-      <!-- CHANGE: feedback row now links to your feedback page and has an id -->
       <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
         <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
         <div class="chev">›</div>
@@ -341,18 +340,18 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // NEW: Load version & tagline from /Farm-vista/js/version.js (supports globals or ESM exports)
+      // NEW: Load version & tagline from /Farm-vista/js/version.js
       this._loadVersionIntoUI();
 
-      r.querySelector('.js-update-row').addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
+      this.shadowRoot.querySelector('.js-update-row')
+        .addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      // ===== AUTH+ Logout & user label (added) =====
+      // ===== AUTH+ Logout & user label =====
       this._wireAuthLogout(r);
 
       // Close the top drawer on profile links before navigation
       const ud = r.getElementById('userDetailsLink');
       if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
-
       const fb = r.getElementById('feedbackLink');
       if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
@@ -370,31 +369,50 @@
       }, 300);
     }
 
-    // ===== AUTH+ (added) =====
+    // ===== AUTH+ (reliability improved) =====
     async _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
 
-      // Helper: import auth SDK + get auth instance that firebase-init created
       const needAuthFns = async () => {
         if (!window.firebaseAuth) {
           try { await import('/Farm-vista/js/firebase-init.js'); } catch(_){}
         }
         const mod = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-        return { onAuthStateChanged: mod.onAuthStateChanged, signOut: mod.signOut, getAuth: mod.getAuth };
+        return {
+          onIdTokenChanged: mod.onIdTokenChanged,
+          onAuthStateChanged: mod.onAuthStateChanged, // fallback
+          signOut: mod.signOut,
+          getAuth: mod.getAuth
+        };
+      };
+
+      const setLabel = (user) => {
+        const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
+        if (logoutLabel) logoutLabel.textContent = `Logout ${name}`;
       };
 
       try{
-        const { onAuthStateChanged, getAuth, signOut } = await needAuthFns();
+        const { onIdTokenChanged, onAuthStateChanged, getAuth, signOut } = await needAuthFns();
         const auth = window.firebaseAuth || getAuth(window.firebaseApp);
 
-        // Live label: "Logout <name/email>"
-        onAuthStateChanged(auth, (user)=>{
-          const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
-          if (logoutLabel) logoutLabel.textContent = `Logout ${name}`;
-        });
+        // 1) Immediate attempt (in case user already loaded)
+        setLabel(auth.currentUser);
 
-        // Actual sign-out
+        // 2) Subscribe — onIdTokenChanged fires on first load + refresh of tokens
+        onIdTokenChanged(auth, (user)=> setLabel(user));
+        // Fallback for older browsers
+        onAuthStateChanged(auth, (user)=> setLabel(user));
+
+        // 3) Tiny wait/retry if still blank (Firebase hydration race)
+        if (!auth.currentUser) {
+          let tries = 12; // ~1.8s total
+          const tick = setInterval(()=>{
+            setLabel(auth.currentUser);
+            if (auth.currentUser || --tries <= 0) clearInterval(tick);
+          }, 150);
+        }
+
         if (logoutRow) {
           logoutRow.addEventListener('click', async (e)=>{
             e.preventDefault();
@@ -402,10 +420,9 @@
             this.toggleDrawer(false);
             try{
               if (typeof window.fvSignOut === 'function') {
-                await window.fvSignOut(); // if firebase-init exported helper
+                await window.fvSignOut();
               } else {
                 await signOut(auth);
-                // preserve where you were so login can bounce back
                 const next = encodeURIComponent(location.pathname + location.search + location.hash);
                 location.replace('/Farm-vista/pages/login/?next=' + next);
               }
@@ -417,7 +434,6 @@
         }
       }catch(err){
         console.warn('[FV] auth wiring skipped (offline or no firebase):', err);
-        // Fallback: keep prior behavior (simple redirect)
         if (logoutRow) {
           logoutRow.addEventListener('click', (e)=> {
             e.preventDefault();
@@ -445,12 +461,11 @@
 
       if (number) { setUI(number, tagline); return; }
 
-      // 2) Try importing /Farm-vista/js/version.js as an ES module (works whether it exports or sets window)
+      // 2) Try importing /Farm-vista/js/version.js as an ES module
       try{
         const mod = await import('/Farm-vista/js/version.js?ts=' + Date.now());
         const pick = (m)=> {
           if (!m) return {};
-          // common shapes
           if (m.default && (m.default.number || m.default.tagline)) return m.default;
           if (m.FV_VERSION && (m.FV_VERSION.number || m.FV_VERSION.tagline)) return m.FV_VERSION;
           if (m.APP_VERSION && (m.APP_VERSION.number || m.APP_VERSION.tagline)) return m.APP_VERSION;
@@ -466,7 +481,6 @@
         tagline = v.tagline || (window.FV_VERSION && window.FV_VERSION.tagline) || 'Farm data, simplified';
         setUI(number, tagline);
       }catch{
-        // 3) Last resort
         setUI('0.0.0', 'Farm data, simplified');
       }
     }
