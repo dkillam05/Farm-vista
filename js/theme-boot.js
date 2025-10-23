@@ -1,6 +1,6 @@
-// /Farm-vista/js/theme-boot.js — STABLE (no downsync here; just loads fv-sync.js)
+// /Farm-vista/js/theme-boot.js — STABLE base + inject standalone sync (upsync-only)
 
-/* Viewport & tap */
+/* 1) Viewport & tap behavior */
 (function(){
   try{
     var HARD_NO_ZOOM = true;
@@ -10,7 +10,7 @@
     var m = document.querySelector('meta[name="viewport"]');
     if (m) m.setAttribute('content', desired);
     else {
-      m = document.createElement('meta'); m.name='viewport'; m.content=desired;
+      m = document.createElement('meta'); m.name = 'viewport'; m.content = desired;
       if (document.head && document.head.firstChild) document.head.insertBefore(m, document.head.firstChild);
       else if (document.head) document.head.appendChild(m);
     }
@@ -25,19 +25,20 @@
   }catch(e){}
 })();
 
-/* Theme pref */
+/* 2) Theme preference */
 (function(){
   try{
     var t = localStorage.getItem('fv-theme');
     if(!t) return;
     document.documentElement.setAttribute('data-theme', t === 'system' ? 'auto' : t);
     document.documentElement.classList.toggle('dark',
-      t === 'dark' || (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      t === 'dark' ||
+      (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
     );
   }catch(e){}
 })();
 
-/* Tiny app bus */
+/* 3) Tiny app bus */
 (function(){
   try{
     window.FV = window.FV || {};
@@ -53,46 +54,62 @@
   }catch(e){}
 })();
 
-/* Firebase init (global) */
+/* 4) Firebase init (global) */
 (function(){
   try{
     if (window.__FV_FIREBASE_INIT_LOADED__) return;
     window.__FV_FIREBASE_INIT_LOADED__ = true;
     var s = document.createElement('script');
-    s.type = 'module'; s.defer = true; s.src = '/Farm-vista/js/firebase-init.js';
+    s.type = 'module';
+    s.defer = true;
+    s.src = '/Farm-vista/js/firebase-init.js';
     document.head.appendChild(s);
   }catch(e){ console.warn('[FV] Firebase boot error:', e); }
 })();
 
-/* Auth guard */
+/* 5) Auth guard (protect pages; keep login public) */
 (function(){
   const run = async () => {
     try{
       const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
       const { auth } = mod;
+
       const here = location.pathname + location.search + location.hash;
       const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
-      const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+
+      const { onAuthStateChanged } =
+        await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+
       onAuthStateChanged(auth, (user) => {
         if (!user) {
-          if (!isLogin) location.replace('/Farm-vista/pages/login/?next=' + encodeURIComponent(here));
+          if (!isLogin) {
+            location.replace('/Farm-vista/pages/login/?next=' + encodeURIComponent(here));
+          }
         } else if (isLogin) {
           const qs = new URLSearchParams(location.search);
           location.replace(qs.get('next') || '/Farm-vista/dashboard/');
         }
       }, { onlyOnce: true });
-    }catch(e){ console.warn('[FV] auth-guard error:', e); }
+    }catch(e){
+      console.warn('[FV] auth-guard error:', e);
+    }
   };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once:true }); else run();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once:true });
+  } else {
+    run();
+  }
 })();
 
-/* User-ready broadcast */
+/* 6) User-ready broadcast (prevents header placeholder flash) */
 (function(){
   const start = async () => {
     try{
       const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
       const { auth } = mod;
-      const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+      const { onAuthStateChanged } =
+        await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+
       onAuthStateChanged(auth, (user) => {
         document.documentElement.classList.add('fv-user-ready');
         FV.announce('user-ready', user || null);
@@ -103,10 +120,14 @@
       FV.announce('user-ready', null);
     }
   };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true }); else start();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once:true });
+  } else {
+    start();
+  }
 })();
 
-/* === Inject the standalone sync module (quiet, non-blocking) === */
+/* 7) Inject the standalone sync module (quiet, non-blocking; upsync-only today) */
 (function(){
   try{
     const qs = new URLSearchParams(location.search);
@@ -114,8 +135,12 @@
     if (disabled) { console.warn('[FV] Sync disabled by flag'); return; }
 
     const s = document.createElement('script');
-    s.type = 'module'; s.defer = true; s.src = '/Farm-vista/js/fv-sync.js?ts=' + Date.now();
+    s.type = 'module';
+    s.defer = true;
+    s.src = '/Farm-vista/js/firestore/fv-sync.js?ts=' + Date.now(); // <-- your new folder
     s.addEventListener('error', ()=> console.warn('[FV] fv-sync.js failed to load'));
     document.head.appendChild(s);
-  }catch(e){ console.warn('[FV] inject sync failed:', e); }
+  }catch(e){
+    console.warn('[FV] inject sync failed:', e);
+  }
 })();
