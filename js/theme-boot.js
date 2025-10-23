@@ -138,15 +138,16 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', checkFirestore, {once:true}); else checkFirestore();
 })();
 
-// === Full-App Firestore Sync (localStorage ⇄ Firestore) + Spinner & Status Bar ===
+// === Full-App Firestore Sync (localStorage ⇄ Firestore) + Spinner & Full-width Status Bar ===
 (function(){
-  // --- Tweakable timings ---
-  const MIN_SPIN_MS = 2000;   // spinner shows at least this long
-  const MAX_SPIN_MS = 20000;  // after this, switch to sticky "Still syncing..." bar
+  // --- Timings (tweakable) ---
+  const MIN_SPIN_MS = 2000;   // min 2s to avoid blip
+  const MAX_SPIN_MS = 20000;  // max 20s before handing off to banner
 
-  // --- UI: overlay spinner + sticky status bar ---
+  // --- UI: overlay spinner + full-width sticky status bar ---
   let uiReady = false, spinnerShownAt = 0, minTimer = null, maxTimer = null, backoffTimer = null;
   let backoffMs = 1200; const BACKOFF_MAX = 15000;
+
   function ensureUI(){
     if (uiReady) return;
     uiReady = true;
@@ -158,12 +159,20 @@
         border:6px solid rgba(255,255,255,.4);border-top-color:#fff;animation:fvspin 1s linear infinite}
       @keyframes fvspin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 
-      .fv-sync-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:#1d1f1e;color:#fff;border:1px solid #2a2e2b;
-        border-radius:12px;padding:10px 14px;display:none;z-index:99999;box-shadow:0 10px 24px rgba(0,0,0,.35);font:500 14px system-ui,sans-serif}
-      .fv-sync-bar.show{display:flex;gap:12px;align-items:center}
-      .fv-sync-btn{appearance:none;border:1px solid #3b7e46;background:#3b7e46;color:#fff;border-radius:10px;padding:6px 10px;font-weight:700;cursor:pointer}
-      .fv-sync-dot{width:10px;height:10px;border-radius:50%;background:#f6c73b;display:inline-block;margin-right:8px}
+      .fv-sync-bar{
+        position:fixed; left:0; right:0; bottom:0;
+        background:#1d1f1e; color:#fff; border-top:1px solid #2a2e2b;
+        padding:10px 14px; z-index:99999; display:none;
+        font:500 14px system-ui,sans-serif;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        display:flex; align-items:center; justify-content:space-between;
+      }
+      .fv-sync-bar.show{display:flex}
+      .fv-sync-left{display:flex; align-items:center; gap:10px; min-width:0; overflow:hidden}
+      .fv-sync-dot{width:10px;height:10px;border-radius:50%;background:#f6c73b;flex:0 0 auto}
       .fv-sync-ok{background:#2b8f4e}
+      .fv-sync-text{overflow:hidden; text-overflow:ellipsis}
+      .fv-sync-btn{appearance:none;border:1px solid #3b7e46;background:#3b7e46;color:#fff;border-radius:10px;padding:6px 12px;font-weight:700;cursor:pointer;flex:0 0 auto}
     `;
     document.head.appendChild(css);
 
@@ -174,17 +183,27 @@
 
     const bar = document.createElement('div');
     bar.className = 'fv-sync-bar';
-    bar.innerHTML = `<span class="fv-sync-dot"></span><span class="fv-sync-text">Still syncing… we’ll keep trying.</span><button class="fv-sync-btn" type="button">Retry now</button>`;
+    bar.innerHTML = `
+      <div class="fv-sync-left">
+        <span class="fv-sync-dot"></span>
+        <span class="fv-sync-text">Still syncing… we’ll keep trying.</span>
+      </div>
+      <button class="fv-sync-btn" type="button">Retry now</button>
+    `;
     document.body.appendChild(bar);
 
     const btn = bar.querySelector('.fv-sync-btn');
-    btn.addEventListener('click', ()=> { backoffMs = 1200; scheduleFlush(true); });
+    btn.addEventListener('click', ()=> {
+      backoffMs = 1200;
+      showSpinner();          // show overlay immediately on manual retry
+      scheduleFlush(true);
+    });
 
-    // expose for helpers
     window.__FV_SYNC_UI__ = {
       overlay, bar,
       setBarState(ok){
-        const dot = bar.querySelector('.fv-sync-dot'), txt = bar.querySelector('.fv-sync-text');
+        const dot = bar.querySelector('.fv-sync-dot');
+        const txt = bar.querySelector('.fv-sync-text');
         if (ok){
           dot.classList.add('fv-sync-ok');
           txt.textContent = 'Synced.';
@@ -196,6 +215,7 @@
       }
     };
   }
+
   function showSpinner(){
     ensureUI();
     const ui = window.__FV_SYNC_UI__;
@@ -218,19 +238,22 @@
     if (!ui.overlay.classList.contains('show')) return;
     if (elapsed >= MIN_SPIN_MS) doHide(); else setTimeout(doHide, MIN_SPIN_MS - elapsed);
   }
+  function showBarPending(){
+    const ui = window.__FV_SYNC_UI__; if (!ui) return;
+    ui.setBarState(false);
+    ui.bar.classList.add('show');
+  }
   function hideBarAsSynced(){
     const ui = window.__FV_SYNC_UI__; if (!ui) return;
-    if (ui.bar.classList.contains('show')){
-      ui.setBarState(true);
-    }
+    if (ui.bar.classList.contains('show')) ui.setBarState(true);
   }
 
-  // --- Conventions & helpers for datasets ---
+  // --- Conventions & helpers ---
   function keyToCollection(lsKey){
     if (!lsKey || typeof lsKey !== 'string' || !lsKey.startsWith('fv_')) return null;
     let s = lsKey.replace(/^fv_/, '');
-    s = s.replace(/^(setup|contacts|calc|pages|app|settings|data)_/, ''); // drop one optional category
-    s = s.replace(/_v\d+$/, '');                                        // drop version suffix
+    s = s.replace(/^(setup|contacts|calc|pages|app|settings|data)_/, '');
+    s = s.replace(/_v\d+$/, '');
     return s || null;
   }
   function collectionToLikelyKeys(coll){
@@ -269,22 +292,20 @@
   }
 
   // --- Echo control & edit window ---
-  const _setItem = localStorage.setItem; // original
+  const _setItem = localStorage.setItem;
   let   MUTED_SETITEM = false;
-  const lastLocalEditAt = new Map(); // coll -> timestamp
+  const lastLocalEditAt = new Map();
   const EDIT_WIN_MS = 800;
 
   // --- UPSYNC (local → Firestore) with immediate spinner + retries ---
-  const pending = new Map(); // lsKey -> latest array
+  const pending = new Map();
   let flushTimer = null;
 
   function scheduleFlush(immediate){
     clearTimeout(flushTimer);
-    if (immediate) flushTimer = setTimeout(flush, 0);
-    else flushTimer = setTimeout(flush, 250);
+    flushTimer = setTimeout(flush, immediate ? 0 : 250);
   }
 
-  // Auth wait util
   let waitingForAuthFlush = false;
   async function ensureAuthThen(fn){
     try{
@@ -299,17 +320,15 @@
   }
 
   localStorage.setItem = function(key, val){
-    // Perform the real write
     try { _setItem.apply(this, arguments); } catch {}
     try{
       if (typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
-        if (MUTED_SETITEM) return; // skip cloud→local echoes
+        if (MUTED_SETITEM) return;
         const coll = keyToCollection(key);
         if (coll) lastLocalEditAt.set(coll, Date.now());
         const parsed = JSON.parse(val);
         pending.set(key, parsed);
 
-        // user just saved -> show spinner immediately and flush asap
         showSpinner();
         scheduleFlush(true);
       }
@@ -318,7 +337,6 @@
 
   async function flush(){
     if (!pending.size){
-      // queue is empty -> synced
       hideSpinnerIfAllowed();
       hideBarAsSynced();
       FV.announce('sync:idle');
@@ -329,20 +347,13 @@
 
     ensureAuthThen(async (env)=>{
       const { auth, db } = env;
-      const user = auth.currentUser; if (!user || !db){ // try again soon
-        showSpinner();
-        rescheduleBackoff();
-        return;
+      const user = auth.currentUser; if (!user || !db){
+        showSpinner(); rescheduleBackoff(); return;
       }
 
       let f;
       try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
-      catch{
-        // SDK failed to load (offline?) -> retry with backoff
-        showSpinner();
-        rescheduleBackoff();
-        return;
-      }
+      catch{ showSpinner(); rescheduleBackoff(); return; }
 
       const touched = new Set();
       let hadError = false;
@@ -372,7 +383,6 @@
         }
       }
 
-      // Register touched collections so other devices downsync automatically
       if (touched.size){
         try{
           const list = Array.from(touched);
@@ -383,11 +393,9 @@
       }
 
       if (hadError || pending.size){
-        // something left or went wrong -> keep trying
-        showSpinner();
+        showSpinner(); // keep overlay up while we continue
         rescheduleBackoff();
       } else {
-        // success: queue empty
         hideSpinnerIfAllowed();
         hideBarAsSynced();
         FV.announce('sync:idle');
@@ -398,11 +406,7 @@
 
   function rescheduleBackoff(){
     clearTimeout(backoffTimer);
-    const ui = window.__FV_SYNC_UI__; ensureUI();
-    if (ui){ ui.setBarState(false); }
-    // show sticky bar if spinner already timed out
-    if (ui && !ui.overlay.classList.contains('show')) ui.bar.classList.add('show');
-
+    ensureUI(); showBarPending();
     backoffTimer = setTimeout(()=>{
       scheduleFlush(true);
       backoffMs = Math.min(Math.floor(backoffMs * 1.8), BACKOFF_MAX);
@@ -422,7 +426,7 @@
     }catch{}
   }
 
-  // --- DOWNSYNC (Firestore → local), full app ---
+  // --- DOWNSYNC (Firestore → local) ---
   async function hydrateAndListen(){
     try{
       const mod = await import('/Farm-vista/js/firebase-init.js'); const env = await mod.ready;
@@ -452,7 +456,7 @@
 
         f.onSnapshot(q, (snap)=>{
           const t = lastLocalEditAt.get(coll) || 0;
-          if (Date.now() - t < EDIT_WIN_MS) return; // let local change push first
+          if (Date.now() - t < EDIT_WIN_MS) return;
 
           const rows = [];
           snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
@@ -460,7 +464,7 @@
 
           const keys = collectionToLikelyKeys(coll);
           try{
-            MUTED_SETITEM = true; // prevent echo while writing localStorage
+            MUTED_SETITEM = true;
             keys.forEach(k => _setItem.call(localStorage, k, JSON.stringify(rows)));
           }finally{
             MUTED_SETITEM = false;
@@ -468,21 +472,17 @@
         }, (err)=>{ diag(`Live read failed for ${coll}: ${err && err.message ? err.message : err}`); });
       }
 
-      // Start for known keys
       subscribeFor.forEach(startColl);
 
-      // Registry: auto-boot additional collections from other devices
       const regRef = f.doc(f.collection(db, '_sync'), 'collections');
       f.onSnapshot(regRef, (snap)=>{
         const data = snap.exists() ? snap.data() : {};
         const list = Array.isArray(data.list) ? data.list : [];
         list.forEach(c => startColl(typeof c === 'string' ? c.trim() : ''));
-      }, ()=>{ /* ignore; upsync/heartbeat handle core errors */ });
-
+      }, ()=>{});
     }catch(e){ /* silent */ }
   }
 
-  // Init
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initialUpsyncSweep, { once:true });
     document.addEventListener('DOMContentLoaded', hydrateAndListen, { once:true });
