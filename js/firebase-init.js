@@ -19,7 +19,7 @@ if (!window.__FV_FIREBASE_READY__) {
     ]);
 
     const { initializeApp, getApps } = appMod;
-    const { getAuth, setPersistence, browserLocalPersistence } = authMod;
+    const { getAuth, setPersistence, browserLocalPersistence, onAuthStateChanged, signOut } = authMod;
     const { getFirestore } = firestoreMod;
     const { getStorage } = storageMod;
     const getAnalytics = analyticsMod?.getAnalytics;
@@ -43,13 +43,48 @@ if (!window.__FV_FIREBASE_READY__) {
     let analytics = null;
     try { if (location.protocol === 'https:') analytics = getAnalytics?.(app) || null; } catch {}
 
+    // ---- Helpers (added) ----
+    // Force a user to be signed in; if not, redirect to login with ?next=<current URL>
+    async function fvEnsureAuthed(opts = {}) {
+      await 0; // allow microtask queue to settle
+      const next = opts.next || (location.pathname + location.search);
+      const loginUrl = opts.loginUrl || '/Farm-vista/pages/login/index.html';
+
+      // Wait for the first auth snapshot, then decide
+      await new Promise((resolve) => {
+        const unsub = onAuthStateChanged(auth, (user) => {
+          unsub();
+          if (user) resolve();
+          else {
+            const url = new URL(loginUrl, location.origin);
+            url.searchParams.set('next', next);
+            location.replace(url.toString());
+          }
+        });
+      });
+      // If we’re here, user exists.
+      return auth.currentUser;
+    }
+
+    // Sign out and bounce to login
+    async function fvSignOut(loginUrl = '/Farm-vista/pages/login/') {
+      try { await signOut(auth); } catch {}
+      try { sessionStorage.clear(); } catch {}
+      try { localStorage.removeItem('fv:nav:groups'); } catch {}
+      location.replace(loginUrl);
+    }
+
     // Expose as ESM exports AND globals (for non-module pages)
     window.firebaseApp = app;
     window.firebaseAuth = auth;
     window.firebaseDB = db;
     window.firebaseStorage = storage;
+    window.fvEnsureAuthed = fvEnsureAuthed;
+    window.fvSignOut = fvSignOut;
 
-    return { app, auth, db, storage, analytics,
+    return {
+      app, auth, db, storage, analytics,
+      fvEnsureAuthed, fvSignOut,
       // re-export helpers other modules may want
       _mods: { authMod, firestoreMod, storageMod }
     };
@@ -63,6 +98,8 @@ export const app = env.app;
 export const auth = env.auth;
 export const db = env.db;
 export const storage = env.storage;
+export const fvEnsureAuthed = env.fvEnsureAuthed;
+export const fvSignOut = env.fvSignOut;
 export const authMod = env._mods.authMod;
 export const firestoreMod = env._mods.firestoreMod;
 export const storageMod = env._mods.storageMod;
