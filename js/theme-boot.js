@@ -170,16 +170,13 @@
   else checkFirestore();
 })();
 
-// === Inline Global Firestore Sync (localStorage → Firestore) ===
+// === Inline Global Firestore Sync (localStorage → Firestore) + SAFE farms downsync ===
 (function(){
-  // Map your localStorage keys → Firestore collections
+  // --- mapping ONLY for farms page key ---
   function mapKeyToCollection(key){
-    if (key === 'fv_setup_farms_v1') return 'farms';        // Farms page
-    // fallback: strip 'fv_' prefix and _v<number> suffix → e.g., fv_setup_fields_v1 → setup_fields
+    if (key === 'fv_setup_farms_v1') return 'farms'; // Farms
     return key.replace(/^fv_/, '').replace(/_v\d+$/, '');
   }
-
-  // Minimum shape normalization for items saved locally
   function normalizeItem(it){
     if (!it || typeof it !== 'object') return {};
     const out = { ...it };
@@ -187,9 +184,10 @@
     return out;
   }
 
-  // Debounce queue so we don’t hammer Firestore on rapid saves
+  // ===== UPSYNC (local → Firestore) =====
   const pending = new Map(); // key -> latest array
   let flushTimer = null;
+
   function scheduleFlush(){ clearTimeout(flushTimer); flushTimer = setTimeout(flush, 250); }
 
   async function flush(){
@@ -199,21 +197,15 @@
       const mod = await import('/Farm-vista/js/firebase-init.js');
       env = await mod.ready;
       if (!env || !env.auth || !env.db) throw new Error('Firebase not ready');
-    }catch(e){
-      diag('Firebase not ready for sync');
-      return;
-    }
+    }catch(e){ return diag('Firebase not ready for sync'); }
 
     const user = env.auth.currentUser;
-    if (!user) { diag('No signed-in user for sync'); return; }
+    if (!user) return diag('No signed-in user for sync');
 
-    // Lazy-load Firestore ops
     let f;
-    try{
-      f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
-    }catch{ diag('Failed to load Firestore SDK'); return; }
+    try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
+    catch{ return diag('Failed to load Firestore SDK'); }
 
-    // Attempt to push each dataset
     for (const [lsKey, arr] of pending.entries()){
       pending.delete(lsKey);
       const coll = mapKeyToCollection(lsKey);
@@ -239,7 +231,6 @@
   }
 
   function diag(msg){
-    // Only show visible diagnostics if something actually failed
     try{
       const box = document.createElement('div');
       box.textContent = '[FV] Firestore sync error: ' + msg;
@@ -253,7 +244,7 @@
     }catch{}
   }
 
-  // Intercept localStorage.setItem globally and queue a sync
+  // Capture original setItem, then override
   const _setItem = localStorage.setItem;
   localStorage.setItem = function(key, val){
     try { _setItem.apply(this, arguments); } catch {}
@@ -266,8 +257,8 @@
     }catch{}
   };
 
-  // One-time initial sweep (in case there’s already data saved locally)
-  function initialSweep(){
+  // One-time initial upsync sweep (push any existing local cache up on first run)
+  function initialUpsyncSweep(){
     try{
       for (let i=0; i<localStorage.length; i++){
         const k = localStorage.key(i);
@@ -283,10 +274,40 @@
       if (pending.size) scheduleFlush();
     }catch{}
   }
-
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialSweep, { once:true });
+    document.addEventListener('DOMContentLoaded', initialUpsyncSweep, { once:true });
   } else {
-    initialSweep();
+    initialUpsyncSweep();
   }
+
+  // ===== DOWNSYNC (Firestore → local), FARMS ONLY =====
+  (async function downsyncFarms(){
+    try{
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      const env = await mod.ready;
+      const { auth, db } = env;
+      const user = auth.currentUser;
+      if (!user || !db) return;
+
+      const f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
+
+      const q = f.query(
+        f.collection(db, 'farms'),
+        f.where('uid','==', user.uid),
+        f.orderBy('createdAt','desc')
+      );
+
+      // IMPORTANT: write via the ORIGINAL _setItem so we do NOT trigger upsync again
+      f.onSnapshot(q, (snap)=>{
+        const rows = [];
+        snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+        try {
+          _setItem.call(localStorage, 'fv_setup_farms_v1', JSON.stringify(rows));
+        } catch {}
+        // No reloads here; the Farms page reads from localStorage on render.
+        // When you open/refresh the Farms page, it will show the latest from Firestore.
+      }, (err)=>{ diag(`Live read failed for farms: ${err && err.message ? err.message : err}`); });
+
+    }catch(e){ /* stay silent; heartbeat will surface core issues */ }
+  })();
 })();
