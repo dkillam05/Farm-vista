@@ -1,4 +1,4 @@
-// /Farm-vista/js/theme-boot.js — STABLE (Upsync-only, no overlays, no downsync)
+// /Farm-vista/js/theme-boot.js — STABLE (no downsync here; just loads fv-sync.js)
 
 /* Viewport & tap */
 (function(){
@@ -53,7 +53,7 @@
   }catch(e){}
 })();
 
-/* Firebase boot (global) */
+/* Firebase init (global) */
 (function(){
   try{
     if (window.__FV_FIREBASE_INIT_LOADED__) return;
@@ -106,96 +106,16 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true }); else start();
 })();
 
-/* UPSYNC ONLY: localStorage → Firestore (no listeners, no UI) */
+/* === Inject the standalone sync module (quiet, non-blocking) === */
 (function(){
-  // Map fv_* keys to collection names by convention
-  function keyToCollection(lsKey){
-    if (!lsKey || typeof lsKey !== 'string' || !lsKey.startsWith('fv_')) return null;
-    let s = lsKey.replace(/^fv_/, '');
-    s = s.replace(/^(setup|contacts|calc|pages|app|settings|data)_/, '');
-    s = s.replace(/_v\d+$/, '');
-    return s || null;
-  }
-  function normalizeItem(it){ const o = {...(it||{})}; if (!o.id) o.id = String(o.t || Date.now()); return o; }
+  try{
+    const qs = new URLSearchParams(location.search);
+    const disabled = (qs.get('nosync') === '1') || (localStorage.getItem('fv:sync:disabled') === '1');
+    if (disabled) { console.warn('[FV] Sync disabled by flag'); return; }
 
-  const _setItem = localStorage.setItem;
-  const pending = new Map();
-  let flushTimer = null;
-
-  function scheduleFlush(){ clearTimeout(flushTimer); flushTimer = setTimeout(flush, 250); }
-
-  localStorage.setItem = function(key, val){
-    try { _setItem.apply(this, arguments); } catch {}
-    try{
-      if (typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
-        const parsed = JSON.parse(val);
-        pending.set(key, parsed);
-        scheduleFlush();
-      }
-    }catch{}
-  };
-
-  async function flush(){
-    if (!pending.size) return;
-    let env;
-    try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      env = await mod.ready;
-      if (!env || !env.auth || !env.db) return;
-    }catch(e){ return; }
-
-    const user = env.auth.currentUser; if (!user) return;
-
-    let f;
-    try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
-    catch{ return; }
-
-    for (const [lsKey, arr] of Array.from(pending.entries())){
-      pending.delete(lsKey);
-      const coll = keyToCollection(lsKey);
-      if (!coll) continue;
-
-      try{
-        const list = Array.isArray(arr) ? arr : [];
-        for (const raw of list){
-          const it = normalizeItem(raw);
-          const ref = f.doc(f.collection(env.db, coll), it.id);
-          await f.setDoc(ref, {
-            ...it,
-            uid: user.uid,
-            updatedAt: f.serverTimestamp(),
-            createdAt: it.createdAt || f.serverTimestamp(),
-          }, { merge: true });
-        }
-        // also register collection so future builds can downsync, but do not depend on it
-        try{
-          const regRef = f.doc(f.collection(env.db, '_sync'), 'collections');
-          const { arrayUnion, setDoc } = f;
-          await setDoc(regRef, { list: arrayUnion(coll) }, { merge: true });
-        }catch(_){}
-      }catch(_err){
-        // silent in stable build
-      }
-    }
-  }
-
-  // One-time sweep (push existing local caches)
-  function initialSweep(){
-    try{
-      for (let i=0;i<localStorage.length;i++){
-        const k = localStorage.key(i);
-        const coll = keyToCollection(k);
-        if (!coll) continue;
-        try{
-          const raw = localStorage.getItem(k);
-          const parsed = JSON.parse(raw || '[]');
-          if (Array.isArray(parsed) && parsed.length) pending.set(k, parsed);
-        }catch{}
-      }
-      if (pending.size) scheduleFlush();
-    }catch{}
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialSweep, { once:true });
-  else initialSweep();
+    const s = document.createElement('script');
+    s.type = 'module'; s.defer = true; s.src = '/Farm-vista/js/fv-sync.js?ts=' + Date.now();
+    s.addEventListener('error', ()=> console.warn('[FV] fv-sync.js failed to load'));
+    document.head.appendChild(s);
+  }catch(e){ console.warn('[FV] inject sync failed:', e); }
 })();
