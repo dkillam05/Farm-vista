@@ -10,13 +10,10 @@
     var m = document.querySelector('meta[name="viewport"]');
     if (m) { m.setAttribute('content', desired); }
     else {
-      m = document.createElement('meta');
-      m.name = 'viewport';
-      m.content = desired;
+      m = document.createElement('meta'); m.name = 'viewport'; m.content = desired;
       if (document.head && document.head.firstChild) document.head.insertBefore(m, document.head.firstChild);
       else if (document.head) document.head.appendChild(m);
     }
-
     var style = document.createElement('style');
     style.textContent = `
       input, select, textarea, button { font-size: 16px !important; }
@@ -35,8 +32,7 @@
     if(!t) return;
     document.documentElement.setAttribute('data-theme', t === 'system' ? 'auto' : t);
     document.documentElement.classList.toggle('dark',
-      t === 'dark' ||
-      (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      t === 'dark' || (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
     );
   }catch(e){}
 })();
@@ -62,59 +58,41 @@
   try{
     if (window.__FV_FIREBASE_INIT_LOADED__) return;
     window.__FV_FIREBASE_INIT_LOADED__ = true;
-
     var s = document.createElement('script');
-    s.type = 'module';
-    s.defer = true;
-    s.src = '/Farm-vista/js/firebase-init.js';
+    s.type = 'module'; s.defer = true; s.src = '/Farm-vista/js/firebase-init.js';
     document.head.appendChild(s);
     s.addEventListener('load', ()=> console.log('[FV] firebase-init loaded'));
     s.addEventListener('error', ()=> console.warn('[FV] firebase-init failed to load — check path'));
-  }catch(e){
-    console.warn('[FV] Firebase boot error:', e);
-  }
+  }catch(e){ console.warn('[FV] Firebase boot error:', e); }
 })();
 
 // === Auth Guard (all pages) ===
 (function(){
   const run = async () => {
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      await mod.ready;
+      const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
       const { auth } = mod;
-
       const here = location.pathname + location.search + location.hash;
       const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
-
       const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
       onAuthStateChanged(auth, (user) => {
         if (!user) {
-          if (!isLogin) {
-            const next = encodeURIComponent(here);
-            location.replace('/Farm-vista/pages/login/?next=' + next);
-          }
-        } else {
-          if (isLogin) {
-            const qs = new URLSearchParams(location.search);
-            const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
-            location.replace(nextUrl);
-          }
+          if (!isLogin) location.replace('/Farm-vista/pages/login/?next=' + encodeURIComponent(here));
+        } else if (isLogin) {
+          const qs = new URLSearchParams(location.search);
+          location.replace(qs.get('next') || '/Farm-vista/dashboard/');
         }
       }, { onlyOnce: true });
-    }catch(e){
-      console.warn('[FV] auth-guard error:', e);
-    }
+    }catch(e){ console.warn('[FV] auth-guard error:', e); }
   };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once:true });
-  else run();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once:true }); else run();
 })();
 
 // === User Ready Broadcast (prevents placeholder flash) ===
 (function(){
   const start = async () => {
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      await mod.ready;
+      const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
       const { auth } = mod;
       const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
       onAuthStateChanged(auth, (user) => {
@@ -127,8 +105,7 @@
       FV.announce('user-ready', null);
     }
   };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
-  else start();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true }); else start();
 })();
 
 // === Firestore Heartbeat (diagnostics only if broken) ===
@@ -136,22 +113,15 @@
   const OWNER_UID = "zD2ssHGNE6RmBSqAyg8r3s3tBKl2";
   async function checkFirestore(){
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      await mod.ready;
+      const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
       const { app, auth, db } = mod;
       if (!app || !auth || !db) throw new Error('Missing Firebase core');
-      const user = auth.currentUser;
-      if (!user) throw new Error('No signed-in user');
-      if (user.uid !== OWNER_UID)
-        console.warn('[FV] Firestore heartbeat: signed in as non-owner', user.email || user.uid);
-
+      const user = auth.currentUser; if (!user) throw new Error('No signed-in user');
+      if (user.uid !== OWNER_UID) console.warn('[FV] Firestore heartbeat: non-owner', user.email || user.uid);
       const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
-      const ref = doc(db, '_heartbeat', 'ping'); // harmless read probe
-      try { await getDoc(ref); console.log('[FV] ✅ Firestore connection OK'); }
-      catch { throw new Error('Firestore read failed — likely rules or network'); }
-    }catch(err){
-      showDiag(err.message || String(err));
-    }
+      const ref = doc(db, '_heartbeat', 'ping'); await getDoc(ref);
+      console.log('[FV] ✅ Firestore connection OK');
+    }catch(err){ showDiag(err.message || String(err)); }
   }
   function showDiag(msg){
     try{
@@ -162,20 +132,31 @@
         background:#B71C1C; color:#fff; padding:10px 16px; border-radius:8px;
         font-size:14px; z-index:99999; box-shadow:0 6px 20px rgba(0,0,0,.4);
       `;
-      document.body.appendChild(box);
-      setTimeout(()=> box.remove(), 6000);
+      document.body.appendChild(box); setTimeout(()=> box.remove(), 6000);
     }catch{}
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', checkFirestore, {once:true});
-  else checkFirestore();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', checkFirestore, {once:true}); else checkFirestore();
 })();
 
-// === Inline Global Firestore Sync (localStorage → Firestore) + SAFE farms downsync ===
+// === Inline Global Firestore Sync (FULL APP: localStorage ⇄ Firestore, no indexes required) ===
 (function(){
-  // --- mapping ONLY for farms page key ---
-  function mapKeyToCollection(key){
-    if (key === 'fv_setup_farms_v1') return 'farms'; // Farms
-    return key.replace(/^fv_/, '').replace(/_v\d+$/, '');
+  // ----- Helpers: key<->collection mapping by convention -----
+  function keyToCollection(lsKey){
+    if (!lsKey || typeof lsKey !== 'string' || !lsKey.startsWith('fv_')) return null;
+    let s = lsKey.replace(/^fv_/, '');
+    s = s.replace(/^(setup|contacts|calc|pages|app|settings|data)_/, ''); // drop one optional category
+    s = s.replace(/_v\d+$/, '');                                        // drop version suffix
+    return s || null;
+  }
+  function collectionToLikelyKeys(coll){
+    const out = new Set([`fv_${coll}_v1`, `fv_setup_${coll}_v1`, `fv_contacts_${coll}_v1`]);
+    try{
+      for (let i=0;i<localStorage.length;i++){
+        const k = localStorage.key(i);
+        if (keyToCollection(k) === coll) out.add(k);
+      }
+    }catch{}
+    return Array.from(out);
   }
   function normalizeItem(it){
     if (!it || typeof it !== 'object') return {};
@@ -183,24 +164,56 @@
     if (!out.id) out.id = String(out.t || Date.now());
     return out;
   }
+  function sortNewestFirst(rows){
+    rows.sort((a,b)=>{
+      const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : (+a.createdAt || 0);
+      const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : (+b.createdAt || 0);
+      return tb - ta;
+    });
+  }
 
-  // ===== UPSYNC (local → Firestore) =====
-  const pending = new Map(); // key -> latest array
+  // ----- Diagnostics toast -----
+  function diag(msg){
+    try{
+      const box = document.createElement('div');
+      box.textContent = '[FV] Firestore sync error: ' + msg;
+      box.style.cssText = `
+        position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
+        background:#B71C1C; color:#fff; padding:10px 16px; border-radius:8px;
+        font-size:14px; z-index:99999; box-shadow:0 6px 20px rgba(0,0,0,.4);
+      `;
+      document.body.appendChild(box); setTimeout(()=> box.remove(), 6000);
+    }catch{}
+  }
+
+  // ----- UPSYNC (local → Firestore) -----
+  const _setItem = localStorage.setItem;     // keep original
+  let   MUTED_SETITEM = false;               // prevent echo when we write from Firestore
+
+  const pending = new Map();                 // lsKey -> latest array
   let flushTimer = null;
-
   function scheduleFlush(){ clearTimeout(flushTimer); flushTimer = setTimeout(flush, 250); }
+
+  localStorage.setItem = function(key, val){
+    try { _setItem.apply(this, arguments); } catch {}
+    try{
+      if (!MUTED_SETITEM && typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
+        const parsed = JSON.parse(val);
+        pending.set(key, parsed);
+        scheduleFlush();
+      }
+    }catch{}
+  };
 
   async function flush(){
     if (!pending.size) return;
     let env;
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      env = await mod.ready;
+      const mod = await import('/Farm-vista/js/firebase-init.js'); env = await mod.ready;
       if (!env || !env.auth || !env.db) throw new Error('Firebase not ready');
     }catch(e){ return diag('Firebase not ready for sync'); }
 
-    const user = env.auth.currentUser;
-    if (!user) return diag('No signed-in user for sync');
+    const user = env.auth.currentUser; if (!user) return diag('No signed-in user for sync');
 
     let f;
     try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
@@ -208,7 +221,7 @@
 
     for (const [lsKey, arr] of pending.entries()){
       pending.delete(lsKey);
-      const coll = mapKeyToCollection(lsKey);
+      const coll = keyToCollection(lsKey);
       if (!coll) continue;
 
       try{
@@ -224,90 +237,83 @@
           }, { merge: true });
         }
         console.log(`[FV] Synced ${list.length} items from ${lsKey} → ${coll}`);
-      }catch(err){
-        diag(`Sync failed for ${coll}: ${err && err.message ? err.message : err}`);
-      }
+      }catch(err){ diag(`Sync failed for ${coll}: ${err && err.message ? err.message : err}`); }
     }
   }
 
-  function diag(msg){
-    try{
-      const box = document.createElement('div');
-      box.textContent = '[FV] Firestore sync error: ' + msg;
-      box.style.cssText = `
-        position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
-        background:#B71C1C; color:#fff; padding:10px 16px; border-radius:8px;
-        font-size:14px; z-index:99999; box-shadow:0 6px 20px rgba(0,0,0,.4);
-      `;
-      document.body.appendChild(box);
-      setTimeout(()=> box.remove(), 6000);
-    }catch{}
-  }
-
-  // Capture original setItem, then override
-  const _setItem = localStorage.setItem;
-  localStorage.setItem = function(key, val){
-    try { _setItem.apply(this, arguments); } catch {}
-    try{
-      if (typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
-        const parsed = JSON.parse(val);
-        pending.set(key, parsed);
-        scheduleFlush();
-      }
-    }catch{}
-  };
-
-  // One-time initial upsync sweep (push any existing local cache up on first run)
   function initialUpsyncSweep(){
     try{
-      for (let i=0; i<localStorage.length; i++){
-        const k = localStorage.key(i);
-        if (!k || !k.startsWith('fv_')) continue;
+      for (let i=0;i<localStorage.length;i++){
+        const k = localStorage.key(i); const coll = keyToCollection(k); if (!coll) continue;
         try{
-          const raw = localStorage.getItem(k);
-          const parsed = JSON.parse(raw || '[]');
-          if (Array.isArray(parsed) && parsed.length){
-            pending.set(k, parsed);
-          }
+          const raw = localStorage.getItem(k); const parsed = JSON.parse(raw || '[]');
+          if (Array.isArray(parsed) && parsed.length) pending.set(k, parsed);
         }catch{}
       }
       if (pending.size) scheduleFlush();
     }catch{}
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialUpsyncSweep, { once:true });
-  } else {
-    initialUpsyncSweep();
-  }
 
-  // ===== DOWNSYNC (Firestore → local), FARMS ONLY =====
-  (async function downsyncFarms(){
+  // ----- DOWNSYNC (Firestore → local) -----
+  async function hydrateAndListen(){
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      const env = await mod.ready;
-      const { auth, db } = env;
-      const user = auth.currentUser;
-      if (!user || !db) return;
-
+      const mod = await import('/Farm-vista/js/firebase-init.js'); const env = await mod.ready;
+      const { auth, db } = env; if (!auth || !db) return;
+      const user = auth.currentUser; if (!user) return;
       const f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
 
-      const q = f.query(
-        f.collection(db, 'farms'),
-        f.where('uid','==', user.uid),
-        f.orderBy('createdAt','desc')
-      );
+      // Build the set of collections to watch:
+      const subscribeFor = new Set();
 
-      // IMPORTANT: write via the ORIGINAL _setItem so we do NOT trigger upsync again
-      f.onSnapshot(q, (snap)=>{
-        const rows = [];
-        snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
-        try {
-          _setItem.call(localStorage, 'fv_setup_farms_v1', JSON.stringify(rows));
-        } catch {}
-        // No reloads here; the Farms page reads from localStorage on render.
-        // When you open/refresh the Farms page, it will show the latest from Firestore.
-      }, (err)=>{ diag(`Live read failed for farms: ${err && err.message ? err.message : err}`); });
+      // From existing localStorage keys
+      try{
+        for (let i=0;i<localStorage.length;i++){
+          const k = localStorage.key(i); const c = keyToCollection(k); if (c) subscribeFor.add(c);
+        }
+      }catch{}
 
-    }catch(e){ /* stay silent; heartbeat will surface core issues */ }
-  })();
+      // From optional registry doc: _sync/collections { list:[...] }
+      const started = new Set();
+      function startColl(coll){
+        if (!coll || started.has(coll)) return;
+        started.add(coll);
+
+        // No orderBy -> no composite index needed. We'll sort in JS.
+        const q = f.query(f.collection(db, coll), f.where('uid','==', user.uid));
+
+        f.onSnapshot(q, (snap)=>{
+          const rows = [];
+          snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+          sortNewestFirst(rows);
+
+          // Write to all likely localStorage keys for this collection without triggering upsync
+          const keys = collectionToLikelyKeys(coll);
+          try{
+            MUTED_SETITEM = true;
+            keys.forEach(k => _setItem.call(localStorage, k, JSON.stringify(rows)));
+          }finally{ MUTED_SETITEM = false; }
+        }, (err)=>{ diag(`Live read failed for ${coll}: ${err && err.message ? err.message : err}`); });
+      }
+
+      // Kick off current ones
+      subscribeFor.forEach(startColl);
+
+      // Watch registry and add more on the fly
+      const regRef = f.doc(f.collection(db, '_sync'), 'collections');
+      f.onSnapshot(regRef, (snap)=>{
+        const data = snap.exists() ? snap.data() : {};
+        const list = Array.isArray(data.list) ? data.list : [];
+        list.forEach(c => startColl(typeof c === 'string' ? c.trim() : ''));
+      }, ()=>{ /* ignore errors; heartbeat/upsync will surface if core is broken */ });
+
+    }catch(e){ /* silent */ }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialUpsyncSweep, { once:true });
+    document.addEventListener('DOMContentLoaded', hydrateAndListen, { once:true });
+  } else {
+    initialUpsyncSweep();
+    hydrateAndListen();
+  }
 })();
