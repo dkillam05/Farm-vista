@@ -106,16 +106,25 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true }); else start();
 })();
 
-// === Full-App Firestore Sync (localStorage ⇄ Firestore) + Spinner & Full-width Status Bar ===
+// === Full-App Firestore Sync (localStorage ⇄ Firestore) ===
+// Startup is QUIET (banner only). Spinner shows ONLY on user saves.
 (function(){
-  // --- Timings ---
-  const MIN_SPIN_MS = 2000;   // min 2s to avoid blip
-  const MAX_SPIN_MS = 20000;  // max 20s before handing off to banner
+  // Kill-switch: disable sync entirely if ?nosync=1 or localStorage flag present
+  try{
+    const qs = new URLSearchParams(location.search);
+    if (qs.get('nosync') === '1' || localStorage.getItem('fv:sync:disabled') === '1'){
+      console.warn('[FV] Sync disabled by flag.');
+      return;
+    }
+  }catch{}
 
-  // --- UI: overlay spinner + full-width sticky status bar ---
+  // Timings
+  const MIN_SPIN_MS = 2000;
+  const MAX_SPIN_MS = 20000;
   let uiReady = false, spinnerShownAt = 0, minTimer = null, maxTimer = null, backoffTimer = null;
   let backoffMs = 1200; const BACKOFF_MAX = 20000;
 
+  // UI
   function ensureUI(){
     if (uiReady) return;
     uiReady = true;
@@ -126,20 +135,14 @@
       .fv-sync-spinner{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60px;height:60px;border-radius:50%;
         border:6px solid rgba(255,255,255,.4);border-top-color:#fff;animation:fvspin 1s linear infinite}
       @keyframes fvspin{to{transform:translate(-50%,-50%) rotate(360deg)}}
-
-      .fv-sync-bar{
-        position:fixed; left:0; right:0; bottom:0;
-        background:#1d1f1e; color:#fff; border-top:1px solid #2a2e2b;
-        padding:10px 14px; z-index:99999; display:none;
-        font:500 14px system-ui,sans-serif;
-        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-        display:flex; align-items:center; justify-content:space-between;
-      }
+      .fv-sync-bar{position:fixed;left:0;right:0;bottom:0;background:#1d1f1e;color:#fff;border-top:1px solid #2a2e2b;
+        padding:10px 14px;z-index:99999;display:none;font:500 14px system-ui,sans-serif;white-space:nowrap;overflow:hidden;
+        text-overflow:ellipsis;display:flex;align-items:center;justify-content:space-between}
       .fv-sync-bar.show{display:flex}
-      .fv-sync-left{display:flex; align-items:center; gap:10px; min-width:0; overflow:hidden}
+      .fv-sync-left{display:flex;align-items:center;gap:10px;min-width:0;overflow:hidden}
       .fv-sync-dot{width:10px;height:10px;border-radius:50%;background:#f6c73b;flex:0 0 auto}
       .fv-sync-ok{background:#2b8f4e}
-      .fv-sync-text{overflow:hidden; text-overflow:ellipsis}
+      .fv-sync-text{overflow:hidden;text-overflow:ellipsis}
       .fv-sync-btn{appearance:none;border:1px solid #3b7e46;background:#3b7e46;color:#fff;border-radius:10px;padding:6px 12px;font-weight:700;cursor:pointer;flex:0 0 auto}
     `;
     document.head.appendChild(css);
@@ -163,7 +166,7 @@
     const btn = bar.querySelector('.fv-sync-btn');
     btn.addEventListener('click', ()=> {
       backoffMs = 1200;
-      showSpinner();          // show overlay immediately on manual retry
+      showSpinner();          // foreground on manual retry
       scheduleFlush(true);
     });
 
@@ -173,10 +176,9 @@
         const dot = bar.querySelector('.fv-sync-dot');
         const txt = bar.querySelector('.fv-sync-text');
         if (ok){
-          dot.classList.add('fv-sync-ok');
-          txt.textContent = 'Synced';
+          dot.classList.add('fv-sync-ok'); txt.textContent = 'Synced';
           setTimeout(()=>{ bar.classList.remove('show'); dot.classList.remove('fv-sync-ok'); }, 1200);
-        } else {
+        }else{
           dot.classList.remove('fv-sync-ok');
           txt.textContent = msg || (navigator.onLine ? 'Still syncing… we’ll keep trying.' : 'Offline — will sync when back online.');
           bar.classList.add('show');
@@ -192,10 +194,7 @@
     ui.overlay.classList.add('show');
     clearTimeout(minTimer); clearTimeout(maxTimer);
     minTimer = setTimeout(()=>{}, MIN_SPIN_MS);
-    maxTimer = setTimeout(()=>{
-      ui.overlay.classList.remove('show');
-      ui.setBarState(false);
-    }, MAX_SPIN_MS);
+    maxTimer = setTimeout(()=>{ ui.overlay.classList.remove('show'); ui.setBarState(false); }, MAX_SPIN_MS);
   }
   function hideSpinnerIfAllowed(){
     const ui = window.__FV_SYNC_UI__; if (!ui) return;
@@ -204,16 +203,10 @@
     if (!ui.overlay.classList.contains('show')) return;
     if (elapsed >= MIN_SPIN_MS) doHide(); else setTimeout(doHide, MIN_SPIN_MS - elapsed);
   }
-  function showBarPending(msg){
-    const ui = window.__FV_SYNC_UI__; if (!ui) return;
-    ui.setBarState(false, msg);
-  }
-  function hideBarAsSynced(){
-    const ui = window.__FV_SYNC_UI__; if (!ui) return;
-    if (ui.bar.classList.contains('show')) ui.setBarState(true);
-  }
+  function showBar(msg){ ensureUI(); window.__FV_SYNC_UI__.setBarState(false, msg); }
+  function showSynced(){ ensureUI(); window.__FV_SYNC_UI__.setBarState(true); }
 
-  // --- Conventions & helpers ---
+  // Conventions
   function keyToCollection(lsKey){
     if (!lsKey || typeof lsKey !== 'string' || !lsKey.startsWith('fv_')) return null;
     let s = lsKey.replace(/^fv_/, '');
@@ -230,12 +223,7 @@
     }catch{}
     return Array.from(out);
   }
-  function normalizeItem(it){
-    if (!it || typeof it !== 'object') return {};
-    const out = { ...it };
-    if (!out.id) out.id = String(out.t || Date.now());
-    return out;
-  }
+  function normalizeItem(it){ const o = {...(it||{})}; if (!o.id) o.id = String(o.t || Date.now()); return o; }
   function sortNewestFirst(rows){
     rows.sort((a,b)=>{
       const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : (+a.createdAt || 0);
@@ -244,21 +232,23 @@
     });
   }
 
-  // --- Echo control & edit window ---
+  // Echo control + edit window
   const _setItem = localStorage.setItem;
   let   MUTED_SETITEM = false;
   const lastLocalEditAt = new Map();
   const EDIT_WIN_MS = 800;
 
-  // --- UPSYNC (local → Firestore) with immediate spinner + retries ---
+  // Pending queue
   const pending = new Map();
   let flushTimer = null;
+  let foregroundFlush = false; // <— only true when user edited
 
   function scheduleFlush(immediate){
     clearTimeout(flushTimer);
     flushTimer = setTimeout(flush, immediate ? 0 : 250);
   }
 
+  // Wait for auth before writing
   let waitingForAuthFlush = false;
   async function ensureAuthThen(fn){
     try{
@@ -269,9 +259,10 @@
       waitingForAuthFlush = true;
       const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
       onAuthStateChanged(auth, (u)=>{ if (u){ waitingForAuthFlush = false; fn(env); } }, { onlyOnce:true });
-    }catch(e){ showBarPending('Auth not ready'); }
+    }catch(e){ showBar('Auth not ready'); }
   }
 
+  // Intercept local writes — this is considered **foreground** (user save)
   localStorage.setItem = function(key, val){
     try { _setItem.apply(this, arguments); } catch {}
     try{
@@ -282,7 +273,8 @@
         const parsed = JSON.parse(val);
         pending.set(key, parsed);
 
-        showSpinner();
+        foregroundFlush = true;  // user action
+        showSpinner();           // only show overlay for foreground
         scheduleFlush(true);
       }
     }catch{}
@@ -290,9 +282,10 @@
 
   async function flush(){
     if (!pending.size){
-      hideSpinnerIfAllowed();
-      hideBarAsSynced();
+      if (foregroundFlush) hideSpinnerIfAllowed(); // only hide spinner if we showed it
+      showSynced(); // hides banner shortly after
       FV.announce('sync:idle');
+      foregroundFlush = false;
       backoffMs = 1200;
       return;
     }
@@ -301,12 +294,13 @@
     ensureAuthThen(async (env)=>{
       const { auth, db } = env;
       const user = auth.currentUser; if (!user || !db){
-        showSpinner(); showBarPending(!user ? 'Sign in to sync' : 'Database not ready'); return rescheduleBackoff();
+        if (foregroundFlush) showSpinner(); else showBar(!user ? 'Sign in to sync' : 'Database not ready');
+        return rescheduleBackoff();
       }
 
       let f;
       try{ f = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'); }
-      catch{ showSpinner(); showBarPending('Network / SDK load failed'); return rescheduleBackoff(); }
+      catch{ if (foregroundFlush) showSpinner(); else showBar('Network / SDK load failed'); return rescheduleBackoff(); }
 
       const touched = new Set();
       let hadError = false;
@@ -322,8 +316,7 @@
             const it = normalizeItem(raw);
             const ref = f.doc(f.collection(db, coll), it.id);
             await f.setDoc(ref, {
-              ...it,
-              uid: user.uid,
+              ...it, uid: user.uid,
               updatedAt: f.serverTimestamp(),
               createdAt: it.createdAt || f.serverTimestamp(),
             }, { merge: true });
@@ -332,11 +325,10 @@
         }catch(err){
           hadError = true;
           const code = (err && (err.code || err.message)) || 'write failed';
-          showBarPending(code.includes('permission') ? 'Permission denied' : String(code));
+          showBar(code.includes('permission') ? 'Permission denied' : String(code));
         }
       }
 
-      // Register touched collections (so other devices subscribe)
       if (touched.size){
         try{
           const list = Array.from(touched);
@@ -347,12 +339,13 @@
       }
 
       if (hadError || pending.size){
-        showSpinner(); // keep overlay up while we continue
+        if (foregroundFlush) showSpinner(); else showBar();
         rescheduleBackoff();
       } else {
-        hideSpinnerIfAllowed();
-        hideBarAsSynced();
+        if (foregroundFlush) hideSpinnerIfAllowed();
+        showSynced();
         FV.announce('sync:idle');
+        foregroundFlush = false;
         backoffMs = 1200;
       }
     });
@@ -366,6 +359,7 @@
     }, backoffMs);
   }
 
+  // Startup upsync sweep is **quiet** (no overlay)
   function initialUpsyncSweep(){
     try{
       for (let i=0;i<localStorage.length;i++){
@@ -375,11 +369,11 @@
           if (Array.isArray(parsed) && parsed.length) pending.set(k, parsed);
         }catch{}
       }
-      if (pending.size) { showSpinner(); scheduleFlush(true); }
+      if (pending.size) { foregroundFlush = false; scheduleFlush(true); }
     }catch{}
   }
 
-  // --- DOWNSYNC (Firestore → local) ---
+  // Downsync (listeners) — quiet
   async function hydrateAndListen(){
     try{
       const mod = await import('/Farm-vista/js/firebase-init.js'); const env = await mod.ready;
@@ -406,7 +400,6 @@
         started.add(coll);
 
         const q = f.query(f.collection(db, coll), f.where('uid','==', user.uid));
-
         f.onSnapshot(q, (snap)=>{
           const t = lastLocalEditAt.get(coll) || 0;
           if (Date.now() - t < EDIT_WIN_MS) return;
@@ -419,12 +412,10 @@
           try{
             MUTED_SETITEM = true;
             keys.forEach(k => _setItem.call(localStorage, k, JSON.stringify(rows)));
-          }finally{
-            MUTED_SETITEM = false;
-          }
+          }finally{ MUTED_SETITEM = false; }
         }, (err)=>{
           const code = (err && (err.code || err.message)) || 'read failed';
-          showBarPending(String(code));
+          showBar(String(code));
         });
       }
 
@@ -436,17 +427,15 @@
         const list = Array.isArray(data.list) ? data.list : [];
         list.forEach(c => startColl(typeof c === 'string' ? c.trim() : ''));
       });
-    }catch(e){ showBarPending('Listener failed'); }
+    }catch(e){ showBar('Listener failed'); }
   }
 
-  // Flush if user navigates away (prevents stranded saves)
+  // Flush on leave (quiet)
   function attachVisibilityFlush(){
     try{
       window.addEventListener('pagehide', ()=> scheduleFlush(true), { passive:true });
       window.addEventListener('beforeunload', ()=> scheduleFlush(true), { passive:true });
-      document.addEventListener('visibilitychange', ()=>{
-        if (document.visibilityState === 'hidden') scheduleFlush(true);
-      });
+      document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState === 'hidden') scheduleFlush(true); });
     }catch{}
   }
 
