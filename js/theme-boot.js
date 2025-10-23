@@ -142,7 +142,7 @@
 (function(){
   // --- Tweakable timings ---
   const MIN_SPIN_MS = 2000;   // spinner shows at least this long
-  const MAX_SPIN_MS = 10000;  // after this, switch to sticky "Still syncing..." bar
+  const MAX_SPIN_MS = 20000;  // after this, switch to sticky "Still syncing..." bar
 
   // --- UI: overlay spinner + sticky status bar ---
   let uiReady = false, spinnerShownAt = 0, minTimer = null, maxTimer = null, backoffTimer = null;
