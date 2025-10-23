@@ -103,3 +103,21 @@ export const fvSignOut = env.fvSignOut;
 export const authMod = env._mods.authMod;
 export const firestoreMod = env._mods.firestoreMod;
 export const storageMod = env._mods.storageMod;
+
+// === SAFE EXPORTS (non-breaking) ===
+// Mirrors initialized objects to a stable global for helper modules,
+// and announces readiness. Does NOT re-init or alter auth flow.
+try {
+  window.FV = window.FV || {};
+  window.FV.firebase = window.FV.firebase || {};
+  if (typeof window.FV.firebase.app       === 'undefined' && typeof app       !== 'undefined') window.FV.firebase.app       = app;
+  if (typeof window.FV.firebase.auth      === 'undefined' && typeof auth      !== 'undefined') window.FV.firebase.auth      = auth;
+  if (typeof window.FV.firebase.db        === 'undefined' && typeof db        !== 'undefined') window.FV.firebase.db        = db;
+  if (typeof window.FV.firebase.storage   === 'undefined' && typeof storage   !== 'undefined') window.FV.firebase.storage   = storage;
+  if (typeof window.FV.firebase.functions === 'undefined' && typeof functions !== 'undefined') window.FV.firebase.functions = functions;
+
+  // Let listeners know Firebase is ready (harmless if they already proceeded).
+  try { window.dispatchEvent(new CustomEvent('fv:firebase-ready')); } catch {}
+} catch (e) {
+  console.warn('[FV] safe exports skipped:', e);
+}
