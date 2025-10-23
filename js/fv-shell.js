@@ -1,10 +1,7 @@
-/* FarmVista — <fv-shell> v5.9.3
-   Based on your v5.9.2 file.
-   CHANGE:
-   - Remove hardcoded "JOHNDOE" to prevent first-render flash.
-   - Add user-ready event hookup for immediate label update.
-   - Keep existing Firebase listeners as backup.
-   - Minor CSS rule to hide empty name span gracefully.
+/* FarmVista — <fv-shell> v5.9.4
+   CHANGE vs 5.9.3:
+   - Robust logout: redirect to Login only AFTER auth state is null.
+   - Prevents "Login → instant bounce back to Dashboard" loop.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -32,14 +29,12 @@
       border:none; background:transparent; color:#fff; font-size:28px; line-height:1;
       -webkit-tap-highlight-color: transparent; margin:0 auto;
     }
-    /* ensure inline SVG icons match the old emoji sizing */
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{
       position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       left:0; right:0; height:3px; background:var(--gold); z-index:999;
     }
 
-    /* ===== Footer (fixed, extra slim) ===== */
     .ftr{
       position:fixed; inset:auto 0 0 0;
       height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
@@ -50,7 +45,6 @@
     }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    /* ===== Main scroll area ===== */
     .main{
       position:relative;
       padding:
@@ -63,7 +57,6 @@
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
-    /* ===== Shared scrim (side + top drawers) ===== */
     .scrim{
       position:fixed; inset:0; background:rgba(0,0,0,.45);
       opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;
@@ -71,7 +64,6 @@
     :host(.drawer-open) .scrim,
     :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
 
-    /* ===== Sidebar (left drawer) — token-based so it follows theme ===== */
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background: var(--surface);
@@ -118,7 +110,6 @@
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
 
-    /* ===== Top Drawer (Account) ===== */
     .topdrawer{
       position:fixed; left:0; right:0; top:0;
       transform:translateY(-105%); transition:transform .26s ease;
@@ -156,7 +147,6 @@
       background:var(--gold); color:#111; border-color:transparent;
     }
 
-    /* Rows — normalized icon size/baseline */
     .row{
       display:flex; align-items:center; justify-content:space-between;
       padding:16px 12px; text-decoration:none; color:#fff;
@@ -176,7 +166,6 @@
       width:28px; height:28px; font-size:24px; line-height:1;
     }
 
-    /* Toast — LIGHT defaults */
     .toast{
       position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
       transform:translateX(-50%); background:#111; color:#fff;
@@ -185,7 +174,6 @@
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* ===== DARK CONTEXT — token driven ===== */
     :host-context(.dark){
       color:var(--text); background:var(--bg);
     }
@@ -193,7 +181,6 @@
       background:var(--bg); color:var(--text);
     }
 
-    /* Sidebar surfaces in dark (tokenized with fallbacks still supported) */
     :host-context(.dark) .drawer{
       background:var(--sidebar-surface, #171a18);
       color:var(--sidebar-text, #f1f3ef);
@@ -222,13 +209,6 @@
       color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
     }
 
-    /* Toast in dark */
-    :host-context(.dark) .toast{
-      background:#1b1f1c; color:#F2F4F1;
-      border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
-    }
-
-    /* NEW: If no name yet, keep the space tidy (we still show "Logout") */
     .logout-name:empty { display:inline-block; width:0; }
   </style>
 
@@ -236,7 +216,6 @@
     <button class="iconbtn js-menu" aria-label="Open menu">≡</button>
     <div class="title">FarmVista</div>
     <button class="iconbtn js-account" aria-label="Account" title="Account">
-      <!-- Option B — User badge (user inside a circle) -->
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
         <circle cx="12" cy="9.2" r="3.0" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -248,7 +227,6 @@
 
   <div class="scrim js-scrim"></div>
 
-  <!-- ===== Left Drawer ===== -->
   <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
       <div class="org">
@@ -259,10 +237,7 @@
         </div>
       </div>
     </header>
-
-    <!-- Menu is rendered dynamically from /Farm-vista/js/menu.js -->
     <nav class="js-nav"></nav>
-
     <footer class="drawer-footer">
       <div class="df-left">
         <div class="brand">FarmVista</div>
@@ -272,7 +247,6 @@
     </footer>
   </aside>
 
-  <!-- ===== Top Drawer (Account) ===== -->
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
       <div class="brandrow">
@@ -353,22 +327,18 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // Load version & tagline
       this._loadVersionIntoUI();
 
       this.shadowRoot.querySelector('.js-update-row')
         .addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      // ===== AUTH+ Logout & user label =====
       this._wireAuthLogout(r);
 
-      // Close the top drawer on profile links before navigation
       const ud = r.getElementById('userDetailsLink');
       if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink');
       if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
-      // Render menu
       this._initMenu();
 
       setTimeout(() => {
@@ -382,24 +352,22 @@
       }, 300);
     }
 
-    // ===== AUTH+ (reliability improved) =====
+    // ===== AUTH+ =====
     async _wireAuthLogout(r){
       const logoutRow  = r.getElementById('logoutRow');
-      const logoutName = r.getElementById('logoutName');   // only the name part
-      const logoutAct  = r.getElementById('logoutAction'); // "Logout" text (always shown)
+      const logoutName = r.getElementById('logoutName');
+      const logoutAct  = r.getElementById('logoutAction');
 
-      // Helper to apply user -> label
       const setLabel = (user) => {
         const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || '';
-        if (logoutName) logoutName.textContent = name ? ' ' + name : ''; // leading space only when we have a name
+        if (logoutName) logoutName.textContent = name ? ' ' + name : '';
       };
 
-      // 0) Immediate: if the boot bus already fired, use it
+      // Listen to early app bus for immediate fill
       const onReady = (evt) => setLabel(evt.detail);
       window.addEventListener('fv:user-ready', onReady, { once: true });
       window.addEventListener('fv:user-change', (evt)=> setLabel(evt.detail));
 
-      // 1) Also wire Firebase directly (keeps your existing reliability)
       const needAuthFns = async () => {
         if (!window.firebaseAuth) {
           try { await import('/Farm-vista/js/firebase-init.js'); } catch(_){}
@@ -417,21 +385,25 @@
         const { onIdTokenChanged, onAuthStateChanged, getAuth, signOut } = await needAuthFns();
         const auth = window.firebaseAuth || getAuth(window.firebaseApp);
 
-        // Attempt immediate (in case already hydrated)
         setLabel(auth.currentUser);
-
-        // Keep synced
         onIdTokenChanged(auth, (user)=> setLabel(user));
         onAuthStateChanged(auth, (user)=> setLabel(user));
 
-        // Gentle retry loop for very slow hydrations
-        if (!auth.currentUser) {
-          let tries = 12; // ~1.8s total
-          const tick = setInterval(()=>{
-            setLabel(auth.currentUser);
-            if (auth.currentUser || --tries <= 0) clearInterval(tick);
-          }, 150);
-        }
+        // --- Robust logout handler ---
+        const waitForSignedOut = () => new Promise((resolve) => {
+          let done = false;
+          const clean = () => { done = true; window.removeEventListener('fv:user-change', busHandler); unsub && unsub(); };
+          const busHandler = (e) => { if (!done && !e.detail) { clean(); resolve(); } };
+          window.addEventListener('fv:user-change', busHandler);
+
+          // Also listen directly on Firebase (more reliable)
+          const unsub = onAuthStateChanged(auth, (u) => {
+            if (!done && !u) { clean(); resolve(); }
+          });
+
+          // Safety timeout: resolve even if events fail (network offline)
+          setTimeout(() => { if (!done) { clean(); resolve(); } }, 3000);
+        });
 
         if (logoutRow) {
           logoutRow.addEventListener('click', async (e)=>{
@@ -439,13 +411,20 @@
             this.toggleTop(false);
             this.toggleDrawer(false);
             try{
+              // Clear “remember me” cookies/redirect hints you might add later
+              try { sessionStorage.setItem('fv:just-logged-out','1'); } catch {}
+
               if (typeof window.fvSignOut === 'function') {
-                await window.fvSignOut();
+                await window.fvSignOut();     // ensure your custom fn returns a Promise
               } else {
-                await signOut(auth);
-                const next = encodeURIComponent(location.pathname + location.search + location.hash);
-                location.replace('/Farm-vista/pages/login/?next=' + next);
+                await signOut(auth);          // wait for Firebase to begin sign-out
               }
+
+              // Now WAIT until auth state is actually null before navigating
+              await waitForSignedOut();
+
+              // Finally, go to login (no ?next to avoid bouncing back)
+              location.replace('/Farm-vista/pages/login/');
             }catch(err){
               console.warn('[FV] logout error:', err);
               location.replace('/Farm-vista/pages/login/');
@@ -464,7 +443,6 @@
         }
       }
 
-      // Make sure the static text always exists
       if (logoutAct && !logoutAct.textContent.trim()) logoutAct.textContent = 'Logout';
     }
     // ===== end AUTH+ =====
@@ -475,7 +453,6 @@
         this._sloganEl.textContent = tag || 'Farm data, simplified';
       };
 
-      // 1) Try globals first (legacy)
       let number = (window.FV_VERSION && window.FV_VERSION.number)
                 || (window.App && App.getVersion && App.getVersion().number)
                 || (window.FV_BUILD);
@@ -484,7 +461,6 @@
 
       if (number) { setUI(number, tagline); return; }
 
-      // 2) Try importing /Farm-vista/js/version.js as an ES module
       try{
         const mod = await import('/Farm-vista/js/version.js?ts=' + Date.now());
         const pick = (m)=> {
@@ -666,10 +642,8 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Updater (version.js–driven, cache + SW reset, hard reload with ?rev=<ver>) ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-
       async function readTargetVersion(){
         const v = (window.FV_VERSION && window.FV_VERSION.number) || (window.FV_BUILD);
         if (v) return v;
@@ -689,20 +663,12 @@
           try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
         }
         if('caches' in window){
-          try{
-            const keys = await caches.keys();
-            await Promise.all(keys.map(k=> caches.delete(k)));
-          }catch{}
+          try{ const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k))); }catch{}
         }
         if('serviceWorker' in navigator){
-          try {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(regs.map(r=> r.unregister()));
-          } catch {}
+          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
           await sleep(150);
-          try {
-            await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now());
-          } catch {}
+          try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
         this._toastMsg(`Updating to v${targetVer}…`, 900);
@@ -722,7 +688,6 @@
     }
   }
 
-  // ---- Safe define guard ----
   if (!customElements.get('fv-shell')) {
     customElements.define('fv-shell', FVShell);
   }
