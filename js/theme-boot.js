@@ -72,7 +72,6 @@
 })();
 
 // === Global Firebase boot: load once as a module across the whole app ===
-// We don't convert this file to a module; instead we inject a module script safely.
 (function(){
   try{
     // Avoid double-loading if another page already added it.
@@ -98,30 +97,23 @@
 
 // === Global Auth Guard (runs on every page) ===
 (function(){
-  // run after DOM is interactive so redirects are clean
   const run = async () => {
     try{
-      // Dynamically import init + auth
       const mod = await import('/Farm-vista/js/firebase-init.js');
-      await mod.ready; // wait until initialized
+      await mod.ready;
       const { auth } = mod;
 
       const here = location.pathname + location.search + location.hash;
-
-      // Allow-list public pages (login only)
       const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
 
-      // Listen once; decide where to go
       const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
       onAuthStateChanged(auth, (user) => {
         if (!user) {
-          // Not signed in → always send to login (unless we're already there)
           if (!isLogin) {
             const next = encodeURIComponent(here);
             location.replace('/Farm-vista/pages/login/?next=' + next);
           }
         } else {
-          // Signed in → if stuck on login, send to next or dashboard
           if (isLogin) {
             const qs = new URLSearchParams(location.search);
             const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
@@ -141,7 +133,7 @@
   }
 })();
 
-// === NEW: Announce user readiness immediately on first auth resolve (prevents "JOHNDOE" flash) ===
+// === Announce user readiness immediately on first auth resolve (prevents "JOHNDOE" flash) ===
 (function(){
   const start = async () => {
     try{
@@ -149,17 +141,12 @@
       await mod.ready;
       const { auth } = mod;
       const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-
-      // First fire: initial user (including null)
       onAuthStateChanged(auth, (user) => {
-        // Mark UI ready and announce the very first time we get any user value
         document.documentElement.classList.add('fv-user-ready');
         FV.announce('user-ready', user || null);
-        // Also keep broadcasting subsequent changes
         FV.announce('user-change', user || null);
       });
     }catch(e){
-      // If Firebase isn't available, still avoid placeholder flashes
       document.documentElement.classList.add('fv-user-ready');
       FV.announce('user-ready', null);
     }
@@ -168,5 +155,56 @@
     document.addEventListener('DOMContentLoaded', start, { once:true });
   } else {
     start();
+  }
+})();
+
+// === Firestore Heartbeat & Diagnostics (global) ===
+(function(){
+  const OWNER_UID = "zD2ssHGNE6RmBSqAyg8r3s3tBKl2"; // your UID
+
+  async function checkFirestore(){
+    try{
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      await mod.ready;
+      const { app, auth, db } = mod;
+      if (!app || !auth || !db) throw new Error('Missing Firebase core');
+
+      const user = auth.currentUser;
+      if (!user) throw new Error('No signed-in user');
+      if (user.uid !== OWNER_UID) {
+        console.warn('[FV] Firestore heartbeat: signed in as non-owner', user.email || user.uid);
+      }
+
+      const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js');
+      const ref = doc(db, '_heartbeat', 'ping');
+      try {
+        await getDoc(ref);
+        console.log('[FV] ✅ Firestore connection OK');
+      } catch (readErr) {
+        throw new Error('Firestore read failed — likely rules or network');
+      }
+    }catch(err){
+      showDiag(err.message || String(err));
+    }
+  }
+
+  function showDiag(msg){
+    try{
+      const box = document.createElement('div');
+      box.textContent = '[FV] Firestore error: ' + msg;
+      box.style.cssText = `
+        position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
+        background:#B71C1C; color:#fff; padding:10px 16px; border-radius:8px;
+        font-size:14px; z-index:99999; box-shadow:0 6px 20px rgba(0,0,0,.4);
+      `;
+      document.body.appendChild(box);
+      setTimeout(()=> box.remove(), 6000);
+    }catch{}
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', checkFirestore, {once:true});
+  } else {
+    checkFirestore();
   }
 })();
