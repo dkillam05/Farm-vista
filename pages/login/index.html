@@ -112,19 +112,22 @@
           </div>
         </div>
 
-        <form id="loginForm" novalidate>
+        <form id="loginForm" autocomplete="on" novalidate>
           <div class="field">
             <label for="email">Email</label>
             <div class="control">
-              <input id="email" name="email" class="input" type="email" inputmode="email" autocomplete="username"
-                     autocapitalize="none" autocorrect="off" placeholder="you@example.com" />
+              <input id="email" name="email" class="input" type="email"
+                     inputmode="email" autocomplete="username" spellcheck="false"
+                     enterkeyhint="next" autocapitalize="none" autocorrect="off"
+                     placeholder="you@example.com" />
             </div>
           </div>
 
           <div class="field">
             <label for="password">Password</label>
             <div class="control">
-              <input id="password" name="password" class="input" type="password" autocomplete="current-password" placeholder="••••••••" />
+              <input id="password" name="password" class="input" type="password"
+                     autocomplete="current-password" enterkeyhint="go" placeholder="••••••••" />
               <button type="button" class="eye" id="togglePwd" aria-controls="password" aria-label="Show password" title="Show/Hide password">
                 <svg id="lashClosed" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -172,6 +175,24 @@
     }());
   </script>
 
+  <!-- Inline: remember last email + strong autofill nudges -->
+  <script>
+    (function(){
+      const email = document.getElementById('email');
+      const pwd = document.getElementById('password');
+
+      // Pre-fill email from last successful sign-in (localStorage)
+      try {
+        const last = localStorage.getItem('fv_last_email');
+        if (last && !email.value) email.value = last;
+      } catch {}
+
+      // Focus logic: if email already filled, jump to password
+      if (email.value) { try { pwd.focus({ preventScroll:true }); } catch{} }
+      else { try { email.focus({ preventScroll:true }); } catch{} }
+    }());
+  </script>
+
   <script type="module">
     import { ready, auth } from '../../js/firebase-init.js';
     import { signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
@@ -197,7 +218,9 @@
       const btn = document.getElementById('signIn');
       btn.disabled = true; btn.textContent = 'Signing in…';
       try {
-        await signInWithEmailAndPassword(auth, em, pw);
+        const cred = await signInWithEmailAndPassword(auth, em, pw);
+        // Remember email for next time → helps iOS/Android managers suggest autofill/biometric
+        try { localStorage.setItem('fv_last_email', em); } catch {}
         location.replace(nextUrl);
       } catch (err) {
         const code = err?.code || '';
