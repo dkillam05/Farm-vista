@@ -1,6 +1,10 @@
-/* FarmVista — <fv-shell> v5.9.2
-   Based on your v5.9.1 file.
-   CHANGE: Drawer indentation by depth (groups align with sibling links; grandchildren indent +1)
+/* FarmVista — <fv-shell> v5.9.3
+   Based on your v5.9.2 file.
+   CHANGE:
+   - Remove hardcoded "JOHNDOE" to prevent first-render flash.
+   - Add user-ready event hookup for immediate label update.
+   - Keep existing Firebase listeners as backup.
+   - Minor CSS rule to hide empty name span gracefully.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -223,6 +227,9 @@
       background:#1b1f1c; color:#F2F4F1;
       border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
     }
+
+    /* NEW: If no name yet, keep the space tidy (we still show "Logout") */
+    .logout-name:empty { display:inline-block; width:0; }
   </style>
 
   <header class="hdr" part="header">
@@ -297,7 +304,13 @@
       </a>
 
       <a class="row" href="#" id="logoutRow">
-        <div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout JOHNDOE</div></div>
+        <div class="left">
+          <div class="ico">⏻</div>
+          <div class="txt">
+            <span id="logoutAction">Logout</span>
+            <span class="logout-name" id="logoutName" data-user-name=""></span>
+          </div>
+        </div>
         <div class="chev">›</div>
       </a>
     </div>
@@ -340,7 +353,7 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // NEW: Load version & tagline from /Farm-vista/js/version.js
+      // Load version & tagline
       this._loadVersionIntoUI();
 
       this.shadowRoot.querySelector('.js-update-row')
@@ -371,9 +384,22 @@
 
     // ===== AUTH+ (reliability improved) =====
     async _wireAuthLogout(r){
-      const logoutRow = r.getElementById('logoutRow');
-      const logoutLabel = r.getElementById('logoutLabel');
+      const logoutRow  = r.getElementById('logoutRow');
+      const logoutName = r.getElementById('logoutName');   // only the name part
+      const logoutAct  = r.getElementById('logoutAction'); // "Logout" text (always shown)
 
+      // Helper to apply user -> label
+      const setLabel = (user) => {
+        const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || '';
+        if (logoutName) logoutName.textContent = name ? ' ' + name : ''; // leading space only when we have a name
+      };
+
+      // 0) Immediate: if the boot bus already fired, use it
+      const onReady = (evt) => setLabel(evt.detail);
+      window.addEventListener('fv:user-ready', onReady, { once: true });
+      window.addEventListener('fv:user-change', (evt)=> setLabel(evt.detail));
+
+      // 1) Also wire Firebase directly (keeps your existing reliability)
       const needAuthFns = async () => {
         if (!window.firebaseAuth) {
           try { await import('/Farm-vista/js/firebase-init.js'); } catch(_){}
@@ -381,30 +407,24 @@
         const mod = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
         return {
           onIdTokenChanged: mod.onIdTokenChanged,
-          onAuthStateChanged: mod.onAuthStateChanged, // fallback
+          onAuthStateChanged: mod.onAuthStateChanged,
           signOut: mod.signOut,
           getAuth: mod.getAuth
         };
-      };
-
-      const setLabel = (user) => {
-        const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
-        if (logoutLabel) logoutLabel.textContent = `Logout ${name}`;
       };
 
       try{
         const { onIdTokenChanged, onAuthStateChanged, getAuth, signOut } = await needAuthFns();
         const auth = window.firebaseAuth || getAuth(window.firebaseApp);
 
-        // 1) Immediate attempt (in case user already loaded)
+        // Attempt immediate (in case already hydrated)
         setLabel(auth.currentUser);
 
-        // 2) Subscribe — onIdTokenChanged fires on first load + refresh of tokens
+        // Keep synced
         onIdTokenChanged(auth, (user)=> setLabel(user));
-        // Fallback for older browsers
         onAuthStateChanged(auth, (user)=> setLabel(user));
 
-        // 3) Tiny wait/retry if still blank (Firebase hydration race)
+        // Gentle retry loop for very slow hydrations
         if (!auth.currentUser) {
           let tries = 12; // ~1.8s total
           const tick = setInterval(()=>{
@@ -443,6 +463,9 @@
           });
         }
       }
+
+      // Make sure the static text always exists
+      if (logoutAct && !logoutAct.textContent.trim()) logoutAct.textContent = 'Logout';
     }
     // ===== end AUTH+ =====
 
