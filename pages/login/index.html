@@ -16,7 +16,7 @@
   <link rel="icon" href="/Farm-vista/assets/icons/icon-512.png" sizes="512x512" type="image/png" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
 
-  <!-- Disable sync on the login page ONLY -->
+  <!-- Disable sync on the login page ONLY (prevents background listeners here) -->
   <script>
     try { localStorage.setItem('fv:sync:disabled','1'); } catch {}
   </script>
@@ -191,7 +191,7 @@
     }());
   </script>
 
-  <!-- Inline: remember last email (uses a NON-synced key and sanitizes) -->
+  <!-- Remember last email (non-synced key) + sanitize weird values -->
   <script>
     (function(){
       const email = document.getElementById('email');
@@ -202,14 +202,9 @@
       }
       try {
         const raw = localStorage.getItem(KEY);
-        if (raw && looksLikeEmail(raw)) {
-          email.value = raw;
-        } else {
-          // clear bad leftovers like "[]", "null", etc.
-          if (email.value && !looksLikeEmail(email.value)) email.value = '';
-        }
+        if (raw && looksLikeEmail(raw)) email.value = raw;
+        else if (email.value && !looksLikeEmail(email.value)) email.value = '';
       } catch {}
-
       if (email.value) { try { pwd.focus({ preventScroll:true }); } catch{} }
       else { try { email.focus({ preventScroll:true }); } catch{} }
     }());
@@ -229,8 +224,20 @@
     const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
     const KEY = 'app:lastEmail';
 
-    // If already signed in, go straight to next
-    onAuthStateChanged(auth, (user)=>{ if (user) location.replace(nextUrl); });
+    // If we arrived here via fvSignOut(), suppress auto-next briefly to avoid bounce
+    const suppressAutoNext = qs.has('signedout');
+    const SUPPRESS_MS = 2200; // small window for state to settle
+
+    let allowAutoNext = !suppressAutoNext;
+    if (suppressAutoNext) {
+      setTimeout(()=> { allowAutoNext = true; }, SUPPRESS_MS);
+    }
+
+    onAuthStateChanged(auth, (user)=>{
+      if (user && allowAutoNext) {
+        location.replace(nextUrl);
+      }
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -244,8 +251,7 @@
         await signInWithEmailAndPassword(auth, em, pw);
         try {
           localStorage.setItem(KEY, em);
-          // Re-enable sync for the rest of the app on next navigation
-          localStorage.removeItem('fv:sync:disabled');
+          localStorage.removeItem('fv:sync:disabled'); // re-enable sync after login
         } catch {}
         location.replace(nextUrl);
       } catch (err) {
