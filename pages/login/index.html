@@ -1,47 +1,263 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>FarmVista • Sign in</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"/>
-  <meta name="theme-color" content="#3B7E46"/>
-  <meta name="robots" content="noindex"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>Login — Dowson Farms • FarmVista</title>
 
-  <!-- Minimal styles so there's no flash -->
+  <!-- ✅ Added: tell browsers this page belongs to the PWA -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <meta name="application-name" content="FarmVista" />
+  <meta name="apple-mobile-web-app-title" content="FarmVista" />
+  <meta name="theme-color" content="#3B7E46" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+  <!-- ✅ Added: consistent icons even when A2HS is triggered from Login -->
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" sizes="192x192" type="image/png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-512.png" sizes="512x512" type="image/png" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+
+  <!-- Global theme + Firebase boot -->
+  <link rel="stylesheet" href="../../assets/css/theme.css" />
+  <script defer src="../../js/theme-boot.js"></script>
+
   <style>
-    html,body{height:100%}body{margin:0;display:grid;place-items:center;background:#f5f7f4;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-    .splash{display:flex;gap:.75rem;align-items:center;color:#2F6C3C}
-    .spinner{width:18px;height:18px;border:2px solid rgba(0,0,0,.2);border-top-color:rgba(0,0,0,.7);border-radius:50%;animation:spin 1s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
-  </style>
+    .login * { box-sizing: border-box; }
+    .login a { text-decoration: none; }
 
-  <script>
-    // Auth was removed — this page is now just a router.
-    // It forwards to ?next=... if it's a safe in-app path, otherwise to the dashboard.
-    (function(){
-      var DEFAULT = "/Farm-vista/pages/dashboard/";   // <- change if your home page is different
-      try {
-        var u = new URL(location.href);
-        var next = u.searchParams.get("next") || "";
-        // basic safety: only allow in-app absolute paths
-        var safe = (typeof next === "string" && next.startsWith("/Farm-vista/")) ? next : DEFAULT;
-        // avoid redirect loops back to login
-        if (safe.replace(/\/index\.html$/i,'').startsWith("/Farm-vista/pages/login")) safe = DEFAULT;
-        location.replace(safe);
-      } catch (e) {
-        location.replace(DEFAULT);
+    :root{
+      --green:#3B7E46; --gold:#D0C542;
+      --page:var(--app-bg,#f5f7f4); --text:#141514; --surface:#fff;
+      --muted:color-mix(in srgb,var(--text) 55%, #9aa09a);
+      --ring:color-mix(in srgb,var(--green) 28%, transparent);
+      --line:color-mix(in srgb,var(--text) 12%, transparent);
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --page:#141514; --text:#f5f7f4; --surface:#1c1e1c;
+        --muted:color-mix(in srgb,var(--text) 45%, #9aa09a 55%);
+        --line:color-mix(in srgb,var(--text) 16%, transparent);
       }
-    })();
-  </script>
+    }
+
+    html, body { height:100%; background:var(--page); color:var(--text); }
+    body { margin:0; font:400 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+
+    .wrap{ min-height:100%; display:grid; place-items:center; padding:24px; }
+
+    .card{
+      width:min(400px,100%);
+      background:var(--surface); color:var(--text);
+      border-radius:16px; border:1px solid var(--line);
+      box-shadow:0 8px 28px rgba(0,0,0,.08),0 2px 8px rgba(0,0,0,.06);
+      overflow:clip;
+    }
+
+    .pad{ padding: clamp(18px,5vw,26px); }
+
+    .brand{ display:grid; grid-template-columns:44px 1fr; gap:12px; align-items:center; margin-bottom:6px; }
+    .logo{ width:44px; height:44px; border-radius:10px; object-fit:contain; background:color-mix(in srgb,var(--page) 65%,transparent); border:1px solid var(--line); }
+    .title{ display:grid; gap:2px; }
+    .title h1{ margin:0; font-size:clamp(18px,2.4vw,22px); font-weight:800; line-height:1.2; }
+    .title .byline{ margin:0; font-size:14px; font-weight:600; color:color-mix(in srgb,var(--text) 80%, var(--green)); }
+    .title .slogan{ margin:0; font-size:14px; font-style:italic; color:var(--muted); }
+
+    form{ display:grid; gap:14px; margin-top:14px; }
+    .field{ display:grid; gap:6px; }
+    .field label{ font-size:14px; font-weight:600; }
+    .control{ position:relative; }
+
+    .input{
+      width:100%; padding:12px 14px; padding-right:42px;
+      background:#fff; border:1px solid color-mix(in srgb,var(--text) 18%, transparent);
+      border-radius:12px; color:var(--text); outline:none;
+      box-shadow:0 0 0 0 var(--ring);
+      transition: box-shadow .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .input::placeholder{ color: color-mix(in srgb, var(--text) 40%, transparent); }
+    @media (prefers-color-scheme: dark){
+      .input{ background:#232523; border-color:color-mix(in srgb,var(--text) 18%, transparent); }
+      .input::placeholder{ color: color-mix(in srgb, var(--text) 45%, transparent); }
+    }
+    .input:focus{ border-color: color-mix(in srgb, var(--green) 60%, #0000); box-shadow:0 0 0 3px var(--ring); }
+
+    .eye{
+      position:absolute; right:8px; top:0; bottom:0;
+      width:34px; display:grid; place-items:center;
+      color:#8a8f8a; cursor:pointer; background:none; border:none; outline:none;
+      -webkit-appearance:none; box-shadow:none;
+    }
+    .eye svg{ width:22px; height:22px; display:block; }
+    .eye:hover{ color:#6f746f; }
+
+    .actions{ display:grid; gap:10px; margin-top:6px; }
+    .btn{
+      -webkit-appearance:none; appearance:none;
+      display:grid; place-items:center;
+      width:100%; min-height:44px; padding:12px 16px;
+      border-radius:12px;
+      background-color:#3B7E46; color:#fff;
+      border:1px solid color-mix(in srgb,#3B7E46 55%, var(--line));
+      box-shadow:0 2px 0 color-mix(in srgb,#000 25%, #3B7E46);
+      font-weight:800; letter-spacing:.2px; cursor:pointer;
+    }
+    .btn:active{ transform:translateY(1px); }
+
+    .link{ text-align:center; font-size:14px; color:color-mix(in srgb,var(--text) 78%, var(--green)); }
+    .link:hover{ text-decoration:underline; }
+
+    .meta{ margin-top:16px; font-size:12px; text-align:center; color:var(--muted); }
+
+    .err{ color:#b3261e; font-size:13px; min-height:1.2em; }
+  </style>
 </head>
-<body>
-  <div class="splash">
-    <div class="spinner"></div>
-    <div>Entering FarmVista…</div>
+<body class="login">
+  <div class="wrap">
+    <main class="card" role="main" aria-labelledby="welcome">
+      <div class="pad">
+        <div class="brand">
+          <img class="logo" src="../../assets/icons/logo.png" alt="FarmVista logo" />
+          <div class="title">
+            <h1 id="welcome">Welcome to Dowson Farms</h1>
+            <p class="byline">powered by FarmVista</p>
+            <p class="slogan">Clean Data, Smart Reporting</p>
+          </div>
+        </div>
+
+        <form id="loginForm" autocomplete="on" novalidate>
+          <div class="field">
+            <label for="email">Email</label>
+            <div class="control">
+              <input id="email" name="email" class="input" type="email"
+                     inputmode="email" autocomplete="username" spellcheck="false"
+                     enterkeyhint="next" autocapitalize="none" autocorrect="off"
+                     placeholder="you@example.com" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="control">
+              <input id="password" name="password" class="input" type="password"
+                     autocomplete="current-password" enterkeyhint="go" placeholder="••••••••" />
+              <button type="button" class="eye" id="togglePwd" aria-controls="password" aria-label="Show password" title="Show/Hide password">
+                <svg id="lashClosed" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+                <svg id="lashOpen" viewBox="0 0 24 24" aria-hidden="true" style="display:none">
+                  <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                  <circle cx="12" cy="13.5" r="1.8" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="err" id="errBox"></div>
+
+          <div class="actions">
+            <button class="btn" id="signIn" type="submit">Sign In</button>
+            <a class="link" href="#" id="forgot">Forgot password?</a>
+          </div>
+
+          <p class="meta" id="brandMeta">© Dowson Farms — </p>
+        </form>
+      </div>
+    </main>
   </div>
 
-  <noscript>
-    <p>JavaScript disabled. Continue to <a href="/Farm-vista/pages/dashboard/">Dashboard</a>.</p>
-  </noscript>
+  <script>
+    // Eyelash toggle + footer date
+    (function(){
+      const pwd = document.getElementById('password');
+      const btn = document.getElementById('togglePwd');
+      const open = document.getElementById('lashOpen');
+      const closed = document.getElementById('lashClosed');
+      btn.addEventListener('click', () => {
+        const show = pwd.type !== 'text';
+        pwd.type = show ? 'text' : 'password';
+        open.style.display = show ? 'block' : 'none';
+        closed.style.display = show ? 'none' : 'block';
+      }, { passive: true });
+
+      const el = document.getElementById('brandMeta');
+      const fmt = new Intl.DateTimeFormat('en-US', { year:'numeric', month:'long', day:'2-digit' });
+      el.textContent = `© ${new Date().getFullYear()} Dowson Farms — ${fmt.format(new Date())}`;
+    }());
+  </script>
+
+  <!-- Inline: remember last email + strong autofill nudges -->
+  <script>
+    (function(){
+      const email = document.getElementById('email');
+      const pwd = document.getElementById('password');
+
+      try {
+        const last = localStorage.getItem('fv_last_email');
+        if (last && !email.value) email.value = last;
+      } catch {}
+
+      if (email.value) { try { pwd.focus({ preventScroll:true }); } catch{} }
+      else { try { email.focus({ preventScroll:true }); } catch{} }
+    }());
+  </script>
+
+  <script type="module">
+    import { ready, auth } from '../../js/firebase-init.js';
+    import { signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+
+    await ready;
+
+    const form = document.getElementById('loginForm');
+    const email = document.getElementById('email');
+    const password = document.getElementById('password');
+    const errBox = document.getElementById('errBox');
+    const qs = new URLSearchParams(location.search);
+    const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
+
+    onAuthStateChanged(auth, (user)=>{ if (user) location.replace(nextUrl); });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errBox.textContent = '';
+      const em = (email.value || '').trim();
+      const pw = password.value || '';
+      if (!em || !pw) { errBox.textContent = 'Enter email and password.'; return; }
+      const btn = document.getElementById('signIn');
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      try {
+        const cred = await signInWithEmailAndPassword(auth, em, pw);
+        try { localStorage.setItem('fv_last_email', em); } catch {}
+        location.replace(nextUrl);
+      } catch (err) {
+        const code = err?.code || '';
+        let msg = 'Sign-in failed.';
+        if (code.includes('invalid-credential') || code.includes('wrong-password')) msg = 'Wrong email or password.';
+        else if (code.includes('user-not-found')) msg = 'No account found for this email.';
+        else if (code.includes('too-many-requests')) msg = 'Too many attempts. Try later.';
+        errBox.textContent = msg;
+        console.warn('[FV] sign-in error:', err);
+      } finally {
+        btn.disabled = false; btn.textContent = 'Sign In';
+      }
+    });
+
+    document.getElementById('forgot').addEventListener('click', async (e)=>{
+      e.preventDefault();
+      errBox.textContent = '';
+      const em = (email.value || '').trim();
+      if (!em) { errBox.textContent = 'Enter your email first, then tap “Forgot password?”.'; return; }
+      try {
+        await sendPasswordResetEmail(auth, em);
+        errBox.style.color = '#2F6C3C';
+        errBox.textContent = 'Reset link sent (if the email exists).';
+        setTimeout(()=>{ errBox.textContent=''; errBox.style.color=''; }, 4500);
+      } catch {
+        errBox.textContent = 'Unable to send reset email.';
+      }
+    });
+  </script>
 </body>
 </html>
