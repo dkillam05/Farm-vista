@@ -1,7 +1,30 @@
 // /Farm-vista/js/theme-boot.js — shell + theme only (no Firebase, no auth, no sync)
-// + Global layout baseline so footer never floats and white gap never shows (applies to ALL pages)
+// Adds a one-time Service Worker kill switch via ?nosw=1 to ensure fresh code is running.
 
-/* 0) Helpers (PWA detect, tiny event bus) */
+/* 0) SW kill switch (one-time: visit any page with ?nosw=1) */
+(async function(){
+  try{
+    const u = new URL(location.href);
+    if (u.searchParams.get('nosw') === '1') {
+      // Unregister any service workers
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      // Clear caches
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      // Remove the flag and hard-reload this page clean
+      u.searchParams.delete('nosw');
+      location.replace(u.toString());
+      return; // stop boot so reload happens immediately
+    }
+  }catch(e){}
+})();
+
+/* 1) Helpers (PWA detect, tiny event bus) */
 (function(){
   try{
     window.FV = window.FV || {};
@@ -21,7 +44,7 @@
   }catch(e){}
 })();
 
-/* 1) Viewport & tap behavior (+ global layout baseline) */
+/* 2) Viewport & global layout baseline */
 (function(){
   try{
     var HARD_NO_ZOOM = true;
@@ -36,10 +59,9 @@
       else if (document.head) document.head.appendChild(m);
     }
 
-    // ---- Global CSS (applies to all pages) ----
+    // Global CSS (footer-safe, iOS-safe) applied to all pages
     var style = document.createElement('style');
     style.textContent = `
-      /* Touch / inputs */
       input, select, textarea, button { font-size: 16px !important; }
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { touch-action: pan-x pan-y; }
@@ -47,23 +69,19 @@
       /* Auth-free: never hide name placeholders */
       html:not(.fv-user-ready) [data-user-name] { visibility: visible; }
 
-      /* ===== Footer-safe, iOS-safe layout (GLOBAL) ===== */
+      /* Footer-safe/iOS-safe baseline */
       html, body { height: 100%; }
       body{
         background: var(--app-bg, var(--surface));
-        min-height: 100svh;            /* iOS-friendly viewport height */
-        overscroll-behavior-y: contain;/* prevent rubber-band white reveal */
+        min-height: 100svh;
+        overscroll-behavior-y: contain;
         margin: 0;
       }
-
-      /* Pages inside <fv-shell> get consistent padding + min-height */
       .page{
         max-width: 1100px;
         margin: 0 auto;
         padding: clamp(14px, 3vw, 22px);
-        /* leave only what's needed for footer + safe areas; no arbitrary extra padding */
         padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--ftr-h, 42px) + 8px);
-        /* make short pages stretch so footer never floats above white */
         min-height: calc(
           100svh
           - var(--hdr-h, 56px)
@@ -79,7 +97,7 @@
   }catch(e){}
 })();
 
-/* 2) Theme preference */
+/* 3) Theme preference */
 (function(){
   try{
     var t = localStorage.getItem('fv-theme');
@@ -92,7 +110,7 @@
   }catch(e){}
 })();
 
-/* 3) App ready (no auth gating) */
+/* 4) App ready (no auth gating) */
 (function(){
   const markReady = () => {
     try{
