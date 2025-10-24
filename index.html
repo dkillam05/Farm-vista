@@ -7,21 +7,56 @@
   <meta name="theme-color" content="#3B7E46" />
   <meta name="robots" content="noindex" />
 
-  <script>
-    /*
-      TEMP REDIRECT TO LOGIN (mockup phase)
-      --------------------------------------
-      - Sends users to /pages/login/ for now.
-      - Use window.location.replace() to keep browser history clean.
-      - When real auth is wired, remove this block or
-        change to your dashboard route (/Farm-vista/dashboard/).
-    */
-    window.location.replace("pages/login/");
-  </script>
+  <!-- PWA assets (optional but recommended) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+
+  <!-- Global theme + Firebase/auth boot (no pre-redirects in this file) -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
+
+  <style>
+    html,body{height:100%}
+    body{margin:0;display:grid;place-items:center;background:var(--app-bg,#f5f7f4);color:#141514;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .splash{display:flex;gap:.75rem;align-items:center}
+    .spinner{width:18px;height:18px;border:2px solid rgba(0,0,0,.2);border-top-color:rgba(0,0,0,.7);border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
 </head>
 <body>
-  <noscript>
-    <p>JavaScript is required to continue. <a href="pages/login/">Enter FarmVista</a></p>
-  </noscript>
+  <div class="splash">
+    <div class="spinner"></div>
+    <div>Starting FarmVista…</div>
+  </div>
+
+  <script>
+    // Soft routing: if we already know we're authed, go straight to your default page.
+    // Otherwise, auth-guard (loaded by theme-boot.js) will redirect us to login if signed out.
+    (function(){
+      const DASH = "/Farm-vista/pages/dashboard/";   // <-- set your real landing page
+      const LOGIN = "/Farm-vista/pages/login/";
+      const hasFlag = localStorage.getItem('fv:sessionAuthed') === '1';
+
+      // If user opens the bare root, pick a sensible target once the event loop spins.
+      // We do NOT hard-redirect immediately on load; give auth-guard a moment first.
+      setTimeout(() => {
+        // If auth already reported and set the flag, head to dashboard.
+        if (hasFlag) {
+          if (location.pathname === "/Farm-vista/" || location.pathname === "/Farm-vista/index.html") {
+            location.replace(DASH);
+          }
+        } else {
+          // If we stay on the root and nothing else navigated us, we can show login as a fallback.
+          // But prefer to let auth-guard handle it on protected pages.
+          if (location.pathname === "/Farm-vista/" || location.pathname === "/Farm-vista/index.html") {
+            // Option A (safest): do nothing; user can use menu or bookmark.
+            // Option B (fallback): uncomment to send to login after 1.2s if still idle.
+            // location.replace(LOGIN);
+          }
+        }
+      }, 1200);
+    })();
+  </script>
 </body>
 </html>
