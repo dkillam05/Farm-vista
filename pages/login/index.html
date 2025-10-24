@@ -16,7 +16,7 @@
   <link rel="icon" href="/Farm-vista/assets/icons/icon-512.png" sizes="512x512" type="image/png" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
 
-  <!-- Disable sync on the login page ONLY (prevents background listeners here) -->
+  <!-- Disable sync on the login page ONLY -->
   <script>
     try { localStorage.setItem('fv:sync:disabled','1'); } catch {}
   </script>
@@ -73,7 +73,7 @@
 
     .input{
       width:100%; padding:12px 14px; padding-right:42px;
-      background:#fff; border:1px solid color-mix(in srgb,var(--text) 18%, transparent);
+      background:var(--surface); border:1px solid color-mix(in srgb,var(--text) 18%, transparent);
       border-radius:12px; color:var(--text); outline:none;
       box-shadow:0 0 0 0 var(--ring);
       transition: box-shadow .15s ease, border-color .15s ease, background .15s ease;
@@ -84,6 +84,18 @@
       .input::placeholder{ color: color-mix(in srgb, var(--text) 45%, transparent); }
     }
     .input:focus{ border-color: color-mix(in srgb, var(--green) 60%, #0000); box-shadow:0 0 0 3px var(--ring); }
+
+    /* === FIX: override Safari autofill yellow === */
+    input:-webkit-autofill,
+    input:-webkit-autofill:focus,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:active {
+      background-color: var(--surface) !important;
+      -webkit-box-shadow: 0 0 0px 1000px var(--surface) inset !important;
+      -webkit-text-fill-color: var(--text) !important;
+      caret-color: var(--text) !important;
+      transition: background-color 9999s ease-out 0s;
+    }
 
     .eye{
       position:absolute; right:8px; top:0; bottom:0;
@@ -172,7 +184,6 @@
   </div>
 
   <script>
-    // Eyelash toggle + footer date
     (function(){
       const pwd = document.getElementById('password');
       const btn = document.getElementById('togglePwd');
@@ -191,7 +202,6 @@
     }());
   </script>
 
-  <!-- Remember last email (non-synced key) + sanitize weird values -->
   <script>
     (function(){
       const email = document.getElementById('email');
@@ -202,8 +212,11 @@
       }
       try {
         const raw = localStorage.getItem(KEY);
-        if (raw && looksLikeEmail(raw)) email.value = raw;
-        else if (email.value && !looksLikeEmail(email.value)) email.value = '';
+        if (raw && looksLikeEmail(raw)) {
+          email.value = raw;
+        } else {
+          if (email.value && !looksLikeEmail(email.value)) email.value = '';
+        }
       } catch {}
       if (email.value) { try { pwd.focus({ preventScroll:true }); } catch{} }
       else { try { email.focus({ preventScroll:true }); } catch{} }
@@ -224,20 +237,7 @@
     const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
     const KEY = 'app:lastEmail';
 
-    // If we arrived here via fvSignOut(), suppress auto-next briefly to avoid bounce
-    const suppressAutoNext = qs.has('signedout');
-    const SUPPRESS_MS = 2200; // small window for state to settle
-
-    let allowAutoNext = !suppressAutoNext;
-    if (suppressAutoNext) {
-      setTimeout(()=> { allowAutoNext = true; }, SUPPRESS_MS);
-    }
-
-    onAuthStateChanged(auth, (user)=>{
-      if (user && allowAutoNext) {
-        location.replace(nextUrl);
-      }
-    });
+    onAuthStateChanged(auth, (user)=>{ if (user) location.replace(nextUrl); });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -251,7 +251,7 @@
         await signInWithEmailAndPassword(auth, em, pw);
         try {
           localStorage.setItem(KEY, em);
-          localStorage.removeItem('fv:sync:disabled'); // re-enable sync after login
+          localStorage.removeItem('fv:sync:disabled');
         } catch {}
         location.replace(nextUrl);
       } catch (err) {
