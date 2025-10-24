@@ -1,9 +1,8 @@
-// /Farm-vista/js/firebase-init.js  (ES module; clean)
+// /Farm-vista/js/firebase-init.js  (ES module; sets fv:sessionAuthed on auth changes)
 
 /* Guard against double init */
 if (!window.__FV_FIREBASE_READY__) {
   window.__FV_FIREBASE_READY__ = (async () => {
-    // Load Firebase SDK (ESM from Google CDN)
     const [
       appMod,
       authMod,
@@ -24,7 +23,6 @@ if (!window.__FV_FIREBASE_READY__) {
     const { getStorage } = storageMod;
     const getAnalytics = analyticsMod?.getAnalytics;
 
-    // Project config
     const firebaseConfig = {
       apiKey: "AIzaSyB3sLBWFDsoZRLmfQ19hKLoH_nMrHEFQME",
       authDomain: "dowsonfarms-illinois.firebaseapp.com",
@@ -37,20 +35,20 @@ if (!window.__FV_FIREBASE_READY__) {
 
     const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
     const auth = getAuth(app);
-    await setPersistence(auth, browserLocalPersistence);   // stay signed in until explicit logout
+
+    // Keep current behavior (persistent login). We can later split PWA vs browser if you want.
+    await setPersistence(auth, browserLocalPersistence);
+
     const db = getFirestore(app);
     const storage = getStorage(app);
     let analytics = null;
     try { if (location.protocol === 'https:') analytics = getAnalytics?.(app) || null; } catch {}
 
     // ---- Helpers ----
-
-    // Ensure a user is signed in; otherwise redirect to login with ?next
     async function fvEnsureAuthed(opts = {}) {
-      await 0; // let microtasks settle
+      await 0;
       const next = opts.next || (location.pathname + location.search + location.hash);
       const loginUrl = opts.loginUrl || '/Farm-vista/pages/login/index.html';
-
       await new Promise((resolve) => {
         const stop = onAuthStateChanged(auth, (user) => {
           stop();
@@ -65,31 +63,33 @@ if (!window.__FV_FIREBASE_READY__) {
       return auth.currentUser;
     }
 
-    // Sign out; WAIT until Firebase reports user === null, then go to login with a flag
     async function fvSignOut(loginUrl = '/Farm-vista/pages/login/') {
       try { await signOut(auth); } catch {}
-
-      // Wait for null so the login page doesn't bounce you back
       try {
         await new Promise((resolve) => {
-          const stop = onAuthStateChanged(auth, (u) => {
-            if (!u) { stop(); resolve(); }
-          });
+          const stop = onAuthStateChanged(auth, (u) => { if (!u) { stop(); resolve(); } });
         });
       } catch {}
-
-      // Clean local state
       try { sessionStorage.clear(); } catch {}
       try { localStorage.removeItem('fv:nav:groups'); } catch {}
-
-      // Send to login with a 'signedout' flag and cache-bust
       const url = new URL(loginUrl, location.origin);
-      url.searchParams.set('signedout', '1');
+      url.searchParams.set('signedout','1');
       url.searchParams.set('ts', String(Date.now()));
       location.replace(url.toString());
     }
 
-    // Expose for non-module pages
+    // ---- NEW: Mirror auth state into sessionStorage (drives the pre-guard) ----
+    try {
+      onAuthStateChanged(auth, (user) => {
+        try {
+          if (user) sessionStorage.setItem('fv:sessionAuthed','1');
+          else sessionStorage.removeItem('fv:sessionAuthed');
+        } catch {}
+        try { window.dispatchEvent(new CustomEvent('fv:user-change', { detail:user||null })); } catch {}
+      });
+    } catch {}
+
+    // Expose
     window.firebaseApp = app;
     window.firebaseAuth = auth;
     window.firebaseDB = db;
@@ -97,7 +97,6 @@ if (!window.__FV_FIREBASE_READY__) {
     window.fvEnsureAuthed = fvEnsureAuthed;
     window.fvSignOut = fvSignOut;
 
-    // Also expose on FV namespace and announce readiness
     try {
       window.FV = window.FV || {};
       window.FV.firebase = { app, auth, db, storage };
@@ -112,7 +111,7 @@ if (!window.__FV_FIREBASE_READY__) {
   })();
 }
 
-// ESM exports for module imports
+// ESM exports
 export const ready         = window.__FV_FIREBASE_READY__;
 const env                  = await window.__FV_FIREBASE_READY__;
 export const app           = env.app;
