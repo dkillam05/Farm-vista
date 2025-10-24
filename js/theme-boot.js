@@ -1,25 +1,22 @@
 // /Farm-vista/js/theme-boot.js — shell + theme only (no Firebase, no auth, no sync)
-// Adds a one-time Service Worker kill switch via ?nosw=1 to ensure fresh code is running.
+// Adds a simple, auth-free logout handler that routes to Dashboard (not /pages/login/)
 
-/* 0) SW kill switch (one-time: visit any page with ?nosw=1) */
+/* 0) SW kill switch (optional): visit any page with ?nosw=1 to clear old caches */
 (async function(){
   try{
     const u = new URL(location.href);
     if (u.searchParams.get('nosw') === '1') {
-      // Unregister any service workers
       if ('serviceWorker' in navigator) {
         const regs = await navigator.serviceWorker.getRegistrations();
         await Promise.all(regs.map(r => r.unregister()));
       }
-      // Clear caches
       if ('caches' in window) {
         const keys = await caches.keys();
         await Promise.all(keys.map(k => caches.delete(k)));
       }
-      // Remove the flag and hard-reload this page clean
       u.searchParams.delete('nosw');
       location.replace(u.toString());
-      return; // stop boot so reload happens immediately
+      return;
     }
   }catch(e){}
 })();
@@ -30,7 +27,7 @@
     window.FV = window.FV || {};
     FV.isPWA = function(){
       return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-          || (typeof navigator !== 'undefined' && 'standalone' in navigator && navigator.standalone === true);
+          || (typeof navigator !== 'undefined' && navigator.standalone === true);
     };
     if (!FV.bus) FV.bus = new EventTarget();
     if (!FV.announce) {
@@ -66,10 +63,6 @@
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { touch-action: pan-x pan-y; }
 
-      /* Auth-free: never hide name placeholders */
-      html:not(.fv-user-ready) [data-user-name] { visibility: visible; }
-
-      /* Footer-safe/iOS-safe baseline */
       html, body { height: 100%; }
       body{
         background: var(--app-bg, var(--surface));
@@ -123,4 +116,29 @@
   } else {
     markReady();
   }
+})();
+
+/* 5) SIMPLE LOGOUT (auth-free)
+   Any element with .js-logout will:
+   - clear local app flags
+   - route to /Farm-vista/pages/dashboard/ (NOT /pages/login/)
+   This prevents the offline page that your SW shows for the old login route. */
+(function(){
+  const DASH = '/Farm-vista/pages/dashboard/';
+  document.addEventListener('click', (e)=>{
+    const el = e.target.closest('.js-logout, [data-logout]');
+    if (!el) return;
+
+    e.preventDefault();
+    // clear only our app flags (keep user prefs like theme)
+    try {
+      localStorage.removeItem('fv:sessionAuthed');
+      localStorage.removeItem('fv:auth:op');
+      // add any other app-session keys you used before here
+    } catch {}
+
+    // hard navigate to a real, online page (avoid old /pages/login/)
+    const url = DASH + (DASH.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    location.replace(url);
+  }, true);
 })();
