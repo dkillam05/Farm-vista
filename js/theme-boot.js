@@ -1,4 +1,4 @@
-// /Farm-vista/js/theme-boot.js — STABLE base + auth-guard fix + inject standalone sync
+// /Farm-vista/js/theme-boot.js — shell + theme + loaders (auth guard is external)
 
 /* 1) Viewport & tap behavior */
 (function(){
@@ -54,7 +54,7 @@
   }catch(e){}
 })();
 
-/* 4) Firebase init (global) */
+/* 4) Firebase init (global, once) */
 (function(){
   try{
     if (window.__FV_FIREBASE_INIT_LOADED__) return;
@@ -63,57 +63,23 @@
     s.type = 'module';
     s.defer = true;
     s.src = '/Farm-vista/js/firebase-init.js';
+    s.addEventListener('error', ()=>console.warn('[FV] firebase-init failed to load'));
     document.head.appendChild(s);
   }catch(e){ console.warn('[FV] Firebase boot error:', e); }
 })();
 
-/* 5) Auth guard (protect pages; keep login public) — FIXED bounce */
+/* 5) External Auth Guard loader (single source of truth for redirects) */
 (function(){
-  const run = async () => {
-    try{
-      const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
-      const { auth } = mod;
-      const { onAuthStateChanged } =
-        await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-
-      // Normalize path so /login, /login/, and /login/index.html are treated the same
-      const rawPath = location.pathname;
-      const p = rawPath.replace(/\/index\.html$/i, '').replace(/\/+$/,'');
-      const qs = new URLSearchParams(location.search);
-      const here = rawPath + location.search + location.hash;
-
-      // Optional escape hatch if ever needed: ?forceLogin=1
-      const forceLogin = qs.get('forceLogin') === '1';
-
-      const loginBase = '/Farm-vista/pages/login';
-      const isLogin = forceLogin || p.endsWith(loginBase);
-
-      onAuthStateChanged(auth, (user) => {
-        if (!user) {
-          // Not signed in → everything except login is protected
-          if (!isLogin) {
-            const next = encodeURIComponent(here);
-            location.replace(loginBase + '/?next=' + next);
-          }
-        } else {
-          // Signed in → keep normal pages; if stuck on login, forward to next/dashboard
-          if (isLogin) {
-            const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
-            // Use replace so the back button doesn't bounce through login
-            location.replace(nextUrl);
-          }
-        }
-      }, { onlyOnce: true });
-    }catch(e){
-      console.warn('[FV] auth-guard error:', e);
-    }
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', run, { once:true });
-  } else {
-    run();
-  }
+  try{
+    if (window.__FV_AUTH_GUARD_LOADED__) return;
+    window.__FV_AUTH_GUARD_LOADED__ = true;
+    var s = document.createElement('script');
+    s.type = 'module';
+    s.defer = true;
+    s.src = '/Farm-vista/js/auth-guard.js';
+    s.addEventListener('error', ()=>console.warn('[FV] auth-guard failed to load'));
+    document.head.appendChild(s);
+  }catch(e){ console.warn('[FV] Auth-guard inject error:', e); }
 })();
 
 /* 6) User-ready broadcast (prevents header placeholder flash) */
@@ -142,20 +108,22 @@
   }
 })();
 
-/* 7) Inject the standalone sync module (quiet, non-blocking) */
+/* 7) Firestore sync module (inject; your standalone up/down sync lives there) */
 (function(){
   try{
+    if (window.__FV_SYNC_LOADED__) return;
     const qs = new URLSearchParams(location.search);
     const disabled = (qs.get('nosync') === '1') || (localStorage.getItem('fv:sync:disabled') === '1');
     if (disabled) { console.warn('[FV] Sync disabled by flag'); return; }
 
-    const s = document.createElement('script');
+    window.__FV_SYNC_LOADED__ = true;
+    var s = document.createElement('script');
     s.type = 'module';
     s.defer = true;
     s.src = '/Farm-vista/js/firestore/fv-sync.js?ts=' + Date.now();
     s.addEventListener('error', ()=> console.warn('[FV] fv-sync.js failed to load'));
     document.head.appendChild(s);
   }catch(e){
-    console.warn('[FV] inject sync failed:', e);
+    console.warn('[FV] Sync inject error:', e);
   }
 })();
