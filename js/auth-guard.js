@@ -1,72 +1,63 @@
 // /Farm-vista/js/auth-guard.js  (ES module)
-// Single source of truth for auth redirects across the app (de-bounced + persistent flag)
+// Redirects ONLY after Firebase reports auth state. Sole writer of fv:sessionAuthed.
 
 import { ready, auth } from '/Farm-vista/js/firebase-init.js';
 import { onAuthStateChanged, getAuth } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
-// Let theme-boot know a dedicated guard is active
 window.__FV_EXTERNAL_AUTH_GUARD__ = true;
-
-// Wait until firebase-init.js signals it's ready
 await ready;
 
-/* ---------------- Public paths that never require auth ---------------- */
+/* Public routes (no auth required) */
 const PUBLIC_PREFIXES = [
-  '/Farm-vista/pages/login',        // covers /login, /login/, /login/index.html
+  '/Farm-vista/pages/login',
   '/Farm-vista/assets/',
   '/Farm-vista/manifest.webmanifest',
   '/Farm-vista/serviceworker.js'
 ];
 
-function normalizePath(p) {
-  return p.replace(/\/index\.html$/i, '').replace(/\/+$/, '');
-}
-function isPublicPath(pathname){
-  const p = normalizePath(pathname);
-  return PUBLIC_PREFIXES.some(prefix => p.startsWith(normalizePath(prefix)));
-}
+function norm(p){ return p.replace(/\/index\.html$/i,'').replace(/\/+$/,''); }
+function isPublic(path){ const x = norm(path); return PUBLIC_PREFIXES.some(pr => x.startsWith(norm(pr))); }
 
-/* --------------- Early out: do not guard public pages ----------------- */
 const herePath = location.pathname;
-if (isPublicPath(herePath)) {
-  // Nothing to do on public routes
-} else {
-  /* -------------------- Debounced redirect helper -------------------- */
+if (!isPublic(herePath)) {
   let navigating = false;
   const go = (url) => {
     if (navigating) return;
     navigating = true;
-    try { location.replace(url); }
-    catch { location.href = url; }
+    try { location.replace(url); } catch { location.href = url; }
   };
 
-  /* -------------------- Canonical auth listener ---------------------- */
   const a = auth || getAuth(window.firebaseApp);
   const hereFull = location.pathname + location.search + location.hash;
-  const loginBase = '/Farm-vista/pages/login';
-  const loginNorm = normalizePath(loginBase);
+  const loginBase = norm('/Farm-vista/pages/login');
+
+  // If a signout is in progress, don't ever re-set the authed flag
+  let signoutInProgress = false;
+  window.addEventListener('storage', (ev)=>{
+    if (ev.key === 'fv:auth:op' && ev.newValue && ev.newValue.startsWith('signout:')) {
+      signoutInProgress = true;
+      try { localStorage.removeItem('fv:sessionAuthed'); } catch {}
+    }
+  });
 
   onAuthStateChanged(a, (user) => {
-    try {
-      if (user) {
-        // Persist "authed" flag for both Safari & PWA cold launches
-        localStorage.setItem('fv:sessionAuthed', '1');
-        return; // Stay on current page
+    try{
+      if (user && !signoutInProgress) {
+        localStorage.setItem('fv:sessionAuthed','1');
+        // stay
       } else {
-        // Clear flag when signed out
         localStorage.removeItem('fv:sessionAuthed');
-
-        // Avoid loops if somehow already at login
-        if (!normalizePath(location.pathname).startsWith(loginNorm)) {
+        if (!norm(location.pathname).startsWith(loginBase)) {
           const next = encodeURIComponent(hereFull);
-          go(`${loginNorm}/?next=${next}`);
+          go(`${loginBase}/?next=${next}`);
         }
       }
-    } catch (e) {
-      // If anything odd happens, conservatively send to login
-      if (!normalizePath(location.pathname).startsWith(loginNorm)) {
+    }catch(e){
+      // fail-safe
+      localStorage.removeItem('fv:sessionAuthed');
+      if (!norm(location.pathname).startsWith(loginBase)) {
         const next = encodeURIComponent(hereFull);
-        go(`${loginNorm}/?next=${next}`);
+        go(`${loginBase}/?next=${next}`);
       }
     }
   });
