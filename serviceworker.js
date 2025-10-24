@@ -29,6 +29,7 @@ async function makeNames() {
     `${SCOPE_PREFIX}assets/css/dashboard.css?rev=${REV}`,
     `${SCOPE_PREFIX}js/version.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/core.js?rev=${REV}`,
+    `${SCOPE_PREFIX}js/firebase-init.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/fv-shell.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/fv-hero.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/fv-hero-card.js?rev=${REV}`,
