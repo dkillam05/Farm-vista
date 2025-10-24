@@ -1,4 +1,19 @@
-// /Farm-vista/js/theme-boot.js — shell + theme + loaders (auth guard is external)
+// /Farm-vista/js/theme-boot.js — shell + theme + loaders (with instant pre-guard)
+
+/* 0) INSTANT PRE-GUARD (runs before any modules)
+      If not on Login and we lack the session "authed" flag → bounce to Login.
+      This prevents cached pages from being readable before Firebase initializes. */
+(function(){
+  try{
+    var p = location.pathname.replace(/\/index\.html$/i,'').replace(/\/+$/,'');
+    var isLogin = p.endsWith('/Farm-vista/pages/login');
+    var authed  = sessionStorage.getItem('fv:sessionAuthed') === '1';
+    if (!isLogin && !authed) {
+      var next = encodeURIComponent(location.pathname + location.search + location.hash);
+      location.replace('/Farm-vista/pages/login/?next=' + next);
+    }
+  }catch(e){}
+})();
 
 /* 1) Viewport & tap behavior */
 (function(){
@@ -68,7 +83,7 @@
   }catch(e){ console.warn('[FV] Firebase boot error:', e); }
 })();
 
-/* 5) External Auth Guard loader (single source of truth for redirects) */
+/* 5) External Auth Guard (async; real source of truth for redirects) */
 (function(){
   try{
     if (window.__FV_AUTH_GUARD_LOADED__) return;
@@ -82,7 +97,7 @@
   }catch(e){ console.warn('[FV] Auth-guard inject error:', e); }
 })();
 
-/* 6) User-ready broadcast (prevents header placeholder flash) */
+/* 6) User-ready broadcast (for UI that shows user name, etc.) */
 (function(){
   const start = async () => {
     try{
@@ -108,7 +123,7 @@
   }
 })();
 
-/* 7) Firestore sync module (inject; your standalone up/down sync lives there) */
+/* 7) Firestore sync module (optional; your up/down sync lives there) */
 (function(){
   try{
     if (window.__FV_SYNC_LOADED__) return;
