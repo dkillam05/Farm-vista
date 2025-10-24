@@ -1,4 +1,4 @@
-// /Farm-vista/js/theme-boot.js — STABLE base + inject standalone sync (upsync-only)
+// /Farm-vista/js/theme-boot.js — stable base + inject standalone sync (upsync-only)
 
 /* 1) Viewport & tap behavior */
 (function(){
@@ -76,6 +76,7 @@
 
       const here = location.pathname + location.search + location.hash;
       const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
+      const justSignedOut = new URLSearchParams(location.search).get('signedout') === '1';
 
       const { onAuthStateChanged } =
         await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
@@ -85,9 +86,12 @@
           if (!isLogin) {
             location.replace('/Farm-vista/pages/login/?next=' + encodeURIComponent(here));
           }
-        } else if (isLogin) {
-          const qs = new URLSearchParams(location.search);
-          location.replace(qs.get('next') || '/Farm-vista/dashboard/');
+        } else {
+          // If we are on login and NOT arriving right after sign-out, go to next/dashboard
+          if (isLogin && !justSignedOut) {
+            const qs = new URLSearchParams(location.search);
+            location.replace(qs.get('next') || '/Farm-vista/dashboard/');
+          }
         }
       }, { onlyOnce: true });
     }catch(e){
@@ -137,7 +141,7 @@
     const s = document.createElement('script');
     s.type = 'module';
     s.defer = true;
-    s.src = '/Farm-vista/js/firestore/fv-sync.js?ts=' + Date.now(); // <-- your new folder
+    s.src = '/Farm-vista/js/firestore/fv-sync.js?ts=' + Date.now();
     s.addEventListener('error', ()=> console.warn('[FV] fv-sync.js failed to load'));
     document.head.appendChild(s);
   }catch(e){
