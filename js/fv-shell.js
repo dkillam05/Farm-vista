@@ -1,9 +1,9 @@
-/* FarmVista — <fv-shell> v6.0.0 (auth-free)
-   Cleanup version:
-   - Removed Firebase imports and auth handling.
-   - Simplified logout → Dashboard (no offline screen).
-   - All UI and theme logic preserved.
+/* /Farm-vista/js/fv-shell.js
+   FarmVista — <fv-shell> v6.0.1 (auth-free, working header/footer/drawers + logout)
+   - Restores header, footer, side drawer, top drawer.
+   - No Firebase. Logout routes to Dashboard.
 */
+
 (function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -11,7 +11,8 @@
     :host{
       --green:#3B7E46; --gold:#D0C542;
       --hdr-h:56px; --ftr-h:14px;
-      display:block; color:#141514; background:#fff;
+      --bg:#f5f7f4; --text:#141514; --surface:#fff; --border:#E3E6E2; --shadow:0 8px 20px rgba(0,0,0,.08);
+      display:block; color:var(--text); background:var(--surface);
       min-height:100vh; position:relative;
     }
 
@@ -28,7 +29,7 @@
     .iconbtn{
       display:grid; place-items:center; width:48px; height:48px;
       border:none; background:transparent; color:#fff; font-size:28px; line-height:1;
-      -webkit-tap-highlight-color: transparent; margin:0 auto;
+      -webkit-tap-highlight-color: transparent; margin:0 auto; cursor:pointer;
     }
     .iconbtn svg{ width:26px; height:26px; display:block; }
 
@@ -61,7 +62,7 @@
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
-    /* ===== Drawer ===== */
+    /* ===== Drawers ===== */
     .scrim{position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;}
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
 
@@ -73,23 +74,25 @@
       display:flex; flex-direction:column; height:100%; overflow:hidden;
       padding-bottom:env(safe-area-inset-bottom,0px);
       border-right:1px solid var(--border);
+      -webkit-overflow-scrolling:touch;
     }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
 
     .drawer header{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+    .org{display:flex;align-items:center;gap:12px;}
     .org img{width:40px;height:40px;border-radius:8px;object-fit:cover;}
     .org-text{display:flex;flex-direction:column;}
     .org-name{font-weight:800;line-height:1.15;}
     .org-loc{font-size:13px;color:#666;}
     .drawer nav{flex:1 1 auto;overflow:auto;background:var(--bg);}
     .drawer nav a{display:flex;align-items:center;gap:12px;padding:16px;text-decoration:none;color:var(--text);border-bottom:1px solid var(--border);}
+    .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
     .drawer-footer{flex:0 0 auto;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);background:var(--surface);color:var(--text);}
     .df-left{display:flex;flex-direction:column;align-items:flex-start;}
     .df-left .brand{font-weight:800;}
     .df-left .slogan{font-size:12.5px;color:#777;}
     .df-right{font-size:13px;color:#777;white-space:nowrap;}
 
-    /* ===== Top Drawer ===== */
     .topdrawer{position:fixed;left:0;right:0;top:0;transform:translateY(-105%);transition:transform .26s ease;z-index:1300;background:var(--green);color:#fff;box-shadow:0 20px 44px rgba(0,0,0,.35);border-bottom-left-radius:16px;border-bottom-right-radius:16px;padding-top:calc(env(safe-area-inset-top,0px)+8px);max-height:72vh;overflow:auto;}
     :host(.top-open) .topdrawer{transform:translateY(0);}
     .topwrap{padding:6px 10px 14px;}
@@ -98,10 +101,10 @@
     .brandname{font-weight:800;font-size:18px;}
     .section-h{padding:12px 12px 6px;font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;letter-spacing:.12em;color:color-mix(in srgb,#fff 85%, transparent);}
     .chips{padding:0 12px 10px;}
-    .chip{appearance:none;border:1.5px solid color-mix(in srgb,#fff 65%, transparent);padding:9px 14px;border-radius:20px;background:#fff;color:#111;margin-right:10px;font-weight:700;display:inline-flex;align-items:center;gap:8px;}
+    .chip{appearance:none;border:1.5px solid color-mix(in srgb,#fff 65%, transparent);padding:9px 14px;border-radius:20px;background:#fff;color:#111;margin-right:10px;font-weight:700;display:inline-flex;align-items:center;gap:8px;cursor:pointer;}
     .chip[aria-pressed="true"]{outline:3px solid color-mix(in srgb,#fff 25%, transparent);background:var(--gold);color:#111;border-color:transparent;}
 
-    .row{display:flex;align-items:center;justify-content:space-between;padding:16px 12px;text-decoration:none;color:#fff;border-top:1px solid color-mix(in srgb,#000 22%, var(--green));}
+    .row{display:flex;align-items:center;justify-content:space-between;padding:16px 12px;text-decoration:none;color:#fff;border-top:1px solid color-mix(in srgb,#000 22%, var(--green));cursor:pointer;}
     .row .left{display:flex;align-items:center;gap:14px;}
     .row .ico{width:28px;height:28px;display:grid;place-items:center;font-size:24px;line-height:1;text-align:center;}
     .row .txt{font-size:16px;}
@@ -109,6 +112,16 @@
 
     .toast{position:fixed;left:50%;bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);transform:translateX(-50%);background:#111;color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35);z-index:1400;font-size:14px;opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;}
     .toast.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(-4px);}
+
+    /* Dark context support */
+    :host-context(.dark){ color:var(--text); background:var(--bg); }
+    :host-context(.dark) .main{ background:var(--bg); color:var(--text); }
+    :host-context(.dark) .drawer{ background:#171a18; color:#f1f3ef; border-right:1px solid #2a2e2b; box-shadow:0 0 36px rgba(0,0,0,.45); }
+    :host-context(.dark) .drawer header{ background:#171a18; border-bottom:1px solid #2a2e2b; }
+    :host-context(.dark) .drawer nav{ background:#1b1e1c; }
+    :host-context(.dark) .drawer nav a{ color:#f1f3ef; border-bottom:1px solid #232725; }
+    :host-context(.dark) .drawer-footer{ background:#171a18; border-top:1px solid #2a2e2b; color:#f1f3ef; }
+    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:#cfd3ce; }
   </style>
 
   <header class="hdr" part="header">
@@ -126,7 +139,7 @@
 
   <div class="scrim js-scrim"></div>
 
-  <aside class="drawer" part="drawer">
+  <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
       <div class="org">
         <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
@@ -161,27 +174,37 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
-        <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div><div class="chev">›</div>
+      <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/">
+        <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
+        <div class="chev">›</div>
       </a>
-      <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
-        <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div>
+      <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/">
+        <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
+        <div class="chev">›</div>
       </a>
 
       <div class="section-h">MAINTENANCE</div>
       <a class="row js-update-row" href="#">
-        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div><div class="chev">›</div>
+        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div>
+        <div class="chev">›</div>
       </a>
 
       <a class="row" href="#" id="logoutRow">
-        <div class="left"><div class="ico">⏻</div><div class="txt"><span id="logoutAction">Logout</span></div></div>
+        <div class="left">
+          <div class="ico">⏻</div>
+          <div class="txt"><span id="logoutAction">Logout</span></div>
+        </div>
         <div class="chev">›</div>
       </a>
     </div>
   </section>
 
   <main class="main" part="main"><slot></slot></main>
-  <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
+
+  <footer class="ftr" part="footer">
+    <div class="text js-footer"></div>
+  </footer>
+
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
@@ -201,21 +224,29 @@
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
 
+      // Header buttons
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
-      this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
+
+      // Scrim + Esc
+      this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); } });
 
+      // Theme chips
       r.querySelectorAll('.js-theme').forEach(btn=> btn.addEventListener('click', ()=> this.setTheme(btn.dataset.mode)));
+      const savedTheme = localStorage.getItem('fv-theme') || 'system';
+      this.setTheme(savedTheme);
 
+      // Footer text
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      this._loadVersionIntoUI();
+      // Update + Version + Menu + Logout
       r.querySelector('.js-update-row').addEventListener('click', (e)=>{ e.preventDefault(); this.checkForUpdates(); });
-      this._wireLogout(r);
+      this._loadVersionIntoUI();
       this._initMenu();
+      this._wireLogout(r);
     }
 
     /* ===== Simple logout (auth-free) ===== */
@@ -234,10 +265,11 @@
           }
         }catch{}
         const DASH = '/Farm-vista/pages/dashboard/';
-        location.replace(DASH + '?v=' + Date.now());
+        location.replace(DASH + (DASH.includes('?')?'&':'?') + 'v=' + Date.now());
       });
     }
 
+    /* ===== Version ===== */
     async _loadVersionIntoUI(){
       try{
         const mod = await import('/Farm-vista/js/version.js?ts=' + Date.now());
@@ -250,55 +282,189 @@
       }
     }
 
+    /* ===== Menu ===== */
     async _initMenu(){
       try{
         const mod = await import('/Farm-vista/js/menu.js');
         const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || {};
         this._renderMenu(NAV_MENU);
-      }catch(e){ console.error('Menu load failed', e); }
+      }catch(e){
+        console.error('Menu load failed', e);
+        this._toastMsg('Menu failed to load. Please refresh.', 2200);
+      }
     }
 
     _renderMenu(cfg){
       const nav = this._navEl;
       if (!nav || !cfg.items) return;
       nav.innerHTML = '';
+
       const path = location.pathname;
-      cfg.items.forEach(it=>{
-        if(it.type==='link'){
-          const a=document.createElement('a');
-          a.href=it.href||'#';
-          a.innerHTML=`<span>${it.icon||''}</span> ${it.label}`;
-          if(path.startsWith(it.href)) a.setAttribute('aria-current','page');
-          nav.appendChild(a);
+      const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
+      this._navStateKey = stateKey;
+      let groupState = {};
+      try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
+
+      const pad = (depth)=> `${16 + (depth * 18)}px`;
+
+      const mkLink = (item, depth=0) => {
+        const a = document.createElement('a');
+        a.href = item.href || '#';
+        a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
+        a.style.paddingLeft = pad(depth);
+        const mode = item.activeMatch || 'starts-with';
+        if ((mode==='exact' && path === item.href) || (mode!=='exact' && item.href && path.startsWith(item.href))) {
+          a.setAttribute('aria-current', 'page');
         }
+        return a;
+      };
+
+      const setOpen = (open, kids, btn) => {
+        kids.style.display = open ? 'block' : 'none';
+        btn.setAttribute('aria-expanded', String(open));
+        const chev = btn.firstElementChild;
+        if (chev) chev.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
+      };
+
+      const mkGroup = (g, depth=0) => {
+        const wrap = document.createElement('div'); wrap.className = 'nav-group';
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'stretch';
+        row.style.borderBottom = '1px solid var(--border)';
+
+        const link = mkLink(g, depth);
+        link.style.flex = '1 1 auto';
+        link.style.borderRight = '1px solid var(--border)';
+        link.style.display = 'flex';
+        link.style.alignItems = 'center';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', 'Toggle ' + g.label);
+        btn.setAttribute('aria-expanded', 'false');
+        btn.style.width = '44px';
+        btn.style.height = '44px';
+        btn.style.display = 'grid';
+        btn.style.placeItems = 'center';
+        btn.style.background = 'transparent';
+        btn.style.border = '0';
+        btn.style.cursor = 'pointer';
+        btn.style.color = 'var(--text)';
+
+        const chev = document.createElement('span');
+        chev.textContent = '▶';
+        chev.style.display = 'inline-block';
+        chev.style.transition = 'transform .18s ease';
+        btn.appendChild(chev);
+
+        const kids = document.createElement('div');
+        kids.setAttribute('role','group');
+        kids.style.display = 'none';
+
+        (g.children || []).forEach(ch => {
+          if (ch.type === 'group' && ch.collapsible) {
+            const nested = mkGroup(ch, depth + 1);
+            kids.appendChild(nested);
+          } else if (ch.type === 'link') {
+            const a = mkLink(ch, depth + 1);
+            kids.appendChild(a);
+          }
+        });
+
+        const open = !!(groupState[g.id] ?? g.initialOpen);
+        setOpen(open, kids, btn);
+
+        btn.addEventListener('click', (e)=>{
+          e.preventDefault();
+          const nowOpen = kids.style.display === 'none';
+          setOpen(nowOpen, kids, btn);
+          groupState[g.id] = nowOpen;
+          try { localStorage.setItem(stateKey, JSON.stringify(groupState)); } catch {}
+        });
+
+        row.appendChild(link);
+        row.appendChild(btn);
+        wrap.appendChild(row);
+        wrap.appendChild(kids);
+        return wrap;
+      };
+
+      (cfg.items || []).forEach(item=>{
+        if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
+        else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
     }
 
-    toggleDrawer(open){
-      const was=this.classList.contains('drawer-open');
-      const on=(open===undefined)?!was:open;
-      this.classList.toggle('drawer-open',on);
-      document.documentElement.style.overflow=(on||this.classList.contains('top-open'))?'hidden':'';
-    }
-    toggleTop(open){
-      const on=(open===undefined)?!this.classList.contains('top-open'):open;
-      this.classList.toggle('top-open',on);
-      document.documentElement.style.overflow=(on||this.classList.contains('drawer-open'))?'hidden':'';
+    _collapseAllNavGroups(){
+      const nav = this._navEl;
+      if (!nav) return;
+      nav.querySelectorAll('div[role="group"]').forEach(kids=>{
+        kids.style.display = 'none';
+        const row = kids.previousElementSibling;
+        const btn = row && row.querySelector('button[aria-expanded]');
+        if (btn) btn.setAttribute('aria-expanded','false');
+      });
+      const key = this._navStateKey || 'fv:nav:groups';
+      try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
+    /* ===== UI Toggles ===== */
+    toggleDrawer(open){
+      const wasOpen = this.classList.contains('drawer-open');
+      const on = (open===undefined) ? !wasOpen : open;
+      this.classList.toggle('drawer-open', on);
+      document.documentElement.style.overflow = (on || this.classList.contains('top-open')) ? 'hidden' : '';
+      if (wasOpen && !on) { this._collapseAllNavGroups(); }
+    }
+    toggleTop(open){
+      const on = (open===undefined) ? !this.classList.contains('top-open') : open;
+      this.classList.toggle('top-open', on);
+      document.documentElement.style.overflow = (on || this.classList.contains('drawer-open')) ? 'hidden' : '';
+    }
+
+    /* ===== Theme ===== */
+    _syncThemeChips(mode){
+      this.shadowRoot.querySelectorAll('.js-theme').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.mode===mode)));
+    }
     setTheme(mode){
       try{
-        document.documentElement.setAttribute('data-theme', mode==='system'?'auto':mode);
+        document.documentElement.setAttribute('data-theme', mode === 'system' ? 'auto' : mode);
         document.documentElement.classList.toggle('dark',
-          mode==='dark' || (mode==='system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          mode==='dark' || (mode==='system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
         );
         localStorage.setItem('fv-theme', mode);
       }catch{}
-      this.shadowRoot.querySelectorAll('.js-theme').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.mode===mode)));
+      this._syncThemeChips(mode);
     }
 
+    /* ===== Updates ===== */
     async checkForUpdates(){
-      const sleep=(ms)=>new Promise(res=>setTimeout(res,ms));
+      const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
       try{
         this._toastMsg('Checking for updates…',1200);
-        if('caches' in
+        // Clear caches and reload to bust stale assets
+        if('caches' in window){
+          try{ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }catch{}
+        }
+        await sleep(300);
+        const url = new URL(location.href);
+        url.searchParams.set('rev', Date.now());
+        location.replace(url.toString());
+      }catch(e){
+        console.error(e);
+        this._toastMsg('Update failed. Try again.',2000);
+      }
+    }
+
+    _toastMsg(msg, ms=1600){
+      const t = this._toast; t.textContent = msg; t.classList.add('show');
+      clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
+    }
+  }
+
+  if (!customElements.get('fv-shell')) {
+    customElements.define('fv-shell', FVShell);
+  }
+})();
