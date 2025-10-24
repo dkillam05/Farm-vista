@@ -1,6 +1,6 @@
-// /Farm-vista/js/theme-boot.js — shell + theme + loaders (no redirects; auth decides)
+// /Farm-vista/js/theme-boot.js — shell + theme only (no Firebase, no auth, no sync)
 
-/* Helpers */
+/* 0) Helpers (PWA detect, event bus bootstrap) */
 (function(){
   try{
     window.FV = window.FV || {};
@@ -8,23 +8,18 @@
       return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
           || (typeof navigator !== 'undefined' && 'standalone' in navigator && navigator.standalone === true);
     };
+    // Tiny app bus
+    if (!FV.bus) FV.bus = new EventTarget();
+    if (!FV.announce) {
+      FV.announce = function(evt, detail){
+        try{
+          FV.bus.dispatchEvent(new CustomEvent(evt, { detail }));
+          window.dispatchEvent(new CustomEvent('fv:' + evt, { detail }));
+        }catch{}
+      };
+    }
   }catch(e){}
 })();
-
-/* Hold UI until we hear from auth (prevents flashing) */
-(function(){
-  try{
-    const style = document.createElement('style');
-    style.textContent = `
-      html.fv-auth-hold { opacity:.001; pointer-events:none; }
-      html.fv-auth-ready{ opacity:1;    pointer-events:auto; }
-    `;
-    document.head.appendChild(style);
-    document.documentElement.classList.add('fv-auth-hold');
-  }catch(e){}
-})();
-
-/* 0) (intentionally no pre-redirect guard) */
 
 /* 1) Viewport & tap behavior */
 (function(){
@@ -45,7 +40,8 @@
       input, select, textarea, button { font-size: 16px !important; }
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { touch-action: pan-x pan-y; }
-      html:not(.fv-user-ready) [data-user-name] { visibility: hidden; }
+      /* Since there's no auth layer now, never hide name placeholders */
+      html:not(.fv-user-ready) [data-user-name] { visibility: visible; }
     `;
     document.head.appendChild(style);
   }catch(e){}
@@ -64,94 +60,26 @@
   }catch(e){}
 })();
 
-/* 3) Tiny app bus */
+/* 3) App ready (no auth gating) */
 (function(){
-  try{
-    window.FV = window.FV || {};
-    if (!FV.bus) FV.bus = new EventTarget();
-    if (!FV.announce) {
-      FV.announce = function(evt, detail){
-        try{
-          FV.bus.dispatchEvent(new CustomEvent(evt, { detail }));
-          window.dispatchEvent(new CustomEvent('fv:' + evt, { detail }));
-        }catch{}
-      };
-    }
-  }catch(e){}
-})();
-
-/* 4) Firebase init (global, once) */
-(function(){
-  try{
-    if (window.__FV_FIREBASE_INIT_LOADED__) return;
-    window.__FV_FIREBASE_INIT_LOADED__ = true;
-    var s = document.createElement('script');
-    s.type = 'module';
-    s.defer = true;
-    s.src = '/Farm-vista/js/firebase-init.js';
-    s.addEventListener('error', ()=>console.warn('[FV] firebase-init failed to load'));
-    document.head.appendChild(s);
-  }catch(e){ console.warn('[FV] Firebase boot error:', e); }
-})();
-
-/* 5) Auth guard inject (only this will redirect; cache-busted) */
-(function(){
-  try{
-    if (window.__FV_AUTH_GUARD_LOADED__) return;
-    window.__FV_AUTH_GUARD_LOADED__ = true;
-    var s = document.createElement('script');
-    s.type = 'module';
-    s.defer = true;
-    s.src = '/Farm-vista/js/auth-guard.js?v=20251024b';
-    s.addEventListener('error', ()=>console.warn('[FV] auth-guard failed to load'));
-    document.head.appendChild(s);
-  }catch(e){ console.warn('[FV] Auth-guard inject error:', e); }
-})();
-
-/* 6) User-ready broadcast; RELEASE UI HOLD (do NOT touch fv:sessionAuthed here) */
-(function(){
-  const start = async () => {
+  const markReady = () => {
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
-      const { auth } = mod;
-      const { onAuthStateChanged } =
-        await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-
-      onAuthStateChanged(auth, (user) => {
-        document.documentElement.classList.add('fv-user-ready');
-        document.documentElement.classList.remove('fv-auth-hold');
-        document.documentElement.classList.add('fv-auth-ready');
-        FV.announce('user-ready', user || null);
-        FV.announce('user-change', user || null);
-      });
-    }catch(e){
-      document.documentElement.classList.remove('fv-auth-hold');
-      document.documentElement.classList.add('fv-auth-ready');
+      document.documentElement.classList.add('fv-user-ready');
+      // Broadcast a basic ready event (no user payload anymore)
       FV.announce('user-ready', null);
-    }
+    }catch(e){}
   };
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start, { once:true });
+    document.addEventListener('DOMContentLoaded', markReady, { once:true });
   } else {
-    start();
+    markReady();
   }
 })();
 
-/* 7) Firestore sync module */
-(function(){
-  try{
-    if (window.__FV_SYNC_LOADED__) return;
-    const qs = new URLSearchParams(location.search);
-    const disabled = (qs.get('nosync') === '1') || (localStorage.getItem('fv:sync:disabled') === '1');
-    if (disabled) { console.warn('[FV] Sync disabled by flag'); return; }
-    window.__FV_SYNC_LOADED__ = true;
-    var s = document.createElement('script');
-    s.type = 'module';
-    s.defer = true;
-    s.src = '/Farm-vista/js/firestore/fv-sync.js?ts=' + Date.now();
-    s.addEventListener('error', ()=> console.warn('[FV] fv-sync.js failed to load'));
-    document.head.appendChild(s);
-  }catch(e){
-    console.warn('[FV] Sync inject error:', e);
-  }
-})();
+/* 4) (Removed) Firebase init — not used */
+
+/* 5) (Removed) Auth guard inject — not used */
+
+/* 6) (Removed) Auth state listener — not used */
+
+/* 7) (Removed) Firestore sync module — not used */
