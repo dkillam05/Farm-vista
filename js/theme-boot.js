@@ -1,4 +1,4 @@
-// /Farm-vista/js/theme-boot.js — stable base + inject standalone sync (upsync-only)
+// /Farm-vista/js/theme-boot.js — STABLE base + auth-guard fix + inject standalone sync
 
 /* 1) Viewport & tap behavior */
 (function(){
@@ -67,30 +67,40 @@
   }catch(e){ console.warn('[FV] Firebase boot error:', e); }
 })();
 
-/* 5) Auth guard (protect pages; keep login public) */
+/* 5) Auth guard (protect pages; keep login public) — FIXED bounce */
 (function(){
   const run = async () => {
     try{
       const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
       const { auth } = mod;
-
-      const here = location.pathname + location.search + location.hash;
-      const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
-      const justSignedOut = new URLSearchParams(location.search).get('signedout') === '1';
-
       const { onAuthStateChanged } =
         await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
 
+      // Normalize path so /login, /login/, and /login/index.html are treated the same
+      const rawPath = location.pathname;
+      const p = rawPath.replace(/\/index\.html$/i, '').replace(/\/+$/,'');
+      const qs = new URLSearchParams(location.search);
+      const here = rawPath + location.search + location.hash;
+
+      // Optional escape hatch if ever needed: ?forceLogin=1
+      const forceLogin = qs.get('forceLogin') === '1';
+
+      const loginBase = '/Farm-vista/pages/login';
+      const isLogin = forceLogin || p.endsWith(loginBase);
+
       onAuthStateChanged(auth, (user) => {
         if (!user) {
+          // Not signed in → everything except login is protected
           if (!isLogin) {
-            location.replace('/Farm-vista/pages/login/?next=' + encodeURIComponent(here));
+            const next = encodeURIComponent(here);
+            location.replace(loginBase + '/?next=' + next);
           }
         } else {
-          // If we are on login and NOT arriving right after sign-out, go to next/dashboard
-          if (isLogin && !justSignedOut) {
-            const qs = new URLSearchParams(location.search);
-            location.replace(qs.get('next') || '/Farm-vista/dashboard/');
+          // Signed in → keep normal pages; if stuck on login, forward to next/dashboard
+          if (isLogin) {
+            const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
+            // Use replace so the back button doesn't bounce through login
+            location.replace(nextUrl);
           }
         }
       }, { onlyOnce: true });
@@ -98,6 +108,7 @@
       console.warn('[FV] auth-guard error:', e);
     }
   };
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', run, { once:true });
   } else {
@@ -131,7 +142,7 @@
   }
 })();
 
-/* 7) Inject the standalone sync module (quiet, non-blocking; upsync-only today) */
+/* 7) Inject the standalone sync module (quiet, non-blocking) */
 (function(){
   try{
     const qs = new URLSearchParams(location.search);
