@@ -1,6 +1,6 @@
-// /Farm-vista/js/theme-boot.js — shell + theme + loaders (Soft Guard w/ auth wait)
+// /Farm-vista/js/theme-boot.js — shell + theme + loaders (no redirects; auth decides)
 
-/* ——— Helpers: env + PWA detect ——— */
+/* Helpers */
 (function(){
   try{
     window.FV = window.FV || {};
@@ -11,106 +11,20 @@
   }catch(e){}
 })();
 
-const __FV_AUTH_WAIT_MS__ = 2200;   // Max time to wait for a real auth signal
-const __FV_SYNC_BUST__    = true;   // Keep your cache-bust on sync module
-
-/* 0) SOFT AUTH GUARD (waits briefly for real auth before redirecting)
-      Avoids bounce/loops in both Safari and PWA by listening for:
-      - Firebase onAuthStateChanged user
-      - localStorage key 'fv:sessionAuthed' === '1' (existing, storage event, or polling)
-*/
+/* Hold UI until we hear from auth (prevents flashing) */
 (function(){
   try{
-    // Normalize path and detect if we're already on the login page
-    var p = location.pathname.replace(/\/index\.html$/i,'').replace(/\/+$/,'');
-    var isLogin = p.endsWith('/Farm-vista/pages/login');
-
-    // Don’t guard the Login page
-    if (isLogin) return;
-
-    // Add a quick hold to prevent content flash while we verify auth
-    document.documentElement.classList.add('fv-guard-hold');
-
-    // Small, scoped CSS for the hold state
-    (function(){
-      try{
-        var style = document.createElement('style');
-        style.textContent = `
-          html.fv-guard-hold { opacity: .001; pointer-events: none; }
-          html.fv-guard-clear{ opacity: 1;    pointer-events: auto; }
-        `;
-        document.head.appendChild(style);
-      }catch(e){}
-    })();
-
-    // Immediate allow if flag is already there
-    var hasFlag = (localStorage.getItem('fv:sessionAuthed') === '1');
-    if (hasFlag) {
-      document.documentElement.classList.remove('fv-guard-hold');
-      document.documentElement.classList.add('fv-guard-clear');
-      return;
-    }
-
-    // Otherwise, wait for a real signal (Firebase user OR storage flag) up to timeout
-    var resolved = false;
-    var cleanupFns = [];
-
-    function done(allow){
-      if (resolved) return;
-      resolved = true;
-      cleanupFns.forEach(fn => { try{ fn(); }catch{} });
-      if (allow) {
-        document.documentElement.classList.remove('fv-guard-hold');
-        document.documentElement.classList.add('fv-guard-clear');
-      } else {
-        // Redirect to login with next=
-        var next = encodeURIComponent(location.pathname + location.search + location.hash);
-        location.replace('/Farm-vista/pages/login/?next=' + next);
-      }
-    }
-
-    // 0a) If the key appears at any moment, allow
-    const poll = setInterval(()=>{
-      try{
-        if (localStorage.getItem('fv:sessionAuthed') === '1') done(true);
-      }catch(e){}
-    }, 120);
-    cleanupFns.push(()=>clearInterval(poll));
-
-    // 0b) Listen for storage changes (e.g., other modules setting the key)
-    function onStorage(ev){
-      try{
-        if (ev && ev.key === 'fv:sessionAuthed' && ev.newValue === '1') done(true);
-      }catch(e){}
-    }
-    window.addEventListener('storage', onStorage);
-    cleanupFns.push(()=>window.removeEventListener('storage', onStorage));
-
-    // 0c) Also hook Firebase directly so we don’t depend solely on the flag
-    (async function(){
-      try{
-        const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
-        const { auth } = mod;
-        const { onAuthStateChanged } =
-          await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-        const un = onAuthStateChanged(auth, (user)=>{
-          if (user) {
-            // set the flag to keep future cold launches fast
-            try{ localStorage.setItem('fv:sessionAuthed','1'); }catch(e){}
-            done(true);
-          }
-        });
-        cleanupFns.push(()=>{ try{ un(); }catch{} });
-      }catch(e){
-        // If Firebase can’t load, we’ll fall back to timeout → login
-      }
-    })();
-
-    // 0d) Timeout → if nothing proved auth, go to login
-    const t = setTimeout(()=>done(false), __FV_AUTH_WAIT_MS__);
-    cleanupFns.push(()=>clearTimeout(t));
+    const style = document.createElement('style');
+    style.textContent = `
+      html.fv-auth-hold { opacity:.001; pointer-events:none; }
+      html.fv-auth-ready{ opacity:1;    pointer-events:auto; }
+    `;
+    document.head.appendChild(style);
+    document.documentElement.classList.add('fv-auth-hold');
   }catch(e){}
 })();
+
+/* 0) (intentionally no pre-redirect guard) */
 
 /* 1) Viewport & tap behavior */
 (function(){
@@ -180,7 +94,7 @@ const __FV_SYNC_BUST__    = true;   // Keep your cache-bust on sync module
   }catch(e){ console.warn('[FV] Firebase boot error:', e); }
 })();
 
-/* 5) External Auth Guard (async; your canonical login/logout handler) */
+/* 5) Auth guard inject (only this will redirect; cache-busted) */
 (function(){
   try{
     if (window.__FV_AUTH_GUARD_LOADED__) return;
@@ -188,13 +102,13 @@ const __FV_SYNC_BUST__    = true;   // Keep your cache-bust on sync module
     var s = document.createElement('script');
     s.type = 'module';
     s.defer = true;
-    s.src = '/Farm-vista/js/auth-guard.js';
+    s.src = '/Farm-vista/js/auth-guard.js?v=20251024b';
     s.addEventListener('error', ()=>console.warn('[FV] auth-guard failed to load'));
     document.head.appendChild(s);
   }catch(e){ console.warn('[FV] Auth-guard inject error:', e); }
 })();
 
-/* 6) User-ready broadcast (fires after Firebase signals; safe in both PWA & Safari) */
+/* 6) User-ready broadcast; RELEASE UI HOLD (do NOT touch fv:sessionAuthed here) */
 (function(){
   const start = async () => {
     try{
@@ -205,16 +119,14 @@ const __FV_SYNC_BUST__    = true;   // Keep your cache-bust on sync module
 
       onAuthStateChanged(auth, (user) => {
         document.documentElement.classList.add('fv-user-ready');
-        // If signed out, clear the authed flag so guard behaves correctly next launch
-        try{
-          if (!user) localStorage.removeItem('fv:sessionAuthed');
-          else localStorage.setItem('fv:sessionAuthed','1');
-        }catch(e){}
+        document.documentElement.classList.remove('fv-auth-hold');
+        document.documentElement.classList.add('fv-auth-ready');
         FV.announce('user-ready', user || null);
         FV.announce('user-change', user || null);
       });
     }catch(e){
-      document.documentElement.classList.add('fv-user-ready');
+      document.documentElement.classList.remove('fv-auth-hold');
+      document.documentElement.classList.add('fv-auth-ready');
       FV.announce('user-ready', null);
     }
   };
@@ -225,19 +137,18 @@ const __FV_SYNC_BUST__    = true;   // Keep your cache-bust on sync module
   }
 })();
 
-/* 7) Firestore sync module (optional; your up/down sync lives there) */
+/* 7) Firestore sync module */
 (function(){
   try{
     if (window.__FV_SYNC_LOADED__) return;
     const qs = new URLSearchParams(location.search);
     const disabled = (qs.get('nosync') === '1') || (localStorage.getItem('fv:sync:disabled') === '1');
     if (disabled) { console.warn('[FV] Sync disabled by flag'); return; }
-
     window.__FV_SYNC_LOADED__ = true;
     var s = document.createElement('script');
     s.type = 'module';
     s.defer = true;
-    s.src = '/Farm-vista/js/firestore/fv-sync.js' + (__FV_SYNC_BUST__ ? ('?ts=' + Date.now()) : '');
+    s.src = '/Farm-vista/js/firestore/fv-sync.js?ts=' + Date.now();
     s.addEventListener('error', ()=> console.warn('[FV] fv-sync.js failed to load'));
     document.head.appendChild(s);
   }catch(e){
