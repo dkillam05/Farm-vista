@@ -82,36 +82,30 @@
 (function(){
   // run after DOM is interactive so redirects are clean
   const run = async () => {
-    try{
-      // Dynamically import init + auth
+    try {
       const mod = await import('/Farm-vista/js/firebase-init.js');
-      await mod.ready; // wait until initialized
-      const { auth } = mod;
+      const ctx = await mod.ready;
+      const auth = ctx && ctx.auth;
+
+      // In stub/offline mode we skip redirects entirely.
+      if (!auth || mod.isStub()) return;
 
       const here = location.pathname + location.search + location.hash;
-
-      // Allow-list public pages (login only)
       const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
 
-      // Listen once; decide where to go
-      const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-      onAuthStateChanged(auth, (user) => {
+      mod.onAuthStateChanged(auth, (user) => {
         if (!user) {
-          // Not signed in → always send to login (unless we're already there)
           if (!isLogin) {
             const next = encodeURIComponent(here);
             location.replace('/Farm-vista/pages/login/?next=' + next);
           }
-        } else {
-          // Signed in → if stuck on login, send to next or dashboard
-          if (isLogin) {
-            const qs = new URLSearchParams(location.search);
-            const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
-            location.replace(nextUrl);
-          }
+        } else if (isLogin) {
+          const qs = new URLSearchParams(location.search);
+          const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
+          location.replace(nextUrl);
         }
-      }, { onlyOnce: true });
-    }catch(e){
+      });
+    } catch (e) {
       console.warn('[FV] auth-guard error:', e);
     }
   };

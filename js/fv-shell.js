@@ -338,7 +338,8 @@
 
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
+      this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
+      this._footerText.textContent = this._footerBase;
 
       // NEW: Load version & tagline from /Farm-vista/js/version.js
       this._loadVersionIntoUI();
@@ -375,15 +376,17 @@
       const logoutLabel = r.getElementById('logoutLabel');
 
       const needAuthFns = async () => {
-        if (!window.firebaseAuth) {
-          try { await import('/Farm-vista/js/firebase-init.js'); } catch(_){}
-        }
-        const mod = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+        const mod = await import('/Farm-vista/js/firebase-init.js');
+        const ctx = await mod.ready;
+        const auth = window.firebaseAuth || (ctx && ctx.auth) || mod.getAuth(ctx && ctx.app);
         return {
+          mod,
+          ctx,
+          auth,
           onIdTokenChanged: mod.onIdTokenChanged,
-          onAuthStateChanged: mod.onAuthStateChanged, // fallback
+          onAuthStateChanged: mod.onAuthStateChanged,
           signOut: mod.signOut,
-          getAuth: mod.getAuth
+          isStub: mod.isStub()
         };
       };
 
@@ -393,8 +396,8 @@
       };
 
       try{
-        const { onIdTokenChanged, onAuthStateChanged, getAuth, signOut } = await needAuthFns();
-        const auth = window.firebaseAuth || getAuth(window.firebaseApp);
+        const { mod, ctx, auth, onIdTokenChanged, onAuthStateChanged, signOut, isStub } = await needAuthFns();
+        if (!auth) throw new Error('Auth unavailable');
 
         // 1) Immediate attempt (in case user already loaded)
         setLabel(auth.currentUser);
@@ -423,12 +426,16 @@
                 await window.fvSignOut();
               } else {
                 await signOut(auth);
-                const next = encodeURIComponent(location.pathname + location.search + location.hash);
-                location.replace('/Farm-vista/pages/login/?next=' + next);
               }
+              setLabel(auth.currentUser);
             }catch(err){
               console.warn('[FV] logout error:', err);
-              location.replace('/Farm-vista/pages/login/');
+            }
+            const next = encodeURIComponent(location.pathname + location.search + location.hash);
+            if (ctx && ctx.mode === 'firebase' && !isStub) {
+              location.replace('/Farm-vista/pages/login/?next=' + next);
+            } else {
+              this._toastMsg('Signed out (local mode).', 1600);
             }
           });
         }
@@ -482,7 +489,18 @@
         setUI(number, tagline);
       }catch{
         setUI('0.0.0', 'Farm data, simplified');
+        number = '0.0.0';
       }
+
+      this._applyFooterVersion(number);
+    }
+
+    _applyFooterVersion(num){
+      if (!this._footerText) return;
+      this._footerVersion = (num && String(num)) || '';
+      const base = this._footerBase || '';
+      const suffix = this._footerVersion ? ` • v${this._footerVersion}` : '';
+      this._footerText.textContent = base + suffix;
     }
 
     async _initMenu(){
