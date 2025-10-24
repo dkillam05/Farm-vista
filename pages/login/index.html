@@ -5,18 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>Login — Dowson Farms • FarmVista</title>
 
-  <!-- ✅ Added: tell browsers this page belongs to the PWA -->
+  <!-- PWA + brand -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
   <meta name="application-name" content="FarmVista" />
   <meta name="apple-mobile-web-app-title" content="FarmVista" />
   <meta name="theme-color" content="#3B7E46" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-
-  <!-- ✅ Added: consistent icons even when A2HS is triggered from Login -->
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" sizes="192x192" type="image/png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-512.png" sizes="512x512" type="image/png" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+
+  <!-- Disable sync on the login page ONLY -->
+  <script>
+    try { localStorage.setItem('fv:sync:disabled','1'); } catch {}
+  </script>
 
   <!-- Global theme + Firebase boot -->
   <link rel="stylesheet" href="../../assets/css/theme.css" />
@@ -188,15 +191,23 @@
     }());
   </script>
 
-  <!-- Inline: remember last email + strong autofill nudges -->
+  <!-- Inline: remember last email (uses a NON-synced key and sanitizes) -->
   <script>
     (function(){
       const email = document.getElementById('email');
       const pwd = document.getElementById('password');
-
+      const KEY = 'app:lastEmail';
+      function looksLikeEmail(v){
+        return typeof v === 'string' && v.includes('@') && v.length <= 254;
+      }
       try {
-        const last = localStorage.getItem('fv_last_email');
-        if (last && !email.value) email.value = last;
+        const raw = localStorage.getItem(KEY);
+        if (raw && looksLikeEmail(raw)) {
+          email.value = raw;
+        } else {
+          // clear bad leftovers like "[]", "null", etc.
+          if (email.value && !looksLikeEmail(email.value)) email.value = '';
+        }
       } catch {}
 
       if (email.value) { try { pwd.focus({ preventScroll:true }); } catch{} }
@@ -216,7 +227,9 @@
     const errBox = document.getElementById('errBox');
     const qs = new URLSearchParams(location.search);
     const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
+    const KEY = 'app:lastEmail';
 
+    // If already signed in, go straight to next
     onAuthStateChanged(auth, (user)=>{ if (user) location.replace(nextUrl); });
 
     form.addEventListener('submit', async (e) => {
@@ -228,8 +241,12 @@
       const btn = document.getElementById('signIn');
       btn.disabled = true; btn.textContent = 'Signing in…';
       try {
-        const cred = await signInWithEmailAndPassword(auth, em, pw);
-        try { localStorage.setItem('fv_last_email', em); } catch {}
+        await signInWithEmailAndPassword(auth, em, pw);
+        try {
+          localStorage.setItem(KEY, em);
+          // Re-enable sync for the rest of the app on next navigation
+          localStorage.removeItem('fv:sync:disabled');
+        } catch {}
         location.replace(nextUrl);
       } catch (err) {
         const code = err?.code || '';
