@@ -1,16 +1,18 @@
-// /Farm-vista/js/firestore/fv-sync.js
-// Bi-directional sync for the whole app.
-// - Upsync: localStorage → Firestore (robust retries, auth-hydration safe)
-// - Downsync: Firestore → localStorage (live listeners, anti-echo)
-// No UI and non-blocking; theme-boot.js remains unchanged.
+/* /Farm-vista/js/firestore/fv-sync.js — v0.9.0
+   Goal (STEP 1 ONLY): Disable UPSYNC (localStorage → Firestore) to stop per-keystroke writes.
+   Keep DOWNSYNC (Firestore → localStorage) working so pages still hydrate.
+   Once this is stable, we can add explicit "Press Save" writes separately.
+*/
+
+// ========= Feature flags =========
+const UPSYNC_ENABLED = false;   // <- OFF: stops capturing localStorage writes
+const DOWNSYNC_ENABLED = true;  // <- ON: keep Firestore → localStorage live listeners
 
 // ========= Utilities =========
 function keyToCollection(lsKey){
   if (!lsKey || typeof lsKey !== 'string' || !lsKey.startsWith('fv_')) return null;
   let s = lsKey.replace(/^fv_/, '');
-  // optional category prefix
   s = s.replace(/^(setup|contacts|calc|pages|app|settings|data)_/, '');
-  // optional version suffix
   s = s.replace(/_v\d+$/, '');
   return s || null;
 }
@@ -32,7 +34,7 @@ function normalizeItem(it){
   return o;
 }
 
-// ========= Queue & monkey-patch =========
+// ========= Queue & (optional) monkey-patch =========
 const _setItem = localStorage.setItem;
 let MUTED_SETITEM = false;      // prevents echo when we write from downsync
 const pending = new Map();      // key -> latest array
@@ -40,19 +42,27 @@ let flushTimer = null;
 
 function scheduleFlush(delayMs = 250){
   clearTimeout(flushTimer);
+  if (!UPSYNC_ENABLED) return;
   flushTimer = setTimeout(flush, delayMs);
 }
 
-localStorage.setItem = function(key, val){
-  try { _setItem.apply(this, arguments); } catch {}
-  try{
-    if (!MUTED_SETITEM && typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
-      const parsed = JSON.parse(val);
-      pending.set(key, parsed);
-      scheduleFlush(200);
-    }
-  }catch{}
-};
+if (UPSYNC_ENABLED){
+  // Capture localStorage writes (fv_* keys) → queue for Firestore
+  localStorage.setItem = function(key, val){
+    try { _setItem.apply(this, arguments); } catch {}
+    try{
+      if (!MUTED_SETITEM && typeof key === 'string' && key.startsWith('fv_') && typeof val === 'string'){
+        const parsed = JSON.parse(val);
+        pending.set(key, parsed);
+        scheduleFlush(200);
+      }
+    }catch{}
+  };
+} else {
+  // Pass-through; DO NOT hook keystrokes
+  console.warn('[FV] fv-sync: UPSYNC is DISABLED (no localStorage→Firestore writes).');
+  localStorage.setItem = function(){ try { return _setItem.apply(this, arguments); } catch {} };
+}
 
 // ========= Firebase helpers =========
 async function getEnv(){
@@ -72,7 +82,7 @@ async function waitForUser(env){
     try{
       const { onAuthStateChanged } =
         await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-      onAuthStateChanged(env.auth, () => { if (pending.size) scheduleFlush(0); startDownsync(); });
+      onAuthStateChanged(env.auth, () => { if (pending.size) scheduleFlush(0); if (DOWNSYNC_ENABLED) startDownsync(); });
     }catch{}
   }
   return null;
@@ -82,6 +92,7 @@ async function waitForUser(env){
 let sdkFirestore = null;
 
 async function flush(){
+  if (!UPSYNC_ENABLED) return;
   if (!pending.size) return;
 
   const env = await getEnv();
@@ -115,7 +126,7 @@ async function flush(){
           createdAt: it.createdAt || f.serverTimestamp(),
         }, { merge: true });
       }
-      // Register collection so new browsers know to subscribe
+      // Registry
       try{
         const regRef = f.doc(f.collection(env.db, '_sync'), 'collections');
         const { arrayUnion, setDoc } = f;
@@ -123,7 +134,6 @@ async function flush(){
       }catch(_){}
     }catch(_err){
       hadError = true;
-      // Put it back so we try again later
       pending.set(lsKey, arr);
     }
   }
@@ -132,8 +142,9 @@ async function flush(){
   else resetBackoff();
 }
 
-// ========= Initial sweep (push existing local on startup) =========
+// ========= Initial sweep (only if UPSYNC) =========
 function initialSweep(){
+  if (!UPSYNC_ENABLED) return;
   try{
     for (let i=0;i<localStorage.length;i++){
       const k = localStorage.key(i);
@@ -156,11 +167,13 @@ let downsyncStarted = false;
 let startedColls = new Set();
 
 async function startDownsync(){
+  if (!DOWNSYNC_ENABLED) return;
   if (downsyncStarted) return;
+
   const env = await getEnv();
   if (!env) return;
   const user = env.auth.currentUser;
-  if (!user) return; // will be called again when auth hydrates
+  if (!user) return; // will re-run when auth hydrates
 
   downsyncStarted = true;
 
@@ -180,18 +193,17 @@ async function startDownsync(){
     }
   }catch{}
 
-  // Helper to attach a live subscription once per collection
   function attachColl(coll){
     if (!coll || startedColls.has(coll)) return;
     startedColls.add(coll);
 
-    // Simple query: only match this user; avoid extra indexes by not ordering
+    // Only this user's docs
     const q = f.query(f.collection(db, coll), f.where('uid','==', user.uid));
     f.onSnapshot(q, (snap)=>{
       const rows = [];
       snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
 
-      // Write to all likely localStorage keys for this collection (anti-echo protected)
+      // Write to all likely localStorage keys (anti-echo protected)
       const keys = collectionToLikelyKeys(coll);
       try{
         MUTED_SETITEM = true;
@@ -207,7 +219,7 @@ async function startDownsync(){
   // Attach any seed collections
   subscribeFor.forEach(attachColl);
 
-  // Also follow registry doc for future collections (keeps new browsers in sync)
+  // Also follow registry doc for future collections
   const regRef = f.doc(f.collection(db, '_sync'), 'collections');
   f.onSnapshot(regRef, (snap)=>{
     const data = snap.exists() ? snap.data() : {};
@@ -216,15 +228,15 @@ async function startDownsync(){
   }, (_)=>{ /* quiet */ });
 }
 
-// Kick off downsync soon after load (auth may not be ready yet; waitForUser hooks it)
+// Kick off downsync (auth may hydrate later; waitForUser will re-trigger)
 setTimeout(startDownsync, 500);
 
 // ========= Lifecycle helpers =========
 window.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && pending.size) scheduleFlush(0);
+  if (document.visibilityState === 'visible' && UPSYNC_ENABLED && pending.size) scheduleFlush(0);
 });
-window.addEventListener('pagehide', () => { if (pending.size) scheduleFlush(0); }, { passive:true });
-window.addEventListener('beforeunload', () => { if (pending.size) scheduleFlush(0); }, { passive:true });
+window.addEventListener('pagehide', () => { if (UPSYNC_ENABLED && pending.size) scheduleFlush(0); }, { passive:true });
+window.addEventListener('beforeunload', () => { if (UPSYNC_ENABLED && pending.size) scheduleFlush(0); }, { passive:true });
 
 // ========= Heartbeat/backoff for upsync reliability =========
 let beatTimer = null;
@@ -232,8 +244,9 @@ let beatMs = 1000;           // start at 1s
 const BEAT_MAX = 15000;      // cap at 15s
 function startHeartbeat(){
   clearInterval(beatTimer);
+  if (!UPSYNC_ENABLED) return;
   beatTimer = setInterval(()=>{
-    if (pending.size) flush(); // direct flush while anything is queued
+    if (pending.size) flush();
   }, beatMs);
 }
 function backoffGrow(){
@@ -247,5 +260,5 @@ function resetBackoff(){
 }
 resetBackoff();
 
-// Optional manual nudge from pages: window.dispatchEvent(new CustomEvent('fv:sync:nudge'))
+// Optional manual nudge (no-op when UPSYNC_ENABLED=false)
 window.addEventListener('fv:sync:nudge', ()=> scheduleFlush(0));
