@@ -1,100 +1,50 @@
-// /Farm-vista/js/theme-boot.js — shell + theme only (no Firebase, no auth, no sync)
-// Adds a simple, auth-free logout handler that routes to Dashboard (not /pages/login/)
+// /Farm-vista/js/theme-boot.js
 
-/* 0) SW kill switch (optional): visit any page with ?nosw=1 to clear old caches */
-(async function(){
-  try{
-    const u = new URL(location.href);
-    if (u.searchParams.get('nosw') === '1') {
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map(r => r.unregister()));
-      }
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
-      }
-      u.searchParams.delete('nosw');
-      location.replace(u.toString());
-      return;
-    }
-  }catch(e){}
-})();
-
-/* 1) Helpers (PWA detect, tiny event bus) */
+// === Global viewport + mobile tap behavior (inject once for the whole app) ===
 (function(){
   try{
-    window.FV = window.FV || {};
-    FV.isPWA = function(){
-      return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-          || (typeof navigator !== 'undefined' && navigator.standalone === true);
-    };
-    if (!FV.bus) FV.bus = new EventTarget();
-    if (!FV.announce) {
-      FV.announce = function(evt, detail){
-        try{
-          FV.bus.dispatchEvent(new CustomEvent(evt, { detail }));
-          window.dispatchEvent(new CustomEvent('fv:' + evt, { detail }));
-        }catch{}
-      };
-    }
-  }catch(e){}
-})();
-
-/* 2) Viewport & global layout baseline */
-(function(){
-  try{
+    // Set to true to fully disable zoom (double-tap & pinch). Set false to keep pinch-zoom.
     var HARD_NO_ZOOM = true;
+
     var desired = HARD_NO_ZOOM
       ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
       : 'width=device-width, initial-scale=1, viewport-fit=cover';
+
+    // Ensure a consistent viewport meta across all pages.
     var m = document.querySelector('meta[name="viewport"]');
-    if (m) m.setAttribute('content', desired);
-    else {
-      m = document.createElement('meta'); m.name = 'viewport'; m.content = desired;
-      if (document.head && document.head.firstChild) document.head.insertBefore(m, document.head.firstChild);
-      else if (document.head) document.head.appendChild(m);
+    if (m) {
+      m.setAttribute('content', desired);
+    } else {
+      m = document.createElement('meta');
+      m.name = 'viewport';
+      m.content = desired;
+      // Prepend so iOS honors it early
+      if (document.head && document.head.firstChild) {
+        document.head.insertBefore(m, document.head.firstChild);
+      } else if (document.head) {
+        document.head.appendChild(m);
+      }
     }
 
-    // Global CSS (footer-safe, iOS-safe) applied to all pages
+    // Global CSS to stop iOS zoom-on-focus and the 300ms double-tap delay
     var style = document.createElement('style');
     style.textContent = `
+      /* Prevent iOS auto-zoom on form focus */
       input, select, textarea, button { font-size: 16px !important; }
+      /* Smoother taps; removes 300ms delay on clickable elements */
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+      /* Reduce accidental double-tap zooms while keeping natural panning */
       html, body { touch-action: pan-x pan-y; }
-
-      html, body { height: 100%; }
-      body{
-        background: var(--app-bg, var(--surface));
-        min-height: 100svh;
-        overscroll-behavior-y: contain;
-        margin: 0;
-      }
-      .page{
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: clamp(14px, 3vw, 22px);
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--ftr-h, 42px) + 8px);
-        min-height: calc(
-          100svh
-          - var(--hdr-h, 56px)
-          - var(--ftr-h, 42px)
-          - env(safe-area-inset-top, 0px)
-          - env(safe-area-inset-bottom, 0px)
-        );
-        display: flex;
-        flex-direction: column;
-      }
     `;
     document.head.appendChild(style);
   }catch(e){}
 })();
 
-/* 3) Theme preference */
+// === Theme preference boot (your original code, unchanged) ===
 (function(){
   try{
-    var t = localStorage.getItem('fv-theme');
-    if(!t) return;
+    var t = localStorage.getItem('fv-theme');        // 'light' | 'dark' | 'system'
+    if(!t) return;                                   // no preference → keep light defaults
     document.documentElement.setAttribute('data-theme', t === 'system' ? 'auto' : t);
     document.documentElement.classList.toggle('dark',
       t === 'dark' ||
@@ -103,42 +53,72 @@
   }catch(e){}
 })();
 
-/* 4) App ready (no auth gating) */
+// === Global Firebase boot: load once as a module across the whole app ===
+// We don't convert this file to a module; instead we inject a module script safely.
 (function(){
-  const markReady = () => {
-    try{
-      document.documentElement.classList.add('fv-user-ready');
-      FV.announce('user-ready', null);
-    }catch(e){}
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', markReady, { once:true });
-  } else {
-    markReady();
+  try{
+    // Avoid double-loading if another page already added it.
+    if (window.__FV_FIREBASE_INIT_LOADED__) return;
+    window.__FV_FIREBASE_INIT_LOADED__ = true;
+
+    var s = document.createElement('script');
+    s.type = 'module';
+    s.defer = true;
+    s.src = '/Farm-vista/js/firebase-init.js'; // <-- make sure this file exists
+    document.head.appendChild(s);
+
+    s.addEventListener('load', function(){
+      console.log('[FV] firebase-init loaded');
+    });
+    s.addEventListener('error', function(){
+      console.warn('[FV] firebase-init failed to load — check path /Farm-vista/js/firebase-init.js');
+    });
+  }catch(e){
+    console.warn('[FV] Firebase boot error:', e);
   }
 })();
 
-/* 5) SIMPLE LOGOUT (auth-free)
-   Any element with .js-logout will:
-   - clear local app flags
-   - route to /Farm-vista/pages/dashboard/ (NOT /pages/login/)
-   This prevents the offline page that your SW shows for the old login route. */
+// === Global Auth Guard (runs on every page) ===
 (function(){
-  const DASH = '/Farm-vista/pages/dashboard/';
-  document.addEventListener('click', (e)=>{
-    const el = e.target.closest('.js-logout, [data-logout]');
-    if (!el) return;
+  // run after DOM is interactive so redirects are clean
+  const run = async () => {
+    try{
+      // Dynamically import init + auth
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      await mod.ready; // wait until initialized
+      const { auth } = mod;
 
-    e.preventDefault();
-    // clear only our app flags (keep user prefs like theme)
-    try {
-      localStorage.removeItem('fv:sessionAuthed');
-      localStorage.removeItem('fv:auth:op');
-      // add any other app-session keys you used before here
-    } catch {}
+      const here = location.pathname + location.search + location.hash;
 
-    // hard navigate to a real, online page (avoid old /pages/login/)
-    const url = DASH + (DASH.includes('?') ? '&' : '?') + 'v=' + Date.now();
-    location.replace(url);
-  }, true);
+      // Allow-list public pages (login only)
+      const isLogin = location.pathname.replace(/\/+$/,'').endsWith('/Farm-vista/pages/login');
+
+      // Listen once; decide where to go
+      const { onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+      onAuthStateChanged(auth, (user) => {
+        if (!user) {
+          // Not signed in → always send to login (unless we're already there)
+          if (!isLogin) {
+            const next = encodeURIComponent(here);
+            location.replace('/Farm-vista/pages/login/?next=' + next);
+          }
+        } else {
+          // Signed in → if stuck on login, send to next or dashboard
+          if (isLogin) {
+            const qs = new URLSearchParams(location.search);
+            const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
+            location.replace(nextUrl);
+          }
+        }
+      }, { onlyOnce: true });
+    }catch(e){
+      console.warn('[FV] auth-guard error:', e);
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once:true });
+  } else {
+    run();
+  }
 })();
