@@ -433,7 +433,7 @@
             }
             const next = encodeURIComponent(location.pathname + location.search + location.hash);
             if (ctx && ctx.mode === 'firebase' && !isStub) {
-              location.replace('/Farm-vista/pages/login/?next=' + next);
+              location.replace('/Farm-vista/pages/login/index.html?next=' + next);
             } else {
               this._toastMsg('Signed out (local mode).', 1600);
             }
@@ -446,7 +446,7 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            location.replace('/Farm-vista/pages/login/');
+            location.replace('/Farm-vista/pages/login/index.html');
           });
         }
       }
