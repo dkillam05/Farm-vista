@@ -1,7 +1,8 @@
-/* FarmVista — <fv-shell> v5.9.4
-   CHANGE vs 5.9.3:
-   - Robust logout: redirect to Login only AFTER auth state is null.
-   - Prevents "Login → instant bounce back to Dashboard" loop.
+/* FarmVista — <fv-shell> v6.0.0 (auth-free)
+   Cleanup version:
+   - Removed Firebase imports and auth handling.
+   - Simplified logout → Dashboard (no offline screen).
+   - All UI and theme logic preserved.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -14,7 +15,7 @@
       min-height:100vh; position:relative;
     }
 
-    /* ===== Header (fixed) ===== */
+    /* ===== Header ===== */
     .hdr{
       position:fixed; inset:0 0 auto 0;
       height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
@@ -30,11 +31,13 @@
       -webkit-tap-highlight-color: transparent; margin:0 auto;
     }
     .iconbtn svg{ width:26px; height:26px; display:block; }
+
     .gold-bar{
       position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       left:0; right:0; height:3px; background:var(--gold); z-index:999;
     }
 
+    /* ===== Footer ===== */
     .ftr{
       position:fixed; inset:auto 0 0 0;
       height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
@@ -45,6 +48,7 @@
     }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
+    /* ===== Main ===== */
     .main{
       position:relative;
       padding:
@@ -57,159 +61,54 @@
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
-    .scrim{
-      position:fixed; inset:0; background:rgba(0,0,0,.45);
-      opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;
-    }
-    :host(.drawer-open) .scrim,
-    :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
+    /* ===== Drawer ===== */
+    .scrim{position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;}
+    :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
 
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
-      background: var(--surface);
-      color: var(--text);
+      background: var(--surface); color: var(--text);
       box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200;
-      -webkit-overflow-scrolling:touch;
       display:flex; flex-direction:column; height:100%; overflow:hidden;
       padding-bottom:env(safe-area-inset-bottom,0px);
-      border-right: 1px solid var(--border);
+      border-right:1px solid var(--border);
     }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
 
-    .drawer header{
-      padding:16px; border-bottom:1px solid var(--border);
-      display:flex; align-items:center; gap:12px; flex:0 0 auto;
-      background: var(--surface);
-    }
-    .org{ display:flex; align-items:center; gap:12px; }
-    .org img{ width:40px; height:40px; border-radius:8px; object-fit:cover; }
-    .org .org-text{ display:flex; flex-direction:column; }
-    .org .org-name{ font-weight:800; line-height:1.15; }
-    .org .org-loc{ font-size:13px; color:#666; }
+    .drawer header{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+    .org img{width:40px;height:40px;border-radius:8px;object-fit:cover;}
+    .org-text{display:flex;flex-direction:column;}
+    .org-name{font-weight:800;line-height:1.15;}
+    .org-loc{font-size:13px;color:#666;}
+    .drawer nav{flex:1 1 auto;overflow:auto;background:var(--bg);}
+    .drawer nav a{display:flex;align-items:center;gap:12px;padding:16px;text-decoration:none;color:var(--text);border-bottom:1px solid var(--border);}
+    .drawer-footer{flex:0 0 auto;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);background:var(--surface);color:var(--text);}
+    .df-left{display:flex;flex-direction:column;align-items:flex-start;}
+    .df-left .brand{font-weight:800;}
+    .df-left .slogan{font-size:12.5px;color:#777;}
+    .df-right{font-size:13px;color:#777;white-space:nowrap;}
 
-    .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
-    .drawer nav a{
-      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none;
-      color: var(--text);
-      border-bottom:1px solid var(--border);
-    }
-    .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
+    /* ===== Top Drawer ===== */
+    .topdrawer{position:fixed;left:0;right:0;top:0;transform:translateY(-105%);transition:transform .26s ease;z-index:1300;background:var(--green);color:#fff;box-shadow:0 20px 44px rgba(0,0,0,.35);border-bottom-left-radius:16px;border-bottom-right-radius:16px;padding-top:calc(env(safe-area-inset-top,0px)+8px);max-height:72vh;overflow:auto;}
+    :host(.top-open) .topdrawer{transform:translateY(0);}
+    .topwrap{padding:6px 10px 14px;}
+    .brandrow{display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 8px 12px;}
+    .brandrow img{width:28px;height:28px;border-radius:6px;object-fit:cover;}
+    .brandname{font-weight:800;font-size:18px;}
+    .section-h{padding:12px 12px 6px;font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;letter-spacing:.12em;color:color-mix(in srgb,#fff 85%, transparent);}
+    .chips{padding:0 12px 10px;}
+    .chip{appearance:none;border:1.5px solid color-mix(in srgb,#fff 65%, transparent);padding:9px 14px;border-radius:20px;background:#fff;color:#111;margin-right:10px;font-weight:700;display:inline-flex;align-items:center;gap:8px;}
+    .chip[aria-pressed="true"]{outline:3px solid color-mix(in srgb,#fff 25%, transparent);background:var(--gold);color:#111;border-color:transparent;}
 
-    .drawer-footer{
-      flex:0 0 auto;
-      display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
-      padding:12px 16px;
-      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
-      border-top:1px solid var(--border);
-      background: var(--surface);
-      color: var(--text);
-    }
-    .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
-    .df-left .brand{ font-weight:800; line-height:1.15; }
-    .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
-    .df-right{ font-size:13px; color:#777; white-space:nowrap; }
+    .row{display:flex;align-items:center;justify-content:space-between;padding:16px 12px;text-decoration:none;color:#fff;border-top:1px solid color-mix(in srgb,#000 22%, var(--green));}
+    .row .left{display:flex;align-items:center;gap:14px;}
+    .row .ico{width:28px;height:28px;display:grid;place-items:center;font-size:24px;line-height:1;text-align:center;}
+    .row .txt{font-size:16px;}
+    .row .chev{opacity:.9;}
 
-    .topdrawer{
-      position:fixed; left:0; right:0; top:0;
-      transform:translateY(-105%); transition:transform .26s ease;
-      z-index:1300;
-      background:var(--green); color:#fff;
-      box-shadow:0 20px 44px rgba(0,0,0,.35);
-      border-bottom-left-radius:16px; border-bottom-right-radius:16px;
-      padding-top:calc(env(safe-area-inset-top,0px) + 8px);
-      max-height:72vh; overflow:auto;
-    }
-    :host(.top-open) .topdrawer{ transform:translateY(0); }
-
-    .topwrap{ padding:6px 10px 14px; }
-
-    .brandrow{
-      display:flex; align-items:center; justify-content:center; gap:10px;
-      padding:10px 8px 12px 8px;
-    }
-    .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
-    .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
-
-    .section-h{
-      padding:12px 12px 6px;
-      font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-      letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent);
-    }
-    .chips{ padding:0 12px 10px; }
-    .chip{
-      appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent);
-      padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700;
-      display:inline-flex; align-items:center; gap:8px;
-    }
-    .chip[aria-pressed="true"]{
-      outline:3px solid color-mix(in srgb,#fff 25%, transparent);
-      background:var(--gold); color:#111; border-color:transparent;
-    }
-
-    .row{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:16px 12px; text-decoration:none; color:#fff;
-      border-top:1px solid color-mix(in srgb,#000 22%, var(--green));
-    }
-    .row .left{ display:flex; align-items:center; gap:14px; }
-    .row .ico{
-      width:28px; height:28px;
-      display:grid; place-items:center;
-      font-size:24px; line-height:1;
-      text-align:center; opacity:.95;
-    }
-    .row .txt{ font-size:16px; line-height:1.25; }
-    .row .chev{ opacity:.9; }
-
-    .js-update-row .ico{
-      width:28px; height:28px; font-size:24px; line-height:1;
-    }
-
-    .toast{
-      position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
-      transform:translateX(-50%); background:#111; color:#fff;
-      padding:12px 16px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
-      z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-    }
-    .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
-
-    :host-context(.dark){
-      color:var(--text); background:var(--bg);
-    }
-    :host-context(.dark) .main{
-      background:var(--bg); color:var(--text);
-    }
-
-    :host-context(.dark) .drawer{
-      background:var(--sidebar-surface, #171a18);
-      color:var(--sidebar-text, #f1f3ef);
-      border-right:1px solid var(--sidebar-border, #2a2e2b);
-      box-shadow:0 0 36px rgba(0,0,0,.45);
-    }
-    :host-context(.dark) .drawer header{
-      background:var(--sidebar-surface, #171a18);
-      border-bottom:1px solid var(--sidebar-border, #2a2eb);
-    }
-    :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
-    :host-context(.dark) .drawer nav{
-      background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000);
-    }
-    :host-context(.dark) .drawer nav a{
-      color:var(--sidebar-text, #f1f3ef);
-      border-bottom:1px solid var(--sidebar-border, #232725);
-    }
-    .drawer-footer{
-      background:var(--sidebar-surface, #171a18);
-      border-top:1px solid var(--sidebar-border, #2a2e2b);
-      color:var(--sidebar-text, #f1f3ef);
-    }
-    :host-context(.dark) .df-left .slogan,
-    :host-context(.dark) .df-right{
-      color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
-    }
-
-    .logout-name:empty { display:inline-block; width:0; }
+    .toast{position:fixed;left:50%;bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);transform:translateX(-50%);background:#111;color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35);z-index:1400;font-size:14px;opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;}
+    .toast.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(-4px);}
   </style>
 
   <header class="hdr" part="header">
@@ -227,7 +126,7 @@
 
   <div class="scrim js-scrim"></div>
 
-  <aside class="drawer" part="drawer" aria-label="Main menu">
+  <aside class="drawer" part="drawer">
     <header>
       <div class="org">
         <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
@@ -241,7 +140,7 @@
     <footer class="drawer-footer">
       <div class="df-left">
         <div class="brand">FarmVista</div>
-        <div class="slogan js-slogan">Loading…</div>
+        <div class="slogan js-slogan">Farm data, simplified</div>
       </div>
       <div class="df-right"><span class="js-ver">v0.0.0</span></div>
     </footer>
@@ -263,44 +162,32 @@
 
       <div class="section-h">PROFILE</div>
       <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
-        <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
-        <div class="chev">›</div>
+        <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div><div class="chev">›</div>
       </a>
       <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
-        <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
-        <div class="chev">›</div>
+        <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div>
       </a>
 
       <div class="section-h">MAINTENANCE</div>
       <a class="row js-update-row" href="#">
-        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div>
-        <div class="chev">›</div>
+        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div><div class="chev">›</div>
       </a>
 
       <a class="row" href="#" id="logoutRow">
-        <div class="left">
-          <div class="ico">⏻</div>
-          <div class="txt">
-            <span id="logoutAction">Logout</span>
-            <span class="logout-name" id="logoutName" data-user-name=""></span>
-          </div>
-        </div>
+        <div class="left"><div class="ico">⏻</div><div class="txt"><span id="logoutAction">Logout</span></div></div>
         <div class="chev">›</div>
       </a>
     </div>
   </section>
 
   <main class="main" part="main"><slot></slot></main>
-
-  <footer class="ftr" part="footer">
-    <div class="text js-footer"></div>
-  </footer>
-
+  <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
   class FVShell extends HTMLElement {
     constructor(){ super(); this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true)); }
+
     connectedCallback(){
       const r = this.shadowRoot;
       this._btnMenu = r.querySelector('.js-menu');
@@ -320,375 +207,98 @@
       document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); } });
 
       r.querySelectorAll('.js-theme').forEach(btn=> btn.addEventListener('click', ()=> this.setTheme(btn.dataset.mode)));
-      document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
-      this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
       this._loadVersionIntoUI();
-
-      this.shadowRoot.querySelector('.js-update-row')
-        .addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
-
-      this._wireAuthLogout(r);
-
-      const ud = r.getElementById('userDetailsLink');
-      if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
-      const fb = r.getElementById('feedbackLink');
-      if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
-
+      r.querySelector('.js-update-row').addEventListener('click', (e)=>{ e.preventDefault(); this.checkForUpdates(); });
+      this._wireLogout(r);
       this._initMenu();
+    }
 
-      setTimeout(() => {
-        try {
-          const needsHero =
-            (document && (document.querySelector('.hero-grid') || document.querySelector('fv-hero-card'))) || null;
-          if (needsHero && !customElements.get('fv-hero-card')) {
-            this._toastMsg('Hero components not loaded. Check /Farm-vista/js/fv-hero.js path or cache.', 2600);
+    /* ===== Simple logout (auth-free) ===== */
+    _wireLogout(r){
+      const logoutRow = r.getElementById('logoutRow');
+      if (!logoutRow) return;
+      const closeUI = () => { this.toggleTop(false); this.toggleDrawer(false); };
+      logoutRow.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        closeUI();
+        try{
+          localStorage.removeItem('fv:sessionAuthed');
+          sessionStorage.removeItem('fv:just-logged-out');
+          if ('caches' in window){
+            const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k)));
           }
-        } catch {}
-      }, 300);
+        }catch{}
+        const DASH = '/Farm-vista/pages/dashboard/';
+        location.replace(DASH + '?v=' + Date.now());
+      });
     }
-
-    // ===== AUTH+ =====
-    async _wireAuthLogout(r){
-      const logoutRow  = r.getElementById('logoutRow');
-      const logoutName = r.getElementById('logoutName');
-      const logoutAct  = r.getElementById('logoutAction');
-
-      const setLabel = (user) => {
-        const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || '';
-        if (logoutName) logoutName.textContent = name ? ' ' + name : '';
-      };
-
-      // Listen to early app bus for immediate fill
-      const onReady = (evt) => setLabel(evt.detail);
-      window.addEventListener('fv:user-ready', onReady, { once: true });
-      window.addEventListener('fv:user-change', (evt)=> setLabel(evt.detail));
-
-      const needAuthFns = async () => {
-        if (!window.firebaseAuth) {
-          try { await import('/Farm-vista/js/firebase-init.js'); } catch(_){}
-        }
-        const mod = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-        return {
-          onIdTokenChanged: mod.onIdTokenChanged,
-          onAuthStateChanged: mod.onAuthStateChanged,
-          signOut: mod.signOut,
-          getAuth: mod.getAuth
-        };
-      };
-
-      try{
-        const { onIdTokenChanged, onAuthStateChanged, getAuth, signOut } = await needAuthFns();
-        const auth = window.firebaseAuth || getAuth(window.firebaseApp);
-
-        setLabel(auth.currentUser);
-        onIdTokenChanged(auth, (user)=> setLabel(user));
-        onAuthStateChanged(auth, (user)=> setLabel(user));
-
-        // --- Robust logout handler ---
-        const waitForSignedOut = () => new Promise((resolve) => {
-          let done = false;
-          const clean = () => { done = true; window.removeEventListener('fv:user-change', busHandler); unsub && unsub(); };
-          const busHandler = (e) => { if (!done && !e.detail) { clean(); resolve(); } };
-          window.addEventListener('fv:user-change', busHandler);
-
-          // Also listen directly on Firebase (more reliable)
-          const unsub = onAuthStateChanged(auth, (u) => {
-            if (!done && !u) { clean(); resolve(); }
-          });
-
-          // Safety timeout: resolve even if events fail (network offline)
-          setTimeout(() => { if (!done) { clean(); resolve(); } }, 3000);
-        });
-
-        if (logoutRow) {
-          logoutRow.addEventListener('click', async (e)=>{
-            e.preventDefault();
-            this.toggleTop(false);
-            this.toggleDrawer(false);
-            try{
-              // Clear “remember me” cookies/redirect hints you might add later
-              try { sessionStorage.setItem('fv:just-logged-out','1'); } catch {}
-
-              if (typeof window.fvSignOut === 'function') {
-                await window.fvSignOut();     // ensure your custom fn returns a Promise
-              } else {
-                await signOut(auth);          // wait for Firebase to begin sign-out
-              }
-
-              // Now WAIT until auth state is actually null before navigating
-              await waitForSignedOut();
-
-              // Finally, go to login (no ?next to avoid bouncing back)
-              location.replace('/Farm-vista/pages/login/');
-            }catch(err){
-              console.warn('[FV] logout error:', err);
-              location.replace('/Farm-vista/pages/login/');
-            }
-          });
-        }
-      }catch(err){
-        console.warn('[FV] auth wiring skipped (offline or no firebase):', err);
-        if (logoutRow) {
-          logoutRow.addEventListener('click', (e)=> {
-            e.preventDefault();
-            this.toggleTop(false);
-            this.toggleDrawer(false);
-            location.replace('/Farm-vista/pages/login/');
-          });
-        }
-      }
-
-      if (logoutAct && !logoutAct.textContent.trim()) logoutAct.textContent = 'Logout';
-    }
-    // ===== end AUTH+ =====
 
     async _loadVersionIntoUI(){
-      const setUI = (num, tag) => {
-        this._verEl.textContent = `v${num || '0.0.0'}`;
-        this._sloganEl.textContent = tag || 'Farm data, simplified';
-      };
-
-      let number = (window.FV_VERSION && window.FV_VERSION.number)
-                || (window.App && App.getVersion && App.getVersion().number)
-                || (window.FV_BUILD);
-      let tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
-                 || (window.App && App.getVersion && App.getVersion().tagline);
-
-      if (number) { setUI(number, tagline); return; }
-
       try{
         const mod = await import('/Farm-vista/js/version.js?ts=' + Date.now());
-        const pick = (m)=> {
-          if (!m) return {};
-          if (m.default && (m.default.number || m.default.tagline)) return m.default;
-          if (m.FV_VERSION && (m.FV_VERSION.number || m.FV_VERSION.tagline)) return m.FV_VERSION;
-          if (m.APP_VERSION && (m.APP_VERSION.number || m.APP_VERSION.tagline)) return m.APP_VERSION;
-          const obj = {};
-          if (m.FV_NUMBER) obj.number = m.FV_NUMBER;
-          if (m.APP_NUMBER) obj.number = m.APP_NUMBER;
-          if (m.FV_TAGLINE) obj.tagline = m.FV_TAGLINE;
-          if (m.APP_TAGLINE) obj.tagline = m.APP_TAGLINE;
-          return obj;
-        };
-        const v = pick(mod);
-        number = v.number || (window.FV_VERSION && window.FV_VERSION.number) || window.FV_BUILD || '0.0.0';
-        tagline = v.tagline || (window.FV_VERSION && window.FV_VERSION.tagline) || 'Farm data, simplified';
-        setUI(number, tagline);
+        const v = (mod && (mod.FV_VERSION || mod.default)) || {};
+        this._verEl.textContent = 'v' + (v.number || '0.0.0');
+        this._sloganEl.textContent = v.tagline || 'Farm data, simplified';
       }catch{
-        setUI('0.0.0', 'Farm data, simplified');
+        this._verEl.textContent = 'v0.0.0';
+        this._sloganEl.textContent = 'Farm data, simplified';
       }
     }
 
     async _initMenu(){
       try{
         const mod = await import('/Farm-vista/js/menu.js');
-        const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || null;
-        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU');
+        const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || {};
         this._renderMenu(NAV_MENU);
-      }catch(err){
-        console.error('Menu load failed:', err);
-        this._toastMsg('Menu failed to load. Please refresh.', 2800);
-      }
+      }catch(e){ console.error('Menu load failed', e); }
     }
 
     _renderMenu(cfg){
       const nav = this._navEl;
-      if (!nav) return;
+      if (!nav || !cfg.items) return;
       nav.innerHTML = '';
-
       const path = location.pathname;
-      const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
-      this._navStateKey = stateKey;
-      let groupState = {};
-      try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
-
-      const pad = (depth)=> `${16 + (depth * 18)}px`;
-
-      const mkLink = (item, depth=0) => {
-        const a = document.createElement('a');
-        a.href = item.href || '#';
-        a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
-        a.style.paddingLeft = pad(depth);
-        const mode = item.activeMatch || 'starts-with';
-        if ((mode==='exact' && path === item.href) || (mode!=='exact' && item.href && path.startsWith(item.href))) {
-          a.setAttribute('aria-current', 'page');
+      cfg.items.forEach(it=>{
+        if(it.type==='link'){
+          const a=document.createElement('a');
+          a.href=it.href||'#';
+          a.innerHTML=`<span>${it.icon||''}</span> ${it.label}`;
+          if(path.startsWith(it.href)) a.setAttribute('aria-current','page');
+          nav.appendChild(a);
         }
-        return a;
-      };
-
-      const setOpen = (open, kids, btn) => {
-        kids.style.display = open ? 'block' : 'none';
-        btn.setAttribute('aria-expanded', String(open));
-        const chev = btn.firstElementChild;
-        if (chev) chev.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
-      };
-
-      const mkGroup = (g, depth=0) => {
-        const wrap = document.createElement('div'); wrap.className = 'nav-group';
-
-        const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.alignItems = 'stretch';
-        row.style.borderBottom = '1px solid var(--border)';
-
-        const link = mkLink(g, depth);
-        link.style.flex = '1 1 auto';
-        link.style.borderRight = '1px solid var(--border)';
-        link.style.display = 'flex';
-        link.style.alignItems = 'center';
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.setAttribute('aria-label', 'Toggle ' + g.label);
-        btn.setAttribute('aria-expanded', 'false');
-        btn.style.width = '44px';
-        btn.style.height = '44px';
-        btn.style.display = 'grid';
-        btn.style.placeItems = 'center';
-        btn.style.background = 'transparent';
-        btn.style.border = '0';
-        btn.style.cursor = 'pointer';
-        btn.style.color = 'var(--text)';
-
-        const chev = document.createElement('span');
-        chev.textContent = '▶';
-        chev.style.display = 'inline-block';
-        chev.style.transition = 'transform .18s ease';
-        btn.appendChild(chev);
-
-        const kids = document.createElement('div');
-        kids.setAttribute('role','group');
-        kids.style.display = 'none';
-
-        (g.children || []).forEach(ch => {
-          if (ch.type === 'group' && ch.collapsible) {
-            const nested = mkGroup(ch, depth + 1);
-            kids.appendChild(nested);
-          } else if (ch.type === 'link') {
-            const a = mkLink(ch, depth + 1);
-            kids.appendChild(a);
-          }
-        });
-
-        const open = !!(groupState[g.id] ?? g.initialOpen);
-        setOpen(open, kids, btn);
-
-        btn.addEventListener('click', (e)=>{
-          e.preventDefault();
-          const nowOpen = kids.style.display === 'none';
-          setOpen(nowOpen, kids, btn);
-          groupState[g.id] = nowOpen;
-          try { localStorage.setItem(stateKey, JSON.stringify(groupState)); } catch {}
-        });
-
-        row.appendChild(link);
-        row.appendChild(btn);
-        wrap.appendChild(row);
-        wrap.appendChild(kids);
-        return wrap;
-      };
-
-      (cfg.items || []).forEach(item=>{
-        if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
-        else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
-    }
-
-    _collapseAllNavGroups(){
-      const nav = this._navEl;
-      if (!nav) return;
-      nav.querySelectorAll('div[role="group"]').forEach(kids=>{
-        kids.style.display = 'none';
-        const row = kids.previousElementSibling;
-        const btn = row && row.querySelector('button[aria-expanded]');
-        if (btn) btn.setAttribute('aria-expanded','false');
-      });
-      const key = this._navStateKey || 'fv:nav:groups';
-      try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
     toggleDrawer(open){
-      const wasOpen = this.classList.contains('drawer-open');
-      const on = (open===undefined) ? !wasOpen : open;
-      this.classList.toggle('drawer-open', on);
-      document.documentElement.style.overflow = (on || this.classList.contains('top-open')) ? 'hidden' : '';
-      if (wasOpen && !on) { this._collapseAllNavGroups(); }
+      const was=this.classList.contains('drawer-open');
+      const on=(open===undefined)?!was:open;
+      this.classList.toggle('drawer-open',on);
+      document.documentElement.style.overflow=(on||this.classList.contains('top-open'))?'hidden':'';
     }
     toggleTop(open){
-      const on = (open===undefined) ? !this.classList.contains('top-open') : open;
-      this.classList.toggle('top-open', on);
-      document.documentElement.style.overflow = (on || this.classList.contains('drawer-open')) ? 'hidden' : '';
+      const on=(open===undefined)?!this.classList.contains('top-open'):open;
+      this.classList.toggle('top-open',on);
+      document.documentElement.style.overflow=(on||this.classList.contains('drawer-open'))?'hidden':'';
     }
 
-    _syncThemeChips(mode){
-      this.shadowRoot.querySelectorAll('.js-theme').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.mode===mode)));
-    }
     setTheme(mode){
       try{
-        if(window.App && App.setTheme){ App.setTheme(mode); }
-        else {
-          document.documentElement.setAttribute('data-theme', mode === 'system' ? 'auto' : mode);
-          document.documentElement.classList.toggle('dark',
-            mode==='dark' || (mode==='system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-          );
-          localStorage.setItem('fv-theme', mode);
-        }
+        document.documentElement.setAttribute('data-theme', mode==='system'?'auto':mode);
+        document.documentElement.classList.toggle('dark',
+          mode==='dark' || (mode==='system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        );
+        localStorage.setItem('fv-theme', mode);
       }catch{}
-      this._syncThemeChips(mode);
+      this.shadowRoot.querySelectorAll('.js-theme').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.mode===mode)));
     }
 
     async checkForUpdates(){
-      const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-      async function readTargetVersion(){
-        const v = (window.FV_VERSION && window.FV_VERSION.number) || (window.FV_BUILD);
-        if (v) return v;
-        try{
-          const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
-          const txt = await resp.text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
-          return (m && m[1]) || String(Date.now());
-        }catch{ return String(Date.now()); }
-      }
-
+      const sleep=(ms)=>new Promise(res=>setTimeout(res,ms));
       try{
-        this._toastMsg('Checking For Updates…', 1200);
-        const targetVer = await readTargetVersion();
-
-        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-          try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
-        }
-        if('caches' in window){
-          try{ const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k))); }catch{}
-        }
-        if('serviceWorker' in navigator){
-          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
-          await sleep(150);
-          try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {}
-        }
-
-        this._toastMsg(`Updating to v${targetVer}…`, 900);
-        await sleep(400);
-        const url = new URL(location.href);
-        url.searchParams.set('rev', targetVer);
-        location.replace(url.toString());
-      }catch(e){
-        console.error(e);
-        this._toastMsg('Update failed. Try again.', 2200);
-      }
-    }
-
-    _toastMsg(msg, ms=1600){
-      const t = this._toast; t.textContent = msg; t.classList.add('show');
-      clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
-    }
-  }
-
-  if (!customElements.get('fv-shell')) {
-    customElements.define('fv-shell', FVShell);
-  }
-})();
+        this._toastMsg('Checking for updates…',1200);
+        if('caches' in
