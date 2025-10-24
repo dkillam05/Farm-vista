@@ -1,6 +1,7 @@
 // /Farm-vista/js/theme-boot.js — shell + theme only (no Firebase, no auth, no sync)
+// + Global layout baseline so footer never floats and white gap never shows (applies to ALL pages)
 
-/* 0) Helpers (PWA detect, event bus bootstrap) */
+/* 0) Helpers (PWA detect, tiny event bus) */
 (function(){
   try{
     window.FV = window.FV || {};
@@ -8,7 +9,6 @@
       return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
           || (typeof navigator !== 'undefined' && 'standalone' in navigator && navigator.standalone === true);
     };
-    // Tiny app bus
     if (!FV.bus) FV.bus = new EventTarget();
     if (!FV.announce) {
       FV.announce = function(evt, detail){
@@ -21,7 +21,7 @@
   }catch(e){}
 })();
 
-/* 1) Viewport & tap behavior */
+/* 1) Viewport & tap behavior (+ global layout baseline) */
 (function(){
   try{
     var HARD_NO_ZOOM = true;
@@ -35,13 +35,45 @@
       if (document.head && document.head.firstChild) document.head.insertBefore(m, document.head.firstChild);
       else if (document.head) document.head.appendChild(m);
     }
+
+    // ---- Global CSS (applies to all pages) ----
     var style = document.createElement('style');
     style.textContent = `
+      /* Touch / inputs */
       input, select, textarea, button { font-size: 16px !important; }
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { touch-action: pan-x pan-y; }
-      /* Since there's no auth layer now, never hide name placeholders */
+
+      /* Auth-free: never hide name placeholders */
       html:not(.fv-user-ready) [data-user-name] { visibility: visible; }
+
+      /* ===== Footer-safe, iOS-safe layout (GLOBAL) ===== */
+      html, body { height: 100%; }
+      body{
+        background: var(--app-bg, var(--surface));
+        min-height: 100svh;            /* iOS-friendly viewport height */
+        overscroll-behavior-y: contain;/* prevent rubber-band white reveal */
+        margin: 0;
+      }
+
+      /* Pages inside <fv-shell> get consistent padding + min-height */
+      .page{
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: clamp(14px, 3vw, 22px);
+        /* leave only what's needed for footer + safe areas; no arbitrary extra padding */
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--ftr-h, 42px) + 8px);
+        /* make short pages stretch so footer never floats above white */
+        min-height: calc(
+          100svh
+          - var(--hdr-h, 56px)
+          - var(--ftr-h, 42px)
+          - env(safe-area-inset-top, 0px)
+          - env(safe-area-inset-bottom, 0px)
+        );
+        display: flex;
+        flex-direction: column;
+      }
     `;
     document.head.appendChild(style);
   }catch(e){}
@@ -65,7 +97,6 @@
   const markReady = () => {
     try{
       document.documentElement.classList.add('fv-user-ready');
-      // Broadcast a basic ready event (no user payload anymore)
       FV.announce('user-ready', null);
     }catch(e){}
   };
@@ -75,11 +106,3 @@
     markReady();
   }
 })();
-
-/* 4) (Removed) Firebase init — not used */
-
-/* 5) (Removed) Auth guard inject — not used */
-
-/* 6) (Removed) Auth state listener — not used */
-
-/* 7) (Removed) Firestore sync module — not used */
