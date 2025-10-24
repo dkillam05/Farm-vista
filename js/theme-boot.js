@@ -1,16 +1,47 @@
-// /Farm-vista/js/theme-boot.js — shell + theme + loaders (with instant pre-guard)
+// /Farm-vista/js/theme-boot.js — shell + theme + loaders (with PWA grace timing)
+
+/* ——— Small helpers ——— */
+(function(){
+  try{
+    window.FV = window.FV || {};
+    // Detect if we're running as an installed iOS/standalone PWA
+    FV.isPWA = function(){
+      return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+          || (typeof navigator !== 'undefined' && 'standalone' in navigator && navigator.standalone === true);
+    };
+    // Short, safe delay (PWA only) to let Firebase/Auth initialize
+    FV.pwaDelay = function(ms){
+      if (!FV.isPWA()) return Promise.resolve();
+      return new Promise(res => setTimeout(res, ms));
+    };
+  }catch(e){}
+})();
+
+const __FV_GUARD_GRACE_MS__ = 900;   // <- small timing shim for iOS PWA boot
+const __FV_SYNC_BUST__       = true; // keep your cache-bust on sync module
 
 /* 0) INSTANT PRE-GUARD (runs before any modules)
       If not on Login and we lack the session "authed" flag → bounce to Login.
-      This prevents cached pages from being readable before Firebase initializes. */
+      In PWA/standalone, wait briefly so Firebase/Auth can initialize to avoid loops. */
 (function(){
   try{
     var p = location.pathname.replace(/\/index\.html$/i,'').replace(/\/+$/,'');
     var isLogin = p.endsWith('/Farm-vista/pages/login');
-    var authed  = sessionStorage.getItem('fv:sessionAuthed') === '1';
-    if (!isLogin && !authed) {
-      var next = encodeURIComponent(location.pathname + location.search + location.hash);
-      location.replace('/Farm-vista/pages/login/?next=' + next);
+    var enforce = function(){
+      try{
+        var authed = sessionStorage.getItem('fv:sessionAuthed') === '1';
+        if (!isLogin && !authed) {
+          var next = encodeURIComponent(location.pathname + location.search + location.hash);
+          location.replace('/Farm-vista/pages/login/?next=' + next);
+        }
+      }catch(e){}
+    };
+
+    if (FV && FV.isPWA && FV.isPWA()) {
+      // Give auth-guard/firebase a moment to set sessionAuthed before we enforce
+      setTimeout(enforce, __FV_GUARD_GRACE_MS__);
+    } else {
+      enforce();
     }
   }catch(e){}
 })();
@@ -97,10 +128,14 @@
   }catch(e){ console.warn('[FV] Auth-guard inject error:', e); }
 })();
 
-/* 6) User-ready broadcast (for UI that shows user name, etc.) */
+/* 6) User-ready broadcast (for UI that shows user name, etc.)
+      In PWA/standalone we wait a beat before listening, so onAuthStateChanged binds after firebase.init. */
 (function(){
   const start = async () => {
     try{
+      // Give the PWA a tiny grace period so firebase-init.js can fully init
+      if (window.FV && FV.pwaDelay) await FV.pwaDelay(__FV_GUARD_GRACE_MS__);
+
       const mod = await import('/Farm-vista/js/firebase-init.js'); await mod.ready;
       const { auth } = mod;
       const { onAuthStateChanged } =
@@ -135,7 +170,7 @@
     var s = document.createElement('script');
     s.type = 'module';
     s.defer = true;
-    s.src = '/Farm-vista/js/firestore/fv-sync.js?ts=' + Date.now();
+    s.src = '/Farm-vista/js/firestore/fv-sync.js' + (__FV_SYNC_BUST__ ? ('?ts=' + Date.now()) : '');
     s.addEventListener('error', ()=> console.warn('[FV] fv-sync.js failed to load'));
     document.head.appendChild(s);
   }catch(e){
