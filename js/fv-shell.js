@@ -1,7 +1,7 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista — <fv-shell> v6.0.1 (auth-free, working header/footer/drawers + logout)
-   - Restores header, footer, side drawer, top drawer.
-   - No Firebase. Logout routes to Dashboard.
+   FarmVista — <fv-shell> v6.0.2
+   - Logout now routes to /Farm-vista/pages/login/index.html (normalized).
+   - Header, footer, side/top drawers preserved. No Firebase.
 */
 
 (function () {
@@ -249,11 +249,17 @@
       this._wireLogout(r);
     }
 
-    /* ===== Simple logout (auth-free) ===== */
+    /* ===== Simple logout (routes to login page) ===== */
     _wireLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       if (!logoutRow) return;
+
+      const LOGIN_BASE = '/Farm-vista/pages/login/';
+      const LOGIN_HTML = '/Farm-vista/pages/login/index.html';
+      const normalize = (p)=> p.endsWith('/') ? p : (p.endsWith('/index.html') ? p : LOGIN_BASE);
+
       const closeUI = () => { this.toggleTop(false); this.toggleDrawer(false); };
+
       logoutRow.addEventListener('click', async (e)=>{
         e.preventDefault();
         closeUI();
@@ -264,8 +270,11 @@
             const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k)));
           }
         }catch{}
-        const DASH = '/Farm-vista/pages/dashboard/';
-        location.replace(DASH + (DASH.includes('?')?'&':'?') + 'v=' + Date.now());
+
+        // Prefer the folder route; some hosts require explicit index.html
+        const target = (location.origin.includes('localhost') ? LOGIN_HTML : LOGIN_BASE);
+        const url = normalize(target) + (target.includes('?') ? '&' : '?') + 'v=' + Date.now();
+        location.replace(url);
       });
     }
 
@@ -444,7 +453,6 @@
       const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
       try{
         this._toastMsg('Checking for updates…',1200);
-        // Clear caches and reload to bust stale assets
         if('caches' in window){
           try{ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }catch{}
         }
