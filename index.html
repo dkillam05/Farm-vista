@@ -2,44 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista</title>
+  <title>FarmVista • Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#3B7E46" />
-  <meta name="robots" content="noindex" />
+
+  <!-- Standard includes (root-relative) -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/assets/icons/icon-192.png" />
+  <script src="/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/assets/css/theme.css" />
+  <link rel="stylesheet" href="/assets/css/app.css" />
+
   <style>
-    html,body{height:100%}body{margin:0;display:grid;place-items:center;background:#f5f7f4;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-    .splash{display:flex;gap:.75rem;align-items:center;color:#2F6C3C}
-    .spinner{width:18px;height:18px;border:2px solid rgba(0,0,0,.2);border-top-color:rgba(0,0,0,.7);border-radius:50%;animation:spin 1s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
+    body{background:var(--app-bg,var(--surface));min-height:100vh}
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+
+    /* Card */
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:16px;display:grid;gap:10px}
+
+    /* Messages */
+    .msg{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface))}
+    .empty{color:var(--muted,#67706B)}
   </style>
-  <script>
-    (function(){
-      // Default landing page (change if you want a different start page)
-      var DEFAULT = "/Farm-vista/pages/dashboard/";
 
-      try {
-        var u = new URL(location.href);
-        var next = u.searchParams.get("next") || "";
-        var safe = (typeof next === "string" && next.startsWith("/Farm-vista/")) ? next : DEFAULT;
-
-        // Never route back to login now that auth is removed
-        var norm = p => p.replace(/\/index\.html$/i,'').replace(/\/+$/,'');
-        if (norm(safe).startsWith("/Farm-vista/pages/login")) safe = DEFAULT;
-
-        location.replace(safe);
-      } catch (e) {
-        location.replace(DEFAULT);
-      }
-    })();
-  </script>
+  <!-- Ensure fv-shell is available -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
 </head>
 <body>
-  <div class="splash">
-    <div class="spinner"></div>
-    <div>Loading…</div>
-  </div>
-  <noscript>
-    <p>Continue to <a href="/Farm-vista/pages/dashboard/">Dashboard</a>.</p>
-  </noscript>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Dashboard</h1>
+
+      <!-- Message Board -->
+      <section class="section" aria-label="Message Board">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">📢</div>
+          <div><strong>Message Board</strong></div>
+        </header>
+        <div class="section-body" id="board">
+          <div class="msg empty">No messages at this time.</div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <script>
+  (function(){
+    "use strict";
+    const KEY = "fv_message_board_v1";
+    const box = document.getElementById("board");
+
+    try{
+      const arr = JSON.parse(localStorage.getItem(KEY)||"[]");
+      if(Array.isArray(arr) && arr.length){
+        box.innerHTML = "";
+        arr.forEach(m=>{
+          const d=document.createElement("div");
+          d.className="msg";
+          d.textContent = String(m && m.text || m || "").trim() || "(message)";
+          box.appendChild(d);
+        });
+      }
+    }catch(e){}
+  })();
+  </script>
 </body>
 </html>
