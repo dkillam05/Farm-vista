@@ -1,6 +1,9 @@
-/* FarmVista — <fv-shell> v5.9.2
-   Based on your v5.9.1 file.
-   CHANGE: Drawer indentation by depth (groups align with sibling links; grandchildren indent +1)
+/* FarmVista — <fv-shell> v5.9.3
+   Based on your v5.9.2 file.
+   CHANGES:
+   - Root-relative paths: /assets/**, /js/**, /pages/**
+   - Fixed dark header border color typo (#2a2e2b)
+   - Keeps your v5.9.2 behavior & styles intact
 */
 (function () {
   const tpl = document.createElement('template');
@@ -198,7 +201,7 @@
     }
     :host-context(.dark) .drawer header{
       background:var(--sidebar-surface, #171a18);
-      border-bottom:1px solid var(--sidebar-border, #2a2eb);
+      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
     }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{
@@ -229,7 +232,7 @@
     <button class="iconbtn js-menu" aria-label="Open menu">≡</button>
     <div class="title">FarmVista</div>
     <button class="iconbtn js-account" aria-label="Account" title="Account">
-      <!-- Option B — User badge (user inside a circle) -->
+      <!-- User badge (user inside a circle) -->
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
         <circle cx="12" cy="9.2" r="3.0" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -245,7 +248,7 @@
   <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
       <div class="org">
-        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
+        <img src="/assets/icons/icon-192.png" alt="" />
         <div class="org-text">
           <div class="org-name">Dowson Farms</div>
           <div class="org-loc">Divernon, Illinois</div>
@@ -253,7 +256,7 @@
       </div>
     </header>
 
-    <!-- Menu is rendered dynamically from /Farm-vista/js/menu.js -->
+    <!-- Menu is rendered dynamically from /js/menu.js -->
     <nav class="js-nav"></nav>
 
     <footer class="drawer-footer">
@@ -269,7 +272,7 @@
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
       <div class="brandrow">
-        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
+        <img src="/assets/icons/icon-192.png" alt="" />
         <div class="brandname">FarmVista</div>
       </div>
 
@@ -281,11 +284,11 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
+      <a class="row" id="userDetailsLink" href="/pages/user-details/index.html">
         <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
         <div class="chev">›</div>
       </a>
-      <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
+      <a class="row" id="feedbackLink" href="/pages/feedback/index.html">
         <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
         <div class="chev">›</div>
       </a>
@@ -341,7 +344,7 @@
       this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
       this._footerText.textContent = this._footerBase;
 
-      // NEW: Load version & tagline from /Farm-vista/js/version.js
+      // Load version & tagline from /js/version.js
       this._loadVersionIntoUI();
 
       this.shadowRoot.querySelector('.js-update-row')
@@ -364,7 +367,7 @@
           const needsHero =
             (document && (document.querySelector('.hero-grid') || document.querySelector('fv-hero-card'))) || null;
           if (needsHero && !customElements.get('fv-hero-card')) {
-            this._toastMsg('Hero components not loaded. Check /Farm-vista/js/fv-hero.js path or cache.', 2600);
+            this._toastMsg('Hero components not loaded. Check /js/fv-hero.js path or cache.', 2600);
           }
         } catch {}
       }, 300);
@@ -376,7 +379,7 @@
       const logoutLabel = r.getElementById('logoutLabel');
 
       const needAuthFns = async () => {
-        const mod = await import('/Farm-vista/js/firebase-init.js');
+        const mod = await import('/js/firebase-init.js');
         const ctx = await mod.ready;
         const auth = window.firebaseAuth || (ctx && ctx.auth) || mod.getAuth(ctx && ctx.app);
         return {
@@ -408,12 +411,12 @@
 
         // 2) Subscribe — onIdTokenChanged fires on first load + refresh of tokens
         onIdTokenChanged(auth, (user)=> setLabel(user));
-        // Fallback for older browsers
+        // Fallback
         onAuthStateChanged(auth, (user)=> setLabel(user));
 
         // 3) Tiny wait/retry if still blank (Firebase hydration race)
         if (!auth.currentUser) {
-          let tries = 12; // ~1.8s total
+          let tries = 12; // ~1.8s
           const tick = setInterval(()=>{
             setLabel(auth.currentUser);
             if (auth.currentUser || --tries <= 0) clearInterval(tick);
@@ -437,7 +440,7 @@
             }
             const next = encodeURIComponent(location.pathname + location.search + location.hash);
             if (ctx && ctx.mode === 'firebase' && !isStub) {
-              location.replace('/Farm-vista/pages/login/index.html?next=' + next);
+              location.replace('/pages/login/index.html?next=' + next);
             } else {
               this._toastMsg('Signed out (local mode).', 1600);
             }
@@ -450,7 +453,7 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            location.replace('/Farm-vista/pages/login/index.html');
+            location.replace('/pages/login/index.html');
           });
         }
       }
@@ -470,11 +473,11 @@
       let tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
                  || (window.App && App.getVersion && App.getVersion().tagline);
 
-      if (number) { setUI(number, tagline); return; }
+      if (number) { setUI(number, tagline); this._applyFooterVersion(number); return; }
 
-      // 2) Try importing /Farm-vista/js/version.js as an ES module
+      // 2) Try importing /js/version.js as an ES module
       try{
-        const mod = await import('/Farm-vista/js/version.js?ts=' + Date.now());
+        const mod = await import('/js/version.js?ts=' + Date.now());
         const pick = (m)=> {
           if (!m) return {};
           if (m.default && (m.default.number || m.default.tagline)) return m.default;
@@ -509,7 +512,7 @@
 
     async _initMenu(){
       try{
-        const mod = await import('/Farm-vista/js/menu.js');
+        const mod = await import('/js/menu.js');
         const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || null;
         if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU');
         this._renderMenu(NAV_MENU);
@@ -673,7 +676,7 @@
         const v = (window.FV_VERSION && window.FV_VERSION.number) || (window.FV_BUILD);
         if (v) return v;
         try{
-          const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
+          const resp = await fetch('/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
           const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || String(Date.now());
@@ -700,7 +703,7 @@
           } catch {}
           await sleep(150);
           try {
-            await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now());
+            await navigator.serviceWorker.register('/serviceworker.js?ts=' + Date.now());
           } catch {}
         }
 
