@@ -391,7 +391,9 @@
       };
 
       const setLabel = (user) => {
-        const name = (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
+        const profile = window.__FV_PROFILE;
+        const profileName = profile && typeof profile.displayName === 'string' ? profile.displayName.trim() : '';
+        const name = profileName || (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
         if (logoutLabel) logoutLabel.textContent = `Logout ${name}`;
       };
 
@@ -401,6 +403,8 @@
 
         // 1) Immediate attempt (in case user already loaded)
         setLabel(auth.currentUser);
+        const profileListener = () => setLabel(auth.currentUser);
+        document.addEventListener('fv:profile', profileListener);
 
         // 2) Subscribe — onIdTokenChanged fires on first load + refresh of tokens
         onIdTokenChanged(auth, (user)=> setLabel(user));

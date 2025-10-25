@@ -33,6 +33,10 @@ async function makeNames() {
     `${SCOPE_PREFIX}js/fv-shell.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/fv-hero.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/fv-hero-card.js?rev=${REV}`,
+    `${SCOPE_PREFIX}js/app/startup.js?rev=${REV}`,
+    `${SCOPE_PREFIX}js/app/storage-sync.js?rev=${REV}`,
+    `${SCOPE_PREFIX}js/app/user-profile.js?rev=${REV}`,
+    `${SCOPE_PREFIX}js/app/login.js?rev=${REV}`,
     `${SCOPE_PREFIX}assets/icons/icon-192.png`,
     `${SCOPE_PREFIX}assets/icons/icon-512.png`,
     `${SCOPE_PREFIX}assets/icons/apple-touch-icon.png`
