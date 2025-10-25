@@ -204,60 +204,6 @@
     }());
   </script>
 
-  <script type="module">
-    import { ready, auth } from '../../js/firebase-init.js';
-    import { signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-
-    await ready;
-
-    const form = document.getElementById('loginForm');
-    const email = document.getElementById('email');
-    const password = document.getElementById('password');
-    const errBox = document.getElementById('errBox');
-    const qs = new URLSearchParams(location.search);
-    const nextUrl = qs.get('next') || '/Farm-vista/dashboard/';
-
-    onAuthStateChanged(auth, (user)=>{ if (user) location.replace(nextUrl); });
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      errBox.textContent = '';
-      const em = (email.value || '').trim();
-      const pw = password.value || '';
-      if (!em || !pw) { errBox.textContent = 'Enter email and password.'; return; }
-      const btn = document.getElementById('signIn');
-      btn.disabled = true; btn.textContent = 'Signing in…';
-      try {
-        const cred = await signInWithEmailAndPassword(auth, em, pw);
-        try { localStorage.setItem('fv_last_email', em); } catch {}
-        location.replace(nextUrl);
-      } catch (err) {
-        const code = err?.code || '';
-        let msg = 'Sign-in failed.';
-        if (code.includes('invalid-credential') || code.includes('wrong-password')) msg = 'Wrong email or password.';
-        else if (code.includes('user-not-found')) msg = 'No account found for this email.';
-        else if (code.includes('too-many-requests')) msg = 'Too many attempts. Try later.';
-        errBox.textContent = msg;
-        console.warn('[FV] sign-in error:', err);
-      } finally {
-        btn.disabled = false; btn.textContent = 'Sign In';
-      }
-    });
-
-    document.getElementById('forgot').addEventListener('click', async (e)=>{
-      e.preventDefault();
-      errBox.textContent = '';
-      const em = (email.value || '').trim();
-      if (!em) { errBox.textContent = 'Enter your email first, then tap “Forgot password?”.'; return; }
-      try {
-        await sendPasswordResetEmail(auth, em);
-        errBox.style.color = '#2F6C3C';
-        errBox.textContent = 'Reset link sent (if the email exists).';
-        setTimeout(()=>{ errBox.textContent=''; errBox.style.color=''; }, 4500);
-      } catch {
-        errBox.textContent = 'Unable to send reset email.';
-      }
-    });
-  </script>
+  <script type="module" src="../../js/app/login.js"></script>
 </body>
 </html>
