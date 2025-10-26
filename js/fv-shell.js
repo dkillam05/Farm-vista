@@ -570,9 +570,10 @@
             }catch(err){ console.warn('[FV] logout error:', err); }
             const next = encodeURIComponent(location.pathname + location.search + location.hash);
             if (ctx && ctx.mode === 'firebase' && !isStub) {
-              location.replace('pages/login/index.html?next=' + next);
+              location.replace('pages/login/?next=' + next);   // 🔁 directory-form
             } else {
               this._toastMsg('Signed out (local mode).', 1600);
+              location.replace('pages/login/');                // 🔁 also go to login in local mode
             }
           });
         }
@@ -583,7 +584,7 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            location.replace('pages/login/index.html');
+            location.replace('pages/login/');                  // 🔁 directory-form fallback
           });
         }
       }
