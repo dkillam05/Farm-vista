@@ -1,12 +1,11 @@
-/* FarmVista SW — dynamic versioned precache via version.js */
-const SCOPE_PREFIX = "/Farm-vista/";
+/* FarmVista SW — dynamic versioned precache (ROOT scope) */
+const SCOPE_PREFIX = "/";
 
-/* derive version number by reading version.js */
+/* derive version number by reading /js/version.js */
 async function readVersionNumber() {
   try {
-    const r = await fetch(`${SCOPE_PREFIX}js/version.js?ts=${Date.now()}`, { cache: "reload" });
+    const r = await fetch(`/js/version.js?ts=${Date.now()}`, { cache: "reload" });
     const t = await r.text();
-    // look for: number: "x.y.z" OR const FV_NUMBER = "x.y.z"
     let m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
     return (m && m[1]) || String(Date.now());
   } catch {
@@ -15,28 +14,19 @@ async function readVersionNumber() {
 }
 
 async function makeNames() {
-  const ver = await readVersionNumber();                 // e.g., "3.0.0"
+  const ver = await readVersionNumber();     // e.g., "3.0.0"
   const CACHE_STATIC = `farmvista-static-v${ver}`;
   const RUNTIME_ASSETS = `farmvista-runtime-v${ver}`;
-  const REV = ver;                                       // use version as rev
+  const REV = ver;
   const PRECACHE_URLS = [
     `${SCOPE_PREFIX}`,
-    `${SCOPE_PREFIX}dashboard/`,
-    `${SCOPE_PREFIX}dashboard/index.html?rev=${REV}`,
+    `${SCOPE_PREFIX}index.html?rev=${REV}`,
     `${SCOPE_PREFIX}manifest.webmanifest`,
     `${SCOPE_PREFIX}assets/css/theme.css?rev=${REV}`,
     `${SCOPE_PREFIX}assets/css/app.css?rev=${REV}`,
-    `${SCOPE_PREFIX}assets/css/dashboard.css?rev=${REV}`,
     `${SCOPE_PREFIX}js/version.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/core.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/firebase-init.js?rev=${REV}`,
     `${SCOPE_PREFIX}js/fv-shell.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/fv-hero.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/fv-hero-card.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/app/startup.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/app/storage-sync.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/app/user-profile.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/app/login.js?rev=${REV}`,
     `${SCOPE_PREFIX}assets/icons/icon-192.png`,
     `${SCOPE_PREFIX}assets/icons/icon-512.png`,
     `${SCOPE_PREFIX}assets/icons/apple-touch-icon.png`
@@ -111,7 +101,6 @@ async function staleWhileRevalidate(request){
   return (await caches.open(CACHE_STATIC)).match(request) || new Response("Offline",{status:503});
 }
 
-/* allow app to force-activate a new SW immediately */
 self.addEventListener('message', (e)=>{
   if (e && e.data === 'SKIP_WAITING') self.skipWaiting();
 });
