@@ -6,24 +6,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#3B7E46" />
 
-  <!-- Standard includes (root-relative) -->
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png" />
-  <link rel="icon" href="/assets/icons/icon-192.png" />
-  <link rel="stylesheet" href="/assets/css/theme.css?v=ROOT1" />
-  <link rel="stylesheet" href="/assets/css/app.css?v=ROOT1" />
+  <!-- IMPORTANT: make all relative URLs resolve under /Farm-vista/ -->
+  <base href="/Farm-vista/">
 
-  <!-- Load core first (theme + App API), then the shell (with cache-bust) -->
-  <script src="/js/core.js?v=ROOT1"></script>
-  <script src="/js/fv-shell.js?v=ROOT1" defer></script>
+  <!-- Standard includes (now relative to <base>) -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="assets/icons/icon-192.png" />
+  <link rel="stylesheet" href="assets/css/theme.css?v=PV1" />
+  <link rel="stylesheet" href="assets/css/app.css?v=PV1" />
+
+  <!-- Load core first (theme + App API), then the shell -->
+  <script src="js/core.js?v=PV1"></script>
+  <script src="js/fv-shell.js?v=PV1" defer></script>
 
   <style>
     body{background:var(--app-bg,var(--surface));min-height:100vh}
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .page-title{margin:0 0 8px 0;}
-
-    /* Card */
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
     .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
@@ -31,8 +32,6 @@
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:10px}
-
-    /* Messages */
     .msg{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface))}
     .empty{color:var(--muted,#67706B)}
   </style>
@@ -42,7 +41,6 @@
     <div class="page container">
       <h1 class="page-title">Dashboard</h1>
 
-      <!-- Message Board -->
       <section class="section" aria-label="Message Board">
         <header class="section-head">
           <div class="icon" aria-hidden="true">📢</div>
@@ -60,10 +58,7 @@
     "use strict";
     const KEY = "fv_message_board_v1";
     const box = document.getElementById("board");
-
-    // Tiny debug: log whether fv-shell defined
     console.log('fv-shell defined?', !!customElements.get('fv-shell'));
-
     try{
       const arr = JSON.parse(localStorage.getItem(KEY)||"[]");
       if(Array.isArray(arr) && arr.length){
@@ -79,26 +74,23 @@
   })();
   </script>
 
-  <!-- ONE-TIME reset for old /Farm-vista/ service worker + caches. Load once, then remove. -->
+  <!-- One-time SW reset for path change -->
   <script>
   (async () => {
     try {
       if ('serviceWorker' in navigator) {
         const regs = await navigator.serviceWorker.getRegistrations();
         await Promise.all(regs.map(r => r.unregister()));
+        await navigator.serviceWorker.register('serviceworker.js?rev=PV1'); // respects <base>
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage('SKIP_WAITING');
+        }
       }
       if ('caches' in window) {
         const keys = await caches.keys();
         await Promise.all(keys.map(k => caches.delete(k)));
       }
-      if ('serviceWorker' in navigator) {
-        await navigator.serviceWorker.register('/serviceworker.js?rev=ROOT1');
-        if (navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage('SKIP_WAITING');
-        }
-      }
-      console.log('SW reset + re-register complete');
-    } catch (e) { console.warn('SW reset error', e); }
+    } catch (e) { console.warn(e); }
   })();
   </script>
 </body>
