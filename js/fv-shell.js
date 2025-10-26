@@ -1,6 +1,6 @@
-/* FarmVista — <fv-shell> v5.9.6 (project-site safe, minimal changes)
-   - Only essential path changes to work under /Farm-vista/ with <base href="/Farm-vista/">
-   - Imports/images/links are base-relative: 'js/...', 'assets/...', 'pages/...'
+/* FarmVista — <fv-shell> v5.9.7 (project-site safe with menu fallback)
+   - Works under https://dkillam05.github.io/Farm-vista/
+   - Absolute import for js/menu.js + classic <script> fallback
 */
 (function () {
   const tpl = document.createElement('template');
@@ -85,8 +85,10 @@
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
     .drawer-footer{
       flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
-      padding:12px 16px; padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
-      border-top:1px solid var(--border); background: var(--surface); color: var(--text);
+      padding:12px 16px;
+      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+      border-top:1px solid var(--border);
+      background: var(--surface); color: var(--text);
     }
     .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
     .df-left .brand{ font-weight:800; line-height:1.15; }
@@ -140,6 +142,35 @@
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
+    :host-context(.dark){ color:var(--text); background:var(--bg); }
+    :host-context(.dark) .main{ background:var(--bg); color:var(--text); }
+    :host-context(.dark) .drawer{
+      background:var(--sidebar-surface, #171a18);
+      color:var(--sidebar-text, #f1f3ef);
+      border-right:1px solid var(--sidebar-border, #2a2e2b);
+      box-shadow:0 0 36px rgba(0,0,0,.45);
+    }
+    :host-context(.dark) .drawer header{
+      background:var(--sidebar-surface, #171a18);
+      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
+    }
+    :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
+    :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
+    :host-context(.dark) .drawer nav a{
+      color:var(--sidebar-text, #f1f3ef);
+      border-bottom:1px solid var(--sidebar-border, #232725);
+    }
+    .drawer-footer{
+      background:var(--sidebar-surface, #171a18);
+      border-top:1px solid var(--sidebar-border, #2a2e2b);
+      color:var(--sidebar-text, #f1f3ef);
+    }
+    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{
+      color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
+    }
+    :host-context(.dark) .toast{
+      background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
+    }
   </style>
 
   <header class="hdr" part="header">
@@ -154,6 +185,7 @@
     </button>
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
+
   <div class="scrim js-scrim"></div>
 
   <aside class="drawer" part="drawer" aria-label="Main menu">
@@ -222,16 +254,16 @@
     constructor(){ super(); this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true)); }
     connectedCallback(){
       const r = this.shadowRoot;
-      this._btnMenu   = r.querySelector('.js-menu');
-      this._btnAccount= r.querySelector('.js-account');
-      this._scrim     = r.querySelector('.js-scrim');
-      this._drawer    = r.querySelector('.drawer');
-      this._top       = r.querySelector('.js-top');
-      this._footerText= r.querySelector('.js-footer');
-      this._toast     = r.querySelector('.js-toast');
-      this._verEl     = r.querySelector('.js-ver');
-      this._sloganEl  = r.querySelector('.js-slogan');
-      this._navEl     = r.querySelector('.js-nav');
+      this._btnMenu = r.querySelector('.js-menu');
+      this._btnAccount = r.querySelector('.js-account');
+      this._scrim = r.querySelector('.js-scrim');
+      this._drawer = r.querySelector('.drawer');
+      this._top = r.querySelector('.js-top');
+      this._footerText = r.querySelector('.js-footer');
+      this._toast = r.querySelector('.js-toast');
+      this._verEl = r.querySelector('.js-ver');
+      this._sloganEl = r.querySelector('.js-slogan');
+      this._navEl = r.querySelector('.js-nav');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
@@ -246,6 +278,7 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
       this._footerText.textContent = this._footerBase;
+
       this._loadVersionIntoUI();
 
       const upd = r.querySelector('.js-update-row');
@@ -259,16 +292,85 @@
       this._initMenu();
     }
 
-    async _initMenu(){
+    /* ===== Version to footer/slogan ===== */
+    async _loadVersionIntoUI(){
+      const setUI = (num, tag) => {
+        this._verEl.textContent = `v${num || '0.0.0'}`;
+        this._sloganEl.textContent = tag || 'Farm data, simplified';
+      };
+
+      let number = (window.FV_VERSION && window.FV_VERSION.number)
+                || (window.App && App.getVersion && App.getVersion().number)
+                || (window.FV_BUILD);
+      let tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
+                 || (window.App && App.getVersion && App.getVersion().tagline);
+
+      if (number) { setUI(number, tagline); this._applyFooterVersion(number); return; }
+
       try{
-        // Base-relative import (works with <base href="/Farm-vista/">)
-        const mod = await import('js/menu.js');
+        const mod = await import('js/version.js?ts=' + Date.now());
+        const pick = (m)=> {
+          if (!m) return {};
+          if (m.default && (m.default.number || m.default.tagline)) return m.default;
+          if (m.FV_VERSION && (m.FV_VERSION.number || m.FV_VERSION.tagline)) return m.FV_VERSION;
+          if (m.APP_VERSION && (m.APP_VERSION.number || m.APP_VERSION.tagline)) return m.APP_VERSION;
+          const obj = {};
+          if (m.FV_NUMBER) obj.number = m.FV_NUMBER;
+          if (m.APP_NUMBER) obj.number = m.APP_NUMBER;
+          if (m.FV_TAGLINE) obj.tagline = m.FV_TAGLINE;
+          if (m.APP_TAGLINE) obj.tagline = m.APP_TAGLINE;
+          return obj;
+        };
+        const v = pick(mod);
+        number = v.number || (window.FV_VERSION && window.FV_VERSION.number) || window.FV_BUILD || '0.0.0';
+        tagline = v.tagline || (window.FV_VERSION && window.FV_VERSION.tagline) || 'Farm data, simplified';
+        setUI(number, tagline);
+      }catch{
+        setUI('0.0.0', 'Farm data, simplified');
+        number = '0.0.0';
+      }
+
+      this._applyFooterVersion(number);
+    }
+    _applyFooterVersion(num){
+      if (!this._footerText) return;
+      this._footerVersion = (num && String(num)) || '';
+      const base = this._footerBase || '';
+      const suffix = this._footerVersion ? ` • v${this._footerVersion}` : '';
+      this._footerText.textContent = base + suffix;
+    }
+
+    /* ===== Robust menu loader (absolute URL + fallback) ===== */
+    async _initMenu(){
+      const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
+
+      try {
+        const mod = await import(url);
         const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || null;
-        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU');
+        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU export');
+        console.log('[FV] menu loaded via import()', url);
         this._renderMenu(NAV_MENU);
-      }catch(err){
-        console.error('Menu load failed:', err);
-        this._toastMsg('Menu failed to load. Please refresh.', 2800);
+        return;
+      } catch (e) {
+        console.warn('[FV] import(menu.js) failed, falling back to classic script:', e);
+      }
+
+      try {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = url;
+          s.defer = true;
+          s.onload = () => res();
+          s.onerror = (err) => rej(err);
+          document.head.appendChild(s);
+        });
+        const NAV_MENU = (window && window.FV_MENU) || null;
+        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('window.FV_MENU missing/invalid');
+        console.log('[FV] menu loaded via fallback script', url);
+        this._renderMenu(NAV_MENU);
+      } catch (err) {
+        console.error('[FV] Unable to load menu by any method:', url, err);
+        this._toastMsg('Menu failed to load. Please refresh.', 3000);
       }
     }
 
@@ -342,11 +444,8 @@
         kids.style.display = 'none';
 
         (g.children || []).forEach(ch => {
-          if (ch.type === 'group' && ch.collapsible) {
-            kids.appendChild(mkGroup(ch, depth + 1));
-          } else if (ch.type === 'link') {
-            kids.appendChild(mkLink(ch, depth + 1));
-          }
+          if (ch.type === 'group' && ch.collapsible) kids.appendChild(mkGroup(ch, depth + 1));
+          else if (ch.type === 'link') kids.appendChild(mkLink(ch, depth + 1));
         });
 
         const open = !!(groupState[g.id] ?? g.initialOpen);
@@ -425,9 +524,7 @@
         const ctx = await mod.ready;
         const auth = window.firebaseAuth || (ctx && ctx.auth) || mod.getAuth(ctx && ctx.app);
         return {
-          mod,
-          ctx,
-          auth,
+          mod, ctx, auth,
           onIdTokenChanged: mod.onIdTokenChanged,
           onAuthStateChanged: mod.onAuthStateChanged,
           signOut: mod.signOut,
@@ -467,15 +564,10 @@
             this.toggleTop(false);
             this.toggleDrawer(false);
             try{
-              if (typeof window.fvSignOut === 'function') {
-                await window.fvSignOut();
-              } else {
-                await signOut(auth);
-              }
+              if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
+              else { await signOut(auth); }
               setLabel(auth.currentUser);
-            }catch(err){
-              console.warn('[FV] logout error:', err);
-            }
+            }catch(err){ console.warn('[FV] logout error:', err); }
             const next = encodeURIComponent(location.pathname + location.search + location.hash);
             if (ctx && ctx.mode === 'firebase' && !isStub) {
               location.replace('pages/login/index.html?next=' + next);
@@ -497,66 +589,15 @@
       }
     }
 
-    async _loadVersionIntoUI(){
-      const setUI = (num, tag) => {
-        this._verEl.textContent = `v${num || '0.0.0'}`;
-        this._sloganEl.textContent = tag || 'Farm data, simplified';
-      };
-
-      let number = (window.FV_VERSION && window.FV_VERSION.number)
-                || (window.App && App.getVersion && App.getVersion().number)
-                || (window.FV_BUILD);
-      let tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
-                 || (window.App && App.getVersion && App.getVersion().tagline);
-
-      if (number) { setUI(number, tagline); this._applyFooterVersion(number); return; }
-
-      try{
-        const mod = await import('js/version.js?ts=' + Date.now());
-        const pick = (m)=> {
-          if (!m) return {};
-          if (m.default && (m.default.number || m.default.tagline)) return m.default;
-          if (m.FV_VERSION && (m.FV_VERSION.number || m.FV_VERSION.tagline)) return m.FV_VERSION;
-          if (m.APP_VERSION && (m.APP_VERSION.number || m.APP_VERSION.tagline)) return m.APP_VERSION;
-          const obj = {};
-          if (m.FV_NUMBER) obj.number = m.FV_NUMBER;
-          if (m.APP_NUMBER) obj.number = m.APP_NUMBER;
-          if (m.FV_TAGLINE) obj.tagline = m.FV_TAGLINE;
-          if (m.APP_TAGLINE) obj.tagline = m.APP_TAGLINE;
-          return obj;
-        };
-        const v = pick(mod);
-        number = v.number || (window.FV_VERSION && window.FV_VERSION.number) || window.FV_BUILD || '0.0.0';
-        tagline = v.tagline || (window.FV_VERSION && window.FV_VERSION.tagline) || 'Farm data, simplified';
-        setUI(number, tagline);
-      }catch{
-        setUI('0.0.0', 'Farm data, simplified');
-        number = '0.0.0';
-      }
-
-      this._applyFooterVersion(number);
-    }
-
-    _applyFooterVersion(num){
-      if (!this._footerText) return;
-      this._footerVersion = (num && String(num)) || '';
-      const base = this._footerBase || '';
-      const suffix = this._footerVersion ? ` • v${this._footerVersion}` : '';
-      this._footerText.textContent = base + suffix;
-    }
-
     async checkForUpdates(){
-      // Keep simple; no fancy regex
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
         try{
           const txt = await (await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' })).text();
-          // Try a few straightforward patterns
           const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || String(Date.now());
         }catch{ return String(Date.now()); }
       }
-
       try{
         this._toastMsg('Checking For Updates…', 1200);
         const targetVer = await readTargetVersion();
@@ -565,16 +606,10 @@
           try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
         }
         if ('caches' in window) {
-          try{
-            const keys = await caches.keys();
-            await Promise.all(keys.map(k=> caches.delete(k)));
-          }catch{}
+          try { const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k))); } catch {}
         }
         if ('serviceWorker' in navigator) {
-          try {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(regs.map(r=> r.unregister()));
-          } catch {}
+          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
           await sleep(150);
           try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
         }
