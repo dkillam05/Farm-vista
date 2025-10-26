@@ -25,6 +25,7 @@
 
     var style = document.createElement('style');
     style.textContent = `
+      /* Prevent iOS auto-zoom on inputs and kill 300ms delay */
       input, select, textarea, button { font-size: 16px !important; }
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { touch-action: pan-x pan-y; }
@@ -100,23 +101,27 @@
       const ctx = await mod.ready;
       const auth = ctx && ctx.auth;
 
-      if (!auth || mod.isStub()) return;
+      // In stub/offline mode we skip redirects entirely.
+      if (!auth || (mod.isStub && mod.isStub())) return;
 
       const here = location.pathname + location.search + location.hash;
 
-      // Compute login path relative to current site (respects <base>)
-      const loginPath = new URL('pages/login/', location.href).pathname.replace(/\/+$/,'');
-      const herePath  = location.pathname.replace(/\/+$/,'');
-      const isLogin = (herePath === loginPath) || herePath.startsWith(loginPath);
+      // Normalize and robustly detect login page:
+      // supports /pages/login, /pages/login/, /pages/login/index.html
+      const normalize = (p) => p.replace(/\/+$/,'/'); // keep single trailing slash
+      const pNow   = normalize(location.pathname);
+      const pLogin = normalize(new URL('pages/login/', location.href).pathname);
+      const isLogin = pNow === pLogin || pNow.startsWith(pLogin);
 
       mod.onAuthStateChanged(auth, (user) => {
         if (!user) {
           if (!isLogin) {
             const next = encodeURIComponent(here);
-            // BASE-RELATIVE redirect
+            // BASE-RELATIVE redirect to login with return url
             location.replace('pages/login/?next=' + next);
           }
         } else if (isLogin) {
+          // Already signed in and on login — bounce to next or dashboard/
           const qs = new URLSearchParams(location.search);
           const nextUrl = qs.get('next') || 'dashboard/';
           location.replace(nextUrl);
