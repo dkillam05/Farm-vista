@@ -1,5 +1,5 @@
-// /Farm-vista/js/theme-boot.js  (PROJECT-SITE SAFE: base-relative paths)
-// Viewport + theme boot + firebase config/init + app startup + AUTH GUARD
+// /Farm-vista/js/theme-boot.js  (PROJECT-SITE SAFE: absolute project-root paths)
+// Viewport + theme boot + firebase config/init + app startup + AUTH GUARD + login wiring
 
 /* =========================  Viewport & tap behavior  ========================= */
 (function(){
@@ -43,33 +43,43 @@
 
 /* =====================  Helpers for ordered script loads  ==================== */
 const __fvBoot = (function(){
+  // Detect the project root '/Farm-vista/' in ANY path depth
+  const projectRoot = (() => {
+    const m = location.pathname.match(/^(.*?\/Farm-vista\/)/);
+    if (m && m[1]) return m[1];               // e.g., '/Farm-vista/'
+    return '/Farm-vista/';                     // fallback for GH Pages
+  })();
+
   const once = (key, fn) => {
     if (window[key]) return window[key];
     window[key] = fn();
     return window[key];
   };
-  const loadScript = (src, {type, defer=true, async=false}) => new Promise((res, rej)=>{
+
+  // Always load from absolute project root (prevents deep-path 404s)
+  const loadScriptAbs = (pathFromRoot, {type, defer=true, async=false}={}) => new Promise((res, rej)=>{
     const s = document.createElement('script');
     if (type) s.type = type;
     s.defer = !!defer; s.async = !!async;
-    s.src = src;
+    s.src = projectRoot + String(pathFromRoot).replace(/^\/+/, '');
     s.onload = () => res();
     s.onerror = (e) => rej(e);
     document.head.appendChild(s);
   });
-  return { once, loadScript };
+
+  return { once, loadScriptAbs, projectRoot };
 })();
 
-/* ==============  Firebase CONFIG -> INIT (ensure order, base-relative)  ============== */
+/* ==============  Firebase CONFIG -> INIT (absolute /Farm-vista/ paths)  ============== */
 (function(){
   __fvBoot.once('__FV_FIREBASE_CHAIN__', async () => {
     try{
       // 1) Ensure global config is present BEFORE loading firebase-init.js
       if (!window.FV_FIREBASE_CONFIG) {
         try {
-          await __fvBoot.loadScript('js/firebase-config.js', { defer:false, async:false });
+          await __fvBoot.loadScriptAbs('js/firebase-config.js', { defer:false, async:false });
         } catch(e) {
-          console.warn('[FV] firebase-config.js failed to load (continuing):', e);
+          console.warn('[FV] firebase-config.js failed to load (continuing with stub):', e);
         }
       }
 
@@ -77,10 +87,10 @@ const __fvBoot = (function(){
       if (!window.__FV_FIREBASE_INIT_LOADED__) {
         window.__FV_FIREBASE_INIT_LOADED__ = true;
         try {
-          await __fvBoot.loadScript('js/firebase-init.js', { type:'module', defer:true });
+          await __fvBoot.loadScriptAbs('js/firebase-init.js', { type:'module', defer:true });
           console.log('[FV] firebase-init loaded');
         } catch (e) {
-          console.warn('[FV] firebase-init failed to load — check path js/firebase-init.js', e);
+          console.warn('[FV] firebase-init failed to load — check /Farm-vista/js/firebase-init.js', e);
         }
       }
 
@@ -88,9 +98,9 @@ const __fvBoot = (function(){
       if (!window.__FV_APP_STARTUP_LOADED__) {
         window.__FV_APP_STARTUP_LOADED__ = true;
         try {
-          await __fvBoot.loadScript('js/app/startup.js', { type:'module', defer:true });
+          await __fvBoot.loadScriptAbs('js/app/startup.js', { type:'module', defer:true });
         } catch (e) {
-          console.warn('[FV] startup module failed to load — check js/app/startup.js', e);
+          console.warn('[FV] startup module failed to load — check /Farm-vista/js/app/startup.js', e);
         }
       }
     }catch(e){
@@ -115,18 +125,7 @@ const __fvBoot = (function(){
   const FIELD_DISABLED = 'disabled';
   const FIELD_ACTIVE   = 'active';
 
-  // --- NEW: robust project root detection (handles any nested page without <base>) ---
-  const projectRoot = (() => {
-    // Try to detect '/Farm-vista/' segment anywhere in the current path
-    const m = location.pathname.match(/^(.*?\/Farm-vista\/)/);
-    if (m && m[1]) return m[1];                 // e.g., '/Farm-vista/'
-    // Fallback for GitHub Pages when repo is the site root
-    return '/Farm-vista/';
-  })();
-
-  const abs = (p) => {
-    try { return new URL(p, location.origin).href; } catch { return p; }
-  };
+  const projectRoot = __fvBoot.projectRoot;
 
   const samePath = (a, b) => {
     try {
@@ -148,7 +147,6 @@ const __fvBoot = (function(){
   };
 
   const gotoLogin = (reason) => {
-    // ALWAYS build an absolute, project-rooted login URL
     const here = location.pathname + location.search + location.hash;
     const loginUrl = new URL(projectRoot + 'pages/login/index.html', location.origin);
     loginUrl.searchParams.set('next', here);
@@ -157,7 +155,7 @@ const __fvBoot = (function(){
     if (!samePath(location.href, dest)) location.replace(dest);
   };
 
-  const waitForAuthHydration = async (mod, auth, ms=1500) => {
+  const waitForAuthHydration = async (mod, auth, ms=1600) => {
     return new Promise((resolve) => {
       let settled = false;
       const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
@@ -171,11 +169,64 @@ const __fvBoot = (function(){
     });
   };
 
+  // Optional: wire the login page without editing HTML
+  const wireLoginPage = async () => {
+    if (!isLoginPath()) return;
+    try{
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      await mod.ready;
+      const auth = (window.firebaseAuth) || (mod.getAuth && mod.getAuth()) || null;
+      if (!auth) { console.warn('[FV] No auth available on login page'); return; }
+
+      const qs = (sel) => document.querySelector(sel);
+      const form = qs('form[data-fv-login]') || qs('#loginForm') || qs('form[action*="login"]') || qs('form');
+
+      if (!form) { console.warn('[FV] No login form found'); return; }
+
+      const emailEl = form.querySelector('input[type="email"], input[name="email"], #email');
+      const passEl  = form.querySelector('input[type="password"], input[name="password"], #password');
+      const btn     = form.querySelector('button[type="submit"], input[type="submit"], .js-login');
+      const errBox  = form.querySelector('.js-error') || null;
+
+      const showErr = (msg) => {
+        if (errBox) { errBox.textContent = msg; errBox.style.display = 'block'; }
+        else alert(msg);
+      };
+
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const email = (emailEl && emailEl.value || '').trim();
+        const pass  = (passEl && passEl.value || '');
+        if (btn) btn.disabled = true;
+
+        try{
+          // Use real Firebase if available; stub sign-in also supported by mod
+          await mod.signInWithEmailAndPassword(auth, email, pass);
+
+          // On success, go to ?next=… or to dashboard
+          const url = new URL(location.href);
+          const next = url.searchParams.get('next') || (__fvBoot.projectRoot + 'dashboard/index.html');
+          location.replace(next);
+        }catch(err){
+          console.warn('[FV] login error:', err);
+          let msg = 'Login failed.';
+          if (err && (err.message || err.code)) msg = `${msg} ${err.code || ''} ${err.message || ''}`.trim();
+          showErr(msg);
+        }finally{
+          if (btn) btn.disabled = false;
+        }
+      }, { once:false });
+    }catch(e){
+      console.warn('[FV] wireLoginPage error:', e);
+    }
+  };
+
   const run = async () => {
     try {
-      if (isLoginPath()) return;
+      // If we are on the login page, do NOT guard; just wire it and exit.
+      if (isLoginPath()) { wireLoginPage(); return; }
 
-      const mod = await import('js/firebase-init.js');
+      const mod = await import('/Farm-vista/js/firebase-init.js');
       const ctx = await mod.ready;
       const isStub = (mod.isStub && mod.isStub()) || false;
       const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
@@ -193,6 +244,7 @@ const __fvBoot = (function(){
       const user = await waitForAuthHydration(mod, auth, 1600);
       if (!user) { gotoLogin('unauthorized'); return; }
 
+      // Optional Firestore gating
       if (!REQUIRE_FIRESTORE_USER_DOC && !TREAT_MISSING_DOC_AS_DENY) return;
 
       try {
