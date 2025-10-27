@@ -1,6 +1,7 @@
 /* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
    - Works under https://dkillam05.github.io/Farm-vista/
    - Absolute import for js/menu.js + classic <script> fallback
+   - Version + tagline: ONLY from js/version.js (SSOT)
    - Logout: signOut, then IMMEDIATE nav to pages/login/index.html (no guard delay)
 */
 (function () {
@@ -280,7 +281,8 @@
       this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
       this._footerText.textContent = this._footerBase;
 
-      this._loadVersionIntoUI();
+      // VERSION: only from js/version.js
+      this._loadVersionFromFile();
 
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
@@ -293,24 +295,34 @@
       this._initMenu();
     }
 
-    /* ===== Version to footer/slogan — source: js/version.js ONLY (no fallbacks) ===== */
-    async _loadVersionIntoUI(){
-      const stripV = (s)=> (s||'').toString().replace(/^\s*v/i,'').trim();
-      try{
-        // Load your plain script as a module to execute it, then read window.FV_VERSION it sets.
-        await import('js/version.js?ts=' + Date.now());
-        const v = (window && window.FV_VERSION) || {};
-        const num = stripV(v.number || '');
-        const tag = v.tagline || '';
-        if (num) {
-          if (this._verEl) this._verEl.textContent = `v${num}`;
-          if (this._sloganEl) this._sloganEl.textContent = tag || this._sloganEl.textContent;
-          this._applyFooterVersion(num);
-        }
-      }catch(e){
-        // Do nothing — if version.js isn't available we keep whatever is in the DOM.
-        console.warn('[FV] version.js failed to load:', e);
+    /* ===== Version ONLY from js/version.js ===== */
+    _applyVersion(v){
+      const num = (v && v.number) ? String(v.number).replace(/^\s*v/i,'').trim() : '0.0.0';
+      const tag = (v && v.tagline) ? String(v.tagline) : 'Farm data, simplified';
+      if (this._verEl) this._verEl.textContent = `v${num}`;
+      if (this._sloganEl) this._sloganEl.textContent = tag;
+      this._applyFooterVersion(num);
+    }
+
+    async _loadVersionFromFile(){
+      // If already present (e.g., index loaded version.js before shell), use it.
+      if (window.FV_VERSION && window.FV_VERSION.number) {
+        this._applyVersion(window.FV_VERSION);
+        return;
       }
+      // Otherwise, inject the script (base-relative; respects <base href="/Farm-vista/">)
+      await new Promise((resolve, reject)=>{
+        const id = 'fv-version-js';
+        if (document.getElementById(id)) { resolve(); return; }
+        const s = document.createElement('script');
+        s.id = id;
+        s.src = 'js/version.js'; // SSOT
+        s.defer = true;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      }).catch((e)=> console.warn('[FV] Failed to load js/version.js', e));
+      this._applyVersion(window.FV_VERSION || {});
     }
 
     _applyFooterVersion(num){
