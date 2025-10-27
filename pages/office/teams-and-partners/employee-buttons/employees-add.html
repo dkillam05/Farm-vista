@@ -72,9 +72,9 @@
     })();
   </script>
 
-  <!-- Firebase (uses your existing config/init files) -->
-  <script src="/Farm-vista/js/FirebaseConfig.js" defer></script>
-  <script src="/Farm-vista/js/FirebaseInit.js" defer></script>
+  <!-- Your Firebase config + init (module so we can import the helpers) -->
+  <script src="/Farm-vista/js/firebase-config.js" defer></script>
+  <script type="module" src="/Farm-vista/js/firebase-init.js"></script>
 </head>
 <body>
   <fv-shell>
@@ -93,11 +93,11 @@
           <div class="grid2">
             <div class="field">
               <label for="first">First Name</label>
-              <input id="first" class="input" type="text" autocomplete="given-name" />
+              <input id="first" class="input" type="text" autocomplete="given-name" required />
             </div>
             <div class="field">
               <label for="last">Last Name</label>
-              <input id="last" class="input" type="text" autocomplete="family-name" />
+              <input id="last" class="input" type="text" autocomplete="family-name" required />
             </div>
           </div>
 
@@ -109,7 +109,7 @@
             </div>
             <div class="field">
               <label for="phone">Mobile</label>
-              <input id="phone" class="input" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
+              <input id="phone" class="input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555" />
             </div>
           </div>
 
@@ -171,127 +171,127 @@
     </div>
   </fv-shell>
 
-  <!-- Toast (same behavior as Farms page) -->
+  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
-  <script>
-    (function(){
-      "use strict";
+  <!-- Page logic using your modular Firebase exports -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      addDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
 
-      // --- helpers ---
-      const $ = id => document.getElementById(id);
-      const toast = $("toast");
+    const $ = id => document.getElementById(id);
+    const toast = $("toast");
 
-      function showToast(msg="Successfully saved."){
-        toast.textContent = msg;
-        toast.classList.remove("show"); void toast.offsetWidth;
-        toast.classList.add("show");
+    function showToast(msg="Successfully saved."){
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth;
+      toast.classList.add("show");
+    }
+
+    function digitsOnly(str=""){ return (str||"").replace(/\D+/g,""); }
+
+    function formatUSPhone(raw){
+      const d = digitsOnly(raw);
+      if(!d) return "";
+      // Allow optional leading 1
+      const core = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+      if(core.length === 10){
+        return `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`;
       }
+      // If not 10 digits, just return original trimmed
+      return raw.trim();
+    }
 
-      function normalizePhone(raw){
-        const d = (raw||"").replace(/\D+/g,"");
-        if(!d) return "";
-        if(d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
-        if(d.length === 11 && d.startsWith("1")) return `+1 (${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`;
-        return raw.trim();
+    // Keep user input numeric as they type (but don't fight paste)
+    $("phone").addEventListener("input", (e)=>{
+      // Let user type anything; we’ll format on blur.
+      // (Prevents cursor jumpiness on iOS.)
+    });
+    $("phone").addEventListener("blur", (e)=>{
+      e.target.value = formatUSPhone(e.target.value);
+    });
+
+    $("clear").addEventListener("click", ()=>{
+      ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
+      $("type").selectedIndex = 0;
+      $("status").selectedIndex = 0;
+      $("perm").selectedIndex = 0;
+      showToast("Form cleared.");
+    });
+
+    function validate(){
+      const first = $("first");
+      const last  = $("last");
+      if(!first.checkValidity() || !last.checkValidity()){
+        // Let the browser show its native message if available
+        if(!first.value.trim()) first.reportValidity();
+        else if(!last.value.trim()) last.reportValidity();
+        return null;
       }
+      return {
+        first: first.value.trim(),
+        last:  last.value.trim(),
+        email: $("email").value.trim(),
+        phone: formatUSPhone($("phone").value),
+        role:  $("role").value.trim(),
+        type:  $("type").value,
+        start: $("start").value, // yyyy-mm-dd
+        status:$("status").value,
+        perm:  $("perm").value,
+        notes: $("notes").value.trim()
+      };
+    }
 
-      function getFirestoreDB(){
-        // Prefer compat API: firebase.firestore()
-        if (window.firebase && typeof firebase.firestore === "function") {
-          return firebase.firestore();
-        }
-        // Some projects expose window.db in their init:
-        if (window.db) return window.db;
-        // If we get here, Firestore isn't loaded in a way we can use.
-        alert("Firestore not available. Ensure FirebaseInit.js loads the Firestore compat SDK (firebase-firestore.js).");
-        throw new Error("Firestore not initialized");
-      }
+    $("save").addEventListener("click", async ()=>{
+      const vals = validate();
+      if(!vals) return;
 
-      function required(val){ return (val||"").trim().length > 0; }
+      try{
+        // Ensure Firebase is initialized
+        const { mode } = await ready;
+        const db = getFirestore();
 
-      // --- UI events (clear/save) ---
-      $("clear").addEventListener("click", ()=>{
+        const fullName = `${vals.first} ${vals.last}`.trim();
+
+        const payload = {
+          firstName: vals.first,
+          lastName:  vals.last,
+          fullName,
+          email:     vals.email,
+          phone:     vals.phone,
+          role:      vals.role,
+          type:      vals.type,            // Employee | Partner | Contractor
+          startDate: vals.start || null,   // keep ISO string
+          status:    vals.status,          // Active | On Leave | Inactive
+          permissionGroup: vals.perm,      // Standard | Manager | Admin
+          notes:     vals.notes,
+          search: [fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
+          active: vals.status === "Active",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        await addDoc(collection(db, "employees"), payload);
+
+        showToast("Employee saved.");
+        window.scrollTo({top:0, behavior:"smooth"});
+
+        // Optional: clear after save
         ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
         $("type").selectedIndex = 0;
         $("status").selectedIndex = 0;
         $("perm").selectedIndex = 0;
-        showToast("Form cleared.");
-      });
 
-      $("save").addEventListener("click", async ()=>{
-        // Basic validation
-        const first = $("first").value.trim();
-        const last  = $("last").value.trim();
-        if(!required(first) || !required(last)){
-          alert("Please enter first and last name.");
-          return;
-        }
-
-        // Collect + shape payload
-        const email = $("email").value.trim();
-        const phone = normalizePhone($("phone").value);
-        const role  = $("role").value.trim();
-        const type  = $("type").value;
-        const start = $("start").value; // yyyy-mm-dd
-        const status= $("status").value;
-        const perm  = $("perm").value;
-        const notes = $("notes").value.trim();
-
-        const fullName = `${first} ${last}`.trim();
-        const now = (window.firebase && firebase.firestore && firebase.firestore.FieldValue)
-          ? firebase.firestore.FieldValue.serverTimestamp()
-          : new Date(); // fallback to client time if serverTimestamp unavailable
-
-        const doc = {
-          firstName: first,
-          lastName:  last,
-          fullName,
-          email,
-          phone,
-          role,
-          type,               // Employee | Partner | Contractor
-          startDate: start || null,   // keep as ISO string; convert in reporting if needed
-          status,             // Active | On Leave | Inactive
-          permissionGroup: perm, // Standard | Manager | Admin
-          notes,
-          search: [
-            fullName.toLowerCase(),
-            first.toLowerCase(),
-            last.toLowerCase(),
-            email.toLowerCase()
-          ].filter(Boolean),
-          active: status === "Active",
-          createdAt: now,
-          updatedAt: now
-        };
-
-        // Firestore write
-        try{
-          const db = getFirestoreDB();
-          if (db && typeof db.collection === "function") {
-            // compat
-            await db.collection("employees").add(doc);
-          } else {
-            // If someone swaps to modular later but exposes no compat:
-            throw new Error("Unsupported Firestore API shape. Expecting compat (db.collection(...).add).");
-          }
-
-          showToast("Employee saved.");
-          window.scrollTo({top:0, behavior:"smooth"});
-
-          // optional: clear after save
-          ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
-          $("type").selectedIndex = 0;
-          $("status").selectedIndex = 0;
-          $("perm").selectedIndex = 0;
-
-        } catch(err){
-          console.error(err);
-          alert("Save failed. Check network and Firestore security rules.\n\n" + (err && err.message ? err.message : err));
-        }
-      });
-    })();
+      } catch(err){
+        console.error(err);
+        alert("Save failed. Check network and Firestore security rules.\n\n" + (err?.message || err));
+      }
+    });
   </script>
 </body>
 </html>
