@@ -2,7 +2,8 @@
    - Works under https://dkillam05.github.io/Farm-vista/
    - Version + tagline come ONLY from js/version.js (SSOT)
    - Absolute import for js/menu.js + classic <script> fallback
-   - Logout: signOut, then IMMEDIATE nav to pages/login/index.html (no guard delay)
+   - Logout label: First Last (Firestore users/{uid}) → displayName → email
+   - “Check for updates”: real SW/caches purge + cache-busting reload
 */
 (function () {
   const tpl = document.createElement('template');
@@ -276,12 +277,12 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
+      // Footer text = copyright + date (NO version here)
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-      this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
-      this._footerText.textContent = this._footerBase;
+      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // Load version/tagline strictly from js/version.js
+      // Version/tagline strictly from js/version.js
       this._loadVersionFromScript();
 
       const upd = r.querySelector('.js-update-row');
@@ -303,7 +304,6 @@
         const tag = (v.tagline || 'Farm data, simplified');
         if (this._verEl) this._verEl.textContent = `v${num}`;
         if (this._sloganEl) this._sloganEl.textContent = tag;
-        this._applyFooterVersion(num);
       };
 
       if (window && window.FV_VERSION) { setUI(); return; }
@@ -315,16 +315,8 @@
       s.onerror = () => {
         if (this._sloganEl) this._sloganEl.textContent = 'Farm data, simplified';
         if (this._verEl) this._verEl.textContent = 'v0.0.0';
-        this._applyFooterVersion('0.0.0');
       };
       document.head.appendChild(s);
-    }
-
-    _applyFooterVersion(num){
-      if (!this._footerText) return;
-      const base = this._footerBase || '';
-      const suffix = num ? ` • v${num}` : '';
-      this._footerText.textContent = base + suffix;
     }
 
     /* ===== Robust menu loader (absolute URL + fallback) ===== */
@@ -335,29 +327,24 @@
         const mod = await import(url);
         const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || null;
         if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU export');
-        console.log('[FV] menu loaded via import()', url);
         this._renderMenu(NAV_MENU);
         return;
-      } catch (e) {
-        console.warn('[FV] import(menu.js) failed, falling back to classic script:', e);
-      }
+      } catch {}
 
       try {
         await new Promise((res, rej) => {
           const s = document.createElement('script');
-          s.src = url;
-          s.defer = true;
+          s.src = url; s.defer = true;
           s.onload = () => res();
           s.onerror = (err) => rej(err);
           document.head.appendChild(s);
         });
         const NAV_MENU = (window && window.FV_MENU) || null;
         if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('window.FV_MENU missing/invalid');
-        console.log('[FV] menu loaded via fallback script', url);
         this._renderMenu(NAV_MENU);
       } catch (err) {
-        console.error('[FV] Unable to load menu by any method:', url, err);
-        this._toastMsg('Menu failed to load. Please refresh.', 3000);
+        console.error('[FV] Unable to load menu:', err);
+        this._toastMsg('Menu failed to load. Please refresh.', 2800);
       }
     }
 
@@ -502,7 +489,7 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Auth: logout label (First Last → email) + redirect ===== */
+    /* ===== Auth: logout + label (First Last → displayName → email) ===== */
     async _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -517,8 +504,7 @@
           onIdTokenChanged: mod.onIdTokenChanged,
           onAuthStateChanged: mod.onAuthStateChanged,
           signOut: mod.signOut,
-          doc: mod.doc, getDoc: mod.getDoc,
-          isStub: mod.isStub()
+          doc: mod.doc, getDoc: mod.getDoc
         };
       };
 
@@ -527,27 +513,29 @@
           const user = auth && auth.currentUser;
           if (!user) { if (logoutLabel) logoutLabel.textContent = 'Logout'; return; }
 
-          // Pull name from Firestore users/{uid} (firstName/lastName; accept legacy first/last).
           let name = '';
+
           if (fs && doc && getDoc) {
             try{
               const ref = doc(fs, 'users', user.uid);
               const snap = await getDoc(ref);
-              if (snap && (snap.data)) {
-                const data = (typeof snap.data === 'function') ? snap.data() : snap.data;
-                const fn = (data && (data.firstName || data.first)) || '';
-                const ln = (data && (data.lastName  || data.last )) || '';
-                const full = `${(fn||'').toString().trim()} ${(ln||'').toString().trim()}`.trim();
+              const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
+              if (data) {
+                const fn = (data.firstName || data.first || '').toString().trim();
+                const ln = (data.lastName  || data.last  || '').toString().trim();
+                const full = `${fn} ${ln}`.trim();
                 if (full) name = full;
               }
-            }catch(e){ /* ignore profile errors */ }
+            }catch{}
           }
 
-          // Required fallback: EMAIL only
+          if (!name && user.displayName) name = user.displayName.trim();
           if (!name && user.email) name = user.email.trim();
 
           logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
-        }catch{ if (logoutLabel) logoutLabel.textContent = 'Logout'; }
+        }catch{
+          if (logoutLabel) logoutLabel.textContent = 'Logout';
+        }
       };
 
       try{
@@ -583,48 +571,69 @@
       }
     }
 
-    /* ===== Update flow ===== */
+    /* ===== Update flow with strong toasts ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
+      const toast = (msg, ms=1200)=> this._toastMsg(msg, ms);
+
+      // Find the latest version in version.js
       async function readTargetVersion(){
         try{
-          const txt = await (await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' })).text();
-          // Accept any quoted version string shape, not just digits/dots.
-          const m = txt.match(/number\s*:\s*["']([^"']+)["']/)
-                   || txt.match(/FV_NUMBER\s*=\s*["']([^"']+)["']/);
-          return (m && m[1]) || String(Date.now());
-        }catch{ return String(Date.now()); }
+          const resp = await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' });
+          const txt = await resp.text();
+          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          return (m && m[1]) || '';
+        }catch{ return ''; }
       }
-      try{
-        this._toastMsg('Checking For Updates…', 1200);
-        const targetVer = await readTargetVersion();
 
-        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-          try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
+      try{
+        toast('Checking for updates…', 900);
+        const targetVer = await readTargetVersion();
+        const currentVer = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
+
+        if (targetVer && currentVer && targetVer === currentVer) {
+          toast(`Already up to date (v${currentVer})`, 1400);
+          return;
+        }
+
+        toast('Clearing cache…', 800);
+
+        if (navigator.serviceWorker) {
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r=> r.unregister()));
+          } catch {}
         }
         if ('caches' in window) {
-          try { const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k))); } catch {}
+          try {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+          } catch {}
         }
-        if ('serviceWorker' in navigator) {
-          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
-          await sleep(150);
+
+        await sleep(150);
+        if (navigator.serviceWorker) {
           try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
-        this._toastMsg(`Updating…`, 900);
+        toast('Updating…', 900);
         await sleep(300);
+
         const url = new URL(location.href);
-        url.searchParams.set('rev', targetVer);
+        url.searchParams.set('rev', targetVer || String(Date.now()));
         location.replace(url.toString());
       }catch(e){
         console.error(e);
-        this._toastMsg('Update failed. Try again.', 2200);
+        toast('Update failed. Try again.', 2000);
       }
     }
 
     _toastMsg(msg, ms=1600){
-      const t = this._toast; t.textContent = msg; t.classList.add('show');
-      clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
+      const t = this._toast; if (!t) return;
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(this._tt);
+      this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
   }
 
