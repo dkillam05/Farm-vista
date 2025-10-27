@@ -1,8 +1,9 @@
 /* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
    - Works under https://dkillam05.github.io/Farm-vista/
-   - Menu: absolute import for js/menu.js + classic <script> fallback
-   - Version Source of Truth: js/version.js (globals), no other sources
-   - Logout: signOut, then IMMEDIATE nav to pages/login/index.html
+   - Absolute import for js/menu.js + classic <script> fallback
+   - Version + tagline are read ONLY from js/version.js
+   - Logout label = "Logout First Last" (from Firestore), else displayName, else email
+   - Logout performs signOut (if available) and hard-navigates to pages/login/index.html
 */
 (function () {
   const tpl = document.createElement('template');
@@ -281,12 +282,11 @@
       this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
       this._footerText.textContent = this._footerBase;
 
-      this._loadVersionFromVersionJs();     // ← version + tagline from js/version.js
+      this._loadVersionIntoUI();       // ← version + tagline ONLY from js/version.js
+      this._wireAuthLogout(r);         // ← logout label with Firestore profile
 
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
-
-      this._wireAuthLogout(r);
 
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
@@ -294,32 +294,24 @@
       this._initMenu();
     }
 
-    /* ===== Version + tagline strictly from js/version.js (no other sources) ===== */
-    _loadVersionFromVersionJs(){
-      const apply = () => {
-        const v = (window.FV_VERSION && String(window.FV_VERSION.number)) || '0.0.0';
-        const tag = (window.FV_VERSION && String(window.FV_VERSION.tagline)) || 'Farm data, simplified';
-        if (this._verEl) this._verEl.textContent = `v${v}`;
-        if (this._sloganEl) this._sloganEl.textContent = tag;
-        this._applyFooterVersion(v);
+    /* ===== Version + tagline (ONLY from js/version.js) ===== */
+    async _loadVersionIntoUI(){
+      const setUI = (num, tag) => {
+        const clean = (num||'').toString().replace(/^\s*v/i,'').trim() || '0.0.0';
+        if (this._verEl) this._verEl.textContent = `v${clean}`;
+        if (this._sloganEl) this._sloganEl.textContent = (tag && String(tag).trim()) || 'Simplified';
+        this._applyFooterVersion(clean);
       };
 
-      // If already present (e.g., loaded in <head>), use it immediately.
-      if (window.FV_VERSION && window.FV_VERSION.number){
-        apply();
-        return;
+      try {
+        // Load once; version.js populates window.FV_VERSION
+        await import('js/version.js');
+      } catch (e) {
+        // If version.js fails to load, still don’t crash the UI
       }
 
-      // Otherwise load version.js via classic script (respects <base>) and then apply.
-      const s = document.createElement('script');
-      s.defer = true;
-      s.src = 'js/version.js?ts=' + Date.now();
-      s.onload = () => apply();
-      s.onerror = () => {
-        console.warn('[FV] version.js failed to load');
-        // Keep defaults (v0.0.0 / Loading…) if version.js can’t be fetched.
-      };
-      document.head.appendChild(s);
+      const v = (window && window.FV_VERSION) || {};
+      setUI(v.number, v.tagline);
     }
 
     _applyFooterVersion(num){
@@ -504,6 +496,7 @@
       this._syncThemeChips(mode);
     }
 
+    /* ===== Logout label with Firestore name (First Last → displayName → email) ===== */
     async _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -512,37 +505,72 @@
         const mod = await import('js/firebase-init.js');
         const ctx = await mod.ready;
         const auth = window.firebaseAuth || (ctx && ctx.auth) || mod.getAuth(ctx && ctx.app);
-        return {
-          mod, ctx, auth,
-          onIdTokenChanged: mod.onIdTokenChanged,
-          onAuthStateChanged: mod.onAuthStateChanged,
-          signOut: mod.signOut,
-          isStub: mod.isStub()
-        };
+        const db = mod.getFirestore ? mod.getFirestore(ctx && ctx.app) : (window.firebaseFirestore || null);
+        return { mod, ctx, auth, db };
       };
 
-      const setLabel = (user) => {
-        const profile = window.__FV_PROFILE;
-        const profileName = profile && typeof profile.displayName === 'string' ? profile.displayName.trim() : '';
-        const name = profileName || (user && user.displayName && user.displayName.trim()) || (user && user.email) || 'User';
-        if (logoutLabel) logoutLabel.textContent = `Logout ${name}`;
+      const pickName = (user, profile) => {
+        const first = profile && typeof profile.firstName === 'string' ? profile.firstName.trim() : '';
+        const last  = profile && typeof profile.lastName  === 'string' ? profile.lastName.trim()  : '';
+        const fnln  = [first, last].filter(Boolean).join(' ').trim();
+        const dname = (profile && profile.displayName && profile.displayName.trim()) ||
+                      (user && user.displayName && user.displayName.trim()) || '';
+        const email = (user && user.email) || '';
+        return fnln || dname || email || 'User';
+      };
+
+      const setLabel = (user, profile) => {
+        if (logoutLabel) logoutLabel.textContent = `Logout ${pickName(user, profile)}`;
+      };
+
+      const readProfile = async (mod, db, uid) => {
+        if (!db || !uid) return null;
+        const tryPaths = [
+          ['users', uid],
+          ['profiles', uid],
+          ['userProfiles', uid]
+        ];
+        for (const [col, id] of tryPaths) {
+          try{
+            const ref = mod.doc(db, col, id);
+            const snap = await mod.getDoc(ref);
+            if (snap && typeof snap.data === 'function' && snap.exists()) {
+              const data = snap.data() || {};
+              if (data.firstName || data.lastName || data.displayName) return data;
+            }
+          }catch{}
+        }
+        return null;
       };
 
       try{
-        const { ctx, auth, onIdTokenChanged, onAuthStateChanged, signOut } = await needAuthFns();
+        const { mod, auth, db } = await needAuthFns();
         if (!auth) throw new Error('Auth unavailable');
 
-        setLabel(auth.currentUser);
-        const profileListener = () => setLabel(auth.currentUser);
-        document.addEventListener('fv:profile', profileListener);
+        // Initial label
+        setLabel(auth.currentUser, window.__FV_PROFILE);
 
-        onIdTokenChanged(auth, (user)=> setLabel(user));
-        onAuthStateChanged(auth, (user)=> setLabel(user));
+        // React to auth changes
+        mod.onAuthStateChanged(auth, async (user) => {
+          let profile = null;
+          if (user && user.uid) {
+            profile = await readProfile(mod, db, user.uid);
+            if (profile) {
+              window.__FV_PROFILE = profile;
+              try { document.dispatchEvent(new CustomEvent('fv:profile', { detail: profile })); } catch {}
+            }
+          }
+          setLabel(user, profile);
+        });
 
+        // Also react to external profile updates if your app sets them
+        document.addEventListener('fv:profile', (e)=> setLabel(auth.currentUser, e.detail));
+
+        // Make sure we don’t sit blank on slow boot
         if (!auth.currentUser) {
           let tries = 12;
           const tick = setInterval(()=>{
-            setLabel(auth.currentUser);
+            setLabel(auth.currentUser, window.__FV_PROFILE);
             if (auth.currentUser || --tries <= 0) clearInterval(tick);
           }, 150);
         }
@@ -554,7 +582,7 @@
             this.toggleDrawer(false);
             try{
               if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
-              else { await signOut(auth); }
+              else if (mod.signOut) { await mod.signOut(auth); }
             }catch(err){ console.warn('[FV] logout error:', err); }
             location.replace('pages/login/index.html');
           });
@@ -572,52 +600,43 @@
       }
     }
 
-    // Clear, forceful updater based on version.js only
+    /* ===== Update flow ===== */
     async checkForUpdates(){
-      const toast = (m,ms=1600)=> this._toastMsg(m,ms);
-
-      const current = (window.FV_VERSION && String(window.FV_VERSION.number)) || "0.0.0";
-
-      let remote = current;
+      const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
+      async function readTargetVersion(){
+        try{
+          const txt = await (await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' })).text();
+          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) ||
+                    txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/) ||
+                    txt.match(/window\.FV_BUILD\s*=\s*["']([\d.]+)["']/);
+          return (m && m[1]) || String(Date.now());
+        }catch{ return String(Date.now()); }
+      }
       try{
-        toast("Checking for updates…", 900);
-        const res = await fetch("js/version.js?nocache=" + Date.now(), { cache: "no-store" });
-        const txt = await res.text();
-        const m =
-          txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/) ||
-          txt.match(/number\s*:\s*["']([\d.]+)["']/);
-        if (m && m[1]) remote = m[1];
+        this._toastMsg('Checking For Updates…', 1200);
+        const targetVer = await readTargetVersion();
+
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
+        }
+        if ('caches' in window) {
+          try { const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k))); } catch {}
+        }
+        if ('serviceWorker' in navigator) {
+          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
+          await sleep(150);
+          try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
+        }
+
+        this._toastMsg('Updating…', 900);
+        await sleep(400);
+        const url = new URL(location.href);
+        url.searchParams.set('rev', targetVer);
+        location.replace(url.toString());
       }catch(e){
-        console.warn("[FV] update check failed:", e);
-        toast("Couldn’t check for updates", 1800);
-        return;
+        console.error(e);
+        this._toastMsg('Update failed. Try again.', 2200);
       }
-
-      if (remote === current){
-        toast(`Already up to date (v${current})`, 1600);
-        return;
-      }
-
-      toast(`Updating to v${remote}…`, 1200);
-
-      try {
-        if ("serviceWorker" in navigator) {
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map(r => r.unregister().catch(()=>{})));
-          try { await navigator.serviceWorker.register("serviceworker.js?ts=" + Date.now()); } catch {}
-        }
-      } catch (e) { console.warn("[FV] SW cleanup error:", e); }
-
-      try {
-        if ("caches" in window) {
-          const keys = await caches.keys();
-          await Promise.all(keys.map(k => caches.delete(k).catch(()=>{})));
-        }
-      } catch (e) { console.warn("[FV] cache cleanup error:", e); }
-
-      const url = new URL(location.href);
-      url.searchParams.set("rev", `${remote}-${Date.now()}`);
-      location.replace(url.toString());
     }
 
     _toastMsg(msg, ms=1600){
