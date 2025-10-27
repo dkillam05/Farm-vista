@@ -94,8 +94,10 @@
 })();
 
 // === Global Auth Guard (runs on every page) ===
+// RULES:
+//  - Login page is PUBLIC. Never redirect away from it (even if already signed-in).
+//  - Any other page requires auth. If not signed-in, redirect to login with ?next=<current>.
 (function(){
-  // helpers
   const samePath = (a, b) => {
     try {
       const ua = new URL(a, document.baseURI || location.href);
@@ -103,46 +105,37 @@
       return ua.pathname === ub.pathname && ua.search === ub.search && ua.hash === ub.hash;
     } catch { return a === b; }
   };
-  const resolveUnderBase = (p) => {
-    try { return new URL(p, document.baseURI || location.href).pathname + (new URL(p, document.baseURI || location.href).search || '') + (new URL(p, document.baseURI || location.href).hash || ''); }
-    catch { return p; }
+
+  const isLoginPath = () => {
+    // Support: /pages/login, /pages/login/, /pages/login/index.html
+    const p = new URL('pages/login/', location.href).pathname;   // base-relative
+    const cur = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+    return cur.startsWith(p);
   };
 
   const run = async () => {
     try {
-      // BASE-RELATIVE dynamic import
       const mod = await import('js/firebase-init.js');
       const ctx = await mod.ready;
       const auth = ctx && ctx.auth;
 
-      // In stub/offline mode we skip redirects entirely.
+      // If offline/stub: allow everything (no redirects)
       if (!auth || (mod.isStub && mod.isStub())) return;
 
       const here = location.pathname + location.search + location.hash;
 
-      // Normalize and robustly detect login page:
-      // supports /pages/login, /pages/login/, /pages/login/index.html
-      const normalize = (p) => p.replace(/\/+$/,'/'); // keep single trailing slash
-      const pNow   = normalize(location.pathname);
-      const pLogin = normalize(new URL('pages/login/', location.href).pathname);
-      const isLogin = pNow === pLogin || pNow.startsWith(pLogin);
+      // Always allow the login page, signed-in or not.
+      if (isLoginPath()) {
+        return; // ❗️No redirect logic at all on login page
+      }
 
+      // For all other pages, require auth.
       mod.onAuthStateChanged(auth, (user) => {
         if (!user) {
-          if (!isLogin) {
-            const next = encodeURIComponent(here);
-            // BASE-RELATIVE redirect to login with return url
-            const dest = 'pages/login/?next=' + next;
-            if (!samePath(location.href, dest)) location.replace(dest);
-          }
-        } else if (isLogin) {
-          // Already signed in and on login — bounce to next or index.html
-          const qs = new URLSearchParams(location.search);
-          const hinted = qs.get('next');
-          const fallback = 'index.html';
-          const dest = resolveUnderBase((hinted && hinted.trim()) ? hinted : fallback);
+          const dest = 'pages/login/index.html?next=' + encodeURIComponent(here);
           if (!samePath(location.href, dest)) location.replace(dest);
         }
+        // If user exists, do nothing (they can stay on any page including dashboard)
       });
     } catch (e) {
       console.warn('[FV] auth-guard error:', e);
