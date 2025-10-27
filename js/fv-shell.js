@@ -306,16 +306,13 @@
         this._applyFooterVersion(num);
       };
 
-      // Already present?
       if (window && window.FV_VERSION) { setUI(); return; }
 
-      // Inject classic script (works with your current version.js)
       const s = document.createElement('script');
       s.src = 'js/version.js';
       s.defer = true;
       s.onload = () => setUI();
       s.onerror = () => {
-        // As a last resort, still show something so the UI isn't stuck on "Loading…"
         if (this._sloganEl) this._sloganEl.textContent = 'Farm data, simplified';
         if (this._verEl) this._verEl.textContent = 'v0.0.0';
         this._applyFooterVersion('0.0.0');
@@ -505,7 +502,7 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Auth: logout + label (First Last → displayName → email) ===== */
+    /* ===== Auth: logout label (First Last → email) + redirect ===== */
     async _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -530,7 +527,7 @@
           const user = auth && auth.currentUser;
           if (!user) { if (logoutLabel) logoutLabel.textContent = 'Logout'; return; }
 
-          // Try Firestore profile
+          // Pull name from Firestore users/{uid} (firstName/lastName; accept legacy first/last).
           let name = '';
           if (fs && doc && getDoc) {
             try{
@@ -539,15 +536,14 @@
               if (snap && (snap.data)) {
                 const data = (typeof snap.data === 'function') ? snap.data() : snap.data;
                 const fn = (data && (data.firstName || data.first)) || '';
-                const ln = (data && (data.lastName || data.last)) || '';
+                const ln = (data && (data.lastName  || data.last )) || '';
                 const full = `${(fn||'').toString().trim()} ${(ln||'').toString().trim()}`.trim();
                 if (full) name = full;
               }
             }catch(e){ /* ignore profile errors */ }
           }
 
-          // Fallbacks
-          if (!name && user.displayName) name = user.displayName.trim();
+          // Required fallback: EMAIL only
           if (!name && user.email) name = user.email.trim();
 
           logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
@@ -558,10 +554,7 @@
         const { auth, fs, onIdTokenChanged, onAuthStateChanged, signOut, doc, getDoc } = await needAuthFns();
         if (!auth) throw new Error('Auth unavailable');
 
-        // Initial set
         setLabelFromProfile(auth, fs, doc, getDoc);
-
-        // Update when token/user changes
         onIdTokenChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
         onAuthStateChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
 
@@ -574,7 +567,6 @@
               if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
               else { await signOut(auth); }
             }catch(err){ console.warn('[FV] logout error:', err); }
-            // HARD NAV to the login page and STAY THERE
             location.replace('pages/login/index.html');
           });
         }
@@ -597,8 +589,9 @@
       async function readTargetVersion(){
         try{
           const txt = await (await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' })).text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/)
-                   || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          // Accept any quoted version string shape, not just digits/dots.
+          const m = txt.match(/number\s*:\s*["']([^"']+)["']/)
+                   || txt.match(/FV_NUMBER\s*=\s*["']([^"']+)["']/);
           return (m && m[1]) || String(Date.now());
         }catch{ return String(Date.now()); }
       }
