@@ -295,19 +295,39 @@
 
     /* ===== Version to footer/slogan ===== */
     async _loadVersionIntoUI(){
+      const stripV = (s)=> (s||'').toString().replace(/^\s*v/i,'').trim();
       const setUI = (num, tag) => {
-        this._verEl.textContent = `v${num || '0.0.0'}`;
-        this._sloganEl.textContent = tag || 'Farm data, simplified';
+        const clean = stripV(num || '0.0.0');
+        if (this._verEl) this._verEl.textContent = `v${clean}`;
+        if (this._sloganEl) this._sloganEl.textContent = (tag || 'Farm data, simplified');
+        this._applyFooterVersion(clean);
       };
 
-      let number = (window.FV_VERSION && window.FV_VERSION.number)
-                || (window.App && App.getVersion && App.getVersion().number)
-                || (window.FV_BUILD);
-      let tagline = (window.FV_VERSION && window.FV_VERSION.tagline)
-                 || (window.App && App.getVersion && App.getVersion().tagline);
+      // 1) From global FV_VERSION (firebase-config.js)
+      let number = (window.FV_VERSION && window.FV_VERSION.number) || '';
+      let tagline = (window.FV_VERSION && window.FV_VERSION.tagline) || '';
 
-      if (number) { setUI(number, tagline); this._applyFooterVersion(number); return; }
+      // 2) From <html data-fv-version="..."> (set by core.js)
+      if (!number) {
+        const attr = document.documentElement.getAttribute('data-fv-version');
+        if (attr) number = attr;
+      }
 
+      // 3) From App.getVersion() (core.js API)
+      if (!number && window.App && App.getVersion) {
+        try {
+          const v = App.getVersion();
+          number = v && (v.number || v.APP_NUMBER || v.FV_NUMBER) || '';
+          tagline = tagline || (v && (v.tagline || v.APP_TAGLINE || v.FV_TAGLINE)) || '';
+        } catch {}
+      }
+
+      // 4) From FV_BUILD global
+      if (!number && window.FV_BUILD) number = window.FV_BUILD;
+
+      if (number) { setUI(number, tagline); return; }
+
+      // 5) Last resort: dynamic import (supports multiple shapes)
       try{
         const mod = await import('js/version.js?ts=' + Date.now());
         const pick = (m)=> {
@@ -323,21 +343,19 @@
           return obj;
         };
         const v = pick(mod);
-        number = v.number || (window.FV_VERSION && window.FV_VERSION.number) || window.FV_BUILD || '0.0.0';
-        tagline = v.tagline || (window.FV_VERSION && window.FV_VERSION.tagline) || 'Farm data, simplified';
-        setUI(number, tagline);
+        number = v.number || '';
+        tagline = v.tagline || '';
       }catch{
-        setUI('0.0.0', 'Farm data, simplified');
-        number = '0.0.0';
+        // ignore
       }
 
-      this._applyFooterVersion(number);
+      setUI(number || '0.0.0', tagline || 'Farm data, simplified');
     }
+
     _applyFooterVersion(num){
       if (!this._footerText) return;
-      this._footerVersion = (num && String(num)) || '';
       const base = this._footerBase || '';
-      const suffix = this._footerVersion ? ` • v${this._footerVersion}` : '';
+      const suffix = num ? ` • v${num}` : '';
       this._footerText.textContent = base + suffix;
     }
 
