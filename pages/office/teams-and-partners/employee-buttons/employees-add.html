@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Add Employee</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -8,7 +10,7 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <script src="/Farm-vista/js/theme-boot.js" defer></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -62,12 +64,19 @@
   </style>
 
   <!-- Ensure fv-shell is available, exactly like your Farms page -->
-  <script>(function(){
-    if(!customElements.get('fv-shell')){
-      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
-    }
-  })();</script>
-</head><body>
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Firebase (uses your existing config/init files) -->
+  <script src="/Farm-vista/js/FirebaseConfig.js" defer></script>
+  <script src="/Farm-vista/js/FirebaseInit.js" defer></script>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Add Employee</h1>
@@ -168,6 +177,8 @@
   <script>
     (function(){
       "use strict";
+
+      // --- helpers ---
       const $ = id => document.getElementById(id);
       const toast = $("toast");
 
@@ -177,21 +188,110 @@
         toast.classList.add("show");
       }
 
+      function normalizePhone(raw){
+        const d = (raw||"").replace(/\D+/g,"");
+        if(!d) return "";
+        if(d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+        if(d.length === 11 && d.startsWith("1")) return `+1 (${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`;
+        return raw.trim();
+      }
+
+      function getFirestoreDB(){
+        // Prefer compat API: firebase.firestore()
+        if (window.firebase && typeof firebase.firestore === "function") {
+          return firebase.firestore();
+        }
+        // Some projects expose window.db in their init:
+        if (window.db) return window.db;
+        // If we get here, Firestore isn't loaded in a way we can use.
+        alert("Firestore not available. Ensure FirebaseInit.js loads the Firestore compat SDK (firebase-firestore.js).");
+        throw new Error("Firestore not initialized");
+      }
+
+      function required(val){ return (val||"").trim().length > 0; }
+
+      // --- UI events (clear/save) ---
       $("clear").addEventListener("click", ()=>{
         ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
         $("type").selectedIndex = 0;
         $("status").selectedIndex = 0;
         $("perm").selectedIndex = 0;
+        showToast("Form cleared.");
       });
 
-      $("save").addEventListener("click", ()=>{
-        // Placeholder: validation + local toast (wire to Firestore later)
+      $("save").addEventListener("click", async ()=>{
+        // Basic validation
         const first = $("first").value.trim();
         const last  = $("last").value.trim();
-        if(!first || !last){ alert("Please enter first and last name."); return; }
-        showToast("Employee saved.");
-        window.scrollTo({top:0, behavior:"smooth"});
+        if(!required(first) || !required(last)){
+          alert("Please enter first and last name.");
+          return;
+        }
+
+        // Collect + shape payload
+        const email = $("email").value.trim();
+        const phone = normalizePhone($("phone").value);
+        const role  = $("role").value.trim();
+        const type  = $("type").value;
+        const start = $("start").value; // yyyy-mm-dd
+        const status= $("status").value;
+        const perm  = $("perm").value;
+        const notes = $("notes").value.trim();
+
+        const fullName = `${first} ${last}`.trim();
+        const now = (window.firebase && firebase.firestore && firebase.firestore.FieldValue)
+          ? firebase.firestore.FieldValue.serverTimestamp()
+          : new Date(); // fallback to client time if serverTimestamp unavailable
+
+        const doc = {
+          firstName: first,
+          lastName:  last,
+          fullName,
+          email,
+          phone,
+          role,
+          type,               // Employee | Partner | Contractor
+          startDate: start || null,   // keep as ISO string; convert in reporting if needed
+          status,             // Active | On Leave | Inactive
+          permissionGroup: perm, // Standard | Manager | Admin
+          notes,
+          search: [
+            fullName.toLowerCase(),
+            first.toLowerCase(),
+            last.toLowerCase(),
+            email.toLowerCase()
+          ].filter(Boolean),
+          active: status === "Active",
+          createdAt: now,
+          updatedAt: now
+        };
+
+        // Firestore write
+        try{
+          const db = getFirestoreDB();
+          if (db && typeof db.collection === "function") {
+            // compat
+            await db.collection("employees").add(doc);
+          } else {
+            // If someone swaps to modular later but exposes no compat:
+            throw new Error("Unsupported Firestore API shape. Expecting compat (db.collection(...).add).");
+          }
+
+          showToast("Employee saved.");
+          window.scrollTo({top:0, behavior:"smooth"});
+
+          // optional: clear after save
+          ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
+          $("type").selectedIndex = 0;
+          $("status").selectedIndex = 0;
+          $("perm").selectedIndex = 0;
+
+        } catch(err){
+          console.error(err);
+          alert("Save failed. Check network and Firestore security rules.\n\n" + (err && err.message ? err.message : err));
+        }
       });
     })();
   </script>
-</body></html>
+</body>
+</html>
