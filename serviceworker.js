@@ -1,10 +1,9 @@
-/* FarmVista SW — dynamic versioned precache (scope-aware, no fetch-time version lookups) */
+/* FarmVista SW — versioned caches; NO bounce-to-index on non-200 navigations */
 
 /* ----- Scope detection (works at /Farm-vista/ or /) ----- */
 const SCOPE_PREFIX = (() => {
   try {
     const u = new URL(self.registration.scope);
-    // Ensure trailing slash so startsWith checks are clean
     return u.pathname.endsWith('/') ? u.pathname : (u.pathname + '/');
   } catch {
     return '/';
@@ -18,15 +17,13 @@ let CACHE_RUNTIME = 'farmvista-runtime-v0';
 let PRECACHE_URLS = [];
 
 function scoped(path) {
-  // Accept absolute “/foo” or bare “foo”
   const p = String(path || '').replace(/^\//, '');
   return SCOPE_PREFIX + p;
 }
 
-/* derive version number by reading js/version.js ONCE (install/activate time only) */
+/* read js/version.js ONCE at install/activate (not during fetch) */
 async function readVersionNumberOnce() {
   try {
-    // Important: request WITHIN scope so SW doesn’t consider it cross-origin
     const r = await fetch(scoped('js/version.js') + `?ts=${Date.now()}`, { cache: 'reload' });
     const t = await r.text();
     const m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
@@ -37,10 +34,9 @@ async function readVersionNumberOnce() {
 }
 
 async function initNames() {
-  FV_VER = await readVersionNumberOnce();     // e.g., "10.27.05"
+  FV_VER = await readVersionNumberOnce();
   CACHE_STATIC  = `farmvista-static-v${FV_VER}`;
   CACHE_RUNTIME = `farmvista-runtime-v${FV_VER}`;
-
   const REV = FV_VER;
   PRECACHE_URLS = [
     scoped(''),
@@ -57,7 +53,6 @@ async function initNames() {
   ];
 }
 
-/* small helper: cache.put only if OK/basic */
 async function putIfCachable(cache, req, res) {
   try {
     if (!res) return;
@@ -67,7 +62,6 @@ async function putIfCachable(cache, req, res) {
   } catch {}
 }
 
-/* Initialize once; fetch will wait on this before responding */
 const READY = (async()=>{ await initNames(); })();
 
 /* -------------------- INSTALL -------------------- */
@@ -101,51 +95,52 @@ self.addEventListener('activate', (event) => {
 /* -------------------- FETCH -------------------- */
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-
-  // Only handle GET, under our scope
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (!url.pathname.startsWith(SCOPE_PREFIX)) return;
 
   event.respondWith(READY.then(async () => {
+    // Navigations: try network; if it fails (timeout/offline), only then fall back to cached index
     if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
-      return networkFirstNav(req);
+      return networkFirstNav_noBounce(req);
     }
 
-    // Static-ish assets: CSS/JS/images/fonts → stale-while-revalidate
     if (['style', 'script', 'image', 'font'].includes(req.destination)) {
       return staleWhileRevalidate(req);
     }
-
-    // Default: stale-while-revalidate as well
     return staleWhileRevalidate(req);
   }));
 });
 
 /* -------------------- STRATEGIES -------------------- */
 
-async function networkFirstNav(request) {
+async function networkFirstNav_noBounce(request) {
   const staticCache = await caches.open(CACHE_STATIC);
 
-  // Prefer network (with a reasonable timeout), then cache, then last-resort minimal offline
+  // Try network with timeout
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
     const res = await fetch(request, { signal: ctrl.signal, cache: 'no-store' });
     clearTimeout(timer);
-    if (res && res.ok) {
-      await putIfCachable(staticCache, request, res);
+
+    // IMPORTANT CHANGE:
+    // Return whatever the server returned (200, 404, 500, etc.) — do NOT swap in index.html.
+    // This prevents the “bounce back to Dashboard”.
+    if (res) {
+      // opportunistically update cache on success
+      if (res.ok) await putIfCachable(staticCache, request, res);
       return res;
     }
-  } catch {}
+  } catch {
+    // Network failed → we are offline; fall back to cached index if available
+    const bustedIndex = await staticCache.match(scoped(`index.html?rev=${FV_VER}`));
+    if (bustedIndex) return bustedIndex;
+    const plainIndex = await staticCache.match(scoped('index.html'));
+    if (plainIndex) return plainIndex;
+  }
 
-  // Fallback to cached navigation (try cache-busted index first, then plain index)
-  const bustedIndex = await staticCache.match(scoped(`index.html?rev=${FV_VER}`));
-  if (bustedIndex) return bustedIndex;
-
-  const plainIndex = await staticCache.match(scoped('index.html'));
-  if (plainIndex) return plainIndex;
-
+  // Last resort minimal offline page
   return new Response(
     '<!doctype html><meta charset="utf-8"><title>Offline</title><h1>Offline</h1><p>No cached copy available.</p>',
     { headers: { 'Content-Type': 'text/html; charset=utf-8' }, status: 503 }
@@ -165,15 +160,10 @@ async function staleWhileRevalidate(request) {
     }
   })();
 
-  if (cached) {
-    // Kick off network update in background; return cache immediately
-    net.catch(() => {});
-    return cached;
-  }
+  if (cached) { net.catch(() => {}); return cached; }
   const res = await net;
   if (res) return res;
 
-  // Last fallback to static cache (often precached)
   const staticCache = await caches.open(CACHE_STATIC);
   const fallback = await staticCache.match(request);
   return fallback || new Response('', { status: 504, statusText: 'Gateway Timeout' });
