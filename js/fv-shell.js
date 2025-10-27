@@ -293,37 +293,23 @@
       this._initMenu();
     }
 
-    /* ===== Version to footer/slogan — source: js/version.js ONLY ===== */
+    /* ===== Version to footer/slogan — source: js/version.js ONLY (no fallbacks) ===== */
     async _loadVersionIntoUI(){
       const stripV = (s)=> (s||'').toString().replace(/^\s*v/i,'').trim();
-      const setUI = (num, tag) => {
-        const clean = stripV(num || '0.0.0');
-        if (this._verEl) this._verEl.textContent = `v${clean}`;
-        if (this._sloganEl) this._sloganEl.textContent = (tag || 'Farm data, simplified');
-        this._applyFooterVersion(clean);
-      };
-
       try{
-        const mod = await import('js/version.js?ts=' + Date.now());
-        const pick = (m)=> {
-          if (!m) return {};
-          if (m.default && (m.default.number || m.default.tagline)) return m.default;
-          if (m.FV_VERSION && (m.FV_VERSION.number || m.FV_VERSION.tagline)) return m.FV_VERSION;
-          if (m.APP_VERSION && (m.APP_VERSION.number || m.APP_VERSION.tagline)) return m.APP_VERSION;
-          const obj = {};
-          if (m.FV_NUMBER) obj.number = m.FV_NUMBER;
-          if (m.APP_NUMBER) obj.number = m.APP_NUMBER;
-          if (m.FV_TAGLINE) obj.tagline = m.FV_TAGLINE;
-          if (m.APP_TAGLINE) obj.tagline = m.APP_TAGLINE;
-          return obj;
-        };
-        const v = pick(mod);
-        const number = v.number || '0.0.0';
-        const tagline = v.tagline || 'Farm data, simplified';
-        setUI(number, tagline);
+        // Load your plain script as a module to execute it, then read window.FV_VERSION it sets.
+        await import('js/version.js?ts=' + Date.now());
+        const v = (window && window.FV_VERSION) || {};
+        const num = stripV(v.number || '');
+        const tag = v.tagline || '';
+        if (num) {
+          if (this._verEl) this._verEl.textContent = `v${num}`;
+          if (this._sloganEl) this._sloganEl.textContent = tag || this._sloganEl.textContent;
+          this._applyFooterVersion(num);
+        }
       }catch(e){
-        // If version.js can't be loaded, fall back to a safe default
-        setUI('0.0.0', 'Farm data, simplified');
+        // Do nothing — if version.js isn't available we keep whatever is in the DOM.
+        console.warn('[FV] version.js failed to load:', e);
       }
     }
 
