@@ -23,10 +23,35 @@ function showErr(msg){
   els.err.textContent = msg || '';
 }
 
+// Use your real home: /Farm-vista/index.html (works with <base href="/Farm-vista/">)
+const DEFAULT_HOME = 'index.html';
+
+function resolveUnderBase(pathLike){
+  // Respect <base href="/Farm-vista/">
+  try {
+    const u = new URL(pathLike, document.baseURI || location.href);
+    return u.pathname.replace(location.origin, '') + (u.search || '') + (u.hash || '');
+  } catch {
+    return pathLike;
+  }
+}
+
+function samePath(a, b){
+  try {
+    const ua = new URL(a, document.baseURI || location.href);
+    const ub = new URL(b, document.baseURI || location.href);
+    return ua.pathname === ub.pathname && ua.search === ub.search;
+  } catch {
+    return a === b;
+  }
+}
+
 function nextUrl() {
   const qs = new URLSearchParams(location.search);
-  // default to dashboard root (index.html implied)
-  return qs.get('next') || 'dashboard/';
+  const hint = qs.get('next');
+  // If no ?next=, go to the app home (index.html under the base)
+  const target = hint && hint.trim() ? hint.trim() : DEFAULT_HOME;
+  return resolveUnderBase(target);
 }
 
 (async function boot(){
@@ -43,14 +68,21 @@ function nextUrl() {
     return;
   }
 
-  // If already signed in and we’re on login, bounce to next immediately
+  // If already signed in and we’re on login, bounce to home/next (avoid loops & 404s)
   try {
-    onAuthStateChanged(auth, (user)=>{
-      if (user) {
-        location.replace(nextUrl());
+    const unsub = onAuthStateChanged(auth, (user)=>{
+      if (!user) return;
+      const dest = nextUrl();
+      // If we’re already at dest, do nothing
+      if (!samePath(location.href, dest)) {
+        location.replace(dest);
       }
+      // Prevent multiple firings
+      try { unsub(); } catch {}
     });
-  } catch {}
+  } catch (e) {
+    console.warn('[Login] onAuthStateChanged setup failed:', e);
+  }
 
   // Submit handler
   els.form?.addEventListener('submit', async (e)=>{
