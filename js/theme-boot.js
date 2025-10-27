@@ -1,5 +1,19 @@
-// /Farm-vista/js/theme-boot.js  (PROJECT-SITE SAFE: base-relative paths)
-// Viewport + theme boot + firebase config/init + app startup + AUTH GUARD
+// /Farm-vista/js/theme-boot.js  (BASE-AWARE: works under /Farm-vista/ on GH Pages)
+// Viewport + theme boot + ordered Firebase load + optional startup + AUTH GUARD
+
+/* =========================  Base & small helpers  ========================= */
+(function(){
+  // Compute BASE from <base href> or current URL, ensure trailing slash.
+  const BASE = (() => {
+    try {
+      const u = new URL(document.baseURI || location.href);
+      return (u.pathname.endsWith('/') ? u.pathname : u.pathname + '/');
+    } catch { return '/Farm-vista/'; }
+  })();
+  const atBase = (p)=> (BASE + String(p||'').replace(/^\/+/, ''));
+  window.__FV_BASE__ = BASE;          // expose for any other modules
+  window.__fv_atBase__ = atBase;
+})();
 
 /* =========================  Viewport & tap behavior  ========================= */
 (function(){
@@ -63,35 +77,36 @@ const __fvBoot = (function(){
 /* ==============  Firebase CONFIG -> INIT (ensure order, base-relative)  ============== */
 (function(){
   __fvBoot.once('__FV_FIREBASE_CHAIN__', async () => {
+    const atBase = window.__fv_atBase__ || ((p)=>p);
     try{
       // 1) Ensure global config is present BEFORE loading firebase-init.js
       if (!window.FV_FIREBASE_CONFIG) {
         try {
-          await __fvBoot.loadScript('js/firebase-config.js', { defer:false, async:false });
-          // If it still isn’t present, we continue; firebase-init will fall back to stub.
+          await __fvBoot.loadScript(atBase('js/firebase-config.js'), { defer:false, async:false });
+          // If still missing, firebase-init will fall back to stub.
         } catch(e) {
           console.warn('[FV] firebase-config.js failed to load (continuing):', e);
         }
       }
 
-      // 2) Load firebase-init.js as a module (once)
+      // 2) Load firebase-init.js as a module (once) — BASE-AWARE
       if (!window.__FV_FIREBASE_INIT_LOADED__) {
         window.__FV_FIREBASE_INIT_LOADED__ = true;
         try {
-          await __fvBoot.loadScript('js/firebase-init.js', { type:'module', defer:true });
+          await __fvBoot.loadScript(atBase('js/firebase-init.js'), { type:'module', defer:true });
           console.log('[FV] firebase-init loaded');
         } catch (e) {
-          console.warn('[FV] firebase-init failed to load — check path js/firebase-init.js', e);
+          console.warn('[FV] firebase-init failed to load — check path ' + atBase('js/firebase-init.js'), e);
         }
       }
 
-      // 3) App startup module (optional, safe if missing)
+      // 3) App startup module (optional, safe if missing) — BASE-AWARE
       if (!window.__FV_APP_STARTUP_LOADED__) {
         window.__FV_APP_STARTUP_LOADED__ = true;
         try {
-          await __fvBoot.loadScript('js/app/startup.js', { type:'module', defer:true });
+          await __fvBoot.loadScript(atBase('js/app/startup.js'), { type:'module', defer:true });
         } catch (e) {
-          console.warn('[FV] startup module failed to load — check js/app/startup.js', e);
+          console.warn('[FV] startup module failed to load — check ' + atBase('js/app/startup.js'), e);
         }
       }
     }catch(e){
@@ -106,12 +121,15 @@ const __fvBoot = (function(){
   - Login page is PUBLIC.
   - Other pages require Auth. We wait briefly for hydration before redirect.
   - Optional Firestore-gating toggles below.
-  - In dev/stub, we allow by default to prevent bounce-loops.
+  - In stub mode on GH Pages, we allow by default to prevent bounce-loops.
 */
 (function(){
+  const atBase = window.__fv_atBase__ || ((p)=>p);
+  const BASE   = window.__FV_BASE__ || '/Farm-vista/';
+
   const REQUIRE_FIRESTORE_USER_DOC = false;
   const TREAT_MISSING_DOC_AS_DENY  = false;
-  const ALLOW_STUB_MODE            = true;   // <— prevents “bounce to login” during stub/dev
+  const ALLOW_STUB_MODE            = true;   // keep true to avoid loops while wiring DB
 
   const FIELD_DISABLED = 'disabled';
   const FIELD_ACTIVE   = 'active';
@@ -125,15 +143,19 @@ const __fvBoot = (function(){
   };
 
   const isLoginPath = () => {
-    // supports /pages/login, /pages/login/, /pages/login/index.html
-    const p = new URL('pages/login/', location.href).pathname;
-    const cur = location.pathname.endsWith('/') ? location.pathname : (location.pathname + '/');
-    return cur.startsWith(p);
+    // Treat any URL within BASE + "pages/login/" as login
+    try {
+      const loginBasePath = new URL(atBase('pages/login/'), location.href).pathname; // e.g., /Farm-vista/pages/login/
+      const cur = location.pathname.endsWith('/') ? location.pathname : (location.pathname + '/');
+      return cur.startsWith(loginBasePath);
+    } catch {
+      return /\/pages\/login(\/|\/index\.html)?$/.test(location.pathname);
+    }
   };
 
   const gotoLogin = (reason) => {
     const here = location.pathname + location.search + location.hash;
-    const url = new URL('pages/login/index.html', location.href); // base-relative
+    const url = new URL(atBase('pages/login/index.html'), location.href); // base-aware
     url.searchParams.set('next', here);
     if (reason) url.searchParams.set('reason', reason);
     const dest = url.pathname + url.search + url.hash;
@@ -145,7 +167,6 @@ const __fvBoot = (function(){
       let settled = false;
       const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
       try {
-        // fastest: currentUser might already be present
         if (auth && auth.currentUser) return done(auth.currentUser);
         const off = mod.onAuthStateChanged(auth, u => { done(u); off && off(); });
         setTimeout(()=> done(auth && auth.currentUser || null), ms);
@@ -160,19 +181,13 @@ const __fvBoot = (function(){
       // Always allow the login page
       if (isLoginPath()) return;
 
-      // Make sure our firebase chain ran
-      if (!window.__FV_FIREBASE_CHAIN__) {
-        // Kick off chain if not yet started
-        (function(){})(); // no-op; the chain IIFE already executed above
-      }
-
-      // Pull in firebase-init APIs
-      const mod = await import('js/firebase-init.js');
+      // Pull in firebase-init APIs (BASE-AWARE)
+      const mod = await import(atBase('js/firebase-init.js'));
       const ctx = await mod.ready;
       const isStub = (mod.isStub && mod.isStub()) || false;
       const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
 
-      // In dev/stub, optionally allow (prevents bounce loops while wiring DB)
+      // Allow stub mode (prevents GH Pages bounce loops while wiring Firestore)
       if (isStub && ALLOW_STUB_MODE) return;
 
       // If we truly have no auth object, go to login
