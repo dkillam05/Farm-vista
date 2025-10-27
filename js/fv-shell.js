@@ -1,9 +1,8 @@
 /* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
-   - Works under https://dkillam05.github.io/Farm-vista/
    - Version + tagline come ONLY from js/version.js (SSOT)
-   - Absolute import for js/menu.js + classic <script> fallback
+   - Menu: absolute import with classic <script> fallback
    - Logout label: First Last (Firestore users/{uid}) → displayName → email
-   - “Check for updates”: real SW/caches purge + cache-busting reload
+   - Update flow: clear SW + caches, show single-line toasts, cache-busting reload
 */
 (function () {
   const tpl = document.createElement('template');
@@ -139,10 +138,16 @@
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
     .toast{
-      position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
-      transform:translateX(-50%); background:#111; color:#fff;
-      padding:12px 16px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
-      z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+      position:fixed; left:50%;
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
+      transform:translateX(-50%);
+      background:#111; color:#fff;
+      padding:10px 18px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      z-index:1400; font-size:14px;
+      opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+      white-space:nowrap;           /* << single line */
+      max-width:92vw; min-width:280px;
+      overflow:hidden; text-overflow:ellipsis; /* just in case it’s too long */
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
     :host-context(.dark){ color:var(--text); background:var(--bg); }
@@ -508,13 +513,17 @@
         };
       };
 
+      const bestUser = (auth)=> (auth && auth.currentUser) ||
+                               (window.firebaseAuth && window.firebaseAuth.currentUser) ||
+                               (window.__FV_USER) || null;
+
       const setLabelFromProfile = async (auth, fs, doc, getDoc) => {
         try{
-          const user = auth && auth.currentUser;
-          if (!user) { if (logoutLabel) logoutLabel.textContent = 'Logout'; return; }
+          const user = bestUser(auth);
+          if (!user) { logoutLabel.textContent = 'Logout'; return; }
 
+          // Try Firestore names
           let name = '';
-
           if (fs && doc && getDoc) {
             try{
               const ref = doc(fs, 'users', user.uid);
@@ -528,13 +537,12 @@
               }
             }catch{}
           }
-
           if (!name && user.displayName) name = user.displayName.trim();
           if (!name && user.email) name = user.email.trim();
 
           logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
         }catch{
-          if (logoutLabel) logoutLabel.textContent = 'Logout';
+          logoutLabel.textContent = 'Logout';
         }
       };
 
@@ -542,9 +550,17 @@
         const { auth, fs, onIdTokenChanged, onAuthStateChanged, signOut, doc, getDoc } = await needAuthFns();
         if (!auth) throw new Error('Auth unavailable');
 
+        // Initial + listeners
         setLabelFromProfile(auth, fs, doc, getDoc);
         onIdTokenChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
         onAuthStateChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
+
+        // Short retry loop in case user arrives a beat later
+        let tries = 16;
+        const tick = setInterval(async ()=>{
+          await setLabelFromProfile(auth, fs, doc, getDoc);
+          if (bestUser(auth) || --tries <= 0) clearInterval(tick);
+        }, 150);
 
         if (logoutRow) {
           logoutRow.addEventListener('click', async (e)=>{
@@ -571,12 +587,11 @@
       }
     }
 
-    /* ===== Update flow with strong toasts ===== */
+    /* ===== Update flow with single-line toasts ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-      const toast = (msg, ms=1200)=> this._toastMsg(msg, ms);
+      const toast = (msg, ms=1800)=> this._toastMsg(msg, ms);
 
-      // Find the latest version in version.js
       async function readTargetVersion(){
         try{
           const resp = await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' });
@@ -587,16 +602,15 @@
       }
 
       try{
-        toast('Checking for updates…', 900);
         const targetVer = await readTargetVersion();
         const currentVer = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
         if (targetVer && currentVer && targetVer === currentVer) {
-          toast(`Already up to date (v${currentVer})`, 1400);
+          toast(`Already up to date (v${currentVer})`, 2200);
           return;
         }
 
-        toast('Clearing cache…', 800);
+        toast('Clearing cache…', 1000);
 
         if (navigator.serviceWorker) {
           try {
@@ -616,19 +630,18 @@
           try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
-        toast('Updating…', 900);
+        toast('Updating…', 1200);
         await sleep(300);
-
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer || String(Date.now()));
         location.replace(url.toString());
       }catch(e){
         console.error(e);
-        toast('Update failed. Try again.', 2000);
+        toast('Update failed. Try again.', 2200);
       }
     }
 
-    _toastMsg(msg, ms=1600){
+    _toastMsg(msg, ms=1800){
       const t = this._toast; if (!t) return;
       t.textContent = msg;
       t.classList.add('show');
