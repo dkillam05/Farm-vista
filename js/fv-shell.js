@@ -1,8 +1,9 @@
+<!-- /Farm-vista/js/fv-shell.js -->
 /* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
    - Version + tagline come ONLY from js/version.js (SSOT)
    - Menu: absolute import with classic <script> fallback
-   - Logout label: First Last (Firestore users/{uid}) → displayName → email
-   - Update flow: clear SW + caches, show single-line toasts, cache-busting reload
+   - Logout label: First Last (Firestore users/{uid}) → displayName → email (email shows immediately)
+   - Update flow: clear SW + caches, single-line centered toasts, cache-busting reload
 */
 (function () {
   const tpl = document.createElement('template');
@@ -145,9 +146,10 @@
       padding:10px 18px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px;
       opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-      white-space:nowrap;           /* << single line */
-      max-width:92vw; min-width:280px;
-      overflow:hidden; text-overflow:ellipsis; /* just in case it’s too long */
+      white-space:nowrap; max-width:92vw; min-width:320px;
+      overflow:hidden; text-overflow:ellipsis;
+      display:flex; align-items:center; justify-content:center; /* center text horizontally & vertically */
+      text-align:center;
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
     :host-context(.dark){ color:var(--text); background:var(--bg); }
@@ -282,10 +284,9 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
-      // Footer text = copyright + date (NO version here)
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
+      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`; // no version clutter here
 
       // Version/tagline strictly from js/version.js
       this._loadVersionFromScript();
@@ -499,6 +500,11 @@
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
 
+      // Ensure Firebase config is present (helps when some pages forgot to include it)
+      if (!window.FV_FIREBASE_CONFIG) {
+        try { await import('js/firebase-config.js'); } catch {}
+      }
+
       const needAuthFns = async () => {
         const mod = await import('js/firebase-init.js');
         const ctx = await mod.ready;
@@ -518,31 +524,30 @@
                                (window.__FV_USER) || null;
 
       const setLabelFromProfile = async (auth, fs, doc, getDoc) => {
+        const user = bestUser(auth);
+        if (!user) { logoutLabel.textContent = 'Logout'; return; }
+
+        // Show something immediately so UI never looks blank:
+        logoutLabel.textContent = `Logout ${user.email || user.displayName || 'User'}`;
+
+        // Then try Firestore enrichment:
         try{
-          const user = bestUser(auth);
-          if (!user) { logoutLabel.textContent = 'Logout'; return; }
-
-          // Try Firestore names
-          let name = '';
           if (fs && doc && getDoc) {
-            try{
-              const ref = doc(fs, 'users', user.uid);
-              const snap = await getDoc(ref);
-              const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
-              if (data) {
-                const fn = (data.firstName || data.first || '').toString().trim();
-                const ln = (data.lastName  || data.last  || '').toString().trim();
-                const full = `${fn} ${ln}`.trim();
-                if (full) name = full;
-              }
-            }catch{}
+            const ref = doc(fs, 'users', user.uid);
+            const snap = await getDoc(ref);
+            const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
+            if (data) {
+              const fn = (data.firstName || data.first || '').toString().trim();
+              const ln = (data.lastName  || data.last  || '').toString().trim();
+              const full = `${fn} ${ln}`.trim();
+              if (full) { logoutLabel.textContent = `Logout ${full}`; return; }
+            }
           }
-          if (!name && user.displayName) name = user.displayName.trim();
-          if (!name && user.email) name = user.email.trim();
-
-          logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
-        }catch{
+          if (user.displayName) { logoutLabel.textContent = `Logout ${user.displayName.trim()}`; return; }
+          if (user.email)       { logoutLabel.textContent = `Logout ${user.email.trim()}`; return; }
           logoutLabel.textContent = 'Logout';
+        }catch{
+          // Keep the immediate fallback text already set
         }
       };
 
@@ -555,7 +560,7 @@
         onIdTokenChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
         onAuthStateChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
 
-        // Short retry loop in case user arrives a beat later
+        // Short retry loop in case user object races in
         let tries = 16;
         const tick = setInterval(async ()=>{
           await setLabelFromProfile(auth, fs, doc, getDoc);
@@ -587,7 +592,7 @@
       }
     }
 
-    /* ===== Update flow with single-line toasts ===== */
+    /* ===== Update flow with single-line centered toasts ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       const toast = (msg, ms=1800)=> this._toastMsg(msg, ms);
