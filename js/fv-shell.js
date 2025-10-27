@@ -1,6 +1,7 @@
 /* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
    - Works under https://dkillam05.github.io/Farm-vista/
    - Absolute import for js/menu.js + classic <script> fallback
+   - Version source: js/version.js (authoritative)
    - Logout: signOut, then IMMEDIATE nav to pages/login/index.html (no guard delay)
 */
 (function () {
@@ -293,7 +294,7 @@
       this._initMenu();
     }
 
-    /* ===== Version to footer/slogan ===== */
+    /* ===== Version to footer/slogan (version.js is authoritative) ===== */
     async _loadVersionIntoUI(){
       const stripV = (s)=> (s||'').toString().replace(/^\s*v/i,'').trim();
       const setUI = (num, tag) => {
@@ -303,31 +304,10 @@
         this._applyFooterVersion(clean);
       };
 
-      // 1) From global FV_VERSION (firebase-config.js)
-      let number = (window.FV_VERSION && window.FV_VERSION.number) || '';
-      let tagline = (window.FV_VERSION && window.FV_VERSION.tagline) || '';
+      let number = '';
+      let tagline = '';
 
-      // 2) From <html data-fv-version="..."> (set by core.js)
-      if (!number) {
-        const attr = document.documentElement.getAttribute('data-fv-version');
-        if (attr) number = attr;
-      }
-
-      // 3) From App.getVersion() (core.js API)
-      if (!number && window.App && App.getVersion) {
-        try {
-          const v = App.getVersion();
-          number = v && (v.number || v.APP_NUMBER || v.FV_NUMBER) || '';
-          tagline = tagline || (v && (v.tagline || v.APP_TAGLINE || v.FV_TAGLINE)) || '';
-        } catch {}
-      }
-
-      // 4) From FV_BUILD global
-      if (!number && window.FV_BUILD) number = window.FV_BUILD;
-
-      if (number) { setUI(number, tagline); return; }
-
-      // 5) Last resort: dynamic import (supports multiple shapes)
+      // Primary source: js/version.js (supports multiple shapes)
       try{
         const mod = await import('js/version.js?ts=' + Date.now());
         const pick = (m)=> {
@@ -345,10 +325,11 @@
         const v = pick(mod);
         number = v.number || '';
         tagline = v.tagline || '';
-      }catch{
-        // ignore
+      }catch(e){
+        // ignore; will fall back
       }
 
+      if (!number && window.FV_BUILD) number = window.FV_BUILD;
       setUI(number || '0.0.0', tagline || 'Farm data, simplified');
     }
 
@@ -586,7 +567,6 @@
               if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
               else { await signOut(auth); }
             }catch(err){ console.warn('[FV] logout error:', err); }
-            // HARD NAV to the login page and STAY THERE
             location.replace('pages/login/index.html');
           });
         }
@@ -597,7 +577,6 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            // In stub/offline, still go to login path directly:
             location.replace('pages/login/index.html');
           });
         }
@@ -609,7 +588,7 @@
       async function readTargetVersion(){
         try{
           const txt = await (await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' })).text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+        const m = txt.match(/number\\s*:\\s*["']([\\d.]+)["']/) || txt.match(/FV_NUMBER\\s*=\\s*["']([\\d.]+)["']/);
           return (m && m[1]) || String(Date.now());
         }catch{ return String(Date.now()); }
       }
@@ -629,7 +608,7 @@
           try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
-        this._toastMsg(`Updating…`, 900);
+        this._toastMsg(\`Updating…\`, 900);
         await sleep(400);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer);
