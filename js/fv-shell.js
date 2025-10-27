@@ -1,9 +1,8 @@
 /* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
    - Works under https://dkillam05.github.io/Farm-vista/
+   - Version + tagline come ONLY from js/version.js (SSOT)
    - Absolute import for js/menu.js + classic <script> fallback
-   - Version + tagline are read ONLY from js/version.js
-   - Logout label = "Logout First Last" (from Firestore), else displayName, else email
-   - Logout performs signOut (if available) and hard-navigates to pages/login/index.html
+   - Logout: signOut, then IMMEDIATE nav to pages/login/index.html (no guard delay)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -282,11 +281,13 @@
       this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
       this._footerText.textContent = this._footerBase;
 
-      this._loadVersionIntoUI();       // ← version + tagline ONLY from js/version.js
-      this._wireAuthLogout(r);         // ← logout label with Firestore profile
+      // Load version/tagline strictly from js/version.js
+      this._loadVersionFromScript();
 
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
+
+      this._wireAuthLogout(r);
 
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
@@ -294,24 +295,32 @@
       this._initMenu();
     }
 
-    /* ===== Version + tagline (ONLY from js/version.js) ===== */
-    async _loadVersionIntoUI(){
-      const setUI = (num, tag) => {
-        const clean = (num||'').toString().replace(/^\s*v/i,'').trim() || '0.0.0';
-        if (this._verEl) this._verEl.textContent = `v${clean}`;
-        if (this._sloganEl) this._sloganEl.textContent = (tag && String(tag).trim()) || 'Simplified';
-        this._applyFooterVersion(clean);
+    /* ===== Version/tagline ONLY from js/version.js ===== */
+    _loadVersionFromScript(){
+      const setUI = () => {
+        const v = (window && window.FV_VERSION) || {};
+        const num = (v.number || '').toString().replace(/^\s*v/i,'').trim() || '0.0.0';
+        const tag = (v.tagline || 'Farm data, simplified');
+        if (this._verEl) this._verEl.textContent = `v${num}`;
+        if (this._sloganEl) this._sloganEl.textContent = tag;
+        this._applyFooterVersion(num);
       };
 
-      try {
-        // Load once; version.js populates window.FV_VERSION
-        await import('js/version.js');
-      } catch (e) {
-        // If version.js fails to load, still don’t crash the UI
-      }
+      // Already present?
+      if (window && window.FV_VERSION) { setUI(); return; }
 
-      const v = (window && window.FV_VERSION) || {};
-      setUI(v.number, v.tagline);
+      // Inject classic script (works with your current version.js)
+      const s = document.createElement('script');
+      s.src = 'js/version.js';
+      s.defer = true;
+      s.onload = () => setUI();
+      s.onerror = () => {
+        // As a last resort, still show something so the UI isn't stuck on "Loading…"
+        if (this._sloganEl) this._sloganEl.textContent = 'Farm data, simplified';
+        if (this._verEl) this._verEl.textContent = 'v0.0.0';
+        this._applyFooterVersion('0.0.0');
+      };
+      document.head.appendChild(s);
     }
 
     _applyFooterVersion(num){
@@ -496,7 +505,7 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Logout label with Firestore name (First Last → displayName → email) ===== */
+    /* ===== Auth: logout + label (First Last → displayName → email) ===== */
     async _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -505,75 +514,56 @@
         const mod = await import('js/firebase-init.js');
         const ctx = await mod.ready;
         const auth = window.firebaseAuth || (ctx && ctx.auth) || mod.getAuth(ctx && ctx.app);
-        const db = mod.getFirestore ? mod.getFirestore(ctx && ctx.app) : (window.firebaseFirestore || null);
-        return { mod, ctx, auth, db };
+        const fs = (mod.getFirestore && mod.getFirestore(ctx && ctx.app)) || window.firebaseFirestore;
+        return {
+          mod, ctx, auth, fs,
+          onIdTokenChanged: mod.onIdTokenChanged,
+          onAuthStateChanged: mod.onAuthStateChanged,
+          signOut: mod.signOut,
+          doc: mod.doc, getDoc: mod.getDoc,
+          isStub: mod.isStub()
+        };
       };
 
-      const pickName = (user, profile) => {
-        const first = profile && typeof profile.firstName === 'string' ? profile.firstName.trim() : '';
-        const last  = profile && typeof profile.lastName  === 'string' ? profile.lastName.trim()  : '';
-        const fnln  = [first, last].filter(Boolean).join(' ').trim();
-        const dname = (profile && profile.displayName && profile.displayName.trim()) ||
-                      (user && user.displayName && user.displayName.trim()) || '';
-        const email = (user && user.email) || '';
-        return fnln || dname || email || 'User';
-      };
+      const setLabelFromProfile = async (auth, fs, doc, getDoc) => {
+        try{
+          const user = auth && auth.currentUser;
+          if (!user) { if (logoutLabel) logoutLabel.textContent = 'Logout'; return; }
 
-      const setLabel = (user, profile) => {
-        if (logoutLabel) logoutLabel.textContent = `Logout ${pickName(user, profile)}`;
-      };
+          // Try Firestore profile
+          let name = '';
+          if (fs && doc && getDoc) {
+            try{
+              const ref = doc(fs, 'users', user.uid);
+              const snap = await getDoc(ref);
+              if (snap && (snap.data)) {
+                const data = (typeof snap.data === 'function') ? snap.data() : snap.data;
+                const fn = (data && (data.firstName || data.first)) || '';
+                const ln = (data && (data.lastName || data.last)) || '';
+                const full = `${(fn||'').toString().trim()} ${(ln||'').toString().trim()}`.trim();
+                if (full) name = full;
+              }
+            }catch(e){ /* ignore profile errors */ }
+          }
 
-      const readProfile = async (mod, db, uid) => {
-        if (!db || !uid) return null;
-        const tryPaths = [
-          ['users', uid],
-          ['profiles', uid],
-          ['userProfiles', uid]
-        ];
-        for (const [col, id] of tryPaths) {
-          try{
-            const ref = mod.doc(db, col, id);
-            const snap = await mod.getDoc(ref);
-            if (snap && typeof snap.data === 'function' && snap.exists()) {
-              const data = snap.data() || {};
-              if (data.firstName || data.lastName || data.displayName) return data;
-            }
-          }catch{}
-        }
-        return null;
+          // Fallbacks
+          if (!name && user.displayName) name = user.displayName.trim();
+          if (!name && user.email) name = user.email.trim();
+
+          logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
+        }catch{ if (logoutLabel) logoutLabel.textContent = 'Logout'; }
       };
 
       try{
-        const { mod, auth, db } = await needAuthFns();
+        const { auth, fs, onIdTokenChanged, onAuthStateChanged, signOut, doc, getDoc } = await needAuthFns();
         if (!auth) throw new Error('Auth unavailable');
 
-        // Initial label
-        setLabel(auth.currentUser, window.__FV_PROFILE);
+        // Initial set
+        setLabelFromProfile(auth, fs, doc, getDoc);
 
-        // React to auth changes
-        mod.onAuthStateChanged(auth, async (user) => {
-          let profile = null;
-          if (user && user.uid) {
-            profile = await readProfile(mod, db, user.uid);
-            if (profile) {
-              window.__FV_PROFILE = profile;
-              try { document.dispatchEvent(new CustomEvent('fv:profile', { detail: profile })); } catch {}
-            }
-          }
-          setLabel(user, profile);
-        });
-
-        // Also react to external profile updates if your app sets them
-        document.addEventListener('fv:profile', (e)=> setLabel(auth.currentUser, e.detail));
-
-        // Make sure we don’t sit blank on slow boot
-        if (!auth.currentUser) {
-          let tries = 12;
-          const tick = setInterval(()=>{
-            setLabel(auth.currentUser, window.__FV_PROFILE);
-            if (auth.currentUser || --tries <= 0) clearInterval(tick);
-          }, 150);
-        }
+        // Update when token/user changes
+        onIdTokenChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
+        onAuthStateChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
 
         if (logoutRow) {
           logoutRow.addEventListener('click', async (e)=>{
@@ -582,8 +572,9 @@
             this.toggleDrawer(false);
             try{
               if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
-              else if (mod.signOut) { await mod.signOut(auth); }
+              else { await signOut(auth); }
             }catch(err){ console.warn('[FV] logout error:', err); }
+            // HARD NAV to the login page and STAY THERE
             location.replace('pages/login/index.html');
           });
         }
@@ -606,9 +597,8 @@
       async function readTargetVersion(){
         try{
           const txt = await (await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' })).text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) ||
-                    txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/) ||
-                    txt.match(/window\.FV_BUILD\s*=\s*["']([\d.]+)["']/);
+          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/)
+                   || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || String(Date.now());
         }catch{ return String(Date.now()); }
       }
@@ -628,8 +618,8 @@
           try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
-        this._toastMsg('Updating…', 900);
-        await sleep(400);
+        this._toastMsg(`Updating…`, 900);
+        await sleep(300);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer);
         location.replace(url.toString());
