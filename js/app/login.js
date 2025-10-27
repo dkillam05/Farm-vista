@@ -23,6 +23,10 @@ function showErr(msg){
   els.err.textContent = msg || '';
 }
 
+// Read query once and honor ?stay=1 to prevent bounce-away when already signed in
+const QS = new URLSearchParams(location.search);
+const STAY_HERE = QS.get('stay') === '1';
+
 // Use your real home: /Farm-vista/index.html (works with <base href="/Farm-vista/">)
 const DEFAULT_HOME = 'index.html';
 
@@ -47,8 +51,7 @@ function samePath(a, b){
 }
 
 function nextUrl() {
-  const qs = new URLSearchParams(location.search);
-  const hint = qs.get('next');
+  const hint = QS.get('next');
   // If no ?next=, go to the app home (index.html under the base)
   const target = hint && hint.trim() ? hint.trim() : DEFAULT_HOME;
   return resolveUnderBase(target);
@@ -59,7 +62,7 @@ function nextUrl() {
 
   try {
     // Initialize Firebase (or stub)
-    const mod = await import('../firebase-init.js');
+    await import('../firebase-init.js');
     ctx = await ready;
     auth = ctx && ctx.auth ? ctx.auth : getAuth(ctx && ctx.app);
   } catch (e) {
@@ -68,10 +71,11 @@ function nextUrl() {
     return;
   }
 
-  // If already signed in and we’re on login, bounce to home/next (avoid loops & 404s)
+  // If already signed in and we’re on login, bounce to home/next — BUT NOT when ?stay=1
   try {
     const unsub = onAuthStateChanged(auth, (user)=>{
       if (!user) return;
+      if (STAY_HERE) return; // <- stay put on the login page
       const dest = nextUrl();
       // If we’re already at dest, do nothing
       if (!samePath(location.href, dest)) {
