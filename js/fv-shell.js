@@ -1,16 +1,12 @@
-/* FarmVista — <fv-shell> v5.9.10+BASE (self-contained: version + auth, project-absolute URLs)
-   - Version/tagline ONLY from js/version.js
-   - Loads js/firebase-config.js, then imports js/firebase-init.js
-   - Logout label: First Last (Firestore users/{uid}) → displayName → email
-   - Update flow: clears SW + caches, toasts, cache-busting reload
-   - Menu: absolute import + fallback (project-site safe)
-   - NEW: All internal URLs are forced under /Farm-vista/ via BASE helpers
+/* FarmVista — <fv-shell> v5.9.11 (menu href normalizer)
+   - Prevents double /Farm-vista/ by resolving all menu links against document.baseURI
+   - Version + tagline from js/version.js (SSOT)
+   - Loads js/firebase-config.js → imports js/firebase-init.js
+   - Logout label: First Last (users/{uid}) → displayName → email
+   - Update flow: clear SW + caches, single-line centered toasts, cache-busting reload
+   - Menu: absolute import with classic <script> fallback
 */
 (function () {
-  /* ===== Project BASE helpers (no HTML <base> needed) ===== */
-  const BASE = '/Farm-vista/';
-  const atBase = (p) => BASE + String(p || '').replace(/^\/+/, '');
-
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
@@ -155,8 +151,10 @@
       padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px;
       opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-      white-space:nowrap; min-width:320px; max-width:92vw;
-      overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center;
+      white-space:nowrap;
+      min-width:320px; max-width:92vw;
+      overflow:hidden; text-overflow:ellipsis;
+      display:flex; align-items:center; justify-content:center;
       text-align:center;
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
@@ -181,7 +179,7 @@
     }
     .drawer-footer{
       background:var(--sidebar-surface, #171a18);
-      border-top:1px solid var(--sidebar-border, #2a2eb);
+      border-top:1px solid var(--sidebar-border, #2a2e2b);
       color:var(--sidebar-text, #f1f3ef);
     }
     :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{
@@ -269,6 +267,15 @@
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
+  function absHref(href){
+    try {
+      // Resolve once against base and freeze as absolute URL
+      return new URL(href, document.baseURI).href;
+    } catch {
+      return href;
+    }
+  }
+
   class FVShell extends HTMLElement {
     constructor(){ super(); this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true)); }
     connectedCallback(){
@@ -293,34 +300,28 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
-      // Footer text (no version)
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // Load Version + Firebase (config → init), then wire auth label
       this._ensureVersionThenAuth();
 
-      // Update button
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      // Close top drawer on links
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
-      // Menu
       this._initMenu();
     }
 
-    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
     async _ensureVersionThenAuth(){
-      await this._loadScriptOnce(atBase('js/version.js')).catch(()=>{});
+      await this._loadScriptOnce('js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
-      await this._loadScriptOnce(atBase('js/firebase-config.js')).catch(()=>{});
+      await this._loadScriptOnce('js/firebase-config.js').catch(()=>{});
       try{
-        const mod = await import(atBase('js/firebase-init.js'));
+        const mod = await import('js/firebase-init.js');
         this._firebase = mod;
         await this._wireAuthLogout(this.shadowRoot, mod);
       }catch(err){
@@ -339,11 +340,7 @@
 
     _loadScriptOnce(src){
       return new Promise((resolve, reject)=>{
-        const abs = src.startsWith('http') ? src : new URL(src, location.origin).toString();
-        const exists = Array.from(document.scripts).some(s => {
-          const u = s.getAttribute('src')||'';
-          return u && (u === abs || u.endsWith(src));
-        });
+        const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'').replace(location.origin,'') === ('/' + src).replace('//','/'));
         if (exists) { resolve(); return; }
         const s = document.createElement('script');
         s.src = src; s.defer = true;
@@ -355,7 +352,7 @@
 
     /* ===== Robust menu loader (absolute URL + fallback) ===== */
     async _initMenu(){
-      const url = location.origin + atBase('js/menu.js?v=' + Date.now());
+      const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
 
       try {
         const mod = await import(url);
@@ -388,7 +385,12 @@
       const nav = this._navEl; if (!nav) return;
       nav.innerHTML = '';
 
-      const curPath = location.pathname;
+      const currentAbs = (href) => {
+        try { return new URL(href, document.baseURI).href; }
+        catch { return href; }
+      };
+
+      const path = location.pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
       this._navStateKey = stateKey;
       let groupState = {};
@@ -398,13 +400,16 @@
 
       const mkLink = (item, depth=0) => {
         const a = document.createElement('a');
-        const href = item.href ? atBase(item.href) : '#';        // << FORCE project-absolute
-        a.href = href;
+        const resolved = absHref(item.href || '#');
+        a.setAttribute('href', resolved);
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
         a.style.paddingLeft = pad(depth);
+
+        // Active state detection based on URL pathname
         const mode = item.activeMatch || 'starts-with';
-        const hrefPath = new URL(a.href, location.href).pathname;
-        if ((mode==='exact' && curPath === hrefPath) || (mode!=='exact' && item.href && curPath.startsWith(hrefPath))) {
+        let hrefPath = '';
+        try { hrefPath = new URL(resolved).pathname; } catch { hrefPath = resolved; }
+        if ((mode==='exact' && path === hrefPath) || (mode!=='exact' && item.href && path.startsWith(hrefPath))) {
           a.setAttribute('aria-current', 'page');
         }
         return a;
@@ -480,6 +485,12 @@
       (cfg.items || []).forEach(item=>{
         if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
         else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
+      });
+
+      // Defensive: normalize any hrefs already in DOM (e.g., if FV_MENU fallback injected raw)
+      nav.querySelectorAll('a[href]').forEach(a=>{
+        const fixed = absHref(a.getAttribute('href'));
+        a.setAttribute('href', fixed);
       });
     }
 
@@ -591,7 +602,7 @@
                 if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
                 else if (mod && mod.signOut) { await mod.signOut(auth); }
               }catch(err){ console.warn('[FV] logout error:', err); }
-              location.replace(atBase('pages/login/index.html'));   // << base-aware
+              location.replace('pages/login/index.html');
             });
           }
         } else {
@@ -600,7 +611,7 @@
               e.preventDefault();
               this.toggleTop(false);
               this.toggleDrawer(false);
-              location.replace(atBase('pages/login/index.html'));   // << base-aware
+              location.replace('pages/login/index.html');
             });
           }
           await setLabelFromProfile();
@@ -612,20 +623,20 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            location.replace(atBase('pages/login/index.html'));     // << base-aware
+            location.replace('pages/login/index.html');
           });
         }
       }
     }
 
-    /* ===== Update flow (base-aware SW + version fetch) ===== */
+    /* ===== Update flow with single-line centered toasts ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       const toast = (msg, ms=2000)=> this._toastMsg(msg, ms);
 
       async function readTargetVersion(){
         try{
-          const resp = await fetch(atBase('js/version.js?ts=') + Date.now(), { cache:'reload' });
+          const resp = await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
           const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || '';
@@ -658,7 +669,7 @@
 
         await sleep(150);
         if (navigator.serviceWorker) {
-          try { await navigator.serviceWorker.register(atBase('serviceworker.js?ts=') + Date.now()); } catch {}
+          try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
         toast('Updating…', 1200);
