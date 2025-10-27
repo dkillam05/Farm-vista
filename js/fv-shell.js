@@ -1,9 +1,8 @@
-/* FarmVista — <fv-shell> v5.9.11 (menu href normalizer)
-   - Prevents double /Farm-vista/ by resolving all menu links against document.baseURI
-   - Version + tagline from js/version.js (SSOT)
-   - Loads js/firebase-config.js → imports js/firebase-init.js
-   - Logout label: First Last (users/{uid}) → displayName → email
-   - Update flow: clear SW + caches, single-line centered toasts, cache-busting reload
+/* FarmVista — <fv-shell> v5.9.11 (abs paths + stable auth/login nav)
+   - Version/tagline from /Farm-vista/js/version.js
+   - Loads /Farm-vista/js/firebase-config.js then imports /Farm-vista/js/firebase-init.js
+   - Logout label: First Last (Firestore users/{uid}) → displayName → email
+   - Update flow: clear SW + caches, toast, cache-busting reload
    - Menu: absolute import with classic <script> fallback
 */
 (function () {
@@ -13,181 +12,82 @@
     :host{
       --green:#3B7E46; --gold:#D0C542;
       --hdr-h:56px; --ftr-h:14px;
-      display:block; color:#141514; background:#fff;
-      min-height:100vh; position:relative;
+      display:block; color:#141514; background:#fff; min-height:100vh; position:relative;
     }
-    .hdr{
-      position:fixed; inset:0 0 auto 0;
-      height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
-      padding-top:env(safe-area-inset-top,0px);
-      background:var(--green); color:#fff;
-      display:grid; grid-template-columns:56px 1fr 56px; align-items:center;
-      z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05);
-    }
+    .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
+      padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
+      display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
     .hdr .title{ text-align:center; font-weight:800; font-size:20px; }
-    .iconbtn{
-      display:grid; place-items:center; width:48px; height:48px;
-      border:none; background:transparent; color:#fff; font-size:28px; line-height:1;
-      -webkit-tap-highlight-color: transparent; margin:0 auto;
-    }
+    .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
-    .gold-bar{
-      position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
-      left:0; right:0; height:3px; background:var(--gold); z-index:999;
-    }
-    .ftr{
-      position:fixed; inset:auto 0 0 0;
-      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
-      padding-bottom:env(safe-area-inset-bottom,0px);
-      background:var(--green); color:#fff;
-      display:flex; align-items:center; justify-content:center;
-      border-top:2px solid var(--gold); z-index:900;
-    }
+    .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
+    .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
+      padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
+      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .main{
-      position:relative;
-      padding:
-        calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px)
-        16px
+    .main{ position:relative; padding:
+        calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
-      min-height:100vh; box-sizing:border-box;
-      background: var(--bg);
-      color: var(--text);
-    }
+      min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
-    .scrim{
-      position:fixed; inset:0; background:rgba(0,0,0,.45);
-      opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;
-    }
+    .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
-
-    .drawer{
-      position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
-      background: var(--surface); color: var(--text);
-      box-shadow: var(--shadow);
-      transform:translateX(-100%); transition:transform .25s; z-index:1200;
-      -webkit-overflow-scrolling:touch;
-      display:flex; flex-direction:column; height:100%; overflow:hidden;
-      padding-bottom:env(safe-area-inset-bottom,0px);
-      border-right: 1px solid var(--border);
-    }
+    .drawer{ position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
+      background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+      transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
+      display:flex; flex-direction:column; height:100%; overflow:hidden; padding-bottom:env(safe-area-inset-bottom,0px);
+      border-right: 1px solid var(--border); }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
-    .drawer header{
-      padding:16px; border-bottom:1px solid var(--border);
-      display:flex; align-items:center; gap:12px; flex:0 0 auto;
-      background: var(--surface);
-    }
+    .drawer header{ padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex:0 0 auto; background: var(--surface); }
     .org{ display:flex; align-items:center; gap:12px; }
     .org img{ width:40px; height:40px; border-radius:8px; object-fit:cover; }
     .org .org-text{ display:flex; flex-direction:column; }
     .org .org-name{ font-weight:800; line-height:1.15; }
     .org .org-loc{ font-size:13px; color:#666; }
     .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
-    .drawer nav a{
-      display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none;
-      color: var(--text); border-bottom:1px solid var(--border);
-    }
+    .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color: var(--text); border-bottom:1px solid var(--border); }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
-    .drawer-footer{
-      flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
-      padding:12px 16px;
-      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
-      border-top:1px solid var(--border);
-      background: var(--surface); color: var(--text);
-    }
+    .drawer-footer{ flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; padding:12px 16px;
+      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border);
+      background: var(--surface); color: var(--text); }
     .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
     .df-left .brand{ font-weight:800; line-height:1.15; }
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
-
-    .topdrawer{
-      position:fixed; left:0; right:0; top:0;
-      transform:translateY(-105%); transition:transform .26s ease;
-      z-index:1300; background:var(--green); color:#fff;
-      box-shadow:0 20px 44px rgba(0,0,0,.35);
-      border-bottom-left-radius:16px; border-bottom-right-radius:16px;
-      padding-top:calc(env(safe-area-inset-top,0px) + 8px);
-      max-height:72vh; overflow:auto;
-    }
+    .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
+      z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
+      border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; }
     :host(.top-open) .topdrawer{ transform:translateY(0); }
     .topwrap{ padding:6px 10px 14px; }
-    .brandrow{
-      display:flex; align-items:center; justify-content:center; gap:10px;
-      padding:10px 8px 12px 8px;
-    }
+    .brandrow{ display:flex; align-items:center; justify-content:center; gap:10px; padding:10px 8px 12px 8px; }
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
-
-    .section-h{
-      padding:12px 12px 6px;
-      font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-      letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent);
-    }
+    .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
     .chips{ padding:0 12px 10px; }
-    .chip{
-      appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent);
-      padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700;
-      display:inline-flex; align-items:center; gap:8px;
-    }
-    .chip[aria-pressed="true"]{
-      outline:3px solid color-mix(in srgb,#fff 25%, transparent);
-      background:var(--gold); color:#111; border-color:transparent;
-    }
-    .row{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:16px 12px; text-decoration:none; color:#fff;
-      border-top:1px solid color-mix(in srgb,#000 22%, var(--green));
-    }
+    .chip{ appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent); padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700; display:inline-flex; align-items:center; gap:8px; }
+    .chip[aria-pressed="true"]{ outline:3px solid color-mix(in srgb,#fff 25%, transparent); background:var(--gold); color:#111; border-color:transparent; }
+    .row{ display:flex; align-items:center; justify-content:space-between; padding:16px 12px; text-decoration:none; color:#fff; border-top:1px solid color-mix(in srgb,#000 22%, var(--green)); }
     .row .left{ display:flex; align-items:center; gap:14px; }
     .row .ico{ width:28px; height:28px; display:grid; place-items:center; font-size:24px; line-height:1; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
-
-    .toast{
-      position:fixed; left:50%;
-      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
-      transform:translateX(-50%);
-      background:#111; color:#fff;
-      padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
-      z-index:1400; font-size:14px;
-      opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-      white-space:nowrap;
-      min-width:320px; max-width:92vw;
-      overflow:hidden; text-overflow:ellipsis;
-      display:flex; align-items:center; justify-content:center;
-      text-align:center;
-    }
+    .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
+      transform:translateX(-50%); background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+      white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
     :host-context(.dark){ color:var(--text); background:var(--bg); }
     :host-context(.dark) .main{ background:var(--bg); color:var(--text); }
-    :host-context(.dark) .drawer{
-      background:var(--sidebar-surface, #171a18);
-      color:var(--sidebar-text, #f1f3ef);
-      border-right:1px solid var(--sidebar-border, #2a2e2b);
-      box-shadow:0 0 36px rgba(0,0,0,.45);
-    }
-    :host-context(.dark) .drawer header{
-      background:var(--sidebar-surface, #171a18);
-      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
-    }
+    :host-context(.dark) .drawer{ background:var(--sidebar-surface, #171a18); color:var(--sidebar-text, #f1f3ef);
+      border-right:1px solid var(--sidebar-border, #2a2e2b); box-shadow:0 0 36px rgba(0,0,0,.45); }
+    :host-context(.dark) .drawer header{ background:var(--sidebar-surface, #171a18); border-bottom:1px solid var(--sidebar-border, #2a2e2b); }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
-    :host-context(.dark) .drawer nav a{
-      color:var(--sidebar-text, #f1f3ef);
-      border-bottom:1px solid var(--sidebar-border, #232725);
-    }
-    .drawer-footer{
-      background:var(--sidebar-surface, #171a18);
-      border-top:1px solid var(--sidebar-border, #2a2e2b);
-      color:var(--sidebar-text, #f1f3ef);
-    }
-    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{
-      color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent);
-    }
-    :host-context(.dark) .toast{
-      background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55);
-    }
+    :host-context(.dark) .drawer nav a{ color:var(--sidebar-text, #f1f3ef); border-bottom:1px solid var(--sidebar-border, #232725); }
+    .drawer-footer{ background:var(--sidebar-surface, #171a18); border-top:1px solid var(--sidebar-border, #2a2e2b); color:var(--sidebar-text, #f1f3ef); }
+    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
+    :host-context(.dark) .toast{ background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55); }
   </style>
 
   <header class="hdr" part="header">
@@ -208,7 +108,7 @@
   <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
       <div class="org">
-        <img src="assets/icons/icon-192.png" alt="" />
+        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
         <div class="org-text">
           <div class="org-name">Dowson Farms</div>
           <div class="org-loc">Divernon, Illinois</div>
@@ -228,7 +128,7 @@
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
       <div class="brandrow">
-        <img src="assets/icons/icon-192.png" alt="" />
+        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
         <div class="brandname">FarmVista</div>
       </div>
 
@@ -240,11 +140,11 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <a class="row" id="userDetailsLink" href="pages/user-details/index.html">
+      <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html">
         <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
         <div class="chev">›</div>
       </a>
-      <a class="row" id="feedbackLink" href="pages/feedback/index.html">
+      <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html">
         <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
         <div class="chev">›</div>
       </a>
@@ -266,15 +166,6 @@
   <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
-
-  function absHref(href){
-    try {
-      // Resolve once against base and freeze as absolute URL
-      return new URL(href, document.baseURI).href;
-    } catch {
-      return href;
-    }
-  }
 
   class FVShell extends HTMLElement {
     constructor(){ super(); this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true)); }
@@ -315,13 +206,14 @@
       this._initMenu();
     }
 
+    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
     async _ensureVersionThenAuth(){
-      await this._loadScriptOnce('js/version.js').catch(()=>{});
+      await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
-      await this._loadScriptOnce('js/firebase-config.js').catch(()=>{});
+      await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
       try{
-        const mod = await import('js/firebase-init.js');
+        const mod = await import('/Farm-vista/js/firebase-init.js');
         this._firebase = mod;
         await this._wireAuthLogout(this.shadowRoot, mod);
       }catch(err){
@@ -340,7 +232,7 @@
 
     _loadScriptOnce(src){
       return new Promise((resolve, reject)=>{
-        const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'').replace(location.origin,'') === ('/' + src).replace('//','/'));
+        const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'') === src);
         if (exists) { resolve(); return; }
         const s = document.createElement('script');
         s.src = src; s.defer = true;
@@ -350,7 +242,7 @@
       });
     }
 
-    /* ===== Robust menu loader (absolute URL + fallback) ===== */
+    /* ===== Robust menu loader (ABSOLUTE + fallback) ===== */
     async _initMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
 
@@ -385,11 +277,6 @@
       const nav = this._navEl; if (!nav) return;
       nav.innerHTML = '';
 
-      const currentAbs = (href) => {
-        try { return new URL(href, document.baseURI).href; }
-        catch { return href; }
-      };
-
       const path = location.pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
       this._navStateKey = stateKey;
@@ -400,15 +287,11 @@
 
       const mkLink = (item, depth=0) => {
         const a = document.createElement('a');
-        const resolved = absHref(item.href || '#');
-        a.setAttribute('href', resolved);
+        a.href = item.href || '#';
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
         a.style.paddingLeft = pad(depth);
-
-        // Active state detection based on URL pathname
         const mode = item.activeMatch || 'starts-with';
-        let hrefPath = '';
-        try { hrefPath = new URL(resolved).pathname; } catch { hrefPath = resolved; }
+        const hrefPath = new URL(a.href, location.href).pathname;
         if ((mode==='exact' && path === hrefPath) || (mode!=='exact' && item.href && path.startsWith(hrefPath))) {
           a.setAttribute('aria-current', 'page');
         }
@@ -486,12 +369,6 @@
         if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
         else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
-
-      // Defensive: normalize any hrefs already in DOM (e.g., if FV_MENU fallback injected raw)
-      nav.querySelectorAll('a[href]').forEach(a=>{
-        const fixed = absHref(a.getAttribute('href'));
-        a.setAttribute('href', fixed);
-      });
     }
 
     _collapseAllNavGroups(){
@@ -541,6 +418,8 @@
     async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
+
+      const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
       const bestUser = (auth)=> (auth && auth.currentUser) ||
                                (window.firebaseAuth && window.firebaseAuth.currentUser) ||
@@ -602,7 +481,7 @@
                 if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
                 else if (mod && mod.signOut) { await mod.signOut(auth); }
               }catch(err){ console.warn('[FV] logout error:', err); }
-              location.replace('pages/login/index.html');
+              location.replace(LOGIN_URL);
             });
           }
         } else {
@@ -611,7 +490,7 @@
               e.preventDefault();
               this.toggleTop(false);
               this.toggleDrawer(false);
-              location.replace('pages/login/index.html');
+              location.replace(LOGIN_URL);
             });
           }
           await setLabelFromProfile();
@@ -623,20 +502,20 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            location.replace('pages/login/index.html');
+            location.replace(LOGIN_URL);
           });
         }
       }
     }
 
-    /* ===== Update flow with single-line centered toasts ===== */
+    /* ===== Update flow ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       const toast = (msg, ms=2000)=> this._toastMsg(msg, ms);
 
       async function readTargetVersion(){
         try{
-          const resp = await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' });
+          const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
           const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || '';
@@ -669,7 +548,7 @@
 
         await sleep(150);
         if (navigator.serviceWorker) {
-          try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
+          try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
         toast('Updating…', 1200);
@@ -679,7 +558,7 @@
         location.replace(url.toString());
       }catch(e){
         console.error(e);
-        toast('Update failed. Try again.', 2400);
+        this._toastMsg('Update failed. Try again.', 2400);
       }
     }
 
