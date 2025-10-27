@@ -6,7 +6,7 @@ import {
   getAuth,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
-  onAuthStateChanged,
+  // onAuthStateChanged,   // ❌ not needed for auto-nav anymore
   isStub
 } from '../firebase-init.js'; // base-relative import
 
@@ -23,37 +23,23 @@ function showErr(msg){
   els.err.textContent = msg || '';
 }
 
-// Read query once and honor ?stay=1 to prevent bounce-away when already signed in
-const QS = new URLSearchParams(location.search);
-const STAY_HERE = QS.get('stay') === '1';
-
-// Use your real home: /Farm-vista/index.html (works with <base href="/Farm-vista/">)
+// App home (resolves under the <base href="/Farm-vista/">)
 const DEFAULT_HOME = 'index.html';
 
 function resolveUnderBase(pathLike){
-  // Respect <base href="/Farm-vista/">
   try {
     const u = new URL(pathLike, document.baseURI || location.href);
-    return u.pathname.replace(location.origin, '') + (u.search || '') + (u.hash || '');
+    // Return path+search+hash (base-relative)
+    return u.pathname + (u.search || '') + (u.hash || '');
   } catch {
     return pathLike;
   }
 }
 
-function samePath(a, b){
-  try {
-    const ua = new URL(a, document.baseURI || location.href);
-    const ub = new URL(b, document.baseURI || location.href);
-    return ua.pathname === ub.pathname && ua.search === ub.search;
-  } catch {
-    return a === b;
-  }
-}
-
 function nextUrl() {
-  const hint = QS.get('next');
-  // If no ?next=, go to the app home (index.html under the base)
-  const target = hint && hint.trim() ? hint.trim() : DEFAULT_HOME;
+  const qs = new URLSearchParams(location.search);
+  const hint = (qs.get('next') || '').trim();
+  const target = hint || DEFAULT_HOME;
   return resolveUnderBase(target);
 }
 
@@ -61,7 +47,6 @@ function nextUrl() {
   let ctx, auth;
 
   try {
-    // Initialize Firebase (or stub)
     await import('../firebase-init.js');
     ctx = await ready;
     auth = ctx && ctx.auth ? ctx.auth : getAuth(ctx && ctx.app);
@@ -71,24 +56,10 @@ function nextUrl() {
     return;
   }
 
-  // If already signed in and we’re on login, bounce to home/next — BUT NOT when ?stay=1
-  try {
-    const unsub = onAuthStateChanged(auth, (user)=>{
-      if (!user) return;
-      if (STAY_HERE) return; // <- stay put on the login page
-      const dest = nextUrl();
-      // If we’re already at dest, do nothing
-      if (!samePath(location.href, dest)) {
-        location.replace(dest);
-      }
-      // Prevent multiple firings
-      try { unsub(); } catch {}
-    });
-  } catch (e) {
-    console.warn('[Login] onAuthStateChanged setup failed:', e);
-  }
+  // ❗️IMPORTANT: DO NOT auto-redirect if already signed in.
+  // This keeps the login page truly public and prevents any bounce.
 
-  // Submit handler
+  // Submit handler — this is the ONLY place we navigate away.
   els.form?.addEventListener('submit', async (e)=>{
     e.preventDefault();
     showErr('');
@@ -101,10 +72,9 @@ function nextUrl() {
       return;
     }
 
-    // Remember last email
     try { localStorage.setItem('fv_last_email', email); } catch {}
 
-    // In stub/offline mode, just continue
+    // Stub/offline: treat as success
     if (ctx && isStub && isStub()) {
       location.replace(nextUrl());
       return;
