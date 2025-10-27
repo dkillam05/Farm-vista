@@ -1,6 +1,7 @@
-/* FarmVista — <fv-shell> v5.9.7 (project-site safe with menu fallback)
+/* FarmVista — <fv-shell> v5.9.8 (project-site safe with menu fallback)
    - Works under https://dkillam05.github.io/Farm-vista/
    - Absolute import for js/menu.js + classic <script> fallback
+   - Logout: signOut only; NO manual navigation (auth guard handles redirect)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -540,7 +541,7 @@
       };
 
       try{
-        const { mod, ctx, auth, onIdTokenChanged, onAuthStateChanged, signOut, isStub } = await needAuthFns();
+        const { mod, ctx, auth, onIdTokenChanged, onAuthStateChanged, signOut } = await needAuthFns();
         if (!auth) throw new Error('Auth unavailable');
 
         setLabel(auth.currentUser);
@@ -567,13 +568,11 @@
               if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
               else { await signOut(auth); }
               setLabel(auth.currentUser);
-            }catch(err){ console.warn('[FV] logout error:', err); }
-            const next = encodeURIComponent(location.pathname + location.search + location.hash);
-            if (ctx && ctx.mode === 'firebase' && !isStub) {
-              location.replace('pages/login/?next=' + next);   // 🔁 directory-form
-            } else {
-              this._toastMsg('Signed out (local mode).', 1600);
-              location.replace('pages/login/');                // 🔁 also go to login in local mode
+              // No navigation here — the auth guard in theme-boot.js will redirect to login.
+              this._toastMsg('Signed out', 1000);
+            }catch(err){
+              console.warn('[FV] logout error:', err);
+              this._toastMsg('Logout failed', 1600);
             }
           });
         }
@@ -584,7 +583,8 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            location.replace('pages/login/');                  // 🔁 directory-form fallback
+            this._toastMsg('Signed out (local)', 1000);
+            // Even in stub, let the guard handle it; it’s a no-op but consistent.
           });
         }
       }
