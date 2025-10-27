@@ -97,7 +97,14 @@
 // RULES:
 //  - Login page is PUBLIC. Never redirect away from it (even if already signed-in).
 //  - Any other page requires auth. If not signed-in, redirect to login with ?next=<current>.
+//  - Optional Firestore gating (disabled by default below — flip flags to enable).
 (function(){
+  // ---- Optional Firestore gating toggles ----
+  const REQUIRE_FIRESTORE_USER_DOC = false; // set true to require users/{uid} doc
+  const TREAT_MISSING_DOC_AS_DENY   = false; // if true, missing doc denies access
+  const FIELD_DISABLED = 'disabled';
+  const FIELD_ACTIVE   = 'active';
+
   const samePath = (a, b) => {
     try {
       const ua = new URL(a, document.baseURI || location.href);
@@ -113,32 +120,80 @@
     return cur.startsWith(p);
   };
 
+  const gotoLogin = (reason) => {
+    const here = location.pathname + location.search + location.hash;
+    const url = new URL('pages/login/index.html', location.href);
+    url.searchParams.set('next', here);
+    if (reason) url.searchParams.set('reason', reason);
+    const dest = url.pathname + url.search + url.hash;
+    if (!samePath(location.href, dest)) location.replace(dest);
+  };
+
   const run = async () => {
     try {
       const mod = await import('js/firebase-init.js');
       const ctx = await mod.ready;
       const auth = ctx && ctx.auth;
 
-      // If offline/stub: allow everything (no redirects)
-      if (!auth || (mod.isStub && mod.isStub())) return;
+      // LOGIN PAGE IS ALWAYS PUBLIC
+      if (isLoginPath()) return;
 
-      const here = location.pathname + location.search + location.hash;
-
-      // Always allow the login page, signed-in or not.
-      if (isLoginPath()) {
-        return; // ❗️No redirect logic at all on login page
+      // Fail-closed if no Firebase auth (stub/offline) on non-login pages
+      if (!auth || (mod.isStub && mod.isStub())) {
+        gotoLogin('no-auth');
+        return;
       }
 
-      // For all other pages, require auth.
-      mod.onAuthStateChanged(auth, (user) => {
-        if (!user) {
-          const dest = 'pages/login/index.html?next=' + encodeURIComponent(here);
-          if (!samePath(location.href, dest)) location.replace(dest);
+      // Persist session to local for predictable behavior
+      try {
+        if (mod.setPersistence && mod.browserLocalPersistence) {
+          await mod.setPersistence(auth, mod.browserLocalPersistence());
         }
-        // If user exists, do nothing (they can stay on any page including dashboard)
+      } catch (e) { console.warn('[FV] setPersistence failed:', e); }
+
+      // For all other pages, require auth.
+      mod.onAuthStateChanged(auth, async (user) => {
+        if (!user) { gotoLogin('unauthorized'); return; }
+
+        // Optional Firestore user-doc enforcement
+        if (!REQUIRE_FIRESTORE_USER_DOC && !TREAT_MISSING_DOC_AS_DENY) return;
+
+        try {
+          const db = mod.getFirestore();
+          const ref = mod.doc(db, 'users', user.uid);
+          const snap = await mod.getDoc(ref);
+
+          if (!snap.exists()) {
+            if (REQUIRE_FIRESTORE_USER_DOC && TREAT_MISSING_DOC_AS_DENY) {
+              try { await mod.signOut(auth); } catch {}
+              gotoLogin('no-user-doc');
+            }
+            return;
+          }
+
+          const u = snap.data() || {};
+          const denied =
+            (FIELD_DISABLED in u && !!u[FIELD_DISABLED]) ||
+            (FIELD_ACTIVE in u && u[FIELD_ACTIVE] === false);
+
+          if (denied) {
+            try { await mod.signOut(auth); } catch {}
+            gotoLogin('disabled');
+            return;
+          }
+          // else allowed
+        } catch (err) {
+          console.warn('[FV] Firestore auth check failed:', err);
+          if (REQUIRE_FIRESTORE_USER_DOC && TREAT_MISSING_DOC_AS_DENY) {
+            try { await mod.signOut(auth); } catch {}
+            gotoLogin('auth-check-failed');
+          }
+        }
       });
     } catch (e) {
       console.warn('[FV] auth-guard error:', e);
+      // On any fatal error, fail-closed off login
+      if (!isLoginPath()) gotoLogin('guard-error');
     }
   };
 
