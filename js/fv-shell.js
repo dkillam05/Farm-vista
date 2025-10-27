@@ -1,8 +1,8 @@
 /* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
    - Works under https://dkillam05.github.io/Farm-vista/
-   - Absolute import for js/menu.js + classic <script> fallback
-   - Version + tagline: ONLY from js/version.js (SSOT)
-   - Logout: signOut, then IMMEDIATE nav to pages/login/index.html (no guard delay)
+   - Menu: absolute import for js/menu.js + classic <script> fallback
+   - Version Source of Truth: js/version.js (globals), no other sources
+   - Logout: signOut, then IMMEDIATE nav to pages/login/index.html
 */
 (function () {
   const tpl = document.createElement('template');
@@ -281,8 +281,7 @@
       this._footerBase = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
       this._footerText.textContent = this._footerBase;
 
-      // VERSION: only from js/version.js
-      this._loadVersionFromFile();
+      this._loadVersionFromVersionJs();     // ← version + tagline from js/version.js
 
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
@@ -295,34 +294,32 @@
       this._initMenu();
     }
 
-    /* ===== Version ONLY from js/version.js ===== */
-    _applyVersion(v){
-      const num = (v && v.number) ? String(v.number).replace(/^\s*v/i,'').trim() : '0.0.0';
-      const tag = (v && v.tagline) ? String(v.tagline) : 'Farm data, simplified';
-      if (this._verEl) this._verEl.textContent = `v${num}`;
-      if (this._sloganEl) this._sloganEl.textContent = tag;
-      this._applyFooterVersion(num);
-    }
+    /* ===== Version + tagline strictly from js/version.js (no other sources) ===== */
+    _loadVersionFromVersionJs(){
+      const apply = () => {
+        const v = (window.FV_VERSION && String(window.FV_VERSION.number)) || '0.0.0';
+        const tag = (window.FV_VERSION && String(window.FV_VERSION.tagline)) || 'Farm data, simplified';
+        if (this._verEl) this._verEl.textContent = `v${v}`;
+        if (this._sloganEl) this._sloganEl.textContent = tag;
+        this._applyFooterVersion(v);
+      };
 
-    async _loadVersionFromFile(){
-      // If already present (e.g., index loaded version.js before shell), use it.
-      if (window.FV_VERSION && window.FV_VERSION.number) {
-        this._applyVersion(window.FV_VERSION);
+      // If already present (e.g., loaded in <head>), use it immediately.
+      if (window.FV_VERSION && window.FV_VERSION.number){
+        apply();
         return;
       }
-      // Otherwise, inject the script (base-relative; respects <base href="/Farm-vista/">)
-      await new Promise((resolve, reject)=>{
-        const id = 'fv-version-js';
-        if (document.getElementById(id)) { resolve(); return; }
-        const s = document.createElement('script');
-        s.id = id;
-        s.src = 'js/version.js'; // SSOT
-        s.defer = true;
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      }).catch((e)=> console.warn('[FV] Failed to load js/version.js', e));
-      this._applyVersion(window.FV_VERSION || {});
+
+      // Otherwise load version.js via classic script (respects <base>) and then apply.
+      const s = document.createElement('script');
+      s.defer = true;
+      s.src = 'js/version.js?ts=' + Date.now();
+      s.onload = () => apply();
+      s.onerror = () => {
+        console.warn('[FV] version.js failed to load');
+        // Keep defaults (v0.0.0 / Loading…) if version.js can’t be fetched.
+      };
+      document.head.appendChild(s);
     }
 
     _applyFooterVersion(num){
@@ -575,40 +572,52 @@
       }
     }
 
+    // Clear, forceful updater based on version.js only
     async checkForUpdates(){
-      const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-      async function readTargetVersion(){
-        try{
-          const txt = await (await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' })).text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
-          return (m && m[1]) || String(Date.now());
-        }catch{ return String(Date.now()); }
-      }
+      const toast = (m,ms=1600)=> this._toastMsg(m,ms);
+
+      const current = (window.FV_VERSION && String(window.FV_VERSION.number)) || "0.0.0";
+
+      let remote = current;
       try{
-        this._toastMsg('Checking For Updates…', 1200);
-        const targetVer = await readTargetVersion();
-
-        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-          try { navigator.serviceWorker.controller.postMessage('SKIP_WAITING'); } catch {}
-        }
-        if ('caches' in window) {
-          try { const keys = await caches.keys(); await Promise.all(keys.map(k=> caches.delete(k))); } catch {}
-        }
-        if ('serviceWorker' in navigator) {
-          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
-          await sleep(150);
-          try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
-        }
-
-        this._toastMsg(`Updating…`, 900);
-        await sleep(400);
-        const url = new URL(location.href);
-        url.searchParams.set('rev', targetVer);
-        location.replace(url.toString());
+        toast("Checking for updates…", 900);
+        const res = await fetch("js/version.js?nocache=" + Date.now(), { cache: "no-store" });
+        const txt = await res.text();
+        const m =
+          txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/) ||
+          txt.match(/number\s*:\s*["']([\d.]+)["']/);
+        if (m && m[1]) remote = m[1];
       }catch(e){
-        console.error(e);
-        this._toastMsg('Update failed. Try again.', 2200);
+        console.warn("[FV] update check failed:", e);
+        toast("Couldn’t check for updates", 1800);
+        return;
       }
+
+      if (remote === current){
+        toast(`Already up to date (v${current})`, 1600);
+        return;
+      }
+
+      toast(`Updating to v${remote}…`, 1200);
+
+      try {
+        if ("serviceWorker" in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r => r.unregister().catch(()=>{})));
+          try { await navigator.serviceWorker.register("serviceworker.js?ts=" + Date.now()); } catch {}
+        }
+      } catch (e) { console.warn("[FV] SW cleanup error:", e); }
+
+      try {
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k).catch(()=>{})));
+        }
+      } catch (e) { console.warn("[FV] cache cleanup error:", e); }
+
+      const url = new URL(location.href);
+      url.searchParams.set("rev", `${remote}-${Date.now()}`);
+      location.replace(url.toString());
     }
 
     _toastMsg(msg, ms=1600){
