@@ -21,7 +21,7 @@ export const NAV_MENU = {
       id: 'home',
       icon: '🏠',
       label: 'Home',
-      href: '/Farm-vista/dashboard/index.html',
+      href: '/Farm-vista/index.html',
       activeMatch: 'exact'
     },
 
