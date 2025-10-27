@@ -1,12 +1,12 @@
-/* FarmVista SW — dynamic versioned precache (PROJECT scope) */
+/* FarmVista SW — robust fetch handler (PROJECT scope, iOS-safe) */
 const SCOPE_PREFIX = "/Farm-vista/";
 
-/* derive version number by reading /Farm-vista/js/version.js */
+/* ---- Version detection for cache names ---- */
 async function readVersionNumber() {
   try {
     const r = await fetch(`${SCOPE_PREFIX}js/version.js?ts=${Date.now()}`, { cache: "reload" });
     const t = await r.text();
-    let m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+    const m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
     return (m && m[1]) || String(Date.now());
   } catch {
     return String(Date.now());
@@ -41,6 +41,7 @@ async function fetchAndPut(cache, url){
   } catch {}
 }
 
+/* ---- Install / Activate ---- */
 self.addEventListener("install", (e)=>{
   e.waitUntil((async()=>{
     const { CACHE_STATIC, PRECACHE_URLS } = await makeNames();
@@ -60,14 +61,27 @@ self.addEventListener("activate", (e)=>{
   })());
 });
 
+/* ---- Fetch (robust) ---- */
 self.addEventListener("fetch", (e)=>{
-  const {request:req} = e;
-  if (req.method !== "GET") return;
-  const url = new URL(req.url);
+  const req = e.request;
 
-  // Only handle requests under our project path
+  // Ignore non-GET early
+  if (req.method !== "GET") return;
+
+  // Ignore non-http(s) schemes (iOS data:, blob:, etc.)
+  // and cross-origin requests (CDNs, APIs we don't want to hijack)
+  let url;
+  try { url = new URL(req.url); }
+  catch { return; } // if URL constructor throws, let the browser handle it
+
+  const scheme = url.protocol;
+  if (scheme !== "http:" && scheme !== "https:") return;
+  if (url.origin !== self.location.origin) return;
+
+  // Only handle our project path
   if (!url.pathname.startsWith(SCOPE_PREFIX)) return;
 
+  // Guaranteed respondWith with a Response
   if (req.mode === "navigate") {
     e.respondWith(networkFirst(req));
   } else {
@@ -75,33 +89,48 @@ self.addEventListener("fetch", (e)=>{
   }
 });
 
+/* ---- Strategies (always return a Response) ---- */
 async function networkFirst(request){
   const { CACHE_STATIC } = await makeNames();
   const cache = await caches.open(CACHE_STATIC);
   try {
-    const ctrl = new AbortController(); const t=setTimeout(()=>ctrl.abort(),5000);
+    const ctrl = new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
     const res = await fetch(request, { signal: ctrl.signal }); clearTimeout(t);
     if (res && res.ok) { cache.put(request, res.clone()); return res; }
     const cached = await cache.match(request); if (cached) return cached;
-  } catch { const cached = await cache.match(request); if (cached) return cached; }
-  // Fallback to dashboard under project scope instead of a bare Offline/404
-  return caches.match(`${SCOPE_PREFIX}dashboard/index.html`) || new Response("Offline", {status:503});
+  } catch {
+    const cached = await cache.match(request); if (cached) return cached;
+  }
+  // Safe fallback inside project scope
+  const fallback = await caches.match(`${SCOPE_PREFIX}dashboard/index.html`);
+  return fallback || new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }});
 }
 
 async function staleWhileRevalidate(request){
   const { RUNTIME_ASSETS } = await makeNames();
   const runtime = await caches.open(RUNTIME_ASSETS);
   const cached = await runtime.match(request);
+
   const networkPromise = (async()=>{
-    try { const res = await fetch(request); if (res && res.ok) runtime.put(request, res.clone()); return res; }
-    catch { return null; }
+    try {
+      const res = await fetch(request);
+      if (res && res.ok) { runtime.put(request, res.clone()); }
+      return res;
+    } catch {
+      return null;
+    }
   })();
+
   if (cached) { networkPromise; return cached; }
-  const res = await networkPromise; if (res) return res;
+  const res = await networkPromise;
+  if (res) return res;
+
   const { CACHE_STATIC } = await makeNames();
-  return (await caches.open(CACHE_STATIC)).match(request) || new Response("Offline",{status:503});
+  const stat = await (await caches.open(CACHE_STATIC)).match(request);
+  return stat || new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }});
 }
 
+/* ---- Messages ---- */
 self.addEventListener('message', (e)=>{
   if (e && e.data === 'SKIP_WAITING') self.skipWaiting();
 });
