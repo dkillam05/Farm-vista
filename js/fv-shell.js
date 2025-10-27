@@ -1,9 +1,9 @@
-<!-- /Farm-vista/js/fv-shell.js -->
-/* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
+/* FarmVista — <fv-shell> v5.9.10 (self-contained: version + auth)
    - Version + tagline come ONLY from js/version.js (SSOT)
-   - Menu: absolute import with classic <script> fallback
-   - Logout label: First Last (Firestore users/{uid}) → displayName → email (email shows immediately)
+   - Shell loads: js/version.js, js/firebase-config.js, then imports js/firebase-init.js
+   - Logout label: First Last (Firestore users/{uid}) → displayName → email
    - Update flow: clear SW + caches, single-line centered toasts, cache-busting reload
+   - Menu: absolute import with classic <script> fallback (project-site safe)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -59,6 +59,7 @@
       opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100;
     }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
+
     .drawer{
       position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background: var(--surface); color: var(--text);
@@ -97,6 +98,7 @@
     .df-left .brand{ font-weight:800; line-height:1.15; }
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
+
     .topdrawer{
       position:fixed; left:0; right:0; top:0;
       transform:translateY(-105%); transition:transform .26s ease;
@@ -114,6 +116,7 @@
     }
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
+
     .section-h{
       padding:12px 12px 6px;
       font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
@@ -138,20 +141,24 @@
     .row .ico{ width:28px; height:28px; display:grid; place-items:center; font-size:24px; line-height:1; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
+
+    /* Toast: single line, centered text, wider */
     .toast{
       position:fixed; left:50%;
       bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
       transform:translateX(-50%);
       background:#111; color:#fff;
-      padding:10px 18px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px;
       opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-      white-space:nowrap; max-width:92vw; min-width:320px;
+      white-space:nowrap;
+      min-width:320px; max-width:92vw;
       overflow:hidden; text-overflow:ellipsis;
-      display:flex; align-items:center; justify-content:center; /* center text horizontally & vertically */
+      display:flex; align-items:center; justify-content:center; /* center text inside */
       text-align:center;
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
+
     :host-context(.dark){ color:var(--text); background:var(--bg); }
     :host-context(.dark) .main{ background:var(--bg); color:var(--text); }
     :host-context(.dark) .drawer{
@@ -284,45 +291,64 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
+      // Footer text = copyright + date (NO version here)
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`; // no version clutter here
+      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // Version/tagline strictly from js/version.js
-      this._loadVersionFromScript();
+      // Load Version + Firebase (config → init), then wire auth label
+      this._ensureVersionThenAuth();
 
+      // Update button
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      this._wireAuthLogout(r);
-
+      // Close top drawer on links
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
+      // Menu
       this._initMenu();
     }
 
-    /* ===== Version/tagline ONLY from js/version.js ===== */
-    _loadVersionFromScript(){
-      const setUI = () => {
-        const v = (window && window.FV_VERSION) || {};
-        const num = (v.number || '').toString().replace(/^\s*v/i,'').trim() || '0.0.0';
-        const tag = (v.tagline || 'Farm data, simplified');
-        if (this._verEl) this._verEl.textContent = `v${num}`;
-        if (this._sloganEl) this._sloganEl.textContent = tag;
-      };
+    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
+    async _ensureVersionThenAuth(){
+      await this._loadScriptOnce('js/version.js').catch(()=>{});
+      this._applyVersionToUI();
 
-      if (window && window.FV_VERSION) { setUI(); return; }
+      await this._loadScriptOnce('js/firebase-config.js').catch(()=>{});
+      try{
+        const mod = await import('js/firebase-init.js');
+        // expose for other code if needed
+        this._firebase = mod;
+        // Auth label wiring (email fallback)
+        await this._wireAuthLogout(this.shadowRoot, mod);
+      }catch(err){
+        console.warn('[FV] firebase-init import failed:', err);
+        // still wire a simple logout nav
+        this._wireAuthLogout(this.shadowRoot, null);
+      }
+    }
 
-      const s = document.createElement('script');
-      s.src = 'js/version.js';
-      s.defer = true;
-      s.onload = () => setUI();
-      s.onerror = () => {
-        if (this._sloganEl) this._sloganEl.textContent = 'Farm data, simplified';
-        if (this._verEl) this._verEl.textContent = 'v0.0.0';
-      };
-      document.head.appendChild(s);
+    _applyVersionToUI(){
+      const v = (window && window.FV_VERSION) || {};
+      const num = (v.number || '').toString().replace(/^\s*v/i,'').trim() || '0.0.0';
+      const tag = (v.tagline || 'Simplified');
+      if (this._verEl) this._verEl.textContent = `v${num}`;
+      if (this._sloganEl) this._sloganEl.textContent = tag;
+    }
+
+    _loadScriptOnce(src){
+      return new Promise((resolve, reject)=>{
+        // If already present, resolve immediately
+        const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'').replace(location.origin,'') === ('/' + src).replace('//','/'));
+        if (exists) { resolve(); return; }
+        const s = document.createElement('script');
+        s.src = src; s.defer = true;
+        s.onload = ()=> resolve();
+        s.onerror = (e)=> reject(e);
+        document.head.appendChild(s);
+      });
     }
 
     /* ===== Robust menu loader (absolute URL + fallback) ===== */
@@ -335,7 +361,9 @@
         if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU export');
         this._renderMenu(NAV_MENU);
         return;
-      } catch {}
+      } catch (e) {
+        console.warn('[FV] import(menu.js) failed, falling back to classic script:', e);
+      }
 
       try {
         await new Promise((res, rej) => {
@@ -350,7 +378,7 @@
         this._renderMenu(NAV_MENU);
       } catch (err) {
         console.error('[FV] Unable to load menu:', err);
-        this._toastMsg('Menu failed to load. Please refresh.', 2800);
+        this._toastMsg('Menu failed to load. Please refresh.', 2400);
       }
     }
 
@@ -496,93 +524,93 @@
     }
 
     /* ===== Auth: logout + label (First Last → displayName → email) ===== */
-    async _wireAuthLogout(r){
+    async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
-
-      // Ensure Firebase config is present (helps when some pages forgot to include it)
-      if (!window.FV_FIREBASE_CONFIG) {
-        try { await import('js/firebase-config.js'); } catch {}
-      }
-
-      const needAuthFns = async () => {
-        const mod = await import('js/firebase-init.js');
-        const ctx = await mod.ready;
-        const auth = window.firebaseAuth || (ctx && ctx.auth) || mod.getAuth(ctx && ctx.app);
-        const fs = (mod.getFirestore && mod.getFirestore(ctx && ctx.app)) || window.firebaseFirestore;
-        return {
-          mod, ctx, auth, fs,
-          onIdTokenChanged: mod.onIdTokenChanged,
-          onAuthStateChanged: mod.onAuthStateChanged,
-          signOut: mod.signOut,
-          doc: mod.doc, getDoc: mod.getDoc
-        };
-      };
 
       const bestUser = (auth)=> (auth && auth.currentUser) ||
                                (window.firebaseAuth && window.firebaseAuth.currentUser) ||
                                (window.__FV_USER) || null;
 
-      const setLabelFromProfile = async (auth, fs, doc, getDoc) => {
-        const user = bestUser(auth);
-        if (!user) { logoutLabel.textContent = 'Logout'; return; }
-
-        // Show something immediately so UI never looks blank:
-        logoutLabel.textContent = `Logout ${user.email || user.displayName || 'User'}`;
-
-        // Then try Firestore enrichment:
+      const setLabelFromProfile = async () => {
         try{
-          if (fs && doc && getDoc) {
-            const ref = doc(fs, 'users', user.uid);
-            const snap = await getDoc(ref);
-            const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
-            if (data) {
-              const fn = (data.firstName || data.first || '').toString().trim();
-              const ln = (data.lastName  || data.last  || '').toString().trim();
-              const full = `${fn} ${ln}`.trim();
-              if (full) { logoutLabel.textContent = `Logout ${full}`; return; }
-            }
+          const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
+          const fs   = (mod && (mod.getFirestore && mod.getFirestore())) || window.firebaseFirestore;
+          const user = bestUser(auth);
+
+          if (!user) { logoutLabel.textContent = 'Logout'; return; }
+
+          let name = '';
+
+          // Firestore users/{uid} → first/last
+          if (fs && mod && mod.doc && mod.getDoc) {
+            try{
+              const ref = mod.doc(fs, 'users', user.uid);
+              const snap = await mod.getDoc(ref);
+              const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
+              if (data) {
+                const fn = (data.firstName || data.first || '').toString().trim();
+                const ln = (data.lastName  || data.last  || '').toString().trim();
+                const full = `${fn} ${ln}`.trim();
+                if (full) name = full;
+              }
+            }catch{}
           }
-          if (user.displayName) { logoutLabel.textContent = `Logout ${user.displayName.trim()}`; return; }
-          if (user.email)       { logoutLabel.textContent = `Logout ${user.email.trim()}`; return; }
-          logoutLabel.textContent = 'Logout';
+
+          if (!name && user.displayName) name = String(user.displayName).trim();
+          if (!name && user.email)       name = String(user.email).trim();
+
+          logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
         }catch{
-          // Keep the immediate fallback text already set
+          logoutLabel.textContent = 'Logout';
         }
       };
 
       try{
-        const { auth, fs, onIdTokenChanged, onAuthStateChanged, signOut, doc, getDoc } = await needAuthFns();
-        if (!auth) throw new Error('Auth unavailable');
+        if (mod && mod.onIdTokenChanged && mod.onAuthStateChanged) {
+          const ctx = await mod.ready.catch(()=>null);
+          const auth = (ctx && ctx.auth) || (mod.getAuth && mod.getAuth()) || window.firebaseAuth;
+          // Initial
+          await setLabelFromProfile();
+          // Live updates
+          mod.onIdTokenChanged(auth, setLabelFromProfile);
+          mod.onAuthStateChanged(auth, setLabelFromProfile);
 
-        // Initial + listeners
-        setLabelFromProfile(auth, fs, doc, getDoc);
-        onIdTokenChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
-        onAuthStateChanged(auth, ()=> setLabelFromProfile(auth, fs, doc, getDoc));
+          // Short retry loop (handles slow auth resolve)
+          let tries = 18;
+          const tick = setInterval(async ()=>{
+            await setLabelFromProfile();
+            if (bestUser(auth) || --tries <= 0) clearInterval(tick);
+          }, 150);
 
-        // Short retry loop in case user object races in
-        let tries = 16;
-        const tick = setInterval(async ()=>{
-          await setLabelFromProfile(auth, fs, doc, getDoc);
-          if (bestUser(auth) || --tries <= 0) clearInterval(tick);
-        }, 150);
-
-        if (logoutRow) {
-          logoutRow.addEventListener('click', async (e)=>{
-            e.preventDefault();
-            this.toggleTop(false);
-            this.toggleDrawer(false);
-            try{
-              if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
-              else { await signOut(auth); }
-            }catch(err){ console.warn('[FV] logout error:', err); }
-            location.replace('pages/login/index.html');
-          });
+          if (logoutRow) {
+            logoutRow.addEventListener('click', async (e)=>{
+              e.preventDefault();
+              this.toggleTop(false);
+              this.toggleDrawer(false);
+              try{
+                if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
+                else if (mod && mod.signOut) { await mod.signOut(auth); }
+              }catch(err){ console.warn('[FV] logout error:', err); }
+              location.replace('pages/login/index.html');
+            });
+          }
+        } else {
+          // Stub/no-firebase path: still hard-nav on click
+          if (logoutRow) {
+            logoutRow.addEventListener('click', (e)=>{
+              e.preventDefault();
+              this.toggleTop(false);
+              this.toggleDrawer(false);
+              location.replace('pages/login/index.html');
+            });
+          }
+          await setLabelFromProfile();
         }
       }catch(err){
-        console.warn('[FV] auth wiring skipped (offline or no firebase):', err);
+        console.warn('[FV] auth wiring skipped:', err);
         if (logoutRow) {
-          logoutRow.addEventListener('click', (e)=> {
+          logoutRow.addEventListener('click', (e)=>{
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
@@ -595,7 +623,7 @@
     /* ===== Update flow with single-line centered toasts ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-      const toast = (msg, ms=1800)=> this._toastMsg(msg, ms);
+      const toast = (msg, ms=2000)=> this._toastMsg(msg, ms);
 
       async function readTargetVersion(){
         try{
@@ -608,14 +636,14 @@
 
       try{
         const targetVer = await readTargetVersion();
-        const currentVer = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
+        const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
-        if (targetVer && currentVer && targetVer === currentVer) {
-          toast(`Already up to date (v${currentVer})`, 2200);
+        if (targetVer && cur && targetVer === cur) {
+          toast(`Already up to date (v${cur})`, 2200);
           return;
         }
 
-        toast('Clearing cache…', 1000);
+        toast('Clearing cache…', 900);
 
         if (navigator.serviceWorker) {
           try {
@@ -636,17 +664,17 @@
         }
 
         toast('Updating…', 1200);
-        await sleep(300);
+        await sleep(320);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer || String(Date.now()));
         location.replace(url.toString());
       }catch(e){
         console.error(e);
-        toast('Update failed. Try again.', 2200);
+        toast('Update failed. Try again.', 2400);
       }
     }
 
-    _toastMsg(msg, ms=1800){
+    _toastMsg(msg, ms=2000){
       const t = this._toast; if (!t) return;
       t.textContent = msg;
       t.classList.add('show');
