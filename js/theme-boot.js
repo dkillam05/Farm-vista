@@ -1,32 +1,25 @@
 // /Farm-vista/js/theme-boot.js  (PROJECT-SITE SAFE: base-relative paths)
-// Viewport + theme boot + firebase boot + app startup + AUTH GUARD
+// Viewport + theme boot + firebase config/init + app startup + AUTH GUARD
 
-// === Global viewport + mobile tap behavior (inject once for the whole app) ===
+/* =========================  Viewport & tap behavior  ========================= */
 (function(){
   try{
     var HARD_NO_ZOOM = true;
-
     var desired = HARD_NO_ZOOM
       ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
       : 'width=device-width, initial-scale=1, viewport-fit=cover';
 
     var m = document.querySelector('meta[name="viewport"]');
-    if (m) {
-      m.setAttribute('content', desired);
-    } else {
+    if (m) m.setAttribute('content', desired);
+    else {
       m = document.createElement('meta');
-      m.name = 'viewport';
-      m.content = desired;
-      if (document.head && document.head.firstChild) {
-        document.head.insertBefore(m, document.head.firstChild);
-      } else if (document.head) {
-        document.head.appendChild(m);
-      }
+      m.name = 'viewport'; m.content = desired;
+      if (document.head && document.head.firstChild) document.head.insertBefore(m, document.head.firstChild);
+      else if (document.head) document.head.appendChild(m);
     }
 
     var style = document.createElement('style');
     style.textContent = `
-      /* Prevent iOS auto-zoom on inputs and kill 300ms delay */
       input, select, textarea, button { font-size: 16px !important; }
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { touch-action: pan-x pan-y; }
@@ -35,7 +28,7 @@
   }catch(e){}
 })();
 
-// === Theme preference boot (unchanged) ===
+/* ==============================  Theme boot  ================================ */
 (function(){
   try{
     var t = localStorage.getItem('fv-theme');        // 'light' | 'dark' | 'system'
@@ -48,60 +41,78 @@
   }catch(e){}
 })();
 
-// === Global Firebase boot: load once as a module across the whole app ===
-(function(){
-  try{
-    if (window.__FV_FIREBASE_INIT_LOADED__) return;
-    window.__FV_FIREBASE_INIT_LOADED__ = true;
-
-    var s = document.createElement('script');
-    s.type = 'module';
-    s.defer = true;
-    // BASE-RELATIVE (respects <base href="/Farm-vista/">)
-    s.src = 'js/firebase-init.js';
+/* =====================  Helpers for ordered script loads  ==================== */
+const __fvBoot = (function(){
+  const once = (key, fn) => {
+    if (window[key]) return window[key];
+    window[key] = fn();
+    return window[key];
+  };
+  const loadScript = (src, {type, defer=true, async=false}) => new Promise((res, rej)=>{
+    const s = document.createElement('script');
+    if (type) s.type = type;
+    s.defer = !!defer; s.async = !!async;
+    s.src = src;
+    s.onload = () => res();
+    s.onerror = (e) => rej(e);
     document.head.appendChild(s);
-
-    s.addEventListener('load', function(){
-      console.log('[FV] firebase-init loaded');
-    });
-    s.addEventListener('error', function(){
-      console.warn('[FV] firebase-init failed to load — check path js/firebase-init.js');
-    });
-  }catch(e){
-    console.warn('[FV] Firebase boot error:', e);
-  }
+  });
+  return { once, loadScript };
 })();
 
-// === App startup (profile + storage sync) ===
+/* ==============  Firebase CONFIG -> INIT (ensure order, base-relative)  ============== */
 (function(){
-  try{
-    if (window.__FV_APP_STARTUP_LOADED__) return;
-    window.__FV_APP_STARTUP_LOADED__ = true;
+  __fvBoot.once('__FV_FIREBASE_CHAIN__', async () => {
+    try{
+      // 1) Ensure global config is present BEFORE loading firebase-init.js
+      if (!window.FV_FIREBASE_CONFIG) {
+        try {
+          await __fvBoot.loadScript('js/firebase-config.js', { defer:false, async:false });
+          // If it still isn’t present, we continue; firebase-init will fall back to stub.
+        } catch(e) {
+          console.warn('[FV] firebase-config.js failed to load (continuing):', e);
+        }
+      }
 
-    var start = document.createElement('script');
-    start.type = 'module';
-    start.defer = true;
-    // BASE-RELATIVE
-    start.src = 'js/app/startup.js';
-    document.head.appendChild(start);
+      // 2) Load firebase-init.js as a module (once)
+      if (!window.__FV_FIREBASE_INIT_LOADED__) {
+        window.__FV_FIREBASE_INIT_LOADED__ = true;
+        try {
+          await __fvBoot.loadScript('js/firebase-init.js', { type:'module', defer:true });
+          console.log('[FV] firebase-init loaded');
+        } catch (e) {
+          console.warn('[FV] firebase-init failed to load — check path js/firebase-init.js', e);
+        }
+      }
 
-    start.addEventListener('error', function(){
-      console.warn('[FV] startup module failed to load — check js/app/startup.js');
-    });
-  }catch(e){
-    console.warn('[FV] startup boot error:', e);
-  }
+      // 3) App startup module (optional, safe if missing)
+      if (!window.__FV_APP_STARTUP_LOADED__) {
+        window.__FV_APP_STARTUP_LOADED__ = true;
+        try {
+          await __fvBoot.loadScript('js/app/startup.js', { type:'module', defer:true });
+        } catch (e) {
+          console.warn('[FV] startup module failed to load — check js/app/startup.js', e);
+        }
+      }
+    }catch(e){
+      console.warn('[FV] Firebase boot chain error:', e);
+    }
+  });
 })();
 
-// === Global Auth Guard (runs on every page) ===
-// RULES:
-//  - Login page is PUBLIC. Never redirect away from it (even if already signed-in).
-//  - Any other page requires auth. If not signed-in, redirect to login with ?next=<current>.
-//  - Optional Firestore gating (disabled by default below — flip flags to enable).
+/* ===============================  Auth Guard  =============================== */
+/*
+ RULES:
+  - Login page is PUBLIC.
+  - Other pages require Auth. We wait briefly for hydration before redirect.
+  - Optional Firestore-gating toggles below.
+  - In dev/stub, we allow by default to prevent bounce-loops.
+*/
 (function(){
-  // ---- Optional Firestore gating toggles ----
-  const REQUIRE_FIRESTORE_USER_DOC = false; // set true to require users/{uid} doc
-  const TREAT_MISSING_DOC_AS_DENY   = false; // if true, missing doc denies access
+  const REQUIRE_FIRESTORE_USER_DOC = false;
+  const TREAT_MISSING_DOC_AS_DENY  = false;
+  const ALLOW_STUB_MODE            = true;   // <— prevents “bounce to login” during stub/dev
+
   const FIELD_DISABLED = 'disabled';
   const FIELD_ACTIVE   = 'active';
 
@@ -114,85 +125,105 @@
   };
 
   const isLoginPath = () => {
-    // Support: /pages/login, /pages/login/, /pages/login/index.html
-    const p = new URL('pages/login/', location.href).pathname;   // base-relative
-    const cur = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+    // supports /pages/login, /pages/login/, /pages/login/index.html
+    const p = new URL('pages/login/', location.href).pathname;
+    const cur = location.pathname.endsWith('/') ? location.pathname : (location.pathname + '/');
     return cur.startsWith(p);
   };
 
   const gotoLogin = (reason) => {
     const here = location.pathname + location.search + location.hash;
-    const url = new URL('pages/login/index.html', location.href);
+    const url = new URL('pages/login/index.html', location.href); // base-relative
     url.searchParams.set('next', here);
     if (reason) url.searchParams.set('reason', reason);
     const dest = url.pathname + url.search + url.hash;
     if (!samePath(location.href, dest)) location.replace(dest);
   };
 
+  const waitForAuthHydration = async (mod, auth, ms=1500) => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
+      try {
+        // fastest: currentUser might already be present
+        if (auth && auth.currentUser) return done(auth.currentUser);
+        const off = mod.onAuthStateChanged(auth, u => { done(u); off && off(); });
+        setTimeout(()=> done(auth && auth.currentUser || null), ms);
+      } catch {
+        resolve(auth && auth.currentUser || null);
+      }
+    });
+  };
+
   const run = async () => {
     try {
-      const mod = await import('js/firebase-init.js');
-      const ctx = await mod.ready;
-      const auth = ctx && ctx.auth;
-
-      // LOGIN PAGE IS ALWAYS PUBLIC
+      // Always allow the login page
       if (isLoginPath()) return;
 
-      // Fail-closed if no Firebase auth (stub/offline) on non-login pages
-      if (!auth || (mod.isStub && mod.isStub())) {
-        gotoLogin('no-auth');
-        return;
+      // Make sure our firebase chain ran
+      if (!window.__FV_FIREBASE_CHAIN__) {
+        // Kick off chain if not yet started
+        (function(){})(); // no-op; the chain IIFE already executed above
       }
 
-      // Persist session to local for predictable behavior
+      // Pull in firebase-init APIs
+      const mod = await import('js/firebase-init.js');
+      const ctx = await mod.ready;
+      const isStub = (mod.isStub && mod.isStub()) || false;
+      const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
+
+      // In dev/stub, optionally allow (prevents bounce loops while wiring DB)
+      if (isStub && ALLOW_STUB_MODE) return;
+
+      // If we truly have no auth object, go to login
+      if (!auth) { gotoLogin('no-auth'); return; }
+
+      // Persist session for predictable SPA behavior
       try {
         if (mod.setPersistence && mod.browserLocalPersistence) {
           await mod.setPersistence(auth, mod.browserLocalPersistence());
         }
       } catch (e) { console.warn('[FV] setPersistence failed:', e); }
 
-      // For all other pages, require auth.
-      mod.onAuthStateChanged(auth, async (user) => {
-        if (!user) { gotoLogin('unauthorized'); return; }
+      // Wait briefly for user hydration (first page load / SW warm)
+      const user = await waitForAuthHydration(mod, auth, 1600);
+      if (!user) { gotoLogin('unauthorized'); return; }
 
-        // Optional Firestore user-doc enforcement
-        if (!REQUIRE_FIRESTORE_USER_DOC && !TREAT_MISSING_DOC_AS_DENY) return;
+      // Optional: Firestore gating
+      if (!REQUIRE_FIRESTORE_USER_DOC && !TREAT_MISSING_DOC_AS_DENY) return;
 
-        try {
-          const db = mod.getFirestore();
-          const ref = mod.doc(db, 'users', user.uid);
-          const snap = await mod.getDoc(ref);
+      try {
+        const db  = mod.getFirestore();
+        const ref = mod.doc(db, 'users', user.uid);
+        const snap = await mod.getDoc(ref);
 
-          if (!snap.exists()) {
-            if (REQUIRE_FIRESTORE_USER_DOC && TREAT_MISSING_DOC_AS_DENY) {
-              try { await mod.signOut(auth); } catch {}
-              gotoLogin('no-user-doc');
-            }
-            return;
-          }
-
-          const u = snap.data() || {};
-          const denied =
-            (FIELD_DISABLED in u && !!u[FIELD_DISABLED]) ||
-            (FIELD_ACTIVE in u && u[FIELD_ACTIVE] === false);
-
-          if (denied) {
-            try { await mod.signOut(auth); } catch {}
-            gotoLogin('disabled');
-            return;
-          }
-          // else allowed
-        } catch (err) {
-          console.warn('[FV] Firestore auth check failed:', err);
+        if (!snap.exists()) {
           if (REQUIRE_FIRESTORE_USER_DOC && TREAT_MISSING_DOC_AS_DENY) {
             try { await mod.signOut(auth); } catch {}
-            gotoLogin('auth-check-failed');
+            gotoLogin('no-user-doc');
           }
+          return;
         }
-      });
+
+        const u = snap.data() || {};
+        const denied =
+          (FIELD_DISABLED in u && !!u[FIELD_DISABLED]) ||
+          (FIELD_ACTIVE in u && u[FIELD_ACTIVE] === false);
+
+        if (denied) {
+          try { await mod.signOut(auth); } catch {}
+          gotoLogin('disabled');
+          return;
+        }
+      } catch (err) {
+        console.warn('[FV] Firestore auth check failed:', err);
+        if (REQUIRE_FIRESTORE_USER_DOC && TREAT_MISSING_DOC_AS_DENY) {
+          try { await mod.signOut(auth); } catch {}
+          gotoLogin('auth-check-failed');
+        }
+      }
     } catch (e) {
       console.warn('[FV] auth-guard error:', e);
-      // On any fatal error, fail-closed off login
       if (!isLoginPath()) gotoLogin('guard-error');
     }
   };
