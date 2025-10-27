@@ -1,7 +1,7 @@
-/* FarmVista — <fv-shell> v5.9.8 (project-site safe with menu fallback)
+/* FarmVista — <fv-shell> v5.9.9 (project-site safe with menu fallback)
    - Works under https://dkillam05.github.io/Farm-vista/
    - Absolute import for js/menu.js + classic <script> fallback
-   - Logout: signOut only; NO manual navigation (auth guard handles redirect)
+   - Logout: signOut, then IMMEDIATE nav to pages/login/index.html (no guard delay)
 */
 (function () {
   const tpl = document.createElement('template');
@@ -541,7 +541,7 @@
       };
 
       try{
-        const { mod, ctx, auth, onIdTokenChanged, onAuthStateChanged, signOut } = await needAuthFns();
+        const { ctx, auth, onIdTokenChanged, onAuthStateChanged, signOut } = await needAuthFns();
         if (!auth) throw new Error('Auth unavailable');
 
         setLabel(auth.currentUser);
@@ -567,13 +567,9 @@
             try{
               if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
               else { await signOut(auth); }
-              setLabel(auth.currentUser);
-              // No navigation here — the auth guard in theme-boot.js will redirect to login.
-              this._toastMsg('Signed out', 1000);
-            }catch(err){
-              console.warn('[FV] logout error:', err);
-              this._toastMsg('Logout failed', 1600);
-            }
+            }catch(err){ console.warn('[FV] logout error:', err); }
+            // HARD NAV to the login page and STAY THERE
+            location.replace('pages/login/index.html');
           });
         }
       }catch(err){
@@ -583,8 +579,8 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            this._toastMsg('Signed out (local)', 1000);
-            // Even in stub, let the guard handle it; it’s a no-op but consistent.
+            // In stub/offline, still go to login path directly:
+            location.replace('pages/login/index.html');
           });
         }
       }
@@ -615,7 +611,7 @@
           try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
-        this._toastMsg(`Updating to v${targetVer}…`, 900);
+        this._toastMsg(`Updating…`, 900);
         await sleep(400);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer);
