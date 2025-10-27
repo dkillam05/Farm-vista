@@ -1,16 +1,14 @@
-/* FarmVista SW — robust fetch handler (PROJECT scope, iOS-safe) */
+/* FarmVista SW — robust 404-friendly fetch (PROJECT scope) */
 const SCOPE_PREFIX = "/Farm-vista/";
 
-/* ---- Version detection for cache names ---- */
+/* ---- Versioning ---- */
 async function readVersionNumber() {
   try {
     const r = await fetch(`${SCOPE_PREFIX}js/version.js?ts=${Date.now()}`, { cache: "reload" });
     const t = await r.text();
     const m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
     return (m && m[1]) || String(Date.now());
-  } catch {
-    return String(Date.now());
-  }
+  } catch { return String(Date.now()); }
 }
 
 async function makeNames() {
@@ -61,52 +59,47 @@ self.addEventListener("activate", (e)=>{
   })());
 });
 
-/* ---- Fetch (robust) ---- */
+/* ---- Fetch (never return null; let real 404s pass through) ---- */
 self.addEventListener("fetch", (e)=>{
   const req = e.request;
-
-  // Ignore non-GET early
   if (req.method !== "GET") return;
 
-  // Ignore non-http(s) schemes (iOS data:, blob:, etc.)
-  // and cross-origin requests (CDNs, APIs we don't want to hijack)
   let url;
-  try { url = new URL(req.url); }
-  catch { return; } // if URL constructor throws, let the browser handle it
+  try { url = new URL(req.url); } catch { return; }
 
-  const scheme = url.protocol;
-  if (scheme !== "http:" && scheme !== "https:") return;
+  // Ignore non-http(s) and cross-origin; also ignore outside project path
+  if (!/^https?:$/.test(url.protocol)) return;
   if (url.origin !== self.location.origin) return;
-
-  // Only handle our project path
   if (!url.pathname.startsWith(SCOPE_PREFIX)) return;
 
-  // Guaranteed respondWith with a Response
   if (req.mode === "navigate") {
-    e.respondWith(networkFirst(req));
+    e.respondWith(networkFirstAllow404(req));
   } else {
-    e.respondWith(staleWhileRevalidate(req));
+    e.respondWith(staleWhileRevalidateAllow404(req));
   }
 });
 
-/* ---- Strategies (always return a Response) ---- */
-async function networkFirst(request){
+/* ---- Strategies ---- */
+async function networkFirstAllow404(request){
   const { CACHE_STATIC } = await makeNames();
   const cache = await caches.open(CACHE_STATIC);
   try {
     const ctrl = new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
     const res = await fetch(request, { signal: ctrl.signal }); clearTimeout(t);
-    if (res && res.ok) { cache.put(request, res.clone()); return res; }
-    const cached = await cache.match(request); if (cached) return cached;
+    // Return the network response EVEN IF !ok (e.g., GitHub Pages 404)
+    if (res) {
+      if (res.ok) { cache.put(request, res.clone()); }
+      return res;
+    }
   } catch {
     const cached = await cache.match(request); if (cached) return cached;
   }
-  // Safe fallback inside project scope
+  // True offline fallback
   const fallback = await caches.match(`${SCOPE_PREFIX}dashboard/index.html`);
   return fallback || new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }});
 }
 
-async function staleWhileRevalidate(request){
+async function staleWhileRevalidateAllow404(request){
   const { RUNTIME_ASSETS } = await makeNames();
   const runtime = await caches.open(RUNTIME_ASSETS);
   const cached = await runtime.match(request);
@@ -115,10 +108,9 @@ async function staleWhileRevalidate(request){
     try {
       const res = await fetch(request);
       if (res && res.ok) { runtime.put(request, res.clone()); }
-      return res;
-    } catch {
-      return null;
-    }
+      // Return whatever the network gave us, even 404
+      return res || null;
+    } catch { return null; }
   })();
 
   if (cached) { networkPromise; return cached; }
