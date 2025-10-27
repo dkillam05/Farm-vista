@@ -1,11 +1,28 @@
-/* FarmVista — <fv-shell> v5.9.10 (self-contained: version + auth)
-   - Version + tagline come ONLY from js/version.js (SSOT)
-   - Shell loads: js/version.js, js/firebase-config.js, then imports js/firebase-init.js
+/* FarmVista — <fv-shell> v5.9.11 (base-aware paths, SW scope fix)
+   - Version + tagline from js/version.js (SSOT)
+   - Loads js/firebase-config.js, then imports js/firebase-init.js (module)
    - Logout label: First Last (Firestore users/{uid}) → displayName → email
-   - Update flow: clear SW + caches, single-line centered toasts, cache-busting reload
-   - Menu: absolute import with classic <script> fallback (project-site safe)
+   - Update flow: SW registered at BASE scope, cache-busting reload
+   - Menu: absolute import with classic <script> fallback
 */
 (function () {
+  const BASE = (() => {
+    try {
+      // document.baseURI ends with a trailing / when <base href="/Farm-vista/">
+      const u = new URL(document.baseURI || location.href);
+      // Ensure trailing slash and keep only the path part (e.g., "/Farm-vista/")
+      return (u.pathname.endsWith('/') ? u.pathname : u.pathname + '/');
+    } catch {
+      // Fallback to repo root used on GH Pages
+      return '/Farm-vista/';
+    }
+  })();
+
+  const srcAtBase = (p) => {
+    // avoid accidental '//' if BASE already has trailing slash
+    return (BASE + String(p || '').replace(/^\/+/, ''));
+  };
+
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
@@ -142,7 +159,6 @@
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
 
-    /* Toast: single line, centered text, wider */
     .toast{
       position:fixed; left:50%;
       bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
@@ -151,10 +167,8 @@
       padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px;
       opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-      white-space:nowrap;
-      min-width:320px; max-width:92vw;
-      overflow:hidden; text-overflow:ellipsis;
-      display:flex; align-items:center; justify-content:center; /* center text inside */
+      white-space:nowrap; min-width:320px; max-width:92vw;
+      overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center;
       text-align:center;
     }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
@@ -169,7 +183,7 @@
     }
     :host-context(.dark) .drawer header{
       background:var(--sidebar-surface, #171a18);
-      border-bottom:1px solid var(--sidebar-border, #2a2e2b);
+      border-bottom:1px solid var(--sidebar-border, #2a2eb);
     }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
@@ -208,7 +222,7 @@
   <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
       <div class="org">
-        <img src="assets/icons/icon-192.png" alt="" />
+        <img src="${srcAtBase('assets/icons/icon-192.png')}" alt="" />
         <div class="org-text">
           <div class="org-name">Dowson Farms</div>
           <div class="org-loc">Divernon, Illinois</div>
@@ -228,7 +242,7 @@
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
       <div class="brandrow">
-        <img src="assets/icons/icon-192.png" alt="" />
+        <img src="${srcAtBase('assets/icons/icon-192.png')}" alt="" />
         <div class="brandname">FarmVista</div>
       </div>
 
@@ -240,11 +254,11 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <a class="row" id="userDetailsLink" href="pages/user-details/index.html">
+      <a class="row" id="userDetailsLink" href="${srcAtBase('pages/user-details/index.html')}">
         <div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div>
         <div class="chev">›</div>
       </a>
-      <a class="row" id="feedbackLink" href="pages/feedback/index.html">
+      <a class="row" id="feedbackLink" href="${srcAtBase('pages/feedback/index.html')}">
         <div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div>
         <div class="chev">›</div>
       </a>
@@ -291,41 +305,32 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
-      // Footer text = copyright + date (NO version here)
       const now = new Date();
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // Load Version + Firebase (config → init), then wire auth label
       this._ensureVersionThenAuth();
 
-      // Update button
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
-      // Close top drawer on links
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
-      // Menu
       this._initMenu();
     }
 
-    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
     async _ensureVersionThenAuth(){
-      await this._loadScriptOnce('js/version.js').catch(()=>{});
+      await this._loadScriptOnce(srcAtBase('js/version.js')).catch(()=>{});
       this._applyVersionToUI();
 
-      await this._loadScriptOnce('js/firebase-config.js').catch(()=>{});
+      await this._loadScriptOnce(srcAtBase('js/firebase-config.js')).catch(()=>{});
       try{
-        const mod = await import('js/firebase-init.js');
-        // expose for other code if needed
+        const mod = await import(srcAtBase('js/firebase-init.js'));
         this._firebase = mod;
-        // Auth label wiring (email fallback)
         await this._wireAuthLogout(this.shadowRoot, mod);
       }catch(err){
         console.warn('[FV] firebase-init import failed:', err);
-        // still wire a simple logout nav
         this._wireAuthLogout(this.shadowRoot, null);
       }
     }
@@ -340,8 +345,11 @@
 
     _loadScriptOnce(src){
       return new Promise((resolve, reject)=>{
-        // If already present, resolve immediately
-        const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'').replace(location.origin,'') === ('/' + src).replace('//','/'));
+        const want = new URL(src, location.href).href;
+        const exists = Array.from(document.scripts).some(s => {
+          const cur = s.getAttribute('src'); if (!cur) return false;
+          try { return new URL(cur, location.href).href === want; } catch { return false; }
+        });
         if (exists) { resolve(); return; }
         const s = document.createElement('script');
         s.src = src; s.defer = true;
@@ -351,9 +359,8 @@
       });
     }
 
-    /* ===== Robust menu loader (absolute URL + fallback) ===== */
     async _initMenu(){
-      const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
+      const url = location.origin + srcAtBase('js/menu.js') + '?v=' + Date.now();
 
       try {
         const mod = await import(url);
@@ -396,7 +403,7 @@
 
       const mkLink = (item, depth=0) => {
         const a = document.createElement('a');
-        a.href = item.href || '#';
+        a.href = item.href ? srcAtBase(item.href) : '#';
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
         a.style.paddingLeft = pad(depth);
         const mode = item.activeMatch || 'starts-with';
@@ -523,7 +530,6 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Auth: logout + label (First Last → displayName → email) ===== */
     async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -537,12 +543,10 @@
           const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
           const fs   = (mod && (mod.getFirestore && mod.getFirestore())) || window.firebaseFirestore;
           const user = bestUser(auth);
-
           if (!user) { logoutLabel.textContent = 'Logout'; return; }
 
           let name = '';
 
-          // Firestore users/{uid} → first/last
           if (fs && mod && mod.doc && mod.getDoc) {
             try{
               const ref = mod.doc(fs, 'users', user.uid);
@@ -556,7 +560,6 @@
               }
             }catch{}
           }
-
           if (!name && user.displayName) name = String(user.displayName).trim();
           if (!name && user.email)       name = String(user.email).trim();
 
@@ -570,14 +573,13 @@
         if (mod && mod.onIdTokenChanged && mod.onAuthStateChanged) {
           const ctx = await mod.ready.catch(()=>null);
           const auth = (ctx && ctx.auth) || (mod.getAuth && mod.getAuth()) || window.firebaseAuth;
-          // Initial
+
           await setLabelFromProfile();
-          // Live updates
           mod.onIdTokenChanged(auth, setLabelFromProfile);
           mod.onAuthStateChanged(auth, setLabelFromProfile);
 
-          // Short retry loop (handles slow auth resolve)
-          let tries = 18;
+          // shorter, silent retry
+          let tries = 8;
           const tick = setInterval(async ()=>{
             await setLabelFromProfile();
             if (bestUser(auth) || --tries <= 0) clearInterval(tick);
@@ -592,17 +594,16 @@
                 if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
                 else if (mod && mod.signOut) { await mod.signOut(auth); }
               }catch(err){ console.warn('[FV] logout error:', err); }
-              location.replace('pages/login/index.html');
+              location.replace(srcAtBase('pages/login/index.html'));
             });
           }
         } else {
-          // Stub/no-firebase path: still hard-nav on click
           if (logoutRow) {
             logoutRow.addEventListener('click', (e)=>{
               e.preventDefault();
               this.toggleTop(false);
               this.toggleDrawer(false);
-              location.replace('pages/login/index.html');
+              location.replace(srcAtBase('pages/login/index.html'));
             });
           }
           await setLabelFromProfile();
@@ -614,20 +615,19 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
-            location.replace('pages/login/index.html');
+            location.replace(srcAtBase('pages/login/index.html'));
           });
         }
       }
     }
 
-    /* ===== Update flow with single-line centered toasts ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       const toast = (msg, ms=2000)=> this._toastMsg(msg, ms);
 
       async function readTargetVersion(){
         try{
-          const resp = await fetch('js/version.js?ts=' + Date.now(), { cache:'reload' });
+          const resp = await fetch(srcAtBase('js/version.js') + '?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
           const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || '';
@@ -660,11 +660,13 @@
 
         await sleep(150);
         if (navigator.serviceWorker) {
-          try { await navigator.serviceWorker.register('serviceworker.js?ts=' + Date.now()); } catch {}
+          try { await navigator.serviceWorker.register(srcAtBase('serviceworker.js') + '?ts=' + Date.now()); } catch {}
         }
 
         toast('Updating…', 1200);
         await sleep(320);
+
+        // Stay on same page; just bust query
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer || String(Date.now()));
         location.replace(url.toString());
