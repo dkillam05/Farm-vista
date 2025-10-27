@@ -1,4 +1,5 @@
 // /Farm-vista/js/theme-boot.js  (PROJECT-SITE SAFE: base-relative paths)
+// Viewport + theme boot + firebase boot + app startup + AUTH GUARD
 
 // === Global viewport + mobile tap behavior (inject once for the whole app) ===
 (function(){
@@ -94,6 +95,19 @@
 
 // === Global Auth Guard (runs on every page) ===
 (function(){
+  // helpers
+  const samePath = (a, b) => {
+    try {
+      const ua = new URL(a, document.baseURI || location.href);
+      const ub = new URL(b, document.baseURI || location.href);
+      return ua.pathname === ub.pathname && ua.search === ub.search && ua.hash === ub.hash;
+    } catch { return a === b; }
+  };
+  const resolveUnderBase = (p) => {
+    try { return new URL(p, document.baseURI || location.href).pathname + (new URL(p, document.baseURI || location.href).search || '') + (new URL(p, document.baseURI || location.href).hash || ''); }
+    catch { return p; }
+  };
+
   const run = async () => {
     try {
       // BASE-RELATIVE dynamic import
@@ -118,13 +132,16 @@
           if (!isLogin) {
             const next = encodeURIComponent(here);
             // BASE-RELATIVE redirect to login with return url
-            location.replace('pages/login/?next=' + next);
+            const dest = 'pages/login/?next=' + next;
+            if (!samePath(location.href, dest)) location.replace(dest);
           }
         } else if (isLogin) {
-          // Already signed in and on login — bounce to next or dashboard/
+          // Already signed in and on login — bounce to next or index.html
           const qs = new URLSearchParams(location.search);
-          const nextUrl = qs.get('next') || 'dashboard/';
-          location.replace(nextUrl);
+          const hinted = qs.get('next');
+          const fallback = 'index.html';
+          const dest = resolveUnderBase((hinted && hinted.trim()) ? hinted : fallback);
+          if (!samePath(location.href, dest)) location.replace(dest);
         }
       });
     } catch (e) {
