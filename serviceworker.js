@@ -1,106 +1,187 @@
-/* FarmVista SW — dynamic versioned precache (ROOT scope) */
-const SCOPE_PREFIX = "/";
+/* FarmVista SW — dynamic versioned precache (scope-aware, no fetch-time version lookups) */
 
-/* derive version number by reading /js/version.js */
-async function readVersionNumber() {
+/* ----- Scope detection (works at /Farm-vista/ or /) ----- */
+const SCOPE_PREFIX = (() => {
   try {
-    const r = await fetch(`/js/version.js?ts=${Date.now()}`, { cache: "reload" });
+    const u = new URL(self.registration.scope);
+    // Ensure trailing slash so startsWith checks are clean
+    return u.pathname.endsWith('/') ? u.pathname : (u.pathname + '/');
+  } catch {
+    return '/';
+  }
+})();
+
+/* ----- Globals set during install/activate ----- */
+let FV_VER = '0';
+let CACHE_STATIC = 'farmvista-static-v0';
+let CACHE_RUNTIME = 'farmvista-runtime-v0';
+let PRECACHE_URLS = [];
+
+function scoped(path) {
+  // Accept absolute “/foo” or bare “foo”
+  const p = String(path || '').replace(/^\//, '');
+  return SCOPE_PREFIX + p;
+}
+
+/* derive version number by reading js/version.js ONCE (install/activate time only) */
+async function readVersionNumberOnce() {
+  try {
+    // Important: request WITHIN scope so SW doesn’t consider it cross-origin
+    const r = await fetch(scoped('js/version.js') + `?ts=${Date.now()}`, { cache: 'reload' });
     const t = await r.text();
-    let m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+    const m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
     return (m && m[1]) || String(Date.now());
   } catch {
     return String(Date.now());
   }
 }
 
-async function makeNames() {
-  const ver = await readVersionNumber();     // e.g., "3.0.0"
-  const CACHE_STATIC = `farmvista-static-v${ver}`;
-  const RUNTIME_ASSETS = `farmvista-runtime-v${ver}`;
-  const REV = ver;
-  const PRECACHE_URLS = [
-    `${SCOPE_PREFIX}`,
-    `${SCOPE_PREFIX}index.html?rev=${REV}`,
-    `${SCOPE_PREFIX}manifest.webmanifest`,
-    `${SCOPE_PREFIX}assets/css/theme.css?rev=${REV}`,
-    `${SCOPE_PREFIX}assets/css/app.css?rev=${REV}`,
-    `${SCOPE_PREFIX}js/version.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/core.js?rev=${REV}`,
-    `${SCOPE_PREFIX}js/fv-shell.js?rev=${REV}`,
-    `${SCOPE_PREFIX}assets/icons/icon-192.png`,
-    `${SCOPE_PREFIX}assets/icons/icon-512.png`,
-    `${SCOPE_PREFIX}assets/icons/apple-touch-icon.png`
+async function initNames() {
+  FV_VER = await readVersionNumberOnce();     // e.g., "10.27.05"
+  CACHE_STATIC  = `farmvista-static-v${FV_VER}`;
+  CACHE_RUNTIME = `farmvista-runtime-v${FV_VER}`;
+
+  const REV = FV_VER;
+  PRECACHE_URLS = [
+    scoped(''),
+    scoped(`index.html?rev=${REV}`),
+    scoped('manifest.webmanifest'),
+    scoped(`assets/css/theme.css?rev=${REV}`),
+    scoped(`assets/css/app.css?rev=${REV}`),
+    scoped(`js/version.js?rev=${REV}`),
+    scoped(`js/core.js?rev=${REV}`),
+    scoped(`js/fv-shell.js?rev=${REV}`),
+    scoped('assets/icons/icon-192.png'),
+    scoped('assets/icons/icon-512.png'),
+    scoped('assets/icons/apple-touch-icon.png')
   ];
-  return { CACHE_STATIC, RUNTIME_ASSETS, PRECACHE_URLS };
 }
 
-async function fetchAndPut(cache, url){
+/* small helper: cache.put only if OK/basic */
+async function putIfCachable(cache, req, res) {
   try {
-    const res = await fetch(new Request(url, { cache: "reload" }));
-    if (res && res.ok) await cache.put(url, res.clone());
+    if (!res) return;
+    if (res.ok && (res.type === 'basic' || res.type === 'default')) {
+      await cache.put(req, res.clone());
+    }
   } catch {}
 }
 
-self.addEventListener("install", (e)=>{
-  e.waitUntil((async()=>{
-    const { CACHE_STATIC, PRECACHE_URLS } = await makeNames();
+/* Initialize once; fetch will wait on this before responding */
+const READY = (async()=>{ await initNames(); })();
+
+/* -------------------- INSTALL -------------------- */
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    await READY;
     const c = await caches.open(CACHE_STATIC);
-    await Promise.all(PRECACHE_URLS.map(u=>fetchAndPut(c,u)));
+    await Promise.all(
+      PRECACHE_URLS.map(async (u) => {
+        try {
+          const res = await fetch(new Request(u, { cache: 'reload' }));
+          if (res && res.ok) await c.put(u, res.clone());
+        } catch {}
+      })
+    );
     await self.skipWaiting();
   })());
 });
 
-self.addEventListener("activate", (e)=>{
-  e.waitUntil((async()=>{
-    const { CACHE_STATIC, RUNTIME_ASSETS } = await makeNames();
-    const keep = new Set([CACHE_STATIC, RUNTIME_ASSETS]);
+/* -------------------- ACTIVATE -------------------- */
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    await READY;
+    const keep = new Set([CACHE_STATIC, CACHE_RUNTIME]);
     const keys = await caches.keys();
-    await Promise.all(keys.map(k => keep.has(k) ? null : caches.delete(k)));
+    await Promise.all(keys.map((k) => (keep.has(k) ? Promise.resolve() : caches.delete(k))));
     await self.clients.claim();
   })());
 });
 
-self.addEventListener("fetch", (e)=>{
-  const {request:req} = e;
-  if (req.method !== "GET") return;
+/* -------------------- FETCH -------------------- */
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+
+  // Only handle GET, under our scope
+  if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (!url.pathname.startsWith(SCOPE_PREFIX)) return;
 
-  if (req.mode === "navigate") {
-    e.respondWith(networkFirst(req));
-  } else if (["style","script","image","font"].includes(req.destination)) {
-    e.respondWith(staleWhileRevalidate(req));
-  } else {
-    e.respondWith(staleWhileRevalidate(req));
-  }
+  event.respondWith(READY.then(async () => {
+    if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
+      return networkFirstNav(req);
+    }
+
+    // Static-ish assets: CSS/JS/images/fonts → stale-while-revalidate
+    if (['style', 'script', 'image', 'font'].includes(req.destination)) {
+      return staleWhileRevalidate(req);
+    }
+
+    // Default: stale-while-revalidate as well
+    return staleWhileRevalidate(req);
+  }));
 });
 
-async function networkFirst(request){
-  const { CACHE_STATIC } = await makeNames();
-  const cache = await caches.open(CACHE_STATIC);
+/* -------------------- STRATEGIES -------------------- */
+
+async function networkFirstNav(request) {
+  const staticCache = await caches.open(CACHE_STATIC);
+
+  // Prefer network (with a reasonable timeout), then cache, then last-resort minimal offline
   try {
-    const ctrl = new AbortController(); const t=setTimeout(()=>ctrl.abort(),5000);
-    const res = await fetch(request, { signal: ctrl.signal }); clearTimeout(t);
-    if (res && res.ok) { cache.put(request, res.clone()); return res; }
-    const cached = await cache.match(request); if (cached) return cached;
-  } catch { const cached = await cache.match(request); if (cached) return cached; }
-  return new Response("Offline", {status:503});
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(request, { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(timer);
+    if (res && res.ok) {
+      await putIfCachable(staticCache, request, res);
+      return res;
+    }
+  } catch {}
+
+  // Fallback to cached navigation (try cache-busted index first, then plain index)
+  const bustedIndex = await staticCache.match(scoped(`index.html?rev=${FV_VER}`));
+  if (bustedIndex) return bustedIndex;
+
+  const plainIndex = await staticCache.match(scoped('index.html'));
+  if (plainIndex) return plainIndex;
+
+  return new Response(
+    '<!doctype html><meta charset="utf-8"><title>Offline</title><h1>Offline</h1><p>No cached copy available.</p>',
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' }, status: 503 }
+  );
 }
 
-async function staleWhileRevalidate(request){
-  const { RUNTIME_ASSETS } = await makeNames();
-  const runtime = await caches.open(RUNTIME_ASSETS);
+async function staleWhileRevalidate(request) {
+  const runtime = await caches.open(CACHE_RUNTIME);
   const cached = await runtime.match(request);
-  const networkPromise = (async()=>{
-    try { const res = await fetch(request); if (res && res.ok) runtime.put(request, res.clone()); return res; }
-    catch { return null; }
+  const net = (async () => {
+    try {
+      const res = await fetch(request);
+      if (res && res.ok) await putIfCachable(runtime, request, res);
+      return res;
+    } catch {
+      return null;
+    }
   })();
-  if (cached) { networkPromise; return cached; }
-  const res = await networkPromise; if (res) return res;
-  const { CACHE_STATIC } = await makeNames();
-  return (await caches.open(CACHE_STATIC)).match(request) || new Response("Offline",{status:503});
+
+  if (cached) {
+    // Kick off network update in background; return cache immediately
+    net.catch(() => {});
+    return cached;
+  }
+  const res = await net;
+  if (res) return res;
+
+  // Last fallback to static cache (often precached)
+  const staticCache = await caches.open(CACHE_STATIC);
+  const fallback = await staticCache.match(request);
+  return fallback || new Response('', { status: 504, statusText: 'Gateway Timeout' });
 }
 
-self.addEventListener('message', (e)=>{
-  if (e && e.data === 'SKIP_WAITING') self.skipWaiting();
+/* -------------------- MESSAGES -------------------- */
+self.addEventListener('message', (e) => {
+  if (e && (e.data === 'SKIP_WAITING' || (e.data && e.data.type === 'SKIP_WAITING'))) {
+    self.skipWaiting();
+  }
 });
