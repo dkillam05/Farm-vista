@@ -10,17 +10,16 @@
   <link rel="manifest" href="../../../manifest.webmanifest">
   <link rel="stylesheet" href="../../../assets/css/theme.css">
   <link rel="stylesheet" href="../../../assets/css/app.css">
-
-  <!-- Shell + components -->
   <script defer src="../../../js/theme-boot.js"></script>
   <script defer src="../../../js/fv-shell.js"></script>
+  <!-- ensure the tile component is available -->
   <script defer src="../../../js/fv-form-button.js"></script>
 
-  <!-- ✅ Ensure Firebase config is available before our module uses firebase-init -->
-  <script src="../../../js/firebase-config.js"></script>
-
   <style>
-    :root{ --card-max: 1100px; --page-bottom-gap: 96px; }
+    :root{
+      --card-max: 1100px;
+      --page-bottom-gap: 96px; /* keep content clear of fixed footer */
+    }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
 
@@ -31,46 +30,31 @@
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
     }
 
-    .intro h1{ margin: 0 0 8px 0; font-size: clamp(22px, 3.6vw, 30px); line-height: 1.1; color: var(--text); }
-    .intro p{ margin: 0 0 18px 0; color: var(--muted, #6d746f); max-width: 72ch; }
+    /* Intro (matches equipment pages) */
+    .intro h1{
+      margin: 0 0 8px 0;
+      font-size: clamp(22px, 3.6vw, 30px);
+      line-height: 1.1;
+      color: var(--text);
+    }
+    .intro p{
+      margin: 0 0 18px 0;
+      color: var(--muted, #6d746f);
+      max-width: 72ch;
+    }
 
-    /* Tiles: always two columns to match your equipment pages */
-    .tiles{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    /* 🔒 Always two columns like the equipment pages */
+    .tiles{
+      display: grid;
+      grid-template-columns: 1fr 1fr; /* fixed two columns */
+      gap: 18px;
+    }
 
-    fv-form-button a, fv-form-button a:link, fv-form-button a:visited { color: var(--text) !important; text-decoration: none; }
+    /* Ensure tile labels inherit theme color, not default blue */
+    fv-form-button a,
+    fv-form-button a:link,
+    fv-form-button a:visited { color: var(--text) !important; text-decoration: none; }
     fv-form-button .title { color: var(--text) !important; }
-
-    /* Quick Add Me card */
-    .section{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
-      margin: 18px 0;
-    }
-    .section-head{
-      display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
-      padding:14px 16px;border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
-    }
-    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
-    .section-body{ padding:16px; display:grid; gap:12px; }
-    .row{ display:grid; grid-template-columns: 140px 1fr; gap:12px; align-items:center; }
-    .row label{ font-weight:600; color: var(--text); }
-    .row input{
-      width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border);
-      background: var(--surface-2, var(--surface)); color: var(--text);
-    }
-    .actions{ display:flex; gap:10px; align-items:center; }
-    .btn{
-      appearance:none; border:1.5px solid var(--border);
-      background:var(--green); color:#fff; font-weight:700; padding:10px 14px; border-radius:10px;
-    }
-    .muted{ color: var(--muted, #6d746f); font-size: 14px; }
-    .ok{ color:#1f7a3a; }
-    .err{ color:#b3261e; }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   </style>
 </head>
 <body>
@@ -84,34 +68,8 @@
         </p>
       </section>
 
-      <!-- Quick self-enroll so logout label can pull First/Last from users/{uid} -->
-      <section class="section" aria-label="Quick Add Me">
-        <header class="section-head">
-          <div class="icon" aria-hidden="true">🧑‍🌾</div>
-          <div><strong>Quick Add Me (to Firestore)</strong></div>
-        </header>
-        <div class="section-body">
-          <div class="row">
-            <label for="q_email">Signed-in email</label>
-            <input id="q_email" type="email" disabled placeholder="(not signed in)">
-          </div>
-          <div class="row">
-            <label for="q_first">First name</label>
-            <input id="q_first" type="text" autocomplete="given-name" placeholder="e.g., Dane">
-          </div>
-          <div class="row">
-            <label for="q_last">Last name</label>
-            <input id="q_last" type="text" autocomplete="family-name" placeholder="e.g., Killam">
-          </div>
-          <div class="actions">
-            <button class="btn" id="q_save">Save me as employee</button>
-            <div id="q_status" class="muted">Waiting for Firebase…</div>
-          </div>
-          <div class="muted mono" id="q_uid" style="display:none"></div>
-        </div>
-      </section>
-
       <section class="tiles">
+        <!-- ✅ Updated Add link -->
         <fv-form-button label="Add"     icon-svg="plus"     href="./employee-buttons/employees-add.html"></fv-form-button>
         <fv-form-button label="Edit"    icon-svg="edit"     href="./employees-edit.html"></fv-form-button>
         <fv-form-button label="Archive" icon-svg="done-box" href="./employees-archive.html"></fv-form-button>
@@ -119,110 +77,7 @@
     </div>
   </fv-shell>
 
-  <!-- App logic: import firebase-init and write to Firestore -->
-  <script type="module">
-    import * as FB from '../../../js/firebase-init.js';
-
-    const $ = (sel) => document.querySelector(sel);
-    const emailEl = $('#q_email');
-    const firstEl = $('#q_first');
-    const lastEl  = $('#q_last');
-    const saveBtn = $('#q_save');
-    const status  = $('#q_status');
-    const uidBox  = $('#q_uid');
-
-    const ok = (msg) => { status.textContent = msg; status.className = 'ok'; };
-    const err = (msg) => { status.textContent = msg; status.className = 'err'; };
-    const info= (msg) => { status.textContent = msg; status.className = 'muted'; };
-
-    // Wait for firebase-init to resolve (either real Firebase or stub)
-    const { auth, firestore, mode } = await FB.ready;
-    const sw = customElements.get('fv-shell') ? document.querySelector('fv-shell') : null;
-    const toast = (m) => {
-      try { sw && sw._toastMsg ? sw._toastMsg(m, 2200) : console.log(m); }
-      catch { console.log(m); }
-    };
-
-    // Reflect signed-in user (email) and prefill names if present
-    function reflectUser(u){
-      if (!u) {
-        emailEl.value = '';
-        emailEl.placeholder = '(not signed in)';
-        info('Sign in first, then add yourself.');
-        uidBox.style.display = 'none';
-        saveBtn.disabled = true;
-        return;
-      }
-      emailEl.value = u.email || '';
-      saveBtn.disabled = false;
-      uidBox.textContent = `uid: ${u.uid}`;
-      uidBox.style.display = 'block';
-      info('Ready. Enter first/last and save.');
-
-      // Try to pull existing names from users/{uid} to prefill
-      (async () => {
-        try{
-          const ref = FB.doc(firestore, 'users', u.uid);
-          const snap = await FB.getDoc(ref);
-          const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
-          if (data) {
-            if (data.firstName) firstEl.value = data.firstName;
-            if (data.lastName)  lastEl.value  = data.lastName;
-          }
-        }catch(e){ /* ignore */ }
-      })();
-    }
-
-    FB.onAuthStateChanged(auth, reflectUser);
-
-    // Save handler: writes BOTH users/{uid} and employees/{uid}
-    saveBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      try{
-        const u = auth.currentUser;
-        if (!u) { err('Not signed in.'); toast('Please sign in first.'); return; }
-
-        const first = String(firstEl.value || '').trim();
-        const last  = String(lastEl.value  || '').trim();
-        if (!first && !last) { err('Enter first and/or last name.'); return; }
-
-        const now = FB.serverTimestamp();
-        const userDoc = FB.doc(firestore, 'users', u.uid);
-        const empDoc  = FB.doc(firestore, 'employees', u.uid);
-
-        // users/{uid} — the shell reads this for Logout First Last
-        await FB.setDoc(userDoc, {
-          firstName: first || null,
-          lastName:  last  || null,
-          email: u.email || null,
-          updatedAt: now,
-          createdAt: now
-        }, { merge: true });
-
-        // employees/{uid} — mirror for your directory
-        await FB.setDoc(empDoc, {
-          uid: u.uid,
-          email: u.email || null,
-          firstName: first || null,
-          lastName:  last  || null,
-          role: 'employee',
-          active: true,
-          updatedAt: now,
-          createdAt: now
-        }, { merge: true });
-
-        ok('Saved. Logout label should pick this up.');
-        toast('Employee saved');
-      }catch(ex){
-        console.error(ex);
-        err('Save failed. See console.');
-        toast('Save failed');
-      }
-    });
-  </script>
-
   <script>
-    // Small sanity check for the tile component
     window.addEventListener('DOMContentLoaded', ()=>{
       if(!customElements.get('fv-form-button')){
         console.warn('fv-form-button not loaded. Verify path: ../../../js/fv-form-button.js');
