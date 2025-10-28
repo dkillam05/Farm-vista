@@ -1,0 +1,293 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Edit Contractor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <style>
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 18px 0;color:var(--muted,#87908a);}
+    .searchbar{position:relative;margin:0 0 10px}
+    .searchbar input{width:100%;padding:12px 14px;border:1px solid var(--border);
+      border-radius:12px;background:var(--surface);color:var(--text);font:inherit}
+    .chips{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 16px}
+    .chip{padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
+      background:var(--card-surface,var(--surface));font-weight:700;color:var(--text)}
+    .chip.active{background:#e7f1ea;color:#2F6C3C;border-color:#2F6C3C}
+    .list{margin:0 0 16px 0;padding:0;list-style:none;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .list li{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 14px;background:var(--surface)}
+    .list li:nth-child(odd){background:var(--card-surface,var(--surface))}
+    .list .name{font-weight:800}
+    .list .meta{font-size:.925rem;color:var(--muted,#87908a)}
+    .empty{color:var(--muted,#87908a);padding:6px 2px}
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;display:none}
+    .section.show{display:block}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:16px;display:grid;gap:14px;}
+    .grid2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+    @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+    .field label{display:block;font-weight:800;margin:0 0 6px 0;}
+    .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
+      border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
+    .btn[disabled]{opacity:.5;pointer-events:none}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 2.8s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  </style>
+</head><body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Edit Contractor</h1>
+      <p class="page-sub">Search, select, and update a subcontractor.</p>
+
+      <div class="searchbar"><input id="q" type="search" placeholder="Search contractors by name, contact, or email…"/></div>
+      <div class="chips">
+        <button class="chip active" data-status="all">All</button>
+        <button class="chip" data-status="Active">Active</button>
+        <button class="chip" data-status="Inactive">Inactive</button>
+      </div>
+
+      <ul id="results" class="list" aria-live="polite"></ul>
+      <div id="empty" class="empty">No matches.</div>
+
+      <section id="formSection" class="section" aria-hidden="true">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🧰</div>
+          <div><strong>Contractor Details</strong></div>
+        </header>
+
+        <div class="section-body">
+          <div class="grid2">
+            <div class="field">
+              <label for="name">Company / Person</label>
+              <input id="name" class="input" type="text" />
+            </div>
+            <div class="field">
+              <label for="contact">Primary Contact</label>
+              <input id="contact" class="input" type="text" />
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" class="input" type="email" />
+            </div>
+            <div class="field">
+              <label for="phone">Phone</label>
+              <input id="phone" class="input" type="tel" placeholder="(555) 555-5555" />
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="service">Service / Trade</label>
+              <input id="service" class="input" type="text" />
+            </div>
+            <div class="field">
+              <label for="perm">Permission Group</label>
+              <select id="perm" class="input"><option>Standard</option></select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="status">Status</label>
+            <select id="status" class="input">
+              <option>Active</option>
+              <option>Inactive</option>
+            </select>
+          </div>
+
+          <div class="field" style="min-width:0">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="input" rows="3"></textarea>
+          </div>
+
+          <button id="saveMain" class="btn btn-accent" type="button">Save</button>
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear</button>
+            <button id="save" class="btn btn-primary" type="button">Save</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $=id=>document.getElementById(id);
+    const toast=$("toast");
+    const resultsEl=$("results");
+    const emptyEl=$("empty");
+    const formSection=$("formSection");
+
+    let all=[], sel=null, statusFilter='all', busy=false;
+
+    const showToast=m=>{ toast.textContent=m||"Saved."; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
+    const setBusy=on=>{ busy=!!on; ["save","saveMain","clear"].forEach(id=>{const b=$(id); if(b) b.disabled=on;}); };
+    const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
+    const formatUSPhone=raw=>{ const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d; return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim(); };
+    $("phone").addEventListener("blur", e=> e.target.value = formatUSPhone(e.target.value));
+    const slugify=s=>String(s||"").toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+
+    function renderList(){
+      const q = ($("q")?.value||'').toLowerCase().trim();
+      const items = all.filter(x=>{
+        if(statusFilter!=='all' && (x.data.status||'')!==statusFilter) return false;
+        if(!q) return true;
+        const hay=[x.data.company||x.data.name||'', x.data.fullName||'', x.data.contactName||'', x.data.email||'', x.data.phone||'', x.data.service||''].map(s=>String(s).toLowerCase());
+        return hay.some(s=>s.includes(q));
+      }).sort((a,b)=>String(a.data.company||a.data.name||'').localeCompare(String(b.data.company||b.data.name||'')));
+
+      resultsEl.innerHTML='';
+      if(!items.length){ emptyEl.style.display='block'; return; }
+      emptyEl.style.display='none';
+
+      for(const it of items){
+        const li=document.createElement('li');
+        const left=document.createElement('div');
+        left.innerHTML=`<div class="name">${it.data.company || it.data.name || '(no name)'}</div><div class="meta">${it.data.email || ''}</div>`;
+        const right=document.createElement('div');
+        const btn=document.createElement('button');
+        btn.className='btn btn-primary'; btn.textContent='Edit';
+        btn.addEventListener('click',()=>loadIntoForm(it));
+        right.appendChild(btn);
+        li.appendChild(left); li.appendChild(right); resultsEl.appendChild(li);
+      }
+    }
+
+    function wireChips(){
+      document.querySelectorAll('.chip').forEach(ch=>{
+        ch.addEventListener('click',()=>{
+          document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+          ch.classList.add('active'); statusFilter=ch.dataset.status||'all'; renderList();
+        });
+      });
+    }
+
+    async function boot(){
+      await ready;
+      const col = collection(getFirestore(),"subcontractors");
+      onSnapshot(col,(snap)=>{
+        all=snap.docs.map(d=>({id:d.id,data:d.data()||{}}));
+        renderList();
+      });
+    }
+
+    function clearForm(){
+      ["name","contact","email","phone","service","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
+      $("status").value="Active"; $("perm").value="Standard";
+      formSection.classList.remove('show'); formSection.setAttribute('aria-hidden','true'); sel=null;
+    }
+
+    function loadIntoForm(item){
+      sel={id:item.id,data:item.data};
+      $("name").value=item.data.company||item.data.name||'';
+      $("contact").value=item.data.contactName||item.data.fullName||'';
+      $("email").value=item.data.email||'';
+      $("phone").value=item.data.phone||'';
+      $("service").value=item.data.service||'';
+      $("perm").value=item.data.permissionGroup||'Standard';
+      $("status").value=item.data.status||'Active';
+      $("notes").value=item.data.notes||'';
+      formSection.classList.add("show"); formSection.setAttribute('aria-hidden','false');
+      window.scrollTo({top: formSection.offsetTop - 12, behavior:'smooth'});
+    }
+
+    function collect(){
+      return {
+        name: $("name").value.trim(),
+        contact: $("contact").value.trim(),
+        email: ($("email").value||'').trim(),
+        phone: formatUSPhone($("phone").value),
+        service: $("service").value.trim(),
+        status: $("status").value,
+        perm: $("perm").value,
+        notes: $("notes").value.trim()
+      };
+    }
+
+    async function saveContractor(vals){
+      const db=getFirestore();
+      const proposedId = vals.email ? `email-${vals.email.toLowerCase()}` : `nm-${slugify(vals.name)}`;
+      let targetId=proposedId;
+
+      if(sel && sel.id && sel.id!==proposedId){
+        const oldRef=doc(db,"subcontractors",sel.id);
+        const newRef=doc(db,"subcontractors",proposedId);
+        const oldSnap=await getDoc(oldRef);
+        const payload={
+          company: vals.name, name: vals.name,
+          contactName: vals.contact, fullName: vals.contact,
+          email: vals.email, phone: vals.phone, service: vals.service,
+          permissionGroup: vals.perm, status: vals.status, active: vals.status==="Active",
+          notes: vals.notes,
+          search: [vals.name.toLowerCase(), (vals.contact||"").toLowerCase(), (vals.email||"").toLowerCase()].filter(Boolean),
+          type: "Subcontractor",
+          updatedAt: serverTimestamp(),
+          createdAt: oldSnap.exists()? (oldSnap.data()?.createdAt || serverTimestamp()) : serverTimestamp()
+        };
+        await setDoc(newRef, payload, { merge:false });
+        if(oldSnap.exists()) await deleteDoc(oldRef);
+        targetId=proposedId;
+      }else{
+        const ref=doc(db,"subcontractors",proposedId);
+        const snap=await getDoc(ref);
+        const payload={
+          company: vals.name, name: vals.name,
+          contactName: vals.contact, fullName: vals.contact,
+          email: vals.email, phone: vals.phone, service: vals.service,
+          permissionGroup: vals.perm, status: vals.status, active: vals.status==="Active",
+          notes: vals.notes,
+          search: [vals.name.toLowerCase(), (vals.contact||"").toLowerCase(), (vals.email||"").toLowerCase()].filter(Boolean),
+          type: "Subcontractor",
+          updatedAt: serverTimestamp()
+        };
+        if(!snap.exists()) payload.createdAt = serverTimestamp();
+        await setDoc(ref, payload, { merge:true });
+        targetId=proposedId;
+      }
+      return targetId;
+    }
+
+    $("q").addEventListener('input', renderList);
+    wireChips();
+
+    $("clear").addEventListener("click", ()=>{ if(busy) return; clearForm(); });
+    $("save").addEventListener("click", async ()=>{
+      if(busy || !sel) return;
+      const vals=collect(); try{ setBusy(true); await ready; await saveContractor(vals); showToast("Contractor saved."); }
+      catch(err){ alert("Save failed.\n\n"+(err?.message||err)); } finally{ setBusy(false); }
+    });
+    $("saveMain").addEventListener("click", ()=>$("save").click());
+
+    boot().catch(console.error);
+  </script>
+</body></html>
