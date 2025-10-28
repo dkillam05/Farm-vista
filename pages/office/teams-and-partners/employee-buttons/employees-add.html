@@ -33,8 +33,9 @@
     @media(max-width:720px){.grid2{grid-template-columns:1fr}}
 
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
-    .field label .req{color:#C13B3B;margin-left:2px;font-weight:700;} /* red asterisk for required */
-    .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+    .field label .req{color:#C13B3B;margin-left:2px;font-weight:700;} /* 🔴 asterisk only */
+    .input{width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
@@ -44,9 +45,6 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;} /* Invite */
     .btn-quiet{min-width:auto;padding:8px 12px}
-
-    input:invalid{border-color:#C13B3B !important;}
-    input:focus:invalid{outline:2px solid #C13B3B;}
 
     /* Neutralize iOS yellow autofill */
     input:-webkit-autofill,
@@ -61,7 +59,8 @@
 
     /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
-      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
@@ -73,7 +72,6 @@
     }
   })();</script>
 
-  <!-- CONFIG FIRST (prevents stub mode) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 </head><body>
   <fv-shell>
@@ -88,7 +86,6 @@
         </header>
 
         <div class="section-body">
-          <!-- Name -->
           <div class="grid2">
             <div class="field">
               <label for="first">First Name<span class="req">*</span></label>
@@ -100,7 +97,6 @@
             </div>
           </div>
 
-          <!-- Email / Mobile -->
           <div class="grid2">
             <div class="field">
               <label for="email">Email<span class="req">*</span></label>
@@ -112,13 +108,11 @@
             </div>
           </div>
 
-          <!-- Role -->
           <div class="field">
             <label for="role">Role / Title</label>
             <input id="role" class="input" type="text" placeholder="Operator, Agronomy, Office…" />
           </div>
 
-          <!-- Type / Start Date -->
           <div class="grid2">
             <div class="field">
               <label for="type">Type</label>
@@ -134,7 +128,6 @@
             </div>
           </div>
 
-          <!-- Status / Permission Group -->
           <div class="grid2">
             <div class="field">
               <label for="status">Status</label>
@@ -154,7 +147,6 @@
             </div>
           </div>
 
-          <!-- Notes + Actions -->
           <div class="row">
             <div class="field" style="min-width:0">
               <label for="notes">Notes</label>
@@ -171,7 +163,6 @@
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
   <script type="module">
@@ -192,12 +183,9 @@
       toast.classList.add("show");
     };
 
-    const setBusy = (on) => {
-      busy = !!on;
-      ["save","saveInvite","clear"].forEach(id=>{
-        const b=$(id); if(b){ b.disabled = on; }
-      });
-    };
+    const setBusy = (on)=>["save","saveInvite","clear"].forEach(id=>{
+      const b=$(id); if(b) b.disabled=on;
+    });
 
     const digitsOnly = s => String(s||'').replace(/\D+/g,'');
     const formatUSPhone = raw => {
@@ -210,145 +198,88 @@
     const emailKey = e => (String(e||"").trim().toLowerCase());
 
     function collectAndValidate(){
-      const first = $("first");
-      const last  = $("last");
-      const email = $("email");
-      if(!first.checkValidity()){ first.reportValidity(); return null; }
-      if(!last.checkValidity()){ last.reportValidity(); return null; }
-      if(!email.checkValidity()){ email.reportValidity(); return null; }
+      const first=$("first"), last=$("last"), email=$("email");
+      if(!first.checkValidity()){first.reportValidity();return null;}
+      if(!last.checkValidity()){last.reportValidity();return null;}
+      if(!email.checkValidity()){email.reportValidity();return null;}
 
       return {
-        first: first.value.trim(),
-        last:  last.value.trim(),
-        email: email.value.trim(),
-        phone: formatUSPhone($("phone").value),
-        role:  $("role").value.trim(),
-        type:  $("type").value,
-        start: $("start").value,
+        first:first.value.trim(),
+        last:last.value.trim(),
+        email:email.value.trim(),
+        phone:formatUSPhone($("phone").value),
+        role:$("role").value.trim(),
+        type:$("type").value,
+        start:$("start").value,
         status:$("status").value,
-        perm:  $("perm").value,
-        notes: $("notes").value.trim()
+        perm:$("perm").value,
+        notes:$("notes").value.trim()
       };
     }
 
     async function upsertEmployee(vals){
-      const db = getFirestore();
-      const fullName = `${vals.first} ${vals.last}`.trim();
-      const payload = {
-        firstName: vals.first,
-        lastName:  vals.last,
-        fullName,
-        email:     vals.email,
-        phone:     vals.phone,
-        role:      vals.role,
-        type:      vals.type,
-        startDate: vals.start || null,
-        status:    vals.status,
-        permissionGroup: vals.perm,
-        notes:     vals.notes,
-        search: [fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
-        active: vals.status === "Active",
-        updatedAt: serverTimestamp()
+      const db=getFirestore();
+      const id=emailKey(vals.email);
+      const fullName=`${vals.first} ${vals.last}`.trim();
+      const ref=doc(db,"employees",id);
+      const snap=await getDoc(ref);
+      const payload={
+        firstName:vals.first,lastName:vals.last,fullName,
+        email:vals.email,phone:vals.phone,role:vals.role,type:vals.type,
+        startDate:vals.start||null,status:vals.status,permissionGroup:vals.perm,
+        notes:vals.notes,search:[fullName.toLowerCase(),vals.email.toLowerCase()],
+        active:vals.status==="Active",updatedAt:serverTimestamp()
       };
-
-      const id = emailKey(vals.email);
-      const ref = doc(db, "employees", id);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) payload.createdAt = serverTimestamp();
-      await setDoc(ref, payload, { merge: true });
-      return { id, ref, created: !snap.exists() };
+      if(!snap.exists())payload.createdAt=serverTimestamp();
+      await setDoc(ref,payload,{merge:true});
+      return{id,ref,created:!snap.exists()};
     }
 
-    async function ensureAuthUser(email, displayName){
-      if(!email) throw new Error("Missing email for Auth user");
-      const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
-      const [{ initializeApp }, authMod] = await Promise.all([
-        import(CDN_BASE + 'firebase-app.js'),
-        import(CDN_BASE + 'firebase-auth.js')
+    async function ensureAuthUser(email,displayName){
+      if(!email)throw new Error("Missing email");
+      const CDN='https://www.gstatic.com/firebasejs/10.12.5/';
+      const[{initializeApp},authMod]=await Promise.all([
+        import(CDN+'firebase-app.js'),import(CDN+'firebase-auth.js')
       ]);
-      const cfg = window.FV_FIREBASE_CONFIG;
-      if(!cfg) throw new Error("Firebase config missing.");
-      const secondaryApp = initializeApp(cfg, 'fv-admin');
-      const secondaryAuth = authMod.getAuth(secondaryApp);
-      try { await authMod.setPersistence(secondaryAuth, authMod.inMemoryPersistence); } catch {}
-      const tmpPass = (() => {
-        const arr = new Uint8Array(24);
-        crypto.getRandomValues(arr);
-        return btoa(String.fromCharCode(...arr)).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
-      })();
-      try {
-        await authMod.createUserWithEmailAndPassword(secondaryAuth, email, tmpPass);
-        if (displayName) {
-          try { await authMod.updateProfile(secondaryAuth.currentUser, { displayName }); } catch {}
-        }
-      } catch (e) {
-        if (!e || e.code !== 'auth/email-already-in-use') throw e;
-      } finally {
-        try { await authMod.signOut(secondaryAuth); } catch {}
-      }
+      const cfg=window.FV_FIREBASE_CONFIG;
+      const app=initializeApp(cfg,'fv-admin');
+      const auth=authMod.getAuth(app);
+      try{await authMod.setPersistence(auth,authMod.inMemoryPersistence);}catch{}
+      const tmp=(()=>{const a=new Uint8Array(24);crypto.getRandomValues(a);
+        return btoa(String.fromCharCode(...a)).replace(/[^a-zA-Z0-9]/g,'').slice(0,20)})();
+      try{
+        await authMod.createUserWithEmailAndPassword(auth,email,tmp);
+        if(displayName)await authMod.updateProfile(auth.currentUser,{displayName});
+      }catch(e){if(!e||e.code!=='auth/email-already-in-use')throw e;}
+      finally{try{await authMod.signOut(auth);}catch{}}
     }
 
     function clearForm(){
-      ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
-      $("type").selectedIndex = 0;
-      $("status").selectedIndex = 0;
-      $("perm").selectedIndex = 0;
+      ["first","last","email","phone","role","start","notes"].forEach(id=>$(id).value="");
+      $("type").selectedIndex=0;$("status").selectedIndex=0;$("perm").selectedIndex=0;
     }
 
-    $("clear").addEventListener("click", ()=>{
-      if (busy) return;
-      clearForm();
-      showToast("Form cleared.");
-    });
+    $("clear").onclick=()=>{if(busy)return;clearForm();showToast("Form cleared.");};
 
-    $("save").addEventListener("click", async ()=>{
-      if (busy) return;
-      const vals = collectAndValidate(); if(!vals) return;
+    $("save").onclick=async()=>{
+      if(busy)return;const v=collectAndValidate();if(!v)return;
+      try{setBusy(true);await ready;await upsertEmployee(v);showToast("Employee saved.");clearForm();}
+      catch(e){alert("Save failed: "+(e.message||e));}finally{setBusy(false);}
+    };
+
+    $("saveInvite").onclick=async()=>{
+      if(busy)return;const v=collectAndValidate();if(!v)return;
       try{
-        setBusy(true);
-        await ready;
-        await upsertEmployee(vals);
-        showToast("Employee saved.");
-        window.scrollTo({top:0, behavior:"smooth"});
-        clearForm();
-      }catch(err){
-        console.error(err);
-        alert("Save failed.\n\n" + (err?.message || err));
-      } finally {
-        setBusy(false);
-      }
-    });
-
-    $("saveInvite").addEventListener("click", async ()=>{
-      if (busy) return;
-      const vals = collectAndValidate(); if(!vals) return;
-      try{
-        setBusy(true);
-        const { mode } = await ready;
-        if(mode!=='firebase'){
-          alert("Email not sent: Firebase is in stub mode. Make sure firebase-config.js loads before firebase-init.js.");
-          return;
+        setBusy(true);const{mode}=await ready;if(mode!=='firebase'){
+          alert("Firebase stub mode: cannot send email.");return;
         }
-        await upsertEmployee(vals);
-        const displayName = `${vals.first} ${vals.last}`.trim();
-        await ensureAuthUser(vals.email, displayName);
-        await sendPasswordResetEmail(getAuth(), vals.email);
-        showToast("Saved & invite sent.");
-        window.scrollTo({top:0, behavior:"smooth"});
-        clearForm();
-      }catch(err){
-        console.error(err);
-        const code = err?.code || "";
-        if(code === "auth/invalid-continue-uri" || code === "auth/unauthorized-continue-uri"){
-          alert("Invite failed due to domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains.");
-        }else{
-          alert("Invite failed.\n\n" + (err?.message || err));
-        }
-      } finally {
-        setBusy(false);
-      }
-    });
+        await upsertEmployee(v);
+        await ensureAuthUser(v.email,`${v.first} ${v.last}`);
+        await sendPasswordResetEmail(getAuth(),v.email);
+        showToast("Saved & invite sent.");clearForm();
+      }catch(e){alert("Invite failed: "+(e.message||e));}finally{setBusy(false);}
+    };
 
-    ready.then(({mode})=>console.log('[FV] mode:', mode));
+    ready.then(({mode})=>console.log('[FV] mode:',mode));
   </script>
 </body></html>
