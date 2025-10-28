@@ -26,7 +26,7 @@
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:14px;}
 
-    .row{display:grid;gap:10px;grid-template-columns:1fr auto}
+    .row{display:grid;gap:12px;grid-template-columns:1fr auto}
     @media(max-width:720px){.row{grid-template-columns:1fr}}
 
     .grid2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
@@ -63,12 +63,14 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
+  <!-- Ensure fv-shell -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
     }
   })();</script>
 
+  <!-- Firebase config FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 </head><body>
   <fv-shell>
@@ -83,6 +85,7 @@
         </header>
 
         <div class="section-body">
+          <!-- Name -->
           <div class="grid2">
             <div class="field">
               <label for="first">First Name<span class="req">*</span></label>
@@ -94,6 +97,7 @@
             </div>
           </div>
 
+          <!-- Email / Mobile -->
           <div class="grid2">
             <div class="field">
               <label for="email">Email<span class="req">*</span></label>
@@ -105,26 +109,19 @@
             </div>
           </div>
 
+          <!-- Role -->
           <div class="field">
             <label for="role">Role / Title</label>
             <input id="role" class="input" type="text" placeholder="Operator, Agronomy, Office…" />
           </div>
 
-          <div class="grid2">
-            <div class="field">
-              <label for="type">Type</label>
-              <select id="type" class="input">
-                <option>Employee</option>
-                <option>Partner</option>
-                <option>Contractor</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="start">Start Date</label>
-              <input id="start" class="input" type="date" />
-            </div>
+          <!-- Start Date -->
+          <div class="field">
+            <label for="start">Start Date</label>
+            <input id="start" class="input" type="date" />
           </div>
 
+          <!-- Status / Permission Group (Permission pulls from Firestore) -->
           <div class="grid2">
             <div class="field">
               <label for="status">Status</label>
@@ -137,13 +134,12 @@
             <div class="field">
               <label for="perm">Permission Group</label>
               <select id="perm" class="input">
-                <option selected>Standard</option>
-                <option>Manager</option>
-                <option>Admin</option>
+                <option>Loading…</option>
               </select>
             </div>
           </div>
 
+          <!-- Notes -->
           <div class="field" style="min-width:0">
             <label for="notes">Notes</label>
             <textarea id="notes" class="input" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
@@ -152,6 +148,7 @@
           <!-- FULL WIDTH MAIN BUTTON -->
           <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
 
+          <!-- Secondary actions -->
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
             <button id="save" class="btn btn-primary" type="button">Save</button>
@@ -161,12 +158,14 @@
     </div>
   </fv-shell>
 
+  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
   <script type="module">
     import {
       ready,
       getFirestore, getDoc, setDoc, doc,
+      collection, getDocs, query, orderBy,
       serverTimestamp,
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
@@ -197,35 +196,76 @@
     const emailKey=e=>(String(e||"").trim().toLowerCase());
 
     function collectAndValidate(){
-      const first=$("first"),last=$("last"),email=$("email");
+      const first=$("first"), last=$("last"), email=$("email");
       if(!first.checkValidity()){first.reportValidity();return null;}
       if(!last.checkValidity()){last.reportValidity();return null;}
       if(!email.checkValidity()){email.reportValidity();return null;}
       return {
-        first:first.value.trim(),last:last.value.trim(),email:email.value.trim(),
-        phone:formatUSPhone($("phone").value),role:$("role").value.trim(),
-        type:$("type").value,start:$("start").value,
-        status:$("status").value,perm:$("perm").value,notes:$("notes").value.trim()
+        first:first.value.trim(),
+        last:last.value.trim(),
+        email:email.value.trim(),
+        phone:formatUSPhone($("phone").value),
+        role:$("role").value.trim(),
+        start:$("start").value,
+        status:$("status").value,
+        perm:$("perm").value,
+        notes:$("notes").value.trim()
       };
+    }
+
+    // Populate Permission Group from Firestore accountRoles
+    async function populatePermissionGroups(){
+      const sel = $("perm");
+      try{
+        const { mode } = await ready;
+        if(mode !== 'firebase'){
+          sel.innerHTML = '<option selected>Standard</option>';
+          return;
+        }
+        const db = getFirestore();
+        const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
+        const roles = [];
+        snap.forEach(d=>{
+          const data = d.data()||{};
+          const name = (data.name||'').trim();
+          if(name) roles.push(name);
+        });
+        if(roles.length === 0){
+          sel.innerHTML = '<option selected>Standard</option>';
+        }else{
+          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
+        }
+      }catch(err){
+        console.error('Roles load failed:', err);
+        sel.innerHTML = '<option selected>Standard</option>';
+      }
     }
 
     async function upsertEmployee(vals){
       const db=getFirestore();
       const fullName=`${vals.first} ${vals.last}`.trim();
       const payload={
-        firstName:vals.first,lastName:vals.last,fullName,
-        email:vals.email,phone:vals.phone,role:vals.role,
-        type:vals.type,startDate:vals.start||null,status:vals.status,
-        permissionGroup:vals.perm,notes:vals.notes,
-        search:[fullName.toLowerCase(),vals.first.toLowerCase(),vals.last.toLowerCase(),vals.email.toLowerCase()].filter(Boolean),
-        active:vals.status==="Active",updatedAt:serverTimestamp()
+        firstName:vals.first,
+        lastName:vals.last,
+        fullName,
+        email:vals.email,
+        phone:vals.phone,
+        role:vals.role,
+        type:'Employee',                 // fixed; type field removed from UI
+        startDate:vals.start||null,
+        status:vals.status,
+        permissionGroup:vals.perm,
+        notes:vals.notes,
+        search:[fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
+        active:vals.status==="Active",
+        updatedAt:serverTimestamp()
       };
       const id=emailKey(vals.email);
       const ref=doc(db,"employees",id);
       const snap=await getDoc(ref);
-      if(!snap.exists())payload.createdAt=serverTimestamp();
+      if(!snap.exists()) payload.createdAt=serverTimestamp();
       await setDoc(ref,payload,{merge:true});
-      return{id,ref,created:!snap.exists()};
+      return { id, ref, created: !snap.exists() };
     }
 
     async function ensureAuthUser(email,displayName){
@@ -244,45 +284,69 @@
       try{
         await authMod.createUserWithEmailAndPassword(secondaryAuth,email,tmpPass);
         if(displayName){try{await authMod.updateProfile(secondaryAuth.currentUser,{displayName});}catch{}}
-      }catch(e){if(!e||e.code!=='auth/email-already-in-use')throw e;}
-      finally{try{await authMod.signOut(secondaryAuth);}catch{}}
+      }catch(e){
+        if(!e || e.code!=='auth/email-already-in-use') throw e;
+      }finally{
+        try{await authMod.signOut(secondaryAuth);}catch{}
+      }
     }
 
     function clearForm(){
       ["first","last","email","phone","role","start","notes"].forEach(id=>{const el=$(id);if(el)el.value="";});
-      $("type").selectedIndex=0;$("status").selectedIndex=0;$("perm").selectedIndex=0;
+      $("status").selectedIndex=0;
+      const permSel = $("perm"); if(permSel && permSel.options.length) permSel.selectedIndex = 0;
     }
 
-    $("clear").addEventListener("click",()=>{if(busy)return;clearForm();showToast("Form cleared.");});
+    $("clear").addEventListener("click",()=>{ if(busy) return; clearForm(); showToast("Form cleared."); });
 
     $("save").addEventListener("click",async()=>{
-      if(busy)return;const vals=collectAndValidate();if(!vals)return;
-      try{setBusy(true);await ready;await upsertEmployee(vals);
-        showToast("Employee saved.");window.scrollTo({top:0,behavior:"smooth"});clearForm();
-      }catch(err){console.error(err);alert("Save failed.\n\n"+(err?.message||err));}
-      finally{setBusy(false);}
+      if(busy)return;
+      const vals=collectAndValidate(); if(!vals) return;
+      try{
+        setBusy(true);
+        await ready;
+        await upsertEmployee(vals);
+        showToast("Employee saved.");
+        window.scrollTo({top:0,behavior:"smooth"});
+        clearForm();
+      }catch(err){
+        console.error(err);
+        alert("Save failed.\n\n"+(err?.message||err));
+      }finally{ setBusy(false); }
     });
 
     $("saveInvite").addEventListener("click",async()=>{
-      if(busy)return;const now=Date.now();if(now-lastInviteAt<3000)return;lastInviteAt=now;
-      const vals=collectAndValidate();if(!vals)return;
+      if(busy)return;
+      const now=Date.now(); if(now-lastInviteAt<3000) return; lastInviteAt=now;
+      const vals=collectAndValidate(); if(!vals) return;
+
       try{
         setBusy(true);
-        const{mode}=await ready;
-        if(mode!=='firebase'){alert("Email not sent: Firebase stub mode.");return;}
+        const { mode } = await ready;
+        if(mode!=='firebase'){
+          alert("Email not sent: Firebase is in stub mode.");
+          return;
+        }
         await upsertEmployee(vals);
-        const displayName=`${vals.first} ${vals.last}`.trim();
-        await ensureAuthUser(vals.email,displayName);
-        await sendPasswordResetEmail(getAuth(),vals.email);
-        showToast("Saved & invite sent.");window.scrollTo({top:0,behavior:"smooth"});clearForm();
-      }catch(err){console.error(err);
+        const displayName = `${vals.first} ${vals.last}`.trim();
+        await ensureAuthUser(vals.email, displayName);
+        await sendPasswordResetEmail(getAuth(), vals.email);
+        showToast("Saved & invite sent.");
+        window.scrollTo({top:0,behavior:"smooth"});
+        clearForm();
+      }catch(err){
+        console.error(err);
         const code=err?.code||"";
-        if(code==="auth/invalid-continue-uri"||code==="auth/unauthorized-continue-uri")
-          alert("Invite failed: add domain under Firebase Auth → Settings → Authorized domains.");
-        else alert("Invite failed.\n\n"+(err?.message||err));
-      }finally{setBusy(false);}
+        if(code==="auth/invalid-continue-uri"||code==="auth/unauthorized-continue-uri"){
+          alert("Invite failed due to domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains.");
+        }else{
+          alert("Invite failed.\n\n"+(err?.message||err));
+        }
+      }finally{ setBusy(false); }
     });
 
-    ready.then(({mode})=>console.log('[FV] mode:',mode));
+    // Init
+    populatePermissionGroups();
+    ready.then(({mode})=>console.log('[FV] mode:', mode));
   </script>
 </body></html>
