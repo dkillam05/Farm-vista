@@ -8,17 +8,20 @@
 
   <!-- Paths from /pages/office/teams-and-partners/ -->
   <link rel="manifest" href="../../../manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="../../../assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="../../../assets/icons/icon-192.png"/>
+
+  <!-- Theme boot (same as Add page) -->
+  <script src="../../../js/theme-boot.js"></script>
   <link rel="stylesheet" href="../../../assets/css/theme.css"/>
   <link rel="stylesheet" href="../../../assets/css/app.css"/>
-  <script defer src="../../../js/theme-boot.js"></script>
-  <script defer src="../../../js/fv-shell.js"></script>
 
   <style>
     :root{
       --card-max: 1100px;
       --page-bottom-gap: 96px;
     }
-    body{background:var(--app-bg, var(--surface));}
+    body{ background: var(--app-bg, var(--surface)); }
 
     .wrap{
       max-width: var(--card-max);
@@ -30,7 +33,7 @@
     .page-title{margin:0 0 8px 0;}
     .page-sub{margin:0 0 18px 0;color:var(--muted,#6d746f);max-width:72ch;}
 
-    /* Dictionary-style search + list */
+    /* Finder (dictionary-style) */
     .finder{display:grid;gap:12px;margin: 10px 0 18px 0;}
     .search{
       display:flex;gap:10px;align-items:center;
@@ -56,7 +59,7 @@
     .name{font-weight:800}
     .meta{color:var(--muted,#87908a);font-size:14px}
 
-    /* Card section for form (same look as Add) */
+    /* Card/form (same look as Add) */
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
     .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
@@ -89,7 +92,19 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
-  <!-- Firebase config first to avoid stub -->
+  <!-- Ensure fv-shell is available (same pattern as Add page) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='../../../js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Firebase config FIRST (avoid stub mode) -->
   <script src="../../../js/firebase-config.js"></script>
 </head>
 <body>
@@ -97,10 +112,11 @@
     <div class="wrap">
       <h1 class="page-title">Edit Employee</h1>
       <p class="page-sub">
-        Search your directory, select a name to load their details, then update and save. Use “Save &amp; Invite” to send/reset their login.
+        Search your directory, select a name to load their details, then update and save.
+        Use “Save &amp; Invite” to send/reset their login.
       </p>
 
-      <!-- Finder (dictionary-style) -->
+      <!-- Finder -->
       <section class="finder">
         <div class="search">
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16a6.471 6.471 0 0 0 4.23-1.57l.27.28v.79L20 21.5 21.5 20 15.5 14Zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14Z"/></svg>
@@ -112,7 +128,9 @@
           <button class="pill" data-filter="On Leave">On Leave</button>
           <button class="pill" data-filter="Inactive">Inactive</button>
         </div>
-        <div id="list" class="list" role="listbox" aria-label="Employees list"></div>
+        <div id="list" class="list" role="listbox" aria-label="Employees list">
+          <div class="row"><div class="meta">Loading…</div></div>
+        </div>
       </section>
 
       <!-- Editor -->
@@ -123,7 +141,6 @@
         </header>
 
         <div class="section-body">
-          <!-- Hidden current id tracker -->
           <input id="currentId" type="hidden"/>
 
           <div class="grid2">
@@ -206,18 +223,18 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- Logic -->
   <script type="module">
     import {
       ready,
-      getFirestore, collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, setDoc, serverTimestamp,
+      getFirestore, collection, doc, getDoc, onSnapshot, query, orderBy, setDoc, serverTimestamp,
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* ---------- helpers ---------- */
     const $ = id => document.getElementById(id);
     const toast = $("toast");
-    let busy = false;
-    let lastInviteAt = 0;
+    let busy = false, lastInviteAt = 0;
+    let lastRows = [];
 
     const showToast = (msg="Saved.")=>{
       toast.textContent = msg;
@@ -281,9 +298,7 @@
       $("status").value = d.status || "Active";
       $("perm").value = d.permissionGroup || "Standard";
       $("notes").value = d.notes || "";
-      // highlight in list
       document.querySelectorAll('.row').forEach(r=>r.classList.toggle('active', r.dataset.id===docId));
-      // scroll to editor
       document.getElementById('editor').scrollIntoView({behavior:'smooth', block:'start'});
     }
 
@@ -293,20 +308,11 @@
       const newId = emailKey(vals.email);
       const currentId = $("currentId").value;
 
-      // If email (id) changed, we "move" the doc (create new id, keep createdAt if known)
+      // carry createdAt if exists
       let createdAt = serverTimestamp();
-      if (currentId && currentId !== newId) {
-        const curRef = doc(db, "employees", currentId);
-        const curSnap = await getDoc(curRef);
-        if (curSnap.exists() && curSnap.data().createdAt) {
-          createdAt = curSnap.data().createdAt;
-        }
-      } else if (currentId === newId) {
-        const curRef = doc(db, "employees", currentId);
-        const curSnap = await getDoc(curRef);
-        if (curSnap.exists() && curSnap.data().createdAt) {
-          createdAt = curSnap.data().createdAt;
-        }
+      if (currentId) {
+        const curSnap = await getDoc(doc(db,"employees",currentId));
+        if (curSnap.exists() && curSnap.data().createdAt) createdAt = curSnap.data().createdAt;
       }
 
       const payload = {
@@ -327,24 +333,16 @@
         updatedAt: serverTimestamp()
       };
 
-      // Write to new id
       const newRef = doc(db, "employees", newId);
       const newSnap = await getDoc(newRef);
-      if (currentId && currentId !== newId) {
-        if (newSnap.exists()) {
-          throw new Error("Another employee already uses that email.");
-        }
+      if (currentId && currentId !== newId && newSnap.exists()) {
+        throw new Error("Another employee already uses that email.");
       }
       await setDoc(newRef, payload, { merge: true });
-
-      // If id changed, optionally clear old (you may want to keep – here we keep for audit)
-      // If you want to delete old, we can add a deleteDoc() here.
-
       $("currentId").value = newId;
       return { id: newId, ref: newRef, created: !newSnap.exists() };
     }
 
-    // Create or ensure Auth user exists (secondary app) then send reset email
     async function ensureAuthUser(email, displayName){
       const CDN = 'https://www.gstatic.com/firebasejs/10.12.5/';
       const [{ initializeApp }, authMod] = await Promise.all([
@@ -369,11 +367,8 @@
       }
     }
 
-    /* ---------- finder/list wiring ---------- */
-    const state = {
-      filter: 'all',
-      q: ''
-    };
+    /* ---------- Finder wiring ---------- */
+    const state = { filter:'all', q:'' };
 
     function renderList(docs){
       const list = $("list");
@@ -398,10 +393,10 @@
       }
     }
 
-    function applyFilters(all){
+    function applyFilters(){
       const q = state.q.trim().toLowerCase();
       const f = state.filter;
-      let out = all;
+      let out = lastRows.slice();
       if (f !== 'all') out = out.filter(x => (x.status || 'Active') === f);
       if (q){
         out = out.filter(x =>
@@ -413,47 +408,31 @@
       renderList(out);
     }
 
-    async function subscribeList(){
-      await ready;
-      const db = getFirestore();
-      const qref = query(collection(db, "employees"), orderBy("fullName"));
-      onSnapshot(qref, (snap)=>{
-        const rows = [];
-        snap.forEach(docSnap => rows.push({ id: docSnap.id, ...(docSnap.data()||{}) }));
-        applyFilters(rows);
-      });
-    }
-
-    /* ---------- events ---------- */
-    // search field
-    $("q").addEventListener('input', (e)=>{ state.q = e.target.value; const evt = new Event('refresh'); document.dispatchEvent(evt); });
-    // pills
+    document.getElementById('q').addEventListener('input', (e)=>{ state.q = e.target.value; applyFilters(); });
     document.querySelectorAll('.pill').forEach(p=>{
       p.addEventListener('click', ()=>{
         document.querySelectorAll('.pill').forEach(x=>x.classList.remove('active'));
         p.classList.add('active');
         state.filter = p.dataset.filter;
-        const evt = new Event('refresh'); document.dispatchEvent(evt);
+        applyFilters();
       });
     });
-    // refresh list rendering (uses last snapshot cached in closure of onSnapshot)
-    let lastRows = [];
-    document.addEventListener('refresh', ()=>{
-      applyFilters(lastRows);
-    });
-    // keep a copy of latest rows for client filtering
+
     (async ()=>{
-      await ready;
+      const { mode } = await ready;
+      if (mode!=='firebase') {
+        console.warn('[FV] Firebase in stub mode — list will be empty.');
+      }
       const db = getFirestore();
       const qref = query(collection(db, "employees"), orderBy("fullName"));
       onSnapshot(qref, (snap)=>{
         lastRows = [];
         snap.forEach(docSnap => lastRows.push({ id: docSnap.id, ...(docSnap.data()||{}) }));
-        applyFilters(lastRows);
+        applyFilters();
       });
     })();
 
-    // clear/save/invite
+    /* ---------- Actions ---------- */
     $("clear").onclick = ()=>{ if(busy) return; clearForm(); showToast("Form cleared."); };
 
     $("save").onclick = async ()=>{
@@ -471,13 +450,11 @@
 
     $("saveInvite").onclick = async ()=>{
       if (busy) return;
-      const vals = collectAndValidate(); if(!vals) return;
-
-      // simple cooldown to avoid rapid double email
       const now = Date.now();
-      if (now - lastInviteAt < 3000) return;
+      if (now - lastInviteAt < 3000) return; // throttle double taps
       lastInviteAt = now;
 
+      const vals = collectAndValidate(); if(!vals) return;
       try{
         setBusy(true);
         const { mode } = await ready;
@@ -495,9 +472,10 @@
         }
       }finally{ setBusy(false); }
     };
-
-    // kick off live list
-    subscribeList().catch(console.error);
   </script>
+
+  <noscript>
+    <div class="wrap"><div class="section"><div class="section-body">JavaScript is required for Edit Employee.</div></div></div>
+  </noscript>
 </body>
 </html>
