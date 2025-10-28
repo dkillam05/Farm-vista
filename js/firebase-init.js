@@ -1,12 +1,14 @@
 /**
  * FarmVista — firebase-init.js
+ * v2.2.0 — adds global RefreshBus + soft refresh handler (`fv:refresh`)
  *
- * Rebuilt to provide a single entry point for Firebase Authentication and
- * Cloud Firestore. When a Firebase configuration is available the real SDK is
- * loaded from the official CDN; otherwise we fall back to a secure local
- * emulation that mirrors authentication and data APIs using encrypted values
- * persisted in localStorage. This lets the rest of the app interact with a
- * consistent interface regardless of connectivity or deployment state.
+ * - `RefreshBus.register(fn)` to let shared loaders re-query on demand
+ * - Listens for `document` event `fv:refresh` to:
+ *    • ensure network is enabled (Firebase mode)
+ *    • briefly re-enable network to force listeners to sync
+ *    • call all registered refreshers
+ *    • emit `fv:refreshed` afterward
+ * - Safe no-op in stub mode
  */
 
 const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
@@ -88,7 +90,7 @@ const digestText = async (text) => {
       return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
     }
   } catch {}
-  // Fallback hash (non-cryptographic but deterministic)
+  // Fallback hash
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
     hash = (hash << 5) - hash + text.charCodeAt(i);
@@ -482,6 +484,21 @@ const updateWindowUser = (user) => {
   catch (err) { console.warn('[FV] dispatch fv:user failed:', err); }
 };
 
+/* ----------------------------- Refresh Bus -------------------------------- */
+
+export const RefreshBus = {
+  _fns: new Set(),
+  register(fn){
+    if (typeof fn === 'function') this._fns.add(fn);
+    return ()=> this._fns.delete(fn);
+  },
+  async runAll(){
+    for (const fn of Array.from(this._fns)) {
+      try { await fn(); } catch (e) { console.warn('[FV] refresh fn failed', e); }
+    }
+  }
+};
+
 ensureStubGlobals();
 onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
@@ -513,7 +530,7 @@ export const ready = (async () => {
     onIdTokenChangedImpl = (instance, cb) => authMod.onIdTokenChanged(instance || auth, cb);
     signOutImpl = (instance) => authMod.signOut(instance || auth);
     signInWithEmailAndPasswordImpl = (instance, email, password) => authMod.signInWithEmailAndPassword(instance || auth, email, password);
-        createUserWithEmailAndPasswordImpl = async (instance, email, password, opts) => {
+    createUserWithEmailAndPasswordImpl = async (instance, email, password, opts) => {
       const authInstance = instance || auth;
       const cred = await authMod.createUserWithEmailAndPassword(authInstance, email, password);
       if (opts && opts.displayName) {
@@ -550,6 +567,37 @@ export const ready = (async () => {
     return { app, auth, firestore, mode };
   }
 })();
+
+/* ------------------------ Global PTR event handler ------------------------ */
+/* Soft refresh workflow:
+   1) If Firebase mode, ensure network is enabled (in case it's offline).
+   2) Nudge listeners by toggling network: disable→enable (safe no-op if already online).
+   3) Run all registered refreshers.
+   4) Emit 'fv:refreshed' for any UI that wants to show a toast, etc.
+*/
+async function _softRefreshNow(){
+  try {
+    if (mode === 'firebase' && storeModule && firestore) {
+      try { await storeModule.enableNetwork(firestore); } catch {}
+      // nudge live listeners by toggling briefly
+      try {
+        await storeModule.disableNetwork(firestore);
+      } catch {}
+      try {
+        await storeModule.enableNetwork(firestore);
+      } catch {}
+    }
+  } catch (e) {
+    console.warn('[FV] refresh network nudge failed', e);
+  }
+
+  try { await RefreshBus.runAll(); } catch {}
+  try { document.dispatchEvent(new CustomEvent('fv:refreshed')); } catch {}
+}
+
+document.addEventListener('fv:refresh', () => { _softRefreshNow(); });
+
+/* ------------------------------ Public API -------------------------------- */
 
 export const getApp = () => app;
 export const getAuth = (appInstance) => getAuthImpl(appInstance);
