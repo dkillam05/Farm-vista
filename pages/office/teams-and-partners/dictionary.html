@@ -29,11 +29,9 @@
 
   <style>
     :root{
-      --chip-bg:#e7f1ea;          /* muted green */
-      --chip-text:#2F6C3C;        /* brand green */
-      --chip-bg-off:#eef0ee;
-      --chip-text-off:#445048;
       --card-max:1100px;
+      --chip-bg:#e7f1ea;      /* muted green */
+      --chip-text:#2F6C3C;    /* brand green */
     }
     body{ background:var(--app-bg,var(--surface)); }
 
@@ -42,18 +40,20 @@
 
     .title{margin:0 0 4px 0;font-size:clamp(22px,3.6vw,32px);line-height:1.1;}
     .sub{margin:0 0 18px 0;color:var(--muted,#6f7772);}
+    .muted{color:var(--muted,#6f7772)}
 
     /* Search */
-    .search-row{display:flex;gap:10px;align-items:center;margin:10px 0 14px}
-    .search{flex:1;display:flex;align-items:center;gap:10px;border:1px solid var(--border);
+    .search{display:flex;align-items:center;gap:10px;border:1px solid var(--border);
       border-radius:12px;background:var(--surface);padding:10px 12px;}
     .search input{flex:1;background:transparent;border:0;outline:none;font:inherit}
 
-    /* Filters dropdown */
-    .filters{position:relative}
+    /* Filters */
+    .filters-row{display:flex;gap:10px;align-items:center;margin:10px 0 18px}
     .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:12px;
       background:var(--surface);color:var(--text);padding:10px 14px;font-weight:800;cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+
+    .filters{position:relative}
     .menu{position:absolute;top:calc(100% + 8px);left:0;min-width:240px;background:var(--surface);
       border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow,0 10px 28px rgba(0,0,0,.18));
       padding:10px;z-index:10;display:none}
@@ -63,13 +63,7 @@
     .menu label{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
     .menu .apply{margin-top:8px;display:flex;gap:8px;justify-content:flex-end}
 
-    /* Chips (no blue) */
-    .chips{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 10px}
-    .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;font-weight:800;
-      background:var(--chip-bg-off);color:var(--chip-text-off);border:1px dashed var(--border);}
-    .chip.on{background:var(--chip-bg);color:var(--chip-text);border-style:solid}
-
-    /* Result header */
+    /* Count */
     .count{margin:0 0 10px 0;color:var(--muted,#6f7772);font-weight:700}
 
     /* Card list */
@@ -83,7 +77,6 @@
     .badge{padding:4px 10px;border-radius:999px;font-size:13px;font-weight:800}
     .badge.green{background:#e7f1ea;color:#2F6C3C}
     .badge.gray{background:#eef0ee;color:#3d4741}
-    .muted{color:var(--muted,#6f7772)}
 
     /* Modal (read-only sheet) */
     dialog.sheet{width:min(740px, 92vw);border:1px solid var(--border);border-radius:16px;padding:0;background:var(--surface);
@@ -102,30 +95,30 @@
   <fv-shell>
     <div class="page">
       <h1 class="title">Directory</h1>
-      <p class="sub">Employees, Vendors, and Subcontractors — live from Firestore.</p>
+      <p class="sub">A concise people index—employees, vendors, and subcontractors—so you can quickly find contacts and view full details.</p>
 
-      <div class="search-row">
-        <div class="search">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
-          <input id="q" type="search" placeholder="Search name, role, company, email, phone…" autocomplete="off"/>
-        </div>
+      <!-- Search -->
+      <div class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
+        <input id="q" type="search" placeholder="Search name, role, company, email, phone…" autocomplete="off"/>
+      </div>
 
+      <!-- Filters (under the search) -->
+      <div class="filters-row">
         <div class="filters">
           <button id="btnFilters" class="btn" type="button" aria-expanded="false" aria-controls="menuFilters">Filters</button>
           <div id="menuFilters" class="menu" role="menu" aria-labelledby="btnFilters">
             <div class="line"><label><input id="fEmployees" type="checkbox" checked> Employees</label></div>
             <div class="line"><label><input id="fVendors" type="checkbox" checked> Vendors</label></div>
             <div class="line"><label><input id="fSubs" type="checkbox" checked> Subcontractors</label></div>
-            <div class="line"><label><input id="fActive" type="checkbox" checked> Active only</label></div>
             <div class="apply">
               <button id="applyFilters" class="btn btn-primary" type="button">Apply</button>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- quick state chips -->
-      <div class="chips" id="chips"></div>
 
       <p id="count" class="count">0 entries</p>
       <div id="list"></div>
@@ -149,17 +142,16 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, getDocs, query, where, orderBy
+      getFirestore, collection, getDocs, query
     } from '../../../js/firebase-init.js';
 
     const $ = sel => document.querySelector(sel);
     const list = $('#list');
     const countEl = $('#count');
-    const chipsEl = $('#chips');
     const qInput = $('#q');
 
-    // Filter state
-    let filters = { employees:true, vendors:true, subs:true, active:true };
+    // Filter state (active-only is implicit)
+    let filters = { employees:true, vendors:true, subs:true };
 
     // Menu wiring
     const menu = $('#menuFilters'), btn = $('#btnFilters');
@@ -172,12 +164,11 @@
       filters = {
         employees: $('#fEmployees').checked,
         vendors: $('#fVendors').checked,
-        subs: $('#fSubs').checked,
-        active: $('#fActive').checked
+        subs: $('#fSubs').checked
       };
       menu.classList.remove('open');
       btn.setAttribute('aria-expanded','false');
-      render(); // re-filter
+      render();
     });
     document.addEventListener('click', (e)=>{
       if(!menu.contains(e.target) && e.target !== btn) menu.classList.remove('open');
@@ -191,9 +182,9 @@
       await ready;
       const db = getFirestore();
       const pulls = [
-        { type:'Employee',        col:'employees',       key:'fullName' },
-        { type:'Vendor',          col:'vendors',         key:'company'  },
-        { type:'Subcontractor',   col:'subcontractors',  key:'company'  }
+        { type:'Employee',       col:'employees'      },
+        { type:'Vendor',         col:'vendors'        },
+        { type:'Subcontractor',  col:'subcontractors' }
       ];
 
       const results = [];
@@ -203,6 +194,11 @@
           const snap = await getDocs(qref);
           snap.forEach(docSnap=>{
             const d = docSnap.data() || {};
+            // Only include active
+            const status = String(d.status || (d.active ? 'Active' : 'Inactive'));
+            const isActive = (status.toLowerCase()==='active') || !!d.active;
+            if (!isActive) return;
+
             results.push({
               id: docSnap.id,
               _type: p.type,
@@ -211,7 +207,7 @@
               company: String(d.company || '').trim(),
               email: String(d.email || d.contactEmail || '').trim(),
               phone: String(d.phone || d.contactPhone || '').trim(),
-              status: String(d.status || d.active ? 'Active' : 'Inactive'),
+              status: 'Active',
               group: String(d.permissionGroup || d.group || '').trim() || 'Standard',
               raw: d
             });
@@ -224,22 +220,7 @@
       render();
     }
 
-    function chip(label, on=true){
-      const el = document.createElement('span');
-      el.className = 'chip' + (on?' on':'');
-      el.textContent = label;
-      return el;
-    }
-
     function render(){
-      chipsEl.innerHTML = '';
-      chipsEl.append(
-        chip('Employees', filters.employees),
-        chip('Vendors', filters.vendors),
-        chip('Subcontractors', filters.subs),
-        chip('Active only', filters.active)
-      );
-
       const q = (qInput.value || '').toLowerCase().trim();
 
       const okType = (t)=>(
@@ -250,11 +231,8 @@
 
       const rows = DATA.filter(r=>{
         if (!okType(r._type)) return false;
-        if (filters.active && String(r.status||'').toLowerCase()!=='active') return false;
         if (!q) return true;
-        const blob = [
-          r.name, r.role, r.company, r.email, r.phone, r._type, r.group
-        ].join(' ').toLowerCase();
+        const blob = [r.name, r.role, r.company, r.email, r.phone, r._type, r.group].join(' ').toLowerCase();
         return blob.includes(q);
       });
 
@@ -285,7 +263,7 @@
           badges.innerHTML = `
             <span class="badge gray">${r._type}</span>
             <span class="badge gray">${r.group}</span>
-            <span class="badge green">${r.status||'Active'}</span>
+            <span class="badge green">Active</span>
           `;
           const email = r.email ? `<div class="row muted">✉️ ${r.email}</div>` : '';
           const phone = r.phone ? `<div class="row muted">📞 ${r.phone}</div>` : '';
@@ -320,7 +298,7 @@
       dKV.innerHTML = '';
       const rows = [
         ['Type', r._type],
-        ['Status', r.status || 'Active'],
+        ['Status', 'Active'],
         ['Permission Group', r.group],
         ['Full Name', d.fullName || r.name || '—'],
         ['Company', d.company || r.company || '—'],
@@ -329,7 +307,7 @@
         ['Phone', d.phone || r.phone || '—'],
         ['Start Date', d.startDate || '—'],
         ['Notes', d.notes || '—'],
-        // extra common fields if present:
+        // common address fields if present
         ['Address', d.address || d.addr || '—'],
         ['City', d.city || '—'],
         ['State', d.state || '—'],
