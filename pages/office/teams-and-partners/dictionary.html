@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Dictionary</title>
+  <title>FarmVista • Directory</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -17,7 +17,6 @@
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;}
-
     .page-title{margin:0 0 8px 0;}
     .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
 
@@ -25,7 +24,10 @@
     .search{flex:1;min-width:220px;display:flex;align-items:center;gap:10px;
       border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:10px 12px;}
     .search input{border:none;outline:none;background:transparent;width:100%;font:inherit;font-size:16px;}
-    .count{color:var(--muted,#67706B);font-weight:700}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}
+    .chip{border:1px solid var(--border);background:var(--surface);padding:6px 10px;border-radius:999px;cursor:pointer;font-weight:800}
+    .chip[aria-pressed="true"]{background:#E7F1EA;border-color:#CFE4D6;color:#2F6C3C}
+    .count{color:var(--muted,#67706B);font-weight:700;margin-left:auto}
 
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
@@ -36,16 +38,17 @@
     .list{display:block}
     .item{padding:14px;border-bottom:1px solid var(--border);display:grid;gap:6px}
     .item:last-child{border-bottom:none}
-    .term{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-    .term strong{font-size:16px}
+    .row1{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+    .name{font-weight:900}
     .badge{font-size:12px;font-weight:800;color:#2F6C3C;background:#E7F1EA;border:1px solid #CFE4D6;border-radius:999px;padding:2px 8px}
+    .kind{font-size:12px;font-weight:800;color:#3B7E46;border:1px solid #CFE4D6;background:#F3F8F5;border-radius:999px;padding:2px 8px}
 
-    .short{color:var(--text);opacity:.85}
-    .desc{color:var(--muted,#67706B);line-height:1.45}
+    .muted{color:var(--muted,#67706B)}
     .tags{display:flex;gap:8px;flex-wrap:wrap}
     .tag{font-size:12px;border:1px dashed var(--border);border-radius:999px;padding:2px 8px;color:var(--muted,#67706B)}
-    .meta{color:var(--muted,#67706B);font-size:12px}
-
+    .grid{display:grid;grid-template-columns:1fr;gap:2px}
+    .kv{display:flex;gap:10px;flex-wrap:wrap}
+    .kv span{white-space:nowrap}
     .empty{padding:24px;text-align:center;color:var(--muted,#67706B)}
   </style>
 
@@ -58,27 +61,33 @@
     })();
   </script>
 
-  <!-- Firebase config + init (module so we can import the helpers) -->
+  <!-- Firebase config + init -->
   <script src="/Farm-vista/js/firebase-config.js" defer></script>
   <script type="module" src="/Farm-vista/js/firebase-init.js"></script>
 </head>
 <body>
   <fv-shell>
     <div class="page container">
-      <h1 class="page-title">Dictionary</h1>
-      <p class="page-sub">Common terms, acronyms, and definitions used across FarmVista and operations.</p>
+      <h1 class="page-title">Directory</h1>
+      <p class="page-sub">Employees, Vendors, and Subcontractors — live from Firestore.</p>
 
       <div class="toolbar">
         <div class="search" role="search">
           <span aria-hidden="true">🔎</span>
-          <input id="q" type="search" placeholder="Search term, tag, or description…" autocomplete="off" />
+          <input id="q" type="search" placeholder="Search name, role, company, email, phone…" autocomplete="off" />
         </div>
-        <div class="count"><span id="shown">0</span>/<span id="total">0</span> items</div>
+        <div class="chips" role="tablist" aria-label="Type filter">
+          <button class="chip" id="flt-all" aria-pressed="true" role="tab">All</button>
+          <button class="chip" id="flt-emp" aria-pressed="false" role="tab">Employees</button>
+          <button class="chip" id="flt-ven" aria-pressed="false" role="tab">Vendors</button>
+          <button class="chip" id="flt-sub" aria-pressed="false" role="tab">Subcontractors</button>
+        </div>
+        <div class="count"><span id="shown">0</span>/<span id="total">0</span> entries</div>
       </div>
 
-      <section id="dict" class="section">
+      <section class="section">
         <div id="list" class="list" role="list"></div>
-        <div id="empty" class="empty" hidden>No entries found.</div>
+        <div id="empty" class="empty" hidden>No directory entries found.</div>
       </section>
     </div>
   </fv-shell>
@@ -93,7 +102,10 @@
       onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
-    const COLLECTION = 'dictionary'; // change here if your collection name differs
+    // Change names here if your collections differ
+    const C_EMP = 'employees';
+    const C_VEN = 'vendors';
+    const C_SUB = 'subcontractors';
 
     const $ = id => document.getElementById(id);
     const elList = $('list');
@@ -102,34 +114,117 @@
     const elTotal = $('total');
     const elQ = $('q');
 
-    let all = [];   // full dataset from Firestore
-    let view = [];  // filtered view
-
-    const safe = (v) => (v ?? '');
-    const toTags = (t) => Array.isArray(t) ? t : (t ? String(t).split(',') : []);
-    const fmtDate = (ts) => {
-      try {
-        // Support Firestore Timestamp or ISO/string/number
-        const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
-        if(!d || isNaN(d.getTime())) return '';
-        return d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'2-digit'});
-      } catch { return ''; }
+    // Filter chips
+    const chips = {
+      all: $('flt-all'),
+      emp: $('flt-emp'),
+      ven: $('flt-ven'),
+      sub: $('flt-sub'),
     };
 
+    // State
+    let dataEmp = [];
+    let dataVen = [];
+    let dataSub = [];
+    let combined = [];
+    let view = [];
+    let activeKind = 'all'; // all | employee | vendor | subcontractor
+
+    // Utils
+    const safe = v => (v ?? '');
+    const lower = v => String(v||'').toLowerCase();
+    const fmtDate = (isoOrTs) => {
+      try{
+        const d = isoOrTs?.toDate ? isoOrTs.toDate() : (isoOrTs ? new Date(isoOrTs) : null);
+        if(!d || isNaN(d.getTime())) return '';
+        return d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'2-digit'});
+      }catch{return '';}
+    };
+
+    function normalizePhone(p){
+      const d = String(p||'').replace(/\D+/g,'');
+      if(!d) return '';
+      const core = d.length===11 && d.startsWith('1') ? d.slice(1) : d;
+      if(core.length===10) return `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`;
+      return p||'';
+    }
+
+    // Normalizers for each collection
+    function mapEmployee(id, d){
+      const fullName = d.fullName || [d.firstName, d.lastName].filter(Boolean).join(' ');
+      return {
+        id, kind:'employee',
+        name: fullName || '(Unnamed)',
+        company: '', // employees usually no company
+        role: d.role || '',
+        status: d.status || '',
+        type: d.type || '',
+        perm: d.permissionGroup || '',
+        email: d.email || '',
+        phone: normalizePhone(d.phone || ''),
+        start: d.startDate || null,
+        notes: d.notes || '',
+        updatedAt: d.updatedAt || d.createdAt || null,
+        search: [fullName, d.firstName, d.lastName, d.role, d.status, d.type, d.permissionGroup, d.email, d.phone, d.notes].join(' ')
+      };
+    }
+
+    function mapVendor(id, d){
+      const name = d.name || d.company || d.vendorName || '';
+      const contact = d.contact || d.contactName || '';
+      const display = contact ? `${name} — ${contact}` : name;
+      return {
+        id, kind:'vendor',
+        name: display || '(Vendor)',
+        company: name || '',
+        role: d.service || d.category || d.role || '',   // flexible
+        status: d.status || '',
+        type: d.type || '',
+        perm: '',
+        email: d.email || d.contactEmail || '',
+        phone: normalizePhone(d.phone || d.contactPhone || ''),
+        start: d.startDate || null,
+        notes: d.notes || '',
+        updatedAt: d.updatedAt || d.createdAt || null,
+        search: [name, contact, d.service, d.category, d.email, d.phone, d.notes].join(' ')
+      };
+    }
+
+    function mapSubcontractor(id, d){
+      const name = d.name || d.company || d.subcontractorName || '';
+      const contact = d.contact || d.contactName || '';
+      const display = contact ? `${name} — ${contact}` : name;
+      return {
+        id, kind:'subcontractor',
+        name: display || '(Subcontractor)',
+        company: name || '',
+        role: d.trade || d.scope || d.role || '',
+        status: d.status || '',
+        type: d.type || '',
+        perm: '',
+        email: d.email || d.contactEmail || '',
+        phone: normalizePhone(d.phone || d.contactPhone || ''),
+        start: d.startDate || null,
+        notes: d.notes || '',
+        updatedAt: d.updatedAt || d.createdAt || null,
+        search: [name, contact, d.trade, d.scope, d.email, d.phone, d.notes].join(' ')
+      };
+    }
+
+    // Render
     function render(items){
       elList.innerHTML = '';
       if(!items.length){
         elEmpty.hidden = false;
         elShown.textContent = '0';
-        elTotal.textContent = String(all.length);
+        elTotal.textContent = String(combined.length);
         return;
       }
       elEmpty.hidden = true;
 
-      // Group by first letter of term
       let curHead = '';
-      items.forEach(entry=>{
-        const letter = (safe(entry.term).trim()[0] || '#').toUpperCase();
+      items.forEach(row=>{
+        const letter = (safe(row.name).trim()[0] || '#').toUpperCase();
         if(letter !== curHead){
           curHead = letter;
           const head = document.createElement('div');
@@ -137,78 +232,125 @@
           head.textContent = curHead;
           elList.appendChild(head);
         }
-        const row = document.createElement('div');
-        row.className = 'item';
-        row.setAttribute('role', 'listitem');
 
-        const tags = toTags(entry.tags).map(s=>String(s).trim()).filter(Boolean);
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.setAttribute('role','listitem');
 
-        row.innerHTML = `
-          <div class="term">
-            <strong>${safe(entry.term) || '(untitled)'}</strong>
-            ${entry.short ? `<span class="badge">${safe(entry.short)}</span>` : ''}
+        const statusBadge = row.status ? `<span class="badge">${safe(row.status)}</span>` : '';
+        const kindBadge = `<span class="kind">${row.kind === 'employee' ? 'Employee' : row.kind === 'vendor' ? 'Vendor' : 'Subcontractor'}</span>`;
+        const roleText = row.role ? `<span class="muted">${safe(row.role)}</span>` : '';
+        const typeText = row.type ? `<span class="tag">${safe(row.type)}</span>` : '';
+        const permText = row.perm ? `<span class="tag">${safe(row.perm)}</span>` : '';
+        const companyText = row.company ? `<span class="muted">🏢 ${safe(row.company)}</span>` : '';
+        const email = row.email ? `<span>✉️ ${safe(row.email)}</span>` : '';
+        const phone = row.phone ? `<span>📞 ${safe(row.phone)}</span>` : '';
+        const start = row.start ? `<span>🗓 ${fmtDate(row.start)}</span>` : '';
+        const notes = row.notes ? `<div class="muted">${safe(row.notes)}</div>` : '';
+
+        div.innerHTML = `
+          <div class="row1">
+            <div class="name">${safe(row.name)}</div>
+            <div style="display:flex;gap:6px;align-items:center">${kindBadge}${statusBadge}</div>
           </div>
-          ${entry.description ? `<div class="desc">${safe(entry.description)}</div>` : ''}
-          ${tags.length ? `<div class="tags">${tags.map(t=>`<span class="tag">#${t}</span>`).join('')}</div>` : ''}
-          <div class="meta">${fmtDate(entry.updatedAt || entry.createdAt) ? `Updated ${fmtDate(entry.updatedAt || entry.createdAt)}` : ''}</div>
+          <div class="grid">
+            <div class="kv">${roleText} ${typeText} ${permText} ${companyText}</div>
+            <div class="kv">${email} ${phone} ${start}</div>
+          </div>
+          ${notes}
         `;
-        elList.appendChild(row);
+        elList.appendChild(div);
       });
 
       elShown.textContent = String(items.length);
-      elTotal.textContent = String(all.length);
+      elTotal.textContent = String(combined.length);
     }
 
-    function filter(q){
-      const needle = (q||'').toLowerCase().trim();
-      if(!needle){ view = all.slice(); render(view); return; }
+    function recomputeCombined(){
+      // Merge then sort by name A→Z
+      combined = [...dataEmp, ...dataVen, ...dataSub]
+        .sort((a,b)=>safe(a.name).localeCompare(safe(b.name)));
+    }
 
-      view = all.filter(e=>{
+    function applyFilters(){
+      const q = lower(elQ.value).trim();
+      const byKind = (row) => activeKind==='all' ? true : row.kind===activeKind;
+
+      view = combined.filter(row=>{
+        if(!byKind(row)) return false;
+        if(!q) return true;
         const hay = [
-          e.term, e.short, e.description,
-          ...(Array.isArray(e.tags)?e.tags: String(e.tags||'').split(','))
+          row.name, row.company, row.role, row.status, row.type, row.perm,
+          row.email, row.phone, row.notes
         ].join(' ').toLowerCase();
-        return hay.includes(needle);
+        return hay.includes(q);
       });
+
       render(view);
     }
 
-    // Debounce for search input
-    let t = 0;
+    // Search debounce
+    let t=0;
     elQ.addEventListener('input', ()=>{
       clearTimeout(t);
-      t = setTimeout(()=>filter(elQ.value), 120);
+      t = setTimeout(applyFilters, 120);
     });
 
-    // Live Firestore subscription
+    // Chip controls
+    function setChip(kind){
+      activeKind = kind; // 'all' | 'employee' | 'vendor' | 'subcontractor'
+      Object.entries(chips).forEach(([k,btn])=>{
+        const pressed = (k === (kind==='employee'?'emp':kind==='vendor'?'ven':kind==='subcontractor'?'sub':'all'));
+        btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+      });
+      applyFilters();
+    }
+    chips.all.addEventListener('click', ()=>setChip('all'));
+    chips.emp.addEventListener('click', ()=>setChip('employee'));
+    chips.ven.addEventListener('click', ()=>setChip('vendor'));
+    chips.sub.addEventListener('click', ()=>setChip('subcontractor'));
+
+    // Live Firestore listeners
     (async function init(){
       try{
-        await ready; // ensure SDK initialized
+        await ready;
         const db = getFirestore();
-        const qRef = query(collection(db, COLLECTION), orderBy('term', 'asc'));
-        onSnapshot(qRef, (snap)=>{
-          const rows = [];
+
+        // Employees
+        onSnapshot(query(collection(db, C_EMP), orderBy('fullName','asc')), (snap)=>{
+          const rows=[];
           snap.forEach(doc=>{
-            const d = doc.data() || {};
-            rows.push({
-              id: doc.id,
-              term: d.term ?? d.name ?? '',
-              short: d.short ?? d.abbrev ?? '',
-              description: d.description ?? d.desc ?? '',
-              tags: d.tags ?? d.labels ?? [],
-              createdAt: d.createdAt ?? null,
-              updatedAt: d.updatedAt ?? null
-            });
+            rows.push(mapEmployee(doc.id, doc.data()||{}));
           });
-          all = rows;
-          filter(elQ.value);
-        }, (err)=>{
-          console.error('[Dictionary] onSnapshot error:', err);
-          elEmpty.hidden = false;
-          elEmpty.textContent = 'Failed to load dictionary. Check network and Firestore rules.';
-        });
-      } catch(err){
-        console.error('[Dictionary] init failed:', err);
+          dataEmp = rows;
+          recomputeCombined();
+          applyFilters();
+        }, err => console.error('[Directory] employees error:', err));
+
+        // Vendors
+        onSnapshot(query(collection(db, C_VEN), orderBy('name','asc')), (snap)=>{
+          const rows=[];
+          snap.forEach(doc=>{
+            rows.push(mapVendor(doc.id, doc.data()||{}));
+          });
+          dataVen = rows;
+          recomputeCombined();
+          applyFilters();
+        }, err => console.error('[Directory] vendors error:', err));
+
+        // Subcontractors
+        onSnapshot(query(collection(db, C_SUB), orderBy('name','asc')), (snap)=>{
+          const rows=[];
+          snap.forEach(doc=>{
+            rows.push(mapSubcontractor(doc.id, doc.data()||{}));
+          });
+          dataSub = rows;
+          recomputeCombined();
+          applyFilters();
+        }, err => console.error('[Directory] subcontractors error:', err));
+
+      }catch(err){
+        console.error('[Directory] init failed:', err);
         elEmpty.hidden = false;
         elEmpty.textContent = 'Failed to initialize Firebase.';
       }
