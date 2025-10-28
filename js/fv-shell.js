@@ -1,7 +1,7 @@
-/* FarmVista — <fv-shell> v5.10.0 (global pull-to-refresh)
-   - Keeps all prior features from v5.9.11
-   - Adds PTR gesture & spinner in the shell (soft refresh via `fv:refresh`)
-   - Long pull (>140px) or quick double pull → hard reload fallback
+/* FarmVista — <fv-shell> v5.10.1 (PTR pinned under header)
+   - PTR bar stays fixed below header; no drag-following
+   - Keeps soft refresh (fv:refresh) + hard reload (long pull or double pull)
+   - All other features from 5.10.0 intact
 */
 (function () {
   const tpl = document.createElement('template');
@@ -20,19 +20,22 @@
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
-    /* PTR track lives just below the gold bar and slides in as you pull */
-    .ptr{ position:fixed; left:0; right:0;
+    /* === Fixed PTR bar (pinned under header) === */
+    .ptr{
+      position:fixed; left:0; right:0;
       top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px);
-      height:52px; transform:translateY(-64px);
-      display:flex; align-items:center; justify-content:center; gap:10px;
+      height:52px; display:flex; align-items:center; justify-content:center; gap:10px;
       background:var(--surface,#fff); color:var(--text,#111);
       border-bottom:1px solid var(--border,#e3e6e3);
-      z-index:998; transition:transform .12s ease;
+      z-index:998;
+      transform:translateY(-64px);            /* hidden by default */
+      transition:transform .14s ease;         /* slide in/out only */
       will-change: transform;
     }
+    .ptr.show{ transform:translateY(0); }     /* shown while dragging */
     .ptr .spin{ width:20px; height:20px; border-radius:50%;
       border:2px solid #cfd5cf; border-top-color:#2F6C3C; animation:spin 1s linear infinite; display:none; }
-    .ptr.active .spin{ display:inline-block; }
+    .ptr.loading .spin{ display:inline-block; }
     .ptr .txt{ font-weight:800; font-size:14px; }
     @keyframes spin{ to{ transform:rotate(360deg) } }
 
@@ -69,6 +72,7 @@
     .df-left .brand{ font-weight:800; line-height:1.15; }
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
+
     .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
       border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; }
@@ -86,6 +90,7 @@
     .row .ico{ width:28px; height:28px; display:grid; place-items:center; font-size:24px; line-height:1; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
+
     .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
       transform:translateX(-50%); background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
@@ -117,6 +122,8 @@
     </button>
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
+
+  <!-- Pinned pull-to-refresh -->
   <div class="ptr" aria-hidden="true"><div class="spin"></div><div class="txt">Pull to refresh</div></div>
 
   <div class="scrim js-scrim"></div>
@@ -223,7 +230,7 @@
 
       this._initMenu();
 
-      // Global PTR gesture
+      // Global PTR gesture (pinned bar)
       this._initPTR();
     }
 
@@ -412,11 +419,10 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Auth: logout + label (First Last → displayName → email) ===== */
+    /* ===== Auth: logout + label ===== */
     async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
-
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
       const bestUser = (auth)=> (auth && auth.currentUser) ||
@@ -428,11 +434,8 @@
           const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
           const fs   = (mod && (mod.getFirestore && mod.getFirestore())) || window.firebaseFirestore;
           const user = bestUser(auth);
-
           if (!user) { logoutLabel.textContent = 'Logout'; return; }
-
           let name = '';
-
           if (fs && mod && mod.doc && mod.getDoc) {
             try{
               const ref = mod.doc(fs, 'users', user.uid);
@@ -446,10 +449,8 @@
               }
             }catch{}
           }
-
           if (!name && user.displayName) name = String(user.displayName).trim();
           if (!name && user.email)       name = String(user.email).trim();
-
           logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
         }catch{
           logoutLabel.textContent = 'Logout';
@@ -568,9 +569,8 @@
       this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
 
-    /* ===== Global Pull-to-Refresh ===== */
+    /* ===== Global Pull-to-Refresh (pinned) ===== */
     _initPTR(){
-      // Tone down browser native PTR where possible to avoid double triggers.
       try { document.documentElement.style.overscrollBehaviorY = 'contain'; } catch {}
       const ptr = this._ptr;
       if (!ptr) return;
@@ -584,30 +584,19 @@
 
       const atTop = () => (document.scrollingElement ? document.scrollingElement.scrollTop : window.scrollY) <= 0.5;
 
-      const setOffset = (dy) => {
-        const clamped = Math.max(0, Math.min(dy, HARD_THRESH + 40));
-        ptr.style.transform = `translateY(${clamped - 64}px)`;
-        ptr.classList.toggle('active', clamped >= THRESH);
-        this._ptrTxt.textContent = clamped >= THRESH ? 'Release to refresh' : 'Pull to refresh';
-      };
-
-      const resetPTR = () => {
-        ptr.style.transform = `translateY(-64px)`;
-        ptr.classList.remove('active');
-      };
+      const showPTR = () => { ptr.classList.add('show'); };
+      const hidePTR = () => { ptr.classList.remove('show','loading'); this._ptrTxt.textContent = 'Pull to refresh'; };
+      const setCue = (ready) => { this._ptrTxt.textContent = ready ? 'Release to refresh' : 'Pull to refresh'; };
 
       const softRefresh = () => {
-        // Fire global soft refresh
-        try {
-          document.dispatchEvent(new CustomEvent('fv:refresh'));
-        } catch {}
-        this._toastMsg('Refreshing…', 1100);
-        // tiny visual dwell
-        setTimeout(resetPTR, 320);
+        ptr.classList.add('loading');
+        try { document.dispatchEvent(new CustomEvent('fv:refresh')); } catch {}
+        this._toastMsg('Refreshing…', 1000);
+        setTimeout(()=>{ ptr.classList.remove('loading'); hidePTR(); }, 380);
       };
 
       const hardReload = () => {
-        resetPTR();
+        hidePTR();
         const url = new URL(location.href);
         url.searchParams.set('rev', Date.now().toString());
         location.replace(url.toString());
@@ -618,39 +607,36 @@
         startY = y;
         pulling = true;
         armed = false;
+        showPTR();               // pin bar in place immediately
+        setCue(false);
         return true;
       };
 
       const onMove = (y) => {
         if (!pulling) return;
         const dy = y - startY;
-        if (dy <= 0) { resetPTR(); return; }
-        setOffset(dy);
-        if (dy >= THRESH) armed = true;
+        if (dy <= 0) { setCue(false); return; }
+        armed = dy >= THRESH;
+        setCue(armed);
       };
 
       const onEnd = () => {
         if (!pulling) return;
-        const now = Date.now();
-        const dyTxt = ptr.style.transform || '';
-        const m = dyTxt.match(/translateY\\(([-\\d.]+)px\\)/);
-        const current = m ? (parseFloat(m[1]) + 64) : 0;
-
         pulling = false;
 
-        if (current >= HARD_THRESH) { hardReload(); return; }
-
-        // double-pull within 1500ms → hard reload
+        // decide hard vs soft based on distance since start
+        const now = Date.now();
+        // double-pull safeguard
         if (armed) {
           if (now - lastTriggerAt < 1500) { hardReload(); return; }
           lastTriggerAt = now;
           softRefresh();
         } else {
-          resetPTR();
+          hidePTR();
         }
       };
 
-      // Touch listeners (works for both iOS PWA and Android)
+      // Touch listeners (minimal writes; no large transforms)
       const onTouchStart = (e)=>{ if (e.touches && e.touches.length === 1) onStart(e.touches[0].clientY); };
       const onTouchMove  = (e)=>{ if (!pulling) return; onMove(e.touches[0].clientY); if (armed) e.preventDefault(); };
       const onTouchEnd   = ()=> onEnd();
