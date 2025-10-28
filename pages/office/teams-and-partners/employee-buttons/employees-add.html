@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes (same as Farms page) -->
+  <!-- Standard includes -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -38,14 +38,13 @@
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
-    /* Buttons (same tokens as Farms page) */
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;} /* secondary look for Invite */
     .btn-quiet{min-width:auto;padding:8px 12px}
 
-    /* Neutralize iOS yellow autofill */
     input:-webkit-autofill,
     input:-webkit-autofill:focus,
     textarea:-webkit-autofill,
@@ -56,14 +55,13 @@
       transition: background-color 9999s ease-in-out 0s;
     }
 
-    /* Toast (same pattern) */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
-  <!-- Ensure fv-shell is available, exactly like your Farms page -->
+  <!-- fv-shell -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -72,7 +70,7 @@
     })();
   </script>
 
-  <!-- Your Firebase config + init (module so we can import the helpers) -->
+  <!-- Firebase config + init -->
   <script src="/Farm-vista/js/firebase-config.js" defer></script>
   <script type="module" src="/Farm-vista/js/firebase-init.js"></script>
 </head>
@@ -155,7 +153,7 @@
             </div>
           </div>
 
-          <!-- Notes + Actions laid out like Farms page row -->
+          <!-- Notes + Actions -->
           <div class="row">
             <div class="field" style="min-width:0">
               <label for="notes">Notes</label>
@@ -164,6 +162,7 @@
             <div class="actions">
               <button id="clear" class="btn" type="button">Clear</button>
               <button id="save" class="btn btn-primary" type="button">Save</button>
+              <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
             </div>
           </div>
         </div>
@@ -171,17 +170,17 @@
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
-  <!-- Page logic using your modular Firebase exports -->
   <script type="module">
     import {
       ready,
       getFirestore,
       collection,
       addDoc,
-      serverTimestamp
+      serverTimestamp,
+      getAuth,
+      sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -194,27 +193,14 @@
     }
 
     function digitsOnly(str=""){ return (str||"").replace(/\D+/g,""); }
-
     function formatUSPhone(raw){
       const d = digitsOnly(raw);
       if(!d) return "";
-      // Allow optional leading 1
       const core = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
-      if(core.length === 10){
-        return `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`;
-      }
-      // If not 10 digits, just return original trimmed
+      if(core.length === 10){ return `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`; }
       return raw.trim();
     }
-
-    // Keep user input numeric as they type (but don't fight paste)
-    $("phone").addEventListener("input", (e)=>{
-      // Let user type anything; we’ll format on blur.
-      // (Prevents cursor jumpiness on iOS.)
-    });
-    $("phone").addEventListener("blur", (e)=>{
-      e.target.value = formatUSPhone(e.target.value);
-    });
+    $("phone").addEventListener("blur", e => e.target.value = formatUSPhone(e.target.value));
 
     $("clear").addEventListener("click", ()=>{
       ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
@@ -224,74 +210,103 @@
       showToast("Form cleared.");
     });
 
-    function validate(){
+    function collectAndValidate(){
       const first = $("first");
       const last  = $("last");
-      if(!first.checkValidity() || !last.checkValidity()){
-        // Let the browser show its native message if available
-        if(!first.value.trim()) first.reportValidity();
-        else if(!last.value.trim()) last.reportValidity();
-        return null;
-      }
-      return {
+      if(!first.checkValidity()){ first.reportValidity(); return null; }
+      if(!last.checkValidity()){ last.reportValidity(); return null; }
+
+      const vals = {
         first: first.value.trim(),
         last:  last.value.trim(),
         email: $("email").value.trim(),
         phone: formatUSPhone($("phone").value),
         role:  $("role").value.trim(),
         type:  $("type").value,
-        start: $("start").value, // yyyy-mm-dd
+        start: $("start").value,
         status:$("status").value,
         perm:  $("perm").value,
         notes: $("notes").value.trim()
       };
+      return vals;
+    }
+
+    async function saveEmployee(vals){
+      const db = getFirestore();
+      const fullName = `${vals.first} ${vals.last}`.trim();
+      const payload = {
+        firstName: vals.first,
+        lastName:  vals.last,
+        fullName,
+        email:     vals.email,
+        phone:     vals.phone,
+        role:      vals.role,
+        type:      vals.type,
+        startDate: vals.start || null,
+        status:    vals.status,
+        permissionGroup: vals.perm,
+        notes:     vals.notes,
+        search: [fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
+        active: vals.status === "Active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await addDoc(collection(db, "employees"), payload);
+    }
+
+    function clearForm(){
+      ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
+      $("type").selectedIndex = 0;
+      $("status").selectedIndex = 0;
+      $("perm").selectedIndex = 0;
     }
 
     $("save").addEventListener("click", async ()=>{
-      const vals = validate();
-      if(!vals) return;
-
+      const vals = collectAndValidate(); if(!vals) return;
       try{
-        // Ensure Firebase is initialized
-        const { mode } = await ready;
-        const db = getFirestore();
-
-        const fullName = `${vals.first} ${vals.last}`.trim();
-
-        const payload = {
-          firstName: vals.first,
-          lastName:  vals.last,
-          fullName,
-          email:     vals.email,
-          phone:     vals.phone,
-          role:      vals.role,
-          type:      vals.type,            // Employee | Partner | Contractor
-          startDate: vals.start || null,   // keep ISO string
-          status:    vals.status,          // Active | On Leave | Inactive
-          permissionGroup: vals.perm,      // Standard | Manager | Admin
-          notes:     vals.notes,
-          search: [fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
-          active: vals.status === "Active",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-
-        await addDoc(collection(db, "employees"), payload);
-
+        await ready;
+        await saveEmployee(vals);
         showToast("Employee saved.");
         window.scrollTo({top:0, behavior:"smooth"});
-
-        // Optional: clear after save
-        ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
-        $("type").selectedIndex = 0;
-        $("status").selectedIndex = 0;
-        $("perm").selectedIndex = 0;
-
-      } catch(err){
+        clearForm();
+      }catch(err){
         console.error(err);
         alert("Save failed. Check network and Firestore security rules.\n\n" + (err?.message || err));
       }
     });
+
+    $("saveInvite").addEventListener("click", async ()=>{
+      const vals = collectAndValidate(); if(!vals) return;
+
+      if(!vals.email){
+        alert("Please enter an email to send the invite.");
+        return;
+      }
+
+      try{
+        await ready;
+        await saveEmployee(vals);
+
+        // Send password reset email so the user can set their password
+        const auth = getAuth();
+        await sendPasswordResetEmail(auth, vals.email);
+
+        showToast("Saved & invite sent.");
+        window.scrollTo({top:0, behavior:"smooth"});
+        clearForm();
+      }catch(err){
+        console.error(err);
+        // Helpful guidance for common case where the user doesn't yet exist in Auth
+        if (err?.code === "auth/user-not-found") {
+          alert("Invite failed: this email is not a Firebase Auth user yet.\nCreate the user in Authentication (or enable email-link sign-in), then try again.");
+        } else {
+          alert("Invite failed. " + (err?.message || err));
+        }
+      }
+    });
+
+    // Ensure SDK is initialized (and capture mode if needed)
+    ready.then(({mode})=>{ /* no-op; but guarantees init */ });
   </script>
 </body>
 </html>
