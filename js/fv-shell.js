@@ -1,4 +1,3 @@
-<script>
 /* FarmVista — <fv-shell> v5.9.12
    Changes vs 5.9.11:
    - Pull-to-refresh (PTR) only arms when window.scrollY === 0 at touchstart.
@@ -708,4 +707,3 @@
     customElements.define('fv-shell', FVShell);
   }
 })();
-</script>
