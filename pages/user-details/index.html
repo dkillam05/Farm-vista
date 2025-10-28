@@ -39,10 +39,8 @@
       border:1px solid var(--border,#d9ddd9);
       color:var(--text,#111) !important;
     }
-
     .muted-small { color:var(--muted,#87908a); font-size:13px; }
 
-    /* Notifications switch */
     .setting{
       display:flex; align-items:center; justify-content:space-between;
       padding:14px 12px; border-top:1px solid var(--border,#e2e5e5);
@@ -79,40 +77,39 @@
         Update your profile so your name and contact info are consistent across FarmVista (tickets, reports, comments, and assignments).
       </p>
 
-      <!-- Profile -->
       <div class="card" style="max-width:780px;">
         <h2 class="card-title">Profile</h2>
-        <form class="form" onsubmit="event.preventDefault(); /* hook up save later */">
+        <form class="form" onsubmit="event.preventDefault();">
           <div class="row2">
             <div class="field">
               <label for="ud-name">Full Name</label>
-              <input id="ud-name" name="name" type="text" autocomplete="name" placeholder="First Last" />
+              <input id="ud-name" type="text" autocomplete="name" placeholder="First Last" />
             </div>
             <div class="field">
               <label for="ud-role">Role</label>
-              <input id="ud-role" name="role" type="text" placeholder="Operator, Agronomy, Office…" />
+              <input id="ud-role" type="text" placeholder="Operator, Agronomy, Office…" />
             </div>
           </div>
 
           <div class="row2">
             <div class="field">
               <label for="ud-email">Email</label>
-              <input id="ud-email" name="email" type="email" autocomplete="email" placeholder="you@farm.com" />
+              <input id="ud-email" type="email" autocomplete="email" placeholder="you@farm.com" />
             </div>
             <div class="field">
               <label for="ud-phone">Mobile</label>
-              <input id="ud-phone" name="phone" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
+              <input id="ud-phone" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
             </div>
           </div>
 
           <div class="field">
             <label for="ud-notes">Notes (optional)</label>
-            <textarea id="ud-notes" name="notes" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
+            <textarea id="ud-notes" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
           </div>
 
           <div class="field">
             <label for="ud-theme">Preferred Theme</label>
-            <select id="ud-theme" name="theme">
+            <select id="ud-theme">
               <option value="system">System</option>
               <option value="light">Light</option>
               <option value="dark">Dark</option>
@@ -127,7 +124,6 @@
         </form>
       </div>
 
-      <!-- Notifications -->
       <div class="card" style="max-width:780px;">
         <h2 class="card-title">Notifications</h2>
         <div class="setting" id="fv-notify-setting">
@@ -135,9 +131,9 @@
             <div class="txt">Notifications</div>
             <div class="sub">Allow push notifications</div>
           </div>
-          <label class="switch" aria-label="Notifications">
+          <label class="switch">
             <input type="checkbox" id="fv-toggle-push" />
-            <span class="slider" aria-hidden="true"></span>
+            <span class="slider"></span>
           </label>
         </div>
         <div class="muted-small" style="padding:10px 12px 14px;">
@@ -145,7 +141,6 @@
         </div>
       </div>
 
-      <!-- Visibility -->
       <div class="card" style="max-width:780px;">
         <h2 class="card-title">Visibility</h2>
         <ul class="list">
@@ -157,128 +152,91 @@
     </div>
   </fv-shell>
 
-  <!-- Bootloader -->
   <script>
-    (function () {
-      const urlRev = new URL(location.href).searchParams.get('rev');
-      const REV = urlRev || String(Date.now());
+    (function(){
+      const REV = String(Date.now());
       const files = [
         '/Farm-vista/js/version.js',
         '/Farm-vista/js/core.js',
-        '/Farm-vista/js/fv-hero-card.js',
-        '/Farm-vista/js/fv-shell.js',
-        '/Farm-vista/js/fv-hero.js'
+        '/Farm-vista/js/fv-shell.js'
       ];
-      (async function loadSeq() {
-        for (const src of files) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = src + '?rev=' + REV;
-            s.async = false;
-            s.onload = resolve;
-            s.onerror = () => reject(new Error('Failed to load ' + s.src));
+      (async()=>{
+        for(const src of files){
+          await new Promise((res,rej)=>{
+            const s=document.createElement('script');
+            s.src=src+'?rev='+REV; s.async=false; s.onload=res; s.onerror=rej;
             document.body.appendChild(s);
           });
         }
-
-        // Map Preferred Theme select to App theme
-        try {
-          const sel = document.getElementById('ud-theme');
-          if (sel && window.App && App.setTheme && App.getTheme) {
-            sel.value = App.getTheme();
-            sel.addEventListener('change', () => App.setTheme(sel.value));
+        // theme link
+        try{
+          const sel=document.getElementById('ud-theme');
+          if(sel && window.App && App.setTheme && App.getTheme){
+            sel.value=App.getTheme();
+            sel.addEventListener('change',()=>App.setTheme(sel.value));
           }
-        } catch {}
-
-        // Initialize Notifications toggle
-        (function(){
-          const LS_KEY = 'fv:prefs:notifications';
-          const el = document.getElementById('fv-toggle-push');
-          if(!el) return;
-          let saved = '0';
-          try { saved = localStorage.getItem(LS_KEY) ?? '0'; } catch {}
-          el.checked = (saved === '1' || saved === 'true');
-          el.addEventListener('change', () => {
-            const on = el.checked;
-            try { localStorage.setItem(LS_KEY, on ? '1' : '0'); } catch {}
-            document.dispatchEvent(new CustomEvent('fv:prefs:notifications', { detail: { enabled: on } }));
+        }catch{}
+        // notification toggle local pref
+        const el=document.getElementById('fv-toggle-push');
+        if(el){
+          const key='fv:prefs:notifications';
+          try{el.checked=(localStorage.getItem(key)==='1');}catch{}
+          el.addEventListener('change',()=>{
+            try{localStorage.setItem(key,el.checked?'1':'0');}catch{}
           });
-        })();
-      })().catch(err => console.error('Bootloader failed:', err));
+        }
+      })();
     })();
   </script>
 
-  <!-- Populate form from Firestore -->
   <script type="module">
     import {
       ready,
-      getAuth, onAuthStateChanged,
-      getFirestore, doc, getDoc
+      getAuth,onAuthStateChanged,
+      getFirestore,doc,getDoc
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $ = id => document.getElementById(id);
-    const digitsOnly = s => String(s||'').replace(/\D+/g,'');
-    const formatUSPhone = raw => {
-      const d = digitsOnly(raw);
-      const core = (d.length === 11 && d.startsWith('1')) ? d.slice(1) : d;
-      return core.length === 10 ? `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}` : (raw || '');
+    const $=id=>document.getElementById(id);
+    const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
+    const formatUSPhone=raw=>{
+      const d=digitsOnly(raw);
+      const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d;
+      return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:raw;
     };
-    const emailKey = e => String(e||'').trim().toLowerCase();
+    const emailKey=e=>String(e||'').trim().toLowerCase();
 
-    function fill(vals = {}){
-      $('ud-name').value  = vals.fullName || vals.name || '';
-      $('ud-role').value  = vals.role || '';
-      $('ud-email').value = vals.email || '';
-      $('ud-phone').value = formatUSPhone(vals.phone || '');
-      $('ud-notes').value = vals.notes || '';
+    function fill(v={}){
+      $('ud-name').value=v.fullName||v.name||'';
+      $('ud-role').value=v.role||'';
+      $('ud-email').value=v.email||'';
+      $('ud-phone').value=formatUSPhone(v.phone||'');
+      $('ud-notes').value=v.notes||'';
     }
 
-    async function loadLoggedInUser(){
-      const { mode } = await ready;
-      const auth = getAuth();
-      return new Promise(resolve => {
-        onAuthStateChanged(auth, async (user) => {
-          if (!user) { fill({}); return resolve(); }
-
-          const email = user.email || '';
-          const db = getFirestore();
-          let fromFS = null;
-          try{
-            const ref = doc(db, 'employees', emailKey(email));
-            const snap = await getDoc(ref);
-            if (snap.exists()) {
-              const d = snap.data() || {};
-              fromFS = {
-                fullName: d.fullName || `${d.firstName||''} ${d.lastName||''}`.trim(),
-                role: d.role || '',
-                email: d.email || email,
-                phone: d.phone || '',
-                notes: d.notes || ''
-              };
-            }
-          }catch(err){
-            console.error('[UserDetails] Firestore read failed:', err);
-          }
-
-          const merged = {
-            fullName: fromFS?.fullName || user.displayName || '',
-            role: fromFS?.role || '',
-            email: fromFS?.email || email,
-            phone: fromFS?.phone || (user.phoneNumber || ''),
-            notes: fromFS?.notes || ''
-          };
-
-          fill(merged);
-          resolve();
-        }, (err)=>{ console.error('[UserDetails] Auth state error:', err); resolve(); });
+    async function loadUser(){
+      await ready;
+      const auth=getAuth();
+      onAuthStateChanged(auth,async user=>{
+        if(!user){fill({});return;}
+        const email=user.email||'';
+        const db=getFirestore();
+        try{
+          const ref=doc(db,'employees',emailKey(email));
+          const snap=await getDoc(ref);
+          let data={};
+          if(snap.exists()) data=snap.data();
+          const fullName=data.fullName||`${data.firstName||''} ${data.lastName||''}`.trim()||user.displayName||'';
+          fill({
+            fullName,
+            role:data.role||'',
+            email:data.email||email,
+            phone:data.phone||user.phoneNumber||'',
+            notes:data.notes||''
+          });
+        }catch(e){console.error(e);}
       });
     }
-
-    loadLoggedInUser().catch(err=>console.error(err));
+    loadUser();
   </script>
-
-  <noscript>
-    <div class="container"><div class="card">JavaScript is required for User Details.</div></div>
-  </noscript>
 </body>
 </html>
