@@ -45,7 +45,6 @@
     .tree{border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--card-surface,var(--surface));}
     details.node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:8px 0;}
     summary{cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:10px;list-style:none;}
-    /* custom caret for consistent alignment */
     summary::before{content:"▸";display:inline-block;transform:translateY(1px);transition:transform .15s ease;}
     details[open] > summary::before{transform:rotate(90deg) translateY(0);}
     .sum-line{display:flex;align-items:center;gap:10px;flex:1;}
@@ -72,7 +71,7 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
-  <!-- Make NAV available so we can mirror it -->
+  <!-- Mirror NAV so tree is built from your live menu -->
   <script type="module">
     import NAV_MENU from '/Farm-vista/js/menu.js';
     window.FV_NAV_MENU = NAV_MENU;
@@ -85,6 +84,9 @@
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
     }
   })();</script>
+
+  <!-- Firebase config FIRST -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
 </head><body>
   <fv-shell>
     <div class="page container">
@@ -139,23 +141,34 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <script>
+  <script type="module">
+  import {
+    ready,
+    getFirestore, collection, getDocs, addDoc, setDoc, deleteDoc, doc,
+    orderBy, query, serverTimestamp
+  } from '/Farm-vista/js/firebase-init.js';
+
   (function(){
     "use strict";
     const $ = id => document.getElementById(id);
     const toast = $("toast");
-    const LS_ROLES = "fv_account_roles_v1_simple";
 
+    /* ====== CONFIG ====== */
+    const COLLECTION = 'accountRoles'; // <-- rename here if you prefer a different collection
+
+    /* ====== STATE ====== */
     let currentRoleId = "";
-    let roleDraft = { id:"", name:"", perms:{} }; // perms: { [nodeId]: { on: boolean } }
+    let roleDraft = { id:"", name:"", perms:{} }; // perms: { [nodeId]: { on:boolean } }
+    let MODE = 'stub';
 
+    /* ====== UI HELPERS ====== */
     function showToast(msg="Saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
-    function uid(){ return String(Date.now()) + Math.random().toString(36).slice(2,7); }
-    function loadRoles(){ try{ const a=JSON.parse(localStorage.getItem(LS_ROLES)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
-    function saveRoles(arr){ localStorage.setItem(LS_ROLES, JSON.stringify(arr)); }
-    function getMenu(){ return window.FV_NAV_MENU; }
+    const LS_ROLES = "fv_account_roles_v1_simple";
+    const uid = () => String(Date.now()) + Math.random().toString(36).slice(2,7);
+    const loadRolesLS = () => { try{ const a=JSON.parse(localStorage.getItem(LS_ROLES)||"[]"); return Array.isArray(a)?a:[]; }catch{ return []; } };
+    const saveRolesLS = (arr) => localStorage.setItem(LS_ROLES, JSON.stringify(arr));
 
-    /* ---- Build a simple tree from NAV (hide Home) ---- */
+    function getMenu(){ return window.FV_NAV_MENU; }
     function flatten(items, depth=0, parent=null, out=[]){
       items.forEach(it=>{
         if(it.id === "home") return;
@@ -165,19 +178,14 @@
       });
       return out;
     }
-
-    /* ---- Permissions helpers ---- */
-    function ensurePerm(nodeId, nodeObj){
-      // Back-compat: if old model present, map visible->on
+    function ensurePerm(nodeId){
       const p = roleDraft.perms[nodeId];
       if(p && typeof p.on === "boolean") return p;
       if(p && ("visible" in p)) return (roleDraft.perms[nodeId] = { on: !!p.visible });
-
-      if(!roleDraft.perms[nodeId]) roleDraft.perms[nodeId] = { on:false }; // default OFF
-      return roleDraft.perms[nodeId];
+      return (roleDraft.perms[nodeId] = { on:false });
     }
 
-    /* ---- Render ---- */
+    /* ====== TREE RENDER ====== */
     function renderTree(){
       const NAV = getMenu();
       const tree = $("tree");
@@ -194,7 +202,7 @@
         const stack = (byParent[nodeId]||[]).slice();
         while(stack.length){
           const n = stack.pop();
-          ensurePerm(n.id, n).on = value;
+          ensurePerm(n.id).on = value;
           if(n.type==="group"){ (byParent[n.id]||[]).forEach(c=>stack.push(c)); }
         }
       }
@@ -202,21 +210,21 @@
       function makeSwitch(label, node, isGroup){
         const btn = document.createElement("button");
         btn.type = "button"; btn.className="switch";
-        const state = !!ensurePerm(node.id, node).on;
+        const state = !!ensurePerm(node.id).on;
         btn.dataset.on = String(state);
         btn.setAttribute("role","switch");
         btn.setAttribute("aria-checked", String(state));
         btn.innerHTML = `<span class="tiny">${label}</span>`;
         btn.addEventListener("click", (e)=>{
           e.stopPropagation();
-          const perm = ensurePerm(node.id, node);
+          const perm = ensurePerm(node.id);
           const next = !perm.on;
           perm.on = next;
           btn.dataset.on = String(next);
           btn.setAttribute("aria-checked", String(next));
           if(isGroup){
             cascade(node.id, next);
-            renderTree(); // refresh child switch states
+            renderTree();
           }
         });
         return btn;
@@ -272,64 +280,134 @@
       });
     }
 
-    /* ---- Role picker & actions ---- */
-    function populateRolePicker(){
+    /* ====== ROLE PICKER ====== */
+    function populateRolePickerFromArray(arr){
       const sel = $("rolePicker");
-      const all = loadRoles();
       const keep = sel.value;
       sel.innerHTML = '<option value="">— New role —</option>';
-      all.forEach(r=>{
+      (arr||[]).forEach(r=>{
         const o=document.createElement("option");
         o.value=r.id; o.textContent=r.name||"(unnamed)";
         sel.appendChild(o);
       });
-      if(keep && all.some(r=>r.id===keep)) sel.value = keep;
+      if(keep && arr.some(r=>r.id===keep)) sel.value = keep;
     }
     function newDraft(){
       currentRoleId = "";
       roleDraft = { id:"", name:"", perms:{} };
       $("roleName").value = "";
-      renderTree();
       $("rolePicker").value = "";
+      renderTree();
     }
 
+    /* ====== FIRESTORE BACKEND ====== */
+    async function loadRolesFS(){
+      const db = getFirestore();
+      const qref = query(collection(db, COLLECTION), orderBy('name'));
+      const snap = await getDocs(qref);
+      const out = [];
+      snap.forEach(docSnap=>{
+        const d = docSnap.data() || {};
+        out.push({ id: docSnap.id, name: d.name || "(unnamed)", perms: d.perms || {}, t: d.updatedAt || d.createdAt || 0 });
+      });
+      return out;
+    }
+    async function saveRoleFS(id, name, perms){
+      const db = getFirestore();
+      if(id){
+        await setDoc(doc(db, COLLECTION, id), {
+          name, perms, updatedAt: serverTimestamp()
+        }, { merge:true });
+        return id;
+      }else{
+        const ref = await addDoc(collection(db, COLLECTION), {
+          name, perms, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        });
+        return ref.id;
+      }
+    }
+    async function deleteRoleFS(id){
+      const db = getFirestore();
+      await deleteDoc(doc(db, COLLECTION, id));
+    }
+
+    /* ====== STORAGE ABSTRACTION (FS or LS) ====== */
+    async function loadRoles(){
+      if(MODE==='firebase'){
+        return await loadRolesFS();
+      } else {
+        return loadRolesLS();
+      }
+    }
+    async function saveRole(name, perms){
+      if(!name) throw new Error("Missing role name");
+      if(MODE==='firebase'){
+        const id = await saveRoleFS(currentRoleId, name, perms);
+        return id;
+      } else {
+        const all = loadRolesLS();
+        if(currentRoleId){
+          const i = all.findIndex(r=>r.id===currentRoleId);
+          if(i>=0) all[i] = { id: currentRoleId, name, perms, t: Date.now() };
+        }else{
+          const id = uid();
+          all.unshift({ id, name, perms, t: Date.now() });
+          currentRoleId = id;
+        }
+        saveRolesLS(all);
+        return currentRoleId;
+      }
+    }
+    async function deleteRole(){
+      if(!currentRoleId) return;
+      if(MODE==='firebase'){
+        await deleteRoleFS(currentRoleId);
+      } else {
+        const all = loadRolesLS().filter(x=>x.id!==currentRoleId);
+        saveRolesLS(all);
+      }
+    }
+
+    /* ====== EVENTS ====== */
     $("newRole").addEventListener("click", newDraft);
 
-    $("saveRole").addEventListener("click", ()=>{
+    $("saveRole").addEventListener("click", async ()=>{
       const name = $("roleName").value.trim();
       if(!name){ alert("Please enter a role name."); return; }
-      const all = loadRoles();
-      if(currentRoleId){
-        const i = all.findIndex(r=>r.id===currentRoleId);
-        if(i>=0) all[i] = { id: currentRoleId, name, perms: roleDraft.perms, t: Date.now() };
-      }else{
-        const id = uid();
-        all.unshift({ id, name, perms: roleDraft.perms, t: Date.now() });
-        currentRoleId = id; roleDraft.id = id;
+      try{
+        const id = await saveRole(name, roleDraft.perms);
+        currentRoleId = id;
+        const all = await loadRoles();
+        populateRolePickerFromArray(all);
+        $("rolePicker").value = id;
+        showToast("Saved.");
+      }catch(err){
+        console.error(err);
+        alert("Save failed.\n\n" + (err?.message || err));
       }
-      saveRoles(all);
-      populateRolePicker();
-      $("rolePicker").value = currentRoleId;
-      showToast("Saved.");
     });
 
-    $("deleteRole").addEventListener("click", ()=>{
+    $("deleteRole").addEventListener("click", async ()=>{
       if(!currentRoleId){ alert("No role selected."); return; }
-      const all = loadRoles();
-      const r = all.find(x=>x.id===currentRoleId);
-      if(!r) return;
-      if(!confirm(`Delete role "${r.name}"? This cannot be undone.`)) return;
-      const next = all.filter(x=>x.id!==currentRoleId);
-      saveRoles(next);
-      populateRolePicker();
-      newDraft();
-      showToast("Role deleted.");
+      const name = $("roleName").value || "(unnamed)";
+      if(!confirm(`Delete role "${name}"? This cannot be undone.`)) return;
+      try{
+        await deleteRole();
+        const all = await loadRoles();
+        populateRolePickerFromArray(all);
+        newDraft();
+        showToast("Role deleted.");
+      }catch(err){
+        console.error(err);
+        alert("Delete failed.\n\n" + (err?.message || err));
+      }
     });
 
-    $("rolePicker").addEventListener("change", ()=>{
+    $("rolePicker").addEventListener("change", async ()=>{
       const id = $("rolePicker").value;
       if(!id){ newDraft(); return; }
-      const r = loadRoles().find(x=>x.id===id);
+      const all = await loadRoles();
+      const r = all.find(x=>x.id===id);
       if(!r){ newDraft(); return; }
       currentRoleId = r.id;
       roleDraft = { id:r.id, name:r.name, perms: r.perms || {} };
@@ -340,8 +418,15 @@
     $("expandAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=true); });
     $("collapseAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=false); });
 
-    /* ---- Init ---- */
-    function init(){ populateRolePicker(); newDraft(); }
+    /* ====== INIT ====== */
+    async function init(){
+      const { mode } = await ready;
+      MODE = mode; // 'firebase' or 'stub'
+      const roles = await loadRoles();
+      populateRolePickerFromArray(roles);
+      newDraft();
+    }
+
     if(window.FV_NAV_MENU){ init(); }
     else{
       window.addEventListener('fv:menu-ready', init, { once:true });
