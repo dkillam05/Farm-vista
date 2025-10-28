@@ -18,7 +18,6 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .page-title{margin:0 0 8px 0;}
     .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
-
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
     .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
@@ -26,44 +25,31 @@
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:14px;}
-
     .row{display:grid;gap:10px;grid-template-columns:1fr auto}
     @media(max-width:720px){.row{grid-template-columns:1fr}}
-
     .grid2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
     @media(max-width:720px){.grid2{grid-template-columns:1fr}}
-
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
-
     .toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:6px 0 14px}
     .picker{flex:1;min-width:260px;display:flex;gap:10px;align-items:center;
       padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
     .picker input{border:none;outline:none;background:transparent;width:100%;font:inherit;font-size:16px;}
     .idnote{color:var(--muted,#67706B);font-size:12px}
-
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;}
     .btn-quiet{min-width:auto;padding:8px 12px}
-
-    input:-webkit-autofill, input:-webkit-autofill:focus,
-    textarea:-webkit-autofill, select:-webkit-autofill{
-      -webkit-text-fill-color: var(--text) !important;
-      box-shadow: 0 0 0 44px var(--card-surface, var(--surface)) inset !important;
-      caret-color: var(--text);
-      transition: background-color 9999s ease-in-out 0s;
-    }
-
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
+  <!-- Ensure shell -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -72,8 +58,8 @@
     })();
   </script>
 
-  <!-- Config first so init sees window.FV_FIREBASE_CONFIG -->
-  <script src="/Farm-vista/js/firebase-config.js" defer></script>
+  <!-- IMPORTANT: load config FIRST (no defer) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
 </head>
 <body>
   <fv-shell>
@@ -176,206 +162,107 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Page logic (single module; imports from firebase-init.js) -->
   <script type="module">
     import {
-      ready,
-      getFirestore,
-      collection,
-      doc,
-      getDoc,
-      setDoc,
-      serverTimestamp,
-      query,
-      orderBy,
-      onSnapshot,
-      getAuth,
-      sendPasswordResetEmail
+      ready, getFirestore, collection, doc, getDoc, setDoc,
+      serverTimestamp, query, orderBy, onSnapshot,
+      getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    const COLL = 'employees';
+    const COLL='employees';
+    const $=id=>document.getElementById(id);
+    const toast=$('toast'), elPick=$('pick'), elList=$('empList'), elHint=$('docHint');
+    let currentId=null, latestLoaded=null;
 
-    const $ = id => document.getElementById(id);
-    const toast = $('toast');
-    const elPick = $('pick');
-    const elList = $('empList');
-    const elHint = $('docHint');
+    const showToast=m=>{ toast.textContent=m||"Saved."; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
+    const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
+    const fmtPhone=r=>{ const d=digitsOnly(r); const c=d.length===11&&d.startsWith('1')?d.slice(1):d; return c.length===10?`(${c.slice(0,3)}) ${c.slice(3,6)}-${c.slice(6)}`:String(r||'').trim(); };
+    $('phone').addEventListener('blur',e=>e.target.value=fmtPhone(e.target.value));
 
-    let currentId = null;
-    let latestLoaded = null;
-
-    function showToast(msg="Saved."){
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
-    }
-
-    function digitsOnly(s=""){ return String(s||'').replace(/\D+/g,''); }
-    function formatUSPhone(raw){
-      const d = digitsOnly(raw);
-      if(!d) return "";
-      const core = d.length===11 && d.startsWith("1") ? d.slice(1) : d;
-      if(core.length===10) return `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`;
-      return raw.trim();
-    }
-    $('phone').addEventListener('blur', e => e.target.value = formatUSPhone(e.target.value));
-
-    function requireNames(){
-      const first = $('first'), last = $('last');
-      if(!first.checkValidity()){ first.reportValidity(); return false; }
-      if(!last.checkValidity()){ last.reportValidity(); return false; }
-      return true;
-    }
+    function needNames(){ const f=$('first'), l=$('last'); if(!f.checkValidity()){f.reportValidity();return false;} if(!l.checkValidity()){l.reportValidity();return false;} return true; }
 
     function collect(){
-      if(!requireNames()) return null;
-      const vals = {
-        first: $('first').value.trim(),
-        last:  $('last').value.trim(),
-        email: $('email').value.trim(),
-        phone: formatUSPhone($('phone').value),
-        role:  $('role').value.trim(),
-        type:  $('type').value,
-        start: $('start').value,
-        status:$('status').value,
-        perm:  $('perm').value,
-        notes: $('notes').value.trim()
-      };
-      const fullName = `${vals.first} ${vals.last}`.trim();
-      return {
-        payload: {
-          firstName: vals.first,
-          lastName:  vals.last,
-          fullName,
-          email:     vals.email,
-          phone:     vals.phone,
-          role:      vals.role,
-          type:      vals.type,
-          startDate: vals.start || null,
-          status:    vals.status,
-          permissionGroup: vals.perm,
-          notes:     vals.notes,
-          search: [fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
-          active: vals.status === 'Active',
-          updatedAt: serverTimestamp()
-        },
-        email: vals.email
-      };
+      if(!needNames()) return null;
+      const v={ first:$('first').value.trim(), last:$('last').value.trim(),
+        email:$('email').value.trim(), phone:fmtPhone($('phone').value),
+        role:$('role').value.trim(), type:$('type').value, start:$('start').value,
+        status:$('status').value, perm:$('perm').value, notes:$('notes').value.trim() };
+      const full=`${v.first} ${v.last}`.trim();
+      return { payload:{
+          firstName:v.first,lastName:v.last,fullName:full,email:v.email,phone:v.phone,role:v.role,type:v.type,
+          startDate:v.start||null,status:v.status,permissionGroup:v.perm,notes:v.notes,
+          search:[full.toLowerCase(),v.first.toLowerCase(),v.last.toLowerCase(),v.email.toLowerCase()].filter(Boolean),
+          active:v.status==='Active',updatedAt:serverTimestamp()
+        }, email:v.email };
     }
 
-    function fillForm(d){
-      $('first').value = d.firstName || '';
-      $('last').value  = d.lastName  || '';
-      $('email').value = d.email     || '';
-      $('phone').value = formatUSPhone(d.phone || '');
-      $('role').value  = d.role      || '';
-      $('type').value  = d.type      || 'Employee';
-      $('start').value = (typeof d.startDate === 'string') ? d.startDate : '';
-      $('status').value= d.status    || 'Active';
-      $('perm').value  = d.permissionGroup || 'Standard';
-      $('notes').value = d.notes     || '';
+    function fill(d){
+      $('first').value=d.firstName||''; $('last').value=d.lastName||'';
+      $('email').value=d.email||''; $('phone').value=fmtPhone(d.phone||'');
+      $('role').value=d.role||''; $('type').value=d.type||'Employee';
+      $('start').value=typeof d.startDate==='string'?d.startDate:''; $('status').value=d.status||'Active';
+      $('perm').value=d.permissionGroup||'Standard'; $('notes').value=d.notes||'';
     }
+    function reset(){ if(latestLoaded) fill(latestLoaded); }
+    $('reset').addEventListener('click',reset);
 
-    function resetForm(){
-      if(latestLoaded) fillForm(latestLoaded);
-    }
-    $('reset').addEventListener('click', resetForm);
-
-    async function loadEmployeeById(id){
+    async function loadById(id){
       try{
-        await ready;
-        const db = getFirestore();
-        const snap = await getDoc(doc(db, COLL, id));
-        if(!snap.exists()){
-          alert('Employee not found.');
-          return;
-        }
-        currentId = id;
-        latestLoaded = snap.data() || {};
-        fillForm(latestLoaded);
-        elHint.hidden = false;
-        elHint.textContent = `Editing ID: ${id}`;
-      }catch(err){
-        console.error(err);
-        alert('Failed to load employee.\n\n' + (err?.message || err));
-      }
+        await ready; const db=getFirestore(); const snap=await getDoc(doc(db,COLL,id));
+        if(!snap.exists()){ alert('Employee not found.'); return; }
+        currentId=id; latestLoaded=snap.data()||{}; fill(latestLoaded);
+        elHint.hidden=false; elHint.textContent=`Editing ID: ${id}`;
+      }catch(err){ console.error(err); alert('Failed to load employee.\n\n'+(err?.message||err)); }
     }
 
-    // Live picker
-    (async function initPicker(){
+    // live picker
+    (async function(){
       try{
-        await ready;
-        const db = getFirestore();
-        onSnapshot(query(collection(db, COLL), orderBy('fullName','asc')), (snap)=>{
-          elList.innerHTML = '';
-          snap.forEach(docSnap=>{
-            const d = docSnap.data() || {};
-            const name = d.fullName || [d.firstName, d.lastName].filter(Boolean).join(' ') || '(Unnamed)';
-            const opt = document.createElement('option');
-            opt.value = `${name} — ${d.email || ''}`;
-            opt.dataset.id = docSnap.id;
-            elList.appendChild(opt);
+        await ready; const db=getFirestore();
+        onSnapshot(query(collection(db,COLL),orderBy('fullName','asc')),(snap)=>{
+          elList.innerHTML=''; snap.forEach(docSnap=>{
+            const d=docSnap.data()||{}; const name=d.fullName||[d.firstName,d.lastName].filter(Boolean).join(' ')||'(Unnamed)';
+            const opt=document.createElement('option'); opt.value=`${name} — ${d.email||''}`; opt.dataset.id=docSnap.id; elList.appendChild(opt);
           });
-        }, (err)=>{
-          console.error('picker snapshot error:', err);
         });
-      }catch(err){
-        console.error('picker init failed:', err);
-      }
+      }catch(e){ console.error('picker init failed',e); }
     })();
 
-    // Choose from datalist
-    elPick.addEventListener('change', ()=>{
-      const val = elPick.value;
-      const match = Array.from(elList.options).find(o => o.value === val);
-      if(match && match.dataset.id){
-        loadEmployeeById(match.dataset.id);
-      }
+    elPick.addEventListener('change',()=>{
+      const m=Array.from(elList.options).find(o=>o.value===elPick.value);
+      if(m?.dataset?.id) loadById(m.dataset.id);
+    });
+    (function(){ const id=new URLSearchParams(location.search).get('id'); if(id) loadById(id); })();
+
+    ready.then(({mode})=>{
+      if(mode!=='firebase'){ console.warn('[FV] Firebase in STUB mode — emails will NOT send.'); }
     });
 
-    // Deep-link ?id=
-    (function handleQueryId(){
-      const params = new URLSearchParams(location.search);
-      const id = params.get('id');
-      if(id) loadEmployeeById(id);
-    })();
-
-    // Save
     $('save').addEventListener('click', async ()=>{
-      const pack = collect(); if(!pack) return;
+      const pack=collect(); if(!pack) return;
       if(!currentId){ alert('Pick an employee first.'); return; }
-      try{
-        await ready;
-        const db = getFirestore();
-        await setDoc(doc(db, COLL, currentId), pack.payload, { merge:true });
-        showToast('Employee updated.');
-      }catch(err){
-        console.error(err);
-        alert('Save failed.\n\n' + (err?.message || err));
-      }
+      try{ await ready; const db=getFirestore(); await setDoc(doc(db,COLL,currentId),pack.payload,{merge:true}); showToast('Employee updated.'); }
+      catch(err){ console.error(err); alert('Save failed.\n\n'+(err?.message||err)); }
     });
 
-    // Save & Invite
     $('saveInvite').addEventListener('click', async ()=>{
-      const pack = collect(); if(!pack) return;
+      const pack=collect(); if(!pack) return;
       if(!currentId){ alert('Pick an employee first.'); return; }
       if(!pack.email){ alert('Enter an email to send the invite.'); return; }
-
       try{
-        await ready;
-        const db = getFirestore();
-        await setDoc(doc(db, COLL, currentId), pack.payload, { merge:true });
-
-        const auth = getAuth();
-        await sendPasswordResetEmail(auth, pack.email);
-
+        const {mode}=await ready; if(mode!=='firebase'){ alert('Email not sent: Firebase is in stub mode. Ensure firebase-config.js loads first.'); return; }
+        const db=getFirestore(); await setDoc(doc(db,COLL,currentId),pack.payload,{merge:true});
+        await sendPasswordResetEmail(getAuth(), pack.email);
         showToast('Saved & invite sent.');
       }catch(err){
         console.error(err);
-        if (err?.code === 'auth/user-not-found') {
-          alert('Invite failed: this email is not a Firebase Auth user yet.\nCreate the user in Authentication (or enable email-link sign-in), then try again.');
-        } else {
-          alert('Invite failed.\n\n' + (err?.message || err));
+        const code=err?.code||'';
+        if(code==='auth/user-not-found'){
+          alert("Invite failed: user doesn't exist in Firebase Auth.\nCreate the user in Authentication (or enable email-link sign-in).");
+        }else if(code==='auth/invalid-continue-uri' || code==='auth/unauthorized-continue-uri'){
+          alert("Invite failed due to continue URL settings. Set an authorized domain/continue URL in Firebase Auth.");
+        }else{
+          alert('Invite failed.\n\n'+(err?.message||err));
         }
       }
     });
