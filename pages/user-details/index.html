@@ -35,7 +35,7 @@
     }
     .btn.primary { background:var(--green,#3B7E46); color:#fff; }
 
-    /* 🔧 Force ghost button text to follow theme text (fixes blue on iOS/Safari) */
+    /* no blue text */
     .btn.ghost {
       background:transparent;
       border:1px solid var(--border,#d9ddd9);
@@ -125,7 +125,7 @@
             </div>
             <div class="field">
               <label>MFA Status</label>
-              <input type="text" value="Not configured" readonly />
+              <input type="text" id="ud-mfa" value="Not configured" readonly />
               <div class="muted-small">Security options are managed by admins (coming soon).</div>
             </div>
           </div>
@@ -218,6 +218,93 @@
         })();
       })().catch(err => console.error('Bootloader failed:', err));
     })();
+  </script>
+
+  <!-- 🔗 Populate form from Firestore for the signed-in user -->
+  <script type="module">
+    import {
+      ready,
+      getAuth, onAuthStateChanged,
+      getFirestore, doc, getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = id => document.getElementById(id);
+
+    const digitsOnly = s => String(s||'').replace(/\D+/g,'');
+    const formatUSPhone = raw => {
+      const d = digitsOnly(raw);
+      const core = (d.length === 11 && d.startsWith('1')) ? d.slice(1) : d;
+      return core.length === 10 ? `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}` : (raw || '');
+    };
+    const emailKey = e => String(e||'').trim().toLowerCase();
+
+    function fill(vals = {}){
+      $('ud-name').value  = vals.fullName || vals.name || '';
+      $('ud-role').value  = vals.role || '';
+      $('ud-email').value = vals.email || '';
+      $('ud-phone').value = formatUSPhone(vals.phone || '');
+      $('ud-notes').value = vals.notes || '';
+      // MFA hint if present from Auth
+      if (vals.mfa === true) $('ud-mfa').value = 'Configured';
+    }
+
+    async function loadLoggedInUser(){
+      const { mode } = await ready; // ensures firebase-config loaded
+      const auth = getAuth();
+
+      return new Promise(resolve => {
+        onAuthStateChanged(auth, async (user) => {
+          if (!user) {
+            // Not signed in – leave fields empty but don’t crash
+            fill({});
+            return resolve();
+          }
+
+          const email = user.email || '';
+          const db = getFirestore();
+          let fromFS = null;
+
+          try{
+            // Our canonical employees collection uses email as id (lowercased)
+            const ref = doc(db, 'employees', emailKey(email));
+            const snap = await getDoc(ref);
+            if (snap.exists()) {
+              const d = snap.data() || {};
+              fromFS = {
+                fullName: d.fullName || `${d.firstName||''} ${d.lastName||''}`.trim(),
+                role: d.role || '',
+                email: d.email || email,
+                phone: d.phone || '',
+                notes: d.notes || ''
+              };
+            }
+          }catch(err){
+            console.error('[UserDetails] Firestore read failed:', err);
+          }
+
+          // Fallback to Auth profile if Firestore is missing fields
+          const merged = {
+            fullName: fromFS?.fullName || user.displayName || '',
+            role: fromFS?.role || '',
+            email: fromFS?.email || email,
+            phone: fromFS?.phone || (user.phoneNumber || ''),
+            notes: fromFS?.notes || ''
+          };
+
+          // Very lightweight MFA hint (presence of enrolled factors if available)
+          try {
+            // Optional chained import only when supported
+            const mfaInfo = (user.multiFactor && user.multiFactor.enrolledFactors) ? user.multiFactor.enrolledFactors : [];
+            merged.mfa = Array.isArray(mfaInfo) && mfaInfo.length > 0;
+          } catch {}
+
+          fill(merged);
+          resolve();
+        }, (err)=>{ console.error('[UserDetails] Auth state error:', err); resolve(); });
+      });
+    }
+
+    loadLoggedInUser().catch(err=>console.error(err));
   </script>
 
   <noscript>
