@@ -33,6 +33,7 @@
     @media(max-width:720px){.grid2{grid-template-columns:1fr}}
 
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
+    .field label .req{color:#C13B3B;margin-left:2px;font-weight:700;} /* red asterisk for required */
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
@@ -43,6 +44,9 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;} /* Invite */
     .btn-quiet{min-width:auto;padding:8px 12px}
+
+    input:invalid{border-color:#C13B3B !important;}
+    input:focus:invalid{outline:2px solid #C13B3B;}
 
     /* Neutralize iOS yellow autofill */
     input:-webkit-autofill,
@@ -87,11 +91,11 @@
           <!-- Name -->
           <div class="grid2">
             <div class="field">
-              <label for="first">First Name</label>
+              <label for="first">First Name<span class="req">*</span></label>
               <input id="first" class="input" type="text" autocomplete="given-name" required />
             </div>
             <div class="field">
-              <label for="last">Last Name</label>
+              <label for="last">Last Name<span class="req">*</span></label>
               <input id="last" class="input" type="text" autocomplete="family-name" required />
             </div>
           </div>
@@ -99,8 +103,8 @@
           <!-- Email / Mobile -->
           <div class="grid2">
             <div class="field">
-              <label for="email">Email</label>
-              <input id="email" class="input" type="email" autocomplete="email" placeholder="you@farm.com" />
+              <label for="email">Email<span class="req">*</span></label>
+              <input id="email" class="input" type="email" autocomplete="email" placeholder="you@farm.com" required />
             </div>
             <div class="field">
               <label for="phone">Mobile</label>
@@ -173,8 +177,8 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, addDoc, serverTimestamp,
-      getDoc, setDoc, doc,
+      getFirestore, getDoc, setDoc, doc,
+      serverTimestamp,
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -208,13 +212,15 @@
     function collectAndValidate(){
       const first = $("first");
       const last  = $("last");
+      const email = $("email");
       if(!first.checkValidity()){ first.reportValidity(); return null; }
       if(!last.checkValidity()){ last.reportValidity(); return null; }
+      if(!email.checkValidity()){ email.reportValidity(); return null; }
 
       return {
         first: first.value.trim(),
         last:  last.value.trim(),
-        email: $("email").value.trim(),
+        email: email.value.trim(),
         phone: formatUSPhone($("phone").value),
         role:  $("role").value.trim(),
         type:  $("type").value,
@@ -245,53 +251,31 @@
         updatedAt: serverTimestamp()
       };
 
-      if (vals.email) {
-        // Idempotent: employees/{emailLower}
-        const id = emailKey(vals.email);
-        const ref = doc(db, "employees", id);
-
-        // Preserve createdAt if existing
-        const snap = await getDoc(ref);
-        if (!snap.exists()) payload.createdAt = serverTimestamp();
-
-        await setDoc(ref, payload, { merge: true });
-        return { id, ref, created: !snap.exists() };
-      } else {
-        // No email → still prevent rapid doubles using a deterministic slug
-        const now = new Date();
-        const slug = `${vals.first}-${vals.last}-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
-        payload.createdAt = serverTimestamp();
-        // Use setDoc with deterministic slug (avoids addDoc double-tap dupes)
-        const ref = doc(getFirestore(), "employees", slug.toLowerCase());
-        await setDoc(ref, payload, { merge: false });
-        return { id: slug.toLowerCase(), ref, created: true };
-      }
+      const id = emailKey(vals.email);
+      const ref = doc(db, "employees", id);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) payload.createdAt = serverTimestamp();
+      await setDoc(ref, payload, { merge: true });
+      return { id, ref, created: !snap.exists() };
     }
 
-    // Create user on a SECONDARY app (so we don't switch the current session)
     async function ensureAuthUser(email, displayName){
       if(!email) throw new Error("Missing email for Auth user");
-
       const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
       const [{ initializeApp }, authMod] = await Promise.all([
         import(CDN_BASE + 'firebase-app.js'),
         import(CDN_BASE + 'firebase-auth.js')
       ]);
-
       const cfg = window.FV_FIREBASE_CONFIG;
-      if(!cfg) throw new Error("Firebase config missing (FV_FIREBASE_CONFIG).");
-
+      if(!cfg) throw new Error("Firebase config missing.");
       const secondaryApp = initializeApp(cfg, 'fv-admin');
       const secondaryAuth = authMod.getAuth(secondaryApp);
       try { await authMod.setPersistence(secondaryAuth, authMod.inMemoryPersistence); } catch {}
-
-      // Random temporary password
       const tmpPass = (() => {
         const arr = new Uint8Array(24);
         crypto.getRandomValues(arr);
         return btoa(String.fromCharCode(...arr)).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
       })();
-
       try {
         await authMod.createUserWithEmailAndPassword(secondaryAuth, email, tmpPass);
         if (displayName) {
@@ -299,7 +283,6 @@
         }
       } catch (e) {
         if (!e || e.code !== 'auth/email-already-in-use') throw e;
-        // If already exists, that's fine.
       } finally {
         try { await authMod.signOut(secondaryAuth); } catch {}
       }
@@ -339,26 +322,17 @@
     $("saveInvite").addEventListener("click", async ()=>{
       if (busy) return;
       const vals = collectAndValidate(); if(!vals) return;
-      if(!vals.email){ alert("Please enter an email to send the invite."); return; }
-
       try{
         setBusy(true);
         const { mode } = await ready;
         if(mode!=='firebase'){
-          alert("Email not sent: Firebase is in stub mode. Make sure firebase-config.js loads before firebase-init.js on this page.");
+          alert("Email not sent: Firebase is in stub mode. Make sure firebase-config.js loads before firebase-init.js.");
           return;
         }
-
-        // 1) Idempotent upsert (email doc id)
         await upsertEmployee(vals);
-
-        // 2) Ensure a corresponding Auth user exists (secondary app)
         const displayName = `${vals.first} ${vals.last}`.trim();
         await ensureAuthUser(vals.email, displayName);
-
-        // 3) Send reset email (lets them set password)
         await sendPasswordResetEmail(getAuth(), vals.email);
-
         showToast("Saved & invite sent.");
         window.scrollTo({top:0, behavior:"smooth"});
         clearForm();
@@ -366,7 +340,7 @@
         console.error(err);
         const code = err?.code || "";
         if(code === "auth/invalid-continue-uri" || code === "auth/unauthorized-continue-uri"){
-          alert("Invite failed due to continue URL/domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains, or set a valid action URL.");
+          alert("Invite failed due to domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains.");
         }else{
           alert("Invite failed.\n\n" + (err?.message || err));
         }
