@@ -1,9 +1,7 @@
-/* FarmVista — <fv-shell> v5.9.11 (abs paths + stable auth/login nav)
-   - Version/tagline from /Farm-vista/js/version.js
-   - Loads /Farm-vista/js/firebase-config.js then imports /Farm-vista/js/firebase-init.js
-   - Logout label: First Last (Firestore users/{uid}) → displayName → email
-   - Update flow: clear SW + caches, toast, cache-busting reload
-   - Menu: absolute import with classic <script> fallback
+/* FarmVista — <fv-shell> v5.10.0 (global pull-to-refresh)
+   - Keeps all prior features from v5.9.11
+   - Adds PTR gesture & spinner in the shell (soft refresh via `fv:refresh`)
+   - Long pull (>140px) or quick double pull → hard reload fallback
 */
 (function () {
   const tpl = document.createElement('template');
@@ -21,6 +19,23 @@
     .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
+
+    /* PTR track lives just below the gold bar and slides in as you pull */
+    .ptr{ position:fixed; left:0; right:0;
+      top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px);
+      height:52px; transform:translateY(-64px);
+      display:flex; align-items:center; justify-content:center; gap:10px;
+      background:var(--surface,#fff); color:var(--text,#111);
+      border-bottom:1px solid var(--border,#e3e6e3);
+      z-index:998; transition:transform .12s ease;
+      will-change: transform;
+    }
+    .ptr .spin{ width:20px; height:20px; border-radius:50%;
+      border:2px solid #cfd5cf; border-top-color:#2F6C3C; animation:spin 1s linear infinite; display:none; }
+    .ptr.active .spin{ display:inline-block; }
+    .ptr .txt{ font-weight:800; font-size:14px; }
+    @keyframes spin{ to{ transform:rotate(360deg) } }
+
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
@@ -102,6 +117,7 @@
     </button>
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
+  <div class="ptr" aria-hidden="true"><div class="spin"></div><div class="txt">Pull to refresh</div></div>
 
   <div class="scrim js-scrim"></div>
 
@@ -181,6 +197,8 @@
       this._verEl = r.querySelector('.js-ver');
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
+      this._ptr = r.querySelector('.ptr');
+      this._ptrTxt = r.querySelector('.ptr .txt');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
@@ -204,6 +222,9 @@
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initMenu();
+
+      // Global PTR gesture
+      this._initPTR();
     }
 
     /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
@@ -306,41 +327,18 @@
       };
 
       const mkGroup = (g, depth=0) => {
-        const wrap = document.createElement('div'); wrap.className = 'nav-group';
-
-        const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.alignItems = 'stretch';
-        row.style.borderBottom = '1px solid var(--border)';
-
-        const link = mkLink(g, depth);
-        link.style.flex = '1 1 auto';
-        link.style.borderRight = '1px solid var(--border)';
-        link.style.display = 'flex';
-        link.style.alignItems = 'center';
+        const wrap = document.createElement('div'); wrap.className='nav-group';
+        const row = document.createElement('div'); row.style.display='flex'; row.style.alignItems='stretch'; row.style.borderBottom='1px solid var(--border)';
+        const link = mkLink(g, depth); link.style.flex='1 1 auto'; link.style.borderRight='1px solid var(--border)'; link.style.display='flex'; link.style.alignItems='center';
 
         const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.setAttribute('aria-label', 'Toggle ' + g.label);
-        btn.setAttribute('aria-expanded', 'false');
-        btn.style.width = '44px';
-        btn.style.height = '44px';
-        btn.style.display = 'grid';
-        btn.style.placeItems = 'center';
-        btn.style.background = 'transparent';
-        btn.style.border = '0';
-        btn.style.cursor = 'pointer';
-        btn.style.color = 'var(--text)';
+        btn.type='button'; btn.setAttribute('aria-label','Toggle ' + g.label); btn.setAttribute('aria-expanded','false');
+        btn.style.width='44px'; btn.style.height='44px'; btn.style.display='grid'; btn.style.placeItems='center';
+        btn.style.background='transparent'; btn.style.border='0'; btn.style.cursor='pointer'; btn.style.color='var(--text)';
 
-        const chev = document.createElement('span');
-        chev.textContent = '▶';
-        chev.style.display = 'inline-block';
-        chev.style.transition = 'transform .18s ease';
-        btn.appendChild(chev);
+        const chev = document.createElement('span'); chev.textContent='▶'; chev.style.display='inline-block'; chev.style.transition='transform .18s ease'; btn.appendChild(chev);
 
-        const kids = document.createElement('div');
-        kids.setAttribute('role','group');
-        kids.style.display = 'none';
+        const kids = document.createElement('div'); kids.setAttribute('role','group'); kids.style.display='none';
 
         (g.children || []).forEach(ch => {
           if (ch.type === 'group' && ch.collapsible) kids.appendChild(mkGroup(ch, depth + 1));
@@ -568,6 +566,98 @@
       t.classList.add('show');
       clearTimeout(this._tt);
       this._tt = setTimeout(()=> t.classList.remove('show'), ms);
+    }
+
+    /* ===== Global Pull-to-Refresh ===== */
+    _initPTR(){
+      // Tone down browser native PTR where possible to avoid double triggers.
+      try { document.documentElement.style.overscrollBehaviorY = 'contain'; } catch {}
+      const ptr = this._ptr;
+      if (!ptr) return;
+
+      const THRESH = 86;        // px to trigger soft refresh
+      const HARD_THRESH = 140;  // long pull → hard reload
+      let startY = 0;
+      let pulling = false;
+      let armed = false;
+      let lastTriggerAt = 0;
+
+      const atTop = () => (document.scrollingElement ? document.scrollingElement.scrollTop : window.scrollY) <= 0.5;
+
+      const setOffset = (dy) => {
+        const clamped = Math.max(0, Math.min(dy, HARD_THRESH + 40));
+        ptr.style.transform = `translateY(${clamped - 64}px)`;
+        ptr.classList.toggle('active', clamped >= THRESH);
+        this._ptrTxt.textContent = clamped >= THRESH ? 'Release to refresh' : 'Pull to refresh';
+      };
+
+      const resetPTR = () => {
+        ptr.style.transform = `translateY(-64px)`;
+        ptr.classList.remove('active');
+      };
+
+      const softRefresh = () => {
+        // Fire global soft refresh
+        try {
+          document.dispatchEvent(new CustomEvent('fv:refresh'));
+        } catch {}
+        this._toastMsg('Refreshing…', 1100);
+        // tiny visual dwell
+        setTimeout(resetPTR, 320);
+      };
+
+      const hardReload = () => {
+        resetPTR();
+        const url = new URL(location.href);
+        url.searchParams.set('rev', Date.now().toString());
+        location.replace(url.toString());
+      };
+
+      const onStart = (y) => {
+        if (!atTop()) return false;
+        startY = y;
+        pulling = true;
+        armed = false;
+        return true;
+      };
+
+      const onMove = (y) => {
+        if (!pulling) return;
+        const dy = y - startY;
+        if (dy <= 0) { resetPTR(); return; }
+        setOffset(dy);
+        if (dy >= THRESH) armed = true;
+      };
+
+      const onEnd = () => {
+        if (!pulling) return;
+        const now = Date.now();
+        const dyTxt = ptr.style.transform || '';
+        const m = dyTxt.match(/translateY\\(([-\\d.]+)px\\)/);
+        const current = m ? (parseFloat(m[1]) + 64) : 0;
+
+        pulling = false;
+
+        if (current >= HARD_THRESH) { hardReload(); return; }
+
+        // double-pull within 1500ms → hard reload
+        if (armed) {
+          if (now - lastTriggerAt < 1500) { hardReload(); return; }
+          lastTriggerAt = now;
+          softRefresh();
+        } else {
+          resetPTR();
+        }
+      };
+
+      // Touch listeners (works for both iOS PWA and Android)
+      const onTouchStart = (e)=>{ if (e.touches && e.touches.length === 1) onStart(e.touches[0].clientY); };
+      const onTouchMove  = (e)=>{ if (!pulling) return; onMove(e.touches[0].clientY); if (armed) e.preventDefault(); };
+      const onTouchEnd   = ()=> onEnd();
+
+      window.addEventListener('touchstart', onTouchStart, { passive: true });
+      window.addEventListener('touchmove',  onTouchMove,  { passive: false });
+      window.addEventListener('touchend',   onTouchEnd,   { passive: true });
     }
   }
 
