@@ -1,7 +1,10 @@
-/* FarmVista — <fv-shell> v5.10.1 (PTR pinned under header)
-   - PTR bar stays fixed below header; no drag-following
-   - Keeps soft refresh (fv:refresh) + hard reload (long pull or double pull)
-   - All other features from 5.10.0 intact
+<script>
+/* FarmVista — <fv-shell> v5.9.12
+   Changes vs 5.9.11:
+   - Pull-to-refresh (PTR) only arms when window.scrollY === 0 at touchstart.
+   - PTR indicator is FIXED directly below header; it no longer drags/flickers.
+   - Removed bottom “Refreshing…” toast for PTR (spinner/label only).
+   - Keeps update flow, auth wiring, menu, theming from v5.9.11.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -20,36 +23,46 @@
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
-    /* === Fixed PTR bar (pinned under header) === */
+    /* === Fixed pull-to-refresh bar (does not move with drag) === */
     .ptr{
-      position:fixed; left:0; right:0;
+      position:fixed;
       top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px);
-      height:52px; display:flex; align-items:center; justify-content:center; gap:10px;
-      background:var(--surface,#fff); color:var(--text,#111);
-      border-bottom:1px solid var(--border,#e3e6e3);
+      left:0; right:0;
+      height:54px;
+      background:var(--surface,#fff);
+      color:var(--text,#111);
+      border-bottom:1px solid var(--border,#e4e7e4);
+      display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998;
-      transform:translateY(-64px);            /* hidden by default */
-      transition:transform .14s ease;         /* slide in/out only */
-      will-change: transform;
+      transform:translateY(-56px); /* hidden just above gold bar by default */
+      transition:transform .16s ease;
+      will-change:transform;
+      pointer-events:none;
     }
-    .ptr.show{ transform:translateY(0); }     /* shown while dragging */
-    .ptr .spin{ width:20px; height:20px; border-radius:50%;
-      border:2px solid #cfd5cf; border-top-color:#2F6C3C; animation:spin 1s linear infinite; display:none; }
-    .ptr.loading .spin{ display:inline-block; }
-    .ptr .txt{ font-weight:800; font-size:14px; }
-    @keyframes spin{ to{ transform:rotate(360deg) } }
+    .ptr.show{ transform:translateY(0); }
+    .ptr .spinner{
+      width:18px;height:18px;border-radius:50%;
+      border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46);
+      animation:spin 800ms linear infinite;
+    }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
+    .ptr .txt{ font-weight:800; }
 
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
+
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
+
     .drawer{ position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
@@ -123,8 +136,12 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- Pinned pull-to-refresh -->
-  <div class="ptr" aria-hidden="true"><div class="spin"></div><div class="txt">Pull to refresh</div></div>
+  <!-- Fixed PTR bar -->
+  <div class="ptr js-ptr" aria-hidden="true">
+    <div class="dot js-dot" hidden></div>
+    <div class="spinner js-spin" hidden></div>
+    <div class="txt js-txt">Pull to refresh</div>
+  </div>
 
   <div class="scrim js-scrim"></div>
 
@@ -192,6 +209,7 @@
 
   class FVShell extends HTMLElement {
     constructor(){ super(); this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true)); }
+
     connectedCallback(){
       const r = this.shadowRoot;
       this._btnMenu = r.querySelector('.js-menu');
@@ -204,8 +222,12 @@
       this._verEl = r.querySelector('.js-ver');
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
-      this._ptr = r.querySelector('.ptr');
-      this._ptrTxt = r.querySelector('.ptr .txt');
+
+      // PTR refs
+      this._ptr = r.querySelector('.js-ptr');
+      this._ptrTxt = r.querySelector('.js-txt');
+      this._ptrSpin = r.querySelector('.js-spin');
+      this._ptrDot = r.querySelector('.js-dot');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
@@ -230,7 +252,7 @@
 
       this._initMenu();
 
-      // Global PTR gesture (pinned bar)
+      // Wire global Pull-to-Refresh
       this._initPTR();
     }
 
@@ -334,18 +356,41 @@
       };
 
       const mkGroup = (g, depth=0) => {
-        const wrap = document.createElement('div'); wrap.className='nav-group';
-        const row = document.createElement('div'); row.style.display='flex'; row.style.alignItems='stretch'; row.style.borderBottom='1px solid var(--border)';
-        const link = mkLink(g, depth); link.style.flex='1 1 auto'; link.style.borderRight='1px solid var(--border)'; link.style.display='flex'; link.style.alignItems='center';
+        const wrap = document.createElement('div'); wrap.className = 'nav-group';
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'stretch';
+        row.style.borderBottom = '1px solid var(--border)';
+
+        const link = mkLink(g, depth);
+        link.style.flex = '1 1 auto';
+        link.style.borderRight = '1px solid var(--border)';
+        link.style.display = 'flex';
+        link.style.alignItems = 'center';
 
         const btn = document.createElement('button');
-        btn.type='button'; btn.setAttribute('aria-label','Toggle ' + g.label); btn.setAttribute('aria-expanded','false');
-        btn.style.width='44px'; btn.style.height='44px'; btn.style.display='grid'; btn.style.placeItems='center';
-        btn.style.background='transparent'; btn.style.border='0'; btn.style.cursor='pointer'; btn.style.color='var(--text)';
+        btn.type = 'button';
+        btn.setAttribute('aria-label', 'Toggle ' + g.label);
+        btn.setAttribute('aria-expanded', 'false');
+        btn.style.width = '44px';
+        btn.style.height = '44px';
+        btn.style.display = 'grid';
+        btn.style.placeItems = 'center';
+        btn.style.background = 'transparent';
+        btn.style.border = '0';
+        btn.style.cursor = 'pointer';
+        btn.style.color = 'var(--text)';
 
-        const chev = document.createElement('span'); chev.textContent='▶'; chev.style.display='inline-block'; chev.style.transition='transform .18s ease'; btn.appendChild(chev);
+        const chev = document.createElement('span');
+        chev.textContent = '▶';
+        chev.style.display = 'inline-block';
+        chev.style.transition = 'transform .18s ease';
+        btn.appendChild(chev);
 
-        const kids = document.createElement('div'); kids.setAttribute('role','group'); kids.style.display='none';
+        const kids = document.createElement('div');
+        kids.setAttribute('role','group');
+        kids.style.display = 'none';
 
         (g.children || []).forEach(ch => {
           if (ch.type === 'group' && ch.collapsible) kids.appendChild(mkGroup(ch, depth + 1));
@@ -419,10 +464,95 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== Auth: logout + label ===== */
+    /* ===== PULL-TO-REFRESH ===== */
+    _initPTR(){
+      const bar = this._ptr;
+      const txt = this._ptrTxt;
+      const spin = this._ptrSpin;
+      const dot = this._ptrDot;
+
+      const THRESHOLD = 70; // px drag required
+      let armed = false;     // only true if touchstart occurs at top
+      let pulling = false;
+      let startY = 0;
+      let delta = 0;
+
+      const atTop = () => (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) === 0;
+
+      const onStart = (e)=>{
+        // Only arm when the page itself is at the very top and we’re not showing drawers
+        if (!atTop() || this.classList.contains('drawer-open') || this.classList.contains('top-open')) {
+          armed = false; pulling = false; return;
+        }
+        const t = e.touches ? e.touches[0] : e;
+        startY = t.clientY;
+        delta = 0;
+        armed = true;
+        pulling = false;
+      };
+
+      const onMove = (e)=>{
+        if (!armed) return;
+        const t = e.touches ? e.touches[0] : e;
+        delta = Math.max(0, t.clientY - startY);
+        if (delta > 0) {
+          // We’re pulling down from the top
+          if (!pulling) {
+            pulling = true;
+            bar.classList.add('show');
+            spin.hidden = true; dot.hidden = false;
+            txt.textContent = 'Pull to refresh';
+          }
+          if (delta >= THRESHOLD) {
+            txt.textContent = 'Release to refresh';
+          } else {
+            txt.textContent = 'Pull to refresh';
+          }
+          // prevent overscroll bounce from immediately scrolling content
+          e.preventDefault();
+        }
+      };
+
+      const doRefresh = async ()=>{
+        // Show spinner + label
+        dot.hidden = true; spin.hidden = false;
+        txt.textContent = 'Refreshing…';
+        // Fire global event; pages can reload their data.
+        document.dispatchEvent(new CustomEvent('fv:refresh'));
+        // If nobody handled in ~900ms, just hide the bar (no toast)
+        await new Promise(res=> setTimeout(res, 900));
+        bar.classList.remove('show');
+        spin.hidden = true; dot.hidden = true;
+        txt.textContent = 'Pull to refresh';
+      };
+
+      const onEnd = ()=>{
+        if (!armed) return;
+        if (pulling && delta >= THRESHOLD) {
+          doRefresh();
+        } else {
+          bar.classList.remove('show');
+        }
+        armed = false; pulling = false; startY = 0; delta = 0;
+      };
+
+      // Passive false on touchmove so we can preventDefault() when pulling
+      window.addEventListener('touchstart', onStart, { passive:true });
+      window.addEventListener('touchmove', onMove, { passive:false });
+      window.addEventListener('touchend', onEnd, { passive:true });
+      window.addEventListener('touchcancel', onEnd, { passive:true });
+
+      // Also support mouse (desktop testing)
+      window.addEventListener('mousedown', onStart);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onEnd);
+    }
+
+    /* ===== Auth: logout + label (First Last → displayName → email) ===== */
     async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
+
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
       const bestUser = (auth)=> (auth && auth.currentUser) ||
@@ -434,8 +564,11 @@
           const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
           const fs   = (mod && (mod.getFirestore && mod.getFirestore())) || window.firebaseFirestore;
           const user = bestUser(auth);
+
           if (!user) { logoutLabel.textContent = 'Logout'; return; }
+
           let name = '';
+
           if (fs && mod && mod.doc && mod.getDoc) {
             try{
               const ref = mod.doc(fs, 'users', user.uid);
@@ -449,8 +582,10 @@
               }
             }catch{}
           }
+
           if (!name && user.displayName) name = String(user.displayName).trim();
           if (!name && user.email)       name = String(user.email).trim();
+
           logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
         }catch{
           logoutLabel.textContent = 'Logout';
@@ -510,7 +645,6 @@
     /* ===== Update flow ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-      const toast = (msg, ms=2000)=> this._toastMsg(msg, ms);
 
       async function readTargetVersion(){
         try{
@@ -526,11 +660,11 @@
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
         if (targetVer && cur && targetVer === cur) {
-          toast(`Already up to date (v${cur})`, 2200);
+          this._toastMsg(`Already up to date (v${cur})`, 2200);
           return;
         }
 
-        toast('Clearing cache…', 900);
+        this._toastMsg('Clearing cache…', 900);
 
         if (navigator.serviceWorker) {
           try {
@@ -550,7 +684,7 @@
           try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {}
         }
 
-        toast('Updating…', 1200);
+        this._toastMsg('Updating…', 1200);
         await sleep(320);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer || String(Date.now()));
@@ -568,86 +702,10 @@
       clearTimeout(this._tt);
       this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
-
-    /* ===== Global Pull-to-Refresh (pinned) ===== */
-    _initPTR(){
-      try { document.documentElement.style.overscrollBehaviorY = 'contain'; } catch {}
-      const ptr = this._ptr;
-      if (!ptr) return;
-
-      const THRESH = 86;        // px to trigger soft refresh
-      const HARD_THRESH = 140;  // long pull → hard reload
-      let startY = 0;
-      let pulling = false;
-      let armed = false;
-      let lastTriggerAt = 0;
-
-      const atTop = () => (document.scrollingElement ? document.scrollingElement.scrollTop : window.scrollY) <= 0.5;
-
-      const showPTR = () => { ptr.classList.add('show'); };
-      const hidePTR = () => { ptr.classList.remove('show','loading'); this._ptrTxt.textContent = 'Pull to refresh'; };
-      const setCue = (ready) => { this._ptrTxt.textContent = ready ? 'Release to refresh' : 'Pull to refresh'; };
-
-      const softRefresh = () => {
-        ptr.classList.add('loading');
-        try { document.dispatchEvent(new CustomEvent('fv:refresh')); } catch {}
-        this._toastMsg('Refreshing…', 1000);
-        setTimeout(()=>{ ptr.classList.remove('loading'); hidePTR(); }, 380);
-      };
-
-      const hardReload = () => {
-        hidePTR();
-        const url = new URL(location.href);
-        url.searchParams.set('rev', Date.now().toString());
-        location.replace(url.toString());
-      };
-
-      const onStart = (y) => {
-        if (!atTop()) return false;
-        startY = y;
-        pulling = true;
-        armed = false;
-        showPTR();               // pin bar in place immediately
-        setCue(false);
-        return true;
-      };
-
-      const onMove = (y) => {
-        if (!pulling) return;
-        const dy = y - startY;
-        if (dy <= 0) { setCue(false); return; }
-        armed = dy >= THRESH;
-        setCue(armed);
-      };
-
-      const onEnd = () => {
-        if (!pulling) return;
-        pulling = false;
-
-        // decide hard vs soft based on distance since start
-        const now = Date.now();
-        // double-pull safeguard
-        if (armed) {
-          if (now - lastTriggerAt < 1500) { hardReload(); return; }
-          lastTriggerAt = now;
-          softRefresh();
-        } else {
-          hidePTR();
-        }
-      };
-
-      // Touch listeners (minimal writes; no large transforms)
-      const onTouchStart = (e)=>{ if (e.touches && e.touches.length === 1) onStart(e.touches[0].clientY); };
-      const onTouchMove  = (e)=>{ if (!pulling) return; onMove(e.touches[0].clientY); if (armed) e.preventDefault(); };
-      const onTouchEnd   = ()=> onEnd();
-
-      window.addEventListener('touchstart', onTouchStart, { passive: true });
-      window.addEventListener('touchmove',  onTouchMove,  { passive: false });
-      window.addEventListener('touchend',   onTouchEnd,   { passive: true });
-    }
   }
 
   if (!customElements.get('fv-shell')) {
     customElements.define('fv-shell', FVShell);
   }
 })();
+</script>
