@@ -1,16 +1,14 @@
-<!doctype html>
-<html lang="en">
-<head>
+<!doctype html><html lang="en"><head>
   <meta charset="utf-8"/>
   <title>FarmVista • Add Employee</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes -->
+  <!-- Standard includes (same as Farms page) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  <script src="/Farm-vista/js/theme-boot.js" defer></script>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -38,13 +36,15 @@
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
+    /* Buttons (same tokens as Farms page) */
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;} /* secondary look for Invite */
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;} /* Invite */
     .btn-quiet{min-width:auto;padding:8px 12px}
 
+    /* Neutralize iOS yellow autofill */
     input:-webkit-autofill,
     input:-webkit-autofill:focus,
     textarea:-webkit-autofill,
@@ -55,26 +55,23 @@
       transition: background-color 9999s ease-in-out 0s;
     }
 
+    /* Toast (same pattern) */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
-  <!-- fv-shell -->
-  <script>
-    (function(){
-      if(!customElements.get('fv-shell')){
-        const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
-      }
-    })();
-  </script>
+  <!-- Ensure fv-shell is available, exactly like your Farms page -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
 
-  <!-- Firebase config + init -->
-  <script src="/Farm-vista/js/firebase-config.js" defer></script>
-  <script type="module" src="/Farm-vista/js/firebase-init.js"></script>
-</head>
-<body>
+  <!-- IMPORTANT: load Firebase config BEFORE module imports (avoid stub mode) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+</head><body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Add Employee</h1>
@@ -107,7 +104,7 @@
             </div>
             <div class="field">
               <label for="phone">Mobile</label>
-              <input id="phone" class="input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555" />
+              <input id="phone" class="input" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
             </div>
           </div>
 
@@ -153,7 +150,7 @@
             </div>
           </div>
 
-          <!-- Notes + Actions -->
+          <!-- Notes + Actions laid out like Farms page row -->
           <div class="row">
             <div class="field" style="min-width:0">
               <label for="notes">Notes</label>
@@ -170,17 +167,15 @@
     </div>
   </fv-shell>
 
+  <!-- Toast (same behavior as Farms page) -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
+  <!-- Page module: AFTER config exists -->
   <script type="module">
     import {
       ready,
-      getFirestore,
-      collection,
-      addDoc,
-      serverTimestamp,
-      getAuth,
-      sendPasswordResetEmail
+      getFirestore, collection, addDoc, serverTimestamp,
+      getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -192,23 +187,13 @@
       toast.classList.add("show");
     }
 
-    function digitsOnly(str=""){ return (str||"").replace(/\D+/g,""); }
-    function formatUSPhone(raw){
+    const digitsOnly = s => String(s||'').replace(/\D+/g,'');
+    const formatUSPhone = raw => {
       const d = digitsOnly(raw);
-      if(!d) return "";
-      const core = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
-      if(core.length === 10){ return `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`; }
-      return raw.trim();
-    }
+      const core = (d.length===11 && d.startsWith('1')) ? d.slice(1) : d;
+      return core.length===10 ? `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}` : String(raw||'').trim();
+    };
     $("phone").addEventListener("blur", e => e.target.value = formatUSPhone(e.target.value));
-
-    $("clear").addEventListener("click", ()=>{
-      ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
-      $("type").selectedIndex = 0;
-      $("status").selectedIndex = 0;
-      $("perm").selectedIndex = 0;
-      showToast("Form cleared.");
-    });
 
     function collectAndValidate(){
       const first = $("first");
@@ -234,7 +219,7 @@
     async function saveEmployee(vals){
       const db = getFirestore();
       const fullName = `${vals.first} ${vals.last}`.trim();
-      const payload = {
+      await addDoc(collection(db, "employees"), {
         firstName: vals.first,
         lastName:  vals.last,
         fullName,
@@ -250,8 +235,7 @@
         active: vals.status === "Active",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      };
-      await addDoc(collection(db, "employees"), payload);
+      });
     }
 
     function clearForm(){
@@ -261,14 +245,22 @@
       $("perm").selectedIndex = 0;
     }
 
+    $("clear").addEventListener("click", ()=>{
+      clearForm();
+      showToast("Form cleared.");
+    });
+
     $("save").addEventListener("click", async ()=>{
       const vals = collectAndValidate(); if(!vals) return;
       try{
-        await ready;
+        const { mode } = await ready;
         await saveEmployee(vals);
         showToast("Employee saved.");
         window.scrollTo({top:0, behavior:"smooth"});
         clearForm();
+        if(mode!=='firebase'){
+          console.warn('[FV] Running in STUB mode — emails will not send. Ensure firebase-config.js loads before firebase-init.js.');
+        }
       }catch(err){
         console.error(err);
         alert("Save failed. Check network and Firestore security rules.\n\n" + (err?.message || err));
@@ -277,36 +269,31 @@
 
     $("saveInvite").addEventListener("click", async ()=>{
       const vals = collectAndValidate(); if(!vals) return;
-
-      if(!vals.email){
-        alert("Please enter an email to send the invite.");
-        return;
-      }
+      if(!vals.email){ alert("Please enter an email to send the invite."); return; }
 
       try{
-        await ready;
+        const { mode } = await ready;
+        if(mode!=='firebase'){
+          alert("Email not sent: Firebase is in stub mode. Make sure firebase-config.js loads before firebase-init.js on this page.");
+          return;
+        }
+
         await saveEmployee(vals);
-
-        // Send password reset email so the user can set their password
-        const auth = getAuth();
-        await sendPasswordResetEmail(auth, vals.email);
-
+        await sendPasswordResetEmail(getAuth(), vals.email); // ← triggers email
         showToast("Saved & invite sent.");
         window.scrollTo({top:0, behavior:"smooth"});
         clearForm();
       }catch(err){
         console.error(err);
-        // Helpful guidance for common case where the user doesn't yet exist in Auth
-        if (err?.code === "auth/user-not-found") {
-          alert("Invite failed: this email is not a Firebase Auth user yet.\nCreate the user in Authentication (or enable email-link sign-in), then try again.");
-        } else {
-          alert("Invite failed. " + (err?.message || err));
+        const code = err?.code || "";
+        if(code === "auth/user-not-found"){
+          alert("Invite failed: that email is not a Firebase Auth user yet.\nCreate the user in Authentication (or switch to email-link invites), then try again.");
+        }else if(code === "auth/invalid-continue-uri" || code === "auth/unauthorized-continue-uri"){
+          alert("Invite failed due to continue URL/domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains, or set a valid action URL.");
+        }else{
+          alert("Invite failed.\n\n" + (err?.message || err));
         }
       }
     });
-
-    // Ensure SDK is initialized (and capture mode if needed)
-    ready.then(({mode})=>{ /* no-op; but guarantees init */ });
   </script>
-</body>
-</html>
+</body></html>
