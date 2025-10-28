@@ -35,17 +35,10 @@
     .btn[disabled]{opacity:.5;pointer-events:none}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
-    input:-webkit-autofill, input:-webkit-autofill:focus, textarea:-webkit-autofill, select:-webkit-autofill{
-      -webkit-text-fill-color: var(--text) !important; box-shadow: 0 0 0 44px var(--card-surface, var(--surface)) inset !important; caret-color: var(--text);
-      transition: background-color 9999s ease-in-out 0s;
-    }
-    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
-      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
-    .toast.show{display:block;animation:fadeout 2.8s forwards;}
-    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+    input:-webkit-autofill,input:-webkit-autofill:focus{ -webkit-text-fill-color:var(--text)!important; box-shadow:0 0 0 44px var(--card-surface,var(--surface)) inset!important;}
   </style>
 
-  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
+  <script>(function(){if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);}})();</script>
   <script src="/Farm-vista/js/firebase-config.js"></script>
 </head><body>
   <fv-shell>
@@ -60,32 +53,39 @@
         </header>
 
         <div class="section-body">
+          <div class="field">
+            <label for="company">Company / Person<span class="req">*</span></label>
+            <input id="company" class="input" type="text" placeholder="e.g., Smith Hauling" required />
+          </div>
+
           <div class="grid2">
-            <div class="field">
-              <label for="name">Company / Person<span class="req">*</span></label>
-              <input id="name" class="input" type="text" placeholder="e.g., Smith Hauling" required />
-            </div>
             <div class="field">
               <label for="contact">Primary Contact</label>
               <input id="contact" class="input" type="text" placeholder="First Last" />
             </div>
-          </div>
-
-          <div class="grid2">
-            <div class="field">
-              <label for="email">Email</label>
-              <input id="email" class="input" type="email" autocomplete="email" placeholder="contact@company.com" />
-            </div>
             <div class="field">
               <label for="phone">Phone</label>
-              <input id="phone" class="input" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
+              <input id="phone" class="input" type="tel" placeholder="(555) 555-5555"/>
             </div>
           </div>
 
           <div class="grid2">
             <div class="field">
-              <label for="service">Service / Trade</label>
-              <input id="service" class="input" type="text" placeholder="Trucking, Excavation, Custom spray…" />
+              <label for="email">Email<span class="req">*</span></label>
+              <input id="email" class="input" type="email" placeholder="contact@company.com" required />
+            </div>
+            <div class="field">
+              <label for="service">Service</label>
+              <input id="service" class="input" type="text" placeholder="Excavation, Trucking…" />
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="status">Status</label>
+              <select id="status" class="input">
+                <option selected>Active</option><option>On Hold</option><option>Inactive</option>
+              </select>
             </div>
             <div class="field">
               <label for="perm">Permission Group</label>
@@ -94,19 +94,11 @@
           </div>
 
           <div class="field">
-            <label for="status">Status</label>
-            <select id="status" class="input">
-              <option selected>Active</option>
-              <option>Inactive</option>
-            </select>
-          </div>
-
-          <div class="field" style="min-width:0">
             <label for="notes">Notes</label>
-            <textarea id="notes" class="input" rows="3" placeholder="Insurance exp., W-9 on file, specialties, etc."></textarea>
+            <textarea id="notes" class="input" rows="3" placeholder="Rates, insurance, W-9 on file…"></textarea>
           </div>
 
-          <button id="saveMain" class="btn btn-accent" type="button">Save</button>
+          <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
             <button id="save" class="btn btn-primary" type="button">Save</button>
@@ -116,86 +108,73 @@
     </div>
   </fv-shell>
 
-  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
-
   <script type="module">
     import {
-      ready,
-      getFirestore, getDoc, setDoc, doc,
-      collection, getDocs, query, orderBy,
-      serverTimestamp
+      ready, getFirestore, doc, getDoc, setDoc, collection, getDocs, query, orderBy,
+      serverTimestamp, getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $=id=>document.getElementById(id);
-    const toast=$("toast");
+    const $ = id=>document.getElementById(id);
     let busy=false;
 
-    const showToast=m=>{ toast.textContent=m||"Saved."; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
-    const setBusy=on=>{ busy=!!on; ["save","saveMain","clear"].forEach(id=>{const b=$(id); if(b) b.disabled=on;}); };
     const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
-    const formatUSPhone=raw=>{ const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d; return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim(); };
-    $("phone").addEventListener("blur", e=> e.target.value = formatUSPhone(e.target.value));
-    const slugify=s=>String(s||"").toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
-
-    function collect(){
-      const name=$("name");
-      if(!name.checkValidity()){ name.reportValidity(); return null; }
-      return {
-        name: name.value.trim(),
-        contact: $("contact").value.trim(),
-        email: ($("email").value||'').trim(),
-        phone: formatUSPhone($("phone").value),
-        service: $("service").value.trim(),
-        status: $("status").value,
-        perm: $("perm").value,
-        notes: $("notes").value.trim()
-      };
-    }
+    const formatUSPhone=raw=>{const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d; return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim();}
+    $('phone').addEventListener('blur',e=>e.target.value=formatUSPhone(e.target.value));
+    const emailKey=e=>String(e||'').trim().toLowerCase();
 
     async function populatePermissionGroups(){
-      const sel=$("perm");
-      try{
-        const {mode}=await ready;
-        if(mode!=='firebase'){ sel.innerHTML='<option selected>Standard</option>'; return; }
-        const db=getFirestore();
-        const snap=await getDocs(query(collection(db,'accountRoles'), orderBy('name')));
-        const roles=[]; snap.forEach(d=>{ const n=(d.data()?.name||'').trim(); if(n) roles.push(n); });
-        sel.innerHTML = roles.length? roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('') : '<option selected>Standard</option>';
-      }catch{ $("perm").innerHTML='<option selected>Standard</option>'; }
+      const sel=$('perm'); try{
+        const {mode}=await ready; if(mode!=='firebase'){ sel.innerHTML='<option selected>Standard</option>'; return; }
+        const db=getFirestore(); const snap=await getDocs(query(collection(db,'accountRoles'), orderBy('name')));
+        const out=[]; snap.forEach(d=>{const n=(d.data()?.name||'').trim(); if(n) out.push(n);});
+        sel.innerHTML=(out.length?out:['Standard']).map((n,i)=>`<option ${i===0?'selected':''}>${n}</option>`).join('');
+      }catch{ $('perm').innerHTML='<option selected>Standard</option>'; }
     }
 
-    async function upsert(vals){
-      const db=getFirestore();
-      const id = vals.email ? `email-${vals.email.toLowerCase()}` : `nm-${slugify(vals.name)}`;
-      const ref=doc(db,"subcontractors",id);
-      const payload={
-        company: vals.name, fullName: vals.contact, contactName: vals.contact,
-        email: vals.email, phone: vals.phone, service: vals.service,
-        permissionGroup: vals.perm||"Standard",
-        status: vals.status, active: vals.status==="Active",
-        notes: vals.notes||"",
-        search: [vals.name.toLowerCase(), (vals.contact||"").toLowerCase(), (vals.email||"").toLowerCase()].filter(Boolean),
-        type: "Subcontractor",
-        updatedAt: serverTimestamp()
+    function collect(){
+      const company=$('company'), email=$('email');
+      if(!company.checkValidity()){company.reportValidity();return null;}
+      if(!email.checkValidity()){email.reportValidity();return null;}
+      return {
+        company:company.value.trim(), contact:$('contact').value.trim(),
+        phone:formatUSPhone($('phone').value), email:email.value.trim(),
+        service:$('service').value.trim(), status:$('status').value, perm:$('perm').value, notes:$('notes').value.trim()
       };
+    }
+
+    async function upsertContractor(v){
+      const db=getFirestore();
+      const id=emailKey(v.email);
+      const ref=doc(db,'subcontractors',id);
       const snap=await getDoc(ref);
-      if(!snap.exists()) payload.createdAt=serverTimestamp();
-      await setDoc(ref,payload,{merge:true});
-      return id;
+      await setDoc(ref,{
+        company:v.company, contactName:v.contact, email:v.email, phone:v.phone, service:v.service,
+        status:v.status, permissionGroup:v.perm, notes:v.notes, type:'Subcontractor',
+        active:v.status==='Active',
+        search:[v.company.toLowerCase(), v.contact.toLowerCase(), v.email.toLowerCase()].filter(Boolean),
+        updatedAt:serverTimestamp(), ...(snap.exists()?{}:{createdAt:serverTimestamp()})
+      },{merge:true});
+      return {id};
     }
 
-    function clearForm(){
-      ["name","contact","email","phone","service","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
-      $("status").selectedIndex=0; const perm=$("perm"); if(perm && perm.options.length) perm.selectedIndex=0;
-    }
-
-    $("clear").addEventListener("click", ()=>{ if(busy) return; clearForm(); showToast("Form cleared."); });
-    $("save").addEventListener("click", async ()=>{
+    async function save(invite){
       if(busy) return; const vals=collect(); if(!vals) return;
-      try{ setBusy(true); await ready; await upsert(vals); showToast("Contractor saved."); clearForm(); window.scrollTo({top:0,behavior:"smooth"});}
-      catch(e){ alert("Save failed.\n\n"+(e?.message||e)); } finally{ setBusy(false); }
-    });
-    $("saveMain").addEventListener("click", ()=>$("save").click());
+      try{
+        busy=true; await ready; await upsertContractor(vals);
+        if(invite){
+          const {mode}=await ready; if(mode==='firebase'){
+            try{ await sendPasswordResetEmail(getAuth(), vals.email); }catch(e){ console.warn(e); }
+          }
+          alert('Saved & invite sent.');
+        }else{ alert('Contractor saved.'); }
+        window.scrollTo({top:0,behavior:'smooth'});
+      }catch(e){ alert('Save failed.\n\n'+(e?.message||e)); }
+      finally{ busy=false; }
+    }
+
+    $('save').addEventListener('click', ()=>save(false));
+    $('saveInvite').addEventListener('click', ()=>save(true));
+    $('clear').addEventListener('click', ()=>{ ['company','contact','phone','email','service','notes'].forEach(id=>{$(id).value='';}); $('status').selectedIndex=0; const p=$('perm'); if(p && p.options.length) p.selectedIndex=0; });
 
     populatePermissionGroups();
   </script>
