@@ -167,7 +167,7 @@
     </div>
   </fv-shell>
 
-  <!-- Toast (same behavior as Farms page) -->
+  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
   <!-- Page module: AFTER config exists -->
@@ -180,12 +180,11 @@
 
     const $ = id => document.getElementById(id);
     const toast = $("toast");
-
-    function showToast(msg="Successfully saved."){
+    const showToast = (msg="Successfully saved.")=>{
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth;
       toast.classList.add("show");
-    }
+    };
 
     const digitsOnly = s => String(s||'').replace(/\D+/g,'');
     const formatUSPhone = raw => {
@@ -201,7 +200,7 @@
       if(!first.checkValidity()){ first.reportValidity(); return null; }
       if(!last.checkValidity()){ last.reportValidity(); return null; }
 
-      const vals = {
+      return {
         first: first.value.trim(),
         last:  last.value.trim(),
         email: $("email").value.trim(),
@@ -213,7 +212,6 @@
         perm:  $("perm").value,
         notes: $("notes").value.trim()
       };
-      return vals;
     }
 
     async function saveEmployee(vals){
@@ -243,6 +241,49 @@
       $("type").selectedIndex = 0;
       $("status").selectedIndex = 0;
       $("perm").selectedIndex = 0;
+    }
+
+    // Create user on a SECONDARY app (prevents logging out current session)
+    async function ensureAuthUser(email, displayName){
+      if(!email) throw new Error("Missing email for Auth user");
+
+      // Use the same CDN version as firebase-init.js internally
+      const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
+      const [{ initializeApp }, authMod] = await Promise.all([
+        import(CDN_BASE + 'firebase-app.js'),
+        import(CDN_BASE + 'firebase-auth.js')
+      ]);
+
+      const cfg = window.FV_FIREBASE_CONFIG;
+      if(!cfg) throw new Error("Firebase config missing (FV_FIREBASE_CONFIG).");
+
+      // Create a named secondary app to isolate auth state
+      const secondaryApp = initializeApp(cfg, 'fv-admin');
+      const secondaryAuth = authMod.getAuth(secondaryApp);
+
+      // in-memory only, just in case
+      try { await authMod.setPersistence(secondaryAuth, authMod.inMemoryPersistence); } catch {}
+
+      // Generate a strong random temporary password (20 chars)
+      const tmpPass = (() => {
+        const arr = new Uint8Array(24);
+        crypto.getRandomValues(arr);
+        return btoa(String.fromCharCode(...arr)).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
+      })();
+
+      try {
+        await authMod.createUserWithEmailAndPassword(secondaryAuth, email, tmpPass);
+        if (displayName) {
+          try { await authMod.updateProfile(secondaryAuth.currentUser, { displayName }); } catch {}
+        }
+      } catch (e) {
+        // If the user already exists, that's fine — we just continue.
+        if (e && e.code !== 'auth/email-already-in-use') {
+          throw e;
+        }
+      } finally {
+        try { await authMod.signOut(secondaryAuth); } catch {}
+      }
     }
 
     $("clear").addEventListener("click", ()=>{
@@ -278,22 +319,31 @@
           return;
         }
 
+        // 1) Save employee doc
         await saveEmployee(vals);
-        await sendPasswordResetEmail(getAuth(), vals.email); // ← triggers email
+
+        // 2) Create the Auth user on a secondary app (does NOT affect current session)
+        const displayName = `${vals.first} ${vals.last}`.trim();
+        await ensureAuthUser(vals.email, displayName);
+
+        // 3) Send reset email (lets them set their password)
+        await sendPasswordResetEmail(getAuth(), vals.email);
+
         showToast("Saved & invite sent.");
         window.scrollTo({top:0, behavior:"smooth"});
         clearForm();
       }catch(err){
         console.error(err);
         const code = err?.code || "";
-        if(code === "auth/user-not-found"){
-          alert("Invite failed: that email is not a Firebase Auth user yet.\nCreate the user in Authentication (or switch to email-link invites), then try again.");
-        }else if(code === "auth/invalid-continue-uri" || code === "auth/unauthorized-continue-uri"){
+        if(code === "auth/invalid-continue-uri" || code === "auth/unauthorized-continue-uri"){
           alert("Invite failed due to continue URL/domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains, or set a valid action URL.");
         }else{
           alert("Invite failed.\n\n" + (err?.message || err));
         }
       }
     });
+
+    // Optional: quick log to confirm mode
+    ready.then(({mode})=>console.log('[FV] mode:', mode));
   </script>
 </body></html>
