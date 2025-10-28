@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Always use absolute app paths so shell + theme load everywhere -->
+  <!-- Absolute app paths so shell + theme load everywhere -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Ensure fv-shell is defined (matches your working pages) -->
+  <!-- Ensure fv-shell is defined -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -26,7 +26,7 @@
     })();
   </script>
 
-  <!-- CONFIG FIRST to avoid stub mode -->
+  <!-- Firebase config FIRST (avoids stub mode) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -39,13 +39,16 @@
     .searchbar input{width:100%;padding:12px 44px 12px 42px;border:1px solid var(--border);
       border-radius:12px;background:var(--surface);color:var(--text);font:inherit}
     .searchbar .ico{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.7}
+
     .chips{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 16px}
     .chip{padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
       background:var(--card-surface,var(--surface));font-weight:700;color:var(--text)}
     .chip.active{background:#e7f1ea;color:#2F6C3C;border-color:#2F6C3C}
 
-    .list{margin:0 0 16px 0;padding:0;list-style:none;border:1px solid var(--border);border-radius:12px;overflow:hidden}
-    .list li{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 14px;background:var(--surface)}
+    .list{margin:0 0 16px 0;padding:0;list-style:none;border:1px solid var(--border);
+      border-radius:12px;overflow:hidden}
+    .list li{display:flex;justify-content:space-between;gap:10px;align-items:center;
+      padding:12px 14px;background:var(--surface)}
     .list li:nth-child(odd){background:var(--card-surface,var(--surface))}
     .list .name{font-weight:800}
     .list .meta{font-size:.925rem;color:var(--muted,#87908a)}
@@ -76,6 +79,7 @@
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
+    /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
@@ -109,6 +113,7 @@
         </header>
 
         <div class="section-body">
+          <!-- Name -->
           <div class="grid2">
             <div class="field">
               <label for="first">First Name<span class="req">*</span></label>
@@ -120,6 +125,7 @@
             </div>
           </div>
 
+          <!-- Email / Mobile -->
           <div class="grid2">
             <div class="field">
               <label for="email">Email<span class="req">*</span></label>
@@ -131,26 +137,19 @@
             </div>
           </div>
 
+          <!-- Role -->
           <div class="field">
             <label for="role">Role / Title</label>
             <input id="role" class="input" type="text" placeholder="Operator, Agronomy, Office…" />
           </div>
 
-          <div class="grid2">
-            <div class="field">
-              <label for="type">Type</label>
-              <select id="type" class="input">
-                <option>Employee</option>
-                <option>Partner</option>
-                <option>Contractor</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="start">Start Date</label>
-              <input id="start" class="input" type="date" />
-            </div>
+          <!-- Start Date -->
+          <div class="field">
+            <label for="start">Start Date</label>
+            <input id="start" class="input" type="date" />
           </div>
 
+          <!-- Status / Permission Group -->
           <div class="grid2">
             <div class="field">
               <label for="status">Status</label>
@@ -163,13 +162,12 @@
             <div class="field">
               <label for="perm">Permission Group</label>
               <select id="perm" class="input">
-                <option>Standard</option>
-                <option>Manager</option>
-                <option>Admin</option>
+                <option>Loading…</option>
               </select>
             </div>
           </div>
 
+          <!-- Notes -->
           <div class="field" style="min-width:0">
             <label for="notes">Notes</label>
             <textarea id="notes" class="input" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
@@ -193,6 +191,7 @@
     import {
       ready,
       getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp,
+      getDocs, query, orderBy,
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -203,6 +202,7 @@
     const formSection = $("formSection");
 
     let all = [], sel = null, statusFilter = 'all', busy = false, lastInviteAt = 0;
+    let rolesLoaded = false;
 
     const emailKey = s => String(s||'').trim().toLowerCase();
     const showToast = (m="Saved.")=>{ toast.textContent=m; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
@@ -211,6 +211,38 @@
     const formatUSPhone = raw => { const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d; return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim(); };
     $("phone").addEventListener("blur", e => e.target.value = formatUSPhone(e.target.value));
 
+    /* ------- Permission Groups from Firestore (accountRoles) ------- */
+    async function populatePermissionGroups(){
+      const sel = $("perm");
+      try{
+        const { mode } = await ready;
+        if(mode!=='firebase'){
+          sel.innerHTML = '<option selected>Standard</option>';
+          rolesLoaded = true;
+          return;
+        }
+        const db = getFirestore();
+        const snap = await getDocs(query(collection(db,'accountRoles'), orderBy('name')));
+        const roles = [];
+        snap.forEach(d=>{
+          const name=(d.data()?.name||'').trim();
+          if(name) roles.push(name);
+        });
+        if(roles.length===0){
+          sel.innerHTML = '<option selected>Standard</option>';
+        }else{
+          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
+        }
+        rolesLoaded = true;
+      }catch(err){
+        console.error('Roles load failed:', err);
+        $("perm").innerHTML = '<option selected>Standard</option>';
+        rolesLoaded = true;
+      }
+    }
+    populatePermissionGroups();
+
+    /* ------- Directory list ------- */
     function renderList(){
       const q = $("q").value.trim().toLowerCase();
       const items = all.filter(x=>{
@@ -262,9 +294,25 @@
       });
     }
 
+    function ensurePermSelected(value){
+      const sel = $("perm");
+      if(!rolesLoaded){ // if roles not ready yet, try again shortly
+        setTimeout(()=>ensurePermSelected(value), 120);
+        return;
+      }
+      const opts = Array.from(sel.options).map(o=>o.value);
+      if(!opts.includes(value) && value){
+        const o = document.createElement('option');
+        o.value = o.textContent = value;
+        sel.appendChild(o);
+      }
+      if(value){ sel.value = value; }
+    }
+
     function clearForm(){
       ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
-      $("type").value="Employee"; $("status").value="Active"; $("perm").value="Standard";
+      $("status").value="Active";
+      if($("perm").options.length) $("perm").selectedIndex = 0;
     }
 
     function collectAndValidate(){
@@ -275,7 +323,7 @@
       return {
         first:first.value.trim(), last:last.value.trim(), email:email.value.trim(),
         phone:formatUSPhone($("phone").value), role:$("role").value.trim(),
-        type:$("type").value, start:$("start").value, status:$("status").value,
+        start:$("start").value, status:$("status").value,
         perm:$("perm").value, notes:$("notes").value.trim()
       };
     }
@@ -284,9 +332,10 @@
       sel={id:item.id,data:item.data};
       $("first").value=item.data.firstName||''; $("last").value=item.data.lastName||'';
       $("email").value=item.data.email||''; $("phone").value=item.data.phone||'';
-      $("role").value=item.data.role||''; $("type").value=item.data.type||'Employee';
-      $("start").value=item.data.startDate||''; $("status").value=item.data.status||'Active';
-      $("perm").value=item.data.permissionGroup||'Standard'; $("notes").value=item.data.notes||'';
+      $("role").value=item.data.role||''; $("start").value=item.data.startDate||'';
+      $("status").value=item.data.status||'Active';
+      $("notes").value=item.data.notes||'';
+      ensurePermSelected(item.data.permissionGroup || 'Standard');
       formSection.classList.add("show"); formSection.setAttribute('aria-hidden','false');
       window.scrollTo({top: formSection.offsetTop - 12, behavior:'smooth'});
     }
@@ -296,8 +345,10 @@
       const fullName=`${vals.first} ${vals.last}`.trim();
       const payload={
         firstName:vals.first,lastName:vals.last,fullName,
-        email:vals.email,phone:vals.phone,role:vals.role,type:vals.type,
-        startDate:vals.start||null,status:vals.status,permissionGroup:vals.perm,notes:vals.notes,
+        email:vals.email,phone:vals.phone,role:vals.role,
+        type:'Employee',                         // fixed; Type field removed
+        startDate:vals.start||null,status:vals.status,
+        permissionGroup:vals.perm,notes:vals.notes,
         search:[fullName.toLowerCase(),vals.first.toLowerCase(),vals.last.toLowerCase(),vals.email.toLowerCase()].filter(Boolean),
         active:vals.status==="Active",updatedAt:serverTimestamp()
       };
