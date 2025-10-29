@@ -1,9 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.6
-   - One-time boot overlay (blurred) with "Loading. Please wait."
-   - Ensures /js/app/user-context.js is loaded before rendering/labels
-   - Logout label live-updates from FVUserContext, falls back to Firebase Auth
-   - Menu is filtered via FVMenuACL + FVUserContext.allowedIds
+   FarmVista Shell — v5.10.7
+   - One-time boot overlay (blurred) "Loading. Please wait." ONLY on first load
+     or when forced by pull-to-refresh / check-for-updates.
+   - Logout label comes from FVUserContext (fallback to Firebase Auth).
+   - Menu filtered by FVMenuACL + FVUserContext.allowedIds.
 */
 
 (function () {
@@ -23,7 +23,7 @@
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
-    /* One-time boot overlay (shown by default) */
+    /* One-time boot overlay (default hidden unless forced) */
     .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
       background:color-mix(in srgb, #000 25%, transparent);
       backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
@@ -118,8 +118,8 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- One-time boot overlay (shown by default) -->
-  <div class="boot js-boot">
+  <!-- One-time boot overlay: shown only if session not hydrated OR force flag set -->
+  <div class="boot js-boot" hidden>
     <div class="boot-card">
       <div class="spin" aria-hidden="true"></div>
       <div class="boot-text">Loading. Please wait.</div>
@@ -215,8 +215,13 @@
       this._boot = r.querySelector('.js-boot');
       this._logoutLabel = r.getElementById('logoutLabel');
 
-      // show boot overlay immediately
-      if (this._boot) this._boot.hidden = false;
+      // Show boot overlay only if first-load OR forced
+      const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
+                         sessionStorage.getItem('fv:boot:forceOnce') === '1';
+      if (this._boot) this._boot.hidden = !shouldBoot;
+
+      // Clear force flag if it existed
+      sessionStorage.removeItem('fv:boot:forceOnce');
 
       // header buttons & theme
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -232,7 +237,7 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // kick off boot
+      // Boot
       this._bootSequence();
     }
 
@@ -242,21 +247,22 @@
       this._applyVersionToUI();
 
       await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
-      await this._ensureFirebaseInit(); // safe if it already exists
+      await this._ensureFirebaseInit(); // tolerant
 
-      // Ensure user-context.js (with hyphen) is loaded
+      // user-context + menu-acl
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
+      await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // Wait for user context (with timeout fallback)
+      // Wait for user context (with timeout)
       await this._waitForUserContext(5000);
 
-      // Menu render (filtered by permissions)
+      // Menu render (filtered)
       await this._initMenuFiltered();
 
       // Wire logout label and actions
       this._wireAuthLogout(this.shadowRoot);
 
-      // Hide boot overlay and mark hydrated (one per session)
+      // Hide boot overlay and mark hydrated (one per tab session)
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
@@ -272,7 +278,6 @@
     }
 
     async _ensureFirebaseInit(){
-      // try to import firebase-init as module, but tolerate failures
       try {
         if (!window.__FV_FIREBASE_INIT_LOADED__) {
           window.__FV_FIREBASE_INIT_LOADED__ = true;
@@ -305,19 +310,10 @@
 
     async _waitForUserContext(timeoutMs){
       const start = Date.now();
-      const ready = () =>
-        window.FVUserContext &&
-        typeof window.FVUserContext.ready === 'function' &&
-        window.FVUserContext.get && window.FVUserContext.get();
-
-      if (ready()) return;
-
+      const good = () => !!(window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get());
+      if (good()) return;
       try { if (window.FVUserContext && window.FVUserContext.ready) await window.FVUserContext.ready(); } catch {}
-
-      // loop a little while for displayName/email to land
-      while (!ready() && (Date.now() - start) < timeoutMs) {
-        await new Promise(r => setTimeout(r, 120));
-      }
+      while (!good() && (Date.now() - start) < timeoutMs) await new Promise(r => setTimeout(r, 120));
     }
 
     async _loadMenu(){
@@ -343,10 +339,6 @@
     async _initMenuFiltered(){
       const NAV_MENU = await this._loadMenu();
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
-
-      if (!window.FVMenuACL || typeof window.FVMenuACL.filter !== 'function') {
-        await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
-      }
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
@@ -526,7 +518,8 @@
         dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
         document.dispatchEvent(new CustomEvent('fv:refresh'));
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
-        sessionStorage.removeItem('fv:boot:hydrated');
+        // Force the next page to show the boot once
+        sessionStorage.setItem('fv:boot:forceOnce','1');
         try { await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve()); } catch {}
         await this._initMenuFiltered();
         await new Promise(res=> setTimeout(res, 900));
@@ -562,7 +555,6 @@
         logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
       };
 
-      // initial + subscribe
       setLabel();
       try {
         if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
@@ -570,7 +562,6 @@
         }
       } catch {}
 
-      // retry for a bit in case auth hydrates late
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
@@ -613,7 +604,8 @@
         }
 
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
-        sessionStorage.removeItem('fv:boot:hydrated');
+        // Force next boot once after update
+        sessionStorage.setItem('fv:boot:forceOnce','1');
 
         await sleep(150);
         if (navigator.serviceWorker) { try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {} }
