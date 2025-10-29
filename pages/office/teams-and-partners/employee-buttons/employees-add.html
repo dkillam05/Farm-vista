@@ -161,7 +161,7 @@
         </div>
       </section>
 
-      <!-- Card 2: Overrides (grouped like Account Roles) -->
+      <!-- Card 2: Overrides (built from NAV_MENU) -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛡️</div>
@@ -199,6 +199,9 @@
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
+    /* IMPORTANT: pull the live nav to define capability keys & groups */
+    import NAV_MENU from '/Farm-vista/js/menu.js'; // default export per your file
+
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     let busy = false, lastInviteAt = 0;
@@ -222,46 +225,91 @@
     $("phone").addEventListener("blur",e=>e.target.value=formatUSPhone(e.target.value));
     const emailKey=e=>(String(e||"").trim().toLowerCase());
 
-    // ---------- Overrides state (grouped) ----------
+    /* ---------- Build capability groups from NAV_MENU ---------- */
+
+    /**
+     * Returns { [TopGroupLabel]: { [capId]: false } } using menu link ids as capability keys.
+     * Nested groups are flattened under their top-level group label.
+     */
+    function groupsFromNav(nav){
+      const groups = {};
+      if (!nav || !Array.isArray(nav.items)) return groups;
+
+      const addCap = (topLabel, link) => {
+        if (!groups[topLabel]) groups[topLabel] = {};
+        if (link && link.id) groups[topLabel][link.id] = false; // default false until role overlay
+      };
+
+      const walk = (nodes, topLabel=null) => {
+        nodes.forEach(item=>{
+          if (item.type === 'group'){
+            const top = topLabel || item.label || item.id || 'General';
+            if (Array.isArray(item.children) && item.children.length){
+              walk(item.children, top);
+            }
+          } else if (item.type === 'link'){
+            const top = topLabel || 'General';
+            addCap(top, item);
+          }
+        });
+      };
+
+      walk(nav.items, null);
+      return groups;
+    }
+
+    // Base catalogue of capabilities from the live nav:
+    const NAV_GROUPS = groupsFromNav(NAV_MENU);
+
+    /* ---------- Overrides state (grouped) ---------- */
     let currentRoleName = null;
-    /** groups: { [groupName]: { [capKey]: boolean } } */
+    /** groups: { [groupName]: { [capKey]: boolean } } (baseline = NAV_GROUPS merged with role data) */
     let baseGroups = {};
-    /** tri-state per key: 'inherit'|'allow'|'deny' */
-    let overrideState = {}; // flat map by full cap key ("GroupName|capKey") -> tri
+    /** tri-state per key: 'inherit'|'allow'|'deny' for "Group|capId" */
+    let overrideState = {};
 
-    function triFromValue(v){
-      if (v === true) return 'allow';
-      if (v === false) return 'deny';
-      return 'inherit';
-    }
-    function valueFromTri(t){
-      if (t==='allow') return true;
-      if (t==='deny') return false;
-      return undefined;
-    }
+    const fk = (g, k) => `${g}|${k}`;
+    const triFromBool = v => (v===true ? 'allow' : v===false ? 'deny' : 'inherit');
+    const boolFromTri = t => (t==='allow' ? true : t==='deny' ? false : undefined);
 
-    function fullKey(groupName, cap){ return `${groupName}|${cap}`; }
-
-    function normalizeRoleDoc(data){
-      // Accept permissions, capabilitiesGrouped, or flat capabilities
-      if (data && typeof data.permissions === 'object') return structuredClone(data.permissions);
-      if (data && typeof data.capabilitiesGrouped === 'object') return structuredClone(data.capabilitiesGrouped);
-      if (data && typeof data.capabilities === 'object'){
-        return { General: structuredClone(data.capabilities) };
-      }
-      return {};
+    function mergeRoleOntoNavGroups(navGroups, roleGroups){
+      // Start with a deep clone of navGroups (all keys default false) then
+      // overlay booleans from roleGroups if they exist.
+      const out = {};
+      const ng = navGroups || {};
+      const rg = roleGroups || {};
+      const gNames = new Set([...Object.keys(ng), ...Object.keys(rg)]);
+      gNames.forEach(gn=>{
+        out[gn] = {};
+        // seed from nav
+        Object.keys(ng[gn] || {}).forEach(k => { out[gn][k] = false; });
+        // overlay role: support shapes { group: {capId: true/false}} OR flat { "group.capId": true }
+        const roleGroup = rg[gn];
+        if (roleGroup && typeof roleGroup === 'object'){
+          Object.keys(roleGroup).forEach(k => {
+            if (out[gn].hasOwnProperty(k)) out[gn][k] = !!roleGroup[k];
+          });
+        }
+        // also apply any flat entries like "Group.capId"
+        Object.keys(rg).forEach(maybeFlat=>{
+          if (maybeFlat.includes('.')){
+            const [gName, capId] = maybeFlat.split('.');
+            if (gName === gn && out[gn].hasOwnProperty(capId)) out[gn][capId] = !!rg[maybeFlat];
+          }
+        });
+      });
+      return out;
     }
 
     function groupEnabledPillVals(groupCaps){
       const vals = Object.values(groupCaps||{});
-      const anyTrue = vals.some(v=>v===true);
-      return anyTrue ? 'enabled' : 'disabled';
+      return vals.some(v=>v===true) ? 'enabled' : 'disabled';
     }
 
-    function renderOverrides(groups, existing = {}){
+    function renderOverrides(groups, existingOverridesMap={}){
       const wrap = $("overridesWrap");
       wrap.innerHTML = "";
-      overrideState = {}; // reset
+      overrideState = {};
 
       const groupNames = Object.keys(groups||{});
       if (groupNames.length === 0){
@@ -288,50 +336,42 @@
         details.appendChild(summary);
 
         const keys = Object.keys(caps).sort((a,b)=>a.localeCompare(b));
-        if (keys.length === 0){
-          const r = document.createElement('div'); r.className='ovr-cap-row';
-          const k = document.createElement('div'); k.className='ovr-key'; k.textContent = '—';
-          const s = document.createElement('div'); s.textContent = 'No items';
-          r.appendChild(k); r.appendChild(s); details.appendChild(r);
-        } else {
-          keys.forEach(k=>{
-            const row = document.createElement('div'); row.className='ovr-cap-row';
-            const kd = document.createElement('div'); kd.className='ovr-key'; kd.textContent = k;
-            const right = document.createElement('div');
-            const sel = document.createElement('select');
-            sel.className='ovr-select';
-            sel.setAttribute('data-fk', fullKey(gname,k));
-            sel.innerHTML = `
-              <option value="inherit">Inherit (${caps[k] ? 'Allow' : 'Deny'})</option>
-              <option value="allow">Allow</option>
-              <option value="deny">Deny</option>
-            `;
-            const tri = triFromValue(existing[fullKey(gname,k)]);
-            sel.value = tri;
-            overrideState[fullKey(gname,k)] = tri;
-            sel.addEventListener('change', (e)=>{
-              overrideState[fullKey(gname,k)] = e.target.value;
-            });
-            right.appendChild(sel);
-            row.appendChild(kd); row.appendChild(right);
-            details.appendChild(row);
+        keys.forEach(k=>{
+          const row = document.createElement('div'); row.className='ovr-cap-row';
+          const kd = document.createElement('div'); kd.className='ovr-key'; kd.textContent = k; // use link id as key label
+          const right = document.createElement('div');
+          const sel = document.createElement('select');
+          sel.className='ovr-select';
+          sel.setAttribute('data-fk', fk(gname,k));
+          sel.innerHTML = `
+            <option value="inherit">Inherit (${caps[k] ? 'Allow' : 'Deny'})</option>
+            <option value="allow">Allow</option>
+            <option value="deny">Deny</option>
+          `;
+          const existingTri = triFromBool(existingOverridesMap[`${gname}.${k}`]);
+          sel.value = existingTri;
+          overrideState[fk(gname,k)] = existingTri;
+
+          sel.addEventListener('change', e=>{
+            overrideState[fk(gname,k)] = e.target.value;
           });
-        }
+
+          right.appendChild(sel);
+          row.appendChild(kd); row.appendChild(right);
+          details.appendChild(row);
+        });
 
         wrap.appendChild(details);
       });
     }
 
-    function getOverridesForSave(){
-      // Convert overrideState (group|cap -> tri) into a flat map of cap keys
-      // We'll save as { "Group/Key": true|false } OR just "key" if you prefer. Using "group.key" is fine too.
+    function collectOverridesForSave(){
       const out = {};
-      for (const fk in overrideState){
-        const tri = overrideState[fk];
+      for (const key in overrideState){
+        const [g, k] = key.split('|');
+        const tri = overrideState[key];
         if (tri !== 'inherit'){
-          // Persist as "group.key" for readability in Firestore
-          const [g,k] = fk.split('|');
-          out[`${g}.${k}`] = valueFromTri(tri);
+          out[`${g}.${k}`] = boolFromTri(tri); // store "Group.capId": true/false
         }
       }
       return out;
@@ -341,8 +381,8 @@
       const wrap = $("overridesWrap");
       wrap.querySelectorAll('select.ovr-select').forEach(sel=>{
         sel.value = 'inherit';
-        const fk = sel.getAttribute('data-fk');
-        if (fk) overrideState[fk] = 'inherit';
+        const key = sel.getAttribute('data-fk');
+        if (key) overrideState[key] = 'inherit';
       });
     }
 
@@ -354,7 +394,92 @@
       document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false);
     });
 
-    // ---------- Form collect/validate ----------
+    /* ---------- Firestore: roles list + selected role groups ---------- */
+
+    function normalizeRoleGroups(data){
+      // Accept shapes:
+      // 1) { permissions: { Group: {capId: bool} } }
+      // 2) { capabilitiesGrouped: { Group: {capId: bool} } }
+      // 3) { capabilities: { capId: bool } }  -> becomes { General: {...} }
+      // 4) Flat keys: { "Group.capId": bool }  (supported when merging)
+      if (!data) return {};
+      if (typeof data.permissions === 'object') return structuredClone(data.permissions);
+      if (typeof data.capabilitiesGrouped === 'object') return structuredClone(data.capabilitiesGrouped);
+      if (typeof data.capabilities === 'object') return { General: structuredClone(data.capabilities) };
+      return {};
+    }
+
+    async function fetchRoleGroupsByName(roleName){
+      const db = getFirestore();
+      const qRef = query(collection(db,'accountRoles'), where('name','==', roleName));
+      const snap = await getDocs(qRef);
+      let groups = {};
+      snap.forEach(d=>{
+        groups = normalizeRoleGroups(d.data()||{});
+      });
+      return groups;
+    }
+
+    async function populatePermissionGroups(){
+      const sel = $("perm");
+      try{
+        const { mode } = await ready;
+        if(mode !== 'firebase'){
+          sel.innerHTML = '<option selected>Standard</option>';
+          currentRoleName = 'Standard';
+          baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {}); // show all from menu
+          renderOverrides(baseGroups, {}); // no overrides yet
+          return;
+        }
+        const db = getFirestore();
+        const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
+        const roles = [];
+        snap.forEach(d=>{
+          const data = d.data()||{};
+          const name = (data.name||'').trim();
+          if(name) roles.push(name);
+        });
+        if(roles.length === 0){
+          sel.innerHTML = '<option selected>Standard</option>';
+          currentRoleName = 'Standard';
+          baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {});
+          renderOverrides(baseGroups, {});
+        }else{
+          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
+          currentRoleName = roles[0];
+          const roleGroups = await fetchRoleGroupsByName(currentRoleName);
+          baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, roleGroups);
+          renderOverrides(baseGroups, {});
+        }
+
+        sel.addEventListener('change', async (e)=>{
+          if (busy) return;
+          currentRoleName = e.target.value || null;
+          setBusy(true);
+          try{
+            const roleGroups = currentRoleName ? await fetchRoleGroupsByName(currentRoleName) : {};
+            baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, roleGroups);
+            const existing = collectOverridesForSave();
+            renderOverrides(baseGroups, existing);
+          }catch(err){
+            console.error('Failed to load capabilities for role:', err);
+            baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {});
+            renderOverrides(baseGroups, {});
+          }finally{
+            setBusy(false);
+          }
+        });
+      }catch(err){
+        console.error('Roles load failed:', err);
+        sel.innerHTML = '<option selected>Standard</option>';
+        currentRoleName = 'Standard';
+        baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {});
+        renderOverrides(baseGroups, {});
+      }
+    }
+
+    /* ---------- Form collect/validate + save ---------- */
+
     function collectAndValidate(){
       const first=$("first"), last=$("last"), email=$("email");
       if(!first.checkValidity()){first.reportValidity();return null;}
@@ -370,80 +495,10 @@
         status:$("status").value,
         perm:$("perm").value,
         notes:$("notes").value.trim(),
-        overrides: getOverridesForSave()
+        overrides: collectOverridesForSave()
       };
     }
 
-    // ---------- Firestore: Permission Groups ----------
-    async function fetchRoleGroupsByName(roleName){
-      const db = getFirestore();
-      const qRef = query(collection(db,'accountRoles'), where('name','==', roleName));
-      const snap = await getDocs(qRef);
-      let groups = {};
-      snap.forEach(d=>{
-        const data = d.data()||{};
-        groups = normalizeRoleDoc(data);
-      });
-      return groups;
-    }
-
-    async function populatePermissionGroups(){
-      const sel = $("perm");
-      try{
-        const { mode } = await ready;
-        if(mode !== 'firebase'){
-          sel.innerHTML = '<option selected>Standard</option>';
-          currentRoleName = 'Standard';
-          baseGroups = {};
-          renderOverrides(baseGroups, {});
-          return;
-        }
-        const db = getFirestore();
-        const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
-        const roles = [];
-        snap.forEach(d=>{
-          const data = d.data()||{};
-          const name = (data.name||'').trim();
-          if(name) roles.push(name);
-        });
-        if(roles.length === 0){
-          sel.innerHTML = '<option selected>Standard</option>';
-          currentRoleName = 'Standard';
-          baseGroups = {};
-          renderOverrides(baseGroups, {});
-        }else{
-          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
-          currentRoleName = roles[0];
-          baseGroups = await fetchRoleGroupsByName(currentRoleName);
-          renderOverrides(baseGroups, {});
-        }
-
-        sel.addEventListener('change', async (e)=>{
-          if (busy) return;
-          currentRoleName = e.target.value || null;
-          setBusy(true);
-          try{
-            baseGroups = currentRoleName ? await fetchRoleGroupsByName(currentRoleName) : {};
-            const existing = getOverridesForSave();
-            renderOverrides(baseGroups, existing);
-          }catch(err){
-            console.error('Failed to load capabilities for role:', err);
-            baseGroups = {};
-            renderOverrides(baseGroups, {});
-          }finally{
-            setBusy(false);
-          }
-        });
-      }catch(err){
-        console.error('Roles load failed:', err);
-        sel.innerHTML = '<option selected>Standard</option>';
-        currentRoleName = 'Standard';
-        baseGroups = {};
-        renderOverrides(baseGroups, {});
-      }
-    }
-
-    // ---------- Firestore: Save Employee ----------
     async function upsertEmployee(vals){
       const db=getFirestore();
       const fullName=`${vals.first} ${vals.last}`.trim();
@@ -461,7 +516,6 @@
         notes:vals.notes,
         search:[fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
         active:vals.status==="Active",
-        // Save explicit overrides only, as "Group.Key": true/false
         overrides: vals.overrides && Object.keys(vals.overrides).length ? vals.overrides : {},
         updatedAt:serverTimestamp()
       };
@@ -473,7 +527,6 @@
       return { id, ref, created: !snap.exists() };
     }
 
-    // ---------- Auth invite ----------
     async function ensureAuthUser(email,displayName){
       if(!email)throw new Error("Missing email for Auth user");
       const CDN_BASE='https://www.gstatic.com/firebasejs/10.12.5/';
@@ -497,7 +550,6 @@
       }
     }
 
-    // ---------- Actions ----------
     function clearForm(){
       ["first","last","email","phone","role","start","notes"].forEach(id=>{const el=$(id);if(el)el.value="";});
       $("status").selectedIndex=0;
@@ -507,6 +559,8 @@
     }
 
     $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
+    $("ovrExpand").addEventListener("click", ()=>{ document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
+    $("ovrCollapse").addEventListener("click", ()=>{ document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
 
     $("clear").addEventListener("click",()=>{ if(busy) return; clearForm(); showToast("Form cleared."); });
 
@@ -556,7 +610,7 @@
       }finally{ setBusy(false); }
     });
 
-    // ---------- Init ----------
+    // Init
     populatePermissionGroups();
     ready.then(({mode})=>console.log('[FV] mode:', mode));
   </script>
