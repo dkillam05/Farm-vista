@@ -17,7 +17,6 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .page-title{margin:0 0 8px 0;}
     .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
-
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;margin-bottom:16px;}
     .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
@@ -28,7 +27,6 @@
 
     .grid2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
     @media(max-width:720px){.grid2{grid-template-columns:1fr}}
-
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
     .field label .req{color:#C13B3B;margin-left:2px;font-weight:700;}
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
@@ -244,27 +242,44 @@
     const fk=(g,k)=>`${g}|${k}`;
     const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
 
-    // Accept various role doc shapes and group-level defaults
+    // Treat these as "group default" keys if present in role docs
+    function isGroupDefaultKey(k){
+      return k==='_enabled' || k==='enabled' || k==='groupEnabled' || k==='default';
+    }
+    // PICK GROUP DEFAULT — **supports boolean groups** (Admin = true)
+    function pickGroupDefault(groupObj){
+      if (typeof groupObj === 'boolean') return groupObj;                 // ✅ whole group true/false
+      if (typeof groupObj?.enabled === 'boolean') return groupObj.enabled;
+      if (typeof groupObj?._enabled === 'boolean') return groupObj._enabled;
+      if (typeof groupObj?.groupEnabled === 'boolean') return groupObj.groupEnabled;
+      if (typeof groupObj?.default === 'boolean') return groupObj.default;
+      return undefined;
+    }
+
+    // Accept both shapes:
+    //  A) { permissions: { "Grain": true, "Calculators": {capId:true} } }
+    //  B) flat "Group.capId": true
+    //  C) { capabilitiesGrouped: {...} } or { capabilities: {...} } (fallback -> General)
     function normalizeRoleDoc(data){
       const out = {};
       if(!data) return out;
 
-      // Choose the container with groups
-      const container = (typeof data.permissions==='object' && data.permissions)
-        || (typeof data.capabilitiesGrouped==='object' && data.capabilitiesGrouped)
-        || null;
+      const container =
+        (typeof data.permissions==='object' && data.permissions) ||
+        (typeof data.capabilitiesGrouped==='object' && data.capabilitiesGrouped) ||
+        null;
 
       if (container){
         Object.keys(container).forEach(g=>{
-          const gVal = container[g] || {};
+          const gVal = container[g];
           out[g] = {};
-          const gDefault = pickGroupDefault(gVal); // true/false/undefined
-          // item keys only (skip default flags)
-          Object.keys(gVal).forEach(k=>{
-            if (isGroupDefaultKey(k)) return;
-            out[g][k] = !!gVal[k];
-          });
-          // If group default exists, fill any missing items later in merge step
+          const gDefault = pickGroupDefault(gVal);
+          if (typeof gVal === 'object' && gVal && !Array.isArray(gVal)){
+            Object.keys(gVal).forEach(k=>{
+              if (isGroupDefaultKey(k)) return;
+              out[g][k] = !!gVal[k];
+            });
+          }
           if (gDefault !== undefined) out[g]['__groupDefault'] = !!gDefault;
         });
       }
@@ -285,36 +300,23 @@
       return out;
     }
 
-    function isGroupDefaultKey(k){
-      return k==='_enabled' || k==='enabled' || k==='groupEnabled' || k==='default';
-    }
-    function pickGroupDefault(groupObj){
-      if (typeof groupObj.enabled === 'boolean') return groupObj.enabled;
-      if (typeof groupObj._enabled === 'boolean') return groupObj._enabled;
-      if (typeof groupObj.groupEnabled === 'boolean') return groupObj.groupEnabled;
-      if (typeof groupObj.default === 'boolean') return groupObj.default;
-      return undefined;
-    }
-
     function mergeRoleOntoNav(navGroups, roleDoc){
       const roleGroups = normalizeRoleDoc(roleDoc);
       const out={};
       const gset=new Set([...Object.keys(navGroups||{}), ...Object.keys(roleGroups||{})]);
       gset.forEach(g=>{
         out[g]={};
-        // seed from nav catalogue
         const navCaps = navGroups[g] || {};
         const roleCaps = roleGroups[g] || {};
         const gDefault = (typeof roleCaps.__groupDefault === 'boolean') ? roleCaps.__groupDefault : undefined;
 
         Object.keys(navCaps).forEach(k=>{
-          // priority: explicit item flag; else group default; else false
-          if (k in roleCaps) out[g][k] = !!roleCaps[k];
-          else if (gDefault !== undefined) out[g][k] = !!gDefault;
-          else out[g][k] = false;
+          if (k in roleCaps) out[g][k] = !!roleCaps[k];         // explicit cap
+          else if (gDefault !== undefined) out[g][k] = !!gDefault; // group default
+          else out[g][k] = false;                               // fallback
         });
 
-        // also accept role-defined caps that aren't in nav yet (rare)
+        // Also accept role-defined caps not in nav yet
         Object.keys(roleCaps).forEach(k=>{
           if (k==='__groupDefault') return;
           if (!(k in out[g])) out[g][k] = !!roleCaps[k];
@@ -339,7 +341,6 @@
     }
 
     function setGroupOverrides(g, mode){
-      // mode: 'allow-all' | 'deny-all' | 'inherit-all'
       const caps = baseGroups[g]||{};
       Object.keys(caps).forEach(k=>{
         const key=fk(g,k);
@@ -347,12 +348,10 @@
         else if(mode==='deny-all') overrideState[key]='deny';
         else overrideState[key]='inherit';
       });
-      // sync selects + pill
       document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`).forEach(sel=>{
         const cap=sel.getAttribute('data-cap');
         const tri=overrideState[fk(g,cap)]||'inherit';
         sel.value=tri;
-        // refresh inherit option text based on baseline
         const base = baseGroups[g][cap];
         sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
       });
@@ -386,7 +385,6 @@
         summary.appendChild(left); summary.appendChild(pill);
         details.appendChild(summary);
 
-        // pill toggles entire section
         pill.addEventListener('click',(e)=>{
           e.preventDefault(); e.stopPropagation();
           const s = computeGroupState(gname);
@@ -412,7 +410,6 @@
             <option value="allow">Allow</option>
             <option value="deny">Deny</option>
           `;
-          // default: inherit so the chosen role baseline shows immediately
           overrideState[fk(gname,k)] = 'inherit';
           sel.value = 'inherit';
 
@@ -448,7 +445,6 @@
       Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
     }
 
-    // Expand / collapse helpers
     $("ovrExpand").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
     $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
     $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
@@ -472,10 +468,10 @@
           currentRoleName = 'Standard';
           baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});   // show all from nav
           overrideState = {};
-          renderOverrides();                                // pills reflect baseline
+          renderOverrides();
           return;
         }
-        // load roles list
+
         const db = getFirestore();
         const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
         const roles = [];
@@ -483,6 +479,7 @@
           const data=d.data()||{}; const name=(data.name||'').trim();
           if(name) roles.push(name);
         });
+
         if(!roles.length){
           sel.innerHTML = '<option selected>Standard</option>';
           currentRoleName='Standard';
@@ -494,7 +491,7 @@
           currentRoleName = roles[0];
           const roleDoc = await fetchRoleDocByName(currentRoleName);
           baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleDoc);
-          overrideState = {}; // inherit baseline
+          overrideState = {};
           renderOverrides();
         }
 
@@ -506,7 +503,7 @@
             currentRoleName = e.target.value || null;
             const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
             baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleDoc);
-            overrideState = {}; // reset to inherit so pills show new baseline
+            overrideState = {};
             renderOverrides();
           }catch(err){
             console.error('Failed to load role:', err);
