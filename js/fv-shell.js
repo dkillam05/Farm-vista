@@ -1,13 +1,14 @@
-/* FarmVista — <fv-shell> v5.9.14
-   Changes vs 5.9.13:
-   - One-and-done boot curtain per tab (sessionStorage flag).
-   - Curtain text set to: "Loading, please wait…"
-   - Curtain re-shown only on: manual refresh, Check for updates, or Logout.
-   - Kept all prior features: PTR, version footer, robust menu load, auth label.
-*/
-(function () {
-  const CURTAIN_KEY = 'fv:bootCurtainShown';
+/* /Farm-vista/js/fv-shell.js
+   FarmVista Shell — v5.10.1 (global UserContext + menu ACL + one-time boot overlay)
 
+   - Shows a blurred overlay "Loading. Please wait." until FVUserContext.ready() resolves
+     on first load after sign-in (one-time per session; cleared by logout or Check for updates).
+   - Loads /js/menu.js (ESM or classic) then filters it with FVMenuACL.filter(NAV_MENU, allowedIds)
+     so users only see menus they are permitted to access.
+   - Keeps your PTR, version/slogan, update flow, logout label, and absolute-path loading.
+*/
+
+(function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
@@ -24,29 +25,22 @@
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
-    /* === Fixed pull-to-refresh bar (does not move with drag) === */
-    .ptr{
-      position:fixed;
-      top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px);
-      left:0; right:0;
-      height:54px;
-      background:var(--surface,#fff);
-      color:var(--text,#111);
-      border-bottom:1px solid var(--border,#e4e7e4);
-      display:flex; align-items:center; justify-content:center; gap:10px;
-      z-index:998;
-      transform:translateY(-56px);
-      transition:transform .16s ease;
-      will-change:transform;
-      pointer-events:none;
-    }
-    .ptr.show{ transform:translateY(0); }
-    .ptr .spinner{
-      width:18px;height:18px;border-radius:50%;
-      border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46);
-      animation:spin 800ms linear infinite;
-    }
+    /* One-time boot overlay */
+    .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
+      background:color-mix(in srgb, #000 25%, transparent); backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
+      color:#fff; transition: opacity .22s ease, visibility .22s ease; }
+    .boot[hidden]{ opacity:0; visibility:hidden; pointer-events:none; }
+    .boot-card{ background: rgba(21,23,21,.85); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:18px 20px;
+      box-shadow:0 18px 44px rgba(0,0,0,.4); display:flex; align-items:center; gap:12px; font-weight:800;}
+    .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
+    .boot-text{ font-size:15px; letter-spacing:.2px; }
+
+    .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
+      color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
+      z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change:transform; pointer-events:none; }
+    .ptr.show{ transform:translateY(0); }
+    .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46); animation:spin 800ms linear infinite; }
     .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
     .ptr .txt{ font-weight:800; }
 
@@ -95,7 +89,7 @@
     .brandrow{ display:flex; align-items:center; justify-content:center; gap:10px; padding:10px 8px 12px 8px; }
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
-    .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system, Segoe UI, Roboto, sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
+    .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
     .chips{ padding:0 12px 10px; }
     .chip{ appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent); padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700; display:inline-flex; align-items:center; gap:8px; }
     .chip[aria-pressed="true"]{ outline:3px solid color-mix(in srgb,#fff 25%, transparent); background:var(--gold); color:#111; border-color:transparent; }
@@ -112,32 +106,15 @@
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
     :host-context(.dark){ color:var(--text); background:var(--bg); }
-    :host-context(.dark) .main{ background:var(--bg); color:var(--text); }
     :host-context(.dark) .drawer{ background:var(--sidebar-surface, #171a18); color:var(--sidebar-text, #f1f3ef);
-      border-right:1px solid var(--sidebar-border, #2a2e2b); box-shadow:0 0 36px rgba(0,0,0,.45); }
-    :host-context(.dark) .drawer header{ background:var(--sidebar-surface, #171a18); border-bottom:1px solid var(--sidebar-border, #2a2e2b); }
-    :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
+      border-right:1px solid var(--sidebar-border, #2a2e2b); }
     :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
     :host-context(.dark) .drawer nav a{ color:var(--sidebar-text, #f1f3ef); border-bottom:1px solid var(--sidebar-border, #232725); }
-    .drawer-footer{ background:var(--sidebar-surface, #171a18); border-top:1px solid var(--sidebar-border, #2a2e2b); color:var(--sidebar-text, #f1f3ef); }
-    :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
-    :host-context(.dark) .toast{ background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55); }
-
-    /* ===== Boot Curtain ===== */
-    .curtain{
-      position:fixed; inset:0; z-index:2000;
-      display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px;
-      color:#fff; text-align:center;
-      background:rgba(20,21,20,.55); backdrop-filter:blur(6px);
-    }
-    :host(.booting) .curtain{ display:flex; }
-    .curtain .spin{
-      width:26px; height:26px; border-radius:50%;
-      border:3px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin 800ms linear infinite;
-    }
-    .curtain .msg{ font-weight:800; font-size:16px; letter-spacing:.02em; }
+    :host-context(.dark) .drawer-footer{ background:var(--sidebar-surface, #171a18); border-top:1px solid var(--sidebar-border, #2a2eb); color:var(--sidebar-text, #f1f3ef); }
+    :host-context(.dark) .toast{ background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; }
   </style>
 
+  <!-- Top bar -->
   <header class="hdr" part="header">
     <button class="iconbtn js-menu" aria-label="Open menu">≡</button>
     <div class="title">FarmVista</div>
@@ -150,6 +127,14 @@
     </button>
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
+
+  <!-- One-time boot overlay -->
+  <div class="boot js-boot">
+    <div class="boot-card">
+      <div class="spin" aria-hidden="true"></div>
+      <div class="boot-text">Loading. Please wait.</div>
+    </div>
+  </div>
 
   <!-- Fixed PTR bar -->
   <div class="ptr js-ptr" aria-hidden="true">
@@ -220,12 +205,6 @@
   <main class="main" part="main"><slot></slot></main>
   <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
   <div class="toast js-toast" role="status" aria-live="polite"></div>
-
-  <!-- Boot curtain -->
-  <div class="curtain" part="curtain" aria-live="polite" aria-busy="true">
-    <div class="spin" aria-hidden="true"></div>
-    <div class="msg js-bootmsg">Loading, please wait…</div>
-  </div>
   `;
 
   class FVShell extends HTMLElement {
@@ -243,19 +222,13 @@
       this._verEl = r.querySelector('.js-ver');
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
-      this._bootmsg = r.querySelector('.js-bootmsg');
+      this._boot = r.querySelector('.js-boot');
 
       // PTR refs
       this._ptr = r.querySelector('.js-ptr');
       this._ptrTxt = r.querySelector('.js-txt');
       this._ptrSpin = r.querySelector('.js-spin');
       this._ptrDot = r.querySelector('.js-dot');
-
-      // Clear one-and-done flag on browser reload
-      try {
-        const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
-        if (nav && nav.type === 'reload') { sessionStorage.removeItem(CURTAIN_KEY); }
-      } catch {}
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
@@ -270,38 +243,43 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
+      this._ensureVersionThenAuth();
+
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
-      // Kick off boot with curtain (one-and-done per tab)
-      this._showCurtain('Loading, please wait…', { once:true });
-
-      // Run async boot chain then hide curtain
-      (async () => {
-        await this._ensureVersionThenAuth();
-        await this._initMenu();
-        this._initPTR();
-        this._hideCurtain(true);
-      })();
+      this._initPTR();
     }
 
-    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
     async _ensureVersionThenAuth(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
       await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
-      try{
-        const mod = await import('/Farm-vista/js/firebase-init.js');
-        this._firebase = mod;
-        await this._wireAuthLogout(this.shadowRoot, mod);
-      }catch(err){
-        console.warn('[FV] firebase-init import failed:', err);
-        this._wireAuthLogout(this.shadowRoot, null);
+
+      // One-time boot overlay per session
+      const onceKey = 'fv:boot:hydrated';
+      const hasHydrated = sessionStorage.getItem(onceKey) === '1';
+      if (!hasHydrated && this._boot) this._boot.hidden = false;
+
+      // Wait for global FVUserContext (no imports)
+      try {
+        if (window.FVUserContext && typeof window.FVUserContext.ready === 'function') {
+          await window.FVUserContext.ready();
+        }
+        sessionStorage.setItem(onceKey, '1');
+      } catch (e) {
+        console.warn('[FV] FVUserContext.ready failed:', e);
+        sessionStorage.setItem(onceKey, '1');
+      } finally {
+        if (this._boot) this._boot.hidden = true;
       }
+
+      await this._initMenuFiltered();
+      this._wireAuthLogout(this.shadowRoot);
     }
 
     _applyVersionToUI(){
@@ -324,35 +302,47 @@
       });
     }
 
-    /* ===== Robust menu loader (ABSOLUTE + fallback) ===== */
-    async _initMenu(){
+    async _loadMenu(){
+      // Prefer import(), fallback to window.FV_MENU
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
-
-      try {
+      try{
         const mod = await import(url);
-        const NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || null;
-        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('Invalid NAV_MENU export');
-        this._renderMenu(NAV_MENU);
+        return (mod && (mod.NAV_MENU || mod.default)) || null;
+      }catch(e){
+        // fallback
+        try{
+          await new Promise((res, rej)=>{
+            const s = document.createElement('script');
+            s.src = url; s.defer = true; s.onload = ()=> res(); s.onerror = (err)=> rej(err);
+            document.head.appendChild(s);
+          });
+          return (window && window.FV_MENU) || null;
+        }catch(err){
+          console.error('[FV] Unable to load menu:', err);
+          return null;
+        }
+      }
+    }
+
+    async _initMenuFiltered(){
+      const NAV_MENU = await this._loadMenu();
+      if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) {
+        this._toastMsg('Menu data invalid.', 2000);
         return;
-      } catch (e) {
-        console.warn('[FV] import(menu.js) failed, falling back to classic script:', e);
+      }
+      const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
+      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+
+      if (!window.FVMenuACL || typeof window.FVMenuACL.filter !== 'function') {
+        // auto-load menu-acl helper if missing
+        await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
       }
 
-      try {
-        await new Promise((res, rej) => {
-          const s = document.createElement('script');
-          s.src = url; s.defer = true;
-          s.onload = () => res();
-          s.onerror = (err) => rej(err);
-          document.head.appendChild(s);
-        });
-        const NAV_MENU = (window && window.FV_MENU) || null;
-        if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) throw new Error('window.FV_MENU missing/invalid');
-        this._renderMenu(NAV_MENU);
-      } catch (err) {
-        console.error('[FV] Unable to load menu:', err);
-        this._toastMsg('Menu failed to load. Please refresh.', 2400);
-      }
+      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
+        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
+        : NAV_MENU;
+
+      this._renderMenu(filtered);
     }
 
     _renderMenu(cfg){
@@ -498,198 +488,73 @@
 
     /* ===== PULL-TO-REFRESH ===== */
     _initPTR(){
-      const bar = this._ptr;
-      const txt = this._ptrTxt;
-      const spin = this._ptrSpin;
-      const dot = this._ptrDot;
-
-      const THRESHOLD = 70; // px drag required
-      let armed = false;     // only true if touchstart occurs at top
-      let pulling = false;
-      let startY = 0;
-      let delta = 0;
-
+      const bar = this._ptr, txt = this._ptrTxt, spin = this._ptrSpin, dot = this._ptrDot;
+      const THRESHOLD = 70; let armed=false, pulling=false, startY=0, delta=0;
       const atTop = () => (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) === 0;
 
       const onStart = (e)=>{
-        if (!atTop() || this.classList.contains('drawer-open') || this.classList.contains('top-open')) {
-          armed = false; pulling = false; return;
-        }
-        const t = e.touches ? e.touches[0] : e;
-        startY = t.clientY;
-        delta = 0;
-        armed = true;
-        pulling = false;
+        if (!atTop() || this.classList.contains('drawer-open') || this.classList.contains('top-open')) { armed=false; pulling=false; return; }
+        const t = e.touches ? e.touches[0] : e; startY = t.clientY; delta=0; armed=true; pulling=false;
       };
-
       const onMove = (e)=>{
         if (!armed) return;
-        const t = e.touches ? e.touches[0] : e;
-        delta = Math.max(0, t.clientY - startY);
+        const t = e.touches ? e.touches[0] : e; delta = Math.max(0, t.clientY - startY);
         if (delta > 0) {
-          if (!pulling) {
-            pulling = true;
-            bar.classList.add('show');
-            spin.hidden = true; dot.hidden = false;
-            txt.textContent = 'Pull to refresh';
-          }
+          if (!pulling) { pulling=true; bar.classList.add('show'); spin.hidden=true; dot.hidden=false; txt.textContent='Pull to refresh'; }
           txt.textContent = (delta >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
           e.preventDefault();
         }
       };
-
       const doRefresh = async ()=>{
-        dot.hidden = true; spin.hidden = false;
-        txt.textContent = 'Refreshing…';
+        dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
         document.dispatchEvent(new CustomEvent('fv:refresh'));
+        // Clear session overlay flag + user caps cache, then re-hydrate menu
+        try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
+        sessionStorage.removeItem('fv:boot:hydrated');
+        await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve());
+        await this._initMenuFiltered();
         await new Promise(res=> setTimeout(res, 900));
-        bar.classList.remove('show');
-        spin.hidden = true; dot.hidden = true;
-        txt.textContent = 'Pull to refresh';
+        bar.classList.remove('show'); spin.hidden=true; dot.hidden=true; txt.textContent='Pull to refresh';
       };
-
-      const onEnd = ()=>{
-        if (!armed) return;
-        if (pulling && delta >= THRESHOLD) {
-          doRefresh();
-        } else {
-          bar.classList.remove('show');
-        }
-        armed = false; pulling = false; startY = 0; delta = 0;
-      };
+      const onEnd = ()=>{ if (!armed) return; if (pulling && delta >= THRESHOLD) doRefresh(); else bar.classList.remove('show'); armed=false; pulling=false; startY=0; delta=0; };
 
       window.addEventListener('touchstart', onStart, { passive:true });
       window.addEventListener('touchmove', onMove, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
-
-      // Desktop
       window.addEventListener('mousedown', onStart);
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth: logout + label (Employees → Users → displayName → email) ===== */
-    async _wireAuthLogout(r, mod){
+    /* ===== Auth: simple logout label using cached context ===== */
+    _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
-
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      const bestUser = (auth)=> (auth && auth.currentUser) ||
-                               (window.firebaseAuth && window.firebaseAuth.currentUser) ||
-                               (window.__FV_USER) || null;
-
-      const setLabelFromProfile = async () => {
-        try{
-          const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
-          const fs   = (mod && (mod.getFirestore && mod.getFirestore())) || window.firebaseFirestore;
-          const user = bestUser(auth);
-
-          if (!user) { logoutLabel.textContent = 'Logout'; return; }
-
-          let name = '';
-
-          // 1) Prefer employees/{emailKey} → firstName + lastName or fullName
-          const email = (user.email || '').trim().toLowerCase();
-          if (fs && mod && mod.doc && mod.getDoc && email) {
-            try{
-              const empRef = mod.doc(fs, 'employees', email);
-              const empSnap = await mod.getDoc(empRef);
-              const emp = empSnap && (typeof empSnap.data === 'function' ? empSnap.data() : empSnap.data);
-              if (emp) {
-                const fn = (emp.firstName || emp.first || '').toString().trim();
-                const ln = (emp.lastName  || emp.last  || '').toString().trim();
-                const full = (emp.fullName || `${fn} ${ln}`).trim();
-                if (full) name = full;
-              }
-            }catch(e){ /* ignore and fall through */ }
-          }
-
-          // 2) Fallback to users/{uid}
-          if (!name && fs && mod && mod.doc && mod.getDoc && user.uid) {
-            try{
-              const ref = mod.doc(fs, 'users', user.uid);
-              const snap = await mod.getDoc(ref);
-              const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
-              if (data) {
-                const fn = (data.firstName || data.first || '').toString().trim();
-                const ln = (data.lastName  || data.last  || '').toString().trim();
-                const full = `${fn} ${ln}`.trim();
-                if (full) name = full;
-              }
-            }catch(e){ /* ignore */ }
-          }
-
-          // 3) displayName
-          if (!name && user.displayName) name = String(user.displayName).trim();
-
-          // 4) email
-          if (!name && user.email) name = String(user.email).trim();
-
-          logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
-        }catch{
-          logoutLabel.textContent = 'Logout';
-        }
+      const setLabel = ()=>{
+        const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
+        const name = (ctx && ctx.displayName) || (ctx && ctx.email) || '';
+        logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
       };
+      setLabel();
 
-      try{
-        if (mod && mod.onIdTokenChanged && mod.onAuthStateChanged) {
-          const ctx = await mod.ready.catch(()=>null);
-          const auth = (ctx && ctx.auth) || (mod.getAuth && mod.getAuth()) || window.firebaseAuth;
-          await setLabelFromProfile();
-          mod.onIdTokenChanged(auth, setLabelFromProfile);
-          mod.onAuthStateChanged(auth, setLabelFromProfile);
-
-          let tries = 18;
-          const tick = setInterval(async ()=>{
-            await setLabelFromProfile();
-            if (bestUser(auth) || --tries <= 0) clearInterval(tick);
-          }, 150);
-
-          if (logoutRow) {
-            logoutRow.addEventListener('click', async (e)=>{
-              e.preventDefault();
-              this.toggleTop(false);
-              this.toggleDrawer(false);
-              try{
-                if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
-                else if (mod && mod.signOut) { await mod.signOut(auth); }
-              }catch(err){ console.warn('[FV] logout error:', err); }
-              try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
-              location.replace(LOGIN_URL);
-            });
-          }
-        } else {
-          if (logoutRow) {
-            logoutRow.addEventListener('click', (e)=>{
-              e.preventDefault();
-              this.toggleTop(false);
-              this.toggleDrawer(false);
-              try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
-              location.replace(LOGIN_URL);
-            });
-          }
-          await setLabelFromProfile();
-        }
-      }catch(err){
-        console.warn('[FV] auth wiring skipped:', err);
-        if (logoutRow) {
-          logoutRow.addEventListener('click', (e)=>{
-            e.preventDefault();
-            this.toggleTop(false);
-            this.toggleDrawer(false);
-            try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
-            location.replace(LOGIN_URL);
-          });
-        }
+      if (logoutRow) {
+        logoutRow.addEventListener('click', async (e)=>{
+          e.preventDefault();
+          this.toggleTop(false); this.toggleDrawer(false);
+          try{ if (typeof window.fvSignOut === 'function') await window.fvSignOut(); }catch(e){}
+          try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
+          sessionStorage.removeItem('fv:boot:hydrated');
+          location.replace(LOGIN_URL);
+        });
       }
     }
 
     /* ===== Update flow ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-
       async function readTargetVersion(){
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
@@ -703,36 +568,27 @@
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
-        if (targetVer && cur && targetVer === cur) {
-          this._toastMsg(`Already up to date (v${cur})`, 2200);
-          return;
-        }
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
 
         this._toastMsg('Clearing cache…', 900);
 
         if (navigator.serviceWorker) {
-          try {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(regs.map(r=> r.unregister()));
-          } catch {}
+          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
         }
         if ('caches' in window) {
-          try {
-            const keys = await caches.keys();
-            await Promise.all(keys.map(k => caches.delete(k)));
-          } catch {}
+          try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {}
         }
 
+        // Also clear role cache + overlay flag
+        try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
+        sessionStorage.removeItem('fv:boot:hydrated');
+
         await sleep(150);
-        if (navigator.serviceWorker) {
-          try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {}
-        }
+        if (navigator.serviceWorker) { try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {} }
 
         this._toastMsg('Updating…', 1200);
         await sleep(320);
-        const url = new URL(location.href);
-        url.searchParams.set('rev', targetVer || String(Date.now()));
-        try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
+        const url = new URL(location.href); url.searchParams.set('rev', targetVer || String(Date.now()));
         location.replace(url.toString());
       }catch(e){
         console.error(e);
@@ -747,22 +603,7 @@
       clearTimeout(this._tt);
       this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
-
-    /* ===== Curtain helpers ===== */
-    _showCurtain(msg='Loading, please wait…', { once=false } = {}){
-      if (once) {
-        try { if (sessionStorage.getItem(CURTAIN_KEY) === '1') return; } catch {}
-      }
-      this.classList.add('booting');
-      if (this._bootmsg) this._bootmsg.textContent = msg;
-    }
-    _hideCurtain(ok=true){
-      this.classList.remove('booting');
-      if (ok) { try { sessionStorage.setItem(CURTAIN_KEY, '1'); } catch {} }
-    }
   }
 
-  if (!customElements.get('fv-shell')) {
-    customElements.define('fv-shell', FVShell);
-  }
+  if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
 })();
