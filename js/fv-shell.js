@@ -1,9 +1,9 @@
-/* FarmVista — <fv-shell> v5.9.12
-   Changes vs 5.9.11:
-   - Pull-to-refresh (PTR) only arms when window.scrollY === 0 at touchstart.
-   - PTR indicator is FIXED directly below header; it no longer drags/flickers.
-   - Removed bottom “Refreshing…” toast for PTR (spinner/label only).
-   - Keeps update flow, auth wiring, menu, theming from v5.9.11.
+/* FarmVista — <fv-shell> v5.9.13
+   Changes vs 5.9.12:
+   - Logout label prefers Firestore employees/{emailKey} → First Last
+     then users/{uid} → display/displayName → email.
+   - Keeps fixed Pull-to-Refresh (PTR) bar, arms only at top, no bottom toast.
+   - Absolute menu import with classic <script> fallback.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -33,7 +33,7 @@
       border-bottom:1px solid var(--border,#e4e7e4);
       display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998;
-      transform:translateY(-56px); /* hidden just above gold bar by default */
+      transform:translateY(-56px);
       transition:transform .16s ease;
       will-change:transform;
       pointer-events:none;
@@ -479,7 +479,7 @@
       const atTop = () => (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) === 0;
 
       const onStart = (e)=>{
-        // Only arm when the page itself is at the very top and we’re not showing drawers
+        // Only arm when the page itself is at the very top and drawers are closed
         if (!atTop() || this.classList.contains('drawer-open') || this.classList.contains('top-open')) {
           armed = false; pulling = false; return;
         }
@@ -495,30 +495,22 @@
         const t = e.touches ? e.touches[0] : e;
         delta = Math.max(0, t.clientY - startY);
         if (delta > 0) {
-          // We’re pulling down from the top
           if (!pulling) {
             pulling = true;
             bar.classList.add('show');
             spin.hidden = true; dot.hidden = false;
             txt.textContent = 'Pull to refresh';
           }
-          if (delta >= THRESHOLD) {
-            txt.textContent = 'Release to refresh';
-          } else {
-            txt.textContent = 'Pull to refresh';
-          }
+          txt.textContent = (delta >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
           // prevent overscroll bounce from immediately scrolling content
           e.preventDefault();
         }
       };
 
       const doRefresh = async ()=>{
-        // Show spinner + label
         dot.hidden = true; spin.hidden = false;
         txt.textContent = 'Refreshing…';
-        // Fire global event; pages can reload their data.
         document.dispatchEvent(new CustomEvent('fv:refresh'));
-        // If nobody handled in ~900ms, just hide the bar (no toast)
         await new Promise(res=> setTimeout(res, 900));
         bar.classList.remove('show');
         spin.hidden = true; dot.hidden = true;
@@ -547,7 +539,7 @@
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth: logout + label (First Last → displayName → email) ===== */
+    /* ===== Auth: logout + label (Employees → Users → displayName → email) ===== */
     async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -558,6 +550,7 @@
                                (window.firebaseAuth && window.firebaseAuth.currentUser) ||
                                (window.__FV_USER) || null;
 
+      // Resolve a human name for the logout label
       const setLabelFromProfile = async () => {
         try{
           const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
@@ -568,7 +561,24 @@
 
           let name = '';
 
-          if (fs && mod && mod.doc && mod.getDoc) {
+          // 1) Prefer employees/{emailKey} → firstName + lastName or fullName
+          const email = (user.email || '').trim().toLowerCase();
+          if (fs && mod && mod.doc && mod.getDoc && email) {
+            try{
+              const empRef = mod.doc(fs, 'employees', email);
+              const empSnap = await mod.getDoc(empRef);
+              const emp = empSnap && (typeof empSnap.data === 'function' ? empSnap.data() : empSnap.data);
+              if (emp) {
+                const fn = (emp.firstName || emp.first || '').toString().trim();
+                const ln = (emp.lastName  || emp.last  || '').toString().trim();
+                const full = (emp.fullName || `${fn} ${ln}`).trim();
+                if (full) name = full;
+              }
+            }catch(e){ /* ignore and fall through */ }
+          }
+
+          // 2) Fallback to users/{uid}
+          if (!name && fs && mod && mod.doc && mod.getDoc && user.uid) {
             try{
               const ref = mod.doc(fs, 'users', user.uid);
               const snap = await mod.getDoc(ref);
@@ -579,11 +589,14 @@
                 const full = `${fn} ${ln}`.trim();
                 if (full) name = full;
               }
-            }catch{}
+            }catch(e){ /* ignore */ }
           }
 
+          // 3) displayName
           if (!name && user.displayName) name = String(user.displayName).trim();
-          if (!name && user.email)       name = String(user.email).trim();
+
+          // 4) email
+          if (!name && user.email) name = String(user.email).trim();
 
           logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
         }catch{
