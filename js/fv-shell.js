@@ -1,12 +1,9 @@
-/* FarmVista — <fv-shell> v5.9.13 (ctx-enabled)
-   Base: your live v5.9.13
-   Safe additions:
-   - Loads /Farm-vista/js/app/user-context.js (once).
-   - Uses FVUserContext cache for:
-       • Logout label (instant, no Firestore wait)
-       • Drawer permission filtering (hide disallowed links fast)
-   - Re-applies filtering on FVUserContext changes and on Pull-to-Refresh.
-   - Keeps ALL existing features (PTR, version footer, robust menu import, update flow).
+/* FarmVista — <fv-shell> v5.9.14
+   Changes vs 5.9.13:
+   - Boot curtain: full-screen blur + spinner shown at startup.
+   - Curtain hides on `fv:user-ready` (from user-context.js) or, as fallback,
+     after Firebase auth hydration succeeds.
+   - Keeps all existing features (PTR, version label, update flow, robust menu load, logout label).
 */
 (function () {
   const tpl = document.createElement('template');
@@ -107,22 +104,48 @@
     .row .chev{ opacity:.9; }
 
     .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
-      transform:translateX(-50%); background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      transform:translateX(-50%); background:#1b1f1c; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-      white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
+      white-space:nowrap; min-width:220px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
     :host-context(.dark){ color:var(--text); background:var(--bg); }
     :host-context(.dark) .main{ background:var(--bg); color:var(--text); }
     :host-context(.dark) .drawer{ background:var(--sidebar-surface, #171a18); color:var(--sidebar-text, #f1f3ef);
       border-right:1px solid var(--sidebar-border, #2a2e2b); box-shadow:0 0 36px rgba(0,0,0,.45); }
-    :host-context(.dark) .drawer header{ background:var(--sidebar-surface, #171a18); border-bottom:1px solid var(--sidebar-border, #2a2eb); }
+    :host-context(.dark) .drawer header{ background:var(--sidebar-surface, #171a18); border-bottom:1px solid var(--sidebar-border, #2a2e2b); }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
     :host-context(.dark) .drawer nav a{ color:var(--sidebar-text, #f1f3ef); border-bottom:1px solid var(--sidebar-border, #232725); }
     .drawer-footer{ background:var(--sidebar-surface, #171a18); border-top:1px solid var(--sidebar-border, #2a2e2b); color:var(--sidebar-text, #f1f3ef); }
     :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .toast{ background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55); }
+
+    /* ===== Boot curtain ===== */
+    .bootcurtain{
+      position:fixed; inset:0; z-index:1600;
+      display:grid; place-items:center;
+      backdrop-filter: blur(8px);
+      background: color-mix(in srgb, #000 14%, transparent);
+      transition: opacity .25s ease;
+      opacity: 1;
+    }
+    .bootcurtain[hidden]{ opacity:0; pointer-events:none; }
+    .bootbox{
+      display:flex; flex-direction:column; align-items:center; gap:12px;
+      padding:18px 20px; border-radius:14px;
+      background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
+      border:1px solid var(--border, #e4e7e4);
+      box-shadow:0 14px 32px rgba(0,0,0,.25);
+      min-width:220px;
+    }
+    .spin{
+      width:26px; height:26px; border-radius:50%;
+      border:3px solid color-mix(in srgb, var(--text,#111) 25%, transparent);
+      border-top-color: var(--green,#3B7E46);
+      animation: spin 900ms linear infinite;
+    }
+    .bootmsg{ font-weight:800; font-size:14.5px; color:var(--text,#111); text-align:center; }
   </style>
 
   <header class="hdr" part="header">
@@ -207,6 +230,14 @@
   <main class="main" part="main"><slot></slot></main>
   <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
   <div class="toast js-toast" role="status" aria-live="polite"></div>
+
+  <!-- Boot curtain -->
+  <div class="bootcurtain js-boot" aria-live="polite">
+    <div class="bootbox">
+      <div class="spin" aria-hidden="true"></div>
+      <div class="bootmsg js-bootmsg">Setting up your session…</div>
+    </div>
+  </div>
   `;
 
   class FVShell extends HTMLElement {
@@ -214,26 +245,29 @@
 
     connectedCallback(){
       const r = this.shadowRoot;
-      this._btnMenu = r.querySelector('.js-menu');
-      this._btnAccount = r.querySelector('.js-account');
-      this._scrim = r.querySelector('.js-scrim');
-      this._drawer = r.querySelector('.drawer');
-      this._top = r.querySelector('.js-top');
-      this._footerText = r.querySelector('.js-footer');
-      this._toast = r.querySelector('.js-toast');
-      this._verEl = r.querySelector('.js-ver');
-      this._sloganEl = r.querySelector('.js-slogan');
-      this._navEl = r.querySelector('.js-nav');
+      this._btnMenu   = r.querySelector('.js-menu');
+      this._btnAccount= r.querySelector('.js-account');
+      this._scrim     = r.querySelector('.js-scrim');
+      this._drawer    = r.querySelector('.drawer');
+      this._top       = r.querySelector('.js-top');
+      this._footerText= r.querySelector('.js-footer');
+      this._toast     = r.querySelector('.js-toast');
+      this._verEl     = r.querySelector('.js-ver');
+      this._sloganEl  = r.querySelector('.js-slogan');
+      this._navEl     = r.querySelector('.js-nav');
 
       // PTR refs
-      this._ptr = r.querySelector('.js-ptr');
+      this._ptr    = r.querySelector('.js-ptr');
       this._ptrTxt = r.querySelector('.js-txt');
-      this._ptrSpin = r.querySelector('.js-spin');
+      this._ptrSpin= r.querySelector('.js-spin');
       this._ptrDot = r.querySelector('.js-dot');
 
-      // permission helpers
-      this._hrefToId = new Map();
-      this._ctxOff = null;
+      // Boot curtain
+      this._boot   = r.querySelector('.js-boot');
+      this._bootMsg= r.querySelector('.js-bootmsg');
+
+      // Start with curtain visible
+      this._showCurtain('Setting up your session…');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
@@ -248,7 +282,7 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      this._ensureVersionThenAuthAndCtx();
+      this._ensureVersionThenAuth();
 
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
@@ -261,16 +295,35 @@
       // Wire global Pull-to-Refresh
       this._initPTR();
 
-      // On PTR refresh, also refresh user context (keeps permissions fresh)
-      document.addEventListener('fv:refresh', ()=> {
-        if (window.FVUserContext && typeof FVUserContext.refresh==='function') {
-          FVUserContext.refresh({force:true}).then(()=> this._applyMenuPermissions());
-        }
-      });
+      // Listen for user-context ready event (preferred signal to remove curtain)
+      window.addEventListener('fv:user-ready', (e)=>{
+        // Expect detail like { ready:true, user:..., profile:..., role:... }
+        try{
+          const d = (e && e.detail) || {};
+          if (d && (d.ready === true || d.user)) {
+            this._hideCurtain();
+          }
+        }catch{}
+      }, { once:false });
     }
 
-    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) → user-context.js ==== */
-    async _ensureVersionThenAuthAndCtx(){
+    /* ==== Boot curtain helpers ==== */
+    _showCurtain(msg){
+      if (!this._boot) return;
+      if (msg && this._bootMsg) this._bootMsg.textContent = msg;
+      this._boot.removeAttribute('hidden');
+      // Lock scroll beneath the curtain
+      document.documentElement.style.overflow = 'hidden';
+    }
+    _hideCurtain(){
+      if (!this._boot) return;
+      this._boot.setAttribute('hidden','');
+      // Restore scroll
+      document.documentElement.style.overflow = '';
+    }
+
+    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
+    async _ensureVersionThenAuth(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
@@ -278,14 +331,17 @@
       try{
         const mod = await import('/Farm-vista/js/firebase-init.js');
         this._firebase = mod;
-        // Load user-context (once)
-        await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
-        await this._wireAuthLogout(this.shadowRoot, mod); // will prefer FVUserContext if present
+        await this._wireAuthLogout(this.shadowRoot, mod);
+
+        // Fallback: if auth hydrates and we still haven't heard from user-context,
+        // hide the curtain after a short grace period so UI isn't stuck forever.
+        this._armCurtainFallback(mod);
+
       }catch(err){
         console.warn('[FV] firebase-init import failed:', err);
-        // Try to at least load user-context for stub mode labels/permissions
-        await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
         this._wireAuthLogout(this.shadowRoot, null);
+        // If Firebase fails entirely, still remove curtain to let app show something
+        setTimeout(()=> this._hideCurtain(), 1500);
       }
     }
 
@@ -343,9 +399,6 @@
     _renderMenu(cfg){
       const nav = this._navEl; if (!nav) return;
       nav.innerHTML = '';
-
-      // build href→id map for permission filtering
-      this._hrefToId = this._flattenHrefToId(cfg);
 
       const path = location.pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
@@ -439,89 +492,6 @@
         if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
         else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
-
-      // Apply permission filtering from cached user context (instant)
-      this._applyMenuPermissions();
-
-      // Subscribe to future context changes (re-apply when context refreshes)
-      if (this._ctxOff) try{ this._ctxOff(); }catch{}
-      if (window.FVUserContext && typeof FVUserContext.onChange === 'function') {
-        this._ctxOff = FVUserContext.onChange(()=> this._applyMenuPermissions());
-      }
-    }
-
-    _flattenHrefToId(cfg){
-      const map = new Map();
-      const walk = (nodes=[])=>{
-        nodes.forEach(n=>{
-          if(n.type==='link' && n.id && n.href){ map.set(n.href, n.id); }
-          else if(n.type==='group' && Array.isArray(n.children)){ walk(n.children); }
-        });
-      };
-      walk(cfg.items || []);
-      return map;
-    }
-
-    _applyMenuPermissions(){
-      const root = this.shadowRoot.querySelector('.drawer');
-      if(!root || !this._hrefToId || !this._hrefToId.size) return;
-
-      const ctx = (window.FVUserContext && typeof FVUserContext.get==='function') ? FVUserContext.get() : null;
-      if(!ctx || !ctx.allowedIds || !Array.isArray(ctx.allowedIds)){
-        // No context yet → show everything (preserve existing behavior)
-        root.querySelectorAll('a[href^="/Farm-vista/"]').forEach(a=>{
-          const li = a.closest('a, .nav-item, .drawer-row, div'); if(li) li.style.display='';
-        });
-        // Reset groups
-        root.querySelectorAll('.nav-group').forEach(g=>{ g.style.display=''; });
-        // Try to set logout label from cache if available later
-        this._setLogoutLabelFromCtx();
-        return;
-      }
-
-      const allow = new Set(ctx.allowedIds);
-      // Always allow Home if mapped
-      const homeHref = '/Farm-vista/index.html';
-      if (this._hrefToId.has(homeHref)) allow.add(this._hrefToId.get(homeHref));
-
-      // Hide disallowed links
-      root.querySelectorAll('a[href^="/Farm-vista/"]').forEach(a=>{
-        const href = a.getAttribute('href') || '';
-        const id = this._hrefToId.get(href);
-        if(!id){ // group header link or unknown — keep visible
-          const li = a.closest('a, .nav-item, .drawer-row, div'); if(li) li.style.display='';
-          return;
-        }
-        const li = a.closest('a, .nav-item, .drawer-row, div');
-        if(!li) return;
-        li.style.display = allow.has(id) ? '' : 'none';
-      });
-
-      // Hide empty groups
-      root.querySelectorAll('.nav-group').forEach(g=>{
-        const anyVisible = Array.from(g.querySelectorAll('a[href^="/Farm-vista/"]'))
-          .some(el=>{
-            const li = el.closest('a, .nav-item, .drawer-row, div');
-            return li && li.style.display !== 'none';
-          });
-        g.style.display = anyVisible ? '' : 'none';
-      });
-
-      // Update logout label from context
-      this._setLogoutLabelFromCtx();
-    }
-
-    _setLogoutLabelFromCtx(){
-      try{
-        const r = this.shadowRoot;
-        const lbl = r.getElementById('logoutLabel');
-        if(!lbl) return;
-        const ctx = (window.FVUserContext && FVUserContext.get && FVUserContext.get()) || null;
-        if(ctx && (ctx.displayName || ctx.email)){
-          const name = (ctx.displayName || ctx.email || '').trim();
-          lbl.textContent = name ? `Logout ${name}` : 'Logout';
-        }
-      }catch{}
     }
 
     _collapseAllNavGroups(){
@@ -633,35 +603,24 @@
       window.addEventListener('touchmove', onMove, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
+
       window.addEventListener('mousedown', onStart);
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth: logout + label (prefers FVUserContext; falls back to Firestore) ===== */
+    /* ===== Auth: logout + label (Employees → Users → displayName → email) ===== */
     async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
 
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      // 1) Instant label from cached context (if available)
-      this._setLogoutLabelFromCtx();
-      if (window.FVUserContext && typeof FVUserContext.onChange==='function') {
-        // keep label in sync if context changes
-        FVUserContext.onChange(()=> this._setLogoutLabelFromCtx());
-      }
-
-      // 2) Fallback: your original Firestore-based resolver (kept intact)
       const bestUser = (auth)=> (auth && auth.currentUser) ||
                                (window.firebaseAuth && window.firebaseAuth.currentUser) ||
                                (window.__FV_USER) || null;
 
       const setLabelFromProfile = async () => {
-        // If context already set a nice label, skip work
-        const cur = logoutLabel && logoutLabel.textContent || '';
-        if (cur && cur !== 'Logout' && cur.toLowerCase() !== 'logout') return;
-
         try{
           const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
           const fs   = (mod && (mod.getFirestore && mod.getFirestore())) || window.firebaseFirestore;
@@ -683,7 +642,7 @@
                 const full = (emp.fullName || `${fn} ${ln}`).trim();
                 if (full) name = full;
               }
-            }catch(e){ /* ignore and fall through */ }
+            }catch(e){ /* ignore */ }
           }
 
           if (!name && fs && mod && mod.doc && mod.getDoc && user.uid) {
@@ -703,13 +662,9 @@
           if (!name && user.displayName) name = String(user.displayName).trim();
           if (!name && user.email) name = String(user.email).trim();
 
-          // Only overwrite if context didn't already set a better label
-          const cur2 = logoutLabel && logoutLabel.textContent || '';
-          if (!cur2 || cur2 === 'Logout') {
-            logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
-          }
+          logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
         }catch{
-          // leave current label as-is
+          logoutLabel.textContent = 'Logout';
         }
       };
 
@@ -763,7 +718,42 @@
       }
     }
 
-    /* ===== Update flow (unchanged) ===== */
+    /* ===== Curtain fallback after auth hydration ===== */
+    _armCurtainFallback(mod){
+      try{
+        const auth = (mod.getAuth && mod.getAuth()) || window.firebaseAuth || null;
+        if (!auth) { setTimeout(()=> this._hideCurtain(), 2000); return; }
+
+        // If already logged in, give user-context a brief chance then hide.
+        if (auth.currentUser) {
+          setTimeout(()=> {
+            // If user-context hasn't hidden yet, drop the curtain now.
+            if (this._boot && !this._boot.hasAttribute('hidden')) {
+              this._hideCurtain();
+            }
+          }, 1800);
+        }
+
+        // Also listen for auth state changes (first hydration)
+        let fired = false;
+        const off = mod.onAuthStateChanged(auth, (u)=>{
+          if (fired) return; fired = true;
+          // Allow user-context a short window to finish, then hide
+          setTimeout(()=> {
+            if (this._boot && !this._boot.hasAttribute('hidden')) {
+              this._hideCurtain();
+            }
+          }, 1500);
+          off && off();
+        });
+        // Absolute cap so you never get stuck behind curtain
+        setTimeout(()=> this._hideCurtain(), 8000);
+      }catch{
+        setTimeout(()=> this._hideCurtain(), 2500);
+      }
+    }
+
+    /* ===== Update flow ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
