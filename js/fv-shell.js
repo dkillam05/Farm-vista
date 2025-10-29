@@ -1,9 +1,12 @@
-/* FarmVista — <fv-shell> v5.9.13
-   Changes vs 5.9.12:
-   - Logout label prefers Firestore employees/{emailKey} → First Last
-     then users/{uid} → display/displayName → email.
-   - Keeps fixed Pull-to-Refresh (PTR) bar, arms only at top, no bottom toast.
-   - Absolute menu import with classic <script> fallback.
+/* FarmVista — <fv-shell> v5.9.13 (ctx-enabled)
+   Base: your live v5.9.13
+   Safe additions:
+   - Loads /Farm-vista/js/app/user-context.js (once).
+   - Uses FVUserContext cache for:
+       • Logout label (instant, no Firestore wait)
+       • Drawer permission filtering (hide disallowed links fast)
+   - Re-applies filtering on FVUserContext changes and on Pull-to-Refresh.
+   - Keeps ALL existing features (PTR, version footer, robust menu import, update flow).
 */
 (function () {
   const tpl = document.createElement('template');
@@ -113,7 +116,7 @@
     :host-context(.dark) .main{ background:var(--bg); color:var(--text); }
     :host-context(.dark) .drawer{ background:var(--sidebar-surface, #171a18); color:var(--sidebar-text, #f1f3ef);
       border-right:1px solid var(--sidebar-border, #2a2e2b); box-shadow:0 0 36px rgba(0,0,0,.45); }
-    :host-context(.dark) .drawer header{ background:var(--sidebar-surface, #171a18); border-bottom:1px solid var(--sidebar-border, #2a2e2b); }
+    :host-context(.dark) .drawer header{ background:var(--sidebar-surface, #171a18); border-bottom:1px solid var(--sidebar-border, #2a2eb); }
     :host-context(.dark) .org .org-loc{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
     :host-context(.dark) .drawer nav a{ color:var(--sidebar-text, #f1f3ef); border-bottom:1px solid var(--sidebar-border, #232725); }
@@ -228,6 +231,10 @@
       this._ptrSpin = r.querySelector('.js-spin');
       this._ptrDot = r.querySelector('.js-dot');
 
+      // permission helpers
+      this._hrefToId = new Map();
+      this._ctxOff = null;
+
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
@@ -241,7 +248,7 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      this._ensureVersionThenAuth();
+      this._ensureVersionThenAuthAndCtx();
 
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
@@ -253,10 +260,17 @@
 
       // Wire global Pull-to-Refresh
       this._initPTR();
+
+      // On PTR refresh, also refresh user context (keeps permissions fresh)
+      document.addEventListener('fv:refresh', ()=> {
+        if (window.FVUserContext && typeof FVUserContext.refresh==='function') {
+          FVUserContext.refresh({force:true}).then(()=> this._applyMenuPermissions());
+        }
+      });
     }
 
-    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
-    async _ensureVersionThenAuth(){
+    /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) → user-context.js ==== */
+    async _ensureVersionThenAuthAndCtx(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
@@ -264,9 +278,13 @@
       try{
         const mod = await import('/Farm-vista/js/firebase-init.js');
         this._firebase = mod;
-        await this._wireAuthLogout(this.shadowRoot, mod);
+        // Load user-context (once)
+        await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
+        await this._wireAuthLogout(this.shadowRoot, mod); // will prefer FVUserContext if present
       }catch(err){
         console.warn('[FV] firebase-init import failed:', err);
+        // Try to at least load user-context for stub mode labels/permissions
+        await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
         this._wireAuthLogout(this.shadowRoot, null);
       }
     }
@@ -325,6 +343,9 @@
     _renderMenu(cfg){
       const nav = this._navEl; if (!nav) return;
       nav.innerHTML = '';
+
+      // build href→id map for permission filtering
+      this._hrefToId = this._flattenHrefToId(cfg);
 
       const path = location.pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
@@ -418,6 +439,89 @@
         if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
         else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
+
+      // Apply permission filtering from cached user context (instant)
+      this._applyMenuPermissions();
+
+      // Subscribe to future context changes (re-apply when context refreshes)
+      if (this._ctxOff) try{ this._ctxOff(); }catch{}
+      if (window.FVUserContext && typeof FVUserContext.onChange === 'function') {
+        this._ctxOff = FVUserContext.onChange(()=> this._applyMenuPermissions());
+      }
+    }
+
+    _flattenHrefToId(cfg){
+      const map = new Map();
+      const walk = (nodes=[])=>{
+        nodes.forEach(n=>{
+          if(n.type==='link' && n.id && n.href){ map.set(n.href, n.id); }
+          else if(n.type==='group' && Array.isArray(n.children)){ walk(n.children); }
+        });
+      };
+      walk(cfg.items || []);
+      return map;
+    }
+
+    _applyMenuPermissions(){
+      const root = this.shadowRoot.querySelector('.drawer');
+      if(!root || !this._hrefToId || !this._hrefToId.size) return;
+
+      const ctx = (window.FVUserContext && typeof FVUserContext.get==='function') ? FVUserContext.get() : null;
+      if(!ctx || !ctx.allowedIds || !Array.isArray(ctx.allowedIds)){
+        // No context yet → show everything (preserve existing behavior)
+        root.querySelectorAll('a[href^="/Farm-vista/"]').forEach(a=>{
+          const li = a.closest('a, .nav-item, .drawer-row, div'); if(li) li.style.display='';
+        });
+        // Reset groups
+        root.querySelectorAll('.nav-group').forEach(g=>{ g.style.display=''; });
+        // Try to set logout label from cache if available later
+        this._setLogoutLabelFromCtx();
+        return;
+      }
+
+      const allow = new Set(ctx.allowedIds);
+      // Always allow Home if mapped
+      const homeHref = '/Farm-vista/index.html';
+      if (this._hrefToId.has(homeHref)) allow.add(this._hrefToId.get(homeHref));
+
+      // Hide disallowed links
+      root.querySelectorAll('a[href^="/Farm-vista/"]').forEach(a=>{
+        const href = a.getAttribute('href') || '';
+        const id = this._hrefToId.get(href);
+        if(!id){ // group header link or unknown — keep visible
+          const li = a.closest('a, .nav-item, .drawer-row, div'); if(li) li.style.display='';
+          return;
+        }
+        const li = a.closest('a, .nav-item, .drawer-row, div');
+        if(!li) return;
+        li.style.display = allow.has(id) ? '' : 'none';
+      });
+
+      // Hide empty groups
+      root.querySelectorAll('.nav-group').forEach(g=>{
+        const anyVisible = Array.from(g.querySelectorAll('a[href^="/Farm-vista/"]'))
+          .some(el=>{
+            const li = el.closest('a, .nav-item, .drawer-row, div');
+            return li && li.style.display !== 'none';
+          });
+        g.style.display = anyVisible ? '' : 'none';
+      });
+
+      // Update logout label from context
+      this._setLogoutLabelFromCtx();
+    }
+
+    _setLogoutLabelFromCtx(){
+      try{
+        const r = this.shadowRoot;
+        const lbl = r.getElementById('logoutLabel');
+        if(!lbl) return;
+        const ctx = (window.FVUserContext && FVUserContext.get && FVUserContext.get()) || null;
+        if(ctx && (ctx.displayName || ctx.email)){
+          const name = (ctx.displayName || ctx.email || '').trim();
+          lbl.textContent = name ? `Logout ${name}` : 'Logout';
+        }
+      }catch{}
     }
 
     _collapseAllNavGroups(){
@@ -479,7 +583,6 @@
       const atTop = () => (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) === 0;
 
       const onStart = (e)=>{
-        // Only arm when the page itself is at the very top and drawers are closed
         if (!atTop() || this.classList.contains('drawer-open') || this.classList.contains('top-open')) {
           armed = false; pulling = false; return;
         }
@@ -502,7 +605,6 @@
             txt.textContent = 'Pull to refresh';
           }
           txt.textContent = (delta >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
-          // prevent overscroll bounce from immediately scrolling content
           e.preventDefault();
         }
       };
@@ -527,31 +629,39 @@
         armed = false; pulling = false; startY = 0; delta = 0;
       };
 
-      // Passive false on touchmove so we can preventDefault() when pulling
       window.addEventListener('touchstart', onStart, { passive:true });
       window.addEventListener('touchmove', onMove, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
-
-      // Also support mouse (desktop testing)
       window.addEventListener('mousedown', onStart);
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth: logout + label (Employees → Users → displayName → email) ===== */
+    /* ===== Auth: logout + label (prefers FVUserContext; falls back to Firestore) ===== */
     async _wireAuthLogout(r, mod){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
 
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
+      // 1) Instant label from cached context (if available)
+      this._setLogoutLabelFromCtx();
+      if (window.FVUserContext && typeof FVUserContext.onChange==='function') {
+        // keep label in sync if context changes
+        FVUserContext.onChange(()=> this._setLogoutLabelFromCtx());
+      }
+
+      // 2) Fallback: your original Firestore-based resolver (kept intact)
       const bestUser = (auth)=> (auth && auth.currentUser) ||
                                (window.firebaseAuth && window.firebaseAuth.currentUser) ||
                                (window.__FV_USER) || null;
 
-      // Resolve a human name for the logout label
       const setLabelFromProfile = async () => {
+        // If context already set a nice label, skip work
+        const cur = logoutLabel && logoutLabel.textContent || '';
+        if (cur && cur !== 'Logout' && cur.toLowerCase() !== 'logout') return;
+
         try{
           const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
           const fs   = (mod && (mod.getFirestore && mod.getFirestore())) || window.firebaseFirestore;
@@ -561,7 +671,6 @@
 
           let name = '';
 
-          // 1) Prefer employees/{emailKey} → firstName + lastName or fullName
           const email = (user.email || '').trim().toLowerCase();
           if (fs && mod && mod.doc && mod.getDoc && email) {
             try{
@@ -577,7 +686,6 @@
             }catch(e){ /* ignore and fall through */ }
           }
 
-          // 2) Fallback to users/{uid}
           if (!name && fs && mod && mod.doc && mod.getDoc && user.uid) {
             try{
               const ref = mod.doc(fs, 'users', user.uid);
@@ -592,15 +700,16 @@
             }catch(e){ /* ignore */ }
           }
 
-          // 3) displayName
           if (!name && user.displayName) name = String(user.displayName).trim();
-
-          // 4) email
           if (!name && user.email) name = String(user.email).trim();
 
-          logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
+          // Only overwrite if context didn't already set a better label
+          const cur2 = logoutLabel && logoutLabel.textContent || '';
+          if (!cur2 || cur2 === 'Logout') {
+            logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
+          }
         }catch{
-          logoutLabel.textContent = 'Logout';
+          // leave current label as-is
         }
       };
 
@@ -654,7 +763,7 @@
       }
     }
 
-    /* ===== Update flow ===== */
+    /* ===== Update flow (unchanged) ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
