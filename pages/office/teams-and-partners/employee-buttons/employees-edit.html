@@ -55,7 +55,7 @@
     .empty{color:var(--muted,#87908a);padding:6px 2px}
 
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;display:none}
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;display:none;margin-bottom:16px;}
     .section.show{display:block}
     .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
       padding:14px 16px;border-bottom:1px solid var(--border);
@@ -78,6 +78,24 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
     .btn-quiet{min-width:auto;padding:8px 12px}
+
+    /* Overrides UI (same as Add Employee) */
+    .ovr-legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--muted,#5d655f);font-size:14px}
+    .ovr-legend b{color:var(--text)}
+    .ovr-wrap{border:1px dashed var(--border);border-radius:12px;padding:10px}
+    .ovr-empty{padding:8px 4px;color:var(--muted,#6b746d)}
+
+    details.ovr-group{border:1px solid var(--border);border-radius:12px;margin:10px 0;background:var(--card-surface,var(--surface));overflow:hidden}
+    summary.ovr-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;cursor:pointer}
+    summary.ovr-summary::-webkit-details-marker{display:none}
+    .ovr-name{font-weight:800}
+    .pill{border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;user-select:none}
+    .pill.enabled{background:#203a26;color:#bfe3c6;border-color:#315b3c}
+    .pill.disabled{background:#3a2020;color:#f2c0c0;border-color:#5b3131}
+
+    .ovr-cap-row{display:grid;grid-template-columns:1fr 160px;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--border)}
+    .ovr-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
+    .ovr-select{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--surface);font-weight:700}
 
     /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
@@ -106,6 +124,7 @@
       <ul id="results" class="list" aria-live="polite"></ul>
       <div id="empty" class="empty">No matches.</div>
 
+      <!-- Card 1: Employee Details -->
       <section id="formSection" class="section" aria-hidden="true">
         <header class="section-head">
           <div class="icon" aria-hidden="true">👤</div>
@@ -182,6 +201,30 @@
           </div>
         </div>
       </section>
+
+      <!-- Card 2: Overrides (mirrors Add Employee exactly) -->
+      <section id="ovrSection" class="section" aria-hidden="true">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🛡️</div>
+          <div><strong>Overrides (Optional)</strong></div>
+        </header>
+
+        <div class="section-body">
+          <div class="ovr-legend">
+            <span>Defaults follow the selected <b>Permission Group</b> from Firestore (<code>accountRoles</code> ➜ <code>perms</code>). Tap a section’s <b>Enabled/Disabled</b> pill to force the whole section on/off for this employee. Individual items can still be tweaked below.</span>
+          </div>
+
+          <div class="ovr-wrap" id="overridesWrap">
+            <div class="ovr-empty">Select an employee to load capabilities.</div>
+          </div>
+
+          <div class="ovr-toolbar">
+            <button id="ovrExpand" class="btn btn-quiet" type="button">Expand All</button>
+            <button id="ovrCollapse" class="btn btn-quiet" type="button">Collapse All</button>
+            <button id="ovrClear" class="btn btn-quiet" type="button">Clear Overrides</button>
+          </div>
+        </div>
+      </section>
     </div>
   </fv-shell>
 
@@ -191,33 +234,287 @@
     import {
       ready,
       getFirestore, collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp,
-      getDocs, query, orderBy,
+      getDocs, query, orderBy, where,
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
+    // Live navigation shapes the capabilities exactly like Add Employee
+    import NAV_MENU from '/Farm-vista/js/menu.js';
+
+    /* ---------------------------- tiny utils ---------------------------- */
     const $ = (id)=>document.getElementById(id);
     const toast = $("toast");
     const resultsEl = $("results");
     const emptyEl = $("empty");
     const formSection = $("formSection");
+    const ovrSection = $("ovrSection");
 
     let all = [], sel = null, statusFilter = 'all', busy = false, lastInviteAt = 0;
     let rolesLoaded = false;
+    let currentRoleName = null;
 
     const emailKey = s => String(s||'').trim().toLowerCase();
     const showToast = (m="Saved.")=>{ toast.textContent=m; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
-    const setBusy = on => { busy=!!on; ["save","saveInvite","clear"].forEach(id=>{const b=$(id); if(b) b.disabled=on;}); };
+    const setBusy = on => { busy=!!on; ["save","saveInvite","clear","ovrClear","ovrExpand","ovrCollapse","perm"].forEach(id=>{const b=$(id); if(b) b.disabled=on;}); };
     const digitsOnly = s => String(s||'').replace(/\D+/g,'');
     const formatUSPhone = raw => { const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d; return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim(); };
     $("phone").addEventListener("blur", e => e.target.value = formatUSPhone(e.target.value));
+    const fk=(g,k)=>`${g}|${k}`;
+    const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
 
-    /* ------- Permission Groups from Firestore (accountRoles) ------- */
+    /* ---------------------------- NAV indexer --------------------------- */
+    const TOP_GROUPS = {};
+    const CAP_TO_TOP = {};
+    const CONTAINERS = {};
+    const CAP_SET = new Set();
+    const CONTAINER_IDS = new Set();
+
+    (function buildIndexes(){
+      if(!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
+
+      function collectLinks(nodes, acc){
+        nodes.forEach(n=>{
+          if(n.type==='group' && Array.isArray(n.children)){
+            collectLinks(n.children, acc);
+          }else if(n.type==='link'){
+            acc.push(n.id);
+          }
+        });
+      }
+
+      NAV_MENU.items.forEach(top=>{
+        if(top.type!=='group') return;
+        const topLabel = top.label || top.id || 'General';
+        const topId = top.id;
+        const allUnderTop = [];
+        collectLinks([top], allUnderTop);
+
+        CONTAINERS[topId] = allUnderTop.slice();
+        CONTAINER_IDS.add(topId);
+
+        TOP_GROUPS[topLabel] = allUnderTop.slice();
+        allUnderTop.forEach(id=>{
+          CAP_TO_TOP[id]=topLabel;
+          CAP_SET.add(id);
+        });
+
+        // subgroups containers too
+        (top.children||[]).forEach(ch=>{
+          if(ch.type==='group'){
+            const arr=[]; collectLinks([ch], arr);
+            CONTAINERS[ch.id]=arr.slice();
+            CONTAINER_IDS.add(ch.id);
+          }
+        });
+      });
+    })();
+
+    /* ------------------------ role → baseline --------------------------- */
+    let baseGroups = {};     // {TopLabel:{capId:boolean}}
+    let overrideState = {};  // {"TopLabel|capId": 'inherit'|'allow'|'deny'}
+
+    function valToBool(v){
+      if (typeof v === 'boolean') return v;
+      if (v && typeof v.on === 'boolean') return v.on;
+      return undefined;
+    }
+
+    function buildBaselineFromPerms(perms){
+      const out = {};
+      Object.keys(TOP_GROUPS).forEach(t=>{
+        out[t]={}; TOP_GROUPS[t].forEach(capId=>out[t][capId]=false);
+      });
+      if(!perms || typeof perms!=='object') return out;
+
+      // container defaults
+      Object.keys(perms).forEach(key=>{
+        const vb = valToBool(perms[key]);
+        if (vb === undefined) return;
+        if (CONTAINER_IDS.has(key)){
+          (CONTAINERS[key]||[]).forEach(capId=>{
+            const top = CAP_TO_TOP[capId]; if(!top) return;
+            out[top][capId] = vb;
+          });
+        }
+      });
+
+      // explicit leaves
+      Object.keys(perms).forEach(key=>{
+        const vb = valToBool(perms[key]);
+        if (vb === undefined) return;
+        if (CAP_SET.has(key)){
+          const top = CAP_TO_TOP[key]; if(!top) return;
+          out[top][key] = vb;
+        }
+      });
+
+      return out;
+    }
+
+    function effectiveCap(g,k){
+      const tri = overrideState[fk(g,k)];
+      if(tri==='allow') return true;
+      if(tri==='deny')  return false;
+      return !!(baseGroups[g] && baseGroups[g][k]);
+    }
+
+    function computeGroupState(g){
+      const caps = baseGroups[g]||{};
+      const keys = Object.keys(caps);
+      let t=0,f=0;
+      keys.forEach(k=>{ effectiveCap(g,k)?t++:f++; });
+      return { total:keys.length, trueCount:t, falseCount:f };
+    }
+
+    function setGroupOverrides(g, mode){
+      const caps = baseGroups[g]||{};
+      Object.keys(caps).forEach(k=>{
+        const key=fk(g,k);
+        if(mode==='allow-all') overrideState[key]='allow';
+        else if(mode==='deny-all') overrideState[key]='deny';
+        else overrideState[key]='inherit';
+      });
+      document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`).forEach(sel=>{
+        const cap=sel.getAttribute('data-cap');
+        const tri=overrideState[fk(g,cap)]||'inherit';
+        sel.value=tri;
+        const base = baseGroups[g][cap];
+        sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
+      });
+      updateGroupPill(g);
+    }
+
+    function updateGroupPill(g){
+      const pill = document.querySelector(`.pill[data-group="${CSS.escape(g)}"]`);
+      if(!pill) return;
+      const { total, trueCount, falseCount } = computeGroupState(g);
+      if(total===0){ pill.className='pill disabled'; pill.textContent='Disabled'; return; }
+      if(trueCount===total){ pill.className='pill enabled'; pill.textContent='Enabled'; }
+      else if(falseCount===total){ pill.className='pill disabled'; pill.textContent='Disabled'; }
+      else { pill.className='pill'; pill.textContent='Mixed'; }
+    }
+
+    function renderOverrides(){
+      const wrap=$("overridesWrap");
+      wrap.innerHTML="";
+      const gnames=Object.keys(baseGroups||{}).sort((a,b)=>a.localeCompare(b));
+      if(!gnames.length){
+        const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d); return;
+      }
+      gnames.forEach(gname=>{
+        const details=document.createElement('details'); details.className='ovr-group';
+        const summary=document.createElement('summary'); summary.className='ovr-summary';
+
+        const left=document.createElement('div'); left.className='ovr-name'; left.textContent=gname;
+        const pill=document.createElement('span'); pill.className='pill'; pill.setAttribute('data-group', gname);
+        summary.appendChild(left); summary.appendChild(pill);
+        details.appendChild(summary);
+
+        pill.addEventListener('click',(e)=>{
+          e.preventDefault(); e.stopPropagation();
+          const s = computeGroupState(gname);
+          if(s.trueCount===s.total) setGroupOverrides(gname,'deny-all');
+          else if(s.falseCount===s.total) setGroupOverrides(gname,'allow-all');
+          else setGroupOverrides(gname,'allow-all');
+        });
+
+        const keys=Object.keys(baseGroups[gname]||{}).sort((a,b)=>a.localeCompare(b));
+        keys.forEach(k=>{
+          const row=document.createElement('div'); row.className='ovr-cap-row';
+          const kd=document.createElement('div'); kd.className='ovr-key'; kd.textContent=k;
+
+          const right=document.createElement('div');
+          const sel=document.createElement('select');
+          sel.className='ovr-select';
+          sel.setAttribute('data-group', gname);
+          sel.setAttribute('data-cap', k);
+
+          const base = baseGroups[gname][k];
+          sel.innerHTML = `
+            <option value="inherit">Inherit (${base ? 'Allow' : 'Deny'})</option>
+            <option value="allow">Allow</option>
+            <option value="deny">Deny</option>
+          `;
+          overrideState[fk(gname,k)] = overrideState[fk(gname,k)] || 'inherit';
+          sel.value = overrideState[fk(gname,k)];
+
+          sel.addEventListener('change', e=>{
+            overrideState[fk(gname,k)] = e.target.value;
+            updateGroupPill(gname);
+          });
+
+          right.appendChild(sel); row.appendChild(kd); row.appendChild(right);
+          details.appendChild(row);
+        });
+
+        wrap.appendChild(details);
+        updateGroupPill(gname);
+      });
+    }
+
+    function applyEmployeeOverridesToUI(empOverrides){
+      // empOverrides shape: { "Group.capId": true|false }
+      overrideState = {};
+      if (empOverrides && typeof empOverrides==='object'){
+        Object.keys(empOverrides).forEach(path=>{
+          const [g,cap] = path.split('.');
+          const v = empOverrides[path];
+          if (!g || !cap) return;
+          // only apply if cap exists in baseline
+          if (baseGroups[g] && (cap in baseGroups[g])){
+            overrideState[fk(g,cap)] = (v===true)?'allow':(v===false)?'deny':'inherit';
+          }
+        });
+      }
+      // Re-render selects with the new overrideState
+      renderOverrides();
+      // Ensure each inherit label matches current baseline
+      document.querySelectorAll('select.ovr-select').forEach(sel=>{
+        const g=sel.getAttribute('data-group'), cap=sel.getAttribute('data-cap');
+        const base = baseGroups[g]?.[cap];
+        const opt = sel.querySelector('option[value="inherit"]');
+        if(opt) opt.textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
+      });
+    }
+
+    function collectOverridesForSave(){
+      const out={};
+      Object.keys(overrideState).forEach(key=>{
+        const tri=overrideState[key];
+        if(tri!=='inherit'){
+          const [g,k]=key.split('|');
+          out[`${g}.${k}`]=triToBool(tri);
+        }
+      });
+      return out;
+    }
+
+    function clearOverridesUI(){
+      Object.keys(overrideState).forEach(k=>overrideState[k]='inherit');
+      document.querySelectorAll('select.ovr-select').forEach(sel=>sel.value='inherit');
+      Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
+    }
+
+    $("ovrExpand").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
+    $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
+    $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
+
+    /* ---------------------- roles dropdown (same as Add) ---------------------- */
+    async function fetchRoleDocByName(name){
+      const db=getFirestore();
+      const qRef=query(collection(db,'accountRoles'), where('name','==',name));
+      const snap=await getDocs(qRef);
+      let docData=null;
+      snap.forEach(d=>{ docData = d.data()||null; });
+      return docData;
+    }
+
     async function populatePermissionGroups(){
-      const sel = $("perm");
+      const selPerm = $("perm");
       try{
         const { mode } = await ready;
         if(mode!=='firebase'){
-          sel.innerHTML = '<option selected>Standard</option>';
+          selPerm.innerHTML = '<option selected>Standard</option>';
           rolesLoaded = true;
           return;
         }
@@ -229,11 +526,35 @@
           if(name) roles.push(name);
         });
         if(roles.length===0){
-          sel.innerHTML = '<option selected>Standard</option>';
+          selPerm.innerHTML = '<option selected>Standard</option>';
         }else{
-          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
+          selPerm.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
         }
         rolesLoaded = true;
+
+        // When permission group is changed while editing, rebuild baseline + keep current overrides
+        selPerm.addEventListener('change', async (e)=>{
+          if (!sel) return;              // only when an employee is loaded
+          if (busy) return;
+          setBusy(true);
+          try{
+            currentRoleName = e.target.value || null;
+            const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
+            baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
+            // keep current overrideState as-is, just re-render against new baseline
+            renderOverrides();
+            // refresh inherit labels
+            document.querySelectorAll('select.ovr-select').forEach(sel=>{
+              const g=sel.getAttribute('data-group'), cap=sel.getAttribute('data-cap');
+              const base = baseGroups[g]?.[cap];
+              const opt = sel.querySelector('option[value="inherit"]');
+              if(opt) opt.textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
+            });
+          }catch(err){
+            console.error('Failed to load role:', err);
+          }finally{ setBusy(false); }
+        });
+
       }catch(err){
         console.error('Roles load failed:', err);
         $("perm").innerHTML = '<option selected>Standard</option>';
@@ -242,7 +563,7 @@
     }
     populatePermissionGroups();
 
-    /* ------- Directory list ------- */
+    /* ----------------------------- Directory list ---------------------------- */
     function renderList(){
       const q = $("q").value.trim().toLowerCase();
       const items = all.filter(x=>{
@@ -295,24 +616,28 @@
     }
 
     function ensurePermSelected(value){
-      const sel = $("perm");
-      if(!rolesLoaded){ // if roles not ready yet, try again shortly
+      const selPerm = $("perm");
+      if(!rolesLoaded){
         setTimeout(()=>ensurePermSelected(value), 120);
         return;
       }
-      const opts = Array.from(sel.options).map(o=>o.value);
+      const opts = Array.from(selPerm.options).map(o=>o.value);
       if(!opts.includes(value) && value){
         const o = document.createElement('option');
         o.value = o.textContent = value;
-        sel.appendChild(o);
+        selPerm.appendChild(o);
       }
-      if(value){ sel.value = value; }
+      if(value){ selPerm.value = value; }
     }
 
     function clearForm(){
       ["first","last","email","phone","role","start","notes"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
       $("status").value="Active";
       if($("perm").options.length) $("perm").selectedIndex = 0;
+      formSection.classList.remove('show'); formSection.setAttribute('aria-hidden','true');
+      ovrSection.classList.remove('show'); ovrSection.setAttribute('aria-hidden','true');
+      sel=null; baseGroups={}; overrideState={};
+      $("overridesWrap").innerHTML = '<div class="ovr-empty">Select an employee to load capabilities.</div>';
     }
 
     function collectAndValidate(){
@@ -324,20 +649,9 @@
         first:first.value.trim(), last:last.value.trim(), email:email.value.trim(),
         phone:formatUSPhone($("phone").value), role:$("role").value.trim(),
         start:$("start").value, status:$("status").value,
-        perm:$("perm").value, notes:$("notes").value.trim()
+        perm:$("perm").value, notes:$("notes").value.trim(),
+        overrides: collectOverridesForSave()
       };
-    }
-
-    function loadIntoForm(item){
-      sel={id:item.id,data:item.data};
-      $("first").value=item.data.firstName||''; $("last").value=item.data.lastName||'';
-      $("email").value=item.data.email||''; $("phone").value=item.data.phone||'';
-      $("role").value=item.data.role||''; $("start").value=item.data.startDate||'';
-      $("status").value=item.data.status||'Active';
-      $("notes").value=item.data.notes||'';
-      ensurePermSelected(item.data.permissionGroup || 'Standard');
-      formSection.classList.add("show"); formSection.setAttribute('aria-hidden','false');
-      window.scrollTo({top: formSection.offsetTop - 12, behavior:'smooth'});
     }
 
     async function upsertEmployee(vals){
@@ -346,11 +660,13 @@
       const payload={
         firstName:vals.first,lastName:vals.last,fullName,
         email:vals.email,phone:vals.phone,role:vals.role,
-        type:'Employee',                         // fixed; Type field removed
+        type:'Employee',
         startDate:vals.start||null,status:vals.status,
         permissionGroup:vals.perm,notes:vals.notes,
         search:[fullName.toLowerCase(),vals.first.toLowerCase(),vals.last.toLowerCase(),vals.email.toLowerCase()].filter(Boolean),
-        active:vals.status==="Active",updatedAt:serverTimestamp()
+        active:vals.status==="Active",
+        overrides: vals.overrides && Object.keys(vals.overrides).length ? vals.overrides : {},
+        updatedAt:serverTimestamp()
       };
       const newId=emailKey(vals.email), newRef=doc(db,"employees",newId);
 
@@ -382,12 +698,47 @@
       finally{ try{await authMod.signOut(a);}catch{} }
     }
 
+    /* --------------------------- load into form --------------------------- */
+    async function loadIntoForm(item){
+      sel={id:item.id,data:item.data};
+
+      $("first").value=item.data.firstName||''; $("last").value=item.data.lastName||'';
+      $("email").value=item.data.email||''; $("phone").value=item.data.phone||'';
+      $("role").value=item.data.role||''; $("start").value=item.data.startDate||'';
+      $("status").value=item.data.status||'Active';
+      $("notes").value=item.data.notes||'';
+
+      // permission group + baseline + overrides (mirrors Add)
+      ensurePermSelected(item.data.permissionGroup || 'Standard');
+
+      formSection.classList.add("show"); formSection.setAttribute('aria-hidden','false');
+      ovrSection.classList.add("show"); ovrSection.setAttribute('aria-hidden','false');
+
+      setBusy(true);
+      try{
+        currentRoleName = $("perm").value || null;
+        const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
+        baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
+        // Render baseline first, then overlay employee overrides
+        renderOverrides();
+        applyEmployeeOverridesToUI(item.data.overrides || {});
+      }catch(err){
+        console.error('Failed to load role/overrides:', err);
+        baseGroups = buildBaselineFromPerms(null);
+        renderOverrides();
+      }finally{
+        setBusy(false);
+        window.scrollTo({top: formSection.offsetTop - 12, behavior:'smooth'});
+      }
+    }
+
+    /* ------------------------------ events ------------------------------ */
     $("q").addEventListener('input',renderList);
     wireChips();
 
     $("clear").addEventListener("click", ()=>{
       if(busy) return;
-      clearForm(); formSection.classList.remove('show'); formSection.setAttribute('aria-hidden','true'); sel=null;
+      clearForm();
       showToast("Form cleared.");
     });
 
@@ -419,7 +770,11 @@
       }finally{ setBusy(false); }
     });
 
-    bootDirectory().catch(console.error);
+    /* ------------------------------ boot ------------------------------ */
+    async function boot(){
+      await bootDirectory();
+    }
+    boot().catch(console.error);
   </script>
 </body>
 </html>
