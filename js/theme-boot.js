@@ -1,4 +1,4 @@
-// /Farm-vista/js/theme-boot.js  — viewport + theme + firebase boot + AUTH GUARD
+// /Farm-vista/js/theme-boot.js  — viewport + theme + firebase boot + AUTH GUARD + USER CONTEXT WARM
 // All internal paths are ABSOLUTE under /Farm-vista/ to avoid 404s on deep pages.
 
 /* =========================  Viewport & tap behavior  ========================= */
@@ -57,10 +57,13 @@ const __fvBoot = (function(){
     s.onerror = (e) => rej(e);
     document.head.appendChild(s);
   });
-  return { once, loadScript };
+  const fire = (name, detail)=> {
+    try{ document.dispatchEvent(new CustomEvent(name, { detail })); }catch{}
+  };
+  return { once, loadScript, fire };
 })();
 
-/* ==============  Firebase CONFIG -> INIT (absolute paths)  ============== */
+/* ==============  Firebase CONFIG -> INIT -> USER CONTEXT WARM  ============== */
 (function(){
   __fvBoot.once('__FV_FIREBASE_CHAIN__', async () => {
     try{
@@ -90,9 +93,35 @@ const __fvBoot = (function(){
         try {
           await __fvBoot.loadScript('/Farm-vista/js/app/startup.js', { type:'module', defer:true });
         } catch (e) {
-          console.warn('[FV] startup module failed to load — check /Farm-vista/js/app/startup.js', e);
+          console.warn('[FV] startup module failed — check /Farm-vista/js/app/startup.js', e);
         }
       }
+
+      // 4) USER CONTEXT: load and warm cached user/role/perms once per session.
+      //    - Emits 'fv:user-ready' quickly (from cache), then re-emits after refresh.
+      //    - Lets pages react immediately without waiting on Firestore every time.
+      try{
+        // Load the module once
+        if (!window.__FV_USER_CONTEXT_LOADED__) {
+          window.__FV_USER_CONTEXT_LOADED__ = true;
+          await __fvBoot.loadScript('/Farm-vista/js/app/user-context.js', { type:'module', defer:true });
+        }
+
+        // If the module exposes a "get" method, fire a quick event with whatever is cached.
+        if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
+          const cached = window.FVUserContext.get();
+          if (cached) __fvBoot.fire('fv:user-ready', { source:'cache', data: cached });
+        }
+
+        // Kick a warm refresh; when done, notify again so UIs can update.
+        if (window.FVUserContext && typeof window.FVUserContext.refresh === 'function') {
+          const data = await window.FVUserContext.refresh({ warm:true }); // warm: use cache first, then fetch
+          __fvBoot.fire('fv:user-ready', { source:'refresh', data });
+        }
+      }catch(e){
+        console.warn('[FV] user-context warm failed (non-fatal):', e);
+      }
+
     }catch(e){
       console.warn('[FV] Firebase boot chain error:', e);
     }
