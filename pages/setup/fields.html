@@ -83,6 +83,7 @@
     .muted{ color:var(--muted,#67706B); }
   </style>
 
+  <!-- Ensure fv-shell -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
@@ -266,90 +267,92 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+  import {
+    ready,
+    getFirestore, collection, query, orderBy, where,
+    getDocs, addDoc, doc, getDoc, setDoc, updateDoc, deleteDoc,
+    serverTimestamp
+  } from '/Farm-vista/js/firebase-init.js';
+
   (function(){
     "use strict";
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
-    // Storage keys
-    const LS_FARMS   = "fv_setup_farms_v1";
-    const LS_FIELDS  = "fv_setup_fields_v1";
-    const LS_COUNTY  = "fv_setup_counties_v1";
-
-    let editId = null;
-    let countySelectTarget = null; // which select to set after adding a county
-
-    /* ===== Utilities ===== */
-    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
-    function showToast(msg="Successfully saved."){
+    /* =================== Utils =================== */
+    const showToast = (msg="Successfully saved.")=>{
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth;
       toast.classList.add("show");
-    }
-    function toNum(v){
+    };
+    const toNum = (v)=> {
       const n = Number(String(v||"").replace(/,/g,"").trim());
       return isFinite(n) ? n : 0;
-    }
-    function fmt(n, dec=1){
+    };
+    const fmt = (n, dec=1)=>{
       if(n==null || n==="") return "";
       const v = Number(n);
       return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
+    };
+    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+    /* =================== Firestore handles =================== */
+    let db;
+    let FARMS_CACHE = []; // [{id, name, status}]
+    let FARMS_MAP = new Map(); // id -> farm
+
+    const farmsRef   = ()=> collection(db, 'farms');
+    const fieldsRef  = ()=> collection(db, 'fields');
+    const countiesRef= ()=> collection(db, 'counties');
+
+    /* =================== Farms =================== */
+    async function loadFarms(){
+      const qs = await getDocs(query(farmsRef(), orderBy('name')));
+      FARMS_CACHE = [];
+      FARMS_MAP.clear();
+      qs.forEach(snap=>{
+        const d = snap.data()||{};
+        const it = { id: snap.id, name: String(d.name||'').trim(), status: d.status || 'active' };
+        FARMS_CACHE.push(it);
+        FARMS_MAP.set(it.id, it);
+      });
+      return FARMS_CACHE.slice();
     }
 
-    /* ===== Data access ===== */
-    function loadFarms(){
-      try{ const a = JSON.parse(localStorage.getItem(LS_FARMS)||"[]"); return Array.isArray(a)?a:[]; }
-      catch(e){ return []; }
-    }
-    function loadFields(){
-      try{ const a = JSON.parse(localStorage.getItem(LS_FIELDS)||"[]"); return Array.isArray(a)?a:[]; }
-      catch(e){ return []; }
-    }
-    function saveFields(a){ localStorage.setItem(LS_FIELDS, JSON.stringify(a)); }
-
-    function loadCounties(){
-      try{
-        const a = JSON.parse(localStorage.getItem(LS_COUNTY)||"[]");
-        if(Array.isArray(a)) return a.filter(Boolean).map(String);
-        return [];
-      }catch(e){ return []; }
-    }
-    function saveCounties(a){
-      const unique = Array.from(new Set(a.map(s=>String(s).trim()).filter(Boolean)));
-      unique.sort((a,b)=> a.localeCompare(b, undefined, {sensitivity:"base"}));
-      localStorage.setItem(LS_COUNTY, JSON.stringify(unique));
-      return unique;
+    function farmLabel(id){
+      const f = FARMS_MAP.get(id);
+      return f ? (f.name + (f.status==='archived'?' (Archived)':'')) : '(Unknown)';
     }
 
-    /* ===== Populate selects ===== */
     function populateFarmSelects(){
-      const farms = loadFarms();
       const addSel = $("farmSelect");
       const editSel = $("editFarm");
       const filterSel = $("filterFarm");
 
-      const active = farms.filter(f=>f.status!=="archived");
-      const archived = farms.filter(f=>f.status==="archived");
+      const farms = FARMS_CACHE.slice();
+      const active = farms.filter(f=>f.status!=='archived');
+      const archived = farms.filter(f=>f.status==='archived');
 
       // Add form
-      addSel.innerHTML = "";
+      addSel.innerHTML = '';
       if(!farms.length){
         $("noFarms").style.display = "block";
         addSel.disabled = true; $("save").disabled = true;
       }else{
         $("noFarms").style.display = "none";
         $("save").disabled = false;
+        // Only actual Firestore farms, no placeholders
         active.forEach(f=>{
           const o=document.createElement("option");
           o.value=f.id; o.textContent=f.name;
           addSel.appendChild(o);
         });
         if(archived.length){
-          const grp = document.createElement("optgroup"); grp.label = "Archived";
+          const grp=document.createElement("optgroup"); grp.label='Archived';
           archived.forEach(f=>{
             const o=document.createElement("option");
-            o.value=f.id; o.textContent=f.name + " (Archived)"; o.disabled=true;
+            o.value=f.id; o.textContent=f.name + " (Archived)"; o.disabled = true;
             grp.appendChild(o);
           });
           addSel.appendChild(grp);
@@ -357,108 +360,58 @@
       }
 
       // Edit modal
-      editSel.innerHTML = "";
+      editSel.innerHTML='';
       farms.forEach(f=>{
-        const o=document.createElement("option");
-        o.value=f.id; o.textContent=f.name + (f.status==="archived"?" (Archived)":"");
+        const o=document.createElement('option');
+        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
         editSel.appendChild(o);
       });
 
       // Filter
-      filterSel.innerHTML = "";
-      const optAll = document.createElement("option");
-      optAll.value=""; optAll.textContent="All Farms";
+      filterSel.innerHTML='';
+      const optAll = document.createElement('option');
+      optAll.value=''; optAll.textContent='All Farms';
       filterSel.appendChild(optAll);
       farms.forEach(f=>{
-        const o=document.createElement("option");
-        o.value=f.id; o.textContent=f.name + (f.status==="archived"?" (Archived)":"");
+        const o=document.createElement('option');
+        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
         filterSel.appendChild(o);
       });
     }
 
-    function populateCountySelect(sel, val){
-      const counties = loadCounties();
-      sel.innerHTML = '<option value="">—</option>' + counties.map(c=>`<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join("");
+    /* =================== Counties =================== */
+    async function loadCounties(){
+      const out=[];
+      const qs = await getDocs(query(countiesRef(), orderBy('name')));
+      qs.forEach(s=>{
+        const d=s.data()||{};
+        const name=String(d.name||'').trim();
+        if(name) out.push(name);
+      });
+      return out;
+    }
+
+    async function addCounty(name){
+      const clean = String(name||'').trim();
+      if(!clean) throw new Error('Missing county name');
+      // de-dupe by lowercase match
+      const existing = (await loadCounties()).map(x=>x.toLowerCase());
+      if(existing.includes(clean.toLowerCase())) return; // already exists
+      await addDoc(countiesRef(), {
+        name: clean,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    async function populateCountySelect(sel, val){
+      const list = await loadCounties();
+      sel.innerHTML = '<option value="">—</option>' + list.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
       if(val) sel.value = val;
     }
 
-    /* ===== Render list ===== */
-    function farmById(id){ return loadFarms().find(f=>f.id===id); }
-    function farmLabel(id){ const f = farmById(id); return f ? (f.name + (f.status==="archived"?" (Archived)":"")) : "(Unknown)"; }
-
-    function renderList(){
-      const box = $("list");
-      const fields = loadFields();
-      const farmFilter = $("filterFarm").value || "";
-      const filtered = farmFilter ? fields.filter(x=>x.farmId===farmFilter) : fields.slice();
-
-      if(!filtered.length){ box.innerHTML = '<div class="muted">No fields yet.</div>'; return; }
-      filtered.sort((a,b)=>{
-        const sa = a.status==="archived", sb = b.status==="archived";
-        return (sa - sb) || (b.t - a.t);
-      });
-
-      box.innerHTML = "";
-      filtered.forEach(it=>{
-        const div = document.createElement("div");
-        div.className = "item";
-        const pills = [
-          `<span class="pill">${escapeHTML(farmLabel(it.farmId))}</span>`,
-          it.county ? `<span class="pill">${escapeHTML(it.county)} Co.</span>` : "",
-          (it.tillable? `<span class="pill">${fmt(it.tillable)} ac</span>` : ""),
-          (it.hasHEL && it.helAcres ? `<span class="pill">HEL ${fmt(it.helAcres)} ac</span>` : ""),
-          (it.hasCRP && it.crpAcres ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : ""),
-          it.status==="archived" ? `<span class="pill">Archived</span>` : ""
-        ].filter(Boolean).join(" ");
-        div.innerHTML = `
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <div class="name">${escapeHTML(it.name)}</div>
-            ${pills}
-          </div>
-          <button class="view" type="button">View / Edit</button>
-        `;
-        div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
-        box.appendChild(div);
-      });
-    }
-
-    /* ===== Add County mini-modal ===== */
-    const ctyModal = $("modalCounty"), ctyClose = $("ctyClose"), ctySave = $("ctySave"), newCountyName = $("newCountyName");
-    function openCountyModal(targetSelect){
-      countySelectTarget = targetSelect || null;
-      newCountyName.value = "";
-      ctyModal.setAttribute("open",""); ctyModal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-      setTimeout(()=>newCountyName.focus(), 0);
-    }
-    function closeCountyModal(){
-      ctyModal.removeAttribute("open"); ctyModal.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
-      countySelectTarget = null;
-    }
-    ctyClose.addEventListener("click", closeCountyModal);
-    ctyModal.addEventListener("click", e=>{ if(e.target===ctyModal) closeCountyModal(); });
-    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && ctyModal.hasAttribute("open")) closeCountyModal(); });
-    ctySave.addEventListener("click", ()=>{
-      const name = newCountyName.value.trim();
-      if(!name){ alert("Enter a county name."); return; }
-      const list = saveCounties(loadCounties().concat([name]));
-      // refresh selects
-      populateCountySelect($("countySelect"));
-      populateCountySelect($("editCounty"));
-      // select the newly added in whichever select launched it
-      if(countySelectTarget){
-        countySelectTarget.value = list.find(c=>c.toLowerCase()===name.toLowerCase()) || name;
-      }
-      showToast("County added.");
-      closeCountyModal();
-    });
-
-    $("addCountyBtn").addEventListener("click", ()=> openCountyModal($("countySelect")));
-    $("mdAddCountyBtn").addEventListener("click", ()=> openCountyModal($("editCounty")));
-
-    /* ===== Add new field ===== */
-    function validateAdd(){
+    /* =================== Fields (CRUD) =================== */
+    function validateNew(){
       if($("farmSelect").disabled) return "Please add a Farm first.";
       if(!$("farmSelect").value) return "Please choose a Farm.";
       if(!$("fieldName").value.trim()) return "Please enter a Field Name.";
@@ -466,27 +419,22 @@
       const till = toNum($("tillable").value);
       if(!(till>0)) return "Please enter Tillable Acres.";
       if($("hasHEL").checked){
-        const ha = toNum($("helAcres").value);
+        const ha=toNum($("helAcres").value);
         if(!(ha>0)) return "Enter HEL Acres (must be > 0).";
-        if(ha > till) return "HEL Acres cannot exceed Tillable Acres.";
+        if(ha>till) return "HEL Acres cannot exceed Tillable Acres.";
       }
       if($("hasCRP").checked){
-        const ca = toNum($("crpAcres").value);
-        if(!(ca>=0)) return "Enter CRP Acres (0 or more).";
-        if(ca > till) return "CRP Acres cannot exceed Tillable Acres.";
+        const ca=toNum($("crpAcres").value);
+        if(ca>till) return "CRP Acres cannot exceed Tillable Acres.";
       }
       return "";
     }
 
-    $("hasHEL").addEventListener("change", ()=>{ $("helAcreWrap").style.display = $("hasHEL").checked ? "block" : "none"; });
-    $("hasCRP").addEventListener("change", ()=>{ $("crpAcreWrap").style.display = $("hasCRP").checked ? "block" : "none"; });
-
-    $("save").addEventListener("click", ()=>{
-      const err = validateAdd();
+    async function createField(){
+      const err = validateNew();
       if(err){ alert(err); return; }
 
-      const item = {
-        id: String(Date.now()) + Math.random().toString(36).slice(2,7),
+      const payload = {
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
         county: $("countySelect").value,
@@ -497,44 +445,95 @@
         crpAcres: $("hasCRP").checked ? toNum($("crpAcres").value) : 0,
         status: "active",
         used: false,
-        t: Date.now()
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       };
 
-      const arr = loadFields(); arr.unshift(item); saveFields(arr);
+      await addDoc(fieldsRef(), payload);
       showToast("Successfully saved.");
 
-      // Keep Farm & County selections for quick entry; clear others
+      // quick reset (keep farm & county for speed)
       $("fieldName").value = "";
       $("tillable").value = "";
       $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
       $("hasCRP").checked = false; $("crpAcreWrap").style.display = "none"; $("crpAcres").value = "";
 
-      renderList();
-      window.scrollTo({top:0, behavior:"smooth"});
-    });
+      await renderList(); window.scrollTo({top:0, behavior:"smooth"});
+    }
 
-    $("clear").addEventListener("click", ()=>{
-      $("fieldName").value = "";
-      $("tillable").value = "";
-      $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
-      $("hasCRP").checked = false; $("crpAcreWrap").style.display = "none"; $("crpAcres").value = "";
-    });
+    async function fetchFields(farmIdFilter=""){
+      // We’ll read all then client-filter; (optional) later: add composite indexes for where+orderBy if needed.
+      const qs = await getDocs(query(fieldsRef(), orderBy('updatedAt', 'desc')));
+      const out=[];
+      qs.forEach(s=>{
+        const d=s.data()||{};
+        out.push({ id:s.id, ...d });
+      });
+      if(farmIdFilter) return out.filter(x=>x.farmId===farmIdFilter);
+      return out;
+    }
 
-    $("filterFarm").addEventListener("change", renderList);
+    async function renderList(){
+      const box = $("list");
+      const farmFilter = $("filterFarm").value || "";
+      const items = await fetchFields(farmFilter);
 
-    /* ===== Modal (View/Edit/Archive/Delete) ===== */
+      if(!items.length){ box.innerHTML = '<div class="muted">No fields yet.</div>'; return; }
+
+      // Sort: active first, then updatedAt desc (serverTimestamp reads as {seconds,...} after fetch)
+      items.sort((a,b)=>{
+        const sa = (a.status==='archived')|0;
+        const sb = (b.status==='archived')|0;
+        const tA = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+        const tB = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+        return (sa - sb) || (tB - tA);
+      });
+
+      box.innerHTML = "";
+      items.forEach(it=>{
+        const pills = [
+          `<span class="pill">${esc(farmLabel(it.farmId))}</span>`,
+          it.county ? `<span class="pill">${esc(it.county)} Co.</span>` : "",
+          (it.tillable? `<span class="pill">${fmt(it.tillable)} ac</span>` : ""),
+          (it.hasHEL && it.helAcres ? `<span class="pill">HEL ${fmt(it.helAcres)} ac</span>` : ""),
+          (it.hasCRP && it.crpAcres ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : ""),
+          it.status==="archived" ? `<span class="pill">Archived</span>` : ""
+        ].filter(Boolean).join(" ");
+
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div class="name">${esc(it.name)}</div>
+            ${pills}
+          </div>
+          <button class="view" type="button">View / Edit</button>
+        `;
+        div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
+        box.appendChild(div);
+      });
+    }
+
+    /* =================== Edit Modal =================== */
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
-    function openEdit(id){
+    let editId = null;
+
+    async function openEdit(id){
       editId = id;
-      const it = loadFields().find(x=>x.id===id);
-      if(!it) return;
+      // Ensure latest farms in selects
+      populateFarmSelects();
+      await populateCountySelect($("editCounty"));
 
-      populateFarmSelects(); // ensure latest farms
-      populateCountySelect($("editCounty"), it.county);
+      const ref = doc(db, 'fields', id);
+      const snap = await getDoc(ref);
+      if(!snap.exists()){ return; }
+      const it = snap.data()||{};
 
-      $("editFarm").value = it.farmId || "";
-      $("editName").value = it.name || "";
-      $("editTillable").value = it.tillable ?? "";
+      $("editFarm").value     = it.farmId || "";
+      $("editName").value     = it.name || "";
+      $("editCounty").value   = it.county || "";
+      $("editTillable").value = (it.tillable ?? "");
+
       $("editHasHEL").checked = !!it.hasHEL;
       $("editHelAcreWrap").style.display = it.hasHEL ? "block" : "none";
       $("editHelAcres").value = it.hasHEL ? (it.helAcres ?? "") : "";
@@ -551,6 +550,7 @@
 
       openModal();
     }
+
     function openModal(){
       modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
@@ -568,7 +568,7 @@
     $("editHasHEL").addEventListener("change", ()=>{ $("editHelAcreWrap").style.display = $("editHasHEL").checked ? "block" : "none"; });
     $("editHasCRP").addEventListener("change", ()=>{ $("editCrpAcreWrap").style.display = $("editHasCRP").checked ? "block" : "none"; });
 
-    mdSave.addEventListener("click", ()=>{
+    mdSave.addEventListener("click", async ()=>{
       const name = $("editName").value.trim();
       const farmId = $("editFarm").value;
       const county = $("editCounty").value;
@@ -585,54 +585,109 @@
       if(hasHEL && (!helAcres || helAcres>tillable)){ alert("HEL Acres must be > 0 and ≤ Tillable."); return; }
       if(hasCRP && (crpAcres>tillable)){ alert("CRP Acres must be ≤ Tillable."); return; }
 
-      const arr = loadFields();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx>=0){
-        arr[idx] = {
-          ...arr[idx],
-          name, farmId, county, tillable, hasHEL, helAcres, hasCRP, crpAcres,
-          updatedAt: Date.now()
-        };
-        saveFields(arr);
-      }
-      renderList();
+      const ref = doc(db,'fields', editId);
+      await updateDoc(ref, {
+        name, farmId, county, tillable, hasHEL, helAcres, hasCRP, crpAcres,
+        updatedAt: serverTimestamp()
+      });
+
+      await renderList();
       showToast("Changes saved.");
       closeModal();
     });
 
-    mdArchive.addEventListener("click", ()=>{
-      const arr = loadFields();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx<0) return;
-      const cur = arr[idx];
-      const nextStatus = cur.status==="archived" ? "active" : "archived";
-      arr[idx] = {...cur, status: nextStatus, updatedAt: Date.now()};
-      saveFields(arr);
-      renderList();
-      showToast(nextStatus==="archived" ? "Field archived." : "Field unarchived.");
-      $("statusPill").textContent = nextStatus==="archived" ? "Archived" : "Active";
-      mdArchive.textContent = nextStatus==="archived" ? "Unarchive" : "Archive";
+    mdArchive.addEventListener("click", async ()=>{
+      const ref = doc(db,'fields', editId);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return;
+      const cur = snap.data()||{};
+      const next = (cur.status==='archived') ? 'active' : 'archived';
+      await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
+      await renderList();
+      showToast(next==='archived' ? "Field archived." : "Field unarchived.");
+      $("statusPill").textContent = next==='archived' ? "Archived" : "Active";
+      mdArchive.textContent = next==='archived' ? "Unarchive" : "Archive";
     });
 
-    mdDelete.addEventListener("click", ()=>{
-      const arr = loadFields();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx<0) return;
-      const cur = arr[idx];
+    mdDelete.addEventListener("click", async ()=>{
+      const ref = doc(db,'fields', editId);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return;
+      const cur = snap.data()||{};
       if(cur.used){ alert("This field is in use and cannot be deleted. Archive instead."); return; }
       if(!confirm(`Delete field "${cur.name}"? This cannot be undone.`)) return;
-      arr.splice(idx,1);
-      saveFields(arr);
-      renderList();
+      await deleteDoc(ref);
+      await renderList();
       showToast("Field deleted.");
       closeModal();
     });
 
-    /* ===== Init ===== */
-    populateFarmSelects();
-    populateCountySelect($("countySelect"));
-    populateCountySelect($("editCounty"));
-    renderList();
+    $("addCountyBtn").addEventListener("click", ()=> openCountyModal($("countySelect")));
+    $("mdAddCountyBtn").addEventListener("click", ()=> openCountyModal($("editCounty")));
+    $("save").addEventListener("click", createField);
+    $("clear").addEventListener("click", ()=>{
+      $("fieldName").value = "";
+      $("tillable").value = "";
+      $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
+      $("hasCRP").checked = false; $("crpAcreWrap").style.display = "none"; $("crpAcres").value = "";
+    });
+    $("filterFarm").addEventListener("change", renderList);
+
+    /* =================== County Mini-Modal =================== */
+    const ctyModal = $("modalCounty"), ctyClose = $("ctyClose"), ctySave = $("ctySave"), newCountyName = $("newCountyName");
+    let countySelectTarget = null;
+
+    function openCountyModal(targetSelect){
+      countySelectTarget = targetSelect || null;
+      newCountyName.value = "";
+      ctyModal.setAttribute("open",""); ctyModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      setTimeout(()=>newCountyName.focus(), 0);
+    }
+    function closeCountyModal(){
+      ctyModal.removeAttribute("open"); ctyModal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      countySelectTarget = null;
+    }
+    ctyClose.addEventListener("click", closeCountyModal);
+    ctyModal.addEventListener("click", e=>{ if(e.target===ctyModal) closeCountyModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && ctyModal.hasAttribute("open")) closeCountyModal(); });
+    ctySave.addEventListener("click", async ()=>{
+      const name = newCountyName.value.trim();
+      if(!name){ alert("Enter a county name."); return; }
+      try{
+        await addCounty(name);
+        // refresh selects
+        await populateCountySelect($("countySelect"));
+        await populateCountySelect($("editCounty"));
+        // select the newly added in whichever select launched it
+        if(countySelectTarget){
+          const list = await loadCounties();
+          const picked = list.find(c=>c.toLowerCase()===name.toLowerCase()) || name;
+          countySelectTarget.value = picked;
+        }
+        showToast("County added.");
+        closeCountyModal();
+      }catch(err){
+        alert("County save failed.\n\n"+(err?.message||err));
+      }
+    });
+
+    /* =================== Init =================== */
+    (async ()=>{
+      const ctx = await ready;
+      if(ctx.mode!=='firebase'){
+        alert("Firestore not available (stub mode). This page expects Firebase to be live.");
+      }
+      db = getFirestore();
+
+      await loadFarms();
+      populateFarmSelects();
+      await populateCountySelect($("countySelect"));
+      await populateCountySelect($("editCounty"));
+      await renderList();
+    })();
+
   })();
   </script>
 </body></html>
