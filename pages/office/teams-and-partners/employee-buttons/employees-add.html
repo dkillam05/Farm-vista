@@ -26,8 +26,6 @@
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:14px;}
 
-    .row{display:grid;gap:12px;grid-template-columns:1fr auto}
-    @media(max-width:720px){.row{grid-template-columns:1fr}}
     .grid2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
     @media(max-width:720px){.grid2{grid-template-columns:1fr}}
 
@@ -54,7 +52,7 @@
     summary.ovr-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;cursor:pointer}
     summary.ovr-summary::-webkit-details-marker{display:none}
     .ovr-name{font-weight:800}
-    .pill{border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800}
+    .pill{border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;user-select:none}
     .pill.enabled{background:#203a26;color:#bfe3c6;border-color:#315b3c}
     .pill.disabled{background:#3a2020;color:#f2c0c0;border-color:#5b3131}
 
@@ -142,9 +140,7 @@
             </div>
             <div class="field">
               <label for="perm">Permission Group</label>
-              <select id="perm" class="input">
-                <option>Loading…</option>
-              </select>
+              <select id="perm" class="input"><option>Loading…</option></select>
             </div>
           </div>
 
@@ -161,7 +157,7 @@
         </div>
       </section>
 
-      <!-- Card 2: Overrides (built from NAV_MENU) -->
+      <!-- Card 2: Overrides (built from NAV_MENU with tap-to-toggle whole section) -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛡️</div>
@@ -170,8 +166,7 @@
 
         <div class="section-body">
           <div class="ovr-legend">
-            <span>Base permissions come from the selected <b>Permission Group</b>. Use overrides to tweak specific capabilities for this employee:</span>
-            <span><b>Inherit</b> = use group default,&nbsp; <b>Allow</b> = force on,&nbsp; <b>Deny</b> = force off.</span>
+            <span>Defaults follow the selected <b>Permission Group</b>. Tap a section’s <b>Enabled/Disabled</b> pill to force the whole section on/off for this employee. Individual items can still be tweaked below.</span>
           </div>
 
           <div class="ovr-wrap" id="overridesWrap">
@@ -199,287 +194,285 @@
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* IMPORTANT: pull the live nav to define capability keys & groups */
-    import NAV_MENU from '/Farm-vista/js/menu.js'; // default export per your file
+    /* Pull live nav so groups/keys match your drawer exactly */
+    import NAV_MENU from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     let busy = false, lastInviteAt = 0;
 
     const showToast = (msg="Successfully saved.")=>{
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
+      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
     };
     const setBusy = (on)=>{
       busy=!!on;
-      ["save","saveInvite","clear","ovrClear","ovrExpand","ovrCollapse"].forEach(id=>{const b=$(id);if(b)b.disabled=on;});
-      const permSel = $("perm"); if (permSel) permSel.disabled = on;
+      ["save","saveInvite","clear","ovrClear","ovrExpand","ovrCollapse","perm"].forEach(id=>{const b=$(id);if(b)b.disabled=on;});
     };
     const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
     const formatUSPhone=raw=>{
-      const d=digitsOnly(raw);
-      const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d;
+      const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d;
       return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim();
     };
     $("phone").addEventListener("blur",e=>e.target.value=formatUSPhone(e.target.value));
     const emailKey=e=>(String(e||"").trim().toLowerCase());
 
     /* ---------- Build capability groups from NAV_MENU ---------- */
-
-    /**
-     * Returns { [TopGroupLabel]: { [capId]: false } } using menu link ids as capability keys.
-     * Nested groups are flattened under their top-level group label.
-     */
     function groupsFromNav(nav){
       const groups = {};
       if (!nav || !Array.isArray(nav.items)) return groups;
-
-      const addCap = (topLabel, link) => {
-        if (!groups[topLabel]) groups[topLabel] = {};
-        if (link && link.id) groups[topLabel][link.id] = false; // default false until role overlay
-      };
-
-      const walk = (nodes, topLabel=null) => {
-        nodes.forEach(item=>{
-          if (item.type === 'group'){
-            const top = topLabel || item.label || item.id || 'General';
-            if (Array.isArray(item.children) && item.children.length){
-              walk(item.children, top);
-            }
-          } else if (item.type === 'link'){
-            const top = topLabel || 'General';
-            addCap(top, item);
+      const add = (top, id)=>{ if(!groups[top]) groups[top]={}; groups[top][id]=false; };
+      const walk=(nodes, top=null)=>{
+        nodes.forEach(n=>{
+          if(n.type==='group'){
+            const t = top || n.label || n.id || 'General';
+            if(Array.isArray(n.children)) walk(n.children, t);
+          }else if(n.type==='link'){
+            add(top||'General', n.id);
           }
         });
       };
-
-      walk(nav.items, null);
+      walk(nav.items,null);
       return groups;
     }
-
-    // Base catalogue of capabilities from the live nav:
     const NAV_GROUPS = groupsFromNav(NAV_MENU);
 
-    /* ---------- Overrides state (grouped) ---------- */
+    /* ---------- Role baseline + overrides ---------- */
     let currentRoleName = null;
-    /** groups: { [groupName]: { [capKey]: boolean } } (baseline = NAV_GROUPS merged with role data) */
-    let baseGroups = {};
-    /** tri-state per key: 'inherit'|'allow'|'deny' for "Group|capId" */
-    let overrideState = {};
+    let baseGroups = {};              // {Group:{capId:boolean}} baseline from role merged onto NAV_GROUPS
+    let overrideState = {};           // {"Group|capId": 'inherit'|'allow'|'deny'}
 
-    const fk = (g, k) => `${g}|${k}`;
-    const triFromBool = v => (v===true ? 'allow' : v===false ? 'deny' : 'inherit');
-    const boolFromTri = t => (t==='allow' ? true : t==='deny' ? false : undefined);
+    const fk=(g,k)=>`${g}|${k}`;
+    const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
 
-    function mergeRoleOntoNavGroups(navGroups, roleGroups){
-      // Start with a deep clone of navGroups (all keys default false) then
-      // overlay booleans from roleGroups if they exist.
-      const out = {};
-      const ng = navGroups || {};
-      const rg = roleGroups || {};
-      const gNames = new Set([...Object.keys(ng), ...Object.keys(rg)]);
-      gNames.forEach(gn=>{
-        out[gn] = {};
-        // seed from nav
-        Object.keys(ng[gn] || {}).forEach(k => { out[gn][k] = false; });
-        // overlay role: support shapes { group: {capId: true/false}} OR flat { "group.capId": true }
-        const roleGroup = rg[gn];
-        if (roleGroup && typeof roleGroup === 'object'){
-          Object.keys(roleGroup).forEach(k => {
-            if (out[gn].hasOwnProperty(k)) out[gn][k] = !!roleGroup[k];
-          });
-        }
-        // also apply any flat entries like "Group.capId"
-        Object.keys(rg).forEach(maybeFlat=>{
-          if (maybeFlat.includes('.')){
-            const [gName, capId] = maybeFlat.split('.');
-            if (gName === gn && out[gn].hasOwnProperty(capId)) out[gn][capId] = !!rg[maybeFlat];
-          }
+    function normalizeRoleGroups(data){
+      if(!data) return {};
+      if(typeof data.permissions==='object') return structuredClone(data.permissions);
+      if(typeof data.capabilitiesGrouped==='object') return structuredClone(data.capabilitiesGrouped);
+      if(typeof data.capabilities==='object') return { General: structuredClone(data.capabilities) };
+      return {};
+    }
+
+    async function fetchRoleGroupsByName(name){
+      const db=getFirestore();
+      const qRef=query(collection(db,'accountRoles'), where('name','==',name));
+      const snap=await getDocs(qRef);
+      let out={};
+      snap.forEach(d=>{ out=normalizeRoleGroups(d.data()||{}); });
+      return out;
+    }
+
+    function mergeRoleOntoNav(navGroups, roleGroups){
+      const out={};
+      const gset=new Set([...Object.keys(navGroups||{}), ...Object.keys(roleGroups||{})]);
+      gset.forEach(g=>{
+        out[g]={};
+        Object.keys(navGroups[g]||{}).forEach(k=>out[g][k]=false);
+        // overlay group map (Group:{cap:bool})
+        const rg=roleGroups[g];
+        if(rg&&typeof rg==='object'){ Object.keys(rg).forEach(k=>{ if(k in out[g]) out[g][k]=!!rg[k]; }); }
+        // overlay flat keys "Group.cap"
+        Object.keys(roleGroups||{}).forEach(m=>{
+          if(m.includes('.')){ const [gg,kk]=m.split('.'); if(gg===g && kk in out[g]) out[g][kk]=!!roleGroups[m]; }
         });
       });
       return out;
     }
 
-    function groupEnabledPillVals(groupCaps){
-      const vals = Object.values(groupCaps||{});
-      return vals.some(v=>v===true) ? 'enabled' : 'disabled';
+    function effectiveCap(g,k){
+      const tri = overrideState[fk(g,k)];
+      if(tri==='allow') return true;
+      if(tri==='deny')  return false;
+      return !!(baseGroups[g] && baseGroups[g][k]);
     }
 
-    function renderOverrides(groups, existingOverridesMap={}){
-      const wrap = $("overridesWrap");
-      wrap.innerHTML = "";
-      overrideState = {};
+    function computeGroupState(g){
+      const caps = baseGroups[g]||{};
+      const keys = Object.keys(caps);
+      let t=0,f=0;
+      keys.forEach(k=>{ effectiveCap(g,k)?t++:f++; });
+      return { total:keys.length, trueCount:t, falseCount:f };
+    }
 
-      const groupNames = Object.keys(groups||{});
-      if (groupNames.length === 0){
-        wrap.className = "ovr-wrap";
-        const d = document.createElement('div');
-        d.className = 'ovr-empty';
-        d.textContent = "No capabilities found for this group.";
-        wrap.appendChild(d);
-        return;
+    function setGroupOverrides(g, mode){
+      // mode: 'allow-all' | 'deny-all' | 'inherit-all'
+      const caps = baseGroups[g]||{};
+      Object.keys(caps).forEach(k=>{
+        const key=fk(g,k);
+        if(mode==='allow-all') overrideState[key]='allow';
+        else if(mode==='deny-all') overrideState[key]='deny';
+        else overrideState[key]='inherit';
+      });
+      // sync selects in UI
+      document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`)
+        .forEach(sel=>{
+          const cap=sel.getAttribute('data-cap');
+          const tri=overrideState[fk(g,cap)]||'inherit';
+          sel.value=tri;
+          // also refresh "Inherit (Allow/Deny)" label based on baseline
+          const base = baseGroups[g][cap];
+          sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
+        });
+      updateGroupPill(g);
+    }
+
+    function updateGroupPill(g){
+      const pill = document.querySelector(`.pill[data-group="${CSS.escape(g)}"]`);
+      if(!pill) return;
+      const { total, trueCount, falseCount } = computeGroupState(g);
+      if(total===0){ pill.className='pill disabled'; pill.textContent='Disabled'; return; }
+      if(trueCount===total){ pill.className='pill enabled'; pill.textContent='Enabled'; }
+      else if(falseCount===total){ pill.className='pill disabled'; pill.textContent='Disabled'; }
+      else { pill.className='pill'; pill.textContent='Mixed'; }
+    }
+
+    function renderOverrides(groups){
+      const wrap=$("overridesWrap");
+      wrap.innerHTML="";
+      const gnames=Object.keys(groups||{}).sort((a,b)=>a.localeCompare(b));
+      if(!gnames.length){
+        const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d); return;
       }
-      wrap.className = "ovr-wrap";
+      gnames.forEach(gname=>{
+        const details=document.createElement('details'); details.className='ovr-group';
+        const summary=document.createElement('summary'); summary.className='ovr-summary';
 
-      groupNames.sort((a,b)=>a.localeCompare(b)).forEach(gname=>{
-        const caps = groups[gname] || {};
-        const details = document.createElement('details');
-        details.className = 'ovr-group';
-
-        const summary = document.createElement('summary');
-        summary.className = 'ovr-summary';
-        const left = document.createElement('div'); left.className='ovr-name'; left.textContent = gname;
-        const pill = document.createElement('span'); pill.className = 'pill ' + (groupEnabledPillVals(caps));
-        pill.textContent = (pill.classList.contains('enabled')?'Enabled':'Disabled');
+        const left=document.createElement('div'); left.className='ovr-name'; left.textContent=gname;
+        const pill=document.createElement('span'); pill.className='pill'; pill.setAttribute('data-group', gname);
         summary.appendChild(left); summary.appendChild(pill);
         details.appendChild(summary);
 
-        const keys = Object.keys(caps).sort((a,b)=>a.localeCompare(b));
+        // Clicking the pill toggles entire section
+        pill.addEventListener('click',(e)=>{
+          e.preventDefault(); e.stopPropagation();
+          const s = computeGroupState(gname);
+          // Cycle: All true -> deny-all ; All false -> allow-all ; Mixed -> allow-all
+          if(s.trueCount===s.total) setGroupOverrides(gname,'deny-all');
+          else if(s.falseCount===s.total) setGroupOverrides(gname,'allow-all');
+          else setGroupOverrides(gname,'allow-all');
+        });
+
+        const keys=Object.keys(groups[gname]||{}).sort((a,b)=>a.localeCompare(b));
         keys.forEach(k=>{
-          const row = document.createElement('div'); row.className='ovr-cap-row';
-          const kd = document.createElement('div'); kd.className='ovr-key'; kd.textContent = k; // use link id as key label
-          const right = document.createElement('div');
-          const sel = document.createElement('select');
+          const row=document.createElement('div'); row.className='ovr-cap-row';
+          const kd=document.createElement('div'); kd.className='ovr-key'; kd.textContent=k;
+
+          const right=document.createElement('div');
+          const sel=document.createElement('select');
           sel.className='ovr-select';
-          sel.setAttribute('data-fk', fk(gname,k));
+          sel.setAttribute('data-group', gname);
+          sel.setAttribute('data-cap', k);
+
+          const base = baseGroups[gname][k];
           sel.innerHTML = `
-            <option value="inherit">Inherit (${caps[k] ? 'Allow' : 'Deny'})</option>
+            <option value="inherit">Inherit (${base ? 'Allow' : 'Deny'})</option>
             <option value="allow">Allow</option>
             <option value="deny">Deny</option>
           `;
-          const existingTri = triFromBool(existingOverridesMap[`${gname}.${k}`]);
-          sel.value = existingTri;
-          overrideState[fk(gname,k)] = existingTri;
+          // default = inherit so the baseline role is active on first load
+          overrideState[fk(gname,k)] = overrideState[fk(gname,k)] || 'inherit';
+          sel.value = overrideState[fk(gname,k)];
 
           sel.addEventListener('change', e=>{
             overrideState[fk(gname,k)] = e.target.value;
+            updateGroupPill(gname);
           });
 
-          right.appendChild(sel);
-          row.appendChild(kd); row.appendChild(right);
+          right.appendChild(sel); row.appendChild(kd); row.appendChild(right);
           details.appendChild(row);
         });
 
         wrap.appendChild(details);
+        // set pill visual state after rows exist
+        updateGroupPill(gname);
       });
     }
 
     function collectOverridesForSave(){
-      const out = {};
-      for (const key in overrideState){
-        const [g, k] = key.split('|');
-        const tri = overrideState[key];
-        if (tri !== 'inherit'){
-          out[`${g}.${k}`] = boolFromTri(tri); // store "Group.capId": true/false
+      const out={};
+      Object.keys(overrideState).forEach(key=>{
+        const tri=overrideState[key];
+        if(tri!=='inherit'){
+          const [g,k]=key.split('|');
+          out[`${g}.${k}`]=triToBool(tri);
         }
-      }
+      });
       return out;
     }
 
     function clearOverridesUI(){
-      const wrap = $("overridesWrap");
-      wrap.querySelectorAll('select.ovr-select').forEach(sel=>{
-        sel.value = 'inherit';
-        const key = sel.getAttribute('data-fk');
-        if (key) overrideState[key] = 'inherit';
-      });
+      Object.keys(overrideState).forEach(k=>overrideState[k]='inherit');
+      document.querySelectorAll('select.ovr-select').forEach(sel=>sel.value='inherit');
+      Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
     }
 
     // Expand / collapse helpers
-    $("ovrExpand").addEventListener("click", ()=> {
-      document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true);
-    });
-    $("ovrCollapse").addEventListener("click", ()=> {
-      document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false);
-    });
+    $("ovrExpand").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
+    $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
+    $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
 
-    /* ---------- Firestore: roles list + selected role groups ---------- */
-
-    function normalizeRoleGroups(data){
-      // Accept shapes:
-      // 1) { permissions: { Group: {capId: bool} } }
-      // 2) { capabilitiesGrouped: { Group: {capId: bool} } }
-      // 3) { capabilities: { capId: bool } }  -> becomes { General: {...} }
-      // 4) Flat keys: { "Group.capId": bool }  (supported when merging)
-      if (!data) return {};
-      if (typeof data.permissions === 'object') return structuredClone(data.permissions);
-      if (typeof data.capabilitiesGrouped === 'object') return structuredClone(data.capabilitiesGrouped);
-      if (typeof data.capabilities === 'object') return { General: structuredClone(data.capabilities) };
-      return {};
-    }
-
-    async function fetchRoleGroupsByName(roleName){
-      const db = getFirestore();
-      const qRef = query(collection(db,'accountRoles'), where('name','==', roleName));
-      const snap = await getDocs(qRef);
-      let groups = {};
-      snap.forEach(d=>{
-        groups = normalizeRoleGroups(d.data()||{});
-      });
-      return groups;
-    }
-
+    /* ---------- Roles dropdown ---------- */
     async function populatePermissionGroups(){
       const sel = $("perm");
       try{
         const { mode } = await ready;
-        if(mode !== 'firebase'){
+        const db = getFirestore();
+
+        if(mode!=='firebase'){
           sel.innerHTML = '<option selected>Standard</option>';
           currentRoleName = 'Standard';
-          baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {}); // show all from menu
-          renderOverrides(baseGroups, {}); // no overrides yet
+          baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});   // show all from nav, default false
+          renderOverrides(baseGroups);
           return;
         }
-        const db = getFirestore();
+
         const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
         const roles = [];
         snap.forEach(d=>{
-          const data = d.data()||{};
-          const name = (data.name||'').trim();
+          const data=d.data()||{}; const name=(data.name||'').trim();
           if(name) roles.push(name);
         });
-        if(roles.length === 0){
+
+        if(!roles.length){
           sel.innerHTML = '<option selected>Standard</option>';
-          currentRoleName = 'Standard';
-          baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {});
-          renderOverrides(baseGroups, {});
+          currentRoleName='Standard';
+          baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});
+          renderOverrides(baseGroups);
         }else{
           sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
           currentRoleName = roles[0];
           const roleGroups = await fetchRoleGroupsByName(currentRoleName);
-          baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, roleGroups);
-          renderOverrides(baseGroups, {});
+          baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleGroups);
+          overrideState = {}; // default to inherit so baseline takes over
+          renderOverrides(baseGroups);
         }
 
         sel.addEventListener('change', async (e)=>{
           if (busy) return;
-          currentRoleName = e.target.value || null;
           setBusy(true);
           try{
+            currentRoleName = e.target.value || null;
             const roleGroups = currentRoleName ? await fetchRoleGroupsByName(currentRoleName) : {};
-            baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, roleGroups);
-            const existing = collectOverridesForSave();
-            renderOverrides(baseGroups, existing);
+            baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleGroups);
+            overrideState = {}; // reset to inherit for new baseline
+            renderOverrides(baseGroups);
           }catch(err){
-            console.error('Failed to load capabilities for role:', err);
-            baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {});
-            renderOverrides(baseGroups, {});
-          }finally{
-            setBusy(false);
-          }
+            console.error('Failed to load role capabilities:', err);
+            baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});
+            overrideState = {};
+            renderOverrides(baseGroups);
+          }finally{ setBusy(false); }
         });
+
       }catch(err){
         console.error('Roles load failed:', err);
         sel.innerHTML = '<option selected>Standard</option>';
-        currentRoleName = 'Standard';
-        baseGroups = mergeRoleOntoNavGroups(NAV_GROUPS, {});
-        renderOverrides(baseGroups, {});
+        currentRoleName='Standard';
+        baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});
+        renderOverrides(baseGroups);
       }
     }
 
-    /* ---------- Form collect/validate + save ---------- */
-
+    /* ---------- Save + Invite ---------- */
     function collectAndValidate(){
       const first=$("first"), last=$("last"), email=$("email");
       if(!first.checkValidity()){first.reportValidity();return null;}
@@ -503,15 +496,9 @@
       const db=getFirestore();
       const fullName=`${vals.first} ${vals.last}`.trim();
       const payload={
-        firstName:vals.first,
-        lastName:vals.last,
-        fullName,
-        email:vals.email,
-        phone:vals.phone,
-        role:vals.role,
-        type:'Employee',
-        startDate:vals.start||null,
-        status:vals.status,
+        firstName:vals.first,lastName:vals.last,fullName,
+        email:vals.email,phone:vals.phone,role:vals.role,type:'Employee',
+        startDate:vals.start||null,status:vals.status,
         permissionGroup:vals.perm || currentRoleName || null,
         notes:vals.notes,
         search:[fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
@@ -534,8 +521,7 @@
         import(CDN_BASE+'firebase-app.js'),
         import(CDN_BASE+'firebase-auth.js')
       ]);
-      const cfg=window.FV_FIREBASE_CONFIG;
-      if(!cfg)throw new Error("Firebase config missing.");
+      const cfg=window.FV_FIREBASE_CONFIG; if(!cfg)throw new Error("Firebase config missing.");
       const secondaryApp=initializeApp(cfg,'fv-admin');
       const secondaryAuth=authMod.getAuth(secondaryApp);
       try{await authMod.setPersistence(secondaryAuth,authMod.inMemoryPersistence);}catch{}
@@ -543,70 +529,44 @@
       try{
         await authMod.createUserWithEmailAndPassword(secondaryAuth,email,tmpPass);
         if(displayName){try{await authMod.updateProfile(secondaryAuth.currentUser,{displayName});}catch{}}
-      }catch(e){
-        if(!e || e.code!=='auth/email-already-in-use') throw e;
-      }finally{
-        try{await authMod.signOut(secondaryAuth);}catch{}
-      }
+      }catch(e){ if(!e || e.code!=='auth/email-already-in-use') throw e; }
+      finally{ try{await authMod.signOut(secondaryAuth);}catch{} }
     }
 
-    function clearForm(){
+    $("clear").addEventListener("click",()=>{ if(busy) return;
       ["first","last","email","phone","role","start","notes"].forEach(id=>{const el=$(id);if(el)el.value="";});
       $("status").selectedIndex=0;
-      const permSel = $("perm");
-      if(permSel && permSel.options.length) { permSel.selectedIndex = 0; permSel.dispatchEvent(new Event('change')); }
-      clearOverridesUI();
-    }
-
-    $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
-    $("ovrExpand").addEventListener("click", ()=>{ document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
-    $("ovrCollapse").addEventListener("click", ()=>{ document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
-
-    $("clear").addEventListener("click",()=>{ if(busy) return; clearForm(); showToast("Form cleared."); });
+      const permSel=$("perm"); if(permSel && permSel.options.length){ permSel.selectedIndex=0; permSel.dispatchEvent(new Event('change')); }
+      clearOverridesUI(); showToast("Form cleared.");
+    });
 
     $("save").addEventListener("click",async()=>{
-      if(busy)return;
-      const vals=collectAndValidate(); if(!vals) return;
-      try{
-        setBusy(true);
-        await ready;
-        await upsertEmployee(vals);
-        showToast("Employee saved.");
-        window.scrollTo({top:0,behavior:"smooth"});
-        clearForm();
-      }catch(err){
-        console.error(err);
-        alert("Save failed.\n\n"+(err?.message||err));
-      }finally{ setBusy(false); }
+      if(busy)return; const vals=collectAndValidate(); if(!vals) return;
+      try{ setBusy(true); await ready; await upsertEmployee(vals);
+        showToast("Employee saved."); window.scrollTo({top:0,behavior:"smooth"}); }
+      catch(err){ console.error(err); alert("Save failed.\n\n"+(err?.message||err)); }
+      finally{ setBusy(false); }
     });
 
     $("saveInvite").addEventListener("click",async()=>{
       if(busy)return;
       const now=Date.now(); if(now-lastInviteAt<3000) return; lastInviteAt=now;
       const vals=collectAndValidate(); if(!vals) return;
-
       try{
         setBusy(true);
         const { mode } = await ready;
-        if(mode!=='firebase'){
-          alert("Email not sent: Firebase is in stub mode.");
-          return;
-        }
+        if(mode!=='firebase'){ alert("Email not sent: Firebase is in stub mode."); return; }
         await upsertEmployee(vals);
         const displayName = `${vals.first} ${vals.last}`.trim();
         await ensureAuthUser(vals.email, displayName);
         await sendPasswordResetEmail(getAuth(), vals.email);
-        showToast("Saved & invite sent.");
-        window.scrollTo({top:0,behavior:"smooth"});
-        clearForm();
+        showToast("Saved & invite sent."); window.scrollTo({top:0,behavior:"smooth"});
       }catch(err){
         console.error(err);
         const code=err?.code||"";
         if(code==="auth/invalid-continue-uri"||code==="auth/unauthorized-continue-uri"){
           alert("Invite failed due to domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains.");
-        }else{
-          alert("Invite failed.\n\n"+(err?.message||err));
-        }
+        }else{ alert("Invite failed.\n\n"+(err?.message||err)); }
       }finally{ setBusy(false); }
     });
 
