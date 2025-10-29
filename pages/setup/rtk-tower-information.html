@@ -90,46 +90,67 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <script>
-  (function(){
-    "use strict";
-    const $ = id => document.getElementById(id);
-    const STORAGE_KEY = "fv_rtk_towers_v1";
-    const toast = $("toast");
+  <!-- Firestore save -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, addDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
 
-    function showToast(msg="Saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
+    (function(){
+      "use strict";
+      const $ = id => document.getElementById(id);
+      const toast = $("toast");
 
-    function loadAll(){
-      try{ const a = JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]"); return Array.isArray(a)?a:[]; }
-      catch(e){ return []; }
-    }
-    function saveAll(a){ localStorage.setItem(STORAGE_KEY, JSON.stringify(a)); }
+      function showToast(msg="Saved.") {
+        toast.textContent = msg;
+        toast.classList.remove("show"); void toast.offsetWidth;
+        toast.classList.add("show");
+      }
 
-    function validate(){
-      const name = $("name").value.trim();
-      const netid = $("netid").value.trim();
-      const freq = $("freq").value.trim();
-      if(!name) return "Enter a tower name.";
-      if(!/^[0-9]+$/.test(netid)) return "Network ID must be a whole number.";
-      if(!/^[0-9]{3}\\.[0-9]{1,5}$/.test(freq)) return "Radio frequency must match ###.d to ###.ddddd (e.g., 450.12345).";
-      return "";
-    }
+      function validate(){
+        const name = $("name").value.trim();
+        const netid = $("netid").value.trim();
+        const freq = $("freq").value.trim();
+        if(!name) return "Enter a tower name.";
+        if(!/^[0-9]+$/.test(netid)) return "Network ID must be a whole number.";
+        if(!/^[0-9]{3}\\.[0-9]{1,5}$/.test(freq)) return "Radio frequency must match ###.d to ###.ddddd (e.g., 450.12345).";
+        return "";
+      }
 
-    $("save").addEventListener("click", ()=>{
-      const err = validate(); if(err){ alert(err); return; }
-      const item = {
-        t: Date.now(),
-        name: $("name").value.trim(),
-        networkId: Number($("netid").value.trim()),
-        frequencyMHz: $("freq").value.trim()
-      };
-      const arr = loadAll(); arr.unshift(item); saveAll(arr);
-      showToast("RTK tower saved.");
-    });
+      $("save").addEventListener("click", async ()=>{
+        const err = validate(); if (err) { alert(err); return; }
 
-    $("clear").addEventListener("click", ()=>{
-      ["name","netid","freq"].forEach(id => { $(id).value = ""; });
-    });
-  })();
+        try{
+          const ctx = await ready;
+          if (ctx.mode !== 'firebase') {
+            alert("Firestore not available (stub mode). This page expects Firebase to be live.");
+            return;
+          }
+
+          const db = getFirestore();
+          const payload = {
+            name: $("name").value.trim(),
+            networkId: Number($("netid").value.trim()),
+            frequencyMHz: $("freq").value.trim(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          };
+
+          await addDoc(collection(db, 'rtkTowers'), payload);
+          showToast("RTK tower saved.");
+
+          // clear fields
+          ["name","netid","freq"].forEach(id => { $(id).value = ""; });
+        }catch(e){
+          console.error(e);
+          alert("Save failed.\n\n" + (e?.message || e));
+        }
+      });
+
+      $("clear").addEventListener("click", ()=>{
+        ["name","netid","freq"].forEach(id => { $(id).value = ""; });
+      });
+    })();
   </script>
 </body></html>
