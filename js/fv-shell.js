@@ -1,11 +1,8 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.1 (global UserContext + menu ACL + one-time boot overlay)
-
-   - Shows a blurred overlay "Loading. Please wait." until FVUserContext.ready() resolves
-     on first load after sign-in (one-time per session; cleared by logout or Check for updates).
-   - Loads /js/menu.js (ESM or classic) then filters it with FVMenuACL.filter(NAV_MENU, allowedIds)
-     so users only see menus they are permitted to access.
-   - Keeps your PTR, version/slogan, update flow, logout label, and absolute-path loading.
+   FarmVista Shell — v5.10.2
+   - One-time boot overlay "Loading. Please wait."
+   - Menu filtered by FVUserContext.allowedIds (via FVMenuACL)
+   - Logout label live-updates via FVUserContext.onChange + Firebase fallback
 */
 
 (function () {
@@ -105,16 +102,13 @@
       white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    :host-context(.dark){ color:var(--text); background:var(--bg); }
-    :host-context(.dark) .drawer{ background:var(--sidebar-surface, #171a18); color:var(--sidebar-text, #f1f3ef);
-      border-right:1px solid var(--sidebar-border, #2a2e2b); }
+    :host-context(.dark) .drawer{ background:var(--sidebar-surface, #171a18); color:var(--sidebar-text, #f1f3ef); border-right:1px solid var(--sidebar-border, #2a2e2b); }
     :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
     :host-context(.dark) .drawer nav a{ color:var(--sidebar-text, #f1f3ef); border-bottom:1px solid var(--sidebar-border, #232725); }
     :host-context(.dark) .drawer-footer{ background:var(--sidebar-surface, #171a18); border-top:1px solid var(--sidebar-border, #2a2eb); color:var(--sidebar-text, #f1f3ef); }
     :host-context(.dark) .toast{ background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; }
   </style>
 
-  <!-- Top bar -->
   <header class="hdr" part="header">
     <button class="iconbtn js-menu" aria-label="Open menu">≡</button>
     <div class="title">FarmVista</div>
@@ -223,6 +217,7 @@
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
       this._boot = r.querySelector('.js-boot');
+      this._logoutLabel = r.getElementById('logoutLabel');
 
       // PTR refs
       this._ptr = r.querySelector('.js-ptr');
@@ -265,10 +260,11 @@
       const hasHydrated = sessionStorage.getItem(onceKey) === '1';
       if (!hasHydrated && this._boot) this._boot.hidden = false;
 
-      // Wait for global FVUserContext (no imports)
+      // Wait for global FVUserContext; then force a refresh once to be sure
       try {
         if (window.FVUserContext && typeof window.FVUserContext.ready === 'function') {
           await window.FVUserContext.ready();
+          try { await window.FVUserContext.refresh({ force:true }); } catch {}
         }
         sessionStorage.setItem(onceKey, '1');
       } catch (e) {
@@ -303,13 +299,11 @@
     }
 
     async _loadMenu(){
-      // Prefer import(), fallback to window.FV_MENU
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
       try{
         const mod = await import(url);
         return (mod && (mod.NAV_MENU || mod.default)) || null;
       }catch(e){
-        // fallback
         try{
           await new Promise((res, rej)=>{
             const s = document.createElement('script');
@@ -334,7 +328,6 @@
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
       if (!window.FVMenuACL || typeof window.FVMenuACL.filter !== 'function') {
-        // auto-load menu-acl helper if missing
         await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
       }
 
@@ -508,7 +501,6 @@
       const doRefresh = async ()=>{
         dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
         document.dispatchEvent(new CustomEvent('fv:refresh'));
-        // Clear session overlay flag + user caps cache, then re-hydrate menu
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
         sessionStorage.removeItem('fv:boot:hydrated');
         await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve());
@@ -527,18 +519,39 @@
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth: simple logout label using cached context ===== */
+    /* ===== Auth: logout label + live updates ===== */
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      const setLabel = ()=>{
+      const setLabelFromCtxOrAuth = ()=>{
+        // Prefer cached context
         const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-        const name = (ctx && ctx.displayName) || (ctx && ctx.email) || '';
+        let name = (ctx && (ctx.displayName || ctx.email)) || '';
+
+        // Fallback to Firebase Auth (if present)
+        if (!name && window.firebaseAuth && window.firebaseAuth.currentUser) {
+          const u = window.firebaseAuth.currentUser;
+          name = u.displayName || u.email || '';
+        }
         logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
       };
-      setLabel();
+
+      // Initial set + subscribe to context changes
+      setLabelFromCtxOrAuth();
+      try {
+        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+          window.FVUserContext.onChange(() => setLabelFromCtxOrAuth());
+        }
+      } catch {}
+
+      // Also retry briefly in case auth hydrates a bit later
+      let tries = 20;
+      const tick = setInterval(()=>{
+        setLabelFromCtxOrAuth();
+        if (--tries <= 0) clearInterval(tick);
+      }, 200);
 
       if (logoutRow) {
         logoutRow.addEventListener('click', async (e)=>{
@@ -579,7 +592,6 @@
           try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {}
         }
 
-        // Also clear role cache + overlay flag
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
         sessionStorage.removeItem('fv:boot:hydrated');
 
