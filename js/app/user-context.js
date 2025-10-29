@@ -1,40 +1,26 @@
 /* /Farm-vista/js/app/user-context.js
-   FarmVista — UserContext (simple, fast cache for user + permissions)
+   FarmVista — UserContext (Firestore-driven roles → allowedIds, cached)
 
-   What it does (plain English):
-   - On first run after login, it pulls the current user + role + overrides from Firestore,
-     computes which menu items are allowed, and saves that bundle in localStorage.
-   - Every page can read this cached bundle instantly (no waiting) to render the right UI.
-   - You can force a refresh any time (e.g., after changing roles) and it will update the cache.
-   - Works in "stub" mode too (it will just allow everything so the app stays usable).
+   What this version does:
+   - Uses absolute imports of /js/firebase-init.js and /js/menu.js (dynamic import).
+   - Computes allowedIds from Firestore role + per-employee overrides.
+   - Caches a compact context in localStorage so pages render instantly.
+   - Exposes a GLOBAL API on window.FVUserContext (same API you have today).
 
-   How to use from any page:
-     // 1) Include this file (once, before your page scripts):
-     // <script src="/Farm-vista/js/app/user-context.js"></script>
+   API:
+     window.FVUserContext.get()        -> returns cached context or null
+     window.FVUserContext.ready()      -> Promise<context> (builds cache if empty)
+     window.FVUserContext.refresh({force}) -> Promise<context> (rebuilds)
+     window.FVUserContext.onChange(fn) -> subscribe; returns off()
+     window.FVUserContext.clear()      -> clear cache
 
-     // 2) Read quickly (sync) — may be null on the very first app launch:
-     const ctx = window.FVUserContext.get();
-
-     // 3) Guaranteed context (Promise): resolves using cache, refreshes if empty
-     window.FVUserContext.ready().then(ctx => {
-       // ctx.allowedIds → array of menu "id" strings this user is allowed to see
-       // ctx.displayName → nice name for header/logout
-     });
-
-     // 4) Force a re-build from Firestore/Auth later (e.g., after admin edits)
-     await window.FVUserContext.refresh({ force: true });
-
-     // 5) Listen for changes (like a tiny event bus)
-     const off = window.FVUserContext.onChange(ctx => { /* re-render if you want */ });
-     // off() to unsubscribe
-
-   Shape of the cached context:
+   Context shape:
      {
        mode: 'firebase' | 'stub' | 'unknown',
        uid, email, displayName,
-       profile: { ...personDoc },        // employees/subcontractors/vendors fields (if found)
-       roleName: 'Standard' | string,
-       allowedIds: [ 'home', 'crop.planting', ... ],
+       profile: { ...employees/subcontractors/vendors doc... } | null,
+       roleName: string,
+       allowedIds: string[],       // menu "id" values allowed for this user
        updatedAt: ISOString
      }
 */
@@ -43,32 +29,38 @@
   'use strict';
 
   /* ------------------------------ constants ------------------------------ */
-  const STORAGE_KEY = 'fv:userctx:v1';
-  const HOME_HREF   = '/Farm-vista/index.html';
+  const LS_KEY     = 'fv:userctx:v1';
+  const HOME_HREF  = '/Farm-vista/index.html';
 
   /* ------------------------------- helpers ------------------------------- */
   const emailKey = (e) => String(e || '').trim().toLowerCase();
   const nowIso   = () => new Date().toISOString();
 
-  function lsGet(key) {
-    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; }
-    catch { return null; }
-  }
-  function lsSet(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
-  function lsDel(key) { try { localStorage.removeItem(key); } catch {} }
+  function lsGet(key){ try{ const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; }catch{ return null; } }
+  function lsSet(key,v){ try{ localStorage.setItem(key, JSON.stringify(v)); }catch{} }
+  function lsDel(key){ try{ localStorage.removeItem(key); }catch{} }
 
-  async function importFirebase() {
-    // Absolute path (same everywhere in your app)
-    return await import('/Farm-vista/js/firebase-init.js');
-  }
-  async function importMenu() {
-    const mod = await import('/Farm-vista/js/menu.js');
-    return (mod && (mod.NAV_MENU || mod.default)) || null;
+  async function importFirebase(){ return await import('/Farm-vista/js/firebase-init.js'); }
+  async function importMenu(){
+    // Works whether /js/menu.js exports ESM or attaches window.FV_MENU
+    try{
+      const mod = await import('/Farm-vista/js/menu.js');
+      return (mod && (mod.NAV_MENU || mod.default)) || null;
+    }catch{
+      // fallback: classic script loader
+      await new Promise((res, rej)=>{
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/menu.js?v=' + Date.now(); s.defer = true;
+        s.onload = ()=> res(); s.onerror = (e)=> rej(e);
+        document.head.appendChild(s);
+      });
+      return (window && window.FV_MENU) || null;
+    }
   }
 
   /* ---------------------- NAV → indexes (ids + mapping) ---------------------- */
   function buildNavIndexes(NAV_MENU) {
-    const CONTAINERS = new Map(); // containerId (top or subgroup) -> [leafIds]
+    const CONTAINERS = new Map(); // containerId -> [leafIds]
     const CAP_TO_TOP = new Map(); // leafId -> top label (pretty name)
     const CAP_SET    = new Set(); // all leaf ids
     const HREF_TO_ID = new Map(); // href -> id
@@ -78,7 +70,7 @@
         if (n.type === 'group' && Array.isArray(n.children)) {
           collectLinks(n.children, acc);
         } else if (n.type === 'link' && n.id) {
-          acc.push(n.id);
+          acc.push(String(n.id));
           if (n.href) HREF_TO_ID.set(n.href, n.id);
         }
       });
@@ -92,7 +84,6 @@
       collectLinks([top], underTop);
       CONTAINERS.set(top.id, underTop.slice());
 
-      // sub-groups
       (top.children || []).forEach(ch => {
         if (ch.type === 'group') {
           const arr = [];
@@ -107,53 +98,52 @@
     return { CONTAINERS, CAP_TO_TOP, CAP_SET, HREF_TO_ID };
   }
 
-  function valToBool(v) {
+  function valToBool(v){
     if (typeof v === 'boolean') return v;
     if (v && typeof v.on === 'boolean') return v.on;
     return undefined;
   }
 
-  function baselineFromPerms(perms, indexes) {
+  // From role permissions (containers + explicit leaves), produce baseline map
+  function baselineFromPerms(perms, indexes){
     const { CONTAINERS, CAP_TO_TOP, CAP_SET } = indexes;
-    // Start all false
     const base = {};
     CAP_SET.forEach(id => {
-      const top = CAP_TO_TOP.get(id); if (!top) return;
-      if (!base[top]) base[top] = {};
-      base[top][id] = false;
+      const group = CAP_TO_TOP.get(id) || 'General';
+      if (!base[group]) base[group] = {};
+      base[group][id] = false;
     });
     if (!perms || typeof perms !== 'object') return base;
 
-    // Container-level defaults (top/subgroup ids)
+    // 1) container-level (top/subgroup) defaults
     Object.keys(perms).forEach(key => {
-      const on = valToBool(perms[key]); if (on === undefined) return;
+      const b = valToBool(perms[key]); if (b === undefined) return;
       if (CONTAINERS.has(key)) {
         (CONTAINERS.get(key) || []).forEach(leaf => {
-          const top = CAP_TO_TOP.get(leaf); if (!top) return;
-          base[top][leaf] = on;
+          const group = CAP_TO_TOP.get(leaf) || 'General';
+          base[group][leaf] = !!b;
         });
       }
     });
 
-    // Explicit leaf overrides (cap ids)
+    // 2) explicit leaf toggles
     Object.keys(perms).forEach(key => {
-      const on = valToBool(perms[key]); if (on === undefined) return;
+      const b = valToBool(perms[key]); if (b === undefined) return;
       if (indexes.CAP_SET.has(key)) {
-        const top = indexes.CAP_TO_TOP.get(key); if (!top) return;
-        base[top][key] = on;
+        const group = indexes.CAP_TO_TOP.get(key) || 'General';
+        base[group][key] = !!b;
       }
     });
 
     return base;
   }
 
-  function applyOverrides(base, overrides) {
+  // Employee overrides are "Group.capId": true|false (leaf-level)
+  function applyOverrides(base, overrides){
     const allowed = new Set();
-    // seed from baseline
     Object.keys(base).forEach(group => {
-      Object.entries(base[group]).forEach(([capId, on]) => { if (on) allowed.add(capId); });
+      Object.entries(base[group]).forEach(([leafId, on]) => { if (on) allowed.add(leafId); });
     });
-    // record overrides "Group.capId": true|false
     if (overrides && typeof overrides === 'object') {
       Object.entries(overrides).forEach(([path, v]) => {
         const parts = String(path).split('.');
@@ -166,7 +156,7 @@
     return allowed;
   }
 
-  /* ------------------------- Firestore data fetchers ------------------------- */
+  /* ------------------------- Firestore helpers ------------------------- */
   async function fetchPersonRecord(mod, userEmail) {
     const db = mod.getFirestore();
     const id = emailKey(userEmail);
@@ -182,6 +172,7 @@
   }
 
   async function fetchRoleDocByName(mod, roleName) {
+    if (!roleName) return null;
     const db = mod.getFirestore();
     const q = mod.query(mod.collection(db, 'accountRoles'), mod.where('name', '==', roleName));
     const snap = await mod.getDocs(q);
@@ -190,72 +181,64 @@
   }
 
   /* ----------------------------- core state/cache ---------------------------- */
-  let _ctx = lsGet(STORAGE_KEY);  // may be null on very first app run
+  let _ctx = lsGet(LS_KEY);       // may be null on very first app run
   let _listeners = new Set();
   let _inflight = null;
 
-  function notify() {
-    _listeners.forEach(fn => { try { fn(_ctx || null); } catch {} });
-  }
-  function cacheSet(ctx) {
+  function notify(){ _listeners.forEach(fn => { try{ fn(_ctx || null); }catch{} }); }
+  function cacheSet(ctx){
     _ctx = ctx ? { ...ctx } : null;
-    if (ctx) lsSet(STORAGE_KEY, ctx); else lsDel(STORAGE_KEY);
+    if (ctx) lsSet(LS_KEY, ctx); else lsDel(LS_KEY);
     notify();
   }
 
   /* ----------------------------- context builder ----------------------------- */
-  async function buildContext() {
-    // Load deps
+  async function buildContext(){
     let mod, NAV_MENU;
     try { [mod, NAV_MENU] = await Promise.all([importFirebase(), importMenu()]); }
-    catch { /* best effort */ }
+    catch { /* fall through */ }
 
     if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) NAV_MENU = { items: [] };
     const indexes = buildNavIndexes(NAV_MENU);
 
     if (!mod || !mod.ready) {
-      // No firebase module → permissive fallback
       return {
         mode: 'unknown',
         uid: null, email: null, displayName: null,
-        profile: null,
-        roleName: 'Standard',
+        profile: null, roleName: 'Standard',
         allowedIds: Array.from(indexes.CAP_SET),
         updatedAt: nowIso()
       };
     }
 
     const { mode } = await mod.ready.catch(() => ({ mode: 'unknown' }));
-    const auth = (mod.getAuth && mod.getAuth()) || (window.firebaseAuth) || null;
+    const auth = (mod.getAuth && mod.getAuth()) || window.firebaseAuth || null;
     let user = auth && auth.currentUser ? auth.currentUser : null;
 
-    // If not hydrated yet, wait briefly
+    // short hydration wait
     if (!user && mod.onAuthStateChanged && auth) {
       user = await new Promise(res => {
         let done = false;
         try {
-          const off = mod.onAuthStateChanged(auth, u => { if (!done) { done = true; off && off(); res(u || null); } });
-          setTimeout(() => { if (!done) { done = true; res(auth.currentUser || null); } }, 1500);
-        } catch { res(null); }
+          const off = mod.onAuthStateChanged(auth, u => { if (!done){ done=true; off&&off(); res(u||null); } });
+          setTimeout(()=>{ if(!done){ done=true; res(auth.currentUser||null); } }, 1500);
+        }catch{ res(null); }
       });
     }
 
-    // Stub or missing user → allow everything (keeps UI usable/offline)
+    // Stub/missing user → permissive so app stays usable
     if (mode !== 'firebase' || !user || !user.email) {
-      const ids = Array.from(indexes.CAP_SET);
-      // Always allow Home if present
-      if (indexes.HREF_TO_ID.has(HOME_HREF)) ids.push(indexes.HREF_TO_ID.get(HOME_HREF));
+      const all = Array.from(indexes.CAP_SET);
+      if (indexes.HREF_TO_ID.has(HOME_HREF)) all.push(indexes.HREF_TO_ID.get(HOME_HREF));
       return {
         mode, uid: user?.uid || null, email: user?.email || null,
         displayName: user?.displayName || user?.email || null,
-        profile: null,
-        roleName: 'Standard',
-        allowedIds: ids,
-        updatedAt: nowIso()
+        profile: null, roleName: 'Standard',
+        allowedIds: all, updatedAt: nowIso()
       };
     }
 
-    // Firestore path: person + role + effective allowed
+    // Firestore → person + role → allowedIds
     const person = await fetchPersonRecord(mod, user.email);
     const roleName = person?.data?.permissionGroup || 'Standard';
     const roleDoc  = await fetchRoleDocByName(mod, roleName);
@@ -265,10 +248,8 @@
     const overrides = person?.data?.overrides || {};
     const allowed   = applyOverrides(base, overrides);
 
-    // Always allow Home for usability
     if (indexes.HREF_TO_ID.has(HOME_HREF)) allowed.add(indexes.HREF_TO_ID.get(HOME_HREF));
 
-    // Nice display name
     let displayName = user.displayName || null;
     const emp = person?.data || {};
     if (!displayName) {
@@ -292,9 +273,9 @@
   }
 
   /* --------------------------------- API --------------------------------- */
-  async function refresh({ force = false } = {}) {
+  async function refresh({ force=false } = {}){
     if (_inflight && !force) return _inflight;
-    _inflight = (async () => {
+    _inflight = (async ()=>{
       const ctx = await buildContext();
       cacheSet(ctx);
       _inflight = null;
@@ -303,34 +284,18 @@
     return _inflight;
   }
 
-  function get() {
-    // Fast, synchronous (returns the cached value; may be null on very first run)
-    return _ctx;
-  }
+  function get(){ return _ctx || null; }
+  async function ready(){ if (_ctx) return _ctx; return await refresh(); }
 
-  async function ready() {
-    // Returns cached value if present, otherwise builds it once
-    if (_ctx) return _ctx;
-    return await refresh();
-  }
+  function onChange(fn){ if (typeof fn==='function') _listeners.add(fn); return ()=> _listeners.delete(fn); }
+  function clear(){ cacheSet(null); }
 
-  function onChange(fn) {
-    if (typeof fn === 'function') { _listeners.add(fn); }
-    return () => _listeners.delete(fn);
-  }
-
-  function clear() {
-    cacheSet(null);
-  }
-
-  /* ---------------------------- expose globally ---------------------------- */
+  // Expose global (same name you already use)
   window.FVUserContext = { get, ready, refresh, onChange, clear };
 
-  // Seed from any existing cache immediately (so first consumer sees *something*)
-  _ctx = lsGet(STORAGE_KEY);
+  // Seed immediately from cache (fast path)
+  _ctx = lsGet(LS_KEY);
 
-  // If there is no cache at all (first app launch), build it once in the background
-  if (!_ctx) {
-    refresh().catch(() => { /* ignore */ });
-  }
+  // If no cache on first boot, build once in background
+  if (!_ctx) { refresh().catch(()=>{}); }
 })();
