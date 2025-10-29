@@ -1,11 +1,13 @@
 /* FarmVista — <fv-shell> v5.9.14
    Changes vs 5.9.13:
-   - Boot curtain: full-screen blur + spinner shown at startup.
-   - Curtain hides on `fv:user-ready` (from user-context.js) or, as fallback,
-     after Firebase auth hydration succeeds.
-   - Keeps all existing features (PTR, version label, update flow, robust menu load, logout label).
+   - One-and-done boot curtain per tab (sessionStorage flag).
+   - Curtain text set to: "Loading, please wait…"
+   - Curtain re-shown only on: manual refresh, Check for updates, or Logout.
+   - Kept all prior features: PTR, version footer, robust menu load, auth label.
 */
 (function () {
+  const CURTAIN_KEY = 'fv:bootCurtainShown';
+
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
@@ -93,7 +95,7 @@
     .brandrow{ display:flex; align-items:center; justify-content:center; gap:10px; padding:10px 8px 12px 8px; }
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
-    .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
+    .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system, Segoe UI, Roboto, sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
     .chips{ padding:0 12px 10px; }
     .chip{ appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent); padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700; display:inline-flex; align-items:center; gap:8px; }
     .chip[aria-pressed="true"]{ outline:3px solid color-mix(in srgb,#fff 25%, transparent); background:var(--gold); color:#111; border-color:transparent; }
@@ -104,9 +106,9 @@
     .row .chev{ opacity:.9; }
 
     .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
-      transform:translateX(-50%); background:#1b1f1c; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      transform:translateX(-50%); background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
-      white-space:nowrap; min-width:220px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
+      white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
     :host-context(.dark){ color:var(--text); background:var(--bg); }
@@ -121,31 +123,19 @@
     :host-context(.dark) .df-left .slogan, :host-context(.dark) .df-right{ color:color-mix(in srgb, var(--sidebar-text, #f1f3ef) 80%, transparent); }
     :host-context(.dark) .toast{ background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; box-shadow:0 12px 32px rgba(0,0,0,.55); }
 
-    /* ===== Boot curtain ===== */
-    .bootcurtain{
-      position:fixed; inset:0; z-index:1600;
-      display:grid; place-items:center;
-      backdrop-filter: blur(8px);
-      background: color-mix(in srgb, #000 14%, transparent);
-      transition: opacity .25s ease;
-      opacity: 1;
+    /* ===== Boot Curtain ===== */
+    .curtain{
+      position:fixed; inset:0; z-index:2000;
+      display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px;
+      color:#fff; text-align:center;
+      background:rgba(20,21,20,.55); backdrop-filter:blur(6px);
     }
-    .bootcurtain[hidden]{ opacity:0; pointer-events:none; }
-    .bootbox{
-      display:flex; flex-direction:column; align-items:center; gap:12px;
-      padding:18px 20px; border-radius:14px;
-      background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
-      border:1px solid var(--border, #e4e7e4);
-      box-shadow:0 14px 32px rgba(0,0,0,.25);
-      min-width:220px;
-    }
-    .spin{
+    :host(.booting) .curtain{ display:flex; }
+    .curtain .spin{
       width:26px; height:26px; border-radius:50%;
-      border:3px solid color-mix(in srgb, var(--text,#111) 25%, transparent);
-      border-top-color: var(--green,#3B7E46);
-      animation: spin 900ms linear infinite;
+      border:3px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin 800ms linear infinite;
     }
-    .bootmsg{ font-weight:800; font-size:14.5px; color:var(--text,#111); text-align:center; }
+    .curtain .msg{ font-weight:800; font-size:16px; letter-spacing:.02em; }
   </style>
 
   <header class="hdr" part="header">
@@ -232,11 +222,9 @@
   <div class="toast js-toast" role="status" aria-live="polite"></div>
 
   <!-- Boot curtain -->
-  <div class="bootcurtain js-boot" aria-live="polite">
-    <div class="bootbox">
-      <div class="spin" aria-hidden="true"></div>
-      <div class="bootmsg js-bootmsg">Loading Please Wait</div>
-    </div>
+  <div class="curtain" part="curtain" aria-live="polite" aria-busy="true">
+    <div class="spin" aria-hidden="true"></div>
+    <div class="msg js-bootmsg">Loading, please wait…</div>
   </div>
   `;
 
@@ -245,29 +233,29 @@
 
     connectedCallback(){
       const r = this.shadowRoot;
-      this._btnMenu   = r.querySelector('.js-menu');
-      this._btnAccount= r.querySelector('.js-account');
-      this._scrim     = r.querySelector('.js-scrim');
-      this._drawer    = r.querySelector('.drawer');
-      this._top       = r.querySelector('.js-top');
-      this._footerText= r.querySelector('.js-footer');
-      this._toast     = r.querySelector('.js-toast');
-      this._verEl     = r.querySelector('.js-ver');
-      this._sloganEl  = r.querySelector('.js-slogan');
-      this._navEl     = r.querySelector('.js-nav');
+      this._btnMenu = r.querySelector('.js-menu');
+      this._btnAccount = r.querySelector('.js-account');
+      this._scrim = r.querySelector('.js-scrim');
+      this._drawer = r.querySelector('.drawer');
+      this._top = r.querySelector('.js-top');
+      this._footerText = r.querySelector('.js-footer');
+      this._toast = r.querySelector('.js-toast');
+      this._verEl = r.querySelector('.js-ver');
+      this._sloganEl = r.querySelector('.js-slogan');
+      this._navEl = r.querySelector('.js-nav');
+      this._bootmsg = r.querySelector('.js-bootmsg');
 
       // PTR refs
-      this._ptr    = r.querySelector('.js-ptr');
+      this._ptr = r.querySelector('.js-ptr');
       this._ptrTxt = r.querySelector('.js-txt');
-      this._ptrSpin= r.querySelector('.js-spin');
+      this._ptrSpin = r.querySelector('.js-spin');
       this._ptrDot = r.querySelector('.js-dot');
 
-      // Boot curtain
-      this._boot   = r.querySelector('.js-boot');
-      this._bootMsg= r.querySelector('.js-bootmsg');
-
-      // Start with curtain visible
-      this._showCurtain('Setting up your session…');
+      // Clear one-and-done flag on browser reload
+      try {
+        const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+        if (nav && nav.type === 'reload') { sessionStorage.removeItem(CURTAIN_KEY); }
+      } catch {}
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
@@ -282,44 +270,22 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      this._ensureVersionThenAuth();
-
       const upd = r.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
-      this._initMenu();
+      // Kick off boot with curtain (one-and-done per tab)
+      this._showCurtain('Loading, please wait…', { once:true });
 
-      // Wire global Pull-to-Refresh
-      this._initPTR();
-
-      // Listen for user-context ready event (preferred signal to remove curtain)
-      window.addEventListener('fv:user-ready', (e)=>{
-        // Expect detail like { ready:true, user:..., profile:..., role:... }
-        try{
-          const d = (e && e.detail) || {};
-          if (d && (d.ready === true || d.user)) {
-            this._hideCurtain();
-          }
-        }catch{}
-      }, { once:false });
-    }
-
-    /* ==== Boot curtain helpers ==== */
-    _showCurtain(msg){
-      if (!this._boot) return;
-      if (msg && this._bootMsg) this._bootMsg.textContent = msg;
-      this._boot.removeAttribute('hidden');
-      // Lock scroll beneath the curtain
-      document.documentElement.style.overflow = 'hidden';
-    }
-    _hideCurtain(){
-      if (!this._boot) return;
-      this._boot.setAttribute('hidden','');
-      // Restore scroll
-      document.documentElement.style.overflow = '';
+      // Run async boot chain then hide curtain
+      (async () => {
+        await this._ensureVersionThenAuth();
+        await this._initMenu();
+        this._initPTR();
+        this._hideCurtain(true);
+      })();
     }
 
     /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
@@ -332,16 +298,9 @@
         const mod = await import('/Farm-vista/js/firebase-init.js');
         this._firebase = mod;
         await this._wireAuthLogout(this.shadowRoot, mod);
-
-        // Fallback: if auth hydrates and we still haven't heard from user-context,
-        // hide the curtain after a short grace period so UI isn't stuck forever.
-        this._armCurtainFallback(mod);
-
       }catch(err){
         console.warn('[FV] firebase-init import failed:', err);
         this._wireAuthLogout(this.shadowRoot, null);
-        // If Firebase fails entirely, still remove curtain to let app show something
-        setTimeout(()=> this._hideCurtain(), 1500);
       }
     }
 
@@ -604,6 +563,7 @@
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
 
+      // Desktop
       window.addEventListener('mousedown', onStart);
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onEnd);
@@ -630,6 +590,7 @@
 
           let name = '';
 
+          // 1) Prefer employees/{emailKey} → firstName + lastName or fullName
           const email = (user.email || '').trim().toLowerCase();
           if (fs && mod && mod.doc && mod.getDoc && email) {
             try{
@@ -642,9 +603,10 @@
                 const full = (emp.fullName || `${fn} ${ln}`).trim();
                 if (full) name = full;
               }
-            }catch(e){ /* ignore */ }
+            }catch(e){ /* ignore and fall through */ }
           }
 
+          // 2) Fallback to users/{uid}
           if (!name && fs && mod && mod.doc && mod.getDoc && user.uid) {
             try{
               const ref = mod.doc(fs, 'users', user.uid);
@@ -659,7 +621,10 @@
             }catch(e){ /* ignore */ }
           }
 
+          // 3) displayName
           if (!name && user.displayName) name = String(user.displayName).trim();
+
+          // 4) email
           if (!name && user.email) name = String(user.email).trim();
 
           logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
@@ -691,6 +656,7 @@
                 if (typeof window.fvSignOut === 'function') { await window.fvSignOut(); }
                 else if (mod && mod.signOut) { await mod.signOut(auth); }
               }catch(err){ console.warn('[FV] logout error:', err); }
+              try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
               location.replace(LOGIN_URL);
             });
           }
@@ -700,6 +666,7 @@
               e.preventDefault();
               this.toggleTop(false);
               this.toggleDrawer(false);
+              try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
               location.replace(LOGIN_URL);
             });
           }
@@ -712,44 +679,10 @@
             e.preventDefault();
             this.toggleTop(false);
             this.toggleDrawer(false);
+            try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
             location.replace(LOGIN_URL);
           });
         }
-      }
-    }
-
-    /* ===== Curtain fallback after auth hydration ===== */
-    _armCurtainFallback(mod){
-      try{
-        const auth = (mod.getAuth && mod.getAuth()) || window.firebaseAuth || null;
-        if (!auth) { setTimeout(()=> this._hideCurtain(), 2000); return; }
-
-        // If already logged in, give user-context a brief chance then hide.
-        if (auth.currentUser) {
-          setTimeout(()=> {
-            // If user-context hasn't hidden yet, drop the curtain now.
-            if (this._boot && !this._boot.hasAttribute('hidden')) {
-              this._hideCurtain();
-            }
-          }, 1800);
-        }
-
-        // Also listen for auth state changes (first hydration)
-        let fired = false;
-        const off = mod.onAuthStateChanged(auth, (u)=>{
-          if (fired) return; fired = true;
-          // Allow user-context a short window to finish, then hide
-          setTimeout(()=> {
-            if (this._boot && !this._boot.hasAttribute('hidden')) {
-              this._hideCurtain();
-            }
-          }, 1500);
-          off && off();
-        });
-        // Absolute cap so you never get stuck behind curtain
-        setTimeout(()=> this._hideCurtain(), 8000);
-      }catch{
-        setTimeout(()=> this._hideCurtain(), 2500);
       }
     }
 
@@ -799,6 +732,7 @@
         await sleep(320);
         const url = new URL(location.href);
         url.searchParams.set('rev', targetVer || String(Date.now()));
+        try { sessionStorage.removeItem(CURTAIN_KEY); } catch {}
         location.replace(url.toString());
       }catch(e){
         console.error(e);
@@ -812,6 +746,19 @@
       t.classList.add('show');
       clearTimeout(this._tt);
       this._tt = setTimeout(()=> t.classList.remove('show'), ms);
+    }
+
+    /* ===== Curtain helpers ===== */
+    _showCurtain(msg='Loading, please wait…', { once=false } = {}){
+      if (once) {
+        try { if (sessionStorage.getItem(CURTAIN_KEY) === '1') return; } catch {}
+      }
+      this.classList.add('booting');
+      if (this._bootmsg) this._bootmsg.textContent = msg;
+    }
+    _hideCurtain(ok=true){
+      this.classList.remove('booting');
+      if (ok) { try { sessionStorage.setItem(CURTAIN_KEY, '1'); } catch {} }
     }
   }
 
