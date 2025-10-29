@@ -49,6 +49,8 @@ const __fvBoot = (function(){
     return window[key];
   };
   const loadScript = (src, {type, defer=true, async=false}) => new Promise((res, rej)=>{
+    // Avoid duplicate <script> by URL
+    if ([...document.scripts].some(s => (s.getAttribute('src')||'') === src)) { res(); return; }
     const s = document.createElement('script');
     if (type) s.type = type;
     s.defer = !!defer; s.async = !!async;
@@ -60,7 +62,8 @@ const __fvBoot = (function(){
   return { once, loadScript };
 })();
 
-/* ==============  Firebase CONFIG -> INIT (absolute paths)  ============== */
+/* ==============  Firebase CONFIG -> INIT -> STARTUP -> PERM FILTER  ============== */
+/* Centralizes boot so pages do NOT need to include perm-filter.js themselves. */
 (function(){
   __fvBoot.once('__FV_FIREBASE_CHAIN__', async () => {
     try{
@@ -78,7 +81,7 @@ const __fvBoot = (function(){
         window.__FV_FIREBASE_INIT_LOADED__ = true;
         try {
           await __fvBoot.loadScript('/Farm-vista/js/firebase-init.js', { type:'module', defer:true });
-          console.log('[FV] firebase-init loaded');
+          // console.log('[FV] firebase-init loaded');
         } catch (e) {
           console.warn('[FV] firebase-init failed to load — check path /Farm-vista/js/firebase-init.js', e);
         }
@@ -90,7 +93,18 @@ const __fvBoot = (function(){
         try {
           await __fvBoot.loadScript('/Farm-vista/js/app/startup.js', { type:'module', defer:true });
         } catch (e) {
-          console.warn('[FV] startup module failed to load — check /Farm-vista/js/app/startup.js', e);
+          // optional; fine if missing
+          // console.warn('[FV] startup module failed to load — check /Farm-vista/js/app/startup.js', e);
+        }
+      }
+
+      // 4) Permission drawer filter (module) — centralized here
+      if (!window.__FV_PERM_FILTER_LOADED__) {
+        window.__FV_PERM_FILTER_LOADED__ = true;
+        try {
+          await __fvBoot.loadScript('/Farm-vista/js/perm-filter.js', { type:'module', defer:true });
+        } catch (e) {
+          console.warn('[FV] perm-filter failed to load — check /Farm-vista/js/perm-filter.js', e);
         }
       }
     }catch(e){
@@ -137,7 +151,7 @@ const __fvBoot = (function(){
     if (!samePath(location.href, dest)) location.replace(dest);
   };
 
-  const waitForAuthHydration = async (mod, auth, ms=1500) => {
+  const waitForAuthHydration = async (mod, auth, ms=1600) => {
     return new Promise((resolve) => {
       let settled = false;
       const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
@@ -155,8 +169,16 @@ const __fvBoot = (function(){
     try {
       if (isLoginPath()) return;
 
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      const ctx = await mod.ready;
+      let mod;
+      try {
+        mod = await import('/Farm-vista/js/firebase-init.js');
+      } catch (e) {
+        console.warn('[FV] guard: firebase-init import failed:', e);
+        gotoLogin('no-auth-mod');
+        return;
+      }
+
+      const ctx = await (mod.ready || Promise.resolve(null));
       const isStub = (mod.isStub && mod.isStub()) || false;
       const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
 
@@ -167,7 +189,7 @@ const __fvBoot = (function(){
         if (mod.setPersistence && mod.browserLocalPersistence) {
           await mod.setPersistence(auth, mod.browserLocalPersistence());
         }
-      } catch (e) { console.warn('[FV] setPersistence failed:', e); }
+      } catch (e) { /* non-fatal */ }
 
       const user = await waitForAuthHydration(mod, auth, 1600);
       if (!user) { gotoLogin('unauthorized'); return; }
