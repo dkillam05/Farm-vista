@@ -235,7 +235,7 @@
   <div class="bootcurtain js-boot" aria-live="polite">
     <div class="bootbox">
       <div class="spin" aria-hidden="true"></div>
-      <div class="bootmsg js-bootmsg">Setting up your session…</div>
+      <div class="bootmsg js-bootmsg">Loading Please Wait</div>
     </div>
   </div>
   `;
