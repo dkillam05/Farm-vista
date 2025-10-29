@@ -157,7 +157,7 @@
         </div>
       </section>
 
-      <!-- Card 2: Overrides (built from NAV_MENU with tap-to-toggle whole section) -->
+      <!-- Card 2: Overrides (reads role baseline from Firestore; mirrors menu.js) -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛡️</div>
@@ -194,7 +194,7 @@
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* Pull live nav so groups/keys match your drawer exactly */
+    /* Live navigation defines capability IDs (exactly what drawer uses) */
     import NAV_MENU from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
@@ -216,7 +216,7 @@
     $("phone").addEventListener("blur",e=>e.target.value=formatUSPhone(e.target.value));
     const emailKey=e=>(String(e||"").trim().toLowerCase());
 
-    /* ---------- Build capability groups from NAV_MENU ---------- */
+    /* ---------- Build capability catalogue from NAV_MENU ---------- */
     function groupsFromNav(nav){
       const groups = {};
       if (!nav || !Array.isArray(nav.items)) return groups;
@@ -244,35 +244,80 @@
     const fk=(g,k)=>`${g}|${k}`;
     const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
 
-    function normalizeRoleGroups(data){
-      if(!data) return {};
-      if(typeof data.permissions==='object') return structuredClone(data.permissions);
-      if(typeof data.capabilitiesGrouped==='object') return structuredClone(data.capabilitiesGrouped);
-      if(typeof data.capabilities==='object') return { General: structuredClone(data.capabilities) };
-      return {};
-    }
+    // Accept various role doc shapes and group-level defaults
+    function normalizeRoleDoc(data){
+      const out = {};
+      if(!data) return out;
 
-    async function fetchRoleGroupsByName(name){
-      const db=getFirestore();
-      const qRef=query(collection(db,'accountRoles'), where('name','==',name));
-      const snap=await getDocs(qRef);
-      let out={};
-      snap.forEach(d=>{ out=normalizeRoleGroups(d.data()||{}); });
+      // Choose the container with groups
+      const container = (typeof data.permissions==='object' && data.permissions)
+        || (typeof data.capabilitiesGrouped==='object' && data.capabilitiesGrouped)
+        || null;
+
+      if (container){
+        Object.keys(container).forEach(g=>{
+          const gVal = container[g] || {};
+          out[g] = {};
+          const gDefault = pickGroupDefault(gVal); // true/false/undefined
+          // item keys only (skip default flags)
+          Object.keys(gVal).forEach(k=>{
+            if (isGroupDefaultKey(k)) return;
+            out[g][k] = !!gVal[k];
+          });
+          // If group default exists, fill any missing items later in merge step
+          if (gDefault !== undefined) out[g]['__groupDefault'] = !!gDefault;
+        });
+      }
+
+      // Flat keys like "Group.capId": true
+      Object.keys(data).forEach(k=>{
+        if (k.includes('.')){
+          const [g,cap] = k.split('.');
+          if (!out[g]) out[g] = {};
+          out[g][cap] = !!data[k];
+        }
+      });
+
+      // Flat capabilities without groups -> put under General
+      if (typeof data.capabilities === 'object' && data.capabilities){
+        out['General'] = Object.assign(out['General']||{}, data.capabilities);
+      }
       return out;
     }
 
-    function mergeRoleOntoNav(navGroups, roleGroups){
+    function isGroupDefaultKey(k){
+      return k==='_enabled' || k==='enabled' || k==='groupEnabled' || k==='default';
+    }
+    function pickGroupDefault(groupObj){
+      if (typeof groupObj.enabled === 'boolean') return groupObj.enabled;
+      if (typeof groupObj._enabled === 'boolean') return groupObj._enabled;
+      if (typeof groupObj.groupEnabled === 'boolean') return groupObj.groupEnabled;
+      if (typeof groupObj.default === 'boolean') return groupObj.default;
+      return undefined;
+    }
+
+    function mergeRoleOntoNav(navGroups, roleDoc){
+      const roleGroups = normalizeRoleDoc(roleDoc);
       const out={};
       const gset=new Set([...Object.keys(navGroups||{}), ...Object.keys(roleGroups||{})]);
       gset.forEach(g=>{
         out[g]={};
-        Object.keys(navGroups[g]||{}).forEach(k=>out[g][k]=false);
-        // overlay group map (Group:{cap:bool})
-        const rg=roleGroups[g];
-        if(rg&&typeof rg==='object'){ Object.keys(rg).forEach(k=>{ if(k in out[g]) out[g][k]=!!rg[k]; }); }
-        // overlay flat keys "Group.cap"
-        Object.keys(roleGroups||{}).forEach(m=>{
-          if(m.includes('.')){ const [gg,kk]=m.split('.'); if(gg===g && kk in out[g]) out[g][kk]=!!roleGroups[m]; }
+        // seed from nav catalogue
+        const navCaps = navGroups[g] || {};
+        const roleCaps = roleGroups[g] || {};
+        const gDefault = (typeof roleCaps.__groupDefault === 'boolean') ? roleCaps.__groupDefault : undefined;
+
+        Object.keys(navCaps).forEach(k=>{
+          // priority: explicit item flag; else group default; else false
+          if (k in roleCaps) out[g][k] = !!roleCaps[k];
+          else if (gDefault !== undefined) out[g][k] = !!gDefault;
+          else out[g][k] = false;
+        });
+
+        // also accept role-defined caps that aren't in nav yet (rare)
+        Object.keys(roleCaps).forEach(k=>{
+          if (k==='__groupDefault') return;
+          if (!(k in out[g])) out[g][k] = !!roleCaps[k];
         });
       });
       return out;
@@ -302,16 +347,15 @@
         else if(mode==='deny-all') overrideState[key]='deny';
         else overrideState[key]='inherit';
       });
-      // sync selects in UI
-      document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`)
-        .forEach(sel=>{
-          const cap=sel.getAttribute('data-cap');
-          const tri=overrideState[fk(g,cap)]||'inherit';
-          sel.value=tri;
-          // also refresh "Inherit (Allow/Deny)" label based on baseline
-          const base = baseGroups[g][cap];
-          sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
-        });
+      // sync selects + pill
+      document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`).forEach(sel=>{
+        const cap=sel.getAttribute('data-cap');
+        const tri=overrideState[fk(g,cap)]||'inherit';
+        sel.value=tri;
+        // refresh inherit option text based on baseline
+        const base = baseGroups[g][cap];
+        sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
+      });
       updateGroupPill(g);
     }
 
@@ -325,9 +369,10 @@
       else { pill.className='pill'; pill.textContent='Mixed'; }
     }
 
-    function renderOverrides(groups){
+    function renderOverrides(){
       const wrap=$("overridesWrap");
       wrap.innerHTML="";
+      const groups = baseGroups;
       const gnames=Object.keys(groups||{}).sort((a,b)=>a.localeCompare(b));
       if(!gnames.length){
         const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d); return;
@@ -341,11 +386,10 @@
         summary.appendChild(left); summary.appendChild(pill);
         details.appendChild(summary);
 
-        // Clicking the pill toggles entire section
+        // pill toggles entire section
         pill.addEventListener('click',(e)=>{
           e.preventDefault(); e.stopPropagation();
           const s = computeGroupState(gname);
-          // Cycle: All true -> deny-all ; All false -> allow-all ; Mixed -> allow-all
           if(s.trueCount===s.total) setGroupOverrides(gname,'deny-all');
           else if(s.falseCount===s.total) setGroupOverrides(gname,'allow-all');
           else setGroupOverrides(gname,'allow-all');
@@ -368,9 +412,9 @@
             <option value="allow">Allow</option>
             <option value="deny">Deny</option>
           `;
-          // default = inherit so the baseline role is active on first load
-          overrideState[fk(gname,k)] = overrideState[fk(gname,k)] || 'inherit';
-          sel.value = overrideState[fk(gname,k)];
+          // default: inherit so the chosen role baseline shows immediately
+          overrideState[fk(gname,k)] = 'inherit';
+          sel.value = 'inherit';
 
           sel.addEventListener('change', e=>{
             overrideState[fk(gname,k)] = e.target.value;
@@ -382,7 +426,6 @@
         });
 
         wrap.appendChild(details);
-        // set pill visual state after rows exist
         updateGroupPill(gname);
       });
     }
@@ -410,56 +453,66 @@
     $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
     $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
 
-    /* ---------- Roles dropdown ---------- */
+    /* ---------- Roles dropdown: fetch baseline every change ---------- */
+    async function fetchRoleDocByName(name){
+      const db=getFirestore();
+      const qRef=query(collection(db,'accountRoles'), where('name','==',name));
+      const snap=await getDocs(qRef);
+      let docData=null;
+      snap.forEach(d=>{ docData = d.data()||null; });
+      return docData;
+    }
+
     async function populatePermissionGroups(){
       const sel = $("perm");
       try{
         const { mode } = await ready;
-        const db = getFirestore();
-
         if(mode!=='firebase'){
           sel.innerHTML = '<option selected>Standard</option>';
           currentRoleName = 'Standard';
-          baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});   // show all from nav, default false
-          renderOverrides(baseGroups);
+          baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});   // show all from nav
+          overrideState = {};
+          renderOverrides();                                // pills reflect baseline
           return;
         }
-
+        // load roles list
+        const db = getFirestore();
         const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
         const roles = [];
         snap.forEach(d=>{
           const data=d.data()||{}; const name=(data.name||'').trim();
           if(name) roles.push(name);
         });
-
         if(!roles.length){
           sel.innerHTML = '<option selected>Standard</option>';
           currentRoleName='Standard';
           baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});
-          renderOverrides(baseGroups);
+          overrideState = {};
+          renderOverrides();
         }else{
           sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
           currentRoleName = roles[0];
-          const roleGroups = await fetchRoleGroupsByName(currentRoleName);
-          baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleGroups);
-          overrideState = {}; // default to inherit so baseline takes over
-          renderOverrides(baseGroups);
+          const roleDoc = await fetchRoleDocByName(currentRoleName);
+          baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleDoc);
+          overrideState = {}; // inherit baseline
+          renderOverrides();
         }
 
+        // re-fetch baseline from Firestore EVERY time the group changes
         sel.addEventListener('change', async (e)=>{
           if (busy) return;
           setBusy(true);
           try{
             currentRoleName = e.target.value || null;
-            const roleGroups = currentRoleName ? await fetchRoleGroupsByName(currentRoleName) : {};
-            baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleGroups);
-            overrideState = {}; // reset to inherit for new baseline
-            renderOverrides(baseGroups);
+            const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
+            baseGroups = mergeRoleOntoNav(NAV_GROUPS, roleDoc);
+            overrideState = {}; // reset to inherit so pills show new baseline
+            renderOverrides();
           }catch(err){
-            console.error('Failed to load role capabilities:', err);
+            console.error('Failed to load role:', err);
             baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});
             overrideState = {};
-            renderOverrides(baseGroups);
+            renderOverrides();
           }finally{ setBusy(false); }
         });
 
@@ -468,7 +521,8 @@
         sel.innerHTML = '<option selected>Standard</option>';
         currentRoleName='Standard';
         baseGroups = mergeRoleOntoNav(NAV_GROUPS, {});
-        renderOverrides(baseGroups);
+        overrideState = {};
+        renderOverrides();
       }
     }
 
