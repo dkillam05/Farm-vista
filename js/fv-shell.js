@@ -1,8 +1,9 @@
-/* FarmVista — <fv-shell> v6.0.1 (lean)
-   Changes vs 6.0.0:
-   - Removed built-in permission filter engine (now handled by /js/perm-filter.js).
-   - Dispatches 'fv:nav-rendered' after nav render for external filters to hook in.
-   - Retains: PTR, version UI, update flow, robust menu load, auth/logout labeling.
+/* FarmVista — <fv-shell> v5.9.13
+   Changes vs 5.9.12:
+   - Logout label prefers Firestore employees/{emailKey} → First Last
+     then users/{uid} → display/displayName → email.
+   - Keeps fixed Pull-to-Refresh (PTR) bar, arms only at top, no bottom toast.
+   - Absolute menu import with classic <script> fallback.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -210,21 +211,21 @@
 
     connectedCallback(){
       const r = this.shadowRoot;
-      this._btnMenu   = r.querySelector('.js-menu');
-      this._btnAccount= r.querySelector('.js-account');
-      this._scrim     = r.querySelector('.js-scrim');
-      this._drawer    = r.querySelector('.drawer');
-      this._top       = r.querySelector('.js-top');
-      this._footerText= r.querySelector('.js-footer');
-      this._toast     = r.querySelector('.js-toast');
-      this._verEl     = r.querySelector('.js-ver');
-      this._sloganEl  = r.querySelector('.js-slogan');
-      this._navEl     = r.querySelector('.js-nav');
+      this._btnMenu = r.querySelector('.js-menu');
+      this._btnAccount = r.querySelector('.js-account');
+      this._scrim = r.querySelector('.js-scrim');
+      this._drawer = r.querySelector('.drawer');
+      this._top = r.querySelector('.js-top');
+      this._footerText = r.querySelector('.js-footer');
+      this._toast = r.querySelector('.js-toast');
+      this._verEl = r.querySelector('.js-ver');
+      this._sloganEl = r.querySelector('.js-slogan');
+      this._navEl = r.querySelector('.js-nav');
 
       // PTR refs
-      this._ptr    = r.querySelector('.js-ptr');
+      this._ptr = r.querySelector('.js-ptr');
       this._ptrTxt = r.querySelector('.js-txt');
-      this._ptrSpin= r.querySelector('.js-spin');
+      this._ptrSpin = r.querySelector('.js-spin');
       this._ptrDot = r.querySelector('.js-dot');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -248,8 +249,10 @@
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
-      this._initMenu();              // renders menu
-      this._initPTR();               // Pull-to-refresh
+      this._initMenu();
+
+      // Wire global Pull-to-Refresh
+      this._initPTR();
     }
 
     /* ==== Load order: version.js → firebase-config.js → import(firebase-init.js) ==== */
@@ -262,7 +265,6 @@
         const mod = await import('/Farm-vista/js/firebase-init.js');
         this._firebase = mod;
         await this._wireAuthLogout(this.shadowRoot, mod);
-        // Permissions are handled externally by /js/perm-filter.js
       }catch(err){
         console.warn('[FV] firebase-init import failed:', err);
         this._wireAuthLogout(this.shadowRoot, null);
@@ -322,7 +324,6 @@
 
     _renderMenu(cfg){
       const nav = this._navEl; if (!nav) return;
-      this._navCfg = cfg; // kept only for current-page highlighting
       nav.innerHTML = '';
 
       const path = location.pathname;
@@ -417,9 +418,6 @@
         if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
         else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
-
-      // ↪ Let external permission filter know the nav is painted
-      document.dispatchEvent(new CustomEvent('fv:nav-rendered'));
     }
 
     _collapseAllNavGroups(){
@@ -552,6 +550,7 @@
                                (window.firebaseAuth && window.firebaseAuth.currentUser) ||
                                (window.__FV_USER) || null;
 
+      // Resolve a human name for the logout label
       const setLabelFromProfile = async () => {
         try{
           const auth = (mod && (window.firebaseAuth || (mod.getAuth && mod.getAuth()))) || window.firebaseAuth;
@@ -583,7 +582,7 @@
             try{
               const ref = mod.doc(fs, 'users', user.uid);
               const snap = await mod.getDoc(ref);
-              const data = snap && (typeof snap.data === 'function' ? snap.data() : empSnap.data);
+              const data = snap && (typeof snap.data === 'function' ? snap.data() : snap.data);
               if (data) {
                 const fn = (data.firstName || data.first || '').toString().trim();
                 const ln = (data.lastName  || data.last  || '').toString().trim();
@@ -610,8 +609,8 @@
           const ctx = await mod.ready.catch(()=>null);
           const auth = (ctx && ctx.auth) || (mod.getAuth && mod.getAuth()) || window.firebaseAuth;
           await setLabelFromProfile();
-          mod.onIdTokenChanged(auth, async ()=>{ await setLabelFromProfile(); });
-          mod.onAuthStateChanged(auth, async ()=>{ await setLabelFromProfile(); });
+          mod.onIdTokenChanged(auth, setLabelFromProfile);
+          mod.onAuthStateChanged(auth, setLabelFromProfile);
 
           let tries = 18;
           const tick = setInterval(async ()=>{
