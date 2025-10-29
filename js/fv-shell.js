@@ -1,9 +1,8 @@
-/* FarmVista — <fv-shell> v5.9.13
-   Changes vs 5.9.12:
-   - Logout label prefers Firestore employees/{emailKey} → First Last
-     then users/{uid} → display/displayName → email.
-   - Keeps fixed Pull-to-Refresh (PTR) bar, arms only at top, no bottom toast.
-   - Absolute menu import with classic <script> fallback.
+/* FarmVista — <fv-shell> v6.0.0
+   Changes vs 5.9.13:
+   - Built-in menu permission filtering (role + per-record overrides).
+   - Filters drawer after render and on auth changes; watches for re-renders.
+   - Keeps all prior features (PTR, version, update flow, robust menu load).
 */
 (function () {
   const tpl = document.createElement('template');
@@ -211,21 +210,21 @@
 
     connectedCallback(){
       const r = this.shadowRoot;
-      this._btnMenu = r.querySelector('.js-menu');
-      this._btnAccount = r.querySelector('.js-account');
-      this._scrim = r.querySelector('.js-scrim');
-      this._drawer = r.querySelector('.drawer');
-      this._top = r.querySelector('.js-top');
-      this._footerText = r.querySelector('.js-footer');
-      this._toast = r.querySelector('.js-toast');
-      this._verEl = r.querySelector('.js-ver');
-      this._sloganEl = r.querySelector('.js-slogan');
-      this._navEl = r.querySelector('.js-nav');
+      this._btnMenu   = r.querySelector('.js-menu');
+      this._btnAccount= r.querySelector('.js-account');
+      this._scrim     = r.querySelector('.js-scrim');
+      this._drawer    = r.querySelector('.drawer');
+      this._top       = r.querySelector('.js-top');
+      this._footerText= r.querySelector('.js-footer');
+      this._toast     = r.querySelector('.js-toast');
+      this._verEl     = r.querySelector('.js-ver');
+      this._sloganEl  = r.querySelector('.js-slogan');
+      this._navEl     = r.querySelector('.js-nav');
 
       // PTR refs
-      this._ptr = r.querySelector('.js-ptr');
+      this._ptr    = r.querySelector('.js-ptr');
       this._ptrTxt = r.querySelector('.js-txt');
-      this._ptrSpin = r.querySelector('.js-spin');
+      this._ptrSpin= r.querySelector('.js-spin');
       this._ptrDot = r.querySelector('.js-dot');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -265,6 +264,10 @@
         const mod = await import('/Farm-vista/js/firebase-init.js');
         this._firebase = mod;
         await this._wireAuthLogout(this.shadowRoot, mod);
+
+        // If nav already rendered, try to engage permission filtering now
+        this._maybeInitPermissions();
+
       }catch(err){
         console.warn('[FV] firebase-init import failed:', err);
         this._wireAuthLogout(this.shadowRoot, null);
@@ -324,6 +327,7 @@
 
     _renderMenu(cfg){
       const nav = this._navEl; if (!nav) return;
+      this._navCfg = cfg;          // keep for permissions engine
       nav.innerHTML = '';
 
       const path = location.pathname;
@@ -418,6 +422,9 @@
         if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
         else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
       });
+
+      // After building, try to apply permission filtering
+      this._maybeInitPermissions();
     }
 
     _collapseAllNavGroups(){
@@ -609,8 +616,16 @@
           const ctx = await mod.ready.catch(()=>null);
           const auth = (ctx && ctx.auth) || (mod.getAuth && mod.getAuth()) || window.firebaseAuth;
           await setLabelFromProfile();
-          mod.onIdTokenChanged(auth, setLabelFromProfile);
-          mod.onAuthStateChanged(auth, setLabelFromProfile);
+          mod.onIdTokenChanged(auth, async ()=>{
+            await setLabelFromProfile();
+            // Recompute permissions on auth changes
+            this._maybeInitPermissions(true);
+          });
+          mod.onAuthStateChanged(auth, async ()=>{
+            await setLabelFromProfile();
+            // Recompute permissions on auth changes
+            this._maybeInitPermissions(true);
+          });
 
           let tries = 18;
           const tick = setInterval(async ()=>{
@@ -652,6 +667,236 @@
           });
         }
       }
+    }
+
+    /* =================== PERMISSION FILTER ENGINE (BUILT-IN) =================== */
+
+    _sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+    _emailKey(e){ return String(e||'').trim().toLowerCase(); }
+
+    _flattenLinks(nav){
+      const hrefToId = new Map();
+      const idToHref = new Map();
+      const walk = (nodes=[])=>{
+        nodes.forEach(n=>{
+          if(n.type==='link' && n.id && n.href){
+            hrefToId.set(n.href, n.id);
+            idToHref.set(n.id, n.href);
+          } else if(n.type==='group' && Array.isArray(n.children)){
+            walk(n.children);
+          }
+        });
+      };
+      walk(nav.items||[]);
+      return { hrefToId, idToHref };
+    }
+
+    _buildContainerIndexes(nav){
+      const CONTAINERS = new Map(); // containerId -> [leafIds]
+      const CAP_TO_TOP = new Map(); // leafId -> topLabel
+      const CAP_SET    = new Set(); // all leaf ids
+      const TOP_LABELS = [];
+
+      const collectLinks = (nodes, acc)=>{
+        nodes.forEach(n=>{
+          if(n.type==='group' && Array.isArray(n.children)) collectLinks(n.children, acc);
+          else if(n.type==='link') acc.push(n.id);
+        });
+      };
+
+      (nav.items||[]).forEach(top=>{
+        if(top.type!=='group') return;
+        const topLabel = top.label || top.id || 'General';
+        TOP_LABELS.push(topLabel);
+
+        const topIds=[]; collectLinks([top], topIds);
+        CONTAINERS.set(top.id, topIds.slice());
+
+        (top.children||[]).forEach(ch=>{
+          if(ch.type==='group'){
+            const arr=[]; collectLinks([ch], arr);
+            CONTAINERS.set(ch.id, arr.slice());
+          }
+        });
+
+        topIds.forEach(id=>{ CAP_SET.add(id); CAP_TO_TOP.set(id, topLabel); });
+      });
+
+      return { CONTAINERS, CAP_TO_TOP, CAP_SET, TOP_LABELS };
+    }
+
+    _baselineFromPerms(perms, indexes){
+      const { CONTAINERS, CAP_TO_TOP, CAP_SET, TOP_LABELS } = indexes;
+      const base = {}; TOP_LABELS.forEach(t=> base[t]={});
+      CAP_SET.forEach(id=>{ const t = CAP_TO_TOP.get(id); if(t) base[t][id]=false; });
+      if(!perms || typeof perms!=='object') return base;
+
+      // Container-level
+      Object.keys(perms).forEach(k=>{
+        const v = perms[k];
+        const on = (typeof v==='boolean')? v : (v && typeof v.on==='boolean'? v.on : undefined);
+        if(on===undefined) return;
+        if(CONTAINERS.has(k)){
+          (CONTAINERS.get(k)||[]).forEach(leaf=>{
+            const t = CAP_TO_TOP.get(leaf); if(t) base[t][leaf]=on;
+          });
+        }
+      });
+      // Explicit leaf keys
+      Object.keys(perms).forEach(k=>{
+        const v = perms[k];
+        const on = (typeof v==='boolean')? v : (v && typeof v.on==='boolean'? v.on : undefined);
+        if(on===undefined) return;
+        if(indexes.CAP_SET.has(k)){
+          const t = indexes.CAP_TO_TOP.get(k);
+          if(t) base[t][k]=on;
+        }
+      });
+      return base;
+    }
+
+    _allowedFrom(base, overrides){
+      const allowed = new Set();
+      Object.keys(base).forEach(group=>{
+        Object.entries(base[group]).forEach(([capId,on])=>{ if(on) allowed.add(capId); });
+      });
+      if(overrides && typeof overrides==='object'){
+        Object.entries(overrides).forEach(([path,v])=>{
+          // "Group.capId" → "capId" (the id in menu.js)
+          const parts = path.split('.');
+          const capId = parts.length>=2 ? parts.slice(1).join('.') : null;
+          if(!capId) return;
+          if(v===true) allowed.add(capId);
+          if(v===false) allowed.delete(capId);
+        });
+      }
+      return allowed;
+    }
+
+    _filterDrawer(allowedIds, hrefToId){
+      const root = this.shadowRoot.querySelector('.drawer');
+      if(!root) return false;
+
+      // Hide disallowed links
+      const anchors = root.querySelectorAll('a[href^="/Farm-vista/"]');
+      anchors.forEach(a=>{
+        const href = a.getAttribute('href');
+        const id = hrefToId.get(href);
+        if(!id) return; // group header link row, etc.
+        if(!allowedIds.has(id)){
+          const li = a.closest('a, .nav-item, .drawer-row, div'); // best effort
+          if(li) li.style.display='none';
+        }else{
+          const li = a.closest('a, .nav-item, .drawer-row, div');
+          if(li) li.style.display=''; // ensure visible when re-applying after auth change
+        }
+      });
+
+      // Hide empty groups
+      root.querySelectorAll('.nav-group').forEach(g=>{
+        const anyVisible = Array.from(g.querySelectorAll('a[href^="/Farm-vista/"]'))
+          .some(el=>{
+            const li = el.closest('a, .nav-item, .drawer-row, div');
+            return li && li.style.display !== 'none';
+          });
+        if(!anyVisible){ g.style.display='none'; } else { g.style.display=''; }
+      });
+
+      return true;
+    }
+
+    async _fetchRoleDocByName(name){
+      try{
+        const mod = this._firebase; if(!mod) return null;
+        const db = mod.getFirestore();
+        const q = mod.query(mod.collection(db,'accountRoles'), mod.where('name','==', name));
+        const snap = await mod.getDocs(q);
+        let data=null; snap.forEach(d=>{ data = d.data()||null; });
+        return data;
+      }catch{ return null; }
+    }
+
+    async _loadPersonRecord(email){
+      const mod = this._firebase; if(!mod) return null;
+      const db = mod.getFirestore();
+      const id = this._emailKey(email);
+      const tries = [
+        { coll:'employees',      key:'Employee' },
+        { coll:'subcontractors', key:'Subcontractor' },
+        { coll:'vendors',        key:'Vendor' }
+      ];
+      for(const t of tries){
+        try{
+          const ref = mod.doc(db, t.coll, id);
+          const s = await mod.getDoc(ref);
+          if(s.exists()) return { type:t.key, data:s.data(), id, coll:t.coll };
+        }catch{}
+      }
+      return null;
+    }
+
+    _observeDrawerPermissions(allowedIds, hrefToId){
+      const r = this.shadowRoot;
+      const apply = ()=> this._filterDrawer(allowedIds, hrefToId);
+      // Initial attempts (in case late paint)
+      let tries = 0;
+      const kick = async ()=>{
+        for(; tries<10; tries++){
+          if(apply()) break;
+          await this._sleep(100);
+        }
+      };
+      kick();
+      const mo = new MutationObserver(()=>apply());
+      mo.observe(r, { childList:true, subtree:true });
+      this._permMO = mo;
+    }
+
+    async _computeAndApplyPermissions(force=false){
+      if(!this._navCfg || !this._firebase) return;
+
+      const mod  = this._firebase;
+      const auth = (mod.getAuth && mod.getAuth()) || (window.firebaseAuth);
+      const user = auth && auth.currentUser;
+      if(!user || !user.email){
+        // Not logged in: do not hide anything.
+        return;
+      }
+
+      // Build indexes and maps from current nav cfg
+      const { hrefToId } = this._flattenLinks(this._navCfg);
+      const indexes = this._buildContainerIndexes(this._navCfg);
+
+      // Person + role
+      const person   = await this._loadPersonRecord(user.email);
+      const roleName = person?.data?.permissionGroup || 'Standard';
+      const roleDoc  = await this._fetchRoleDocByName(roleName);
+      const perms    = roleDoc?.perms || roleDoc?.permissions || null;
+
+      const baseline = this._baselineFromPerms(perms, indexes);
+      const overrides= person?.data?.overrides || {};
+
+      const allowed  = this._allowedFrom(baseline, overrides);
+
+      // Always allow Home for usability (remove if you want strict control)
+      if(hrefToId.has('/Farm-vista/index.html')) allowed.add('home');
+
+      // Apply now
+      this._filterDrawer(allowed, hrefToId);
+
+      // (Re)observe for re-renders
+      if(force && this._permMO){ try{ this._permMO.disconnect(); }catch{} }
+      this._observeDrawerPermissions(allowed, hrefToId);
+
+      // Expose for quick debugging
+      window.FV_EFFECTIVE_MENU = { role: roleName, personType: person?.type || null, allowedIds: Array.from(allowed) };
+    }
+
+    _maybeInitPermissions(force=false){
+      // Run when both menu is rendered AND firebase is ready.
+      if(!this._navCfg) return;
+      if(!this._firebase) return;
+      this._computeAndApplyPermissions(force).catch(console.error);
     }
 
     /* ===== Update flow ===== */
