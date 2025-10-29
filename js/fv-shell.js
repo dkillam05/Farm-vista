@@ -1,8 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.2
-   - One-time boot overlay "Loading. Please wait."
-   - Menu filtered by FVUserContext.allowedIds (via FVMenuACL)
-   - Logout label live-updates via FVUserContext.onChange + Firebase fallback
+   FarmVista Shell — v5.10.6
+   - One-time boot overlay (blurred) with "Loading. Please wait."
+   - Ensures /js/app/user-context.js is loaded before rendering/labels
+   - Logout label live-updates from FVUserContext, falls back to Firebase Auth
+   - Menu is filtered via FVMenuACL + FVUserContext.allowedIds
 */
 
 (function () {
@@ -22,9 +23,10 @@
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
-    /* One-time boot overlay */
+    /* One-time boot overlay (shown by default) */
     .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
-      background:color-mix(in srgb, #000 25%, transparent); backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
+      background:color-mix(in srgb, #000 25%, transparent);
+      backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
       color:#fff; transition: opacity .22s ease, visibility .22s ease; }
     .boot[hidden]{ opacity:0; visibility:hidden; pointer-events:none; }
     .boot-card{ background: rgba(21,23,21,.85); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:18px 20px;
@@ -101,12 +103,6 @@
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
       white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
-
-    :host-context(.dark) .drawer{ background:var(--sidebar-surface, #171a18); color:var(--sidebar-text, #f1f3ef); border-right:1px solid var(--sidebar-border, #2a2e2b); }
-    :host-context(.dark) .drawer nav{ background:color-mix(in srgb, var(--sidebar-surface, #171a18) 88%, #000); }
-    :host-context(.dark) .drawer nav a{ color:var(--sidebar-text, #f1f3ef); border-bottom:1px solid var(--sidebar-border, #232725); }
-    :host-context(.dark) .drawer-footer{ background:var(--sidebar-surface, #171a18); border-top:1px solid var(--sidebar-border, #2a2eb); color:var(--sidebar-text, #f1f3ef); }
-    :host-context(.dark) .toast{ background:#1b1f1c; color:#F2F4F1; border:1px solid #2a2e2b; }
   </style>
 
   <header class="hdr" part="header">
@@ -122,7 +118,7 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- One-time boot overlay -->
+  <!-- One-time boot overlay (shown by default) -->
   <div class="boot js-boot">
     <div class="boot-card">
       <div class="spin" aria-hidden="true"></div>
@@ -219,12 +215,10 @@
       this._boot = r.querySelector('.js-boot');
       this._logoutLabel = r.getElementById('logoutLabel');
 
-      // PTR refs
-      this._ptr = r.querySelector('.js-ptr');
-      this._ptrTxt = r.querySelector('.js-txt');
-      this._ptrSpin = r.querySelector('.js-spin');
-      this._ptrDot = r.querySelector('.js-dot');
+      // show boot overlay immediately
+      if (this._boot) this._boot.hidden = false;
 
+      // header buttons & theme
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
@@ -238,44 +232,53 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      this._ensureVersionThenAuth();
+      // kick off boot
+      this._bootSequence();
+    }
 
-      const upd = r.querySelector('.js-update-row');
+    /* =================== Boot sequence (order matters) =================== */
+    async _bootSequence(){
+      await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
+      this._applyVersionToUI();
+
+      await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
+      await this._ensureFirebaseInit(); // safe if it already exists
+
+      // Ensure user-context.js (with hyphen) is loaded
+      await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
+
+      // Wait for user context (with timeout fallback)
+      await this._waitForUserContext(5000);
+
+      // Menu render (filtered by permissions)
+      await this._initMenuFiltered();
+
+      // Wire logout label and actions
+      this._wireAuthLogout(this.shadowRoot);
+
+      // Hide boot overlay and mark hydrated (one per session)
+      if (this._boot) this._boot.hidden = true;
+      sessionStorage.setItem('fv:boot:hydrated', '1');
+
+      // PTR & misc
+      const upd = this.shadowRoot.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
+      const r = this.shadowRoot;
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initPTR();
     }
 
-    async _ensureVersionThenAuth(){
-      await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
-      this._applyVersionToUI();
-
-      await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
-
-      // One-time boot overlay per session
-      const onceKey = 'fv:boot:hydrated';
-      const hasHydrated = sessionStorage.getItem(onceKey) === '1';
-      if (!hasHydrated && this._boot) this._boot.hidden = false;
-
-      // Wait for global FVUserContext; then force a refresh once to be sure
+    async _ensureFirebaseInit(){
+      // try to import firebase-init as module, but tolerate failures
       try {
-        if (window.FVUserContext && typeof window.FVUserContext.ready === 'function') {
-          await window.FVUserContext.ready();
-          try { await window.FVUserContext.refresh({ force:true }); } catch {}
+        if (!window.__FV_FIREBASE_INIT_LOADED__) {
+          window.__FV_FIREBASE_INIT_LOADED__ = true;
+          await this._loadScriptOnce('/Farm-vista/js/firebase-init.js', { type:'module' });
         }
-        sessionStorage.setItem(onceKey, '1');
-      } catch (e) {
-        console.warn('[FV] FVUserContext.ready failed:', e);
-        sessionStorage.setItem(onceKey, '1');
-      } finally {
-        if (this._boot) this._boot.hidden = true;
-      }
-
-      await this._initMenuFiltered();
-      this._wireAuthLogout(this.shadowRoot);
+      } catch (e) { /* ignore */ }
     }
 
     _applyVersionToUI(){
@@ -286,16 +289,35 @@
       if (this._sloganEl) this._sloganEl.textContent = tag;
     }
 
-    _loadScriptOnce(src){
+    _loadScriptOnce(src, opts){
       return new Promise((resolve, reject)=>{
         const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'') === src);
         if (exists) { resolve(); return; }
         const s = document.createElement('script');
-        s.src = src; s.defer = true;
+        if (opts && opts.type) s.type = opts.type;
+        s.defer = true;
+        s.src = src;
         s.onload = ()=> resolve();
         s.onerror = (e)=> reject(e);
         document.head.appendChild(s);
       });
+    }
+
+    async _waitForUserContext(timeoutMs){
+      const start = Date.now();
+      const ready = () =>
+        window.FVUserContext &&
+        typeof window.FVUserContext.ready === 'function' &&
+        window.FVUserContext.get && window.FVUserContext.get();
+
+      if (ready()) return;
+
+      try { if (window.FVUserContext && window.FVUserContext.ready) await window.FVUserContext.ready(); } catch {}
+
+      // loop a little while for displayName/email to land
+      while (!ready() && (Date.now() - start) < timeoutMs) {
+        await new Promise(r => setTimeout(r, 120));
+      }
     }
 
     async _loadMenu(){
@@ -320,16 +342,14 @@
 
     async _initMenuFiltered(){
       const NAV_MENU = await this._loadMenu();
-      if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) {
-        this._toastMsg('Menu data invalid.', 2000);
-        return;
-      }
-      const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+      if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
 
       if (!window.FVMenuACL || typeof window.FVMenuACL.filter !== 'function') {
         await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
       }
+
+      const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
+      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
       const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
         ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
@@ -481,7 +501,11 @@
 
     /* ===== PULL-TO-REFRESH ===== */
     _initPTR(){
-      const bar = this._ptr, txt = this._ptrTxt, spin = this._ptrSpin, dot = this._ptrDot;
+      const bar = this._ptr = this.shadowRoot.querySelector('.js-ptr');
+      const txt = this._ptrTxt = this.shadowRoot.querySelector('.js-txt');
+      const spin = this._ptrSpin = this.shadowRoot.querySelector('.js-spin');
+      const dot = this._ptrDot = this.shadowRoot.querySelector('.js-dot');
+
       const THRESHOLD = 70; let armed=false, pulling=false, startY=0, delta=0;
       const atTop = () => (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) === 0;
 
@@ -503,7 +527,7 @@
         document.dispatchEvent(new CustomEvent('fv:refresh'));
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
         sessionStorage.removeItem('fv:boot:hydrated');
-        await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve());
+        try { await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve()); } catch {}
         await this._initMenuFiltered();
         await new Promise(res=> setTimeout(res, 900));
         bar.classList.remove('show'); spin.hidden=true; dot.hidden=true; txt.textContent='Pull to refresh';
@@ -519,18 +543,18 @@
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth: logout label + live updates ===== */
+    /* ===== Auth + Logout label ===== */
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      const setLabelFromCtxOrAuth = ()=>{
-        // Prefer cached context
-        const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-        let name = (ctx && (ctx.displayName || ctx.email)) || '';
-
-        // Fallback to Firebase Auth (if present)
+      const setLabel = ()=>{
+        let name = '';
+        try {
+          const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+          if (ctx && (ctx.displayName || ctx.email)) name = ctx.displayName || ctx.email;
+        } catch {}
         if (!name && window.firebaseAuth && window.firebaseAuth.currentUser) {
           const u = window.firebaseAuth.currentUser;
           name = u.displayName || u.email || '';
@@ -538,20 +562,16 @@
         logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
       };
 
-      // Initial set + subscribe to context changes
-      setLabelFromCtxOrAuth();
+      // initial + subscribe
+      setLabel();
       try {
         if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(() => setLabelFromCtxOrAuth());
+          window.FVUserContext.onChange(() => setLabel());
         }
       } catch {}
 
-      // Also retry briefly in case auth hydrates a bit later
-      let tries = 20;
-      const tick = setInterval(()=>{
-        setLabelFromCtxOrAuth();
-        if (--tries <= 0) clearInterval(tick);
-      }, 200);
+      // retry for a bit in case auth hydrates late
+      let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
         logoutRow.addEventListener('click', async (e)=>{
@@ -565,7 +585,7 @@
       }
     }
 
-    /* ===== Update flow ===== */
+    /* ===== Version + updates ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
