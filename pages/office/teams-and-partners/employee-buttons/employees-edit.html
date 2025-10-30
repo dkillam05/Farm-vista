@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Absolute app paths so shell + theme load everywhere -->
+  <!-- Absolute app paths -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Ensure fv-shell is defined -->
+  <!-- Ensure fv-shell is defined (ABS path so deep pages work) -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -26,7 +26,7 @@
     })();
   </script>
 
-  <!-- Firebase config FIRST (avoids stub mode) -->
+  <!-- Optional config preload (safe no-op if already loaded by theme-boot) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -79,12 +79,11 @@
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
-    /* Overrides UI (same as Add Employee) */
+    /* Overrides UI */
     .ovr-legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--muted,#5d655f);font-size:14px}
     .ovr-legend b{color:var(--text)}
     .ovr-wrap{border:1px dashed var(--border);border-radius:12px;padding:10px}
     .ovr-empty{padding:8px 4px;color:var(--muted,#6b746d)}
-
     details.ovr-group{border:1px solid var(--border);border-radius:12px;margin:10px 0;background:var(--card-surface,var(--surface));overflow:hidden}
     summary.ovr-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;cursor:pointer}
     summary.ovr-summary::-webkit-details-marker{display:none}
@@ -92,7 +91,6 @@
     .pill{border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;user-select:none}
     .pill.enabled{background:#203a26;color:#bfe3c6;border-color:#315b3c}
     .pill.disabled{background:#3a2020;color:#f2c0c0;border-color:#5b3131}
-
     .ovr-cap-row{display:grid;grid-template-columns:1fr 160px;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--border)}
     .ovr-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
     .ovr-select{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--surface);font-weight:700}
@@ -132,7 +130,6 @@
         </header>
 
         <div class="section-body">
-          <!-- Name -->
           <div class="grid2">
             <div class="field">
               <label for="first">First Name<span class="req">*</span></label>
@@ -144,7 +141,6 @@
             </div>
           </div>
 
-          <!-- Email / Mobile -->
           <div class="grid2">
             <div class="field">
               <label for="email">Email<span class="req">*</span></label>
@@ -156,19 +152,16 @@
             </div>
           </div>
 
-          <!-- Role -->
           <div class="field">
             <label for="role">Role / Title</label>
             <input id="role" class="input" type="text" placeholder="Operator, Agronomy, Office…" />
           </div>
 
-          <!-- Start Date -->
           <div class="field">
             <label for="start">Start Date</label>
             <input id="start" class="input" type="date" />
           </div>
 
-          <!-- Status / Permission Group -->
           <div class="grid2">
             <div class="field">
               <label for="status">Status</label>
@@ -186,13 +179,11 @@
             </div>
           </div>
 
-          <!-- Notes -->
           <div class="field" style="min-width:0">
             <label for="notes">Notes</label>
             <textarea id="notes" class="input" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
           </div>
 
-          <!-- Full-width primary action -->
           <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
 
           <div class="actions">
@@ -202,7 +193,7 @@
         </div>
       </section>
 
-      <!-- Card 2: Overrides (mirrors Add Employee exactly) -->
+      <!-- Card 2: Overrides -->
       <section id="ovrSection" class="section" aria-hidden="true">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛡️</div>
@@ -238,9 +229,6 @@
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    // Live navigation shapes the capabilities exactly like Add Employee
-    import NAV_MENU from '/Farm-vista/js/menu.js';
-
     /* ---------------------------- tiny utils ---------------------------- */
     const $ = (id)=>document.getElementById(id);
     const toast = $("toast");
@@ -262,7 +250,15 @@
     const fk=(g,k)=>`${g}|${k}`;
     const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
 
-    /* ---------------------------- NAV indexer --------------------------- */
+    /* ------------------------ menu catalog (safe import) ------------------------ */
+    let NAV_MENU = { items: [] };
+    try {
+      const mod = await import('/Farm-vista/js/menu.js');
+      NAV_MENU = (mod && (mod.NAV_MENU || mod.default)) || { items: [] };
+    } catch(e) {
+      console.warn('[EditEmployee] menu.js load failed, overrides UI will be minimal.', e);
+    }
+
     const TOP_GROUPS = {};
     const CAP_TO_TOP = {};
     const CONTAINERS = {};
@@ -276,21 +272,20 @@
         nodes.forEach(n=>{
           if(n.type==='group' && Array.isArray(n.children)){
             collectLinks(n.children, acc);
-          }else if(n.type==='link'){
+          }else if(n.type==='link' && n.id){
             acc.push(n.id);
           }
         });
       }
 
-      NAV_MENU.items.forEach(top=>{
+      (NAV_MENU.items||[]).forEach(top=>{
         if(top.type!=='group') return;
         const topLabel = top.label || top.id || 'General';
-        const topId = top.id;
         const allUnderTop = [];
         collectLinks([top], allUnderTop);
 
-        CONTAINERS[topId] = allUnderTop.slice();
-        CONTAINER_IDS.add(topId);
+        CONTAINERS[top.id] = allUnderTop.slice();
+        CONTAINER_IDS.add(top.id);
 
         TOP_GROUPS[topLabel] = allUnderTop.slice();
         allUnderTop.forEach(id=>{
@@ -298,7 +293,6 @@
           CAP_SET.add(id);
         });
 
-        // subgroups containers too
         (top.children||[]).forEach(ch=>{
           if(ch.type==='group'){
             const arr=[]; collectLinks([ch], arr);
@@ -322,7 +316,7 @@
     function buildBaselineFromPerms(perms){
       const out = {};
       Object.keys(TOP_GROUPS).forEach(t=>{
-        out[t]={}; TOP_GROUPS[t].forEach(capId=>out[t][capId]=false);
+        out[t]={}; (TOP_GROUPS[t]||[]).forEach(capId=>out[t][capId]=false);
       });
       if(!perms || typeof perms!=='object') return out;
 
@@ -453,22 +447,18 @@
     }
 
     function applyEmployeeOverridesToUI(empOverrides){
-      // empOverrides shape: { "Group.capId": true|false }
       overrideState = {};
       if (empOverrides && typeof empOverrides==='object'){
         Object.keys(empOverrides).forEach(path=>{
           const [g,cap] = path.split('.');
           const v = empOverrides[path];
           if (!g || !cap) return;
-          // only apply if cap exists in baseline
           if (baseGroups[g] && (cap in baseGroups[g])){
             overrideState[fk(g,cap)] = (v===true)?'allow':(v===false)?'deny':'inherit';
           }
         });
       }
-      // Re-render selects with the new overrideState
       renderOverrides();
-      // Ensure each inherit label matches current baseline
       document.querySelectorAll('select.ovr-select').forEach(sel=>{
         const g=sel.getAttribute('data-group'), cap=sel.getAttribute('data-cap');
         const base = baseGroups[g]?.[cap];
@@ -499,7 +489,7 @@
     $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
     $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
 
-    /* ---------------------- roles dropdown (same as Add) ---------------------- */
+    /* ---------------------- roles dropdown ---------------------- */
     async function fetchRoleDocByName(name){
       const db=getFirestore();
       const qRef=query(collection(db,'accountRoles'), where('name','==',name));
@@ -532,18 +522,15 @@
         }
         rolesLoaded = true;
 
-        // When permission group is changed while editing, rebuild baseline + keep current overrides
         selPerm.addEventListener('change', async (e)=>{
-          if (!sel) return;              // only when an employee is loaded
+          if (!sel) return;
           if (busy) return;
           setBusy(true);
           try{
             currentRoleName = e.target.value || null;
             const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
             baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
-            // keep current overrideState as-is, just re-render against new baseline
             renderOverrides();
-            // refresh inherit labels
             document.querySelectorAll('select.ovr-select').forEach(sel=>{
               const g=sel.getAttribute('data-group'), cap=sel.getAttribute('data-cap');
               const base = baseGroups[g]?.[cap];
@@ -662,7 +649,8 @@
         email:vals.email,phone:vals.phone,role:vals.role,
         type:'Employee',
         startDate:vals.start||null,status:vals.status,
-        permissionGroup:vals.perm,notes:vals.notes,
+        permissionGroup:vals.perm || 'Standard',
+        notes:vals.notes,
         search:[fullName.toLowerCase(),vals.first.toLowerCase(),vals.last.toLowerCase(),vals.email.toLowerCase()].filter(Boolean),
         active:vals.status==="Active",
         overrides: vals.overrides && Object.keys(vals.overrides).length ? vals.overrides : {},
@@ -676,18 +664,21 @@
         await setDoc(newRef,{...payload,createdAt},{merge:false});
         if(oldSnap.exists()) await deleteDoc(oldRef);
         sel={id:newId,data:{...payload}};
-        return {id:newId,moved:true};
       }else{
         const snap=await getDoc(newRef);
         if(!snap.exists()) payload.createdAt=serverTimestamp();
         await setDoc(newRef,payload,{merge:true});
         sel={id:newId,data:{...payload}};
-        return {id:newId,moved:false};
       }
+
+      // 🔄 Make the shell re-compute permissions for the signed-in user
+      try{ await window.FVUserContext?.refresh?.({force:true}); }catch{}
+      return newId;
     }
 
     async function ensureAuthUser(email, displayName){
       if(!email) throw new Error("Missing email for Auth user");
+      // Secondary app so we don't clobber the current session
       const CDN='https://www.gstatic.com/firebasejs/10.12.5/';
       const [{initializeApp},authMod]=await Promise.all([import(CDN+'firebase-app.js'),import(CDN+'firebase-auth.js')]);
       const app=initializeApp(window.FV_FIREBASE_CONFIG,'fv-admin'); const a=authMod.getAuth(app);
@@ -708,7 +699,6 @@
       $("status").value=item.data.status||'Active';
       $("notes").value=item.data.notes||'';
 
-      // permission group + baseline + overrides (mirrors Add)
       ensurePermSelected(item.data.permissionGroup || 'Standard');
 
       formSection.classList.add("show"); formSection.setAttribute('aria-hidden','false');
@@ -719,7 +709,6 @@
         currentRoleName = $("perm").value || null;
         const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
         baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
-        // Render baseline first, then overlay employee overrides
         renderOverrides();
         applyEmployeeOverridesToUI(item.data.overrides || {});
       }catch(err){
@@ -734,7 +723,14 @@
 
     /* ------------------------------ events ------------------------------ */
     $("q").addEventListener('input',renderList);
-    wireChips();
+    (function wireChips(){ document.querySelectorAll('.chip').forEach(ch=>{
+      ch.addEventListener('click',()=>{
+        document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+        ch.classList.add('active');
+        statusFilter = ch.dataset.status || 'all';
+        renderList();
+      });
+    }); })();
 
     $("clear").addEventListener("click", ()=>{
       if(busy) return;
@@ -772,7 +768,12 @@
 
     /* ------------------------------ boot ------------------------------ */
     async function boot(){
-      await bootDirectory();
+      await ready;
+      const col = collection(getFirestore(),"employees");
+      onSnapshot(col,(snap)=>{
+        all = snap.docs.map(d=>({id:d.id, data:d.data()||{}}));
+        renderList();
+      });
     }
     boot().catch(console.error);
   </script>
