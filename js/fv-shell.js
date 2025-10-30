@@ -1,11 +1,12 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.16
+   FarmVista Shell — v5.10.17
+   - NEW: Footer-stable scroll lock (body position:fixed) prevents footer jump when drawer/top opens on iOS.
    - UID-aware menu swap: detects account change, clears old nav state, shows skeleton, repaints with new perms.
    - Role-scoped nav-state key: fv:nav:groups:<uid>:<roleHash> to prevent cross-user/group leakage.
    - Skeleton drawer while awaiting allowedIds (never flashes previous user’s links).
    - Hard gate: spinner stays until Auth OK + UserContext OK + Menu (>=1 link). AUTH 5s, MENU 3s → redirect to Login.
    - Post-paint sanity: empty logout name OR zero menu links → redirect to Login.
-   - PTR (pull-to-refresh) rewritten with Pointer Events + angle filter + cooldown for 99% reliability on iOS.
+   - PTR rewritten with Pointer Events + angle filter + cooldown for high reliability on iOS.
 */
 (function () {
   // ====== TUNABLES ======
@@ -45,7 +46,8 @@
 
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
-      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
+      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900;
+      transform:translateZ(0); will-change:transform; } /* avoid repaint jump on iOS */
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .main{ position:relative; padding:
@@ -187,6 +189,32 @@
       this._lastUID = '';         // tracks current auth user id for swap detection
       this._lastRoleHash = '';    // tracks allowedIds hash
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
+
+      // scroll lock state (prevents footer shift)
+      this._lock = { active:false, y:0 };
+    }
+
+    /* ---------- Scroll lock that doesn't shift fixed footer ---------- */
+    _applyScrollLock(on){
+      if (on && !this._lock.active) {
+        this._lock.y = window.scrollY || 0;
+        document.body.style.position = 'fixed';
+        document.body.style.top = `-${this._lock.y}px`;
+        document.body.style.left = '0';
+        document.body.style.right = '0';
+        document.body.style.width = '100%';
+        document.body.style.overscrollBehavior = 'none';
+        this._lock.active = true;
+      } else if (!on && this._lock.active) {
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.width = '';
+        document.body.style.overscrollBehavior = '';
+        window.scrollTo(0, this._lock.y || 0);
+        this._lock.active = false;
+      }
     }
 
     connectedCallback(){
@@ -681,13 +709,13 @@
       const wasOpen = this.classList.contains('drawer-open');
       const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
-      document.documentElement.style.overflow = (on || this.classList.contains('top-open')) ? 'hidden' : '';
+      this._applyScrollLock(on || this.classList.contains('top-open'));
       if (wasOpen && !on) { this._collapseAllNavGroups(); }
     }
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
       this.classList.toggle('top-open', on);
-      document.documentElement.style.overflow = (on || this.classList.contains('drawer-open')) ? 'hidden' : '';
+      this._applyScrollLock(on || this.classList.contains('drawer-open'));
     }
 
     _syncThemeChips(mode){
@@ -857,7 +885,7 @@
       try{
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Up To Date (v${cur})`, 2200); return; }
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(\`Up To Date (v\${cur})\`, 2200); return; }
         this._toastMsg('Clearing cache…', 900);
         if (navigator.serviceWorker) { try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {} }
         if ('caches' in window) { try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {} }
