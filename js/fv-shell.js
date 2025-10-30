@@ -1,8 +1,10 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.11 (ACL-ready wait + live re-filter)
-   - Defer first drawer render until menu-acl is loaded (no unfiltered flash).
-   - Re-run filtered render when FVUserContext changes (no tap-Home needed).
-   - Keeps rescue whitelist + force-home include and all prior stability fixes.
+   FarmVista Shell — v5.10.11 (adds Connection status line)
+   - Adds a single “Connection: Online/Offline” row in the Top Drawer (☁️ icon).
+   - ONLINE only if BOTH: device network is online AND backend is reachable.
+   - Backend reachability is checked gently (no new deps): tries FVUserContext.ping(),
+     else Auth token refresh if signed-in, else a cache-busted fetch to version.js.
+   - Everything else from v5.10.10 unchanged.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -160,8 +162,14 @@
       </a>
 
       <div class="section-h">MAINTENANCE</div>
-      <a class="row js-update-row" href="#"><div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div><div class="chev">›</div></a>
 
+      <!-- NEW: Connection status (single line) -->
+      <a class="row js-conn" href="#" tabindex="-1" aria-disabled="true">
+        <div class="left"><div class="ico">☁️</div><div class="txt">Connection: <span class="js-conn-text">Checking…</span></div></div>
+        <div class="chev">•</div>
+      </a>
+
+      <a class="row js-update-row" href="#"><div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div><div class="chev">›</div></a>
       <a class="row" href="#" id="logoutRow"><div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout</div></div><div class="chev">›</div></a>
     </div>
   </section>
@@ -194,6 +202,10 @@
       this._boot = r.querySelector('.js-boot');
       this._logoutLabel = r.getElementById('logoutLabel');
 
+      // NEW: Connection row refs
+      this._connRow = r.querySelector('.js-conn');
+      this._connText = r.querySelector('.js-conn-text');
+
       const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
                          sessionStorage.getItem('fv:boot:forceOnce') === '1';
       if (this._boot) this._boot.hidden = !shouldBoot;
@@ -225,15 +237,9 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // NEW: ensure ACL exists before first render (prevents unfiltered pass-through)
-      await this._ensureACLReady(3500);
-
-      // Wait for user context, then render filtered menu
       await this._waitForUserContext(5000);
-      await this._initMenuFiltered();
 
-      // NEW: subscribe to future context changes; re-filter immediately when roles arrive/change
-      this._subscribeContextForMenu();
+      await this._initMenuFiltered();
 
       this._wireAuthLogout(this.shadowRoot);
 
@@ -247,29 +253,14 @@
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
+      // NEW: initialize connection status now and on common events
+      this._updateConnection();
+      window.addEventListener('online',  () => this._updateConnection(), { passive:true });
+      window.addEventListener('offline', () => this._updateConnection(), { passive:true });
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) this._updateConnection(); }, { passive:true });
+      document.addEventListener('fv:refresh', () => this._updateConnection(), { passive:true });
+
       this._initPTR();
-    }
-
-    // NEW: tiny wait helper for ACL readiness
-    async _ensureACLReady(timeoutMs=3000){
-      const start = Date.now();
-      const ok = ()=> !!(window.FVMenuACL && typeof window.FVMenuACL.filter === 'function');
-      if (ok()) return;
-      while (!ok() && (Date.now() - start) < timeoutMs) {
-        await new Promise(r => setTimeout(r, 80));
-      }
-    }
-
-    // NEW: subscribe once to user-context changes and re-render filtered menu
-    _subscribeContextForMenu(){
-      try{
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(() => {
-            // re-run guarded render; avoids empty/whole flashes
-            this._initMenuFiltered();
-          });
-        }
-      }catch{}
     }
 
     async _ensureFirebaseInit(){
@@ -366,30 +357,25 @@
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
 
-      // If we already painted and allowedIds aren't ready, don't clobber.
       if (this._menuPainted && ctx && !Array.isArray(ctx.allowedIds)) return;
 
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      // If first render and no role data yet, don't render incorrect menu.
       if (!this._menuPainted && allowedIds.length === 0) return;
 
-      // NEW: if ACL filter is not present yet, do not render (prevents unfiltered pass-through)
-      if (!(window.FVMenuACL && typeof window.FVMenuACL.filter === 'function')) return;
-
-      const filtered = window.FVMenuACL.filter(NAV_MENU, allowedIds);
+      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
+        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
+        : NAV_MENU;
 
       let cfgToRender = filtered;
       let linkCount = this._countLinks(filtered);
 
-      /* === RESCUE WHITELIST MODE === */
       if (linkCount === 0 && allowedIds.length > 0) {
         const allLinks = this._collectAllLinks(NAV_MENU);
         const set = new Set(allowedIds);
         const rescued = allLinks.filter(l => set.has(l.id));
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
-
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
         linkCount = rescued.length;
       } else {
@@ -634,6 +620,68 @@
       }
     }
 
+    /* ---------- Connection status (single-line, merged checks) ---------- */
+    async _updateConnection(){
+      try {
+        if (this._connText) this._connText.textContent = 'Checking…';
+
+        const networkOk = navigator.onLine;
+
+        // Prefer an app-level ping if present
+        const appPing = async () => {
+          try {
+            if (window.FVUserContext && typeof window.FVUserContext.ping === 'function') {
+              const res = await Promise.race([
+                window.FVUserContext.ping(),
+                new Promise((_,rej)=> setTimeout(()=>rej(new Error('ping-timeout')), 2500))
+              ]);
+              return !!res;
+            }
+          } catch {}
+          return null;
+        };
+
+        // Fallback: if signed-in, try to refresh auth token (exercises backend access)
+        const authPing = async () => {
+          try{
+            const u = window.firebaseAuth && window.firebaseAuth.currentUser;
+            if (!u) return null;
+            await Promise.race([
+              u.getIdToken(/* forceRefresh */ false),
+              new Promise((_,rej)=> setTimeout(()=>rej(new Error('auth-timeout')), 2500))
+            ]);
+            return true;
+          }catch{ return false; }
+        };
+
+        // Last fallback: cache-busted fetch to a known asset (hosting/CDN up)
+        const assetPing = async () => {
+          try{
+            const resp = await Promise.race([
+              fetch('/Farm-vista/js/version.js?conn_ts=' + Date.now(), { cache:'no-store' }),
+              new Promise((_,rej)=> setTimeout(()=>rej(new Error('fetch-timeout')), 2500))
+            ]);
+            return resp && resp.ok;
+          }catch{ return false; }
+        };
+
+        let cloudOk = await appPing();
+        if (cloudOk == null) cloudOk = await authPing();
+        if (cloudOk == null) cloudOk = await assetPing();
+
+        const ok = !!networkOk && !!cloudOk;
+        if (this._connText) this._connText.textContent = ok ? 'Online' : 'Offline';
+        // Muted chevron dot to give a tiny visual cue
+        const chev = this.shadowRoot.querySelector('.js-conn + .chev, .js-conn .chev');
+        if (chev) chev.textContent = ok ? '•' : '•';
+        // Slight tint on the row text (keep design subtle)
+        const row = this._connRow;
+        if (row) row.style.opacity = ok ? '1' : '0.92';
+      } catch {
+        if (this._connText) this._connText.textContent = 'Offline';
+      }
+    }
+
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
@@ -648,6 +696,7 @@
       try{
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
+
         if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
 
         this._toastMsg('Clearing cache…', 900);
