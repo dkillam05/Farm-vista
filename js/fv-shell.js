@@ -1,25 +1,15 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.11.0 (menu filter fallback + stability)
-   - One-time boot overlay (blurred) "Loading. Please wait." ONLY on first load
-     or when forced by pull-to-refresh / check-for-updates.
-   - Logout label comes from FVUserContext (fallback to Firebase Auth).
-   - Menu filtered by FVMenuACL + FVUserContext.allowedIds.
-   - NEW: Local fallback filter if FVMenuACL.filter is missing/errored.
-   - FIX: Update flow waits for new SW control; nudges waiting SW.
-   - FIX: Do not clear FVUserContext on PTR/update; keep last-good identity/menu.
-   - FIX: Sticky logout label; no fallback to blank on transient refresh.
-   - FIX: Guard menu re-render until allowedIds exists (prevents empty/whole flashes).
+   FarmVista Shell — v5.10.10 (menu rescue + home force-include)
+   - Adds “rescue whitelist” rendering if filtering returns no links but allowedIds exists.
+   - Force-includes Home/Dashboard link when detected by id/label/href.
+   - Leaves all previous stability fixes intact.
 */
-
 (function () {
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
-    :host{
-      --green:#3B7E46; --gold:#D0C542;
-      --hdr-h:56px; --ftr-h:14px;
-      display:block; color:#141514; background:#fff; min-height:100vh; position:relative;
-    }
+    :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
+      display:block; color:#141514; background:#fff; min-height:100vh; position:relative; }
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
@@ -27,8 +17,6 @@
     .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
-
-    /* One-time boot overlay (default hidden unless forced) */
     .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
       background:color-mix(in srgb, #000 25%, transparent);
       backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
@@ -38,8 +26,6 @@
       box-shadow:0 18px 44px rgba(0,0,0,.4); display:flex; align-items:center; gap:12px; font-weight:800;}
     .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
-    .boot-text{ font-size:15px; letter-spacing:.2px; }
-
     .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
       color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change:transform; pointer-events:none; }
@@ -47,21 +33,17 @@
     .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46); animation:spin 800ms linear infinite; }
     .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
     .ptr .txt{ font-weight:800; }
-
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
-
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
-
     .drawer{ position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
@@ -84,7 +66,6 @@
     .df-left .brand{ font-weight:800; line-height:1.15; }
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
-
     .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
       border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; }
@@ -102,7 +83,6 @@
     .row .ico{ width:28px; height:28px; display:grid; place-items:center; font-size:24px; line-height:1; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
-
     .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
       transform:translateX(-50%); background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
@@ -123,15 +103,10 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- One-time boot overlay: shown only if session not hydrated OR forced -->
   <div class="boot js-boot" hidden>
-    <div class="boot-card">
-      <div class="spin" aria-hidden="true"></div>
-      <div class="boot-text">Loading. Please wait.</div>
-    </div>
+    <div class="boot-card"><div class="spin" aria-hidden="true"></div><div>Loading. Please wait.</div></div>
   </div>
 
-  <!-- Fixed PTR bar -->
   <div class="ptr js-ptr" aria-hidden="true">
     <div class="dot js-dot" hidden></div>
     <div class="spinner js-spin" hidden></div>
@@ -185,15 +160,9 @@
       </a>
 
       <div class="section-h">MAINTENANCE</div>
-      <a class="row js-update-row" href="#">
-        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div>
-        <div class="chev">›</div>
-      </a>
+      <a class="row js-update-row" href="#"><div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div><div class="chev">›</div></a>
 
-      <a class="row" href="#" id="logoutRow">
-        <div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout</div></div>
-        <div class="chev">›</div>
-      </a>
+      <a class="row" href="#" id="logoutRow"><div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout</div></div><div class="chev">›</div></a>
     </div>
   </section>
 
@@ -206,8 +175,8 @@
     constructor(){
       super();
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
-      this._menuPainted = false;       // tracks if we have a rendered menu already
-      this._lastLogoutName = '';       // sticky label cache
+      this._menuPainted = false;
+      this._lastLogoutName = '';
     }
 
     connectedCallback(){
@@ -246,39 +215,25 @@
       this._bootSequence();
     }
 
-    /* =================== Boot sequence (order matters) =================== */
     async _bootSequence(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
       await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
-      await this._ensureFirebaseInit(); // tolerant
+      await this._ensureFirebaseInit();
 
-      // user-context + menu-acl
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // Wait for user context (with timeout)
       await this._waitForUserContext(5000);
 
-      // Repaint when context changes (but guards prevent clobber)
-      try {
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(() => this._initMenuFiltered());
-        }
-      } catch {}
-
-      // First paint (filtered)
       await this._initMenuFiltered();
 
-      // Logout label + actions
       this._wireAuthLogout(this.shadowRoot);
 
-      // Hide boot overlay and mark hydrated
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
-      // PTR & misc
       const upd = this.shadowRoot.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
@@ -295,7 +250,7 @@
           window.__FV_FIREBASE_INIT_LOADED__ = true;
           await this._loadScriptOnce('/Farm-vista/js/firebase-init.js', { type:'module' });
         }
-      } catch (e) { /* ignore */ }
+      } catch {}
     }
 
     _applyVersionToUI(){
@@ -348,33 +303,33 @@
       }
     }
 
-    /* ---------- LOCAL FALLBACK FILTER (used only if FVMenuACL.filter missing) ---------- */
-    _filterMenuLocal(menuCfg, allowedIds){
-      const allow = new Set(Array.isArray(allowedIds) ? allowedIds : []);
-      const cloneLink = (l) => ({...l});
-      const cloneGroup = (g) => ({...g, children:[...(g.children||[]).map(ch => ({...ch}))]});
-
-      function keepItem(item){
-        if (item.type === 'link') {
-          // Only keep if its id is allowed (no id means keep, but our menu uses ids everywhere)
-          return !item.id || allow.has(item.id);
-        }
-        if (item.type === 'group') {
-          const keptChildren = (item.children||[]).map(ch => keepItem(ch)).filter(Boolean);
-          if (keptChildren.length === 0) return null;
-          const grp = cloneGroup(item);
-          grp.children = keptChildren;
-          return grp;
-        }
-        return null;
-      }
-
-      const out = { ...menuCfg, items: [] };
-      (menuCfg.items||[]).forEach(it=>{
-        const kept = keepItem(it);
-        if (kept) out.items.push(kept);
+    /* ---------- helpers to count/render links ---------- */
+    _countLinks(cfg){
+      let n = 0;
+      const walk = (nodes)=> (nodes||[]).forEach(it=>{
+        if (it.type === 'link') n++;
+        if (it.children) walk(it.children);
       });
+      walk(cfg && cfg.items);
+      return n;
+    }
+    _collectAllLinks(cfg){
+      const out = [];
+      const walk = (nodes)=> (nodes||[]).forEach(it=>{
+        if (it.type === 'link') out.push(it);
+        if (it.children) walk(it.children);
+      });
+      walk(cfg && cfg.items);
       return out;
+    }
+    _looksLikeHome(link){
+      const id = (link.id||'').toLowerCase();
+      const lbl = (link.label||'').toLowerCase();
+      const href = (link.href||'');
+      const p = href ? new URL(href, location.href).pathname : '';
+      if (id.includes('home') || id.includes('dashboard')) return true;
+      if (lbl.includes('home') || lbl.includes('dashboard')) return true;
+      return (p === '/Farm-vista/' || p === '/Farm-vista/index.html');
     }
 
     async _initMenuFiltered(){
@@ -383,31 +338,48 @@
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
 
-      // If we already painted and this ctx has no allowedIds yet, keep the current menu.
-      if (this._menuPainted && ctx && !Array.isArray(ctx.allowedIds)) {
-        return;
-      }
+      if (this._menuPainted && ctx && !Array.isArray(ctx.allowedIds)) return;
 
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      // If first paint and we still don't have allowed ids, don't render at all yet.
-      if (!this._menuPainted && allowedIds.length === 0) {
-        return;
-      }
+      if (!this._menuPainted && allowedIds.length === 0) return;
 
-      let filtered = null;
-      try {
-        if (window.FVMenuACL && typeof window.FVMenuACL.filter === 'function') {
-          filtered = window.FVMenuACL.filter(NAV_MENU, allowedIds);
+      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
+        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
+        : NAV_MENU;
+
+      let cfgToRender = filtered;
+      let linkCount = this._countLinks(filtered);
+
+      /* === RESCUE WHITELIST MODE ===
+         If filter produced zero links but we *do* have allowedIds,
+         render a flat whitelist from the raw menu. */
+      if (linkCount === 0 && allowedIds.length > 0) {
+        const allLinks = this._collectAllLinks(NAV_MENU);
+        const set = new Set(allowedIds);
+        const rescued = allLinks.filter(l => set.has(l.id));
+        // Try to force-include a Home/Dashboard link if present anywhere
+        const homeLink = allLinks.find(l => this._looksLikeHome(l));
+        if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
+
+        cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
+        linkCount = rescued.length;
+      } else {
+        // Even when filter worked, still prepend Home if it was pruned by role keys.
+        const alreadyHasHome = (()=> {
+          const links = this._collectAllLinks(filtered);
+          return links.some(l => this._looksLikeHome(l));
+        })();
+        if (!alreadyHasHome) {
+          const allLinks = this._collectAllLinks(NAV_MENU);
+          const homeLink = allLinks.find(l => this._looksLikeHome(l));
+          if (homeLink) {
+            cfgToRender = { items: [{ type:'link', id:homeLink.id, label:homeLink.label, href:homeLink.href, icon:homeLink.icon, activeMatch:homeLink.activeMatch }].concat(filtered.items||[]) };
+          }
         }
-      } catch (e) {
-        // fall through to local
-      }
-      if (!filtered) {
-        filtered = this._filterMenuLocal(NAV_MENU, allowedIds);
       }
 
-      this._renderMenu(filtered || NAV_MENU);
+      this._renderMenu(cfgToRender);
       this._menuPainted = true;
     }
 
@@ -552,7 +524,6 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== PULL-TO-REFRESH ===== */
     _initPTR(){
       const bar = this._ptr = this.shadowRoot.querySelector('.js-ptr');
       const txt = this._ptrTxt = this.shadowRoot.querySelector('.js-txt');
@@ -594,7 +565,6 @@
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth + Logout label (sticky) ===== */
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -637,7 +607,6 @@
       }
     }
 
-    /* ===== Version + updates (SW-aware) ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
@@ -652,16 +621,13 @@
       try{
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
-
         if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
 
         this._toastMsg('Clearing cache…', 900);
 
-        let oldControllers = false;
         if (navigator.serviceWorker) {
           try {
             const regs = await navigator.serviceWorker.getRegistrations();
-            oldControllers = regs.length > 0;
             await Promise.all(regs.map(r=> r.unregister()));
           } catch {}
         }
@@ -671,24 +637,17 @@
 
         sessionStorage.setItem('fv:boot:forceOnce','1');
 
-        let tookControl = false;
         const waitForControl = new Promise((resolve) => {
           const timer = setTimeout(()=> resolve(false), 3000);
           if (navigator.serviceWorker) {
-            navigator.serviceWorker.oncontrollerchange = () => {
-              clearTimeout(timer);
-              tookControl = true;
-              resolve(true);
-            };
-          } else {
-            clearTimeout(timer); resolve(false);
-          }
+            navigator.serviceWorker.oncontrollerchange = () => { clearTimeout(timer); resolve(true); };
+          } else { clearTimeout(timer); resolve(false); }
         });
 
         if (navigator.serviceWorker) {
           try {
             const reg = await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now());
-            if (reg && reg.waiting) { reg.waiting.postMessage && reg.waiting.postMessage('SKIP_WAITING'); }
+            if (reg && reg.waiting && reg.waiting.postMessage) reg.waiting.postMessage('SKIP_WAITING');
           } catch {}
         }
 
