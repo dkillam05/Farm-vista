@@ -1,8 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.9 (hotfix)
-   - Fix: regex literals in checkForUpdates() (no double escaping)
-   - Keep: guaranteed "Home" visibility; FVUserContext-driven filtering
-   - Keep: one-time boot overlay; PTR; live logout label; drawer behavior
+   FarmVista Shell — v5.10.7
+   - One-time boot overlay (blurred) "Loading. Please wait." ONLY on first load
+     or when forced by pull-to-refresh / check-for-updates.
+   - Logout label comes from FVUserContext (fallback to Firebase Auth).
+   - Menu filtered by FVMenuACL + FVUserContext.allowedIds.
 */
 
 (function () {
@@ -117,6 +118,7 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
+  <!-- One-time boot overlay: shown only if session not hydrated OR force flag set -->
   <div class="boot js-boot" hidden>
     <div class="boot-card">
       <div class="spin" aria-hidden="true"></div>
@@ -124,6 +126,7 @@
     </div>
   </div>
 
+  <!-- Fixed PTR bar -->
   <div class="ptr js-ptr" aria-hidden="true">
     <div class="dot js-dot" hidden></div>
     <div class="spinner js-spin" hidden></div>
@@ -210,13 +213,17 @@
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
       this._boot = r.querySelector('.js-boot');
-      this._logoutLabel = r.querySelector('#logoutLabel');
+      this._logoutLabel = r.getElementById('logoutLabel');
 
+      // Show boot overlay only if first-load OR forced
       const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
                          sessionStorage.getItem('fv:boot:forceOnce') === '1';
       if (this._boot) this._boot.hidden = !shouldBoot;
+
+      // Clear force flag if it existed
       sessionStorage.removeItem('fv:boot:forceOnce');
 
+      // header buttons & theme
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
@@ -230,39 +237,42 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
+      // Boot
       this._bootSequence();
     }
 
+    /* =================== Boot sequence (order matters) =================== */
     async _bootSequence(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
       await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
-      await this._ensureFirebaseInit();
+      await this._ensureFirebaseInit(); // tolerant
 
+      // user-context + menu-acl
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
+
+      // Wait for user context (with timeout)
       await this._waitForUserContext(5000);
 
+      // Menu render (filtered)
       await this._initMenuFiltered();
 
-      try {
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(() => this._initMenuFiltered());
-        }
-      } catch {}
-
+      // Wire logout label and actions
       this._wireAuthLogout(this.shadowRoot);
 
+      // Hide boot overlay and mark hydrated (one per tab session)
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
+      // PTR & misc
       const upd = this.shadowRoot.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
       const r = this.shadowRoot;
-      const ud = r.querySelector('#userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
-      const fb = r.querySelector('#feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
+      const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
+      const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initPTR();
     }
@@ -273,7 +283,7 @@
           window.__FV_FIREBASE_INIT_LOADED__ = true;
           await this._loadScriptOnce('/Farm-vista/js/firebase-init.js', { type:'module' });
         }
-      } catch {}
+      } catch (e) { /* ignore */ }
     }
 
     _applyVersionToUI(){
@@ -326,35 +336,16 @@
       }
     }
 
-    _internalFilterByIds(cfg, allowedIds) {
-      if (!cfg || !Array.isArray(cfg.items)) return cfg;
-      const allow = new Set(Array.isArray(allowedIds) ? allowedIds : []);
-      allow.add('home'); // always allow home
-
-      function cloneNode(n){
-        if (n.type === 'link') return allow.has(n.id) ? { ...n } : null;
-        if (n.type === 'group') {
-          const kids = (n.children||[]).map(cloneNode).filter(Boolean);
-          if (!kids.length) return null;
-          return { ...n, children: kids };
-        }
-        return null;
-      }
-      const items = cfg.items.map(cloneNode).filter(Boolean);
-      return { ...cfg, items };
-    }
-
     async _initMenuFiltered(){
       const NAV_MENU = await this._loadMenu();
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds.slice() : [];
-      if (!allowedIds.includes('home')) allowedIds.push('home');
+      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      const filtered = (window.FVMenuACL && typeof window.FVMenuACL.filter === 'function')
+      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
         ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
-        : this._internalFilterByIds(NAV_MENU, allowedIds);
+        : NAV_MENU;
 
       this._renderMenu(filtered);
     }
@@ -363,7 +354,7 @@
       const nav = this._navEl; if (!nav) return;
       nav.innerHTML = '';
 
-      const path = new URL(location.href).pathname;
+      const path = location.pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
       this._navStateKey = stateKey;
       let groupState = {};
@@ -376,11 +367,11 @@
         a.href = item.href || '#';
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
         a.style.paddingLeft = pad(depth);
-        const hrefPath = new URL(a.href, location.href).pathname;
         const mode = item.activeMatch || 'starts-with';
-        const isActive = (mode === 'exact') ? (path === hrefPath) : path.startsWith(hrefPath);
-        if (isActive) a.setAttribute('aria-current', 'page');
-        a.addEventListener('click', () => { this.toggleDrawer(false); });
+        const hrefPath = new URL(a.href, location.href).pathname;
+        if ((mode==='exact' && path === hrefPath) || (mode!=='exact' && item.href && path.startsWith(hrefPath))) {
+          a.setAttribute('aria-current', 'page');
+        }
         return a;
       };
 
@@ -500,6 +491,7 @@
       this._syncThemeChips(mode);
     }
 
+    /* ===== PULL-TO-REFRESH ===== */
     _initPTR(){
       const bar = this._ptr = this.shadowRoot.querySelector('.js-ptr');
       const txt = this._ptrTxt = this.shadowRoot.querySelector('.js-txt');
@@ -526,6 +518,7 @@
         dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
         document.dispatchEvent(new CustomEvent('fv:refresh'));
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
+        // Force the next page to show the boot once
         sessionStorage.setItem('fv:boot:forceOnce','1');
         try { await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve()); } catch {}
         await this._initMenuFiltered();
@@ -543,9 +536,10 @@
       window.addEventListener('mouseup', onEnd);
     }
 
+    /* ===== Auth + Logout label ===== */
     _wireAuthLogout(r){
-      const logoutRow = r.querySelector('#logoutRow');
-      const logoutLabel = r.querySelector('#logoutLabel');
+      const logoutRow = r.getElementById('logoutRow');
+      const logoutLabel = r.getElementById('logoutLabel');
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
       const setLabel = ()=>{
@@ -554,13 +548,11 @@
           const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
           if (ctx && (ctx.displayName || ctx.email)) name = ctx.displayName || ctx.email;
         } catch {}
-        try {
-          if (!name && window.firebaseAuth && window.firebaseAuth.currentUser) {
-            const u = window.firebaseAuth.currentUser;
-            name = u && (u.displayName || u.email || '');
-          }
-        } catch {}
-        if (logoutLabel) logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
+        if (!name && window.firebaseAuth && window.firebaseAuth.currentUser) {
+          const u = window.firebaseAuth.currentUser;
+          name = u.displayName || u.email || '';
+        }
+        logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
       };
 
       setLabel();
@@ -569,6 +561,7 @@
           window.FVUserContext.onChange(() => setLabel());
         }
       } catch {}
+
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
@@ -583,6 +576,7 @@
       }
     }
 
+    /* ===== Version + updates ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
@@ -610,6 +604,7 @@
         }
 
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
+        // Force next boot once after update
         sessionStorage.setItem('fv:boot:forceOnce','1');
 
         await sleep(150);
