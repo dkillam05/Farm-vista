@@ -1,4 +1,4 @@
-/* /Farm-vista/js/fv-shell.js
+☁️/* /Farm-vista/js/fv-shell.js
    FarmVista Shell — v5.10.11 (adds Connection status line)
    - Adds a single “Connection: Online/Offline” row in the Top Drawer (☁️ icon).
    - ONLINE only if BOTH: device network is online AND backend is reachable.
@@ -165,7 +165,7 @@
 
       <!-- NEW: Connection status (single line) -->
       <a class="row js-conn" href="#" tabindex="-1" aria-disabled="true">
-        <div class="left"><div class="ico">☁️</div><div class="txt">Connection: <span class="js-conn-text">Checking…</span></div></div>
+        <div class="left"><div class="ico">🌐</div><div class="txt">Connection: <span class="js-conn-text">Checking…</span></div></div>
         <div class="chev">•</div>
       </a>
 
