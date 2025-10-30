@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Setup → Farms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -17,6 +19,10 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .page-title{margin:0 0 8px 0;}
     .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .alert{display:none;margin:0 0 12px 0;border:1px solid #c62828;background:#fdecea;color:#8a1c1c;
+      border-radius:12px;padding:12px 14px;font-weight:700}
+    .alert.show{display:block}
 
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
@@ -72,13 +78,17 @@
     }
   })();</script>
 
-  <!-- Firebase config FIRST (match Employees page load order) -->
+  <!-- Firebase config FIRST (match app load order) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
-</head><body>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Farms</h1>
       <p class="page-sub">Simple farm categories for organizing your operation.</p>
+
+      <!-- visible error when reads are blocked or fail -->
+      <div id="alert" class="alert" role="alert"></div>
 
       <section class="section">
         <header class="section-head">
@@ -140,19 +150,27 @@
     </div>
   </div>
 
-  <!-- Data logic (same pattern as Employees: module import from firebase-init.js) -->
+  <!-- Data logic -->
   <script type="module">
     import {
       ready,
-      getFirestore, collection, addDoc, doc, getDoc, getDocs, updateDoc, deleteDoc,
+      getFirestore, collection, addDoc, doc, getDocs, updateDoc, deleteDoc,
       query, orderBy, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     /* --------------------- tiny utils --------------------- */
     const $ = id => document.getElementById(id);
     const toast = $("toast");
+    const alertBox = $("alert");
     const showToast = (msg="Successfully saved.")=>{
       toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+    };
+    const showAlert = (msg)=>{
+      alertBox.textContent = msg;
+      alertBox.classList.add('show');
+      // auto-hide after 8s but keep visible on repeated errors
+      clearTimeout(showAlert._t);
+      showAlert._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const escapeHTML = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
@@ -160,26 +178,46 @@
     let editId = null;
     let rows = [];
 
+    /* --------------------- Auth ready guard --------------------- */
+    async function waitForAuthReady(timeoutMs=5000){
+      try{
+        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
+        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
+        await new Promise((resolve)=> {
+          let done=false;
+          const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
+          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
+        });
+      }catch{}
+    }
+
     /* --------------------- Firestore helpers --------------------- */
     const col = ()=> collection(db, 'farms');
 
     async function loadFarms(){
-      const qy = query(col(), orderBy('t','desc'));
-      const snap = await getDocs(qy);
-      const out = [];
-      snap.forEach(d=>{
-        const v = d.data()||{};
-        out.push({
-          id: d.id,
-          name: String(v.name||'').trim(),
-          status: v.status==='archived' ? 'archived' : 'active',
-          used: !!v.used,
-          t: typeof v.t==='number' ? v.t : (v.t && v.t.toMillis ? v.t.toMillis() : 0),
-          updatedAt: v.updatedAt && v.updatedAt.toMillis ? v.updatedAt.toMillis() : undefined
+      try{
+        const qy = query(col(), orderBy('t','desc'));
+        const snap = await getDocs(qy);
+        const out = [];
+        snap.forEach(d=>{
+          const v = d.data()||{};
+          out.push({
+            id: d.id,
+            name: String(v.name||'').trim(),
+            status: v.status==='archived' ? 'archived' : 'active',
+            used: !!v.used,
+            t: typeof v.t==='number' ? v.t : (v.t && v.t.toMillis ? v.t.toMillis() : 0),
+            updatedAt: v.updatedAt && v.updatedAt.toMillis ? v.updatedAt.toMillis() : undefined
+          });
         });
-      });
-      rows = out;
-      render();
+        rows = out;
+        render();
+      }catch(err){
+        console.error('Farms read failed:', err);
+        showAlert((err && err.message) ? err.message : 'Unable to load farms.');
+        rows = [];
+        render();
+      }
     }
 
     async function addFarm(name){
@@ -188,7 +226,7 @@
         status: 'active',
         used: false,
         t: Date.now(),
-        updatedAt: serverTimestamp?.() || new Date()
+        updatedAt: (typeof serverTimestamp === 'function') ? serverTimestamp() : new Date()
       };
       await addDoc(col(), payload);
     }
@@ -196,7 +234,8 @@
     async function updateFarm(id, patch){
       if(!id) return;
       const dref = doc(db,'farms', id);
-      await updateDoc(dref, { ...patch, updatedAt: serverTimestamp?.() || new Date() });
+      const body = { ...patch, updatedAt: (typeof serverTimestamp === 'function') ? serverTimestamp() : new Date() };
+      await updateDoc(dref, body);
     }
 
     async function removeFarm(id){
@@ -256,7 +295,7 @@
       const name = $("farmName").value.trim();
       if(!name){ alert("Please enter a farm name."); return; }
       try{
-        await ready; db = getFirestore();
+        await ready; db = getFirestore(); await waitForAuthReady();
         await addFarm(name);
         $("farmName").value = "";
         showToast("Successfully saved.");
@@ -264,25 +303,25 @@
         window.scrollTo({top:0,behavior:"smooth"});
       }catch(err){
         console.error(err);
-        alert("Save failed.\n\n"+(err?.message||err));
+        showAlert("Save failed: " + (err?.message||err));
       }
     });
 
     $("clear").addEventListener("click", ()=>{ $("farmName").value=""; });
-    $("reload").addEventListener("click", ()=> loadFarms().catch(console.error));
+    $("reload").addEventListener("click", async ()=>{ await loadFarms(); });
 
     mdSave.addEventListener("click", async ()=>{
       const name = $("editName").value.trim();
       if(!name){ alert("Please enter a farm name."); return; }
       try{
-        await ready; db = getFirestore();
+        await ready; db = getFirestore(); await waitForAuthReady();
         await updateFarm(editId, { name });
         showToast("Changes saved.");
         await loadFarms();
         closeModal();
       }catch(err){
         console.error(err);
-        alert("Update failed.\n\n"+(err?.message||err));
+        showAlert("Update failed: " + (err?.message||err));
       }
     });
 
@@ -291,7 +330,7 @@
         const it = rows.find(r=>r.id===editId);
         if(!it) return;
         const nextStatus = it.status==='archived' ? 'active' : 'archived';
-        await ready; db = getFirestore();
+        await ready; db = getFirestore(); await waitForAuthReady();
         await updateFarm(editId, { status: nextStatus });
         $("statusPill").textContent = nextStatus==='archived' ? 'Archived' : 'Active';
         mdArchive.textContent = nextStatus==='archived' ? 'Unarchive' : 'Archive';
@@ -299,7 +338,7 @@
         await loadFarms();
       }catch(err){
         console.error(err);
-        alert("Archive toggle failed.\n\n"+(err?.message||err));
+        showAlert("Archive toggle failed: " + (err?.message||err));
       }
     });
 
@@ -309,25 +348,26 @@
         if(!it) return;
         if(it.used){ alert("This farm is in use and cannot be deleted. Archive instead."); return; }
         if(!confirm(`Delete farm "${it.name}"? This cannot be undone.`)) return;
-        await ready; db = getFirestore();
+        await ready; db = getFirestore(); await waitForAuthReady();
         await removeFarm(editId);
         showToast("Farm deleted.");
         await loadFarms();
         closeModal();
       }catch(err){
         console.error(err);
-        alert("Delete failed.\n\n"+(err?.message||err));
+        showAlert("Delete failed: " + (err?.message||err));
       }
     });
 
     /* --------------------- Boot --------------------- */
     (async function boot(){
       try{
-        await ready; db = getFirestore();
+        await ready; db = getFirestore(); await waitForAuthReady();
       }catch(e){ console.warn('Firebase not ready:', e); }
-      try{ await loadFarms(); }catch(e){ console.error('List load failed:', e); }
+      await loadFarms();
     })();
   </script>
 
   <script nomodule>(function(){ /* no-op */ })();</script>
-</body></html>
+</body>
+</html>
