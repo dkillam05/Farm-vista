@@ -37,6 +37,7 @@
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
@@ -74,11 +75,13 @@
     .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
 
-    /* Toast */
+    /* Toast + error */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+    .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
+    .error.show{display:block}
 
     .muted{ color:var(--muted,#67706B); }
   </style>
@@ -97,7 +100,6 @@
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
-            <!-- Inline bin icon -->
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
               <path d="M6.5 7 L12 3.8 L17.5 7"/><rect x="7" y="7" width="10" height="13" rx="1.6"/>
               <path d="M10 7v13M14 7v13" stroke-linecap="round"/>
@@ -107,6 +109,8 @@
         </header>
 
         <div class="section-body">
+          <div id="err" class="error"></div>
+
           <div class="row">
             <div class="field">
               <label for="siteName">Site Name</label>
@@ -184,58 +188,61 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+  import {
+    ready,
+    getFirestore, collection, query, orderBy,
+    getDocs, addDoc, doc, getDoc, setDoc, updateDoc, deleteDoc,
+    serverTimestamp
+  } from '/Farm-vista/js/firebase-init.js';
+
   (function(){
     "use strict";
 
     const $ = id => document.getElementById(id);
     const toast = $("toast");
-    const LS_KEY = "fv_setup_grain_sites_v1";
+    const errBox = $("err");
 
-    // ---- Utils ----
-    function loadAll(){ try{ const a = JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
-    function saveAll(a){ localStorage.setItem(LS_KEY, JSON.stringify(a)); }
-    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
-    function fmtComma(n){ if(n==null||n==="") return ""; const v=Number(String(n).replace(/,/g,"")); return isFinite(v)? v.toLocaleString(): String(n); }
-    function toNum(v){ const n = Number(String(v||"").replace(/,/g,"").trim()); return isFinite(n)? n:0; }
-    function showToast(msg="Successfully saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
-
-    // ---- Add form state ----
-    let addBins = []; // [{num, bushels}]
+    // Add form DOM
     const binsBox = $("bins"), binCountPill = $("binCountPill"), bushelTotalPill = $("bushelTotalPill");
+    const addBtn = $("addBin"), saveBtn = $("save"), clearBtn = $("clear");
+    const siteName = $("siteName");
 
-    function nextBinNumber(list){ return list.length ? Math.max(...list.map(b=>b.num))+1 : 1; }
+    // List + modal DOM
+    const listBox = $("list");
+    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
+    const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
+    const statusPill = $("statusPill"), usedPill = $("usedPill");
 
-    function addBinRow(list, box, pills){
-      const num = nextBinNumber(list);
-      const row = { num, bushels: 0 };
-      list.push(row);
-      renderBins(list, box, pills);
-    }
+    // State
+    let db;
+    let addBins = [];       // [{num, bushels}]
+    let editId = null;
+    let mdBins = [];        // modal bins
 
-    function removeBinRow(list, idx, box, pills){
-      list.splice(idx,1);
-      renderBins(list, box, pills);
-    }
+    // Firestore collection
+    const sitesRef = ()=> collection(db, 'binSites');
 
-    function renderBins(list, box, pills){
-      box.innerHTML = "";
-      list.forEach((b, idx)=>{
-        const row = document.createElement("div");
-        row.className = "bin-row";
-        row.innerHTML = `
-          <div class="bin-num"><span class="badge">Bin ${b.num}</span></div>
-          <input class="input bu" placeholder="Bushels" inputmode="decimal" value="${escapeHTML(fmtComma(b.bushels))}">
-          <button type="button" class="bin-remove">Remove</button>
-        `;
-        const bu = row.querySelector(".bu");
-        bu.addEventListener("blur", ()=>{ bu.value = fmtComma(bu.value); });
-        bu.addEventListener("input", ()=>{ b.bushels = toNum(bu.value); updateTotals(list, pills); });
-        row.querySelector(".bin-remove").addEventListener("click", ()=> removeBinRow(list, idx, box, pills));
-        box.appendChild(row);
-      });
-      updateTotals(list, pills);
-    }
+    /* ========== Utils ========== */
+    const showToast = (msg="Successfully saved.")=>{
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth;
+      toast.classList.add("show");
+    };
+    const showErr = (msg)=>{ errBox.textContent = msg||""; errBox.classList.toggle("show", !!msg); };
+
+    const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&gt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const fmtComma = (n)=>{
+      if(n==null||n==="") return "";
+      const v = Number(String(n).replace(/,/g,""));
+      return isFinite(v) ? v.toLocaleString() : String(n);
+    };
+    const toNum = (v)=> {
+      const n = Number(String(v||"").replace(/,/g,"").trim());
+      return isFinite(n) ? n : 0;
+    };
+
+    const nextBinNumber = (list)=> list.length ? (Math.max(...list.map(b=>Number(b.num)||0)) + 1) : 1;
 
     function updateTotals(list, pills){
       const count = list.length;
@@ -244,65 +251,107 @@
       pills.total.textContent = `${fmtComma(total)} bu`;
     }
 
-    $("addBin").addEventListener("click", ()=> addBinRow(addBins, binsBox, {count:binCountPill,total:bushelTotalPill}));
+    function renderBins(list, box, pills){
+      box.innerHTML = "";
+      list.forEach((b, idx)=>{
+        const row = document.createElement("div");
+        row.className = "bin-row";
+        row.innerHTML = `
+          <div class="bin-num"><span class="badge">Bin ${escapeHTML(b.num)}</span></div>
+          <input class="input bu" placeholder="Bushels" inputmode="decimal" value="${escapeHTML(fmtComma(b.bushels))}">
+          <button type="button" class="bin-remove">Remove</button>
+        `;
+        const bu = row.querySelector(".bu");
+        bu.addEventListener("blur", ()=>{ bu.value = fmtComma(bu.value); });
+        bu.addEventListener("input", ()=>{ b.bushels = toNum(bu.value); updateTotals(list, pills); });
+        row.querySelector(".bin-remove").addEventListener("click", ()=>{ list.splice(idx,1); renderBins(list, box, pills); });
+        box.appendChild(row);
+      });
+      updateTotals(list, pills);
+    }
 
-    // ---- Save new site ----
-    $("save").addEventListener("click", ()=>{
-      const name = $("siteName").value.trim();
+    /* ========== Add form actions ========== */
+    addBtn.addEventListener("click", ()=>{
+      addBins.push({ num: nextBinNumber(addBins), bushels: 0 });
+      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+    });
+
+    clearBtn.addEventListener("click", ()=>{
+      siteName.value = "";
+      addBins = [];
+      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+      showErr("");
+    });
+
+    saveBtn.addEventListener("click", async ()=>{
+      const name = siteName.value.trim();
       if(!name){ alert("Please enter a site name."); return; }
-      if(addBins.length===0){ if(!confirm("No bins added. Save site without bins?")) return; }
+      if(addBins.length===0 && !confirm("No bins added. Save site without bins?")) return;
 
-      const bins = addBins.map(b=>({ num:b.num, bushels: toNum(b.bushels) }));
+      // Normalize data
+      const bins = addBins.map(b=>({ num: Number(b.num)||0, bushels: toNum(b.bushels) }));
+      const set = new Set(); let dup=false;
+      bins.forEach(b=>{ const k=String(b.num); if(set.has(k)) dup=true; set.add(k); });
+      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
+
       const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
 
-      const arr = loadAll();
-      arr.unshift({
-        id: String(Date.now()) + Math.random().toString(36).slice(2,7),
-        name,
-        bins,
-        totalBushels: total,
-        status: "active",  // 'active' | 'archived'
-        used: false,       // set true once referenced in ops
-        t: Date.now()
+      try{
+        showErr("");
+        await addDoc(sitesRef(), {
+          name,
+          bins,
+          totalBushels: total,
+          status: "active",
+          used: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        showToast("Successfully saved.");
+        siteName.value = "";
+        addBins = [];
+        renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+        await renderList();
+        window.scrollTo({top:0, behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        showErr("Save failed. Check permissions or network.");
+      }
+    });
+
+    /* ========== List & Modal ========== */
+    async function fetchSites(){
+      const qs = await getDocs(query(sitesRef(), orderBy('updatedAt','desc')));
+      const out = [];
+      qs.forEach(s=>{
+        const d = s.data()||{};
+        out.push({ id:s.id, ...d });
       });
-      saveAll(arr);
-
-      showToast("Successfully saved.");
-      // reset form
-      $("siteName").value = "";
-      addBins = [];
-      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
-      renderList();
-      window.scrollTo({top:0, behavior:"smooth"});
-    });
-
-    $("clear").addEventListener("click", ()=>{
-      $("siteName").value = "";
-      addBins = [];
-      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
-    });
-
-    // ---- List + modal ----
-    const listBox = $("list");
-    function renderList(){
-      const arr = loadAll();
-      if(!arr.length){ listBox.innerHTML = '<div class="muted">No bin sites yet.</div>'; return; }
-      arr.sort((a,b)=>{
+      // archived last
+      out.sort((a,b)=>{
         const sa = a.status==="archived", sb = b.status==="archived";
-        return (sa - sb) || (b.t - a.t);
+        const ta = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+        const tb = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+        return (sa - sb) || (tb - ta);
       });
+      return out;
+    }
+
+    async function renderList(){
+      const items = await fetchSites();
+      if(!items.length){ listBox.innerHTML = '<div class="muted">No bin sites yet.</div>'; return; }
       listBox.innerHTML = "";
-      arr.forEach(it=>{
+      items.forEach(it=>{
         const div = document.createElement("div");
         div.className = "item";
         const pills = `
-          <span class="pill">${it.bins.length} ${it.bins.length===1?'bin':'bins'}</span>
+          <span class="pill">${(it.bins||[]).length} ${(it.bins||[]).length===1?'bin':'bins'}</span>
           <span class="pill">${fmtComma(it.totalBushels||0)} bu</span>
           ${it.status==="archived" ? `<span class="pill">Archived</span>` : ""}
         `;
         div.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <div class="name">${escapeHTML(it.name)}</div>
+            <div class="name">${escapeHTML(it.name||'(Unnamed)')}</div>
             ${pills}
           </div>
           <button class="view" type="button">View / Edit</button>
@@ -312,31 +361,32 @@
       });
     }
 
-    // Modal elements
-    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
-    const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
-    let editId = null, mdBins = [];
-
-    function openEdit(id){
-      const arr = loadAll();
-      const it = arr.find(x=>x.id===id);
-      if(!it) return;
-      editId = id;
-      mdName.value = it.name;
-      mdBins = it.bins.map(b=>({num:b.num, bushels:b.bushels}));
-      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
-      $("usedPill").style.display = it.used ? "inline-block" : "none";
-      mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
-      mdDelete.disabled = !!it.used;
-      mdDelete.title = it.used ? "This site is in use and cannot be deleted. Archive instead." : "Delete this site";
-      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill});
-      openModal();
+    async function openEdit(id){
+      try{
+        const ref = doc(db,'binSites', id);
+        const snap = await getDoc(ref);
+        if(!snap.exists()) return;
+        const it = snap.data()||{};
+        editId = id;
+        mdName.value = it.name || "";
+        mdBins = (it.bins||[]).map(b=>({ num:Number(b.num)||0, bushels:Number(b.bushels)||0 }));
+        statusPill.textContent = it.status==="archived" ? "Archived" : "Active";
+        usedPill.style.display = it.used ? "inline-block" : "none";
+        mdDelete.disabled = !!it.used;
+        mdDelete.title = it.used ? "This site is in use and cannot be deleted. Archive instead." : "Delete this site";
+        mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+        renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill});
+        openModal();
+      }catch(e){
+        console.error(e);
+        showErr("Failed to open site.");
+      }
     }
 
     function openModal(){
       modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-      mdName.focus();
+      setTimeout(()=> mdName.focus(), 0);
     }
     function closeModal(){
       modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
@@ -347,61 +397,82 @@
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
-    // Add bin inside modal
-    $("mdAddBin").addEventListener("click", ()=> addBinRow(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}));
+    $("mdAddBin").addEventListener("click", ()=>{
+      mdBins.push({ num: nextBinNumber(mdBins), bushels: 0 });
+      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill});
+    });
 
-    mdSave.addEventListener("click", ()=>{
+    mdSave.addEventListener("click", async ()=>{
       const name = mdName.value.trim();
       if(!name){ alert("Please enter a site name."); return; }
-      const bins = mdBins.map(b=>({ num:b.num, bushels: toNum(b.bushels) }));
-      // ensure bin numbers unique & sequential-ish
-      const usedNums = new Set(); let dup=false;
-      bins.forEach(b=>{ if(usedNums.has(b.num)) dup=true; usedNums.add(b.num); });
+      const bins = mdBins.map(b=>({ num:Number(b.num)||0, bushels: toNum(b.bushels) }));
+      // unique bin numbers
+      const used = new Set(); let dup=false;
+      bins.forEach(b=>{ const k=String(b.num); if(used.has(k)) dup=true; used.add(k); });
       if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
 
-      const arr = loadAll();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx>=0){
-        const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
-        arr[idx] = { ...arr[idx], name, bins, totalBushels: total, updatedAt: Date.now() };
-        saveAll(arr);
+      const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
+
+      try{
+        const ref = doc(db,'binSites', editId);
+        await updateDoc(ref, {
+          name, bins, totalBushels: total, updatedAt: serverTimestamp()
+        });
+        showToast("Changes saved.");
+        await renderList();
+        closeModal();
+      }catch(e){
+        console.error(e);
+        showErr("Update failed.");
       }
-      renderList();
-      showToast("Changes saved.");
-      closeModal();
     });
 
-    mdArchive.addEventListener("click", ()=>{
-      const arr = loadAll();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx<0) return;
-      const cur = arr[idx];
-      const next = cur.status==="archived" ? "active" : "archived";
-      arr[idx] = { ...cur, status: next, updatedAt: Date.now() };
-      saveAll(arr);
-      renderList();
-      showToast(next==="archived" ? "Site archived." : "Site unarchived.");
-      $("statusPill").textContent = next==="archived" ? "Archived" : "Active";
-      mdArchive.textContent = next==="archived" ? "Unarchive" : "Archive";
+    mdArchive.addEventListener("click", async ()=>{
+      try{
+        const ref = doc(db,'binSites', editId);
+        const snap = await getDoc(ref);
+        if(!snap.exists()) return;
+        const cur = snap.data()||{};
+        const next = cur.status==="archived" ? "active" : "archived";
+        await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
+        showToast(next==="archived" ? "Site archived." : "Site unarchived.");
+        await renderList();
+        statusPill.textContent = next==='archived' ? 'Archived' : 'Active';
+        mdArchive.textContent = next==='archived' ? 'Unarchive' : 'Archive';
+      }catch(e){
+        console.error(e);
+        showErr("Archive toggle failed.");
+      }
     });
 
-    mdDelete.addEventListener("click", ()=>{
-      const arr = loadAll();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx<0) return;
-      const cur = arr[idx];
-      if(cur.used){ alert("This site is in use and cannot be deleted. Archive instead."); return; }
-      if(!confirm(`Delete site "${cur.name}"? This cannot be undone.`)) return;
-      arr.splice(idx,1);
-      saveAll(arr);
-      renderList();
-      showToast("Site deleted.");
-      closeModal();
+    mdDelete.addEventListener("click", async ()=>{
+      try{
+        const ref = doc(db,'binSites', editId);
+        const snap = await getDoc(ref);
+        if(!snap.exists()) return;
+        const cur = snap.data()||{};
+        if(cur.used){ alert("This site is in use and cannot be deleted. Archive instead."); return; }
+        if(!confirm(`Delete site "${cur.name||''}"? This cannot be undone.`)) return;
+        await deleteDoc(ref);
+        showToast("Site deleted.");
+        await renderList();
+        closeModal();
+      }catch(e){
+        console.error(e);
+        showErr("Delete failed.");
+      }
     });
 
-    // Init
-    renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
-    renderList();
+    /* ========== Init ========== */
+    (async ()=>{
+      const ctx = await ready;
+      if(ctx.mode!=='firebase'){ alert("Firestore not available (stub mode). This page expects Firebase to be live."); }
+      db = getFirestore();
+
+      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+      await renderList();
+    })();
+
   })();
   </script>
 </body></html>
