@@ -77,7 +77,7 @@
     /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
-    .toast.show{display:block;animation:fadeout 2.8s forwards;}
+    .toast.show{display:block;animation:fadeout 5s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
     .muted{ color:var(--muted,#67706B); }
@@ -280,12 +280,18 @@
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
-    /* =================== Utils =================== */
-    const showToast = (msg="Successfully saved.")=>{
+    /* =================== Small online/offline indicator =================== */
+    function showToast(msg="Saved.", ms=5000){
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth;
       toast.classList.add("show");
-    };
+      setTimeout(()=> toast.classList.remove("show"), ms);
+    }
+    function wireNetToasts(){
+      window.addEventListener('online', ()=> showToast("Back online — syncing…", 5000));
+      window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 5000));
+    }
+
     const toNum = (v)=> {
       const n = Number(String(v||"").replace(/,/g,"").trim());
       return isFinite(n) ? n : 0;
@@ -297,6 +303,10 @@
     };
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
+    /* =================== Optional Session Store detection =================== */
+    // If FVStore is present later, we’ll use it; otherwise we use Firestore directly.
+    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
+
     /* =================== Firestore handles =================== */
     let db;
     let FARMS_CACHE = []; // [{id, name, status}]
@@ -306,8 +316,18 @@
     const fieldsRef  = ()=> collection(db, 'fields');
     const countiesRef= ()=> collection(db, 'counties');
 
-    /* =================== Farms =================== */
+    /* =================== Farms (store-aware) =================== */
     async function loadFarms(){
+      if (hasStore){
+        // Expect store to already have warmed session data; fallback to Firestore if empty.
+        const fromStore = (window.FVStore.getAll && window.FVStore.getAll('farms')) || [];
+        if (fromStore && fromStore.length){
+          FARMS_CACHE = fromStore.map(x=>({ id:x.id, name:x.name, status:x.status||'active' }));
+          FARMS_MAP.clear(); FARMS_CACHE.forEach(f=> FARMS_MAP.set(f.id,f));
+          return FARMS_CACHE.slice();
+        }
+      }
+      // Fallback: live Firestore
       const qs = await getDocs(query(farmsRef(), orderBy('name')));
       FARMS_CACHE = [];
       FARMS_MAP.clear();
@@ -342,7 +362,6 @@
       }else{
         $("noFarms").style.display = "none";
         $("save").disabled = false;
-        // Only actual Firestore farms, no placeholders
         active.forEach(f=>{
           const o=document.createElement("option");
           o.value=f.id; o.textContent=f.name;
@@ -379,7 +398,7 @@
       });
     }
 
-    /* =================== Counties =================== */
+    /* =================== Counties (unchanged; store later if needed) =================== */
     async function loadCounties(){
       const out=[];
       const qs = await getDocs(query(countiesRef(), orderBy('name')));
@@ -394,9 +413,8 @@
     async function addCounty(name){
       const clean = String(name||'').trim();
       if(!clean) throw new Error('Missing county name');
-      // de-dupe by lowercase match
       const existing = (await loadCounties()).map(x=>x.toLowerCase());
-      if(existing.includes(clean.toLowerCase())) return; // already exists
+      if(existing.includes(clean.toLowerCase())) return;
       await addDoc(countiesRef(), {
         name: clean,
         createdAt: serverTimestamp(),
@@ -410,7 +428,7 @@
       if(val) sel.value = val;
     }
 
-    /* =================== Fields (CRUD) =================== */
+    /* =================== Fields (CRUD; store-aware read) =================== */
     function validateNew(){
       if($("farmSelect").disabled) return "Please add a Farm first.";
       if(!$("farmSelect").value) return "Please choose a Farm.";
@@ -452,7 +470,6 @@
       await addDoc(fieldsRef(), payload);
       showToast("Successfully saved.");
 
-      // quick reset (keep farm & county for speed)
       $("fieldName").value = "";
       $("tillable").value = "";
       $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
@@ -462,7 +479,10 @@
     }
 
     async function fetchFields(farmIdFilter=""){
-      // We’ll read all then client-filter; (optional) later: add composite indexes for where+orderBy if needed.
+      if (hasStore){
+        const all = (window.FVStore.getAll && window.FVStore.getAll('fields')) || [];
+        return farmIdFilter ? all.filter(x=>x.farmId===farmIdFilter) : all;
+      }
       const qs = await getDocs(query(fieldsRef(), orderBy('updatedAt', 'desc')));
       const out=[];
       qs.forEach(s=>{
@@ -480,7 +500,6 @@
 
       if(!items.length){ box.innerHTML = '<div class="muted">No fields yet.</div>'; return; }
 
-      // Sort: active first, then updatedAt desc (serverTimestamp reads as {seconds,...} after fetch)
       items.sort((a,b)=>{
         const sa = (a.status==='archived')|0;
         const sb = (b.status==='archived')|0;
@@ -520,7 +539,6 @@
 
     async function openEdit(id){
       editId = id;
-      // Ensure latest farms in selects
       populateFarmSelects();
       await populateCountySelect($("editCounty"));
 
@@ -657,10 +675,8 @@
       if(!name){ alert("Enter a county name."); return; }
       try{
         await addCounty(name);
-        // refresh selects
         await populateCountySelect($("countySelect"));
         await populateCountySelect($("editCounty"));
-        // select the newly added in whichever select launched it
         if(countySelectTarget){
           const list = await loadCounties();
           const picked = list.find(c=>c.toLowerCase()===name.toLowerCase()) || name;
@@ -675,6 +691,8 @@
 
     /* =================== Init =================== */
     (async ()=>{
+      wireNetToasts();
+
       const ctx = await ready;
       if(ctx.mode!=='firebase'){
         alert("Firestore not available (stub mode). This page expects Firebase to be live.");
@@ -686,6 +704,14 @@
       await populateCountySelect($("countySelect"));
       await populateCountySelect($("editCounty"));
       await renderList();
+
+      // If a session store appears later in the session (hot-load), re-render once.
+      if (hasStore && window.FVStore.subscribe){
+        try{
+          window.FVStore.subscribe('farms', ()=>{ FARMS_CACHE = (window.FVStore.getAll('farms')||[]).map(x=>({id:x.id, name:x.name, status:x.status||'active'})); FARMS_MAP.clear(); FARMS_CACHE.forEach(f=>FARMS_MAP.set(f.id,f)); populateFarmSelects(); });
+          window.FVStore.subscribe('fields', ()=> renderList());
+        }catch{}
+      }
     })();
 
   })();
