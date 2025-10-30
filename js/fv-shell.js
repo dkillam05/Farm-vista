@@ -1,9 +1,8 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.13
-   - Same as v5.10.10 (menu rescue + force include Home), plus:
-     • Top Drawer “Connection” status line (🌐): Online only if (network && cloudReady), else Offline.
-     • Uses FVUserContext hydration as the "cloud" readiness signal (no extra Firestore calls).
-     • Listens to online/offline + FVUserContext changes to keep status fresh.
+   FarmVista Shell — v5.10.14
+   - Adds _ensureAuthedOrKick(): keep boot overlay visible until auth/user-context is known.
+     If no signed-in user is detected within a deadline, redirect to Login.
+   - Keeps existing features: menu rescue, top drawer connection line, update checker, etc.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -117,7 +116,7 @@
   <div class="gold-bar" aria-hidden="true"></div>
 
   <!-- One-time boot overlay -->
-  <div class="boot js-boot" hidden>
+  <div class="boot js-boot">
     <div class="boot-card"><div class="spin" aria-hidden="true"></div><div>Loading. Please wait.</div></div>
   </div>
 
@@ -205,6 +204,7 @@
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
       this._menuPainted = false;
       this._lastLogoutName = '';
+      this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
     }
 
     connectedCallback(){
@@ -224,9 +224,9 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
-      const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
-                         sessionStorage.getItem('fv:boot:forceOnce') === '1';
-      if (this._boot) this._boot.hidden = !shouldBoot;
+      // Keep boot visible by default; we hide it only after auth is confirmed.
+      // If you really want it hidden on return visits, remove the line below.
+      // (We ignore the previous forceOnce flag since we now gate on auth.)
       sessionStorage.removeItem('fv:boot:forceOnce');
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -257,13 +257,14 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      await this._waitForUserContext(5000);
+      // *** HARD AUTH GATE ***
+      await this._ensureAuthedOrKick(6500); // wait up to 6.5s for a real user; else redirect
 
       await this._initMenuFiltered();
 
       // Auth/logout + connection status
       this._wireAuthLogout(this.shadowRoot);
-      this._initConnectionStatus();  // << new status line updater
+      this._initConnectionStatus();
 
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
@@ -315,6 +316,39 @@
       if (good()) return;
       try { if (window.FVUserContext && window.FVUserContext.ready) await window.FVUserContext.ready(); } catch {}
       while (!good() && (Date.now() - start) < timeoutMs) await new Promise(r => setTimeout(r, 120));
+    }
+
+    // NEW: Strong gate — verify Firebase auth is present (not just cached user-context)
+    async _ensureAuthedOrKick(maxWaitMs=6000){
+      const start = Date.now();
+      const isAuthed = async ()=>{
+        try{
+          const mod = await import('/Farm-vista/js/firebase-init.js');
+          const ctx = await mod.ready;
+          const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
+          return !!(auth && auth.currentUser);
+        }catch{ return false; }
+      };
+      const hasCtx = ()=> {
+        try{ const u = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get(); return !!u; }catch{ return false; }
+      };
+
+      // Keep boot visible while we decide
+      if (this._boot) this._boot.hidden = false;
+
+      // Quick spin: allow fast path if user already hydrated
+      if (await isAuthed()) return;
+
+      // Otherwise, wait in short intervals for either auth or context
+      while ((Date.now() - start) < maxWaitMs) {
+        if (await isAuthed()) return;
+        if (hasCtx()) return; // if user-context produced a user, we’re good
+        await new Promise(r=> setTimeout(r, 150));
+      }
+
+      // Timeout — redirect to Login (no user present)
+      location.replace(this.LOGIN_URL);
+      throw new Error('Auth timeout — redirecting to login');
     }
 
     async _loadMenu(){
@@ -387,9 +421,7 @@
       let cfgToRender = filtered;
       let linkCount = this._countLinks(filtered);
 
-      /* === RESCUE WHITELIST MODE ===
-         If filtering produced zero links but we *do* have allowedIds,
-         render a flat whitelist (plus Home if discoverable). */
+      /* === RESCUE WHITELIST MODE === */
       if (linkCount === 0 && allowedIds.length > 0) {
         const allLinks = this._collectAllLinks(NAV_MENU);
         const set = new Set(allowedIds);
@@ -402,7 +434,6 @@
         })) };
         linkCount = rescued.length;
       } else {
-        // If Home got pruned, prepend it (non-destructive).
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
           return links.some(l => this._looksLikeHome(l));
@@ -610,7 +641,7 @@
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
-      const LOGIN_URL = '/Farm-vista/pages/login/index.html';
+      const LOGIN_URL = this.LOGIN_URL;
 
       const setLabel = ()=>{
         let name = '';
@@ -669,18 +700,15 @@
       // Initial
       update();
 
-      // Network changes
       window.addEventListener('online', update);
       window.addEventListener('offline', update);
 
-      // Recompute when user-context changes/settles
       try {
         if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
           window.FVUserContext.onChange(update);
         }
       } catch {}
 
-      // A brief settle loop (covers late hydration)
       let tries = 20; const t = setInterval(()=>{ update(); if(--tries<=0) clearInterval(t); }, 250);
     }
 
@@ -700,8 +728,7 @@
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Up To Date (v${cur})`, 2200); return; }
-
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
         this._toastMsg('Clearing cache…', 900);
 
         if (navigator.serviceWorker) {
