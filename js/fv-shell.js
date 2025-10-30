@@ -1,10 +1,9 @@
-☁️/* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.11 (adds Connection status line)
-   - Adds a single “Connection: Online/Offline” row in the Top Drawer (☁️ icon).
-   - ONLINE only if BOTH: device network is online AND backend is reachable.
-   - Backend reachability is checked gently (no new deps): tries FVUserContext.ping(),
-     else Auth token refresh if signed-in, else a cache-busted fetch to version.js.
-   - Everything else from v5.10.10 unchanged.
+/* /Farm-vista/js/fv-shell.js
+   FarmVista Shell — v5.10.13
+   - Same as v5.10.10 (menu rescue + force include Home), plus:
+     • Top Drawer “Connection” status line (🌐): Online only if (network && cloudReady), else Offline.
+     • Uses FVUserContext hydration as the "cloud" readiness signal (no extra Firestore calls).
+     • Listens to online/offline + FVUserContext changes to keep status fresh.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -19,6 +18,7 @@
     .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
+
     .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
       background:color-mix(in srgb, #000 25%, transparent);
       backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
@@ -28,6 +28,7 @@
       box-shadow:0 18px 44px rgba(0,0,0,.4); display:flex; align-items:center; gap:12px; font-weight:800;}
     .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
+
     .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
       color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change:transform; pointer-events:none; }
@@ -35,17 +36,21 @@
     .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46); animation:spin 800ms linear infinite; }
     .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
     .ptr .txt{ font-weight:800; }
+
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
+
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
+
     .drawer{ position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
@@ -58,9 +63,11 @@
     .org .org-text{ display:flex; flex-direction:column; }
     .org .org-name{ font-weight:800; line-height:1.15; }
     .org .org-loc{ font-size:13px; color:#666; }
+
     .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
     .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color: var(--text); border-bottom:1px solid var(--border); }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
+
     .drawer-footer{ flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; padding:12px 16px;
       padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border);
       background: var(--surface); color: var(--text); }
@@ -68,6 +75,7 @@
     .df-left .brand{ font-weight:800; line-height:1.15; }
     .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
     .df-right{ font-size:13px; color:#777; white-space:nowrap; }
+
     .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
       border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; }
@@ -77,14 +85,17 @@
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
     .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
+
     .chips{ padding:0 12px 10px; }
     .chip{ appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent); padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700; display:inline-flex; align-items:center; gap:8px; }
     .chip[aria-pressed="true"]{ outline:3px solid color-mix(in srgb,#fff 25%, transparent); background:var(--gold); color:#111; border-color:transparent; }
+
     .row{ display:flex; align-items:center; justify-content:space-between; padding:16px 12px; text-decoration:none; color:#fff; border-top:1px solid color-mix(in srgb,#000 22%, var(--green)); }
     .row .left{ display:flex; align-items:center; gap:14px; }
     .row .ico{ width:28px; height:28px; display:grid; place-items:center; font-size:24px; line-height:1; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
+
     .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
       transform:translateX(-50%); background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
@@ -105,10 +116,12 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
+  <!-- One-time boot overlay -->
   <div class="boot js-boot" hidden>
     <div class="boot-card"><div class="spin" aria-hidden="true"></div><div>Loading. Please wait.</div></div>
   </div>
 
+  <!-- Pull-to-refresh bar -->
   <div class="ptr js-ptr" aria-hidden="true">
     <div class="dot js-dot" hidden></div>
     <div class="spinner js-spin" hidden></div>
@@ -163,14 +176,21 @@
 
       <div class="section-h">MAINTENANCE</div>
 
-      <!-- NEW: Connection status (single line) -->
-      <a class="row js-conn" href="#" tabindex="-1" aria-disabled="true">
+      <!-- 🌐 Connection line -->
+      <a class="row js-conn" href="#" tabindex="-1" aria-disabled="true" title="Shows Online only when network and cloud are both ready">
         <div class="left"><div class="ico">🌐</div><div class="txt">Connection: <span class="js-conn-text">Checking…</span></div></div>
         <div class="chev">•</div>
       </a>
 
-      <a class="row js-update-row" href="#"><div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div><div class="chev">›</div></a>
-      <a class="row" href="#" id="logoutRow"><div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout</div></div><div class="chev">›</div></a>
+      <a class="row js-update-row" href="#">
+        <div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div>
+        <div class="chev">›</div>
+      </a>
+
+      <a class="row" href="#" id="logoutRow">
+        <div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout</div></div>
+        <div class="chev">›</div>
+      </a>
     </div>
   </section>
 
@@ -201,10 +221,8 @@
       this._navEl = r.querySelector('.js-nav');
       this._boot = r.querySelector('.js-boot');
       this._logoutLabel = r.getElementById('logoutLabel');
-
-      // NEW: Connection row refs
       this._connRow = r.querySelector('.js-conn');
-      this._connText = r.querySelector('.js-conn-text');
+      this._connTxt = r.querySelector('.js-conn-text');
 
       const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
                          sessionStorage.getItem('fv:boot:forceOnce') === '1';
@@ -224,9 +242,11 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
+      // Boot sequence
       this._bootSequence();
     }
 
+    /* =================== Boot sequence =================== */
     async _bootSequence(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
@@ -241,7 +261,9 @@
 
       await this._initMenuFiltered();
 
+      // Auth/logout + connection status
       this._wireAuthLogout(this.shadowRoot);
+      this._initConnectionStatus();  // << new status line updater
 
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
@@ -252,13 +274,6 @@
       const r = this.shadowRoot;
       const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
-
-      // NEW: initialize connection status now and on common events
-      this._updateConnection();
-      window.addEventListener('online',  () => this._updateConnection(), { passive:true });
-      window.addEventListener('offline', () => this._updateConnection(), { passive:true });
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) this._updateConnection(); }, { passive:true });
-      document.addEventListener('fv:refresh', () => this._updateConnection(), { passive:true });
 
       this._initPTR();
     }
@@ -357,10 +372,12 @@
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
 
+      // If menu already painted and ctx temporarily lacks allowedIds, don't clobber.
       if (this._menuPainted && ctx && !Array.isArray(ctx.allowedIds)) return;
 
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
+      // On very first paint, if allowedIds is empty, don't render a wrong menu.
       if (!this._menuPainted && allowedIds.length === 0) return;
 
       const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
@@ -370,15 +387,22 @@
       let cfgToRender = filtered;
       let linkCount = this._countLinks(filtered);
 
+      /* === RESCUE WHITELIST MODE ===
+         If filtering produced zero links but we *do* have allowedIds,
+         render a flat whitelist (plus Home if discoverable). */
       if (linkCount === 0 && allowedIds.length > 0) {
         const allLinks = this._collectAllLinks(NAV_MENU);
         const set = new Set(allowedIds);
         const rescued = allLinks.filter(l => set.has(l.id));
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
-        cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
+
+        cfgToRender = { items: rescued.map(l => ({
+          type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch
+        })) };
         linkCount = rescued.length;
       } else {
+        // If Home got pruned, prepend it (non-destructive).
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
           return links.some(l => this._looksLikeHome(l));
@@ -387,7 +411,10 @@
           const allLinks = this._collectAllLinks(NAV_MENU);
           const homeLink = allLinks.find(l => this._looksLikeHome(l));
           if (homeLink) {
-            cfgToRender = { items: [{ type:'link', id:homeLink.id, label:homeLink.label, href:homeLink.href, icon:homeLink.icon, activeMatch:homeLink.activeMatch }].concat(filtered.items||[]) };
+            cfgToRender = {
+              items: [{ type:'link', id:homeLink.id, label:homeLink.label, href:homeLink.href, icon:homeLink.icon, activeMatch:homeLink.activeMatch }]
+                     .concat(filtered.items||[])
+            };
           }
         }
       }
@@ -537,6 +564,7 @@
       this._syncThemeChips(mode);
     }
 
+    /* ====== PULL-TO-REFRESH ====== */
     _initPTR(){
       const bar = this._ptr = this.shadowRoot.querySelector('.js-ptr');
       const txt = this._ptrTxt = this.shadowRoot.querySelector('.js-txt');
@@ -578,6 +606,7 @@
       window.addEventListener('mouseup', onEnd);
     }
 
+    /* ====== Auth + Logout label (sticky) ====== */
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -620,68 +649,42 @@
       }
     }
 
-    /* ---------- Connection status (single-line, merged checks) ---------- */
-    async _updateConnection(){
+    /* ====== Connection status (🌐) ====== */
+    _initConnectionStatus(){
+      const update = ()=>{
+        const net = navigator.onLine;
+        let cloudReady = false;
+        try {
+          const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+          cloudReady = !!ctx; // treat a hydrated user-context as cloud OK
+        } catch {}
+        const ok = !!(net && cloudReady);
+        if (this._connTxt) this._connTxt.textContent = ok ? 'Online' : 'Offline';
+        if (this._connRow) {
+          this._connRow.style.opacity = '1';
+          this._connRow.title = `Network: ${net ? 'online' : 'offline'} • Cloud: ${cloudReady ? 'ready' : 'not ready'}`;
+        }
+      };
+
+      // Initial
+      update();
+
+      // Network changes
+      window.addEventListener('online', update);
+      window.addEventListener('offline', update);
+
+      // Recompute when user-context changes/settles
       try {
-        if (this._connText) this._connText.textContent = 'Checking…';
+        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+          window.FVUserContext.onChange(update);
+        }
+      } catch {}
 
-        const networkOk = navigator.onLine;
-
-        // Prefer an app-level ping if present
-        const appPing = async () => {
-          try {
-            if (window.FVUserContext && typeof window.FVUserContext.ping === 'function') {
-              const res = await Promise.race([
-                window.FVUserContext.ping(),
-                new Promise((_,rej)=> setTimeout(()=>rej(new Error('ping-timeout')), 2500))
-              ]);
-              return !!res;
-            }
-          } catch {}
-          return null;
-        };
-
-        // Fallback: if signed-in, try to refresh auth token (exercises backend access)
-        const authPing = async () => {
-          try{
-            const u = window.firebaseAuth && window.firebaseAuth.currentUser;
-            if (!u) return null;
-            await Promise.race([
-              u.getIdToken(/* forceRefresh */ false),
-              new Promise((_,rej)=> setTimeout(()=>rej(new Error('auth-timeout')), 2500))
-            ]);
-            return true;
-          }catch{ return false; }
-        };
-
-        // Last fallback: cache-busted fetch to a known asset (hosting/CDN up)
-        const assetPing = async () => {
-          try{
-            const resp = await Promise.race([
-              fetch('/Farm-vista/js/version.js?conn_ts=' + Date.now(), { cache:'no-store' }),
-              new Promise((_,rej)=> setTimeout(()=>rej(new Error('fetch-timeout')), 2500))
-            ]);
-            return resp && resp.ok;
-          }catch{ return false; }
-        };
-
-        let cloudOk = await appPing();
-        if (cloudOk == null) cloudOk = await authPing();
-        if (cloudOk == null) cloudOk = await assetPing();
-
-        const ok = !!networkOk && !!cloudOk;
-        if (this._connText) this._connText.textContent = ok ? 'Online' : 'Offline';
-        // Muted chevron dot to give a tiny visual cue
-        const chev = this.shadowRoot.querySelector('.js-conn + .chev, .js-conn .chev');
-        if (chev) chev.textContent = ok ? '•' : '•';
-        // Slight tint on the row text (keep design subtle)
-        const row = this._connRow;
-        if (row) row.style.opacity = ok ? '1' : '0.92';
-      } catch {
-        if (this._connText) this._connText.textContent = 'Offline';
-      }
+      // A brief settle loop (covers late hydration)
+      let tries = 20; const t = setInterval(()=>{ update(); if(--tries<=0) clearInterval(t); }, 250);
     }
 
+    /* ====== Version + updates (SW-aware) ====== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
