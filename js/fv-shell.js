@@ -1,10 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.8 (sticky user/menu hotfix)
+   FarmVista Shell — v5.10.7
    - One-time boot overlay (blurred) "Loading. Please wait." ONLY on first load
      or when forced by pull-to-refresh / check-for-updates.
-   - Logout label comes from FVUserContext (fallback to Firebase Auth) with sticky cache.
+   - Logout label comes from FVUserContext (fallback to Firebase Auth).
    - Menu filtered by FVMenuACL + FVUserContext.allowedIds.
-   - NEW: Uses cached user context to prevent “full menu flash” and missing name between page loads.
 */
 
 (function () {
@@ -119,7 +118,7 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- One-time boot overlay: shown only if session not hydrated OR forced -->
+  <!-- One-time boot overlay: shown only if session not hydrated OR force flag set -->
   <div class="boot js-boot" hidden>
     <div class="boot-card">
       <div class="spin" aria-hidden="true"></div>
@@ -198,28 +197,6 @@
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
-  const CACHE_KEY_CTX = 'fv:lastUserCtx'; // session-scoped, survives page changes inside the same tab
-  const BOOT_FLAG = 'fv:boot:hydrated';
-  const FORCE_ONCE = 'fv:boot:forceOnce';
-
-  function readCachedCtx(){
-    try { return JSON.parse(sessionStorage.getItem(CACHE_KEY_CTX) || 'null'); } catch { return null; }
-  }
-  function writeCachedCtx(ctx){
-    try {
-      if (!ctx) { sessionStorage.removeItem(CACHE_KEY_CTX); return; }
-      const slim = {
-        uid: ctx.uid || null,
-        displayName: ctx.displayName || null,
-        email: ctx.email || null,
-        allowedIds: Array.isArray(ctx.allowedIds) ? ctx.allowedIds : null,
-        roles: Array.isArray(ctx.roles) ? ctx.roles : null,
-        t: Date.now()
-      };
-      sessionStorage.setItem(CACHE_KEY_CTX, JSON.stringify(slim));
-    } catch {}
-  }
-
   class FVShell extends HTMLElement {
     constructor(){ super(); this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true)); }
 
@@ -239,12 +216,12 @@
       this._logoutLabel = r.getElementById('logoutLabel');
 
       // Show boot overlay only if first-load OR forced
-      const shouldBoot = !sessionStorage.getItem(BOOT_FLAG) ||
-                         sessionStorage.getItem(FORCE_ONCE) === '1';
+      const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
+                         sessionStorage.getItem('fv:boot:forceOnce') === '1';
       if (this._boot) this._boot.hidden = !shouldBoot;
 
       // Clear force flag if it existed
-      sessionStorage.removeItem(FORCE_ONCE);
+      sessionStorage.removeItem('fv:boot:forceOnce');
 
       // header buttons & theme
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -276,34 +253,18 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // 1) Paint immediately from cached context (no flicker)
-      const cached = readCachedCtx();
-      if (cached && Array.isArray(cached.allowedIds)) {
-        await this._initMenuFiltered(cached); // render from cache
-      }
+      // Wait for user context (with timeout)
+      await this._waitForUserContext(5000);
 
-      // 2) Wait for live user context (with timeout)
-      const ctx = await this._waitForUserContext(5000);
+      // Menu render (filtered)
+      await this._initMenuFiltered();
 
-      // If we never had cached AND live ctx is still missing, keep boot up and bail (no unfiltered menu).
-      if (!cached && !ctx) {
-        // leave boot visible; try a light retry once after a short delay
-        setTimeout(()=> this._refreshMenuFromLive(), 800);
-        return;
-      }
-
-      // 3) If live context exists and differs from cached, re-render + update cache
-      if (ctx) {
-        writeCachedCtx(ctx);
-        await this._initMenuFiltered(ctx);
-      }
-
-      // Wire logout label and actions (sticky)
+      // Wire logout label and actions
       this._wireAuthLogout(this.shadowRoot);
 
       // Hide boot overlay and mark hydrated (one per tab session)
       if (this._boot) this._boot.hidden = true;
-      sessionStorage.setItem(BOOT_FLAG, '1');
+      sessionStorage.setItem('fv:boot:hydrated', '1');
 
       // PTR & misc
       const upd = this.shadowRoot.querySelector('.js-update-row');
@@ -314,15 +275,6 @@
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initPTR();
-    }
-
-    async _refreshMenuFromLive(){
-      const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-      if (!ctx) return;
-      writeCachedCtx(ctx);
-      await this._initMenuFiltered(ctx);
-      if (this._boot) this._boot.hidden = true;
-      sessionStorage.setItem(BOOT_FLAG, '1');
     }
 
     async _ensureFirebaseInit(){
@@ -358,14 +310,10 @@
 
     async _waitForUserContext(timeoutMs){
       const start = Date.now();
-      const good = () => {
-        const g = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
-        return g && (Array.isArray(g.allowedIds) || Array.isArray(g.roles));
-      };
-      if (good()) return window.FVUserContext.get();
+      const good = () => !!(window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get());
+      if (good()) return;
       try { if (window.FVUserContext && window.FVUserContext.ready) await window.FVUserContext.ready(); } catch {}
       while (!good() && (Date.now() - start) < timeoutMs) await new Promise(r => setTimeout(r, 120));
-      return good() ? window.FVUserContext.get() : null;
     }
 
     async _loadMenu(){
@@ -388,22 +336,16 @@
       }
     }
 
-    async _initMenuFiltered(ctxMaybe){
+    async _initMenuFiltered(){
       const NAV_MENU = await this._loadMenu();
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
 
-      const ctx = ctxMaybe || (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || readCachedCtx() || null;
+      const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
+      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      // If no context at all, do NOT render an unfiltered menu (prevents “entire menu” flash).
-      if (!ctx) return;
-
-      const allowedIds = Array.isArray(ctx.allowedIds) ? ctx.allowedIds : [];
-      let filtered = NAV_MENU;
-      try {
-        if (window.FVMenuACL && typeof window.FVMenuACL.filter === 'function') {
-          filtered = window.FVMenuACL.filter(NAV_MENU, allowedIds);
-        }
-      } catch {}
+      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
+        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
+        : NAV_MENU;
 
       this._renderMenu(filtered);
     }
@@ -577,9 +519,9 @@
         document.dispatchEvent(new CustomEvent('fv:refresh'));
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
         // Force the next page to show the boot once
-        sessionStorage.setItem(FORCE_ONCE,'1');
+        sessionStorage.setItem('fv:boot:forceOnce','1');
         try { await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve()); } catch {}
-        await this._refreshMenuFromLive();
+        await this._initMenuFiltered();
         await new Promise(res=> setTimeout(res, 900));
         bar.classList.remove('show'); spin.hidden=true; dot.hidden=true; txt.textContent='Pull to refresh';
       };
@@ -594,24 +536,18 @@
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth + Logout label (sticky) ===== */
+    /* ===== Auth + Logout label ===== */
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      const cached = readCachedCtx();
-
       const setLabel = ()=>{
-        // Prefer live context, otherwise stick to cached name instead of blanking.
         let name = '';
         try {
           const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
           if (ctx && (ctx.displayName || ctx.email)) name = ctx.displayName || ctx.email;
         } catch {}
-        if (!name && cached && (cached.displayName || cached.email)) {
-          name = cached.displayName || cached.email;
-        }
         if (!name && window.firebaseAuth && window.firebaseAuth.currentUser) {
           const u = window.firebaseAuth.currentUser;
           name = u.displayName || u.email || '';
@@ -622,14 +558,10 @@
       setLabel();
       try {
         if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange((ctx) => {
-            if (ctx) writeCachedCtx(ctx);
-            setLabel();
-          });
+          window.FVUserContext.onChange(() => setLabel());
         }
       } catch {}
 
-      // Short “settling” window to catch late auth rehydration
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
@@ -638,8 +570,7 @@
           this.toggleTop(false); this.toggleDrawer(false);
           try{ if (typeof window.fvSignOut === 'function') await window.fvSignOut(); }catch(e){}
           try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
-          sessionStorage.removeItem(BOOT_FLAG);
-          sessionStorage.removeItem(CACHE_KEY_CTX);
+          sessionStorage.removeItem('fv:boot:hydrated');
           location.replace(LOGIN_URL);
         });
       }
@@ -651,7 +582,7 @@
       async function readTargetVersion(){
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
-        const txt = await resp.text();
+          const txt = await resp.text();
           const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || '';
         }catch{ return ''; }
@@ -674,7 +605,7 @@
 
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
         // Force next boot once after update
-        sessionStorage.setItem(FORCE_ONCE,'1');
+        sessionStorage.setItem('fv:boot:forceOnce','1');
 
         await sleep(150);
         if (navigator.serviceWorker) { try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {} }
