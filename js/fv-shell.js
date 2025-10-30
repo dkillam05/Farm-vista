@@ -1,8 +1,11 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.15 (hard auth/menu gate)
-   - Spinner stays until: Firebase auth OK + FVUserContext OK + Menu rendered (>=1 link).
-   - Strict timeouts: AUTH 5s, MENU 3s → redirect to Login on failure.
+   FarmVista Shell — v5.10.16
+   - UID-aware menu swap: detects account change, clears old nav state, shows skeleton, repaints with new perms.
+   - Role-scoped nav-state key: fv:nav:groups:<uid>:<roleHash> to prevent cross-user/group leakage.
+   - Skeleton drawer while awaiting allowedIds (never flashes previous user’s links).
+   - Hard gate: spinner stays until Auth OK + UserContext OK + Menu (>=1 link). AUTH 5s, MENU 3s → redirect to Login.
    - Post-paint sanity: empty logout name OR zero menu links → redirect to Login.
+   - PTR (pull-to-refresh) rewritten with Pointer Events + angle filter + cooldown for 99% reliability on iOS.
 */
 (function () {
   // ====== TUNABLES ======
@@ -34,7 +37,7 @@
 
     .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
       color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
-      z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change:transform; pointer-events:none; }
+      z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change: transform, opacity; pointer-events:none; }
     .ptr.show{ transform:translateY(0); }
     .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46); animation:spin 800ms linear infinite; }
     .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
@@ -68,6 +71,7 @@
     .org .org-loc{ font-size:13px; color:#666; }
 
     .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
+    .drawer nav .skeleton{ padding:16px; color:#777; }
     .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color: var(--text); border-bottom:1px solid var(--border); }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
 
@@ -140,7 +144,7 @@
         </div>
       </div>
     </header>
-    <nav class="js-nav"></nav>
+    <nav class="js-nav"><div class="skeleton">Loading menu…</div></nav>
     <footer class="drawer-footer">
       <div class="df-left"><div class="brand">FarmVista</div><div class="slogan js-slogan">Loading…</div></div>
       <div class="df-right"><span class="js-ver">v0.0.0</span></div>
@@ -180,6 +184,8 @@
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
       this._menuPainted = false;
       this._lastLogoutName = '';
+      this._lastUID = '';         // tracks current auth user id for swap detection
+      this._lastRoleHash = '';    // tracks allowedIds hash
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
     }
 
@@ -200,7 +206,7 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
-      // Boot overlay stays visible until _authAndMenuGate() finishes.
+      // Boot overlay visible until _authAndMenuGate() finishes.
       if (this._boot) this._boot.hidden = false;
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -236,6 +242,9 @@
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
 
+      // Listen for UID/role changes to flush menu & repaint
+      this._watchUserContextForSwaps();
+
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
@@ -264,6 +273,10 @@
         this._kickToLogin('auth-timeout');
         return Promise.reject('auth-timeout');
       }
+
+      // Track current UID and role hash for later swap detection
+      const { uid, roleHash } = this._currentUIDAndRoleHash();
+      this._lastUID = uid; this._lastRoleHash = roleHash;
 
       // Paint the menu (filtered) and confirm we have links
       await this._initMenuFiltered();
@@ -360,6 +373,94 @@
       });
     }
 
+    // ====== UID/role swap detection + skeleton paint ======
+    _watchUserContextForSwaps(){
+      const update = async ()=>{
+        const { uid, roleHash } = this._currentUIDAndRoleHash();
+        const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
+        if (!changed) return;
+
+        // Reset boot flag and show overlay/skeleton
+        sessionStorage.removeItem('fv:boot:hydrated');
+        if (this._boot) this._boot.hidden = false;
+
+        // Clear menu state + blank drawer immediately (skeleton)
+        this._clearMenuStateFor(this._lastUID, this._lastRoleHash);
+        this._paintSkeleton();
+
+        // Update trackers
+        this._lastUID = uid;
+        this._lastRoleHash = roleHash;
+        this._menuPainted = false;
+
+        // Repaint with new permissions
+        await this._initMenuFiltered();
+
+        // If no links yet, wait briefly (MENU_MAX_MS) and then sanity-kick if still empty
+        const menuDeadline = Date.now() + MENU_MAX_MS;
+        while (Date.now() < menuDeadline) {
+          if (this._hasMenuLinks()) break;
+          await this._sleep(120);
+        }
+        if (!this._hasMenuLinks()) {
+          this._kickToLogin('menu-timeout');
+          return;
+        }
+
+        this._setLogoutLabelNow();
+        if (this._boot) this._boot.hidden = true;
+        sessionStorage.setItem('fv:boot:hydrated', '1');
+      };
+
+      try {
+        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+          window.FVUserContext.onChange(update);
+        }
+      } catch {}
+    }
+
+    _paintSkeleton(){
+      if (!this._navEl) return;
+      this._navEl.innerHTML = `<div class="skeleton">Loading menu…</div>`;
+      this._collapseAllNavGroups(); // ensure any previously-open groups are shut
+    }
+
+    _clearMenuStateFor(uid, roleHash){
+      try {
+        const key = this._navStateKeyFor(uid, roleHash);
+        if (key) localStorage.removeItem(key);
+      } catch {}
+    }
+
+    _currentUIDAndRoleHash(){
+      let uid = '';
+      try {
+        const auth = (window.firebaseAuth) || null;
+        if (auth && auth.currentUser && auth.currentUser.uid) uid = auth.currentUser.uid;
+      } catch {}
+      let roleHash = '';
+      try {
+        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        const ids = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+        roleHash = this._hashIDs(ids);
+      } catch {}
+      return { uid, roleHash };
+    }
+
+    _hashIDs(arr){
+      // stable small hash (djb2)
+      const s = (arr||[]).slice().sort().join('|');
+      let h = 5381;
+      for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
+      return ('h' + (h>>>0).toString(36));
+    }
+
+    _navStateKeyFor(uid, roleHash){
+      if (!uid) return null;
+      return `fv:nav:groups:${uid}:${roleHash||'no-role'}`;
+    }
+
+    // ====== Menu load/render (role-scoped state) ======
     async _loadMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
       try{
@@ -413,10 +514,16 @@
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-      if (this._menuPainted && ctx && !Array.isArray(ctx.allowedIds)) return;
-
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
-      if (!this._menuPainted && allowedIds.length === 0) return;
+
+      // First paint: if we have no allowedIds yet, keep skeleton (avoid wrong menu).
+      if (!this._menuPainted && allowedIds.length === 0) {
+        this._paintSkeleton();
+        return;
+      }
+
+      // If menu already painted and ctx temporarily lacks allowedIds, don't clobber.
+      if (this._menuPainted && allowedIds.length === 0) return;
 
       const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
         ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
@@ -459,7 +566,8 @@
       nav.innerHTML = '';
 
       const path = location.pathname;
-      const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
+      const { uid, roleHash } = this._currentUIDAndRoleHash();
+      const stateKey = (cfg.options && cfg.options.stateKey) || this._navStateKeyFor(uid, roleHash) || 'fv:nav:groups';
       this._navStateKey = stateKey;
       let groupState = {};
       try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
@@ -599,44 +707,97 @@
       this._syncThemeChips(mode);
     }
 
+    /* ====== PULL-TO-REFRESH (robust) ====== */
     _initPTR(){
-      const bar = this._ptr = this.shadowRoot.querySelector('.js-ptr');
-      const txt = this._ptrTxt = this.shadowRoot.querySelector('.js-txt');
-      const spin = this._ptrSpin = this.shadowRoot.querySelector('.js-spin');
-      const dot = this._ptrDot = this.shadowRoot.querySelector('.js-dot');
+      const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
+      const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
+      const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
+      const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      const THRESHOLD = 70; let armed=false, pulling=false, startY=0, delta=0;
-      const atTop = () => (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) === 0;
+      const THRESHOLD = 70;
+      const MAX_ANGLE = 18;  // degrees allowed away from vertical before we cancel (prevents sideways swipes)
+      const COOLDOWN  = 600; // ms; avoid double-trigger on bounce
 
-      const onStart = (e)=>{
-        if (!atTop() || this.classList.contains('drawer-open') || this.classList.contains('top-open')) { armed=false; pulling=false; return; }
-        const t = e.touches ? e.touches[0] : e; startY = t.clientY; delta=0; armed=true; pulling=false;
+      let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
+
+      const root   = ()=> document.scrollingElement || document.documentElement;
+      const atTop  = ()=> (root().scrollTop || window.pageYOffset || 0) <= 0;
+      const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open');
+
+      const showBar = ()=>{
+        bar.classList.add('show');
+        spin.hidden = true; dot.hidden = false;
+        txt.textContent = 'Pull to refresh';
       };
+      const hideBar = ()=>{
+        bar.classList.remove('show');
+        spin.hidden = true; dot.hidden = true;
+        txt.textContent = 'Pull to refresh';
+      };
+
+      const onDown = (e)=>{
+        if (!canUse()) { armed=false; pulling=false; return; }
+        if (e.pointerType !== 'touch') { armed=false; pulling=false; return; }
+        if (!atTop()) { armed=false; pulling=false; return; }
+        if (Date.now() - lastEnd < COOLDOWN) { armed=false; pulling=false; return; }
+
+        armed   = true;
+        pulling = false;
+        startY  = e.clientY;
+        startX  = e.clientX;
+        deltaY  = 0;
+      };
+
       const onMove = (e)=>{
         if (!armed) return;
-        const t = e.touches ? e.touches[0] : e; delta = Math.max(0, t.clientY - startY);
-        if (delta > 0) {
-          if (!pulling) { pulling=true; bar.classList.add('show'); spin.hidden=true; dot.hidden=false; txt.textContent='Pull to refresh'; }
-          txt.textContent = (delta >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
-          e.preventDefault();
+
+        const dy = e.clientY - startY;
+        const dx = e.clientX - startX;
+        const angle = Math.abs(Math.atan2(dx, dy) * (180/Math.PI));
+        if (angle > MAX_ANGLE) { armed=false; pulling=false; hideBar(); return; }
+
+        if (dy > 0) {
+          deltaY = dy;
+          if (!pulling) {
+            pulling = true;
+            showBar();
+          }
+          txt.textContent = (deltaY >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
+          e.preventDefault(); // critical to stop rubber-band once pulling
+        } else {
+          armed=false; pulling=false; hideBar();
         }
       };
+
       const doRefresh = async ()=>{
-        dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
+        dot.hidden  = true;
+        spin.hidden = false;
+        txt.textContent = 'Refreshing…';
+
         document.dispatchEvent(new CustomEvent('fv:refresh'));
         await this._initMenuFiltered();
-        await new Promise(res=> setTimeout(res, 900));
-        bar.classList.remove('show'); spin.hidden=true; dot.hidden=true; txt.textContent='Pull to refresh';
-      };
-      const onEnd = ()=>{ if (!armed) return; if (pulling && delta >= THRESHOLD) doRefresh(); else bar.classList.remove('show'); armed=false; pulling=false; startY=0; delta=0; };
 
-      window.addEventListener('touchstart', onStart, { passive:true });
-      window.addEventListener('touchmove', onMove, { passive:false });
-      window.addEventListener('touchend', onEnd, { passive:true });
-      window.addEventListener('touchcancel', onEnd, { passive:true });
-      window.addEventListener('mousedown', onStart);
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onEnd);
+        await new Promise(res=> setTimeout(res, 900));
+        hideBar();
+      };
+
+      const onUp = ()=>{
+        if (!armed) return;
+        const shouldRefresh = pulling && deltaY >= THRESHOLD;
+        armed=false; pulling=false; deltaY=0; startY=0; startX=0;
+        if (shouldRefresh) {
+          lastEnd = Date.now();
+          doRefresh();
+        } else {
+          hideBar();
+        }
+      };
+
+      window.addEventListener('pointerdown', onDown, { passive:true });
+      window.addEventListener('pointermove', onMove, { passive:false });
+      window.addEventListener('pointerup', onUp, { passive:true });
+      window.addEventListener('pointercancel', onUp, { passive:true });
+      document.addEventListener('visibilitychange', ()=>{ if (document.hidden) { armed=false; pulling=false; hideBar(); } });
     }
 
     _wireAuthLogout(r){
