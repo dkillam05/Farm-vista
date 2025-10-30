@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Debug Permissions</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);}
+    .card{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));padding:14px;margin:12px 0}
+    .h{font-weight:900;margin:0 0 8px 0}
+    pre{white-space:pre-wrap;background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px;padding:10px;font-size:13px;overflow:auto}
+    .ok{color:#2F6C3C;font-weight:800}
+    .warn{color:#b26c1e;font-weight:800}
+    .bad{color:#b3261e;font-weight:800}
+    .pill{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:4px 8px;margin:3px 6px 0 0}
+  </style>
+
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="h">Debug — Roles, Overrides & Menu Mapping</h1>
+
+      <div class="card" id="who">
+        <div class="h">Signed-in User</div>
+        <div id="userLine">Loading…</div>
+      </div>
+
+      <div class="card">
+        <div class="h">Role Document (accountRoles)</div>
+        <div>Role name: <span id="roleName" class="pill">—</span></div>
+        <div style="margin-top:8px">Raw <code>perms</code> keys from Firestore:</div>
+        <pre id="rolePerms">(loading)</pre>
+      </div>
+
+      <div class="card">
+        <div class="h">Employee Overrides (employees)</div>
+        <div>Doc id: <span id="empId" class="pill">—</span> (employees/{email})</div>
+        <div style="margin-top:8px">Raw <code>overrides</code> keys:</div>
+        <pre id="overrides">(loading)</pre>
+      </div>
+
+      <div class="card">
+        <div class="h">Menu Catalog (from /js/menu.js)</div>
+        <div>Leaf ids detected:</div>
+        <div id="leafIds" style="margin-top:6px"></div>
+      </div>
+
+      <div class="card">
+        <div class="h">Computed Result</div>
+        <div>Allowed ids (what the shell will render):</div>
+        <div id="allowed" style="margin-top:6px"></div>
+        <div style="margin-top:12px">Unmapped keys (from roles/overrides that didn’t match any menu id):</div>
+        <pre id="unmapped">(loading)</pre>
+      </div>
+
+      <div class="card">
+        <div class="h">Quick Fix Hints</div>
+        <ul>
+          <li>If <span class="bad">Role name</span> is “Standard” and you expected Manager (etc), add <code>permissionGroup: "Manager"</code> to <code>employees/{email}</code>.</li>
+          <li>If your keys show like <code>Equipment.eq-combines</code> but don’t appear in “Allowed ids”, your actual menu id may differ. Rename the key in Firestore to match, or rename the menu id to match your Firestore key.</li>
+          <li><span class="ok">Home</span> is always added automatically.</li>
+        </ul>
+      </div>
+    </div>
+  </fv-shell>
+
+  <script type="module">
+  import * as FI from '/Farm-vista/js/firebase-init.js';
+  import MENU from '/Farm-vista/js/menu.js'; // expects default export or NAV_MENU defaulted by build
+
+  // little safe getter
+  const get = (o,k,d)=>{ try{ return k.split('.').reduce((a,c)=>a&&a[c],o) ?? d; }catch{ return d; } };
+
+  const $ = id => document.getElementById(id);
+  const pills = (arr)=> (arr||[]).map(s=>`<span class="pill">${s}</span>`).join(' ');
+
+  function buildIndexes(nav){
+    const CAP_SET = new Set();
+    const HREF_TO_ID = new Map();
+    const items = (nav?.items)||[];
+    const walk = (nodes)=>nodes.forEach(n=>{
+      if(n.type==='link' && n.id){ CAP_SET.add(n.id); if(n.href) HREF_TO_ID.set(n.href, n.id); }
+      if(n.children) walk(n.children);
+    });
+    walk(items);
+    let HOME_ID = null;
+    for (const [href,id] of HREF_TO_ID.entries()){
+      const p = new URL(href, location.origin).pathname;
+      if (p==='/Farm-vista/index.html' || p==='/Farm-vista/') { HOME_ID=id; break; }
+    }
+    return { CAP_SET, HOME_ID };
+  }
+
+  async function run(){
+    const ctx = await FI.ready.catch(()=>({}));
+    const auth = get(ctx,'auth', FI.getAuth? FI.getAuth(): null);
+    const user = auth?.currentUser || null;
+
+    $('userLine').textContent = user ? `${user.email || '(no email)'} — ${user.uid}` : 'No user (not signed in)';
+
+    const NAV = (MENU && (MENU.NAV_MENU || MENU.default || MENU)) || {items:[]};
+    const idx = buildIndexes(NAV);
+
+    // Read employee
+    let emp = null, empId = null;
+    if (user?.email){
+      const id = String(user.email).trim().toLowerCase();
+      empId = id;
+      const db = FI.getFirestore();
+      for (const coll of ['employees','subcontractors','vendors']){
+        const ref = FI.doc(db, coll, id);
+        const snap = await FI.getDoc(ref).catch(()=>null);
+        if (snap && snap.exists()){ emp = { coll, data: snap.data()||{} }; break; }
+      }
+    }
+    $('empId').textContent = empId || '—';
+
+    // Role doc
+    const roleName = get(emp,'data.permissionGroup','Standard');
+    $('roleName').textContent = roleName;
+    let rolePerms = {};
+    try{
+      const db = FI.getFirestore();
+      const q = FI.query(FI.collection(db,'accountRoles'), FI.where('name','==', roleName));
+      const snap = await FI.getDocs(q);
+      snap.forEach(d => { rolePerms = d.data()?.perms || d.data()?.permissions || {}; });
+    }catch{}
+    $('rolePerms').textContent = JSON.stringify(Object.keys(rolePerms||{}), null, 2);
+    $('overrides').textContent = JSON.stringify(Object.keys(get(emp,'data.overrides',{})||{}), null, 2);
+
+    // Show menu leaf ids
+    $('leafIds').innerHTML = pills(Array.from(idx.CAP_SET).sort());
+
+    // Compute allowed (same simple logic as context)
+    const valToBool = v => typeof v==='boolean' ? v : (v && typeof v.on==='boolean' ? v.on : undefined);
+
+    const base = {}; idx.CAP_SET.forEach(id => { base[id]=false; });
+    // containers: treat any key that equals a known container id as “turn on all its leaves”
+    // (for this debug page we don’t compute container sets; this is just to spot obvious wins)
+    Object.entries(rolePerms||{}).forEach(([k,v])=>{
+      const on = valToBool(v); if (on===undefined) return;
+      // try exact leaf first
+      if (idx.CAP_SET.has(k)) base[k]=on;
+      // allow “endsWith” style (eq-combines vs equipment.eq-combines)
+      if (!idx.CAP_SET.has(k)){
+        let matched = false;
+        idx.CAP_SET.forEach(id=>{ if (!matched && (id.endsWith(k) || id.includes(k))) { base[id]=on; matched=true; }});
+      }
+    });
+    const ov = get(emp,'data.overrides',{})||{};
+    Object.entries(ov).forEach(([path,v])=>{
+      const on = (v===true) ? true : (v===false ? false : undefined);
+      if (on===undefined) return;
+      const raw = path.includes('.') ? path.split('.').slice(1).join('.') : path;
+      if (idx.CAP_SET.has(raw)) base[raw]=on;
+      else { idx.CAP_SET.forEach(id=>{ if (id.endsWith(raw) || id.includes(raw)) base[id]=on; }); }
+    });
+
+    const allowed = Object.entries(base).filter(([,on])=>on).map(([id])=>id);
+    if (idx.HOME_ID && !allowed.includes(idx.HOME_ID)) allowed.unshift(idx.HOME_ID);
+    $('allowed').innerHTML = allowed.length ? pills(allowed.sort()) : '<span class="bad">None (except Home)</span>';
+
+    // Unmapped keys
+    const allKeys = new Set([...Object.keys(rolePerms||{}), ...Object.keys(ov||{})]);
+    const unmapped = [];
+    allKeys.forEach(k=>{
+      if (idx.CAP_SET.has(k)) return;
+      let ok = false;
+      idx.CAP_SET.forEach(id=>{ if (id.endsWith(k) || id.includes(k)) ok=true; });
+      if (!ok) unmapped.push(k);
+    });
+    $('unmapped').textContent = unmapped.length ? JSON.stringify(unmapped, null, 2) : '(none)';
+  }
+
+  run().catch(e=>{
+    document.querySelector('.page').insertAdjacentHTML('beforeend',
+      `<div class="card"><div class="bad">Debug failed:</div><pre>${String(e)}</pre></div>`);
+  });
+  </script>
+</body>
+</html>
