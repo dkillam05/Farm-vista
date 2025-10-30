@@ -1,24 +1,19 @@
 /* /Farm-vista/js/menu-acl.js
    FarmVista — NAV ACL filter (role/override aware)
-
-   Inputs:
-     - NAV_MENU: { items: NavItem[], options?: {...} }
-     - allowedIds: string[]  (from FVUserContext.allowedIds)
-
-   Behavior:
-     - Keeps only links whose `id` is in allowedIds.
-     - Keeps groups that have at least one allowed descendant.
-     - Preserves item order and group properties.
-     - Supports wildcard allow: '*' or 'ALL' in allowedIds.
+   - Keeps only links whose `id` is allowed.
+   - Keeps groups with at least one allowed descendant.
+   - Wildcard allow: '*' or 'ALL'.
+   - Always-allowed IDs: ['home']  ← ensures Home is visible for all users.
 */
-
 (function () {
   'use strict';
+
+  /** Always-visible link IDs (do NOT add groups here). */
+  const ALWAYS_ALLOWED = new Set(['home']);
 
   /**
    * @typedef {'link'|'group'} NavItemType
    * @typedef {'starts-with'|'exact'|'regex'} ActiveMatch
-   *
    * @typedef NavItem
    * @property {NavItemType} type
    * @property {string} id
@@ -30,12 +25,14 @@
    * @property {boolean} [collapsible=false]
    * @property {boolean} [initialOpen=false]
    * @property {NavItem[]} [children]
-   * @property {string[]} [roles]  // optional, unused here (roles already resolved into allowedIds)
    */
 
   function toSet(arr){
     const s = new Set();
-    (arr||[]).forEach(v => { if (v != null) s.add(String(v)); });
+    (arr || []).forEach(v => {
+      if (v == null) return;
+      s.add(String(v));
+    });
     return s;
   }
 
@@ -49,7 +46,7 @@
   }
 
   /**
-   * Recursively prunes the tree to allowed link ids.
+   * Recursively prune the tree to allowed link ids.
    * @param {NavItem} node
    * @param {Set<string>} allow
    * @returns {NavItem|null}
@@ -83,30 +80,31 @@
    * @returns {{items:NavItem[], options?:object}}
    */
   function filter(NAV_MENU, allowedIds){
-    const allow = allowedIds instanceof Set ? allowedIds : toSet(allowedIds);
-    const wildcard = allow.has('*') || allow.has('ALL');
+    const base = allowedIds instanceof Set ? new Set(allowedIds) : toSet(allowedIds);
+    // Merge in always-allowed
+    ALWAYS_ALLOWED.forEach(id => base.add(id));
 
-    // If wildcard, pass-through.
-    if (wildcard) return { items: (NAV_MENU.items || []).slice(), options: NAV_MENU.options || {} };
+    const wildcard = base.has('*') || base.has('ALL');
+    if (wildcard) {
+      // Pass-through, but still ensure 'home' exists in case caller inspects ids later
+      return { items: (NAV_MENU.items || []).slice(), options: NAV_MENU.options || {} };
+    }
 
     const out = [];
     (NAV_MENU.items || []).forEach(item => {
-      const pr = prune(item, allow);
+      const pr = prune(item, base);
       if (pr) out.push(pr);
     });
 
-    // Preserve options (e.g., stateKey for group open state)
     return { items: out, options: NAV_MENU.options || {} };
   }
 
-  // UMD-style exports: global + ESM compatibility
+  // UMD-style exports
   const API = { filter };
   if (typeof window !== 'undefined') window.FVMenuACL = API;
-  if (typeof export !== 'undefined') { /* no-op */ }
   try { if (typeof module !== 'undefined' && module.exports) module.exports = API; } catch {}
   try { if (typeof define === 'function' && define.amd) define(function(){ return API; }); } catch {}
   try { if (typeof self !== 'undefined') self.FVMenuACL = API; } catch {}
 
-  // ESM export (ignored by classic browsers; fine when imported as module)
   try { Object.defineProperty(API, '__esModule', { value: true }); API.default = API; } catch {}
 })();
