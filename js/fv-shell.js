@@ -1,9 +1,11 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.7
-   - One-time boot overlay (blurred) "Loading. Please wait." ONLY on first load
-     or when forced by pull-to-refresh / check-for-updates.
-   - Logout label comes from FVUserContext (fallback to Firebase Auth).
-   - Menu filtered by FVMenuACL + FVUserContext.allowedIds.
+   FarmVista Shell — v5.10.8
+   Changes vs 5.10.7:
+   - Guaranteed "Home" visibility for all users
+   - Menu filtering: use FVMenuACL.filter if available, else internal filter by allowedIds
+   - Re-render menu whenever FVUserContext changes (roles/overrides edits)
+   - ShadowRoot queries use querySelector instead of getElementById
+   - Drawer link clicks close drawer; current page highlight hardened
 */
 
 (function () {
@@ -118,7 +120,7 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- One-time boot overlay: shown only if session not hydrated OR force flag set -->
+  <!-- One-time boot overlay -->
   <div class="boot js-boot" hidden>
     <div class="boot-card">
       <div class="spin" aria-hidden="true"></div>
@@ -213,14 +215,12 @@
       this._sloganEl = r.querySelector('.js-slogan');
       this._navEl = r.querySelector('.js-nav');
       this._boot = r.querySelector('.js-boot');
-      this._logoutLabel = r.getElementById('logoutLabel');
+      this._logoutLabel = r.querySelector('#logoutLabel');
 
       // Show boot overlay only if first-load OR forced
       const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
                          sessionStorage.getItem('fv:boot:forceOnce') === '1';
       if (this._boot) this._boot.hidden = !shouldBoot;
-
-      // Clear force flag if it existed
       sessionStorage.removeItem('fv:boot:forceOnce');
 
       // header buttons & theme
@@ -256,13 +256,20 @@
       // Wait for user context (with timeout)
       await this._waitForUserContext(5000);
 
-      // Menu render (filtered)
+      // Initial menu render
       await this._initMenuFiltered();
+
+      // Keep menu in sync with context changes (role/override edits)
+      try {
+        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+          window.FVUserContext.onChange(() => this._initMenuFiltered());
+        }
+      } catch {}
 
       // Wire logout label and actions
       this._wireAuthLogout(this.shadowRoot);
 
-      // Hide boot overlay and mark hydrated (one per tab session)
+      // Hide boot overlay and mark hydrated
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
@@ -271,8 +278,8 @@
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
       const r = this.shadowRoot;
-      const ud = r.getElementById('userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
-      const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
+      const ud = r.querySelector('#userDetailsLink'); if (ud) ud.addEventListener('click', () => { this.toggleTop(false); });
+      const fb = r.querySelector('#feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initPTR();
     }
@@ -336,16 +343,41 @@
       }
     }
 
+    /* =============== FILTERED MENU (guarantee "Home") ================== */
+    _internalFilterByIds(cfg, allowedIds) {
+      if (!cfg || !Array.isArray(cfg.items)) return cfg;
+      const allow = new Set(Array.isArray(allowedIds) ? allowedIds : []);
+      // Always allow 'home'
+      allow.add('home');
+
+      function cloneNode(n){
+        if (n.type === 'link') {
+          return allow.has(n.id) ? { ...n } : null;
+        }
+        if (n.type === 'group') {
+          const kids = (n.children||[]).map(cloneNode).filter(Boolean);
+          if (!kids.length) return null;
+          return { ...n, children: kids };
+        }
+        return null;
+      }
+      const items = cfg.items.map(cloneNode).filter(Boolean);
+      return { ...cfg, items };
+    }
+
     async _initMenuFiltered(){
       const NAV_MENU = await this._loadMenu();
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+      const allowedIdsRaw = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds.slice() : [];
+      // If ctx not ready, fall back to showing at least Home
+      const allowedIds = Array.isArray(allowedIdsRaw) ? allowedIdsRaw : [];
+      if (!allowedIds.includes('home')) allowedIds.push('home');
 
-      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
+      const filtered = (window.FVMenuACL && typeof window.FVMenuACL.filter === 'function')
         ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
-        : NAV_MENU;
+        : this._internalFilterByIds(NAV_MENU, allowedIds);
 
       this._renderMenu(filtered);
     }
@@ -354,7 +386,7 @@
       const nav = this._navEl; if (!nav) return;
       nav.innerHTML = '';
 
-      const path = location.pathname;
+      const path = new URL(location.href).pathname;
       const stateKey = (cfg.options && cfg.options.stateKey) || 'fv:nav:groups';
       this._navStateKey = stateKey;
       let groupState = {};
@@ -367,11 +399,13 @@
         a.href = item.href || '#';
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
         a.style.paddingLeft = pad(depth);
-        const mode = item.activeMatch || 'starts-with';
         const hrefPath = new URL(a.href, location.href).pathname;
-        if ((mode==='exact' && path === hrefPath) || (mode!=='exact' && item.href && path.startsWith(hrefPath))) {
-          a.setAttribute('aria-current', 'page');
-        }
+        const mode = item.activeMatch || 'starts-with';
+        const isActive = (mode === 'exact') ? (path === hrefPath) : path.startsWith(hrefPath);
+        if (isActive) a.setAttribute('aria-current', 'page');
+
+        // Close drawer on click
+        a.addEventListener('click', () => { this.toggleDrawer(false); });
         return a;
       };
 
@@ -538,8 +572,8 @@
 
     /* ===== Auth + Logout label ===== */
     _wireAuthLogout(r){
-      const logoutRow = r.getElementById('logoutRow');
-      const logoutLabel = r.getElementById('logoutLabel');
+      const logoutRow = r.querySelector('#logoutRow');
+      const logoutLabel = r.querySelector('#logoutLabel');
       const LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
       const setLabel = ()=>{
@@ -548,11 +582,13 @@
           const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
           if (ctx && (ctx.displayName || ctx.email)) name = ctx.displayName || ctx.email;
         } catch {}
-        if (!name && window.firebaseAuth && window.firebaseAuth.currentUser) {
-          const u = window.firebaseAuth.currentUser;
-          name = u.displayName || u.email || '';
-        }
-        logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
+        try {
+          if (!name && window.firebaseAuth && window.firebaseAuth.currentUser) {
+            const u = window.firebaseAuth.currentUser;
+            name = u && (u.displayName || u.email || '');
+          }
+        } catch {}
+        if (logoutLabel) logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
       };
 
       setLabel();
@@ -561,7 +597,6 @@
           window.FVUserContext.onChange(() => setLabel());
         }
       } catch {}
-
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
@@ -583,7 +618,7 @@
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          const m = txt.match(/number\\s*:\\s*["']([\\d.]+)["']/) || txt.match(/FV_NUMBER\\s*=\\s*["']([\\d.]+)["']/);
           return (m && m[1]) || '';
         }catch{ return ''; }
       }
@@ -592,7 +627,7 @@
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(\`Already up to date (v\${cur})\`, 2200); return; }
 
         this._toastMsg('Clearing cache…', 900);
 
