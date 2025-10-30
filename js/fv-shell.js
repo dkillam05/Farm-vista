@@ -1,17 +1,17 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.17
-   - NEW: Footer-stable scroll lock (body position:fixed) prevents footer jump when drawer/top opens on iOS.
+   FarmVista Shell — v5.10.18
+   - FIX: Footer stays put with drawer/top open using overflow/height scroll-lock (no iOS dark banding).
    - UID-aware menu swap: detects account change, clears old nav state, shows skeleton, repaints with new perms.
    - Role-scoped nav-state key: fv:nav:groups:<uid>:<roleHash> to prevent cross-user/group leakage.
    - Skeleton drawer while awaiting allowedIds (never flashes previous user’s links).
    - Hard gate: spinner stays until Auth OK + UserContext OK + Menu (>=1 link). AUTH 5s, MENU 3s → redirect to Login.
    - Post-paint sanity: empty logout name OR zero menu links → redirect to Login.
-   - PTR rewritten with Pointer Events + angle filter + cooldown for high reliability on iOS.
+   - PTR (pull-to-refresh) via Pointer Events + angle filter + cooldown (iOS reliable).
 */
 (function () {
   // ====== TUNABLES ======
-  const AUTH_MAX_MS = 5000;  // wait up to 5s for real auth + user-context
-  const MENU_MAX_MS = 3000;  // wait up to 3s for a non-empty menu
+  const AUTH_MAX_MS = 5000;
+  const MENU_MAX_MS = 3000;
 
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -47,7 +47,7 @@
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900;
-      transform:translateZ(0); will-change:transform; } /* avoid repaint jump on iOS */
+      transform:translateZ(0); will-change:transform; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .main{ position:relative; padding:
@@ -125,7 +125,6 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- Boot overlay stays visible until we're sure -->
   <div class="boot js-boot"><div class="boot-card"><div class="spin" aria-hidden="true"></div><div>Loading. Please wait.</div></div></div>
 
   <div class="ptr js-ptr" aria-hidden="true">
@@ -186,32 +185,49 @@
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
       this._menuPainted = false;
       this._lastLogoutName = '';
-      this._lastUID = '';         // tracks current auth user id for swap detection
-      this._lastRoleHash = '';    // tracks allowedIds hash
+      this._lastUID = '';
+      this._lastRoleHash = '';
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      // scroll lock state (prevents footer shift)
-      this._lock = { active:false, y:0 };
+      // scroll lock state (overflow/height lock + touchmove preventer)
+      this._lock = { active:false, y:0, preventer:null };
     }
 
-    /* ---------- Scroll lock that doesn't shift fixed footer ---------- */
+    /* ---------- Scroll lock without body:fixed (no dark banding) ---------- */
     _applyScrollLock(on){
       if (on && !this._lock.active) {
         this._lock.y = window.scrollY || 0;
-        document.body.style.position = 'fixed';
-        document.body.style.top = `-${this._lock.y}px`;
-        document.body.style.left = '0';
-        document.body.style.right = '0';
-        document.body.style.width = '100%';
-        document.body.style.overscrollBehavior = 'none';
+        const html = document.documentElement;
+        const body = document.body;
+
+        html.style.overflow = 'hidden';
+        body.style.overflow = 'hidden';
+        body.style.height = '100vh';
+        body.style.overscrollBehavior = 'none';
+
+        // Prevent iOS background rubber-banding while drawer/top open
+        this._lock.preventer = (e)=>{
+          // allow scrolling inside the drawer/top panels
+          const inPanel = e.composedPath && e.composedPath().some(el=>{
+            try{
+              return el && el.classList && (el.classList.contains('drawer') || el.classList.contains('topdrawer'));
+            }catch{ return false; }
+          });
+          if (!inPanel) { e.preventDefault(); }
+        };
+        window.addEventListener('touchmove', this._lock.preventer, { passive:false });
         this._lock.active = true;
       } else if (!on && this._lock.active) {
-        document.body.style.position = '';
-        document.body.style.top = '';
-        document.body.style.left = '';
-        document.body.style.right = '';
-        document.body.style.width = '';
-        document.body.style.overscrollBehavior = '';
+        const html = document.documentElement;
+        const body = document.body;
+        html.style.overflow = '';
+        body.style.overflow = '';
+        body.style.height = '';
+        body.style.overscrollBehavior = '';
+        if (this._lock.preventer) {
+          window.removeEventListener('touchmove', this._lock.preventer, { passive:false });
+          this._lock.preventer = null;
+        }
         window.scrollTo(0, this._lock.y || 0);
         this._lock.active = false;
       }
@@ -234,7 +250,6 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
-      // Boot overlay visible until _authAndMenuGate() finishes.
       if (this._boot) this._boot.hidden = false;
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -263,14 +278,10 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // HARD GATE: require real auth + context + menu
       await this._authAndMenuGate();
 
-      // Wire after menu is present
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
-
-      // Listen for UID/role changes to flush menu & repaint
       this._watchUserContextForSwaps();
 
       if (this._boot) this._boot.hidden = true;
@@ -285,14 +296,11 @@
 
       this._initPTR();
 
-      // Post-paint sanity: if name missing or menu empty, kick
       setTimeout(()=> this._postPaintSanity(), 300);
     }
 
     async _authAndMenuGate(){
       const deadline = Date.now() + AUTH_MAX_MS;
-
-      // Wait for Firebase auth + user-context
       while (Date.now() < deadline) {
         if (await this._isAuthed() && this._hasUserCtx()) break;
         await this._sleep(120);
@@ -302,11 +310,9 @@
         return Promise.reject('auth-timeout');
       }
 
-      // Track current UID and role hash for later swap detection
       const { uid, roleHash } = this._currentUIDAndRoleHash();
       this._lastUID = uid; this._lastRoleHash = roleHash;
 
-      // Paint the menu (filtered) and confirm we have links
       await this._initMenuFiltered();
 
       const menuDeadline = Date.now() + MENU_MAX_MS;
@@ -319,7 +325,6 @@
         return Promise.reject('menu-timeout');
       }
 
-      // Once we know who the user is, update logout label immediately
       this._setLogoutLabelNow();
     }
 
@@ -408,23 +413,18 @@
         const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
         if (!changed) return;
 
-        // Reset boot flag and show overlay/skeleton
         sessionStorage.removeItem('fv:boot:hydrated');
         if (this._boot) this._boot.hidden = false;
 
-        // Clear menu state + blank drawer immediately (skeleton)
         this._clearMenuStateFor(this._lastUID, this._lastRoleHash);
         this._paintSkeleton();
 
-        // Update trackers
         this._lastUID = uid;
         this._lastRoleHash = roleHash;
         this._menuPainted = false;
 
-        // Repaint with new permissions
         await this._initMenuFiltered();
 
-        // If no links yet, wait briefly (MENU_MAX_MS) and then sanity-kick if still empty
         const menuDeadline = Date.now() + MENU_MAX_MS;
         while (Date.now() < menuDeadline) {
           if (this._hasMenuLinks()) break;
@@ -450,7 +450,7 @@
     _paintSkeleton(){
       if (!this._navEl) return;
       this._navEl.innerHTML = `<div class="skeleton">Loading menu…</div>`;
-      this._collapseAllNavGroups(); // ensure any previously-open groups are shut
+      this._collapseAllNavGroups();
     }
 
     _clearMenuStateFor(uid, roleHash){
@@ -476,7 +476,6 @@
     }
 
     _hashIDs(arr){
-      // stable small hash (djb2)
       const s = (arr||[]).slice().sort().join('|');
       let h = 5381;
       for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
@@ -488,7 +487,7 @@
       return `fv:nav:groups:${uid}:${roleHash||'no-role'}`;
     }
 
-    // ====== Menu load/render (role-scoped state) ======
+    // ====== Menu load/render ======
     async _loadMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
       try{
@@ -544,13 +543,7 @@
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      // First paint: if we have no allowedIds yet, keep skeleton (avoid wrong menu).
-      if (!this._menuPainted && allowedIds.length === 0) {
-        this._paintSkeleton();
-        return;
-      }
-
-      // If menu already painted and ctx temporarily lacks allowedIds, don't clobber.
+      if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
       if (this._menuPainted && allowedIds.length === 0) return;
 
       const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
@@ -735,7 +728,7 @@
       this._syncThemeChips(mode);
     }
 
-    /* ====== PULL-TO-REFRESH (robust) ====== */
+    /* ====== PULL-TO-REFRESH ====== */
     _initPTR(){
       const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
       const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
@@ -743,8 +736,8 @@
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
       const THRESHOLD = 70;
-      const MAX_ANGLE = 18;  // degrees allowed away from vertical before we cancel (prevents sideways swipes)
-      const COOLDOWN  = 600; // ms; avoid double-trigger on bounce
+      const MAX_ANGLE = 18;
+      const COOLDOWN  = 600;
 
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
@@ -768,17 +761,11 @@
         if (e.pointerType !== 'touch') { armed=false; pulling=false; return; }
         if (!atTop()) { armed=false; pulling=false; return; }
         if (Date.now() - lastEnd < COOLDOWN) { armed=false; pulling=false; return; }
-
-        armed   = true;
-        pulling = false;
-        startY  = e.clientY;
-        startX  = e.clientX;
-        deltaY  = 0;
+        armed=true; pulling=false; startY=e.clientY; startX=e.clientX; deltaY=0;
       };
 
       const onMove = (e)=>{
         if (!armed) return;
-
         const dy = e.clientY - startY;
         const dx = e.clientX - startX;
         const angle = Math.abs(Math.atan2(dx, dy) * (180/Math.PI));
@@ -786,12 +773,9 @@
 
         if (dy > 0) {
           deltaY = dy;
-          if (!pulling) {
-            pulling = true;
-            showBar();
-          }
+          if (!pulling) { pulling = true; showBar(); }
           txt.textContent = (deltaY >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
-          e.preventDefault(); // critical to stop rubber-band once pulling
+          e.preventDefault();
         } else {
           armed=false; pulling=false; hideBar();
         }
@@ -801,10 +785,8 @@
         dot.hidden  = true;
         spin.hidden = false;
         txt.textContent = 'Refreshing…';
-
         document.dispatchEvent(new CustomEvent('fv:refresh'));
         await this._initMenuFiltered();
-
         await new Promise(res=> setTimeout(res, 900));
         hideBar();
       };
@@ -813,12 +795,7 @@
         if (!armed) return;
         const shouldRefresh = pulling && deltaY >= THRESHOLD;
         armed=false; pulling=false; deltaY=0; startY=0; startX=0;
-        if (shouldRefresh) {
-          lastEnd = Date.now();
-          doRefresh();
-        } else {
-          hideBar();
-        }
+        if (shouldRefresh) { lastEnd = Date.now(); doRefresh(); } else { hideBar(); }
       };
 
       window.addEventListener('pointerdown', onDown, { passive:true });
@@ -878,7 +855,7 @@
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          const m = txt.match(/number\\s*:\\s*["']([\\d.]+)["']/) || txt.match(/FV_NUMBER\\s*=\\s*["']([\\d.]+)["']/);
           return (m && m[1]) || '';
         }catch{ return ''; }
       }
