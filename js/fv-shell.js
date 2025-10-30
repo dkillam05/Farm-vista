@@ -1,9 +1,13 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.7
+   FarmVista Shell — v5.10.9 (surgical stability fixes)
    - One-time boot overlay (blurred) "Loading. Please wait." ONLY on first load
      or when forced by pull-to-refresh / check-for-updates.
    - Logout label comes from FVUserContext (fallback to Firebase Auth).
    - Menu filtered by FVMenuACL + FVUserContext.allowedIds.
+   - FIX: Update flow waits for new SW control; nudges waiting SW.
+   - FIX: Do not clear FVUserContext on PTR/update; keep last-good identity/menu.
+   - FIX: Sticky logout label; no fallback to blank on transient refresh.
+   - FIX: Guard menu re-render until allowedIds exists (prevents empty/whole flashes).
 */
 
 (function () {
@@ -198,7 +202,12 @@
   `;
 
   class FVShell extends HTMLElement {
-    constructor(){ super(); this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true)); }
+    constructor(){
+      super();
+      this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
+      this._menuPainted = false;       // tracks if we have a rendered menu already
+      this._lastLogoutName = '';       // sticky label cache
+    }
 
     connectedCallback(){
       const r = this.shadowRoot;
@@ -256,10 +265,10 @@
       // Wait for user context (with timeout)
       await this._waitForUserContext(5000);
 
-      // Menu render (filtered)
+      // Menu render (filtered) — guarded against transient empty roles
       await this._initMenuFiltered();
 
-      // Wire logout label and actions
+      // Wire logout label and actions (sticky)
       this._wireAuthLogout(this.shadowRoot);
 
       // Hide boot overlay and mark hydrated (one per tab session)
@@ -341,13 +350,26 @@
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
+
+      // GUARD: if we already painted a menu, and ctx exists but has no allowedIds yet (transient refresh),
+      // do NOT clobber the existing menu.
+      if (this._menuPainted && ctx && !Array.isArray(ctx.allowedIds)) {
+        return;
+      }
+
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+
+      // If there's still no allowedIds and we haven't painted yet, don't render an incorrect menu.
+      if (!this._menuPainted && allowedIds.length === 0) {
+        return;
+      }
 
       const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
         ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
         : NAV_MENU;
 
       this._renderMenu(filtered);
+      this._menuPainted = true;
     }
 
     _renderMenu(cfg){
@@ -517,10 +539,10 @@
       const doRefresh = async ()=>{
         dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
         document.dispatchEvent(new CustomEvent('fv:refresh'));
-        try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
+        // DO NOT clear user context here; keep last-good identity/menu
         // Force the next page to show the boot once
         sessionStorage.setItem('fv:boot:forceOnce','1');
-        try { await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve()); } catch {}
+        // Try to re-init the filtered menu (will guard against transient empties)
         await this._initMenuFiltered();
         await new Promise(res=> setTimeout(res, 900));
         bar.classList.remove('show'); spin.hidden=true; dot.hidden=true; txt.textContent='Pull to refresh';
@@ -536,7 +558,7 @@
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth + Logout label ===== */
+    /* ===== Auth + Logout label (sticky) ===== */
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
       const logoutLabel = r.getElementById('logoutLabel');
@@ -552,7 +574,12 @@
           const u = window.firebaseAuth.currentUser;
           name = u.displayName || u.email || '';
         }
-        logoutLabel.textContent = name ? `Logout ${name}` : 'Logout';
+
+        // Sticky behavior: if transiently empty, keep last known name
+        if (name) this._lastLogoutName = name;
+        const finalName = this._lastLogoutName || name;
+
+        logoutLabel.textContent = finalName ? `Logout ${finalName}` : 'Logout';
       };
 
       setLabel();
@@ -562,6 +589,7 @@
         }
       } catch {}
 
+      // Settling window to catch late auth rehydration
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
@@ -571,12 +599,13 @@
           try{ if (typeof window.fvSignOut === 'function') await window.fvSignOut(); }catch(e){}
           try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
           sessionStorage.removeItem('fv:boot:hydrated');
+          this._lastLogoutName = '';
           location.replace(LOGIN_URL);
         });
       }
     }
 
-    /* ===== Version + updates ===== */
+    /* ===== Version + updates (now SW-aware) ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
@@ -596,22 +625,53 @@
 
         this._toastMsg('Clearing cache…', 900);
 
+        // Unregister any existing SWs
+        let oldControllers = false;
         if (navigator.serviceWorker) {
-          try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {}
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            oldControllers = regs.length > 0;
+            await Promise.all(regs.map(r=> r.unregister()));
+          } catch {}
         }
+        // Clear runtime/static caches
         if ('caches' in window) {
           try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {}
         }
 
-        try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
-        // Force next boot once after update
+        // Do NOT clear FVUserContext here; keep last-good identity/menu visible.
         sessionStorage.setItem('fv:boot:forceOnce','1');
 
-        await sleep(150);
-        if (navigator.serviceWorker) { try { await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); } catch {} }
+        // Re-register SW and wait for it to take control
+        let tookControl = false;
+        const waitForControl = new Promise((resolve) => {
+          const timer = setTimeout(()=> resolve(false), 3000);
+          if (navigator.serviceWorker) {
+            navigator.serviceWorker.oncontrollerchange = () => {
+              clearTimeout(timer);
+              tookControl = true;
+              resolve(true);
+            };
+          } else {
+            clearTimeout(timer); resolve(false);
+          }
+        });
+
+        if (navigator.serviceWorker) {
+          try {
+            const reg = await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now());
+            // If a waiting worker exists, nudge it to activate now
+            if (reg && reg.waiting) {
+              reg.waiting.postMessage && reg.waiting.postMessage('SKIP_WAITING');
+            }
+          } catch {}
+        }
 
         this._toastMsg('Updating…', 1200);
-        await sleep(320);
+        await waitForControl; // prefer waiting for controller switch
+        await sleep(200);
+
+        // Reload with version param to bust any remaining intermediaries
         const url = new URL(location.href); url.searchParams.set('rev', targetVer || String(Date.now()));
         location.replace(url.toString());
       }catch(e){
