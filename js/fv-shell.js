@@ -1,11 +1,8 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.8
-   Changes vs 5.10.7:
-   - Guaranteed "Home" visibility for all users
-   - Menu filtering: use FVMenuACL.filter if available, else internal filter by allowedIds
-   - Re-render menu whenever FVUserContext changes (roles/overrides edits)
-   - ShadowRoot queries use querySelector instead of getElementById
-   - Drawer link clicks close drawer; current page highlight hardened
+   FarmVista Shell — v5.10.9 (hotfix)
+   - Fix: regex literals in checkForUpdates() (no double escaping)
+   - Keep: guaranteed "Home" visibility; FVUserContext-driven filtering
+   - Keep: one-time boot overlay; PTR; live logout label; drawer behavior
 */
 
 (function () {
@@ -120,7 +117,6 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- One-time boot overlay -->
   <div class="boot js-boot" hidden>
     <div class="boot-card">
       <div class="spin" aria-hidden="true"></div>
@@ -128,7 +124,6 @@
     </div>
   </div>
 
-  <!-- Fixed PTR bar -->
   <div class="ptr js-ptr" aria-hidden="true">
     <div class="dot js-dot" hidden></div>
     <div class="spinner js-spin" hidden></div>
@@ -217,13 +212,11 @@
       this._boot = r.querySelector('.js-boot');
       this._logoutLabel = r.querySelector('#logoutLabel');
 
-      // Show boot overlay only if first-load OR forced
       const shouldBoot = !sessionStorage.getItem('fv:boot:hydrated') ||
                          sessionStorage.getItem('fv:boot:forceOnce') === '1';
       if (this._boot) this._boot.hidden = !shouldBoot;
       sessionStorage.removeItem('fv:boot:forceOnce');
 
-      // header buttons & theme
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
@@ -237,43 +230,33 @@
       const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
-      // Boot
       this._bootSequence();
     }
 
-    /* =================== Boot sequence (order matters) =================== */
     async _bootSequence(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
       await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
-      await this._ensureFirebaseInit(); // tolerant
+      await this._ensureFirebaseInit();
 
-      // user-context + menu-acl
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
-
-      // Wait for user context (with timeout)
       await this._waitForUserContext(5000);
 
-      // Initial menu render
       await this._initMenuFiltered();
 
-      // Keep menu in sync with context changes (role/override edits)
       try {
         if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
           window.FVUserContext.onChange(() => this._initMenuFiltered());
         }
       } catch {}
 
-      // Wire logout label and actions
       this._wireAuthLogout(this.shadowRoot);
 
-      // Hide boot overlay and mark hydrated
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
-      // PTR & misc
       const upd = this.shadowRoot.querySelector('.js-update-row');
       if (upd) upd.addEventListener('click', (e)=> { e.preventDefault(); this.checkForUpdates(); });
 
@@ -290,7 +273,7 @@
           window.__FV_FIREBASE_INIT_LOADED__ = true;
           await this._loadScriptOnce('/Farm-vista/js/firebase-init.js', { type:'module' });
         }
-      } catch (e) { /* ignore */ }
+      } catch {}
     }
 
     _applyVersionToUI(){
@@ -343,17 +326,13 @@
       }
     }
 
-    /* =============== FILTERED MENU (guarantee "Home") ================== */
     _internalFilterByIds(cfg, allowedIds) {
       if (!cfg || !Array.isArray(cfg.items)) return cfg;
       const allow = new Set(Array.isArray(allowedIds) ? allowedIds : []);
-      // Always allow 'home'
-      allow.add('home');
+      allow.add('home'); // always allow home
 
       function cloneNode(n){
-        if (n.type === 'link') {
-          return allow.has(n.id) ? { ...n } : null;
-        }
+        if (n.type === 'link') return allow.has(n.id) ? { ...n } : null;
         if (n.type === 'group') {
           const kids = (n.children||[]).map(cloneNode).filter(Boolean);
           if (!kids.length) return null;
@@ -370,9 +349,7 @@
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-      const allowedIdsRaw = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds.slice() : [];
-      // If ctx not ready, fall back to showing at least Home
-      const allowedIds = Array.isArray(allowedIdsRaw) ? allowedIdsRaw : [];
+      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds.slice() : [];
       if (!allowedIds.includes('home')) allowedIds.push('home');
 
       const filtered = (window.FVMenuACL && typeof window.FVMenuACL.filter === 'function')
@@ -403,8 +380,6 @@
         const mode = item.activeMatch || 'starts-with';
         const isActive = (mode === 'exact') ? (path === hrefPath) : path.startsWith(hrefPath);
         if (isActive) a.setAttribute('aria-current', 'page');
-
-        // Close drawer on click
         a.addEventListener('click', () => { this.toggleDrawer(false); });
         return a;
       };
@@ -525,7 +500,6 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== PULL-TO-REFRESH ===== */
     _initPTR(){
       const bar = this._ptr = this.shadowRoot.querySelector('.js-ptr');
       const txt = this._ptrTxt = this.shadowRoot.querySelector('.js-txt');
@@ -552,7 +526,6 @@
         dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
         document.dispatchEvent(new CustomEvent('fv:refresh'));
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
-        // Force the next page to show the boot once
         sessionStorage.setItem('fv:boot:forceOnce','1');
         try { await (window.FVUserContext && window.FVUserContext.ready ? window.FVUserContext.ready() : Promise.resolve()); } catch {}
         await this._initMenuFiltered();
@@ -570,7 +543,6 @@
       window.addEventListener('mouseup', onEnd);
     }
 
-    /* ===== Auth + Logout label ===== */
     _wireAuthLogout(r){
       const logoutRow = r.querySelector('#logoutRow');
       const logoutLabel = r.querySelector('#logoutLabel');
@@ -611,14 +583,13 @@
       }
     }
 
-    /* ===== Version + updates ===== */
     async checkForUpdates(){
       const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
       async function readTargetVersion(){
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
-          const m = txt.match(/number\\s*:\\s*["']([\\d.]+)["']/) || txt.match(/FV_NUMBER\\s*=\\s*["']([\\d.]+)["']/);
+          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
           return (m && m[1]) || '';
         }catch{ return ''; }
       }
@@ -627,7 +598,7 @@
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(\`Already up to date (v\${cur})\`, 2200); return; }
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
 
         this._toastMsg('Clearing cache…', 900);
 
@@ -639,7 +610,6 @@
         }
 
         try { window.FVUserContext && window.FVUserContext.clear && window.FVUserContext.clear(); } catch {}
-        // Force next boot once after update
         sessionStorage.setItem('fv:boot:forceOnce','1');
 
         await sleep(150);
