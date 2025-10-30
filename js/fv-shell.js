@@ -1,8 +1,8 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.10 (menu rescue + home force-include)
-   - Adds “rescue whitelist” rendering if filtering returns no links but allowedIds exists.
-   - Force-includes Home/Dashboard link when detected by id/label/href.
-   - Leaves all previous stability fixes intact.
+   FarmVista Shell — v5.10.11 (ACL-ready wait + live re-filter)
+   - Defer first drawer render until menu-acl is loaded (no unfiltered flash).
+   - Re-run filtered render when FVUserContext changes (no tap-Home needed).
+   - Keeps rescue whitelist + force-home include and all prior stability fixes.
 */
 (function () {
   const tpl = document.createElement('template');
@@ -225,9 +225,15 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      await this._waitForUserContext(5000);
+      // NEW: ensure ACL exists before first render (prevents unfiltered pass-through)
+      await this._ensureACLReady(3500);
 
+      // Wait for user context, then render filtered menu
+      await this._waitForUserContext(5000);
       await this._initMenuFiltered();
+
+      // NEW: subscribe to future context changes; re-filter immediately when roles arrive/change
+      this._subscribeContextForMenu();
 
       this._wireAuthLogout(this.shadowRoot);
 
@@ -242,6 +248,28 @@
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initPTR();
+    }
+
+    // NEW: tiny wait helper for ACL readiness
+    async _ensureACLReady(timeoutMs=3000){
+      const start = Date.now();
+      const ok = ()=> !!(window.FVMenuACL && typeof window.FVMenuACL.filter === 'function');
+      if (ok()) return;
+      while (!ok() && (Date.now() - start) < timeoutMs) {
+        await new Promise(r => setTimeout(r, 80));
+      }
+    }
+
+    // NEW: subscribe once to user-context changes and re-render filtered menu
+    _subscribeContextForMenu(){
+      try{
+        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+          window.FVUserContext.onChange(() => {
+            // re-run guarded render; avoids empty/whole flashes
+            this._initMenuFiltered();
+          });
+        }
+      }catch{}
     }
 
     async _ensureFirebaseInit(){
@@ -338,34 +366,33 @@
 
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
 
+      // If we already painted and allowedIds aren't ready, don't clobber.
       if (this._menuPainted && ctx && !Array.isArray(ctx.allowedIds)) return;
 
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
+      // If first render and no role data yet, don't render incorrect menu.
       if (!this._menuPainted && allowedIds.length === 0) return;
 
-      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
-        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
-        : NAV_MENU;
+      // NEW: if ACL filter is not present yet, do not render (prevents unfiltered pass-through)
+      if (!(window.FVMenuACL && typeof window.FVMenuACL.filter === 'function')) return;
+
+      const filtered = window.FVMenuACL.filter(NAV_MENU, allowedIds);
 
       let cfgToRender = filtered;
       let linkCount = this._countLinks(filtered);
 
-      /* === RESCUE WHITELIST MODE ===
-         If filter produced zero links but we *do* have allowedIds,
-         render a flat whitelist from the raw menu. */
+      /* === RESCUE WHITELIST MODE === */
       if (linkCount === 0 && allowedIds.length > 0) {
         const allLinks = this._collectAllLinks(NAV_MENU);
         const set = new Set(allowedIds);
         const rescued = allLinks.filter(l => set.has(l.id));
-        // Try to force-include a Home/Dashboard link if present anywhere
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
 
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
         linkCount = rescued.length;
       } else {
-        // Even when filter worked, still prepend Home if it was pruned by role keys.
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
           return links.some(l => this._looksLikeHome(l));
