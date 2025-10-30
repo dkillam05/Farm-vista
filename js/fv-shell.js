@@ -696,7 +696,7 @@
       try{
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Up To Date (v${cur})`, 2200); return; }
         this._toastMsg('Clearing cache…', 900);
         if (navigator.serviceWorker) { try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {} }
         if ('caches' in window) { try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {} }
