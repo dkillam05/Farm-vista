@@ -728,7 +728,7 @@
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
 
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Already up to date (v${cur})`, 2200); return; }
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Up To Date (v${cur})`, 2200); return; }
         this._toastMsg('Clearing cache…', 900);
 
         if (navigator.serviceWorker) {
