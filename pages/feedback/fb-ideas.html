@@ -46,28 +46,21 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    .toast{
-      position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
-      transform:translateX(-50%);
-      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);
-      z-index:99999;display:none;
-      /* single-line, centered, no wrap */
-      white-space:nowrap; text-align:center; line-height:1.25;
-      min-width:unset; max-width:unset;
-    }
+    /* Toast: single line, centered, never wraps */
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
+      white-space:nowrap; text-align:center; max-width:92vw; overflow:hidden; text-overflow:ellipsis;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
     .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
 
-    /* Screenshot preview grid */
-    .preview-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(88px,1fr));gap:10px}
-    .thumb{position:relative;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#f6f7f6}
-    .thumb img{display:block;width:100%;height:88px;object-fit:cover}
-    .thumb .cap{position:absolute;left:6px;bottom:6px;right:6px;font-size:11px;color:#fff;background:rgba(0,0,0,.45);
-      padding:2px 6px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
-    .thumb .del{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:50%;
-      width:24px;height:24px;display:grid;place-items:center;font-weight:900;cursor:pointer}
+    /* Tiny thumbnails for chosen files (optional preview) */
+    .thumbs{display:flex;gap:8px;flex-wrap:wrap}
+    .thumb{width:72px;height:72px;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:grid;place-items:center;background:var(--surface)}
+    .thumb img{max-width:100%;max-height:100%;display:block}
+    .muted-line{font-size:13px;color:var(--muted);margin-top:4px}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -127,12 +120,13 @@
             </div>
           </div>
 
-          <!-- Screenshot upload (optional) -->
+          <!-- OPTIONAL: Screenshots / files -->
           <div class="row-1">
             <div class="field">
-              <label for="shots">Screenshot(s) — optional</label>
-              <input id="shots" class="input" type="file" accept="image/*" multiple />
-              <div id="shotsPreview" class="preview-grid" style="margin-top:10px;"></div>
+              <label for="files">Screenshot(s) (optional)</label>
+              <input id="files" class="input" type="file" accept="image/*" multiple />
+              <div id="thumbs" class="thumbs" aria-hidden="true"></div>
+              <div id="fileHint" class="muted-line" aria-hidden="true"></div>
             </div>
           </div>
 
@@ -150,12 +144,7 @@
   <script type="module">
   import {
     ready,
-    getFirestore, collection, addDoc, serverTimestamp, getDoc, doc, updateDoc
-  } from '/Farm-vista/js/firebase-init.js';
-
-  // Storage comes from same initializer (re-exported)
-  import {
-    getStorage, ref as sRef, uploadBytes, getDownloadURL
+    getFirestore, collection, addDoc, serverTimestamp, updateDoc
   } from '/Farm-vista/js/firebase-init.js';
 
   (function(){
@@ -172,15 +161,15 @@
       sub:   $('#subMenu'),
       notes: $('#notes'),
       mic:   $('#dictate'),
-      shots: $('#shots'),
-      shotsPreview: $('#shotsPreview')
+      files: $('#files'),
+      thumbs: $('#thumbs'),
+      fileHint: $('#fileHint')
     };
 
-    let db, storage;
-    let pendingFiles = [];  // File[] after selection (minus deletions)
+    let db;
 
-    /* ================= UI helpers ================= */
-    function showToast(msg="Saved.", ms=2800){
+    /* ===== helpers ===== */
+    function showToast(msg="Saved.", ms=4000){
       el.toast.textContent = msg;
       el.toast.classList.remove('show'); void el.toast.offsetWidth;
       el.toast.classList.add('show');
@@ -191,65 +180,61 @@
       const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
     };
 
-    /* ================= User prefill (same as shell label logic) ================= */
-    async function waitForUser(ms=6000){
-      const start=Date.now();
-      for(;;){
+    const titleCase = (s)=>String(s||'').replace(/\s+/g,' ').trim().split(' ')
+      .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+    const nameFromEmail = (email)=>{
+      const local = String(email||'').split('@')[0]||'';
+      if(!local) return '';
+      if(/[._-]/.test(local)){
+        return titleCase(local.replace(/[0-9]+/g,' ').split(/[._-]+/).join(' '));
+      }
+      const spaced = local.replace(/([a-z])([A-Z])/g,'$1 $2');
+      return titleCase(spaced || local);
+    };
+
+    /* ===== Submitted-by (same pattern as shell) ===== */
+    let _triesLeft = 30;   // ~6s polling
+    function _setSubmittedByNow(){
+      let label = '';
+      try{
+        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        if (ctx && (ctx.displayName || ctx.email)) label = ctx.displayName || ctx.email || '';
+        if (ctx && !el.by.dataset.uid && ctx.uid) el.by.dataset.uid = ctx.uid;
+        if (ctx && !el.by.dataset.email && ctx.email) el.by.dataset.email = ctx.email;
+      }catch{}
+      if (!label) {
         try{
-          // 1) Preferred: FVUserContext.get()
-          const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-          if (ctx && (ctx.displayName || ctx.email || ctx.uid)) {
-            return {
-              name: ctx.displayName || ctx.email || ctx.uid,
-              email: ctx.email || '',
-              uid: ctx.uid || ''
-            };
+          const u = window.firebaseAuth && window.firebaseAuth.currentUser;
+          if (u){
+            label = u.displayName || u.email || '';
+            if (!el.by.dataset.uid) el.by.dataset.uid = u.uid || '';
+            if (!el.by.dataset.email) el.by.dataset.email = u.email || '';
           }
         }catch{}
-        try{
-          // 2) Fallback: Firebase Auth currentUser
-          const u = window.firebaseAuth && window.firebaseAuth.currentUser;
-          if (u) return { name: u.displayName || u.email || u.uid, email: u.email||'', uid: u.uid||'' };
-        }catch{}
-        if (Date.now()-start > ms) break;
-        await new Promise(r=>setTimeout(r,120));
       }
-      return { name:'Unknown User', email:'', uid:'' };
+      if (label && label.includes('@')) label = nameFromEmail(label);
+      label = titleCase(label || '');
+      if (label) el.by.value = label;
+      return !!label;
     }
-
-    // Try employees/{lowercase email} to get displayName overrides
-    async function enrichFromEmployees(u){
-      try{
-        if (!u.email) return u;
-        const emailKey = String(u.email).toLowerCase();
-        const snap = await getDoc(doc(getFirestore(), 'employees', emailKey));
-        if (snap.exists()){
-          const d=snap.data()||{};
-          const dn = (d.displayName || d.name || '').trim();
-          if (dn) u.name = dn;
+    function _subscribeUserChanges(){
+      const okNow = _setSubmittedByNow();
+      try {
+        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+          window.FVUserContext.onChange(() => _setSubmittedByNow());
         }
-      }catch{}
-      return u;
+      } catch {}
+      const tick = setInterval(()=>{
+        if (_setSubmittedByNow() || --_triesLeft <= 0) clearInterval(tick);
+      }, 200);
+      if (okNow) { /* no-op */ }
     }
 
-    // Title-case "First Last" if needed
-    function toTitleCaseName(s){
-      if (!s) return s;
-      // handle "First Last" or "first last" or "FirstLast" fallback
-      const parts = String(s).replace(/\s+/g,' ').trim().split(' ');
-      if (parts.length===1){
-        // Try to split camel case "DaneKillam" -> ["Dane","Killam"]
-        const split = parts[0].replace(/([a-z])([A-Z])/g,'$1 $2').split(' ');
-        return split.map(cap).join(' ');
-      }
-      return parts.map(cap).join(' ');
-      function cap(w){ return w ? (w[0].toUpperCase() + w.slice(1)) : ''; }
-    }
-
-    /* ================= Menu helpers ================= */
+    /* ===== Menus (unchanged) ===== */
     async function getNavMenu(){
       try{
-        const mod = await import('/Farm-vista/js/menu.js');
+        const ver = (window.FV_VERSION && window.FV_VERSION.number) ? window.FV_VERSION.number : Date.now();
+        const mod = await import(`/Farm-vista/js/menu.js?v=${ver}`);
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
       }catch(e){ console.warn('menu.js import failed', e); }
@@ -257,28 +242,29 @@
       if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
     }
-
     function buildMainList(NAV_MENU){
       const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
       const out=[];
       for(const it of items){
         if(!it) continue;
         const entry = {
-          id: it.id||it.label||it.href||'',
-          label: it.label||it.id||'Item',
-          type: it.type||'link',
-          children: Array.isArray(it.children)?it.children:[]
+          id:    it.id || it.label || it.href || '',
+          label: it.label || it.id || 'Item',
+          kind:  it.type || 'link',
+          children: []
         };
+        const kids = Array.isArray(it.children) ? it.children : [];
+        entry.children = kids.map(c=>({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item', type:c.type||'link', children: Array.isArray(c.children)?c.children:[] }));
         out.push(entry);
       }
       return out;
     }
-
     function wireMenus(mains){
       el.main.innerHTML = '<option value="">— Select —</option>';
       for(const m of mains){
         const o=document.createElement('option');
-        o.value=String(m.id); o.textContent=String(m.label);
+        o.value = String(m.id);
+        o.textContent = String(m.label);
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
       }
@@ -295,7 +281,7 @@
         const flat=[];
         for(const c of kids){
           if(!c) continue;
-          if(c.type==='group' && Array.isArray(c.children)){
+          if(c.type==='group' && Array.isArray(c.children) && c.children.length){
             for(const gc of c.children){
               flat.push({ id: gc.id||gc.label||gc.href||'', label: gc.label||gc.id||'Item' });
             }
@@ -303,50 +289,90 @@
             flat.push({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item' });
           }
         }
-        el.sub.innerHTML='';
+        el.sub.innerHTML = '';
         for(const s of flat){
           const op=document.createElement('option');
-          op.value=String(s.id||s.label||''); op.textContent=String(s.label||s.id||'Item');
+          op.value = String(s.id||s.label||'');
+          op.textContent = String(s.label||s.id||'Item');
           el.sub.appendChild(op);
         }
         const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
-        el.sub.disabled=false;
+
+        el.sub.disabled = false;
       });
     }
 
-    /* ================= Screenshot previews ================= */
-    function renderPreviews(){
-      const wrap = el.shotsPreview;
-      wrap.innerHTML = '';
-      pendingFiles.forEach((file, idx)=>{
-        const url = URL.createObjectURL(file);
-        const cell = document.createElement('div');
-        cell.className = 'thumb';
-        cell.innerHTML = `
-          <img src="${url}" alt="">
-          <div class="cap">${(file.name||'image').slice(0,24)}</div>
-          <button class="del" type="button" aria-label="Remove">×</button>
-        `;
-        cell.querySelector('.del').addEventListener('click', ()=>{
-          URL.revokeObjectURL(url);
-          pendingFiles.splice(idx,1);
-          renderPreviews();
-        });
-        wrap.appendChild(cell);
+    /* ===== Optional file preview ===== */
+    el.files?.addEventListener('change', ()=>{
+      const files = Array.from(el.files.files||[]);
+      el.thumbs.innerHTML = '';
+      if (!files.length){ el.thumbs.setAttribute('aria-hidden','true'); el.fileHint.textContent=''; return; }
+      files.forEach(f=>{
+        const wrap = document.createElement('div'); wrap.className='thumb';
+        if (f.type.startsWith('image/')){
+          const img = document.createElement('img'); img.alt=f.name; wrap.appendChild(img);
+          const reader = new FileReader();
+          reader.onload = e=>{ img.src = e.target.result; };
+          reader.readAsDataURL(f);
+        } else {
+          wrap.textContent = f.name.split('.').pop().toUpperCase();
+        }
+        el.thumbs.appendChild(wrap);
       });
-    }
-
-    el.shots.addEventListener('change', ()=>{
-      const files = Array.from(el.shots.files || []);
-      // append to current pending (allow multiple selections)
-      pendingFiles = pendingFiles.concat(files);
-      renderPreviews();
-      // clear native input so same file can be re-picked if removed
-      el.shots.value = '';
+      el.thumbs.removeAttribute('aria-hidden');
+      el.fileHint.textContent = files.length + (files.length===1 ? ' file selected' : ' files selected');
     });
 
-    /* ================= Save ================= */
+    /* ===== Lazy Storage loader (HTML-only fix) ===== */
+    let _storageFns = null;
+    async function loadStorageFns(){
+      if (_storageFns) return _storageFns;
+      // 1) Try your local firebase-init.js re-exports (cache-busted)
+      try{
+        const ver = (window.FV_VERSION && window.FV_VERSION.number) ? window.FV_VERSION.number : Date.now();
+        const mod = await import(`/Farm-vista/js/firebase-init.js?v=${ver}`);
+        const getStorage = mod?.getStorage;
+        const ref = mod?.ref || mod?.storageRef;
+        const uploadBytes = mod?.uploadBytes;
+        const getDownloadURL = mod?.getDownloadURL;
+        if (getStorage && ref && uploadBytes && getDownloadURL){
+          _storageFns = { getStorage, ref, uploadBytes, getDownloadURL };
+          return _storageFns;
+        }
+      }catch(e){ /* fall through */ }
+
+      // 2) Fallback: official Firebase CDN ESM (no changes to your repo)
+      const url = 'https://www.gstatic.com/firebasejs/10.13.1/firebase-storage.js';
+      const mod2 = await import(url);
+      _storageFns = {
+        getStorage: mod2.getStorage,
+        ref:        mod2.ref,
+        uploadBytes:mod2.uploadBytes,
+        getDownloadURL: mod2.getDownloadURL
+      };
+      return _storageFns;
+    }
+
+    async function uploadScreenshots(docId){
+      const files = Array.from(el.files?.files || []);
+      if (!files.length) return [];
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
+      const storage = getStorage(); // uses default initialized app from your firebase-init
+      const out = [];
+      for (let i=0; i<files.length; i++){
+        const f = files[i];
+        const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
+        const path = `feedback/${docId}/${safeName}`;
+        const sref = ref(storage, path);
+        await uploadBytes(sref, f, { contentType: f.type || 'application/octet-stream' });
+        const url = await getDownloadURL(sref);
+        out.push({ name: f.name||safeName, path, url, contentType: f.type||'', size: f.size||0 });
+      }
+      return out;
+    }
+
+    /* ===== Save (unchanged except lazy uploads) ===== */
     async function save(){
       try{
         showErr('');
@@ -356,8 +382,6 @@
         if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
         if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
 
-        el.save.disabled = true;
-
         const payload = {
           type: 'idea',
           submittedBy: { uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
@@ -365,41 +389,29 @@
           mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
           subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
-          attachments: [],             // will fill after uploads
+          attachments: [],
           createdAt: serverTimestamp(),
           appVersion: (window.FV_VERSION || null)
         };
 
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // Upload screenshots if any
-        if (pendingFiles.length){
-          showToast('Uploading screenshot(s)…', 1600);
-          const folder = `feedback/${docRef.id}/`;
-          const out = [];
-          for (const f of pendingFiles){
-            const safeName = (Date.now() + '-' + (f.name||'image').replace(/[^a-z0-9._-]+/gi,'_')).toLowerCase();
-            const path = folder + safeName;
-            const r = sRef(storage, path);
-            await uploadBytes(r, f, { contentType: f.type||'image/jpeg' });
-            const url = await getDownloadURL(r);
-            out.push({ name: f.name||safeName, path, url, type: f.type||'image/jpeg', size: f.size||0 });
-          }
-          await updateDoc(docRef, { attachments: out });
+        // Optional uploads (runs AFTER doc created; lazy-loads Storage without blocking init)
+        const filesMeta = await uploadScreenshots(docRef.id);
+        if (filesMeta.length){
+          await updateDoc(docRef, { attachments: filesMeta });
         }
 
-        // reset form (keep user/date)
-        el.notes.value=''; pendingFiles=[]; renderPreviews();
+        // Reset only notes/files (keep date/menu/user)
+        el.notes.value='';
+        if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); }
+
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){
-        console.error(e); showErr('Save failed. Check permissions or network.');
-      }finally{
-        el.save.disabled = false;
-      }
+      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
     }
 
-    /* ================= Dictation (optional) ================= */
+    /* ===== Dictation (unchanged) ===== */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
@@ -411,23 +423,16 @@
       rec.onerror=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
     }
 
-    /* ================= Init ================= */
+    /* ===== Init ===== */
     (async ()=>{
-      await ready; db=getFirestore(); storage=getStorage();
+      await ready; db=getFirestore();
 
-      // Preload user & date (same approach as <fv-shell> logout label)
-      let user = await waitForUser(6000);
-      user = await enrichFromEmployees(user);
-      el.by.value = toTitleCaseName(user.name || 'Unknown User');
-      el.by.dataset.uid   = user.uid   || '';
-      el.by.dataset.email = user.email || '';
+      _subscribeUserChanges();
       el.date.value = todayISO();
 
-      // Menus from /js/menu.js
       const NAV = await getNavMenu();
       wireMenus(buildMainList(NAV));
 
-      // Wire buttons
       el.save.addEventListener('click', save);
       speechSetup();
     })();
