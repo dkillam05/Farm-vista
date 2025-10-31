@@ -58,7 +58,6 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
     .error{border:1px solid #b3261e;background:var(--surface);color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
-    .muted{ color:var(--muted,#67706B); }
   </style>
 
   <!-- Ensure fv-shell -->
@@ -140,7 +139,7 @@
   <script type="module">
   import {
     ready,
-    getFirestore, collection, addDoc, serverTimestamp, getDoc, doc,
+    getFirestore, collection, addDoc, serverTimestamp, getDoc, doc, updateDoc,
     getStorage, ref, uploadBytes, getDownloadURL
   } from '/Farm-vista/js/firebase-init.js';
 
@@ -182,27 +181,22 @@
     const smartNameFromEmail = (email)=>{
       const local = String(email||'').split('@')[0] || '';
       if(!local) return '';
-      // common separators
       if (/[._-]/.test(local)) {
         return titleCase(local.replace(/[0-9]+/g,'').split(/[._-]+/).join(' '));
       }
-      // camelCase or PascalCase → insert spaces
       const spaced = local.replace(/([a-z])([A-Z])/g,'$1 $2');
       if (spaced !== local) return titleCase(spaced);
-      // fallback: try to split into two parts by heuristics (vowel/consonant boundary near middle)
       const mid=Math.floor(local.length/2);
-      const guess = local.slice(0, mid) + ' ' + local.slice(mid);
-      return titleCase(guess);
+      return titleCase(local.slice(0, mid) + ' ' + local.slice(mid));
     };
-
     function setBusy(on){
       el.save.disabled = !!on;
       el.files.disabled = !!on;
       el.mic.disabled = !!on;
     }
 
-    /* ===== user prefill ===== */
-    async function waitForUser(ms=6000){
+    /* ===== user prefill (kept simple & robust) ===== */
+    async function waitForUser(ms=6500){
       const start=Date.now();
       for(;;){
         const ctx = window.FVUserContext || {};
@@ -210,10 +204,8 @@
         let email = ctx.email || '';
         let uid   = ctx.uid || '';
         if (uid || email || name){ return { name: name||email||uid, email, uid }; }
-        try{
-          const u = window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
-          if (u){ return { name: u.displayName||u.email||u.uid, email: u.email||'', uid: u.uid||'' }; }
-        }catch{}
+        const u = window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
+        if (u){ return { name: u.displayName||u.email||u.uid, email: u.email||'', uid: u.uid||'' }; }
         if (Date.now()-start > ms) break;
         await new Promise(r=>setTimeout(r,120));
       }
@@ -231,12 +223,10 @@
           }
         }
       }catch{}
-      // Final fallback: derive "First Last" from email if still not a proper name
       if (u.email){
         const fromEmail = smartNameFromEmail(u.email);
         if (!u.name || u.name.toLowerCase()===u.email.toLowerCase()) u.name = fromEmail;
       }
-      // force First Last style casing
       u.name = titleCase(u.name||'');
       return u;
     }
@@ -323,14 +313,16 @@
     }
     el.files.addEventListener('change', ()=> renderFileList(Array.from(el.files.files||[])));
 
-    /* ===== save ===== */
+    /* ===== upload + save ===== */
     async function uploadAll(uid, docId){
       const out=[];
       const files = Array.from(el.files.files||[]);
       if(!files.length) return out;
       const base=`user-uploads/${uid}/feedback/ideas/${docId}/`;
+      let i=0;
       for(const f of files){
-        const path = base + f.name.replace(/[^\w.\-]+/g,'_');
+        const clean = f.name.replace(/[^\w.\-]+/g,'_');
+        const path = base + (Date.now()+('_'+(i++))) + '_' + clean;
         const r = ref(storage, path);
         await uploadBytes(r, f, { contentType: f.type||'application/octet-stream' });
         const url = await getDownloadURL(r);
@@ -350,7 +342,7 @@
 
         setBusy(true);
 
-        // create shell doc first to get id
+        // shell doc first
         const payload={
           type:'idea',
           submittedBy:{ uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
@@ -364,19 +356,18 @@
         };
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // upload files (if any), then patch doc with attachments
+        // files (if any)
         const uid = el.by.dataset.uid || 'unknown';
         const attachments = await uploadAll(uid, docRef.id);
         if(attachments.length){
-          await (await import('/Farm-vista/js/firebase-init.js')).updateDoc(doc(db,'feedback',docRef.id), {
+          await updateDoc(doc(db,'feedback',docRef.id), {
             attachments,
             updatedAt: serverTimestamp()
           });
         }
 
         // reset notes/files only
-        el.notes.value='';
-        el.files.value=''; renderFileList([]);
+        el.notes.value=''; el.files.value=''; renderFileList([]);
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
       }catch(e){
@@ -403,7 +394,7 @@
     (async ()=>{
       await ready; db=getFirestore(); storage=getStorage();
 
-      let user = await waitForUser(6000);
+      let user = await waitForUser(6500);
       user = await enrichFromEmployees(user);
       el.by.value = user.name || 'Unknown User';
       el.by.dataset.uid   = user.uid   || '';
