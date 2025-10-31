@@ -46,21 +46,15 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* Toast: single line, centered, no wrap */
+    /* Toast: single line, centered, never wraps */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
-      white-space:nowrap;text-align:center;max-width:92vw;overflow:hidden;text-overflow:ellipsis;}
+      white-space:nowrap; text-align:center; max-width:92vw; overflow:hidden; text-overflow:ellipsis;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
     .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
-
-    /* Tiny thumbnails for chosen files (optional preview) */
-    .thumbs{display:flex;gap:8px;flex-wrap:wrap}
-    .thumb{width:72px;height:72px;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:grid;place-items:center;background:var(--surface)}
-    .thumb img{max-width:100%;max-height:100%;display:block}
-    .muted-line{font-size:13px;color:var(--muted);margin-top:4px}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -114,19 +108,9 @@
             <div class="field">
               <div style="display:flex;justify-content:space-between;align-items:center;">
                 <label for="notes">Idea (notes) *</label>
-                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate / Stop">🎙️ Start</button>
+                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate (when supported)">🎙️ Dictate</button>
               </div>
               <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
-            </div>
-          </div>
-
-          <!-- OPTIONAL: Screenshots / files -->
-          <div class="row-1">
-            <div class="field">
-              <label for="files">Screenshot(s) (optional)</label>
-              <input id="files" class="input" type="file" accept="image/*" multiple />
-              <div id="thumbs" class="thumbs" aria-hidden="true"></div>
-              <div id="fileHint" class="muted-line" aria-hidden="true"></div>
             </div>
           </div>
 
@@ -144,10 +128,8 @@
   <script type="module">
   import {
     ready,
-    getFirestore, collection, addDoc, serverTimestamp, updateDoc
+    getFirestore, collection, addDoc, serverTimestamp
   } from '/Farm-vista/js/firebase-init.js';
-  /* NOTE: we DO NOT import Storage up-front anymore.
-     We lazy-load it only when a file is actually used. */
 
   (function(){
     "use strict";
@@ -162,15 +144,12 @@
       main:  $('#mainMenu'),
       sub:   $('#subMenu'),
       notes: $('#notes'),
-      mic:   $('#dictate'),
-      files: $('#files'),
-      thumbs: $('#thumbs'),
-      fileHint: $('#fileHint')
+      mic:   $('#dictate')
     };
 
     let db;
 
-    /* ===== helpers ===== */
+    /* ================= UI helpers ================= */
     function showToast(msg="Saved.", ms=4000){
       el.toast.textContent = msg;
       el.toast.classList.remove('show'); void el.toast.offsetWidth;
@@ -194,7 +173,7 @@
       return titleCase(spaced || local);
     };
 
-    /* ===== Submitted-by (mirror fv-shell behavior) ===== */
+    /* ================= User prefill (mirrors shell) ================= */
     let _triesLeft = 30;   // ~6s polling
     function _setSubmittedByNow(){
       let label = '';
@@ -232,17 +211,22 @@
       if (okNow) { /* no-op */ }
     }
 
-    /* ===== Menus ===== */
+    /* ================= Menu helpers ================= */
     async function getNavMenu(){
+      // Primary: ESM import
       try{
         const mod = await import('/Farm-vista/js/menu.js');
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
-      }catch(e){ console.warn('menu.js import failed', e); }
+      }catch(e){
+        console.warn('menu.js import failed', e);
+      }
+      // Fallback: if shell exposed it
       if (window.NAV_MENU?.items) return window.NAV_MENU;
       if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
     }
+
     function buildMainList(NAV_MENU){
       const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
       const out=[];
@@ -260,7 +244,9 @@
       }
       return out;
     }
+
     function wireMenus(mains){
+      // Main options
       el.main.innerHTML = '<option value="">— Select —</option>';
       for(const m of mains){
         const o=document.createElement('option');
@@ -269,13 +255,16 @@
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
       }
+      // Add Other
       const other=document.createElement('option');
       other.value='other'; other.textContent='Other'; other.dataset.children='[]';
       el.main.appendChild(other);
 
+      // Default Sub state
       el.sub.innerHTML = '<option value="">— Select a main menu first —</option>';
       el.sub.disabled = true;
 
+      // On main change: flatten children (links + grandchildren)
       el.main.addEventListener('change', ()=>{
         const opt = el.main.options[el.main.selectedIndex];
         let kids=[]; try{ kids = JSON.parse(opt?.dataset?.children||'[]'); }catch{}
@@ -290,6 +279,7 @@
             flat.push({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item' });
           }
         }
+
         el.sub.innerHTML = '';
         for(const s of flat){
           const op=document.createElement('option');
@@ -297,6 +287,7 @@
           op.textContent = String(s.label||s.id||'Item');
           el.sub.appendChild(op);
         }
+        // Always include "Other"
         const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
 
@@ -304,70 +295,7 @@
       });
     }
 
-    /* ===== File preview (wired AFTER user+menus are ready) ===== */
-    function wireFilePreview(){
-      if (!el.files) return;
-      el.files.addEventListener('change', ()=>{
-        const files = Array.from(el.files.files||[]);
-        el.thumbs.innerHTML = '';
-        if (!files.length){ el.thumbs.setAttribute('aria-hidden','true'); el.fileHint.textContent=''; return; }
-
-        const valid = [];
-        for (const f of files){
-          if (!f.type || !f.type.startsWith('image/')) continue;
-          if (f.size && f.size > 20 * 1024 * 1024) continue; // optional 20MB cap
-          valid.push(f);
-        }
-        if (valid.length !== files.length){
-          showErr('Some files skipped (images ≤ 20MB).'); setTimeout(()=> showErr(''), 2600);
-        }
-        el.files._validFiles = valid;
-
-        valid.forEach(f=>{
-          const wrap = document.createElement('div'); wrap.className='thumb';
-          const img = document.createElement('img'); img.alt=f.name; wrap.appendChild(img);
-          const reader = new FileReader();
-          reader.onload = e=>{ img.src = e.target.result; };
-          reader.readAsDataURL(f);
-          el.thumbs.appendChild(wrap);
-        });
-        el.thumbs.removeAttribute('aria-hidden');
-        el.fileHint.textContent = valid.length + (valid.length===1 ? ' file selected' : ' files selected');
-      });
-    }
-
-    /* ===== Lazy Storage loader (only when needed) ===== */
-    async function ensureStorage(){
-      const mod = await import('/Farm-vista/js/firebase-init.js'); // same module, dynamic load now
-      return {
-        getStorage: mod.getStorage,
-        storageRef: mod.ref,
-        uploadBytes: mod.uploadBytes,
-        getDownloadURL: mod.getDownloadURL
-      };
-    }
-
-    async function uploadScreenshots(docId){
-      const files = el.files ? (el.files._validFiles || Array.from(el.files.files||[])) : [];
-      if (!files.length) return [];
-      const { getStorage, storageRef, uploadBytes, getDownloadURL } = await ensureStorage();
-      const storage = getStorage();
-
-      const out = [];
-      for (let i=0; i<files.length; i++){
-        const f = files[i];
-        if (!f.type || !f.type.startsWith('image/')) continue;
-        const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
-        const path = `feedback/ideas/${docId}/screenshots/${safeName}`; // fits your rules
-        const ref = storageRef(storage, path);
-        await uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
-        const url = await getDownloadURL(ref);
-        out.push({ name: f.name||safeName, path, url, contentType: f.type||'', size: f.size||0 });
-      }
-      return out;
-    }
-
-    /* ===== Save ===== */
+    /* ================= Save ================= */
     async function save(){
       try{
         showErr('');
@@ -384,84 +312,39 @@
           mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
           subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
-          attachments: [],
           createdAt: serverTimestamp(),
           appVersion: (window.FV_VERSION || null)
         };
 
-        // 1) Create doc
-        const docRef = await addDoc(collection(db,'feedback'), payload);
-
-        // 2) Optional uploads (lazy Storage import happens here)
-        const filesMeta = await uploadScreenshots(docRef.id);
-
-        // 3) Patch doc with attachments (if any)
-        if (filesMeta.length){
-          await updateDoc(docRef, { attachments: filesMeta });
-        }
-
-        // Reset notes & file picker; keep menus/date/submitted-by
+        await addDoc(collection(db,'feedback'), payload);
         el.notes.value='';
-        if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); el.files._validFiles = []; }
-
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){
-        console.error(e);
-        showErr('Save failed. Check network, permissions, or file size/type.');
-      }
+      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
     }
 
-    /* ===== Dictation (toggle Start/Stop with hard stop) ===== */
+    /* ================= Dictation (optional) ================= */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
       const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
       const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
-
-      let base=''; let listening=false;
-      const setBtn = ()=>{ el.mic.textContent = listening ? '🛑 Stop' : '🎙️ Start'; };
-
-      el.mic.addEventListener('click', ()=>{
-        if (!listening){
-          base = el.notes.value ? (el.notes.value + ' ') : '';
-          el.mic.disabled = true; setBtn();
-          try{ rec.start(); listening=true; }finally{ el.mic.disabled=false; setBtn(); }
-        }else{
-          try{ rec.stop(); }catch{}
-          listening=false; setBtn();
-        }
-      });
-
-      rec.onresult = ev=>{
-        let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; }
-        el.notes.value = base + txt;
-      };
-      rec.onend = ()=>{ listening=false; setBtn(); };
-      rec.onerror = ()=>{ listening=false; setBtn(); };
-
-      document.addEventListener('visibilitychange', ()=>{ if (document.hidden){ try{ rec.stop(); }catch{} listening=false; setBtn(); }});
-      setBtn();
+      let base=''; el.mic.addEventListener('click', ()=>{ base=el.notes.value?(el.notes.value+' '):''; el.mic.disabled=true; el.mic.textContent='🎙️ Listening…'; rec.start(); });
+      rec.onresult=ev=>{ let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; } el.notes.value=base+txt; };
+      rec.onend=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
+      rec.onerror=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
     }
 
-    /* ===== Init (strict order: auth/name → date → menus → file preview) ===== */
+    /* ================= Init ================= */
     (async ()=>{
       await ready; db=getFirestore();
 
-      // 1) User name first
       _subscribeUserChanges();
-
-      // 2) Today’s date
       el.date.value = todayISO();
 
-      // 3) Menus
       const NAV = await getNavMenu();
       wireMenus(buildMainList(NAV));
 
-      // 4) Only now wire file preview (so screenshots are definitively "second")
-      wireFilePreview();
-
-      // 5) Buttons
       el.save.addEventListener('click', save);
       speechSetup();
     })();
