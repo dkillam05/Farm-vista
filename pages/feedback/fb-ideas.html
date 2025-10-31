@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Feedback • Ideas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Global theme boot -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    .form { max-width: 760px; margin: 0 auto; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .row-1 { display:grid; grid-template-columns: 1fr; gap:12px; }
+    .field label{ display:block; font-weight:600; margin:10px 0 6px; }
+    .field input[type="text"],
+    .field input[type="date"],
+    .field select,
+    .field textarea{
+      width:100%; padding:10px 12px; border:1px solid var(--border,#d7dad7);
+      border-radius:8px; background:#fff; color:var(--text,#141514);
+      font:inherit;
+    }
+    .helper{ font-size:12px; color:var(--muted,#87908a); margin-top:4px; }
+    .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+    .chip{ padding:6px 10px; border:1px solid var(--border,#d7dad7); border-radius:999px; }
+    .thumbs{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    .thumbs img{ width:80px; height:80px; object-fit:cover; border-radius:6px; border:1px solid var(--border,#d7dad7); }
+    .actions{ display:flex; gap:10px; margin-top:16px; }
+    .btn-primary{ background:var(--green,#3B7E46); color:#fff; border:none; padding:10px 14px; border-radius:8px; font-weight:600; }
+    .btn-plain{ background:#efefef; color:inherit; border:none; padding:10px 14px; border-radius:8px; }
+    .mic-btn{ border:1px solid var(--border,#d7dad7); background:#fff; border-radius:8px; padding:8px 10px; }
+    .status{ margin-top:12px; color:var(--muted,#87908a); }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">💡 Submit an Idea</h1>
+      <form id="ideaForm" class="form">
+        <div class="row">
+          <div class="field">
+            <label>Submitted by *</label>
+            <input id="submittedBy" type="text" readonly aria-readonly="true" />
+            <div class="helper">Auto-filled from your login.</div>
+          </div>
+          <div class="field">
+            <label>Date *</label>
+            <input id="date" type="date" required />
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label>Main menu *</label>
+            <select id="mainMenu" required></select>
+            <div class="helper">Loaded from <code>assets/data/menus.js</code>. Includes “Other”.</div>
+          </div>
+          <div class="field">
+            <label>Submenu *</label>
+            <select id="subMenu" required></select>
+          </div>
+        </div>
+
+        <div class="row-1">
+          <div class="field">
+            <label>Idea (notes) *</label>
+            <div class="actions" style="justify-content: flex-end; margin:0 0 6px;">
+              <button type="button" id="dictate" class="mic-btn" title="Dictate (when supported)">🎙️ Dictate</button>
+            </div>
+            <textarea id="notes" rows="8" required placeholder="Describe the improvement you’d like to see…"></textarea>
+            <div class="helper">You can also use your keyboard mic on iOS to dictate.</div>
+          </div>
+        </div>
+
+        <div class="row-1">
+          <div class="field">
+            <label>Screenshot(s)</label>
+            <input id="shots" type="file" accept="image/*" multiple />
+            <div id="previews" class="thumbs"></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn-primary" type="submit">Submit Idea</button>
+          <a class="btn-plain" href="/Farm-vista/feedback/index.html">Cancel</a>
+        </div>
+
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+      </form>
+    </div>
+  </fv-shell>
+
+  <!-- Bootloader + menus + form logic -->
+  <script>
+  (function(){
+    const urlRev = new URL(location.href).searchParams.get('rev');
+    const REV = urlRev || String(Date.now());
+    const seq = [
+      '/Farm-vista/js/version.js',
+      '/Farm-vista/js/core.js',
+      '/Farm-vista/js/fv-shell.js',
+      '/Farm-vista/assets/data/menus.js' // provides menu data
+    ];
+
+    const $ = sel => document.querySelector(sel);
+    const el = {
+      by: $('#submittedBy'),
+      date: $('#date'),
+      main: $('#mainMenu'),
+      sub: $('#subMenu'),
+      notes: $('#notes'),
+      shots: $('#shots'),
+      previews: $('#previews'),
+      form: $('#ideaForm'),
+      status: $('#status'),
+      dictate: $('#dictate')
+    };
+
+    function todayISO(){
+      const d = new Date();
+      const off = d.getTimezoneOffset();
+      const local = new Date(d.getTime() - off*60000);
+      return local.toISOString().slice(0,10);
+    }
+
+    function getMenuSource(){
+      // Try several common globals used in your project
+      return window.FV_MENU || window.FVMenu || window.MENU || window.menu || null;
+    }
+
+    function buildMenus(){
+      const src = getMenuSource();
+      const OTHER = { id:'other', label:'Other', children:[] };
+      el.main.innerHTML = '';
+      el.sub.innerHTML = '';
+
+      let mains = [];
+      if (Array.isArray(src)) {
+        // Expect array of {id,label,children:[{id,label}]}
+        mains = src.map(x => ({id:String(x.id||x.label), label:String(x.label||x.title||x.id||'Untitled'), children:Array.isArray(x.children||x.items)?(x.children||x.items):[]}));
+      } else if (src && typeof src === 'object') {
+        // Fallback: object map
+        mains = Object.keys(src).map(k => ({ id:k, label:src[k].label||k, children: src[k].children||src[k].items||[] }));
+      }
+
+      // Populate main + trailing "Other"
+      for(const m of mains){
+        const opt = document.createElement('option');
+        opt.value = m.id; opt.textContent = m.label;
+        opt.dataset.children = JSON.stringify(m.children || []);
+        el.main.appendChild(opt);
+      }
+      const otherOpt = document.createElement('option');
+      otherOpt.value = OTHER.id; otherOpt.textContent = OTHER.label;
+      otherOpt.dataset.children = '[]';
+      el.main.appendChild(otherOpt);
+
+      function fillSub(fromMain){
+        el.sub.innerHTML = '';
+        let kids = [];
+        if (fromMain && fromMain.dataset && fromMain.dataset.children){
+          try{ kids = JSON.parse(fromMain.dataset.children)||[]; } catch(e){}
+        }
+        for(const c of kids){
+          const o = document.createElement('option');
+          o.value = String(c.id||c.label||c.title);
+          o.textContent = String(c.label||c.title||c.id||'Item');
+          el.sub.appendChild(o);
+        }
+        // Always add "Other"
+        const oOther = document.createElement('option');
+        oOther.value = 'other';
+        oOther.textContent = 'Other';
+        el.sub.appendChild(oOther);
+      }
+
+      fillSub(el.main.options[0] || otherOpt);
+      el.main.addEventListener('change', (e)=>{
+        const opt = el.main.options[el.main.selectedIndex];
+        fillSub(opt);
+      });
+    }
+
+    function setUserAndDate(){
+      try{
+        // Prefer your FVUserContext if present, else Firebase Auth
+        const ctx = window.FVUserContext || {};
+        const auth = (window.firebase && firebase.auth ? firebase.auth() : null);
+        let name = ctx.displayName || ctx.name || '';
+        let email = ctx.email || '';
+        let uid = ctx.uid || '';
+
+        if ((!name || !email || !uid) && auth) {
+          const u = auth.currentUser;
+          if (u){
+            name = name || u.displayName || '';
+            email = email || u.email || '';
+            uid = uid || u.uid || '';
+          }
+        }
+        el.by.value = (name || email || uid || 'Unknown User');
+        el.by.dataset.uid = uid || '';
+        el.by.dataset.email = email || '';
+      }catch(e){ /* best effort */ }
+
+      el.date.value = todayISO();
+    }
+
+    function previewFiles(files){
+      el.previews.innerHTML = '';
+      Array.from(files||[]).forEach(file=>{
+        const reader = new FileReader();
+        reader.onload = e=>{
+          const img = document.createElement('img');
+          img.src = e.target.result;
+          el.previews.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function speechSetup(){
+      const Support = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!Support){
+        el.dictate.style.display='none';
+        return;
+      }
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let base = '';
+      el.dictate.addEventListener('click', ()=>{
+        base = el.notes.value ? (el.notes.value + ' ') : '';
+        el.dictate.disabled = true; el.dictate.textContent='🎙️ Listening…';
+        rec.start();
+      });
+
+      rec.onresult = (evt)=>{
+        let txt = '';
+        for(let i=evt.resultIndex;i<evt.results.length;i++){
+          txt += evt.results[i][0].transcript;
+        }
+        el.notes.value = base + txt;
+      };
+      rec.onend = ()=>{
+        el.dictate.disabled=false; el.dictate.textContent='🎙️ Dictate';
+      };
+      rec.onerror = ()=>{
+        el.dictate.disabled=false; el.dictate.textContent='🎙️ Dictate';
+      };
+    }
+
+    async function boot(){
+      // load scripts in order
+      for(const src of seq){
+        await new Promise((res,rej)=>{
+          const s=document.createElement('script');
+          s.src = src + '?rev=' + REV; s.async=false; s.onload=res; s.onerror=()=>rej(new Error('Load fail '+s.src));
+          document.body.appendChild(s);
+        });
+      }
+      setUserAndDate();
+      buildMenus();
+      speechSetup();
+
+      el.shots.addEventListener('change', ()=>previewFiles(el.shots.files));
+
+      el.form.addEventListener('submit', submitHandler);
+    }
+
+    async function uploadScreenshots(storage, uid, docId, files){
+      const results = [];
+      if (!files || files.length===0) return results;
+      const folder = `feedback/ideas/${docId}/screenshots`;
+      for (const file of files){
+        const safeName = Date.now() + '-' + (file.name||'shot.jpg').replace(/[^\w.\-]+/g,'_');
+        const ref = storage.ref(`${folder}/${safeName}`);
+        await ref.put(file);
+        const url = await ref.getDownloadURL();
+        results.push({name:safeName, url, path:`${folder}/${safeName}`});
+      }
+      return results;
+    }
+
+    async function submitHandler(evt){
+      evt.preventDefault();
+      try{
+        if (!(window.firebase && firebase.firestore && firebase.storage)){
+          el.status.textContent = 'Firebase not available. Check theme-boot and SDK includes.';
+          return;
+        }
+        el.status.textContent = 'Saving…';
+
+        const db = firebase.firestore();
+        const storage = firebase.storage();
+
+        const uid = el.by.dataset.uid || null;
+        const email = el.by.dataset.email || null;
+        const submittedBy = el.by.value || 'Unknown User';
+        const when = el.date.value;
+        const main = el.main.value;
+        const mainLabel = el.main.options[el.main.selectedIndex]?.textContent || main;
+        const sub = el.sub.value;
+        const subLabel = el.sub.options[el.sub.selectedIndex]?.textContent || sub;
+        const notes = el.notes.value.trim();
+
+        // Create doc first to get ID, then upload files under that ID
+        const base = {
+          type: 'idea',
+          submittedBy: { uid, name: submittedBy, email },
+          date: when,
+          mainMenu: { id: main, label: mainLabel },
+          subMenu: { id: sub, label: subLabel },
+          notes,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          appVersion: (window.FV_VERSION || null)
+        };
+        const docRef = await db.collection('feedback').add(base);
+
+        const shots = await uploadScreenshots(storage, uid, docRef.id, el.shots.files);
+        if (shots.length){
+          await docRef.update({ screenshots: shots });
+        }
+
+        el.status.textContent = 'Saved. Thanks for the idea!';
+        el.form.reset();
+        el.previews.innerHTML = '';
+        setUserAndDate();
+        buildMenus();
+      }catch(err){
+        console.error(err);
+        el.status.textContent = 'Error saving. Please try again.';
+      }
+    }
+
+    boot().catch(e=>console.error(e));
+  })();
+  </script>
+
+  <noscript>
+    <div class="container"><div class="card">JavaScript is required to submit feedback.</div></div>
+  </noscript>
+</body>
+</html>
