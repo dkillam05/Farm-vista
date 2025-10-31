@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Setup → Company Details</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -66,13 +68,14 @@
     .error.show{display:block}
   </style>
 
-  <!-- Ensure fv-shell -->
+  <!-- Ensure fv-shell (in case boot order differs on subpages) -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
     }
   })();</script>
-</head><body>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Company Details</h1>
@@ -152,15 +155,15 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <script type="module">
-  import {
-    ready,
-    getFirestore, doc, getDoc, setDoc, updateDoc, serverTimestamp,
-    getStorage, ref, uploadBytes, getDownloadURL, deleteObject
-  } from '/Farm-vista/js/firebase-init.js';
-
+  <script>
   (function(){
     "use strict";
+
+    // ---- Guards: require Firebase from theme-boot ----
+    if(!(window.firebase && firebase.firestore && firebase.storage)){
+      console.error('Firebase SDK not available via theme-boot.js');
+    }
+
     const $ = id => document.getElementById(id);
 
     const coName = $("coName"), coAddr = $("coAddr"), coPhone = $("coPhone"), coEmail = $("coEmail");
@@ -170,28 +173,25 @@
     const toast = $("toast"), errBox = $("err");
     const btnSave = $("save"), btnClear = $("clear");
 
-    const FS_PATH = { col:'company', id:'main' };   // Firestore doc: company/main
-    const STOR_PATH = 'company/logo-main.png';       // Storage path
+    const FS_DOC_PATH = 'company/main';           // Firestore doc
+    const STORAGE_LOGO_PATH = 'company/logo-main.png'; // Storage path
 
-    let db, storage;
+    let db = null, storage = null;
     let logoDataUrl = "";   // current chosen logo (data URL)
     let logoUrl = "";       // saved download URL
     let busy = false;
 
-    /* ---------- UI helpers ---------- */
+    // ========= UI helpers =========
     const showToast = (msg="Saved.")=>{ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
     const showErr = (msg)=>{ errBox.textContent = msg || ""; errBox.classList.toggle("show", !!msg); };
     const setBusy = (on)=>{
       busy = !!on;
-      btnSave.disabled = busy;
-      btnClear.disabled = busy;
-      coLogo.disabled = busy;
-      removeLogo.disabled = busy;
+      [btnSave, btnClear, coLogo, removeLogo].forEach(b => b && (b.disabled = busy));
       logoStatus.textContent = on ? "Working…" : "";
     };
     const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-    /* ---------- Format helpers ---------- */
+    // ========= Format helpers =========
     const onlyDigits = (s)=> String(s||"").replace(/\D+/g,"");
     function formatUSPhone(s){
       const d = onlyDigits(s);
@@ -211,7 +211,7 @@
     coPhone.addEventListener("blur", ()=>{ coPhone.value = formatUSPhone(coPhone.value); });
     coEmail.addEventListener("blur", ()=>{ coEmail.value = normalizeEmail(coEmail.value); });
 
-    /* ---------- Logo handling ---------- */
+    // ========= Logo handling =========
     function renderLogo(src){
       logoPreview.innerHTML = "";
       const url = src || logoDataUrl || logoUrl || "";
@@ -237,7 +237,7 @@
           img.onload = ()=>{
             const c = document.createElement("canvas");
             const ctx = c.getContext("2d");
-            const w = img.naturalWidth, h = img.naturalHeight;
+            const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
             const scale = Math.min(1, maxSide / Math.max(w,h));
             c.width = Math.round(w * scale);
             c.height = Math.round(h * scale);
@@ -254,12 +254,11 @@
     }
 
     function dataURLtoBlob(dataUrl){
-      const parts = dataUrl.split(',');
+      const parts = (dataUrl||'').split(',');
       const mime = (parts[0].match(/:(.*?);/)||[])[1] || 'image/png';
       const bin = atob(parts[1]||"");
-      const len = bin.length;
-      const arr = new Uint8Array(len);
-      for (let i=0;i<len;i++) arr[i] = bin.charCodeAt(i);
+      const arr = new Uint8Array(bin.length);
+      for (let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
       return new Blob([arr], { type:mime });
     }
 
@@ -284,15 +283,13 @@
       try{
         setBusy(true);
         showErr("");
-        // Try delete from Storage (ignore if not present)
+        // best-effort delete from Storage
         try{
-          if (storage) await deleteObject(ref(storage, STOR_PATH));
-        }catch{}
-        await updateDoc(doc(db, FS_PATH.col, FS_PATH.id), {
-          logoUrl: "", logoData: "", updatedAt: serverTimestamp()
-        }).catch(async ()=>{
-          await setDoc(doc(db, FS_PATH.col, FS_PATH.id), { logoUrl:"", logoData:"", updatedAt: serverTimestamp() }, { merge:true });
-        });
+          if (storage) await storage.ref(STORAGE_LOGO_PATH).delete();
+        }catch(e){}
+        await firebase.firestore().doc(FS_DOC_PATH).set({
+          logoUrl: "", logoData: "", updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge:true });
         logoUrl = ""; logoDataUrl = "";
         renderLogo("");
         showToast("Logo removed.");
@@ -303,34 +300,39 @@
       }
     });
 
-    /* ---------- Firestore IO ---------- */
+    // ========= Firestore IO =========
     async function loadFromFirestore(){
       showErr("");
-      const dref = doc(db, FS_PATH.col, FS_PATH.id);
-      const snap = await getDoc(dref).catch((e)=>{ console.error(e); showErr("Failed to load details."); return null; });
-      const d = (snap && snap.exists()) ? (snap.data()||{}) : {};
-      coName.value  = d.name   || "";
-      coAddr.value  = d.address|| "";
-      coPhone.value = d.phone  || "";
-      coEmail.value = d.email  ? normalizeEmail(d.email) : "";
-      logoUrl       = d.logoUrl|| "";
-      logoDataUrl   = d.logoData||"";
-      renderLogo(logoUrl || logoDataUrl || "");
-      renderSummary({ name: coName.value, address: coAddr.value, phone: coPhone.value, email: coEmail.value });
+      try{
+        const snap = await firebase.firestore().doc(FS_DOC_PATH).get();
+        const d = snap.exists ? (snap.data()||{}) : {};
+        coName.value  = d.name   || "";
+        coAddr.value  = d.address|| "";
+        coPhone.value = d.phone  || "";
+        coEmail.value = d.email  ? normalizeEmail(d.email) : "";
+        logoUrl       = d.logoUrl|| "";
+        logoDataUrl   = d.logoData||"";
+        renderLogo(logoUrl || logoDataUrl || "");
+        renderSummary({ name: coName.value, address: coAddr.value, phone: coPhone.value, email: coEmail.value });
+      }catch(e){
+        console.error(e);
+        showErr("Failed to load details.");
+      }
     }
 
     async function uploadLogoIfNeeded(){
       if (!logoDataUrl) return { logoUrl, logoData:"" }; // nothing new chosen
       try{
-        if (!storage) storage = getStorage();
-        const r = ref(storage, STOR_PATH);
+        if (!storage) storage = firebase.storage();
+        const ref = storage.ref(STORAGE_LOGO_PATH);
         const blob = dataURLtoBlob(logoDataUrl);
         logoStatus.textContent = "Uploading logo…";
-        await uploadBytes(r, blob, { contentType: blob.type || 'image/png', cacheControl: 'public,max-age=31536000,immutable' });
-        const url = await getDownloadURL(r);
+        await ref.put(blob, { contentType: blob.type || 'image/png', cacheControl: 'public,max-age=31536000,immutable' });
+        const url = await ref.getDownloadURL();
         logoStatus.textContent = "Logo uploaded.";
         return { logoUrl: url, logoData:"" }; // prefer URL path
       }catch(e){
+        // If Storage blocked by rules, fall back to embedding data URL in Firestore
         console.warn("Storage upload failed, falling back to inline data URL:", e);
         logoStatus.textContent = "Using inline logo.";
         return { logoUrl:"", logoData: logoDataUrl };
@@ -348,11 +350,7 @@
       const emailToStore = isLikelyValidEmail(emailNorm) ? emailNorm : "";
 
       try{
-        // ensure doc exists
-        const dref = doc(db, FS_PATH.col, FS_PATH.id);
-        await setDoc(dref, { createdAt: serverTimestamp() }, { merge:true }).catch(()=>{});
-
-        // handle logo
+        // handle logo first to get URL
         const logoRes = await uploadLogoIfNeeded();
 
         const payload = {
@@ -362,11 +360,11 @@
           email: emailToStore,
           logoUrl: logoRes.logoUrl,
           logoData: logoRes.logoData,
-          updatedAt: serverTimestamp()
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        await setDoc(dref, payload, { merge:true });
-        logoUrl = logoRes.logoUrl;  // persist
+        await firebase.firestore().doc(FS_DOC_PATH).set(payload, { merge:true });
+        logoUrl = logoRes.logoUrl;  // persist if we got one
         renderSummary({ name: payload.name, address: payload.address, phone: payload.phone, email: payload.email });
         showToast("Saved.");
         logoStatus.textContent = logoRes.logoUrl ? "Logo linked." : (logoRes.logoData ? "Logo embedded." : "");
@@ -378,7 +376,7 @@
       }
     }
 
-    /* ---------- Summary ---------- */
+    // ========= Summary =========
     function renderSummary(obj){
       sName.textContent  = obj.name ? obj.name : "—";
       sAddr.innerHTML    = obj.address ? escapeHTML(obj.address).replace(/\n/g,"<br>") : "—";
@@ -387,7 +385,7 @@
       summary.hidden = false;
     }
 
-    /* ---------- Wire buttons ---------- */
+    // ========= Wire buttons =========
     btnSave.addEventListener("click", saveToFirestore);
     btnClear.addEventListener("click", ()=>{
       if(busy) return;
@@ -397,15 +395,18 @@
       showErr("");
     });
 
-    /* ---------- Init ---------- */
-    (async ()=>{
-      const ctx = await ready;
-      if(ctx.mode!=='firebase'){ alert("Firestore not available (stub mode). This page expects Firebase to be live."); }
-      db = getFirestore();
-      try{ storage = getStorage(); }catch{ storage = null; }
+    // ========= Init after boot =========
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      try{
+        // theme-boot loads SDKs; just grab handles
+        db = firebase.firestore();
+        storage = firebase.storage();
+      }catch(e){
+        console.warn('Firebase not ready yet; proceeding with Firestore-only features if possible.', e);
+      }
       await loadFromFirestore();
-    })();
-
+    });
   })();
   </script>
-</body></html>
+</body>
+</html>
