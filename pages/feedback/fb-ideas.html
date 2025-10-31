@@ -29,10 +29,10 @@
     .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
     .row-1{display:grid;gap:10px;grid-template-columns:1fr}
     @media(max-width:980px){.row{grid-template-columns:1fr 1fr}}
-    @media(max-width:720px){.row{grid-template-columns:1fr}}
+    @media(max-width:720px){.row,.row-1{grid-template-columns:1fr}}
 
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
-    .input, .select, .textarea{
+    .input,.select,.textarea{
       width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
@@ -81,7 +81,7 @@
           <div class="row">
             <div class="field">
               <label for="submittedBy">Submitted by *</label>
-              <input id="submittedBy" class="input" readonly aria-readonly="true" />
+              <input id="submittedBy" class="input" readonly aria-readonly="true" required />
               <p class="muted" style="margin:6px 2px 0">Auto-filled from your login.</p>
             </div>
             <div class="field">
@@ -137,7 +137,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <script type="module">
-  import { NAV_MENU } from '/Farm-vista/js/menu.js';
   import {
     ready,
     getFirestore, collection, addDoc, serverTimestamp, updateDoc, doc,
@@ -146,7 +145,7 @@
 
   (function(){
     "use strict";
-    const $ = sel => document.querySelector(sel);
+    const $ = s => document.querySelector(s);
 
     const el = {
       err:   $('#err'),
@@ -170,159 +169,133 @@
       el.toast.classList.add('show');
       setTimeout(()=> el.toast.classList.remove('show'), ms);
     }
-    function showErr(msg){ el.err.textContent = msg||""; el.err.classList.toggle('show', !!msg); }
-    function todayISO(){
-      const d = new Date(); const off = d.getTimezoneOffset();
-      return new Date(d.getTime()-off*60000).toISOString().slice(0,10);
+    const showErr = (m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
+    const todayISO = ()=> {
+      const d = new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+    };
+
+    async function getNavMenu(){
+      // Try ESM import first
+      try{
+        const mod = await import('/Farm-vista/js/menu.js');
+        if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
+        if (mod?.default?.items)  return mod.default;
+      }catch{}
+      // Fallback to globals if present
+      if (window.NAV_MENU?.items) return window.NAV_MENU;
+      if (window.FV_MENU?.items)  return window.FV_MENU;
+      return { items: [] };
     }
 
-    // ---------- build Main/Sub from NAV_MENU ----------
-    function flattenMenuItems(){
-      const items = Array.isArray(NAV_MENU?.items) ? NAV_MENU.items : [];
-      const mains = [];
+    function toMainList(NAV_MENU){
+      const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
+      const mains=[];
       for(const it of items){
-        if(it.type === 'group'){
-          mains.push({
-            id: it.id || it.label || it.href || '',
-            label: it.label || it.id || 'Group',
-            children: Array.isArray(it.children) ? it.children
-              .filter(c => c && (c.type === 'link' || c.type === 'group'))
-              .map(c => ({ id: c.id || c.label || c.href || '', label: c.label || c.id || 'Item' }))
-              : []
-          });
-        } else if (it.type === 'link') {
-          mains.push({
-            id: it.id || it.label || it.href || '',
-            label: it.label || it.id || 'Link',
-            children: []   // links have no subs
-          });
+        if(it.type==='group'){
+          const kids=(Array.isArray(it.children)?it.children:[])
+            .filter(c=>c && (c.type==='link' || c.type==='group'))
+            .map(c=>({id: c.id||c.label||c.href||'', label: c.label||c.id||'Item'}));
+          mains.push({ id: it.id||it.label||it.href||'', label: it.label||it.id||'Group', children: kids });
+        }else if(it.type==='link'){
+          mains.push({ id: it.id||it.label||it.href||'', label: it.label||it.id||'Link', children: [] });
         }
       }
       return mains;
     }
 
-    function buildMainMenu(){
-      const mains = flattenMenuItems();
+    function buildMainAndHookSubs(mains){
       el.main.innerHTML = '<option value="">— Select —</option>';
-      for(const m of mains){
-        const o = document.createElement('option');
-        o.value = String(m.id);
-        o.textContent = String(m.label);
+      mains.forEach(m=>{
+        const o=document.createElement('option');
+        o.value=String(m.id); o.textContent=String(m.label);
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
-      }
-      // Other
-      const other = document.createElement('option');
-      other.value = 'other';
-      other.textContent = 'Other';
-      other.dataset.children = '[]';
+      });
+      const other=document.createElement('option');
+      other.value='other'; other.textContent='Other';
+      other.dataset.children='[]';
       el.main.appendChild(other);
 
-      // Reset sub
       el.sub.innerHTML = '<option value="">— Select a main menu first —</option>';
       el.sub.disabled = true;
 
       el.main.addEventListener('change', ()=>{
         const opt = el.main.options[el.main.selectedIndex];
+        let kids=[]; try{ kids = JSON.parse(opt?.dataset?.children||'[]'); }catch{}
         el.sub.innerHTML = '';
-        let kids = [];
-        try{ kids = JSON.parse(opt?.dataset?.children || '[]'); }catch{}
-        for(const c of kids){
-          const s = document.createElement('option');
-          s.value = String(c.id || c.label || '');
-          s.textContent = String(c.label || c.id || 'Item');
+        kids.forEach(c=>{
+          const s=document.createElement('option');
+          s.value=String(c.id||c.label||''); s.textContent=String(c.label||c.id||'Item');
           el.sub.appendChild(s);
-        }
-        // add Other always
-        const sOther = document.createElement('option');
-        sOther.value = 'other';
-        sOther.textContent = 'Other';
+        });
+        const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
-
         el.sub.disabled = false;
       });
     }
 
-    // ---------- user + date ----------
-    function setUserAndDate(){
-      const ctx = window.FVUserContext || {};
-      let name = ctx.displayName || ctx.name || '';
-      let email = ctx.email || '';
-      let uid = ctx.uid || '';
-
-      try{
-        if ((!name || !email || !uid) && window.firebase?.auth){
-          const u = firebase.auth().currentUser;
-          if (u){ name ||= u.displayName || ''; email ||= u.email || ''; uid ||= u.uid || ''; }
+    async function waitForUser(ms=5000){
+      const start=Date.now();
+      for(;;){
+        const ctx = window.FVUserContext || {};
+        let name = ctx.displayName || ctx.name || '';
+        let email = ctx.email || '';
+        let uid = ctx.uid || '';
+        if (uid || email || name){
+          return { name: name || email || uid, email, uid };
         }
-      }catch{}
-
-      el.by.value = (name || email || uid || 'Unknown User');
-      el.by.dataset.uid = uid || '';
-      el.by.dataset.email = email || '';
-      el.date.value = todayISO();
+        try{
+          const u = window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
+          if (u){ return { name: u.displayName || u.email || u.uid, email: u.email||'', uid: u.uid||'' }; }
+        }catch{}
+        if (Date.now()-start > ms) break;
+        await new Promise(r=>setTimeout(r,100));
+      }
+      return { name: 'Unknown User', email:'', uid:'' };
     }
 
-    // ---------- previews ----------
     function previewFiles(files){
-      el.prev.innerHTML = '';
-      Array.from(files||[]).forEach(file=>{
-        const fr = new FileReader();
-        fr.onload = ev=>{
-          const img = new Image(); img.src = ev.target.result; img.alt = 'screenshot';
-          el.prev.appendChild(img);
-        };
-        fr.readAsDataURL(file);
+      el.prev.innerHTML=''; Array.from(files||[]).forEach(f=>{
+        const fr=new FileReader(); fr.onload=e=>{ const img=new Image(); img.src=e.target.result; img.alt='screenshot'; el.prev.appendChild(img); };
+        fr.readAsDataURL(f);
       });
     }
 
-    // ---------- dictation ----------
     function speechSetup(){
-      const Support = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
-      if(!Support){ el.mic.style.display='none'; return; }
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){ el.mic.style.display='none'; return; }
       const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
       const rec = new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
-      let base='';
-      el.mic.addEventListener('click', ()=>{
-        base = el.notes.value ? (el.notes.value + ' ') : '';
-        el.mic.disabled = true; el.mic.textContent='🎙️ Listening…';
-        rec.start();
-      });
-      rec.onresult = evt=>{
-        let txt=''; for(let i=evt.resultIndex;i<evt.results.length;i++){ txt += evt.results[i][0].transcript; }
-        el.notes.value = base + txt;
-      };
+      let base=''; el.mic.addEventListener('click', ()=>{ base = el.notes.value ? (el.notes.value+' ') : ''; el.mic.disabled=true; el.mic.textContent='🎙️ Listening…'; rec.start(); });
+      rec.onresult = ev=>{ let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; } el.notes.value = base + txt; };
       rec.onend = ()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
       rec.onerror = ()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
     }
 
-    // ---------- uploads ----------
     async function uploadShots(docId, files){
-      const urls=[];
-      if(!files || !files.length) return urls;
-      const folder = `feedback/ideas/${docId}/screenshots`;
+      const out=[]; if(!files || !files.length) return out;
+      const base=`feedback/ideas/${docId}/screenshots`;
       for(const f of files){
-        const safe = Date.now() + '-' + (f.name||'shot.jpg').replace(/[^\w.\-]+/g,'_');
-        const r = ref(storage, `${folder}/${safe}`);
-        await uploadBytes(r, f, { contentType: f.type || 'image/jpeg' });
-        urls.push({ name: safe, url: await getDownloadURL(r), path: `${folder}/${safe}` });
+        const safe = Date.now()+'-'+(f.name||'shot.jpg').replace(/[^\w.\-]+/g,'_');
+        const r = ref(storage, `${base}/${safe}`);
+        await uploadBytes(r, f, { contentType: f.type||'image/jpeg' });
+        out.push({ name:safe, url: await getDownloadURL(r), path:`${base}/${safe}` });
       }
-      return urls;
+      return out;
     }
 
-    // ---------- save ----------
-    async function handleSave(){
+    async function save(){
       try{
         showErr('');
-        if(!el.by.value.trim()){ showErr('Missing user. Please re-login.'); return; }
-        if(!el.date.value){ showErr('Please choose a date.'); return; }
-        if(!el.main.value){ showErr('Please choose a main menu.'); return; }
+        if(!el.by.value.trim()) { showErr('Missing user. Please re-login.'); return; }
+        if(!el.date.value)      { showErr('Please choose a date.'); return; }
+        if(!el.main.value)      { showErr('Please choose a main menu.'); return; }
         if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
         if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
 
         const base = {
           type: 'idea',
-          submittedBy: { uid: el.by.dataset.uid || null, name: el.by.value, email: el.by.dataset.email || null },
+          submittedBy: { uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
           date: el.date.value,
           mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
           subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
@@ -333,32 +306,32 @@
 
         const docRef = await addDoc(collection(db,'feedback'), base);
         const shots = await uploadShots(docRef.id, el.shots.files);
-        if (shots.length){
-          await updateDoc(doc(db,'feedback',docRef.id), { screenshots: shots });
-        }
+        if (shots.length){ await updateDoc(doc(db,'feedback',docRef.id), { screenshots: shots }); }
 
-        // reset
         el.notes.value=''; el.shots.value=''; el.prev.innerHTML='';
-        setUserAndDate(); buildMainMenu();
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){
-        console.error(e); showErr('Save failed. Check permissions or network.');
-      }
+      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
     }
 
-    // ---------- init ----------
     (async ()=>{
-      await ready;
-      db = getFirestore();
-      storage = getStorage();
+      await ready; db=getFirestore(); storage=getStorage();
 
-      setUserAndDate();
-      buildMainMenu();
+      // user + date
+      const user = await waitForUser(5000);
+      el.by.value = user.name || 'Unknown User';
+      el.by.dataset.uid   = user.uid   || '';
+      el.by.dataset.email = user.email || '';
+      el.date.value = todayISO();
+
+      // menus
+      const NAV = await getNavMenu();
+      buildMainAndHookSubs(toMainList(NAV));
+
+      // extras
       speechSetup();
-
       el.shots.addEventListener('change', ()=> previewFiles(el.shots.files));
-      el.save.addEventListener('click', handleSave);
+      el.save.addEventListener('click', save);
     })();
   })();
   </script>
