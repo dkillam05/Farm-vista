@@ -146,9 +146,8 @@
     ready,
     getFirestore, collection, addDoc, serverTimestamp, updateDoc
   } from '/Farm-vista/js/firebase-init.js';
-  import {
-    getStorage, ref as storageRef, uploadBytes, getDownloadURL
-  } from '/Farm-vista/js/firebase-init.js';
+  /* NOTE: we DO NOT import Storage up-front anymore.
+     We lazy-load it only when a file is actually used. */
 
   (function(){
     "use strict";
@@ -169,7 +168,7 @@
       fileHint: $('#fileHint')
     };
 
-    let db, storage;
+    let db;
 
     /* ===== helpers ===== */
     function showToast(msg="Saved.", ms=4000){
@@ -195,7 +194,7 @@
       return titleCase(spaced || local);
     };
 
-    /* ===== Submitted-by (same pattern as shell) ===== */
+    /* ===== Submitted-by (mirror fv-shell behavior) ===== */
     let _triesLeft = 30;   // ~6s polling
     function _setSubmittedByNow(){
       let label = '';
@@ -233,7 +232,7 @@
       if (okNow) { /* no-op */ }
     }
 
-    /* ===== Menus (unchanged) ===== */
+    /* ===== Menus ===== */
     async function getNavMenu(){
       try{
         const mod = await import('/Farm-vista/js/menu.js');
@@ -305,47 +304,61 @@
       });
     }
 
-    /* ===== Optional file preview (images only) ===== */
-    el.files?.addEventListener('change', ()=>{
-      const files = Array.from(el.files.files||[]);
-      el.thumbs.innerHTML = '';
-      if (!files.length){ el.thumbs.setAttribute('aria-hidden','true'); el.fileHint.textContent=''; return; }
+    /* ===== File preview (wired AFTER user+menus are ready) ===== */
+    function wireFilePreview(){
+      if (!el.files) return;
+      el.files.addEventListener('change', ()=>{
+        const files = Array.from(el.files.files||[]);
+        el.thumbs.innerHTML = '';
+        if (!files.length){ el.thumbs.setAttribute('aria-hidden','true'); el.fileHint.textContent=''; return; }
 
-      const valid = [];
-      for (const f of files){
-        if (!f.type || !f.type.startsWith('image/')) continue;
-        // Optional 20 MB cap
-        if (f.size && f.size > 20 * 1024 * 1024) continue;
-        valid.push(f);
-      }
-      if (valid.length !== files.length){
-        showErr('Some files skipped (must be images ≤ 20MB).');
-        setTimeout(()=> showErr(''), 2600);
-      }
-      el.files._validFiles = valid;
+        const valid = [];
+        for (const f of files){
+          if (!f.type || !f.type.startsWith('image/')) continue;
+          if (f.size && f.size > 20 * 1024 * 1024) continue; // optional 20MB cap
+          valid.push(f);
+        }
+        if (valid.length !== files.length){
+          showErr('Some files skipped (images ≤ 20MB).'); setTimeout(()=> showErr(''), 2600);
+        }
+        el.files._validFiles = valid;
 
-      valid.forEach(f=>{
-        const wrap = document.createElement('div'); wrap.className='thumb';
-        const img = document.createElement('img'); img.alt=f.name; wrap.appendChild(img);
-        const reader = new FileReader();
-        reader.onload = e=>{ img.src = e.target.result; };
-        reader.readAsDataURL(f);
-        el.thumbs.appendChild(wrap);
+        valid.forEach(f=>{
+          const wrap = document.createElement('div'); wrap.className='thumb';
+          const img = document.createElement('img'); img.alt=f.name; wrap.appendChild(img);
+          const reader = new FileReader();
+          reader.onload = e=>{ img.src = e.target.result; };
+          reader.readAsDataURL(f);
+          el.thumbs.appendChild(wrap);
+        });
+        el.thumbs.removeAttribute('aria-hidden');
+        el.fileHint.textContent = valid.length + (valid.length===1 ? ' file selected' : ' files selected');
       });
-      el.thumbs.removeAttribute('aria-hidden');
-      el.fileHint.textContent = valid.length + (valid.length===1 ? ' file selected' : ' files selected');
-    });
+    }
 
-    /* ===== Storage upload (path fits your rules) ===== */
+    /* ===== Lazy Storage loader (only when needed) ===== */
+    async function ensureStorage(){
+      const mod = await import('/Farm-vista/js/firebase-init.js'); // same module, dynamic load now
+      return {
+        getStorage: mod.getStorage,
+        storageRef: mod.ref,
+        uploadBytes: mod.uploadBytes,
+        getDownloadURL: mod.getDownloadURL
+      };
+    }
+
     async function uploadScreenshots(docId){
-      const files = el.files? (el.files._validFiles || Array.from(el.files.files||[])) : [];
+      const files = el.files ? (el.files._validFiles || Array.from(el.files.files||[])) : [];
       if (!files.length) return [];
+      const { getStorage, storageRef, uploadBytes, getDownloadURL } = await ensureStorage();
+      const storage = getStorage();
+
       const out = [];
       for (let i=0; i<files.length; i++){
         const f = files[i];
-        if (!f.type || !f.type.startsWith('image/')) continue; // safety
+        if (!f.type || !f.type.startsWith('image/')) continue;
         const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
-        const path = `feedback/ideas/${docId}/screenshots/${safeName}`;
+        const path = `feedback/ideas/${docId}/screenshots/${safeName}`; // fits your rules
         const ref = storageRef(storage, path);
         await uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
         const url = await getDownloadURL(ref);
@@ -371,7 +384,7 @@
           mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
           subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
-          attachments: [],  // filled after uploads (if any)
+          attachments: [],
           createdAt: serverTimestamp(),
           appVersion: (window.FV_VERSION || null)
         };
@@ -379,7 +392,7 @@
         // 1) Create doc
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // 2) Optional uploads to feedback/ideas/{docId}/screenshots/{file}
+        // 2) Optional uploads (lazy Storage import happens here)
         const filesMeta = await uploadScreenshots(docRef.id);
 
         // 3) Patch doc with attachments (if any)
@@ -387,7 +400,7 @@
           await updateDoc(docRef, { attachments: filesMeta });
         }
 
-        // Reset notes & file picker; keep menus/date
+        // Reset notes & file picker; keep menus/date/submitted-by
         el.notes.value='';
         if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); el.files._validFiles = []; }
 
@@ -399,7 +412,7 @@
       }
     }
 
-    /* ===== Dictation (toggleable Start/Stop) ===== */
+    /* ===== Dictation (toggle Start/Stop with hard stop) ===== */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
@@ -407,7 +420,6 @@
       const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
 
       let base=''; let listening=false;
-
       const setBtn = ()=>{ el.mic.textContent = listening ? '🛑 Stop' : '🎙️ Start'; };
 
       el.mic.addEventListener('click', ()=>{
@@ -416,7 +428,6 @@
           el.mic.disabled = true; setBtn();
           try{ rec.start(); listening=true; }finally{ el.mic.disabled=false; setBtn(); }
         }else{
-          // Force stop listening immediately
           try{ rec.stop(); }catch{}
           listening=false; setBtn();
         }
@@ -429,21 +440,28 @@
       rec.onend = ()=>{ listening=false; setBtn(); };
       rec.onerror = ()=>{ listening=false; setBtn(); };
 
-      // If user leaves/hides page, stop recognition
       document.addEventListener('visibilitychange', ()=>{ if (document.hidden){ try{ rec.stop(); }catch{} listening=false; setBtn(); }});
       setBtn();
     }
 
-    /* ===== Init ===== */
+    /* ===== Init (strict order: auth/name → date → menus → file preview) ===== */
     (async ()=>{
-      await ready; db=getFirestore(); storage=getStorage();
+      await ready; db=getFirestore();
 
+      // 1) User name first
       _subscribeUserChanges();
+
+      // 2) Today’s date
       el.date.value = todayISO();
 
+      // 3) Menus
       const NAV = await getNavMenu();
       wireMenus(buildMainList(NAV));
 
+      // 4) Only now wire file preview (so screenshots are definitively "second")
+      wireFilePreview();
+
+      // 5) Buttons
       el.save.addEventListener('click', save);
       speechSetup();
     })();
