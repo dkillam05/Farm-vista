@@ -147,9 +147,6 @@
     ready,
     getFirestore, collection, addDoc, serverTimestamp, updateDoc
   } from '/Farm-vista/js/firebase-init.js';
-  // We will lazy-resolve Storage from the SAME module to guarantee same app.
-  // (Do NOT pull from a CDN; keep it bound to the initialized app.)
-  // We'll import the storage symbols *on demand* inside ensureStorage().
 
   (function(){
     "use strict";
@@ -173,7 +170,7 @@
 
     let db;
 
-    /* ===== helpers ===== */
+    /* ================= UI helpers ================= */
     function showToast(msg="Saved.", ms=4000){
       el.toast.textContent = msg;
       el.toast.classList.remove('show'); void el.toast.offsetWidth;
@@ -197,7 +194,7 @@
       return titleCase(spaced || local);
     };
 
-    /* ===== Submitted-by (mirror shell behavior) ===== */
+    /* ================= User prefill (mirrors shell) ================= */
     let _triesLeft = 30;   // ~6s polling
     function _setSubmittedByNow(){
       let label = '';
@@ -235,17 +232,20 @@
       if (okNow) { /* no-op */ }
     }
 
-    /* ===== Menus (unchanged) ===== */
+    /* ================= Menu helpers ================= */
     async function getNavMenu(){
       try{
         const mod = await import('/Farm-vista/js/menu.js');
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
-      }catch(e){ console.warn('menu.js import failed', e); }
+      }catch(e){
+        console.warn('menu.js import failed', e);
+      }
       if (window.NAV_MENU?.items) return window.NAV_MENU;
       if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
     }
+
     function buildMainList(NAV_MENU){
       const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
       const out=[];
@@ -263,6 +263,7 @@
       }
       return out;
     }
+
     function wireMenus(mains){
       el.main.innerHTML = '<option value="">— Select —</option>';
       for(const m of mains){
@@ -293,6 +294,7 @@
             flat.push({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item' });
           }
         }
+
         el.sub.innerHTML = '';
         for(const s of flat){
           const op=document.createElement('option');
@@ -307,7 +309,7 @@
       });
     }
 
-    /* ===== Optional file preview ===== */
+    /* ================= Optional file preview ================= */
     el.files?.addEventListener('change', ()=>{
       const files = Array.from(el.files.files||[]);
       el.thumbs.innerHTML = '';
@@ -328,27 +330,23 @@
       el.fileHint.textContent = files.length + (files.length===1 ? ' file selected' : ' files selected');
     });
 
-    /* ===== Storage (HTML-only, lazy & safe) ===== */
+    /* ================= Storage (lazy, same app) ================= */
     let storageFns = null;
     async function ensureStorage(){
       if (storageFns) return storageFns;
       try{
-        // Import from your initialized module so we share the same app/auth.
         const mod = await import('/Farm-vista/js/firebase-init.js');
         const getStorage = mod.getStorage;
-        const storageRef  = mod.ref || mod.storageRef; // support either export name
+        const storageRef  = mod.ref || mod.storageRef;
         const uploadBytes = mod.uploadBytes;
         const getDownloadURL = mod.getDownloadURL;
         if (getStorage && (storageRef||mod.ref) && uploadBytes && getDownloadURL){
-          storageFns = {
-            getStorage, storageRef: (storageRef||mod.ref), uploadBytes, getDownloadURL
-          };
+          storageFns = { getStorage, storageRef: (storageRef||mod.ref), uploadBytes, getDownloadURL };
           return storageFns;
         }
       }catch(e){
         console.warn('[Ideas] Storage import failed:', e);
       }
-      // If we can’t load storage from the app, return null (uploads will be skipped gracefully).
       return null;
     }
 
@@ -367,8 +365,9 @@
         const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
 
         /* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-           IMPORTANT: path updated to match your Storage rules:
-           feedback/ideas/{docId}/screenshots/{fileId}
+           PATH FIX — must match your Storage rules:
+           feedback/{type}/{docId}/screenshots/{fileId}
+           For Ideas, type = "ideas".
            <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< */
         const path = `feedback/ideas/${docId}/screenshots/${safeName}`;
 
@@ -386,7 +385,7 @@
       return { ok:true, meta, note:'' };
     }
 
-    /* ===== Save (two-phase; uploads non-blocking) ===== */
+    /* ================= Save ================= */
     async function save(){
       try{
         el.uploadNote.style.display='none';
@@ -399,25 +398,29 @@
         if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
         if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
 
-        const payload = {
-          /* >>> Add top-level uid to satisfy your Firestore create rule <<< */
-          uid: el.by.dataset.uid || null,
+        /* ---- OWNER UID/EMAIL FALLBACK (critical for Storage rules) ---- */
+        const authUser = (window.firebaseAuth && window.firebaseAuth.currentUser) || null;
+        const ownerUid = el.by.dataset.uid || (authUser && authUser.uid) || null;
+        const ownerEmail = el.by.dataset.email || (authUser && authUser.email) || null;
 
+        const payload = {
           type: 'idea',
-          submittedBy: { uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
+          uid: ownerUid || null, // optional top-level, doesn’t hurt
+          submittedBy: { uid: ownerUid || null, name: el.by.value, email: ownerEmail || null },
           date: el.date.value,
           mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
           subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
-          attachments: [],  // filled after uploads (if any)
+          attachments: [],
           createdAt: serverTimestamp(),
           appVersion: (window.FV_VERSION || null)
         };
 
-        // Phase 1 — create the document (never blocked by uploads)
+        // Phase 1 — create the document
+        db = db || getFirestore();
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // Phase 2 — optional uploads; if it fails, we keep the doc and show a note
+        // Phase 2 — optional uploads
         const up = await uploadScreenshots(docRef.id);
         if (up.meta.length){
           await updateDoc(docRef, { attachments: up.meta });
@@ -427,7 +430,7 @@
           el.uploadNote.style.display='block';
         }
 
-        // Reset notes and files (keep menu/date/user intact)
+        // Reset notes and files UI
         el.notes.value='';
         if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); }
 
@@ -439,7 +442,7 @@
       }
     }
 
-    /* ===== Dictation toggle ===== */
+    /* ================= Dictation toggle ================= */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
@@ -454,7 +457,7 @@
           baseText = el.notes.value ? (el.notes.value + ' ') : '';
           try{ rec.start(); active=true; setBtn(true); }catch{}
         } else {
-          try{ rec.stop(); rec.abort(); }catch{}  // hard stop
+          try{ rec.stop(); rec.abort(); }catch{}
           active=false; setBtn(false);
         }
       });
@@ -467,9 +470,9 @@
       rec.onerror=()=>{ active=false; setBtn(false); };
     }
 
-    /* ===== Init ===== */
+    /* ================= Init ================= */
     (async ()=>{
-      await ready; db=getFirestore();
+      await ready;
 
       _subscribeUserChanges();
       el.date.value = todayISO();
