@@ -49,7 +49,7 @@
     /* Toast: single line, centered, never wraps */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
-      white-space:nowrap; text-align:center; max-width:92vw; overflow:hidden; text-overflow:ellipsis;}
+      white-space:nowrap;text-align:center;max-width:92vw;overflow:hidden;text-overflow:ellipsis;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
@@ -150,7 +150,7 @@
     let db;
 
     /* ================= UI helpers ================= */
-    function showToast(msg="Saved.", ms=4000){
+    function showToast(msg="Saved.", ms=1200){
       el.toast.textContent = msg;
       el.toast.classList.remove('show'); void el.toast.offsetWidth;
       el.toast.classList.add('show');
@@ -213,15 +213,11 @@
 
     /* ================= Menu helpers ================= */
     async function getNavMenu(){
-      // Primary: ESM import
       try{
         const mod = await import('/Farm-vista/js/menu.js');
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
-      }catch(e){
-        console.warn('menu.js import failed', e);
-      }
-      // Fallback: if shell exposed it
+      }catch(e){ console.warn('menu.js import failed', e); }
       if (window.NAV_MENU?.items) return window.NAV_MENU;
       if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
@@ -246,7 +242,6 @@
     }
 
     function wireMenus(mains){
-      // Main options
       el.main.innerHTML = '<option value="">— Select —</option>';
       for(const m of mains){
         const o=document.createElement('option');
@@ -255,16 +250,13 @@
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
       }
-      // Add Other
       const other=document.createElement('option');
       other.value='other'; other.textContent='Other'; other.dataset.children='[]';
       el.main.appendChild(other);
 
-      // Default Sub state
       el.sub.innerHTML = '<option value="">— Select a main menu first —</option>';
       el.sub.disabled = true;
 
-      // On main change: flatten children (links + grandchildren)
       el.main.addEventListener('change', ()=>{
         const opt = el.main.options[el.main.selectedIndex];
         let kids=[]; try{ kids = JSON.parse(opt?.dataset?.children||'[]'); }catch{}
@@ -287,7 +279,6 @@
           op.textContent = String(s.label||s.id||'Item');
           el.sub.appendChild(op);
         }
-        // Always include "Other"
         const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
 
@@ -299,13 +290,17 @@
     async function save(){
       try{
         showErr('');
-        if(!el.by.value.trim()) { showErr('Missing user. Please re-login.'); return; }
-        if(!el.date.value)      { showErr('Please choose a date.'); return; }
-        if(!el.main.value)      { showErr('Please choose a main menu.'); return; }
+        if(!el.by.value.trim())        { showErr('Missing user. Please re-login.'); return; }
+        if(!el.by.dataset.uid)         { showErr('Missing UID. Please re-login.'); return; }  // REQUIRED by rules
+        if(!el.date.value)             { showErr('Please choose a date.'); return; }
+        if(!el.main.value)             { showErr('Please choose a main menu.'); return; }
         if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
-        if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
+        if(!el.notes.value.trim())     { showErr('Please enter your idea.'); return; }
 
         const payload = {
+          // REQUIRED by your generic rule: top-level uid must equal request.auth.uid on CREATE
+          uid: el.by.dataset.uid || null,
+
           type: 'idea',
           submittedBy: { uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
           date: el.date.value,
@@ -317,10 +312,18 @@
         };
 
         await addDoc(collection(db,'feedback'), payload);
+
+        // Reset only notes
         el.notes.value='';
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
+
+        // After short toast, go back to Feedback index
+        setTimeout(()=>{ location.href='/Farm-vista/pages/feedback/index.html'; }, 900);
+      }catch(e){
+        console.error(e);
+        showErr('Save failed. Check permissions or network.');
+      }
     }
 
     /* ================= Dictation (optional) ================= */
