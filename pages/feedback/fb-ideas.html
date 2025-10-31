@@ -147,7 +147,7 @@
 
     let db;
 
-    /* ============ helpers ============ */
+    /* ===== helpers ===== */
     function showToast(msg="Saved.", ms=4000){
       el.toast.textContent = msg;
       el.toast.classList.remove('show'); void el.toast.offsetWidth;
@@ -158,87 +158,82 @@
     const todayISO = ()=>{
       const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
     };
-    const titleCase = s => String(s||'').replace(/\s+/g,' ').trim().split(' ').filter(Boolean)
-      .map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
-    const smartNameFromEmail = (email)=>{
+
+    const titleCase = (s)=>String(s||'').replace(/\s+/g,' ').trim().split(' ')
+      .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+    const nameFromEmail = (email)=>{
       const local = String(email||'').split('@')[0]||'';
       if(!local) return '';
       if(/[._-]/.test(local)){
-        return titleCase(local.replace(/[0-9]+/g,'').split(/[._-]+/).join(' '));
+        return titleCase(local.replace(/[0-9]+/g,' ').split(/[._-]+/).join(' '));
       }
       const spaced = local.replace(/([a-z])([A-Z])/g,'$1 $2');
       return titleCase(spaced || local);
     };
 
-    /* ============ user label from SHELL ============ */
-    function pickShellLabel(){
-      const ctx = window.FVUserContext || {};
-      // Prefer an explicit method if the shell exposes it:
-      if (typeof ctx.getLabel === 'function') {
-        try { const v = ctx.getLabel(); if (v) return String(v); } catch {}
-      }
-      // Otherwise try common fields used by the shell:
-      const guess = ctx.label || ctx.userLabel || ctx.displayName || ctx.name || '';
-      if (guess && !String(guess).includes('@')) return String(guess);
-      if (ctx.email) return smartNameFromEmail(ctx.email);
-      return '';
-    }
-    async function fillSubmittedByFromShellOrAuth(){
-      // 1) Try shell immediately
-      let label = pickShellLabel();
-      // 2) If nothing yet, try Firebase auth
-      let email='', uid='';
+    /* ===== Submitted-by (mirror shell) ===== */
+    let _triesLeft = 30;   // ~6s like shell’s polling
+    function _setSubmittedByNow(){
+      // 1) FVUserContext.get()?.displayName || email
+      let label = '';
+      try{
+        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        if (ctx && (ctx.displayName || ctx.email)) label = ctx.displayName || ctx.email || '';
+        if (ctx && !el.by.dataset.uid && ctx.uid) el.by.dataset.uid = ctx.uid;
+        if (ctx && !el.by.dataset.email && ctx.email) el.by.dataset.email = ctx.email;
+      }catch{}
+
+      // 2) Fallback to firebaseAuth.currentUser like shell
       if (!label) {
         try{
-          const u = window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
-          if (u){ label = u.displayName || ''; email = u.email||''; uid = u.uid||''; }
+          const u = window.firebaseAuth && window.firebaseAuth.currentUser;
+          if (u){
+            label = u.displayName || u.email || '';
+            if (!el.by.dataset.uid) el.by.dataset.uid = u.uid || '';
+            if (!el.by.dataset.email) el.by.dataset.email = u.email || '';
+          }
         }catch{}
       }
-      // 3) If still no good label, derive from email
-      if (!label) label = smartNameFromEmail(email);
-      // 4) If still nothing, peek employees/{email} for displayName
-      try{
-        if ((!label || label.includes('@')) && email){
-          const snap = await getDoc(doc(getFirestore(),'employees', String(email).toLowerCase()));
-          if (snap.exists()){
-            const dn=(snap.data()?.displayName || snap.data()?.name || '').trim();
-            if (dn) label = dn;
-          }
+
+      // 3) If it’s an email, convert to First Last
+      if (label && label.includes('@')) label = nameFromEmail(label);
+
+      // 4) Title-case final (covers displayName variants)
+      label = titleCase(label || '');
+
+      if (label) el.by.value = label;
+      return !!label;
+    }
+
+    function _subscribeUserChanges(){
+      // Update immediately and also on context changes (same pattern as shell)
+      const okNow = _setSubmittedByNow();
+      try {
+        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+          window.FVUserContext.onChange(() => _setSubmittedByNow());
         }
-      }catch{}
-      // 5) Title-case final
-      label = titleCase(label || 'Unknown User');
-
-      el.by.value = label;
-      if (window.FVUserContext){
-        el.by.dataset.email = window.FVUserContext.email || email || '';
-        el.by.dataset.uid   = window.FVUserContext.uid   || uid   || '';
-      }else{
-        el.by.dataset.email = email || '';
-        el.by.dataset.uid   = uid   || '';
-      }
-    }
-    // React to shell events so pull-to-refresh or late init updates the field
-    function subscribeShellUserEvents(){
-      const onUpdate = ()=> fillSubmittedByFromShellOrAuth();
-      window.addEventListener('fv:user:ready', onUpdate, { passive:true });
-      window.addEventListener('fv:user:changed', onUpdate, { passive:true });
-      // some older builds might use these:
-      window.addEventListener('fv-user-ready', onUpdate, { passive:true });
-      window.addEventListener('fv-user-changed', onUpdate, { passive:true });
+      } catch {}
+      // short poll like shell does (interval retry)
+      const tick = setInterval(()=>{
+        if (_setSubmittedByNow() || --_triesLeft <= 0) clearInterval(tick);
+      }, 200);
+      if (okNow) { /* nothing else */ }
     }
 
-    /* ============ menu helpers ============ */
+    /* ===== Menus (unchanged from your good build) ===== */
     async function getNavMenu(){
       try{
         const mod = await import('/Farm-vista/js/menu.js');
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
-      }catch(e){ console.warn('menu.js import failed', e); }
+      }catch(e){
+        console.warn('menu.js import failed', e);
+      }
       if (window.NAV_MENU?.items) return window.NAV_MENU;
       if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
     }
+
     function buildMainList(NAV_MENU){
       const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
       const out=[];
@@ -247,18 +242,22 @@
         const entry = {
           id:    it.id || it.label || it.href || '',
           label: it.label || it.id || 'Item',
-          type:  it.type || 'link',
-          children: Array.isArray(it.children)?it.children:[]
+          kind:  it.type || 'link',
+          children: []
         };
+        const kids = Array.isArray(it.children) ? it.children : [];
+        entry.children = kids.map(c=>({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item', type:c.type||'link', children: Array.isArray(c.children)?c.children:[] }));
         out.push(entry);
       }
       return out;
     }
+
     function wireMenus(mains){
       el.main.innerHTML = '<option value="">— Select —</option>';
       for(const m of mains){
         const o=document.createElement('option');
-        o.value=String(m.id); o.textContent=String(m.label);
+        o.value = String(m.id);
+        o.textContent = String(m.label);
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
       }
@@ -275,7 +274,7 @@
         const flat=[];
         for(const c of kids){
           if(!c) continue;
-          if(c.type==='group' && Array.isArray(c.children)){
+          if(c.type==='group' && Array.isArray(c.children) && c.children.length){
             for(const gc of c.children){
               flat.push({ id: gc.id||gc.label||gc.href||'', label: gc.label||gc.id||'Item' });
             }
@@ -283,19 +282,21 @@
             flat.push({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item' });
           }
         }
-        el.sub.innerHTML='';
+        el.sub.innerHTML = '';
         for(const s of flat){
           const op=document.createElement('option');
-          op.value=String(s.id||s.label||''); op.textContent=String(s.label||s.id||'Item');
+          op.value = String(s.id||s.label||'');
+          op.textContent = String(s.label||s.id||'Item');
           el.sub.appendChild(op);
         }
         const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
-        el.sub.disabled=false;
+
+        el.sub.disabled = false;
       });
     }
 
-    /* ============ save ============ */
+    /* ===== Save (unchanged) ===== */
     async function save(){
       try{
         showErr('');
@@ -323,7 +324,7 @@
       }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
     }
 
-    /* ============ dictation (optional) ============ */
+    /* ===== Dictation (unchanged) ===== */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
@@ -335,13 +336,14 @@
       rec.onerror=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
     }
 
-    /* ============ init ============ */
+    /* ===== Init ===== */
     (async ()=>{
       await ready; db=getFirestore();
 
-      // user + date
-      await fillSubmittedByFromShellOrAuth();
-      subscribeShellUserEvents();
+      // submitted-by + keep updated like the shell
+      _subscribeUserChanges();
+
+      // date
       el.date.value = todayISO();
 
       // menus
