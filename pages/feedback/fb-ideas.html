@@ -38,7 +38,6 @@
       border-radius:10px;padding:12px;outline:none;}
     .input[readonly]{opacity:1}
     .textarea{min-height:120px;resize:vertical;}
-    .muted{ color:var(--muted,#67706B); }
 
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
@@ -47,12 +46,19 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
 
+    /* uploads */
+    .uploads{display:grid;gap:8px}
+    .file-list{display:grid;gap:8px}
+    .file-item{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:10px;padding:8px;background:var(--card-surface,var(--surface))}
+    .file-item .name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-    .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
+    .error{border:1px solid #b3261e;background:var(--surface);color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
+    .muted{ color:var(--muted,#67706B); }
   </style>
 
   <!-- Ensure fv-shell -->
@@ -80,7 +86,6 @@
             <div class="field">
               <label for="submittedBy">Submitted by *</label>
               <input id="submittedBy" class="input" readonly aria-readonly="true" required />
-              <p class="muted" style="margin:6px 2px 0">Auto-filled from your login.</p>
             </div>
             <div class="field">
               <label for="date">Date *</label>
@@ -94,7 +99,6 @@
               <select id="mainMenu" class="select" required>
                 <option value="" selected>— Select —</option>
               </select>
-              <p class="muted" style="margin:6px 2px 0">Loaded from <em>/Farm-vista/js/menu.js</em>. Includes “Other”.</p>
             </div>
             <div class="field">
               <label for="subMenu">Submenu *</label>
@@ -111,8 +115,15 @@
                 <button id="dictate" type="button" class="btn btn-quiet" title="Dictate (when supported)">🎙️ Dictate</button>
               </div>
               <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
-              <p class="muted" style="margin:6px 2px 0">You can also use the keyboard mic on iOS.</p>
             </div>
+          </div>
+
+          <div class="row-1 uploads">
+            <div class="field">
+              <label for="files">Screenshot(s)</label>
+              <input id="files" class="input" type="file" accept="image/*,application/pdf" multiple />
+            </div>
+            <div id="fileList" class="file-list"></div>
           </div>
 
           <div class="actions">
@@ -129,8 +140,8 @@
   <script type="module">
   import {
     ready,
-    getFirestore, collection, addDoc, serverTimestamp,
-    getDoc, doc
+    getFirestore, collection, addDoc, serverTimestamp, getDoc, doc,
+    getStorage, ref, uploadBytes, getDownloadURL
   } from '/Farm-vista/js/firebase-init.js';
 
   (function(){
@@ -145,9 +156,11 @@
       main:  $('#mainMenu'),
       sub:   $('#subMenu'),
       notes: $('#notes'),
-      mic:   $('#dictate')
+      mic:   $('#dictate'),
+      files: $('#files'),
+      list:  $('#fileList')
     };
-    let db;
+    let db, storage;
 
     /* ===== helpers ===== */
     function showToast(msg="Saved.", ms=4000){
@@ -161,11 +174,32 @@
       const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
     };
     const titleCase = (s)=> String(s||'')
-      .replace(/\d+/g,'')
-      .split(/[.\-_+\s]+/).filter(Boolean)
+      .replace(/\s+/g,' ')
+      .split(' ')
+      .filter(Boolean)
       .map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase())
       .join(' ');
-    const nameFromEmail = (e)=> titleCase(String(e||'').split('@')[0]);
+    const smartNameFromEmail = (email)=>{
+      const local = String(email||'').split('@')[0] || '';
+      if(!local) return '';
+      // common separators
+      if (/[._-]/.test(local)) {
+        return titleCase(local.replace(/[0-9]+/g,'').split(/[._-]+/).join(' '));
+      }
+      // camelCase or PascalCase → insert spaces
+      const spaced = local.replace(/([a-z])([A-Z])/g,'$1 $2');
+      if (spaced !== local) return titleCase(spaced);
+      // fallback: try to split into two parts by heuristics (vowel/consonant boundary near middle)
+      const mid=Math.floor(local.length/2);
+      const guess = local.slice(0, mid) + ' ' + local.slice(mid);
+      return titleCase(guess);
+    };
+
+    function setBusy(on){
+      el.save.disabled = !!on;
+      el.files.disabled = !!on;
+      el.mic.disabled = !!on;
+    }
 
     /* ===== user prefill ===== */
     async function waitForUser(ms=6000){
@@ -183,7 +217,7 @@
         if (Date.now()-start > ms) break;
         await new Promise(r=>setTimeout(r,120));
       }
-      return { name:'Unknown User', email:'', uid:'' };
+      return { name:'', email:'', uid:'' };
     }
     async function enrichFromEmployees(u){
       try{
@@ -197,17 +231,18 @@
           }
         }
       }catch{}
-      // Fallback: turn email into "First Last" if still showing the email
-      if (u.email && (!u.name || u.name.toLowerCase()===u.email.toLowerCase())){
-        const fromEmail = nameFromEmail(u.email);
-        if (fromEmail) u.name = fromEmail;
+      // Final fallback: derive "First Last" from email if still not a proper name
+      if (u.email){
+        const fromEmail = smartNameFromEmail(u.email);
+        if (!u.name || u.name.toLowerCase()===u.email.toLowerCase()) u.name = fromEmail;
       }
+      // force First Last style casing
+      u.name = titleCase(u.name||'');
       return u;
     }
 
     /* ===== menus ===== */
     async function getNavMenu(){
-      // add a rev to avoid stale caching during dev
       const rev = window.FV_VERSION || Date.now();
       try{
         const mod = await import(`/Farm-vista/js/menu.js?rev=${rev}`);
@@ -238,7 +273,6 @@
       for(const m of mains){
         const o=document.createElement('option');
         o.value=String(m.id); o.textContent=String(m.label);
-        // store only immediate children; we'll flatten one level on change
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
       }
@@ -252,7 +286,6 @@
       el.main.addEventListener('change', ()=>{
         const opt = el.main.options[el.main.selectedIndex];
         let kids=[]; try{ kids = JSON.parse(opt?.dataset?.children||'[]'); }catch{}
-        // flatten (child links + grandchildren under child groups)
         const flat=[];
         for(const c of kids){
           if(!c) continue;
@@ -276,7 +309,36 @@
       });
     }
 
+    /* ===== uploads UI ===== */
+    function bytes(n){ if(!n && n!==0) return ''; const u=['B','KB','MB','GB']; let i=0; let v=n; while(v>=1024 && i<u.length-1){ v/=1024;i++; } return v.toFixed(v<10?1:0)+' '+u[i]; }
+    function renderFileList(list){
+      el.list.innerHTML = '';
+      if(!list || !list.length) return;
+      list.forEach(f=>{
+        const div = document.createElement('div');
+        div.className='file-item';
+        div.innerHTML = `<div class="name">${f.name}</div><div class="muted">${bytes(f.size||0)}</div>`;
+        el.list.appendChild(div);
+      });
+    }
+    el.files.addEventListener('change', ()=> renderFileList(Array.from(el.files.files||[])));
+
     /* ===== save ===== */
+    async function uploadAll(uid, docId){
+      const out=[];
+      const files = Array.from(el.files.files||[]);
+      if(!files.length) return out;
+      const base=`user-uploads/${uid}/feedback/ideas/${docId}/`;
+      for(const f of files){
+        const path = base + f.name.replace(/[^\w.\-]+/g,'_');
+        const r = ref(storage, path);
+        await uploadBytes(r, f, { contentType: f.type||'application/octet-stream' });
+        const url = await getDownloadURL(r);
+        out.push({ name:f.name, url, contentType:f.type||'', size:f.size||0, path });
+      }
+      return out;
+    }
+
     async function save(){
       try{
         showErr('');
@@ -286,6 +348,9 @@
         if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
         if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
 
+        setBusy(true);
+
+        // create shell doc first to get id
         const payload={
           type:'idea',
           submittedBy:{ uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
@@ -293,14 +358,33 @@
           mainMenu:{ id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent||el.main.value },
           subMenu:{  id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent ||el.sub.value  },
           notes: el.notes.value.trim(),
+          attachments: [],
           createdAt: serverTimestamp(),
           appVersion: (window.FV_VERSION||null)
         };
-        await addDoc(collection(db,'feedback'), payload);
+        const docRef = await addDoc(collection(db,'feedback'), payload);
+
+        // upload files (if any), then patch doc with attachments
+        const uid = el.by.dataset.uid || 'unknown';
+        const attachments = await uploadAll(uid, docRef.id);
+        if(attachments.length){
+          await (await import('/Farm-vista/js/firebase-init.js')).updateDoc(doc(db,'feedback',docRef.id), {
+            attachments,
+            updatedAt: serverTimestamp()
+          });
+        }
+
+        // reset notes/files only
         el.notes.value='';
+        el.files.value=''; renderFileList([]);
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
+      }catch(e){
+        console.error(e);
+        showErr('Save failed. Check permissions or network.');
+      }finally{
+        setBusy(false);
+      }
     }
 
     /* ===== dictation (optional) ===== */
@@ -317,7 +401,7 @@
 
     /* ===== init ===== */
     (async ()=>{
-      await ready; db=getFirestore();
+      await ready; db=getFirestore(); storage=getStorage();
 
       let user = await waitForUser(6000);
       user = await enrichFromEmployees(user);
