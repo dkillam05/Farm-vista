@@ -114,7 +114,7 @@
             <div class="field">
               <div style="display:flex;justify-content:space-between;align-items:center;">
                 <label for="notes">Idea (notes) *</label>
-                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate (when supported)">🎙️ Dictate</button>
+                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate / Stop">🎙️ Dictate</button>
               </div>
               <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
             </div>
@@ -127,6 +127,7 @@
               <input id="files" class="input" type="file" accept="image/*" multiple />
               <div id="thumbs" class="thumbs" aria-hidden="true"></div>
               <div id="fileHint" class="muted-line" aria-hidden="true"></div>
+              <div id="uploadNote" class="muted-line" style="display:none"></div>
             </div>
           </div>
 
@@ -146,6 +147,9 @@
     ready,
     getFirestore, collection, addDoc, serverTimestamp, updateDoc
   } from '/Farm-vista/js/firebase-init.js';
+  // We will lazy-resolve Storage from the SAME module to guarantee same app.
+  // (Do NOT pull from a CDN; keep it bound to the initialized app.)
+  // We'll import the storage symbols *on demand* inside ensureStorage().
 
   (function(){
     "use strict";
@@ -163,7 +167,8 @@
       mic:   $('#dictate'),
       files: $('#files'),
       thumbs: $('#thumbs'),
-      fileHint: $('#fileHint')
+      fileHint: $('#fileHint'),
+      uploadNote: $('#uploadNote')
     };
 
     let db;
@@ -192,7 +197,7 @@
       return titleCase(spaced || local);
     };
 
-    /* ===== Submitted-by (same pattern as shell) ===== */
+    /* ===== Submitted-by (mirror shell behavior) ===== */
     let _triesLeft = 30;   // ~6s polling
     function _setSubmittedByNow(){
       let label = '';
@@ -233,8 +238,7 @@
     /* ===== Menus (unchanged) ===== */
     async function getNavMenu(){
       try{
-        const ver = (window.FV_VERSION && window.FV_VERSION.number) ? window.FV_VERSION.number : Date.now();
-        const mod = await import(`/Farm-vista/js/menu.js?v=${ver}`);
+        const mod = await import('/Farm-vista/js/menu.js');
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
       }catch(e){ console.warn('menu.js import failed', e); }
@@ -324,58 +328,65 @@
       el.fileHint.textContent = files.length + (files.length===1 ? ' file selected' : ' files selected');
     });
 
-    /* ===== Lazy Storage loader (HTML-only fix) ===== */
-    let _storageFns = null;
-    async function loadStorageFns(){
-      if (_storageFns) return _storageFns;
-      // 1) Try your local firebase-init.js re-exports (cache-busted)
+    /* ===== Storage (HTML-only, lazy & safe) ===== */
+    let storageFns = null;
+    async function ensureStorage(){
+      if (storageFns) return storageFns;
       try{
-        const ver = (window.FV_VERSION && window.FV_VERSION.number) ? window.FV_VERSION.number : Date.now();
-        const mod = await import(`/Farm-vista/js/firebase-init.js?v=${ver}`);
-        const getStorage = mod?.getStorage;
-        const ref = mod?.ref || mod?.storageRef;
-        const uploadBytes = mod?.uploadBytes;
-        const getDownloadURL = mod?.getDownloadURL;
-        if (getStorage && ref && uploadBytes && getDownloadURL){
-          _storageFns = { getStorage, ref, uploadBytes, getDownloadURL };
-          return _storageFns;
+        // Import from your initialized module so we share the same app/auth.
+        const mod = await import('/Farm-vista/js/firebase-init.js');
+        const getStorage = mod.getStorage;
+        const storageRef  = mod.ref || mod.storageRef; // support either export name
+        const uploadBytes = mod.uploadBytes;
+        const getDownloadURL = mod.getDownloadURL;
+        if (getStorage && (storageRef||mod.ref) && uploadBytes && getDownloadURL){
+          storageFns = {
+            getStorage, storageRef: (storageRef||mod.ref), uploadBytes, getDownloadURL
+          };
+          return storageFns;
         }
-      }catch(e){ /* fall through */ }
-
-      // 2) Fallback: official Firebase CDN ESM (no changes to your repo)
-      const url = 'https://www.gstatic.com/firebasejs/10.13.1/firebase-storage.js';
-      const mod2 = await import(url);
-      _storageFns = {
-        getStorage: mod2.getStorage,
-        ref:        mod2.ref,
-        uploadBytes:mod2.uploadBytes,
-        getDownloadURL: mod2.getDownloadURL
-      };
-      return _storageFns;
+      }catch(e){
+        console.warn('[Ideas] Storage import failed:', e);
+      }
+      // If we can’t load storage from the app, return null (uploads will be skipped gracefully).
+      return null;
     }
 
     async function uploadScreenshots(docId){
       const files = Array.from(el.files?.files || []);
-      if (!files.length) return [];
-      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
-      const storage = getStorage(); // uses default initialized app from your firebase-init
-      const out = [];
+      if (!files.length) return { ok:true, meta:[], note:'' };
+
+      const fns = await ensureStorage();
+      if (!fns){
+        return { ok:false, meta:[], note:'Screenshots skipped (Storage not available).' };
+      }
+
+      const meta = [];
       for (let i=0; i<files.length; i++){
         const f = files[i];
         const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
         const path = `feedback/${docId}/${safeName}`;
-        const sref = ref(storage, path);
-        await uploadBytes(sref, f, { contentType: f.type || 'application/octet-stream' });
-        const url = await getDownloadURL(sref);
-        out.push({ name: f.name||safeName, path, url, contentType: f.type||'', size: f.size||0 });
+        try{
+          const store = fns.getStorage();  // uses same initialized app
+          const ref = fns.storageRef(store, path);
+          await fns.uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
+          const url = await fns.getDownloadURL(ref);
+          meta.push({ name: f.name||safeName, path, url, contentType: f.type||'', size: f.size||0 });
+        }catch(e){
+          console.warn('[Ideas] Upload error for', path, e);
+          return { ok:false, meta, note:'Saved text. Screenshot upload failed (check Storage rules/permissions).' };
+        }
       }
-      return out;
+      return { ok:true, meta, note:'' };
     }
 
-    /* ===== Save (unchanged except lazy uploads) ===== */
+    /* ===== Save (two-phase; uploads non-blocking) ===== */
     async function save(){
       try{
+        el.uploadNote.style.display='none';
+        el.uploadNote.textContent='';
         showErr('');
+
         if(!el.by.value.trim()) { showErr('Missing user. Please re-login.'); return; }
         if(!el.date.value)      { showErr('Please choose a date.'); return; }
         if(!el.main.value)      { showErr('Please choose a main menu.'); return; }
@@ -389,38 +400,62 @@
           mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
           subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
-          attachments: [],
+          attachments: [],  // filled after uploads (if any)
           createdAt: serverTimestamp(),
           appVersion: (window.FV_VERSION || null)
         };
 
+        // Phase 1 — create the document (never blocked by uploads)
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // Optional uploads (runs AFTER doc created; lazy-loads Storage without blocking init)
-        const filesMeta = await uploadScreenshots(docRef.id);
-        if (filesMeta.length){
-          await updateDoc(docRef, { attachments: filesMeta });
+        // Phase 2 — optional uploads; if it fails, we keep the doc and show a note
+        const up = await uploadScreenshots(docRef.id);
+        if (up.meta.length){
+          await updateDoc(docRef, { attachments: up.meta });
+        }
+        if (!up.ok && up.note){
+          el.uploadNote.textContent = up.note;
+          el.uploadNote.style.display='block';
         }
 
-        // Reset only notes/files (keep date/menu/user)
+        // Reset notes and files (keep menu/date/user intact)
         el.notes.value='';
         if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); }
 
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
+      }catch(e){
+        console.error(e);
+        showErr('Save failed. Check permissions or network.');
+      }
     }
 
-    /* ===== Dictation (unchanged) ===== */
+    /* ===== Dictation toggle ===== */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
       const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
       const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
-      let base=''; el.mic.addEventListener('click', ()=>{ base=el.notes.value?(el.notes.value+' '):''; el.mic.disabled=true; el.mic.textContent='🎙️ Listening…'; rec.start(); });
-      rec.onresult=ev=>{ let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; } el.notes.value=base+txt; };
-      rec.onend=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
-      rec.onerror=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
+
+      let active=false, baseText='';
+      const setBtn=(listening)=>{ el.mic.textContent = listening ? '⏹️ Stop' : '🎙️ Dictate'; };
+
+      el.mic.addEventListener('click', ()=>{
+        if (!active){
+          baseText = el.notes.value ? (el.notes.value + ' ') : '';
+          try{ rec.start(); active=true; setBtn(true); }catch{}
+        } else {
+          try{ rec.stop(); rec.abort(); }catch{}  // hard stop
+          active=false; setBtn(false);
+        }
+      });
+
+      rec.onresult=(ev)=>{
+        let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; }
+        el.notes.value = baseText + txt;
+      };
+      rec.onend=()=>{ active=false; setBtn(false); };
+      rec.onerror=()=>{ active=false; setBtn(false); };
     }
 
     /* ===== Init ===== */
