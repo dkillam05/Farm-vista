@@ -147,9 +147,7 @@
     ready,
     getFirestore, collection, addDoc, serverTimestamp, updateDoc
   } from '/Farm-vista/js/firebase-init.js';
-  // We will lazy-resolve Storage from the SAME module to guarantee same app.
-  // (Do NOT pull from a CDN; keep it bound to the initialized app.)
-  // We'll import the storage symbols *on demand* inside ensureStorage().
+  // Storage is lazy-loaded from the SAME module to share the initialized app/auth.
 
   (function(){
     "use strict";
@@ -328,15 +326,14 @@
       el.fileHint.textContent = files.length + (files.length===1 ? ' file selected' : ' files selected');
     });
 
-    /* ===== Storage (HTML-only, lazy & safe) ===== */
+    /* ===== Storage (lazy & safe) ===== */
     let storageFns = null;
     async function ensureStorage(){
       if (storageFns) return storageFns;
       try{
-        // Import from your initialized module so we share the same app/auth.
-        const mod = await import('/Farm-vista/js/firebase-init.js');
+        const mod = await import('/Farm-vista/js/firebase-init.js'); // same initialized app
         const getStorage = mod.getStorage;
-        const storageRef  = mod.ref || mod.storageRef; // support either export name
+        const storageRef  = mod.ref || mod.storageRef;
         const uploadBytes = mod.uploadBytes;
         const getDownloadURL = mod.getDownloadURL;
         if (getStorage && (storageRef||mod.ref) && uploadBytes && getDownloadURL){
@@ -348,8 +345,7 @@
       }catch(e){
         console.warn('[Ideas] Storage import failed:', e);
       }
-      // If we can’t load storage from the app, return null (uploads will be skipped gracefully).
-      return null;
+      return null; // gracefully skip uploads if Storage can’t load
     }
 
     async function uploadScreenshots(docId){
@@ -365,9 +361,16 @@
       for (let i=0; i<files.length; i++){
         const f = files[i];
         const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
-        const path = `feedback/${docId}/${safeName}`;
+
+        /* >>>>>>> STORAGE RULES MATCH <<<<<<<
+           Path now conforms to:
+           match /feedback/{type}/{docId}/screenshots/{fileId}
+           using type='ideas'
+        */
+        const path = `feedback/ideas/${docId}/screenshots/${safeName}`;
+
         try{
-          const store = fns.getStorage();  // uses same initialized app
+          const store = fns.getStorage();
           const ref = fns.storageRef(store, path);
           await fns.uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
           const url = await fns.getDownloadURL(ref);
@@ -400,15 +403,15 @@
           mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
           subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
-          attachments: [],  // filled after uploads (if any)
+          attachments: [],
           createdAt: serverTimestamp(),
           appVersion: (window.FV_VERSION || null)
         };
 
-        // Phase 1 — create the document (never blocked by uploads)
+        // Phase 1 — create the document
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // Phase 2 — optional uploads; if it fails, we keep the doc and show a note
+        // Phase 2 — optional uploads to feedback/ideas/{docId}/screenshots/{file}
         const up = await uploadScreenshots(docRef.id);
         if (up.meta.length){
           await updateDoc(docRef, { attachments: up.meta });
@@ -430,7 +433,7 @@
       }
     }
 
-    /* ===== Dictation toggle ===== */
+    /* ===== Dictation toggle (unchanged) ===== */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
@@ -445,7 +448,7 @@
           baseText = el.notes.value ? (el.notes.value + ' ') : '';
           try{ rec.start(); active=true; setBtn(true); }catch{}
         } else {
-          try{ rec.stop(); rec.abort(); }catch{}  // hard stop
+          try{ rec.stop(); rec.abort(); }catch{}
           active=false; setBtn(false);
         }
       });
