@@ -28,7 +28,6 @@
 
     .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
     .row-1{display:grid;gap:10px;grid-template-columns:1fr}
-    @media(max-width:980px){.row{grid-template-columns:1fr 1fr}}
     @media(max-width:720px){.row,.row-1{grid-template-columns:1fr}}
 
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
@@ -38,7 +37,7 @@
       border-radius:10px;padding:12px;outline:none;}
     .input[readonly]{opacity:1}
     .textarea{min-height:120px;resize:vertical;}
-    .muted{ color:var(--muted,#67706B); }
+    .muted{color:var(--muted,#67706B)}
 
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
@@ -47,6 +46,13 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
 
+    /* Upload preview */
+    .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px}
+    .thumb{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card-surface,var(--surface));
+      display:grid;place-items:center;aspect-ratio:1/1}
+    .thumb img{max-width:100%;max-height:100%;display:block;object-fit:cover}
+
+    /* Toast + error */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
@@ -80,7 +86,6 @@
             <div class="field">
               <label for="submittedBy">Submitted by *</label>
               <input id="submittedBy" class="input" readonly aria-readonly="true" required />
-              <p class="muted" style="margin:6px 2px 0">Auto-filled from your login.</p>
             </div>
             <div class="field">
               <label for="date">Date *</label>
@@ -94,7 +99,6 @@
               <select id="mainMenu" class="select" required>
                 <option value="" selected>— Select —</option>
               </select>
-              <p class="muted" style="margin:6px 2px 0">Loaded from <em>/Farm-vista/js/menu.js</em>. Includes “Other”.</p>
             </div>
             <div class="field">
               <label for="subMenu">Submenu *</label>
@@ -108,10 +112,17 @@
             <div class="field">
               <div style="display:flex;justify-content:space-between;align-items:center;">
                 <label for="notes">Idea (notes) *</label>
-                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate (when supported)">🎙️ Dictate</button>
+                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate">🎙️ Dictate</button>
               </div>
               <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
-              <p class="muted" style="margin:6px 2px 0">You can also use the keyboard mic on iOS.</p>
+            </div>
+          </div>
+
+          <div class="row-1">
+            <div class="field">
+              <label for="shots">Screenshot(s)</label>
+              <input id="shots" class="input" type="file" accept="image/*" multiple />
+              <div id="thumbs" class="thumbs" style="margin-top:8px"></div>
             </div>
           </div>
 
@@ -129,13 +140,19 @@
   <script type="module">
   import {
     ready,
-    getFirestore, collection, addDoc, serverTimestamp,
-    getDoc, doc
+    getFirestore, collection, addDoc, doc, updateDoc, serverTimestamp,
+    getDoc
+  } from '/Farm-vista/js/firebase-init.js';
+
+  import {
+    getStorage, ref, uploadBytes, getDownloadURL
   } from '/Farm-vista/js/firebase-init.js';
 
   (function(){
     "use strict";
-    const $ = (s)=>document.querySelector(s);
+    const $  = (s)=>document.querySelector(s);
+    const $$ = (s)=>document.querySelectorAll(s);
+
     const el = {
       err:   $('#err'),
       toast: $('#toast'),
@@ -145,9 +162,12 @@
       main:  $('#mainMenu'),
       sub:   $('#subMenu'),
       notes: $('#notes'),
-      mic:   $('#dictate')
+      mic:   $('#dictate'),
+      shots: $('#shots'),
+      thumbs:$('#thumbs')
     };
-    let db;
+
+    let db, storage, userCtx={uid:'', email:'', name:''};
 
     /* ===== helpers ===== */
     function showToast(msg="Saved.", ms=4000){
@@ -160,78 +180,68 @@
     const todayISO = ()=>{
       const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
     };
+    const titleCase = (s)=> String(s||'').split(/[\s._-]+/).filter(Boolean).map(w=>w[0]?.toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+    const nameFromEmail = (e)=> titleCase(String(e||'').split('@')[0]);
 
     /* ===== user prefill ===== */
     async function waitForUser(ms=6000){
       const start=Date.now();
       for(;;){
         const ctx = window.FVUserContext || {};
-        let name  = ctx.displayName || ctx.name || '';
-        let email = ctx.email || '';
-        let uid   = ctx.uid || '';
-        if (uid || email || name){ return { name: name||email||uid, email, uid }; }
-        try{
-          const u = window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
-          if (u){ return { name: u.displayName||u.email||u.uid, email: u.email||'', uid: u.uid||'' }; }
-        }catch{}
-        if (Date.now()-start > ms) break;
+        const u = {
+          uid:   ctx.uid || window.firebase?.auth?.currentUser?.uid || '',
+          email: ctx.email || window.firebase?.auth?.currentUser?.email || '',
+          name:  ctx.displayName || ctx.name || ''
+        };
+        if (u.uid || u.email || u.name) return u;
+        if (Date.now()-start>ms) break;
         await new Promise(r=>setTimeout(r,120));
       }
-      return { name:'Unknown User', email:'', uid:'' };
+      return {uid:'', email:'', name:''};
     }
     async function enrichFromEmployees(u){
       try{
         if (!u.email) return u;
         const key = String(u.email).toLowerCase();
-        const snap = await getDoc(doc(getFirestore(),'employees',key));
+        const snap = await getDoc(doc(getFirestore(),'employees', key));
         if (snap.exists()){
-          const d=snap.data()||{};
-          const dn=(d.displayName||d.name||'').trim();
+          const d = snap.data()||{};
+          const dn = (d.displayName || d.name || '').trim();
           if (dn) u.name = dn;
         }
       }catch{}
+      if (!u.name) u.name = nameFromEmail(u.email) || (u.uid||'User');
       return u;
     }
 
-    /* ===== menus ===== */
+    /* ===== menu loaders ===== */
     async function getNavMenu(){
-      // add a rev to avoid stale caching during dev
-      const rev = window.FV_VERSION || Date.now();
       try{
+        const rev = window.FV_VERSION || Date.now();
         const mod = await import(`/Farm-vista/js/menu.js?rev=${rev}`);
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
       }catch(e){ console.warn('menu import failed', e); }
-      if (window.NAV_MENU?.items) return window.NAV_MENU;
-      if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
     }
     function buildMainList(NAV_MENU){
       const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
-      const out=[];
-      for(const it of items){
-        if(!it) continue;
-        const entry = {
-          id: it.id||it.label||it.href||'',
-          label: it.label||it.id||'Item',
-          type: it.type||'link',
-          children: Array.isArray(it.children)?it.children:[]
-        };
-        out.push(entry);
-      }
-      return out;
+      return items.map(it=>({
+        id: it.id||it.label||it.href||'',
+        label: it.label||it.id||'Item',
+        type: it.type||'link',
+        children: Array.isArray(it.children)?it.children:[]
+      }));
     }
     function wireMenus(mains){
       el.main.innerHTML = '<option value="">— Select —</option>';
-      for(const m of mains){
+      mains.forEach(m=>{
         const o=document.createElement('option');
         o.value=String(m.id); o.textContent=String(m.label);
-        // store only immediate children; we'll flatten one level on change
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
-      }
-      const other=document.createElement('option');
-      other.value='other'; other.textContent='Other'; other.dataset.children='[]';
+      });
+      const other=document.createElement('option'); other.value='other'; other.textContent='Other'; other.dataset.children='[]';
       el.main.appendChild(other);
 
       el.sub.innerHTML = '<option value="">— Select a main menu first —</option>';
@@ -240,7 +250,6 @@
       el.main.addEventListener('change', ()=>{
         const opt = el.main.options[el.main.selectedIndex];
         let kids=[]; try{ kids = JSON.parse(opt?.dataset?.children||'[]'); }catch{}
-        // flatten (child links + grandchildren under child groups)
         const flat=[];
         for(const c of kids){
           if(!c) continue;
@@ -253,39 +262,84 @@
           }
         }
         el.sub.innerHTML='';
-        for(const s of flat){
+        flat.forEach(s=>{
           const op=document.createElement('option');
           op.value=String(s.id||s.label||''); op.textContent=String(s.label||s.id||'Item');
           el.sub.appendChild(op);
-        }
+        });
         const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
         el.sub.disabled=false;
       });
     }
 
+    /* ===== uploads ===== */
+    function renderThumbs(files){
+      el.thumbs.innerHTML='';
+      if(!files || !files.length) return;
+      [...files].forEach(f=>{
+        const wrap=document.createElement('div'); wrap.className='thumb';
+        const img=document.createElement('img'); img.alt=f.name;
+        const fr=new FileReader();
+        fr.onload=()=>{ img.src=fr.result; };
+        fr.readAsDataURL(f);
+        wrap.appendChild(img); el.thumbs.appendChild(wrap);
+      });
+    }
+    el.shots.addEventListener('change', ()=> renderThumbs(el.shots.files));
+
+    async function uploadScreenshots(uid, docId, files){
+      if(!files || !files.length) return [];
+      const out=[];
+      for(const f of files){
+        const safe = String(f.name||'shot').replace(/[^\w.\-]+/g,'_');
+        const path = `feedback/${uid}/ideas/${docId}/screenshots/${Date.now()}_${safe}`;
+        const r = ref(storage, path);
+        await uploadBytes(r, f, { contentType: f.type || 'image/jpeg' });
+        const url = await getDownloadURL(r);
+        out.push({ path, url, name:f.name, size:f.size||null, contentType:f.type||null });
+      }
+      return out;
+    }
+
     /* ===== save ===== */
     async function save(){
       try{
         showErr('');
-        if(!el.by.value.trim()) { showErr('Missing user. Please re-login.'); return; }
-        if(!el.date.value)      { showErr('Please choose a date.'); return; }
-        if(!el.main.value)      { showErr('Please choose a main menu.'); return; }
+        if(!userCtx.uid){ showErr('Not signed in.'); return; }
+        if(!el.by.value.trim()){ showErr('Missing name.'); return; }
+        if(!el.date.value){ showErr('Please choose a date.'); return; }
+        if(!el.main.value){ showErr('Please choose a main menu.'); return; }
         if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
         if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
 
-        const payload={
+        const base = {
           type:'idea',
-          submittedBy:{ uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
+          submittedBy:{ uid:userCtx.uid, name:el.by.value, email:userCtx.email||null },
           date: el.date.value,
-          mainMenu:{ id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent||el.main.value },
-          subMenu:{  id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent ||el.sub.value  },
+          mainMenu:{ id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
+          subMenu:{  id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
           createdAt: serverTimestamp(),
-          appVersion: (window.FV_VERSION||null)
+          appVersion: (window.FV_VERSION||null),
+          attachments: []
         };
-        await addDoc(collection(db,'feedback'), payload);
+
+        // Create doc first to get ID
+        const refDoc = await addDoc(collection(db,'feedback'), base);
+
+        // Upload screenshots (if any) then update doc
+        const files = el.shots.files || [];
+        if(files.length){
+          const atts = await uploadScreenshots(userCtx.uid, refDoc.id, files);
+          if(atts.length){
+            await updateDoc(refDoc, { attachments: atts, updatedAt: serverTimestamp() });
+          }
+        }
+
+        // Reset minimal fields
         el.notes.value='';
+        el.shots.value=''; el.thumbs.innerHTML='';
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
       }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
@@ -305,13 +359,12 @@
 
     /* ===== init ===== */
     (async ()=>{
-      await ready; db=getFirestore();
+      const ctx = await ready;
+      db = getFirestore(); storage = getStorage();
 
-      let user = await waitForUser(6000);
-      user = await enrichFromEmployees(user);
-      el.by.value = user.name || 'Unknown User';
-      el.by.dataset.uid   = user.uid   || '';
-      el.by.dataset.email = user.email || '';
+      userCtx = await waitForUser(6000);
+      userCtx = await enrichFromEmployees(userCtx);
+      el.by.value = userCtx.name || 'User';
       el.date.value = todayISO();
 
       const NAV = await getNavMenu();
