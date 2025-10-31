@@ -1,11 +1,10 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.16
-   - UID-aware menu swap: detects account change, clears old nav state, shows skeleton, repaints with new perms.
-   - Role-scoped nav-state key: fv:nav:groups:<uid>:<roleHash> to prevent cross-user/group leakage.
-   - Skeleton drawer while awaiting allowedIds (never flashes previous user’s links).
-   - Hard gate: spinner stays until Auth OK + UserContext OK + Menu (>=1 link). AUTH 5s, MENU 3s → redirect to Login.
-   - Post-paint sanity: empty logout name OR zero menu links → redirect to Login.
-   - PTR (pull-to-refresh) rewritten with Pointer Events + angle filter + cooldown for 99% reliability on iOS.
+   FarmVista Shell — v5.10.17
+   - Fix: Footer remains pinned when side drawer/topdrawer is open in iOS PWA (home-screen).
+     * Use 100dvh for viewport-stable layout.
+     * Footer on its own compositor layer to avoid visual-viewport jumps.
+     * Stop toggling documentElement overflow; instead lock scroll within the shell.
+   - All other behaviors from v5.10.16 preserved.
 */
 (function () {
   // ====== TUNABLES ======
@@ -15,8 +14,11 @@
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
-    :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
-      display:block; color:#141514; background:#fff; min-height:100vh; position:relative; }
+    :host{
+      --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
+      display:block; color:#141514; background:#fff; min-height:100dvh; position:relative;
+    }
+
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
@@ -45,13 +47,22 @@
 
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
-      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
+      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900;
+      /* Keep the footer pinned and immune to visual-viewport jumps (iOS PWA) */
+      transform:translateZ(0); will-change:transform; contain:paint;
+    }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
-      min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
+      min-height:100dvh; box-sizing:border-box; background: var(--bg); color: var(--text);
+      /* Avoid rubber-band pulling the layout when grab starts at top */
+      overscroll-behavior-y: contain;
+    }
+    /* When drawers are open, keep background content still without altering html overflow */
+    :host(.drawer-open) .main, :host(.top-open) .main{ overflow:hidden; touch-action:none; }
+
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
@@ -61,7 +72,7 @@
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
       display:flex; flex-direction:column; height:100%; overflow:hidden; padding-bottom:env(safe-area-inset-bottom,0px);
-      border-right: 1px solid var(--border); }
+      border-right: 1px solid var(--border); will-change:transform; }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
     .drawer header{ padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex:0 0 auto; background: var(--surface); }
     .org{ display:flex; align-items:center; gap:12px; }
@@ -85,7 +96,7 @@
 
     .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
-      border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; }
+      border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; will-change:transform; }
     :host(.top-open) .topdrawer{ transform:translateY(0); }
     .topwrap{ padding:6px 10px 14px; }
     .brandrow{ display:flex; align-items:center; justify-content:center; gap:10px; padding:10px 8px 12px 8px; }
@@ -681,13 +692,13 @@
       const wasOpen = this.classList.contains('drawer-open');
       const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
-      document.documentElement.style.overflow = (on || this.classList.contains('top-open')) ? 'hidden' : '';
+      // Do NOT toggle documentElement overflow (iOS PWA causes viewport jump)
       if (wasOpen && !on) { this._collapseAllNavGroups(); }
     }
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
       this.classList.toggle('top-open', on);
-      document.documentElement.style.overflow = (on || this.classList.contains('drawer-open')) ? 'hidden' : '';
+      // Do NOT toggle documentElement overflow (avoid footer shift)
     }
 
     _syncThemeChips(mode){
