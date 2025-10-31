@@ -1,20 +1,17 @@
 /**
  * FarmVista — firebase-init.js
- * v2.2.0 — adds global RefreshBus + soft refresh handler (`fv:refresh`)
+ * v2.3.0 — adds Firebase Storage exports + FV_HAS_STORAGE
  *
- * - `RefreshBus.register(fn)` to let shared loaders re-query on demand
- * - Listens for `document` event `fv:refresh` to:
- *    • ensure network is enabled (Firebase mode)
- *    • briefly re-enable network to force listeners to sync
- *    • call all registered refreshers
- *    • emit `fv:refreshed` afterward
- * - Safe no-op in stub mode
+ * - v2.2.0 (prior): global RefreshBus + soft refresh handler (`fv:refresh`)
+ * - This update ONLY adds Storage (getStorage/ref/uploadBytes/getDownloadURL)
+ *   and a window.FV_HAS_STORAGE flag. All other behavior is unchanged.
  */
 
 const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
 const CDN_APP = `${CDN_BASE}firebase-app.js`;
 const CDN_AUTH = `${CDN_BASE}firebase-auth.js`;
 const CDN_STORE = `${CDN_BASE}firebase-firestore.js`;
+const CDN_STORAGE = `${CDN_BASE}firebase-storage.js`; // <-- ADDED
 
 const STUB_USER_KEY = 'fv:stub:user';
 const STUB_ACCOUNT_KEY = 'fv:stub:accounts';
@@ -348,6 +345,7 @@ let auth = stubAuth;
 let firestore = stubFirestore;
 let authModule = null;
 let storeModule = null;
+let storageModule = null; // <-- ADDED
 export let mode = 'stub';
 
 let onAuthStateChangedImpl = (instance, cb) => stubSubscribe(instance || auth, cb);
@@ -507,18 +505,21 @@ export const ready = (async () => {
   if (!cfg) {
     mode = 'stub';
     ensureStubGlobals();
+    window.FV_HAS_STORAGE = false; // <-- ADDED (stub)
     return { app, auth, firestore, mode };
   }
 
   try {
-    const [{ initializeApp }, authMod, storeMod] = await Promise.all([
+    const [{ initializeApp }, authMod, storeMod, storageMod] = await Promise.all([
       import(CDN_APP),
       import(CDN_AUTH),
-      import(CDN_STORE)
+      import(CDN_STORE),
+      import(CDN_STORAGE) // <-- ADDED
     ]);
 
     authModule = authMod;
     storeModule = storeMod;
+    storageModule = storageMod; // <-- ADDED
 
     app = initializeApp(cfg);
     auth = authMod.getAuth(app);
@@ -552,6 +553,9 @@ export const ready = (async () => {
     window.firebaseFirestore = firestore;
     window.fvSignOut = () => authMod.signOut(auth);
 
+    // Expose storage presence for UI code that wants to skip uploads in stub.
+    window.FV_HAS_STORAGE = !!storageModule; // <-- ADDED
+
     onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
     return { app, auth, firestore, mode };
@@ -563,7 +567,9 @@ export const ready = (async () => {
     mode = 'stub';
     authModule = null;
     storeModule = null;
+    storageModule = null; // <-- ADDED
     ensureStubGlobals();
+    window.FV_HAS_STORAGE = false; // <-- ADDED
     return { app, auth, firestore, mode };
   }
 })();
@@ -628,5 +634,21 @@ export const orderBy = (...args) => orderByImpl(...args);
 export const limit = (...args) => limitImpl(...args);
 export const setStubUser = (user, password) => stubAuth._setUser(user, password);
 export const getStubUser = () => stubAuth.currentUser;
+
+/* ------ Storage API exports (ADDED) ------ */
+export const getStorage = (appInstance) => (storageModule ? storageModule.getStorage(appInstance || app) : null);
+export const ref = (...args) => {
+  if (!storageModule) throw new Error('Storage not loaded');
+  return storageModule.ref(...args);
+};
+export const storageRef = ref; // alias for convenience
+export const uploadBytes = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.uploadBytes(...args);
+};
+export const getDownloadURL = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.getDownloadURL(...args);
+};
 
 window.__FV_USER = stubAuth.currentUser || null;
