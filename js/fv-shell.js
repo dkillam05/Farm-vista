@@ -1,10 +1,9 @@
-/* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.17
-   - Fix: Footer remains pinned when side drawer/topdrawer is open in iOS PWA (home-screen).
-     * Use 100dvh for viewport-stable layout.
-     * Footer on its own compositor layer to avoid visual-viewport jumps.
-     * Stop toggling documentElement overflow; instead lock scroll within the shell.
-   - All other behaviors from v5.10.16 preserved.
+<!-- /Farm-vista/js/fv-shell.js -->
+/* FarmVista Shell — v5.10.17
+   - FIX: iOS PWA header/footer shifting when drawer opens.
+     Uses body fixed-position scroll lock (preserves scrollY) instead of toggling
+     documentElement overflow, which causes viewport reflow in standalone mode.
+   - All other behavior identical to v5.10.16.
 */
 (function () {
   // ====== TUNABLES ======
@@ -14,11 +13,8 @@
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
-    :host{
-      --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
-      display:block; color:#141514; background:#fff; min-height:100dvh; position:relative;
-    }
-
+    :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
+      display:block; color:#141514; background:#fff; min-height:100vh; position:relative; }
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
@@ -47,22 +43,13 @@
 
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
-      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900;
-      /* Keep the footer pinned and immune to visual-viewport jumps (iOS PWA) */
-      transform:translateZ(0); will-change:transform; contain:paint;
-    }
+      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
-      min-height:100dvh; box-sizing:border-box; background: var(--bg); color: var(--text);
-      /* Avoid rubber-band pulling the layout when grab starts at top */
-      overscroll-behavior-y: contain;
-    }
-    /* When drawers are open, keep background content still without altering html overflow */
-    :host(.drawer-open) .main, :host(.top-open) .main{ overflow:hidden; touch-action:none; }
-
+      min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
@@ -72,7 +59,7 @@
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
       display:flex; flex-direction:column; height:100%; overflow:hidden; padding-bottom:env(safe-area-inset-bottom,0px);
-      border-right: 1px solid var(--border); will-change:transform; }
+      border-right: 1px solid var(--border); }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
     .drawer header{ padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex:0 0 auto; background: var(--surface); }
     .org{ display:flex; align-items:center; gap:12px; }
@@ -96,7 +83,7 @@
 
     .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
-      border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; will-change:transform; }
+      border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; }
     :host(.top-open) .topdrawer{ transform:translateY(0); }
     .topwrap{ padding:6px 10px 14px; }
     .brandrow{ display:flex; align-items:center; justify-content:center; gap:10px; padding:10px 8px 12px 8px; }
@@ -198,6 +185,10 @@
       this._lastUID = '';         // tracks current auth user id for swap detection
       this._lastRoleHash = '';    // tracks allowedIds hash
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
+
+      // scroll lock state (new in .17)
+      this._scrollLocked = false;
+      this._scrollY = 0;
     }
 
     connectedCallback(){
@@ -234,6 +225,10 @@
       this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
       this._bootSequence();
+
+      // Safety: if orientation changes while locked, unlock to avoid layout oddities.
+      window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
+      window.addEventListener('resize', ()=>{ /* keep lock state but ensure footer stays put */ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
     }
 
     async _bootSequence(){
@@ -688,17 +683,46 @@
       try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
+    // ===== Scroll lock helpers (fix for iOS standalone) =====
+    _applyBodyFixedStyles(){
+      // Ensure fixed body spans width and respects safe areas
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${this._scrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+    }
+    _setScrollLock(on){
+      if (on && !this._scrollLocked){
+        this._scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+        this._applyBodyFixedStyles();
+        this._scrollLocked = true;
+      } else if (!on && this._scrollLocked){
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        window.scrollTo(0, this._scrollY || 0);
+        this._scrollLocked = false;
+      }
+    }
+
     toggleDrawer(open){
       const wasOpen = this.classList.contains('drawer-open');
       const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
-      // Do NOT toggle documentElement overflow (iOS PWA causes viewport jump)
+      // NEW: body scroll-lock (replaces documentElement overflow toggle)
+      this._setScrollLock(on || this.classList.contains('top-open'));
       if (wasOpen && !on) { this._collapseAllNavGroups(); }
     }
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
       this.classList.toggle('top-open', on);
-      // Do NOT toggle documentElement overflow (avoid footer shift)
+      // NEW: body scroll-lock (replaces documentElement overflow toggle)
+      this._setScrollLock(on || this.classList.contains('drawer-open'));
     }
 
     _syncThemeChips(mode){
