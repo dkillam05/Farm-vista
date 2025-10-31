@@ -1,10 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.18
-   - FIX: iOS Home-Screen (standalone) background scroll on Demo account only.
-     * Robust scroll-lock that targets iOS standalone specifically.
-     * Combines body fixed lock + html overflow:hidden + scrim touchmove trap.
-     * Adds host class .ui-locked to suppress scroll gestures on content.
-   - All app logic remains the same as v5.10.16.
+   FarmVista Shell — v5.10.19
+   - PTR fixed on iOS Home-Screen (standalone) while retaining scroll-lock behavior from v5.10.18.
+     * Switch to touch events (with passive:false) and use window.scrollY for "at top" checks.
+     * Disable PTR automatically while UI is scroll-locked (drawer/topdrawer open).
+     * Slight tolerance to ignore 1–2px bounce offsets.
 */
 (function () {
   // ====== TUNABLES ======
@@ -195,6 +194,9 @@
       this._scrollY = 0;
       this._isIOSStandaloneFlag = null;
       this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
+
+      // PTR state (shared)
+      this._ptrDisabled = false;
     }
 
     connectedCallback(){
@@ -729,6 +731,7 @@
         }
         this.classList.add('ui-locked');
         this._scrollLocked = true;
+        this._ptrDisabled = true; // disable PTR while menus are open
       } else if (!on && this._scrollLocked){
         // Restore
         document.body.style.position = '';
@@ -746,6 +749,8 @@
         window.scrollTo(0, this._scrollY || 0);
         this.classList.remove('ui-locked');
         this._scrollLocked = false;
+        // small delay before re-enabling PTR to avoid bounce re-trigger
+        setTimeout(()=> { this._ptrDisabled = false; }, 150);
       }
     }
 
@@ -779,22 +784,22 @@
       this._syncThemeChips(mode);
     }
 
-    /* ====== PULL-TO-REFRESH (robust) ====== */
+    /* ====== PULL-TO-REFRESH (robust; iOS standalone safe) ====== */
     _initPTR(){
       const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
       const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
       const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      const THRESHOLD = 70;
-      const MAX_ANGLE = 18;  // degrees allowed away from vertical before we cancel (prevents sideways swipes)
-      const COOLDOWN  = 600; // ms; avoid double-trigger on bounce
+      const THRESHOLD = 72;     // px pull distance
+      const MAX_ANGLE = 18;     // degrees allowed away from vertical
+      const COOLDOWN  = 600;    // ms between triggers
+      const TOP_TOL   = 2;      // px tolerance for scrollY
 
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
-      const root   = ()=> document.scrollingElement || document.documentElement;
-      const atTop  = ()=> (root().scrollTop || window.pageYOffset || 0) <= 0;
-      const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open');
+      const atTop  = ()=> (window.scrollY || 0) <= TOP_TOL;
+      const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open') && !this._ptrDisabled;
 
       const showBar = ()=>{
         bar.classList.add('show');
@@ -807,68 +812,86 @@
         txt.textContent = 'Pull to refresh';
       };
 
-      const onDown = (e)=>{
+      const onStart = (clientX, clientY)=>{
         if (!canUse()) { armed=false; pulling=false; return; }
-        if (e.pointerType !== 'touch') { armed=false; pulling=false; return; }
         if (!atTop()) { armed=false; pulling=false; return; }
         if (Date.now() - lastEnd < COOLDOWN) { armed=false; pulling=false; return; }
-
         armed   = true;
         pulling = false;
-        startY  = e.clientY;
-        startX  = e.clientX;
+        startY  = clientY;
+        startX  = clientX;
         deltaY  = 0;
       };
 
-      const onMove = (e)=>{
+      const onMoveInternal = (clientX, clientY, prevent)=>{
         if (!armed) return;
-
-        const dy = e.clientY - startY;
-        const dx = e.clientX - startX;
+        const dy = clientY - startY;
+        const dx = clientX - startX;
         const angle = Math.abs(Math.atan2(dx, dy) * (180/Math.PI));
         if (angle > MAX_ANGLE) { armed=false; pulling=false; hideBar(); return; }
-
         if (dy > 0) {
           deltaY = dy;
-          if (!pulling) {
-            pulling = true;
-            showBar();
-          }
+          if (!pulling) { pulling = true; showBar(); }
           txt.textContent = (deltaY >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
-          e.preventDefault(); // critical to stop rubber-band once pulling
+          prevent(); // stop rubber-band
         } else {
           armed=false; pulling=false; hideBar();
         }
       };
 
-      const doRefresh = async ()=>{
-        dot.hidden  = true;
-        spin.hidden = false;
-        txt.textContent = 'Refreshing…';
-
-        document.dispatchEvent(new CustomEvent('fv:refresh'));
-        await this._initMenuFiltered();
-
-        await new Promise(res=> setTimeout(res, 900));
-        hideBar();
-      };
-
-      const onUp = ()=>{
+      const onEnd = ()=>{
         if (!armed) return;
         const shouldRefresh = pulling && deltaY >= THRESHOLD;
         armed=false; pulling=false; deltaY=0; startY=0; startX=0;
         if (shouldRefresh) {
           lastEnd = Date.now();
-          doRefresh();
+          (async ()=>{
+            dot.hidden  = true;
+            spin.hidden = false;
+            txt.textContent = 'Refreshing…';
+
+            document.dispatchEvent(new CustomEvent('fv:refresh'));
+            try { await this._initMenuFiltered(); } catch {}
+            if (typeof window.FVRefresh === 'function') { try { await window.FVRefresh(); } catch {} }
+
+            await new Promise(res=> setTimeout(res, 900));
+            hideBar();
+          })();
         } else {
           hideBar();
         }
       };
 
-      window.addEventListener('pointerdown', onDown, { passive:true });
-      window.addEventListener('pointermove', onMove, { passive:false });
-      window.addEventListener('pointerup', onUp, { passive:true });
-      window.addEventListener('pointercancel', onUp, { passive:true });
+      // Touch events (best reliability on iOS PWA)
+      window.addEventListener('touchstart', (e)=>{
+        if (!e.touches || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        onStart(t.clientX, t.clientY);
+      }, { passive:true });
+
+      window.addEventListener('touchmove', (e)=>{
+        if (!e.touches || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        onMoveInternal(t.clientX, t.clientY, ()=> e.preventDefault());
+      }, { passive:false });
+
+      window.addEventListener('touchend', onEnd, { passive:true });
+      window.addEventListener('touchcancel', onEnd, { passive:true });
+
+      // Pointer fallback (non-iOS browsers)
+      window.addEventListener('pointerdown', (e)=>{
+        if (e.pointerType === 'mouse') return;
+        onStart(e.clientX, e.clientY);
+      }, { passive:true });
+
+      window.addEventListener('pointermove', (e)=>{
+        if (e.pointerType === 'mouse') return;
+        onMoveInternal(e.clientX, e.clientY, ()=> e.preventDefault());
+      }, { passive:false });
+
+      window.addEventListener('pointerup', onEnd, { passive:true });
+      window.addEventListener('pointercancel', onEnd, { passive:true });
+
       document.addEventListener('visibilitychange', ()=>{ if (document.hidden) { armed=false; pulling=false; hideBar(); } });
     }
 
