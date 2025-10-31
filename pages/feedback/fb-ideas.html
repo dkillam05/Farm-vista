@@ -46,10 +46,10 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* Toast: single line, centered, never wraps */
+    /* Toast: single line, centered, no wrap */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
-      white-space:nowrap; text-align:center; max-width:92vw; overflow:hidden; text-overflow:ellipsis;}
+      white-space:nowrap;text-align:center;max-width:92vw;overflow:hidden;text-overflow:ellipsis;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
@@ -114,7 +114,7 @@
             <div class="field">
               <div style="display:flex;justify-content:space-between;align-items:center;">
                 <label for="notes">Idea (notes) *</label>
-                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate / Stop">🎙️ Dictate</button>
+                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate / Stop">🎙️ Start</button>
               </div>
               <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
             </div>
@@ -127,7 +127,6 @@
               <input id="files" class="input" type="file" accept="image/*" multiple />
               <div id="thumbs" class="thumbs" aria-hidden="true"></div>
               <div id="fileHint" class="muted-line" aria-hidden="true"></div>
-              <div id="uploadNote" class="muted-line" style="display:none"></div>
             </div>
           </div>
 
@@ -147,9 +146,9 @@
     ready,
     getFirestore, collection, addDoc, serverTimestamp, updateDoc
   } from '/Farm-vista/js/firebase-init.js';
-  // We will lazy-resolve Storage from the SAME module to guarantee same app.
-  // (Do NOT pull from a CDN; keep it bound to the initialized app.)
-  // We'll import the storage symbols *on demand* inside ensureStorage().
+  import {
+    getStorage, ref as storageRef, uploadBytes, getDownloadURL
+  } from '/Farm-vista/js/firebase-init.js';
 
   (function(){
     "use strict";
@@ -167,11 +166,10 @@
       mic:   $('#dictate'),
       files: $('#files'),
       thumbs: $('#thumbs'),
-      fileHint: $('#fileHint'),
-      uploadNote: $('#uploadNote')
+      fileHint: $('#fileHint')
     };
 
-    let db;
+    let db, storage;
 
     /* ===== helpers ===== */
     function showToast(msg="Saved.", ms=4000){
@@ -197,7 +195,7 @@
       return titleCase(spaced || local);
     };
 
-    /* ===== Submitted-by (mirror shell behavior) ===== */
+    /* ===== Submitted-by (same pattern as shell) ===== */
     let _triesLeft = 30;   // ~6s polling
     function _setSubmittedByNow(){
       let label = '';
@@ -307,86 +305,59 @@
       });
     }
 
-    /* ===== Optional file preview ===== */
+    /* ===== Optional file preview (images only) ===== */
     el.files?.addEventListener('change', ()=>{
       const files = Array.from(el.files.files||[]);
       el.thumbs.innerHTML = '';
       if (!files.length){ el.thumbs.setAttribute('aria-hidden','true'); el.fileHint.textContent=''; return; }
-      files.forEach(f=>{
+
+      const valid = [];
+      for (const f of files){
+        if (!f.type || !f.type.startsWith('image/')) continue;
+        // Optional 20 MB cap
+        if (f.size && f.size > 20 * 1024 * 1024) continue;
+        valid.push(f);
+      }
+      if (valid.length !== files.length){
+        showErr('Some files skipped (must be images ≤ 20MB).');
+        setTimeout(()=> showErr(''), 2600);
+      }
+      el.files._validFiles = valid;
+
+      valid.forEach(f=>{
         const wrap = document.createElement('div'); wrap.className='thumb';
-        if (f.type.startsWith('image/')){
-          const img = document.createElement('img'); img.alt=f.name; wrap.appendChild(img);
-          const reader = new FileReader();
-          reader.onload = e=>{ img.src = e.target.result; };
-          reader.readAsDataURL(f);
-        } else {
-          wrap.textContent = f.name.split('.').pop().toUpperCase();
-        }
+        const img = document.createElement('img'); img.alt=f.name; wrap.appendChild(img);
+        const reader = new FileReader();
+        reader.onload = e=>{ img.src = e.target.result; };
+        reader.readAsDataURL(f);
         el.thumbs.appendChild(wrap);
       });
       el.thumbs.removeAttribute('aria-hidden');
-      el.fileHint.textContent = files.length + (files.length===1 ? ' file selected' : ' files selected');
+      el.fileHint.textContent = valid.length + (valid.length===1 ? ' file selected' : ' files selected');
     });
 
-    /* ===== Storage (HTML-only, lazy & safe) ===== */
-    let storageFns = null;
-    async function ensureStorage(){
-      if (storageFns) return storageFns;
-      try{
-        // Import from your initialized module so we share the same app/auth.
-        const mod = await import('/Farm-vista/js/firebase-init.js');
-        const getStorage = mod.getStorage;
-        const storageRef  = mod.ref || mod.storageRef; // support either export name
-        const uploadBytes = mod.uploadBytes;
-        const getDownloadURL = mod.getDownloadURL;
-        if (getStorage && (storageRef||mod.ref) && uploadBytes && getDownloadURL){
-          storageFns = {
-            getStorage, storageRef: (storageRef||mod.ref), uploadBytes, getDownloadURL
-          };
-          return storageFns;
-        }
-      }catch(e){
-        console.warn('[Ideas] Storage import failed:', e);
-      }
-      // If we can’t load storage from the app, return null (uploads will be skipped gracefully).
-      return null;
-    }
-
+    /* ===== Storage upload (path fits your rules) ===== */
     async function uploadScreenshots(docId){
-      const files = Array.from(el.files?.files || []);
-      if (!files.length) return { ok:true, meta:[], note:'' };
-
-      const fns = await ensureStorage();
-      if (!fns){
-        return { ok:false, meta:[], note:'Screenshots skipped (Storage not available).' };
-      }
-
-      const meta = [];
+      const files = el.files? (el.files._validFiles || Array.from(el.files.files||[])) : [];
+      if (!files.length) return [];
+      const out = [];
       for (let i=0; i<files.length; i++){
         const f = files[i];
+        if (!f.type || !f.type.startsWith('image/')) continue; // safety
         const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
-        const path = `feedback/${docId}/${safeName}`;
-        try{
-          const store = fns.getStorage();  // uses same initialized app
-          const ref = fns.storageRef(store, path);
-          await fns.uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
-          const url = await fns.getDownloadURL(ref);
-          meta.push({ name: f.name||safeName, path, url, contentType: f.type||'', size: f.size||0 });
-        }catch(e){
-          console.warn('[Ideas] Upload error for', path, e);
-          return { ok:false, meta, note:'Saved text. Screenshot upload failed (check Storage rules/permissions).' };
-        }
+        const path = `feedback/ideas/${docId}/screenshots/${safeName}`;
+        const ref = storageRef(storage, path);
+        await uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
+        const url = await getDownloadURL(ref);
+        out.push({ name: f.name||safeName, path, url, contentType: f.type||'', size: f.size||0 });
       }
-      return { ok:true, meta, note:'' };
+      return out;
     }
 
-    /* ===== Save (two-phase; uploads non-blocking) ===== */
+    /* ===== Save ===== */
     async function save(){
       try{
-        el.uploadNote.style.display='none';
-        el.uploadNote.textContent='';
         showErr('');
-
         if(!el.by.value.trim()) { showErr('Missing user. Please re-login.'); return; }
         if(!el.date.value)      { showErr('Please choose a date.'); return; }
         if(!el.main.value)      { showErr('Please choose a main menu.'); return; }
@@ -405,62 +376,67 @@
           appVersion: (window.FV_VERSION || null)
         };
 
-        // Phase 1 — create the document (never blocked by uploads)
+        // 1) Create doc
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // Phase 2 — optional uploads; if it fails, we keep the doc and show a note
-        const up = await uploadScreenshots(docRef.id);
-        if (up.meta.length){
-          await updateDoc(docRef, { attachments: up.meta });
-        }
-        if (!up.ok && up.note){
-          el.uploadNote.textContent = up.note;
-          el.uploadNote.style.display='block';
+        // 2) Optional uploads to feedback/ideas/{docId}/screenshots/{file}
+        const filesMeta = await uploadScreenshots(docRef.id);
+
+        // 3) Patch doc with attachments (if any)
+        if (filesMeta.length){
+          await updateDoc(docRef, { attachments: filesMeta });
         }
 
-        // Reset notes and files (keep menu/date/user intact)
+        // Reset notes & file picker; keep menus/date
         el.notes.value='';
-        if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); }
+        if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); el.files._validFiles = []; }
 
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
       }catch(e){
         console.error(e);
-        showErr('Save failed. Check permissions or network.');
+        showErr('Save failed. Check network, permissions, or file size/type.');
       }
     }
 
-    /* ===== Dictation toggle ===== */
+    /* ===== Dictation (toggleable Start/Stop) ===== */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
       const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
       const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
 
-      let active=false, baseText='';
-      const setBtn=(listening)=>{ el.mic.textContent = listening ? '⏹️ Stop' : '🎙️ Dictate'; };
+      let base=''; let listening=false;
+
+      const setBtn = ()=>{ el.mic.textContent = listening ? '🛑 Stop' : '🎙️ Start'; };
 
       el.mic.addEventListener('click', ()=>{
-        if (!active){
-          baseText = el.notes.value ? (el.notes.value + ' ') : '';
-          try{ rec.start(); active=true; setBtn(true); }catch{}
-        } else {
-          try{ rec.stop(); rec.abort(); }catch{}  // hard stop
-          active=false; setBtn(false);
+        if (!listening){
+          base = el.notes.value ? (el.notes.value + ' ') : '';
+          el.mic.disabled = true; setBtn();
+          try{ rec.start(); listening=true; }finally{ el.mic.disabled=false; setBtn(); }
+        }else{
+          // Force stop listening immediately
+          try{ rec.stop(); }catch{}
+          listening=false; setBtn();
         }
       });
 
-      rec.onresult=(ev)=>{
+      rec.onresult = ev=>{
         let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; }
-        el.notes.value = baseText + txt;
+        el.notes.value = base + txt;
       };
-      rec.onend=()=>{ active=false; setBtn(false); };
-      rec.onerror=()=>{ active=false; setBtn(false); };
+      rec.onend = ()=>{ listening=false; setBtn(); };
+      rec.onerror = ()=>{ listening=false; setBtn(); };
+
+      // If user leaves/hides page, stop recognition
+      document.addEventListener('visibilitychange', ()=>{ if (document.hidden){ try{ rec.stop(); }catch{} listening=false; setBtn(); }});
+      setBtn();
     }
 
     /* ===== Init ===== */
     (async ()=>{
-      await ready; db=getFirestore();
+      await ready; db=getFirestore(); storage=getStorage();
 
       _subscribeUserChanges();
       el.date.value = todayISO();
