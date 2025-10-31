@@ -80,7 +80,6 @@
             <div class="field">
               <label for="submittedBy">Submitted by *</label>
               <input id="submittedBy" class="input" readonly aria-readonly="true" required />
-              <p class="muted" style="margin:6px 2px 0">Auto-filled from your login.</p>
             </div>
             <div class="field">
               <label for="date">Date *</label>
@@ -94,7 +93,6 @@
               <select id="mainMenu" class="select" required>
                 <option value="" selected>— Select —</option>
               </select>
-              <p class="muted" style="margin:6px 2px 0">Loaded from <em>/Farm-vista/js/menu.js</em>. Includes “Other”.</p>
             </div>
             <div class="field">
               <label for="subMenu">Submenu *</label>
@@ -111,7 +109,6 @@
                 <button id="dictate" type="button" class="btn btn-quiet" title="Dictate (when supported)">🎙️ Dictate</button>
               </div>
               <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
-              <p class="muted" style="margin:6px 2px 0">You can also use the keyboard mic on iOS.</p>
             </div>
           </div>
 
@@ -163,6 +160,27 @@
       const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
     };
 
+    /* ===== name formatting ===== */
+    const titleCase = (s)=> String(s||'')
+      .replace(/\s+/g,' ')
+      .split(' ')
+      .filter(Boolean)
+      .map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase())
+      .join(' ');
+    const smartNameFromEmail = (email)=>{
+      const local = String(email||'').split('@')[0] || '';
+      if(!local) return '';
+      if (/[._-]/.test(local)) {
+        return titleCase(local.replace(/[0-9]+/g,'').split(/[._-]+/).join(' '));
+      }
+      // camelCase → "First Last"
+      const spaced = local.replace(/([a-z])([A-Z])/g,'$1 $2');
+      if (spaced !== local) return titleCase(spaced);
+      // last resort: split in the middle
+      const mid=Math.floor(local.length/2);
+      return titleCase(local.slice(0, mid) + ' ' + local.slice(mid));
+    };
+
     /* ================= User prefill ================= */
     async function waitForUser(ms=6000){
       const start=Date.now();
@@ -181,27 +199,31 @@
         if (Date.now()-start > ms) break;
         await new Promise(r=>setTimeout(r,120));
       }
-      return { name:'Unknown User', email:'', uid:'' };
+      return { name:'', email:'', uid:'' };
     }
 
-    // last-mile: if we have an email but no display name, check employees/{lowercase email}
-    async function enrichFromEmployees(u){
+    // If we only have an email (or a bad name), try employees and then derive “First Last”.
+    async function enrichName(u){
       try{
-        if (!u.email) return u;
-        const emailKey = String(u.email).toLowerCase();
-        const snap = await getDoc(doc(getFirestore(), 'employees', emailKey));
-        if (snap.exists()){
-          const d=snap.data()||{};
-          const dn = (d.displayName || d.name || '').trim();
-          if (dn) u.name = dn;
+        if (u.email){
+          const key = String(u.email).toLowerCase();
+          const snap = await getDoc(doc(getFirestore(), 'employees', key));
+          if (snap.exists()){
+            const d=snap.data()||{};
+            const dn = (d.displayName || d.name || '').trim();
+            if (dn) u.name = dn;
+          }
         }
       }catch{}
+      if ((!u.name || u.name.includes('@')) && u.email){
+        u.name = smartNameFromEmail(u.email);
+      }
+      u.name = titleCase(u.name||'Unknown User');
       return u;
     }
 
     /* ================= Menu helpers ================= */
     async function getNavMenu(){
-      // Primary: ESM import
       try{
         const mod = await import('/Farm-vista/js/menu.js');
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
@@ -209,18 +231,15 @@
       }catch(e){
         console.warn('menu.js import failed', e);
       }
-      // Fallback: if shell exposed it
       if (window.NAV_MENU?.items) return window.NAV_MENU;
       if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
     }
 
-    // Build list of top-level items (groups/links)
     function buildMainList(NAV_MENU){
       const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
       const out=[];
       for(const it of items){
-        // Keep both 'group' and 'link' as selectable mains
         if(!it) continue;
         const entry = {
           id:    it.id || it.label || it.href || '',
@@ -229,16 +248,13 @@
           children: []
         };
         const kids = Array.isArray(it.children) ? it.children : [];
-        // Shallow children
-        entry.children = kids.map(c=>({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item', type:c.type||'link', children: Array.isArray(c.children)?c.children:[] }));
+        entry.children = kids.map(c=>({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item', type:c.type||'link', children:Array.isArray(c.children)?c.children:[] }));
         out.push(entry);
       }
       return out;
     }
 
-    // Populate Main, and hook Sub to update on change (flattens child links + grandchild links)
     function wireMenus(mains){
-      // Main options
       el.main.innerHTML = '<option value="">— Select —</option>';
       for(const m of mains){
         const o=document.createElement('option');
@@ -247,20 +263,16 @@
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
       }
-      // Add Other
       const other=document.createElement('option');
       other.value='other'; other.textContent='Other'; other.dataset.children='[]';
       el.main.appendChild(other);
 
-      // Default Sub state
       el.sub.innerHTML = '<option value="">— Select a main menu first —</option>';
       el.sub.disabled = true;
 
-      // On main change: flatten children (links + grandchildren)
       el.main.addEventListener('change', ()=>{
         const opt = el.main.options[el.main.selectedIndex];
         let kids=[]; try{ kids = JSON.parse(opt?.dataset?.children||'[]'); }catch{}
-        // Flatten: collect child links and grandchild links under child groups
         const flat=[];
         for(const c of kids){
           if(!c) continue;
@@ -280,10 +292,8 @@
           op.textContent = String(s.label||s.id||'Item');
           el.sub.appendChild(op);
         }
-        // Always include "Other"
         const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
-
         el.sub.disabled = false;
       });
     }
@@ -332,9 +342,9 @@
     (async ()=>{
       await ready; db=getFirestore();
 
-      // Preload user & date
+      // Preload user & date with proper “First Last”
       let user = await waitForUser(6000);
-      user = await enrichFromEmployees(user);
+      user = await enrichName(user);
       el.by.value = user.name || 'Unknown User';
       el.by.dataset.uid   = user.uid   || '';
       el.by.dataset.email = user.email || '';
