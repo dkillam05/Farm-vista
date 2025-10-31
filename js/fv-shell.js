@@ -1,9 +1,10 @@
-<!-- /Farm-vista/js/fv-shell.js -->
-/* FarmVista Shell — v5.10.17
-   - FIX: iOS PWA header/footer shifting when drawer opens.
-     Uses body fixed-position scroll lock (preserves scrollY) instead of toggling
-     documentElement overflow, which causes viewport reflow in standalone mode.
-   - All other behavior identical to v5.10.16.
+/* /Farm-vista/js/fv-shell.js
+   FarmVista Shell — v5.10.18
+   - FIX: iOS Home-Screen (standalone) background scroll on Demo account only.
+     * Robust scroll-lock that targets iOS standalone specifically.
+     * Combines body fixed lock + html overflow:hidden + scrim touchmove trap.
+     * Adds host class .ui-locked to suppress scroll gestures on content.
+   - All app logic remains the same as v5.10.16.
 */
 (function () {
   // ====== TUNABLES ======
@@ -106,6 +107,9 @@
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
       white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
+
+    /* While UI is locked (drawer/topdrawer open), suppress scroll gestures on content */
+    :host(.ui-locked) .main { touch-action: none; }
   </style>
 
   <header class="hdr" part="header">
@@ -186,9 +190,11 @@
       this._lastRoleHash = '';    // tracks allowedIds hash
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      // scroll lock state (new in .17)
+      // Scroll-lock state
       this._scrollLocked = false;
       this._scrollY = 0;
+      this._isIOSStandaloneFlag = null;
+      this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
     }
 
     connectedCallback(){
@@ -226,9 +232,20 @@
 
       this._bootSequence();
 
-      // Safety: if orientation changes while locked, unlock to avoid layout oddities.
+      // Safety for odd WebView reflows
       window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
-      window.addEventListener('resize', ()=>{ /* keep lock state but ensure footer stays put */ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
+      window.addEventListener('resize', ()=>{ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
+    }
+
+    // --- Platform detector: iOS Home Screen (standalone) ---
+    _isIOSStandalone(){
+      if (this._isIOSStandaloneFlag != null) return this._isIOSStandaloneFlag;
+      const ua = (navigator.userAgent || '').toLowerCase();
+      const isIOS = /iphone|ipad|ipod/.test(ua);
+      const isStandalone = (window.navigator.standalone === true) ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      this._isIOSStandaloneFlag = !!(isIOS && isStandalone);
+      return this._isIOSStandaloneFlag;
     }
 
     async _bootSequence(){
@@ -683,9 +700,8 @@
       try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
-    // ===== Scroll lock helpers (fix for iOS standalone) =====
+    // ===== Scroll lock helpers (iOS standalone robust) =====
     _applyBodyFixedStyles(){
-      // Ensure fixed body spans width and respects safe areas
       document.body.style.position = 'fixed';
       document.body.style.top = `-${this._scrollY}px`;
       document.body.style.left = '0';
@@ -694,18 +710,41 @@
       document.body.style.overflow = 'hidden';
     }
     _setScrollLock(on){
+      const iosStandalone = this._isIOSStandalone();
+      const html = document.documentElement;
       if (on && !this._scrollLocked){
-        this._scrollY = window.scrollY || document.documentElement.scrollTop || 0;
-        this._applyBodyFixedStyles();
+        this._scrollY = window.scrollY || html.scrollTop || 0;
+        if (iosStandalone){
+          // Strongest lock for iOS PWA
+          this._applyBodyFixedStyles();
+          html.style.overflow = 'hidden';
+          html.style.height = '100%';
+          if (this._scrim) {
+            this._scrim.addEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
+            this._scrim.addEventListener('wheel', this._scrimTouchBlocker, { passive:false });
+          }
+        } else {
+          // Normal browsers usually fine with overflow hidden on html
+          html.style.overflow = 'hidden';
+        }
+        this.classList.add('ui-locked');
         this._scrollLocked = true;
       } else if (!on && this._scrollLocked){
+        // Restore
         document.body.style.position = '';
         document.body.style.top = '';
         document.body.style.left = '';
         document.body.style.right = '';
         document.body.style.width = '';
         document.body.style.overflow = '';
+        html.style.overflow = '';
+        html.style.height = '';
+        if (this._scrim) {
+          this._scrim.removeEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
+          this._scrim.removeEventListener('wheel', this._scrimTouchBlocker, { passive:false });
+        }
         window.scrollTo(0, this._scrollY || 0);
+        this.classList.remove('ui-locked');
         this._scrollLocked = false;
       }
     }
@@ -714,14 +753,12 @@
       const wasOpen = this.classList.contains('drawer-open');
       const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
-      // NEW: body scroll-lock (replaces documentElement overflow toggle)
       this._setScrollLock(on || this.classList.contains('top-open'));
       if (wasOpen && !on) { this._collapseAllNavGroups(); }
     }
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
       this.classList.toggle('top-open', on);
-      // NEW: body scroll-lock (replaces documentElement overflow toggle)
       this._setScrollLock(on || this.classList.contains('drawer-open'));
     }
 
