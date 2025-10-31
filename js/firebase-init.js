@@ -15,6 +15,8 @@ const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
 const CDN_APP = `${CDN_BASE}firebase-app.js`;
 const CDN_AUTH = `${CDN_BASE}firebase-auth.js`;
 const CDN_STORE = `${CDN_BASE}firebase-firestore.js`;
+/* === ADD: Firebase Storage module === */
+const CDN_STORAGE = `${CDN_BASE}firebase-storage.js`;
 
 const STUB_USER_KEY = 'fv:stub:user';
 const STUB_ACCOUNT_KEY = 'fv:stub:accounts';
@@ -348,6 +350,9 @@ let auth = stubAuth;
 let firestore = stubFirestore;
 let authModule = null;
 let storeModule = null;
+/* === ADD: Storage module handle === */
+let storageModule = null;
+
 export let mode = 'stub';
 
 let onAuthStateChangedImpl = (instance, cb) => stubSubscribe(instance || auth, cb);
@@ -511,14 +516,17 @@ export const ready = (async () => {
   }
 
   try {
-    const [{ initializeApp }, authMod, storeMod] = await Promise.all([
+    /* === CHANGED: also import STORAGE === */
+    const [{ initializeApp }, authMod, storeMod, storageMod] = await Promise.all([
       import(CDN_APP),
       import(CDN_AUTH),
-      import(CDN_STORE)
+      import(CDN_STORE),
+      import(CDN_STORAGE)
     ]);
 
     authModule = authMod;
     storeModule = storeMod;
+    storageModule = storageMod;   // <-- keep handle
 
     app = initializeApp(cfg);
     auth = authMod.getAuth(app);
@@ -551,6 +559,8 @@ export const ready = (async () => {
     window.firebaseAuth = auth;
     window.firebaseFirestore = firestore;
     window.fvSignOut = () => authMod.signOut(auth);
+    // (Optional) expose storage on window if you like:
+    // window.firebaseStorage = storageMod.getStorage(app);
 
     onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
@@ -563,6 +573,7 @@ export const ready = (async () => {
     mode = 'stub';
     authModule = null;
     storeModule = null;
+    storageModule = null; // ensure null in stub
     ensureStubGlobals();
     return { app, auth, firestore, mode };
   }
@@ -628,5 +639,24 @@ export const orderBy = (...args) => orderByImpl(...args);
 export const limit = (...args) => limitImpl(...args);
 export const setStubUser = (user, password) => stubAuth._setUser(user, password);
 export const getStubUser = () => stubAuth.currentUser;
+
+/* === ADD: Public Storage API (Firebase mode only) ===
+   These match the modular SDK signatures. In stub mode they return null
+   or reject, which your page already handles gracefully. */
+export const getStorage = (appInstance) => (storageModule ? storageModule.getStorage(appInstance || app) : null);
+export const ref = (...args) => {
+  if (!storageModule) throw new Error('Storage not available (stub mode)');
+  return storageModule.ref(...args);
+};
+// alias for convenience—some code imports `storageRef`
+export const storageRef = (...args) => ref(...args);
+export const uploadBytes = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not available (stub mode)'));
+  return storageModule.uploadBytes(...args);
+};
+export const getDownloadURL = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not available (stub mode)'));
+  return storageModule.getDownloadURL(...args);
+};
 
 window.__FV_USER = stubAuth.currentUser || null;
