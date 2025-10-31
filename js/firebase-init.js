@@ -1,20 +1,20 @@
 /**
  * FarmVista — firebase-init.js
- * v2.2.0 — adds global RefreshBus + soft refresh handler (fv:refresh)
+ * v2.2.0 — adds global RefreshBus + soft refresh handler (`fv:refresh`)
  *
- * - RefreshBus.register(fn) to let shared loaders re-query on demand
- * - Listens for document event fv:refresh to:
+ * - `RefreshBus.register(fn)` to let shared loaders re-query on demand
+ * - Listens for `document` event `fv:refresh` to:
  *    • ensure network is enabled (Firebase mode)
  *    • briefly re-enable network to force listeners to sync
  *    • call all registered refreshers
- *    • emit fv:refreshed afterward
+ *    • emit `fv:refreshed` afterward
  * - Safe no-op in stub mode
  */
 
 const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
-const CDN_APP = ${CDN_BASE}firebase-app.js;
-const CDN_AUTH = ${CDN_BASE}firebase-auth.js;
-const CDN_STORE = ${CDN_BASE}firebase-firestore.js;
+const CDN_APP = `${CDN_BASE}firebase-app.js`;
+const CDN_AUTH = `${CDN_BASE}firebase-auth.js`;
+const CDN_STORE = `${CDN_BASE}firebase-firestore.js`;
 
 const STUB_USER_KEY = 'fv:stub:user';
 const STUB_ACCOUNT_KEY = 'fv:stub:accounts';
@@ -33,7 +33,7 @@ const sanitizeUser = (user) => {
   const email = toStr(user.email);
   const displayName = toStr(user.displayName) || toStr(user.name) || (email ? email.split('@')[0] : 'FarmVista User');
   return {
-    uid: toStr(user.uid) || stub-${randomId()},
+    uid: toStr(user.uid) || `stub-${randomId()}`,
     displayName,
     email,
     photoURL: toStr(user.photoURL),
@@ -192,7 +192,7 @@ const stubCreateUser = async (authInstance, email, password, opts = {}) => {
   const salt = randomId();
   const hash = await digestText((password || '') + '::' + salt);
   const user = sanitizeUser({
-    uid: stub-${randomId()},
+    uid: `stub-${randomId()}`,
     email,
     displayName: opts.displayName || (email ? email.split('@')[0] : 'FarmVista User')
   });
@@ -274,7 +274,7 @@ const stubDocSnapshot = (path) => {
 
 const collectDocsUnder = (collectionPath) => {
   const docs = [];
-  const prefix = collectionPath.endsWith('/') ? collectionPath : ${collectionPath}/;
+  const prefix = collectionPath.endsWith('/') ? collectionPath : `${collectionPath}/`;
   Object.keys(stubFirestoreData).forEach((key) => {
     if (!key.startsWith(prefix)) return;
     const remainder = key.slice(prefix.length);
@@ -367,7 +367,7 @@ const docImpl = (...args) => {
   const [first, ...rest] = args;
   if (first && first.type === 'collection' && first.firestore === stubFirestore) {
     if (!rest.length) throw new Error('doc() requires an id when using a collection reference');
-    return stubDocRef(${first.path}/${rest[0]});
+    return stubDocRef(`${first.path}/${rest[0]}`);
   }
   if (first && first._type === 'stub') {
     const path = normalizePath(rest);
@@ -411,7 +411,7 @@ const updateDocImpl = async (ref, data) => {
 const addDocImpl = async (ref, data) => {
   if (storeModule) return storeModule.addDoc(ref, data);
   const id = randomId();
-  const docRef = stubDocRef(${ref.path}/${id});
+  const docRef = stubDocRef(`${ref.path}/${id}`);
   stubSetDoc(docRef.path, data, false);
   return docRef;
 };
@@ -596,3 +596,37 @@ async function _softRefreshNow(){
 }
 
 document.addEventListener('fv:refresh', () => { _softRefreshNow(); });
+
+/* ------------------------------ Public API -------------------------------- */
+
+export const getApp = () => app;
+export const getAuth = (appInstance) => getAuthImpl(appInstance);
+export const onAuthStateChanged = (instance, cb) => onAuthStateChangedImpl(instance || auth, cb);
+export const onIdTokenChanged = (instance, cb) => onIdTokenChangedImpl(instance || auth, cb);
+export const signOut = (instance) => signOutImpl(instance || auth);
+export const isStub = () => mode !== 'firebase';
+export const signInWithEmailAndPassword = (instance, email, password) => signInWithEmailAndPasswordImpl(instance || auth, email, password);
+export const createUserWithEmailAndPassword = (instance, email, password, opts) => createUserWithEmailAndPasswordImpl(instance || auth, email, password, opts);
+export const sendPasswordResetEmail = (instance, email) => sendPasswordResetEmailImpl(instance || auth, email);
+export const updateProfile = (user, data) => updateProfileImpl(user, data);
+export const setPersistence = (instance, persistence) => setPersistenceImpl(instance || auth, persistence);
+export const browserLocalPersistence = () => browserLocalPersistenceValue;
+export const getFirestore = (appInstance) => (storeModule ? storeModule.getFirestore(appInstance || app) : firestore);
+export const doc = (...args) => docImpl(...args);
+export const collection = (...args) => collectionImpl(...args);
+export const getDoc = (ref) => getDocImpl(ref);
+export const setDoc = (ref, data, opts) => setDocImpl(ref, data, opts);
+export const updateDoc = (ref, data) => updateDocImpl(ref, data);
+export const addDoc = (ref, data) => addDocImpl(ref, data);
+export const deleteDoc = (ref) => deleteDocImpl(ref);
+export const getDocs = (target) => getDocsImpl(target);
+export const onSnapshot = (target, cb) => onSnapshotImpl(target, cb);
+export const serverTimestamp = () => serverTimestampImpl();
+export const query = (...args) => queryImpl(...args);
+export const where = (...args) => whereImpl(...args);
+export const orderBy = (...args) => orderByImpl(...args);
+export const limit = (...args) => limitImpl(...args);
+export const setStubUser = (user, password) => stubAuth._setUser(user, password);
+export const getStubUser = () => stubAuth.currentUser;
+
+window.__FV_USER = stubAuth.currentUser || null;
