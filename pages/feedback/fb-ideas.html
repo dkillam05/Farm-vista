@@ -38,6 +38,7 @@
       border-radius:10px;padding:12px;outline:none;}
     .input[readonly]{opacity:1}
     .textarea{min-height:120px;resize:vertical;}
+    .muted{ color:var(--muted,#67706B); }
 
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
@@ -46,17 +47,11 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* uploads */
-    .uploads{display:grid;gap:8px}
-    .file-list{display:grid;gap:8px}
-    .file-item{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:10px;padding:8px;background:var(--card-surface,var(--surface))}
-    .file-item .name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-    .error{border:1px solid #b3261e;background:var(--surface);color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
+    .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
   </style>
 
@@ -85,6 +80,7 @@
             <div class="field">
               <label for="submittedBy">Submitted by *</label>
               <input id="submittedBy" class="input" readonly aria-readonly="true" required />
+              <p class="muted" style="margin:6px 2px 0">Auto-filled from your login.</p>
             </div>
             <div class="field">
               <label for="date">Date *</label>
@@ -98,6 +94,7 @@
               <select id="mainMenu" class="select" required>
                 <option value="" selected>— Select —</option>
               </select>
+              <p class="muted" style="margin:6px 2px 0">Loaded from <em>/Farm-vista/js/menu.js</em>. Includes “Other”.</p>
             </div>
             <div class="field">
               <label for="subMenu">Submenu *</label>
@@ -114,15 +111,8 @@
                 <button id="dictate" type="button" class="btn btn-quiet" title="Dictate (when supported)">🎙️ Dictate</button>
               </div>
               <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
+              <p class="muted" style="margin:6px 2px 0">You can also use the keyboard mic on iOS.</p>
             </div>
-          </div>
-
-          <div class="row-1 uploads">
-            <div class="field">
-              <label for="files">Screenshot(s)</label>
-              <input id="files" class="input" type="file" accept="image/*,application/pdf" multiple />
-            </div>
-            <div id="fileList" class="file-list"></div>
           </div>
 
           <div class="actions">
@@ -139,13 +129,14 @@
   <script type="module">
   import {
     ready,
-    getFirestore, collection, addDoc, serverTimestamp, getDoc, doc, updateDoc,
-    getStorage, ref, uploadBytes, getDownloadURL
+    getFirestore, collection, addDoc, serverTimestamp,
+    getDoc, doc
   } from '/Farm-vista/js/firebase-init.js';
 
   (function(){
     "use strict";
     const $ = (s)=>document.querySelector(s);
+
     const el = {
       err:   $('#err'),
       toast: $('#toast'),
@@ -155,13 +146,12 @@
       main:  $('#mainMenu'),
       sub:   $('#subMenu'),
       notes: $('#notes'),
-      mic:   $('#dictate'),
-      files: $('#files'),
-      list:  $('#fileList')
+      mic:   $('#dictate')
     };
-    let db, storage;
 
-    /* ===== helpers ===== */
+    let db;
+
+    /* ================= UI helpers ================= */
     function showToast(msg="Saved.", ms=4000){
       el.toast.textContent = msg;
       el.toast.classList.remove('show'); void el.toast.offsetWidth;
@@ -172,114 +162,109 @@
     const todayISO = ()=>{
       const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
     };
-    const titleCase = (s)=> String(s||'')
-      .replace(/\s+/g,' ')
-      .split(' ')
-      .filter(Boolean)
-      .map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase())
-      .join(' ');
-    const smartNameFromEmail = (email)=>{
-      const local = String(email||'').split('@')[0] || '';
-      if(!local) return '';
-      if (/[._-]/.test(local)) {
-        return titleCase(local.replace(/[0-9]+/g,'').split(/[._-]+/).join(' '));
-      }
-      const spaced = local.replace(/([a-z])([A-Z])/g,'$1 $2');
-      if (spaced !== local) return titleCase(spaced);
-      const mid=Math.floor(local.length/2);
-      return titleCase(local.slice(0, mid) + ' ' + local.slice(mid));
-    };
-    function setBusy(on){
-      el.save.disabled = !!on;
-      el.files.disabled = !!on;
-      el.mic.disabled = !!on;
-    }
 
-    /* ===== user prefill (kept simple & robust) ===== */
-    async function waitForUser(ms=6500){
+    /* ================= User prefill ================= */
+    async function waitForUser(ms=6000){
       const start=Date.now();
       for(;;){
         const ctx = window.FVUserContext || {};
         let name  = ctx.displayName || ctx.name || '';
         let email = ctx.email || '';
         let uid   = ctx.uid || '';
-        if (uid || email || name){ return { name: name||email||uid, email, uid }; }
-        const u = window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
-        if (u){ return { name: u.displayName||u.email||u.uid, email: u.email||'', uid: u.uid||'' }; }
+        if (uid || email || name){
+          return { name: name || email || uid, email, uid };
+        }
+        try{
+          const u = window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
+          if (u){ return { name: u.displayName || u.email || u.uid, email: u.email||'', uid: u.uid||'' }; }
+        }catch{}
         if (Date.now()-start > ms) break;
         await new Promise(r=>setTimeout(r,120));
       }
-      return { name:'', email:'', uid:'' };
+      return { name:'Unknown User', email:'', uid:'' };
     }
+
+    // last-mile: if we have an email but no display name, check employees/{lowercase email}
     async function enrichFromEmployees(u){
       try{
-        if (u.email){
-          const key = String(u.email).toLowerCase();
-          const snap = await getDoc(doc(getFirestore(),'employees',key));
-          if (snap.exists()){
-            const d=snap.data()||{};
-            const dn=(d.displayName||d.name||'').trim();
-            if (dn) u.name = dn;
-          }
+        if (!u.email) return u;
+        const emailKey = String(u.email).toLowerCase();
+        const snap = await getDoc(doc(getFirestore(), 'employees', emailKey));
+        if (snap.exists()){
+          const d=snap.data()||{};
+          const dn = (d.displayName || d.name || '').trim();
+          if (dn) u.name = dn;
         }
       }catch{}
-      if (u.email){
-        const fromEmail = smartNameFromEmail(u.email);
-        if (!u.name || u.name.toLowerCase()===u.email.toLowerCase()) u.name = fromEmail;
-      }
-      u.name = titleCase(u.name||'');
       return u;
     }
 
-    /* ===== menus ===== */
+    /* ================= Menu helpers ================= */
     async function getNavMenu(){
-      const rev = window.FV_VERSION || Date.now();
+      // Primary: ESM import
       try{
-        const mod = await import(`/Farm-vista/js/menu.js?rev=${rev}`);
+        const mod = await import('/Farm-vista/js/menu.js');
         if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
         if (mod?.default?.items)  return mod.default;
-      }catch(e){ console.warn('menu import failed', e); }
+      }catch(e){
+        console.warn('menu.js import failed', e);
+      }
+      // Fallback: if shell exposed it
       if (window.NAV_MENU?.items) return window.NAV_MENU;
       if (window.FV_MENU?.items)  return window.FV_MENU;
       return { items: [] };
     }
+
+    // Build list of top-level items (groups/links)
     function buildMainList(NAV_MENU){
       const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
       const out=[];
       for(const it of items){
+        // Keep both 'group' and 'link' as selectable mains
         if(!it) continue;
         const entry = {
-          id: it.id||it.label||it.href||'',
-          label: it.label||it.id||'Item',
-          type: it.type||'link',
-          children: Array.isArray(it.children)?it.children:[]
+          id:    it.id || it.label || it.href || '',
+          label: it.label || it.id || 'Item',
+          kind:  it.type || 'link',
+          children: []
         };
+        const kids = Array.isArray(it.children) ? it.children : [];
+        // Shallow children
+        entry.children = kids.map(c=>({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item', type:c.type||'link', children: Array.isArray(c.children)?c.children:[] }));
         out.push(entry);
       }
       return out;
     }
+
+    // Populate Main, and hook Sub to update on change (flattens child links + grandchild links)
     function wireMenus(mains){
+      // Main options
       el.main.innerHTML = '<option value="">— Select —</option>';
       for(const m of mains){
         const o=document.createElement('option');
-        o.value=String(m.id); o.textContent=String(m.label);
+        o.value = String(m.id);
+        o.textContent = String(m.label);
         o.dataset.children = JSON.stringify(m.children||[]);
         el.main.appendChild(o);
       }
+      // Add Other
       const other=document.createElement('option');
       other.value='other'; other.textContent='Other'; other.dataset.children='[]';
       el.main.appendChild(other);
 
+      // Default Sub state
       el.sub.innerHTML = '<option value="">— Select a main menu first —</option>';
       el.sub.disabled = true;
 
+      // On main change: flatten children (links + grandchildren)
       el.main.addEventListener('change', ()=>{
         const opt = el.main.options[el.main.selectedIndex];
         let kids=[]; try{ kids = JSON.parse(opt?.dataset?.children||'[]'); }catch{}
+        // Flatten: collect child links and grandchild links under child groups
         const flat=[];
         for(const c of kids){
           if(!c) continue;
-          if(c.type==='group' && Array.isArray(c.children)){
+          if(c.type==='group' && Array.isArray(c.children) && c.children.length){
             for(const gc of c.children){
               flat.push({ id: gc.id||gc.label||gc.href||'', label: gc.label||gc.id||'Item' });
             }
@@ -287,50 +272,23 @@
             flat.push({ id: c.id||c.label||c.href||'', label: c.label||c.id||'Item' });
           }
         }
-        el.sub.innerHTML='';
+
+        el.sub.innerHTML = '';
         for(const s of flat){
           const op=document.createElement('option');
-          op.value=String(s.id||s.label||''); op.textContent=String(s.label||s.id||'Item');
+          op.value = String(s.id||s.label||'');
+          op.textContent = String(s.label||s.id||'Item');
           el.sub.appendChild(op);
         }
+        // Always include "Other"
         const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other';
         el.sub.appendChild(sOther);
-        el.sub.disabled=false;
+
+        el.sub.disabled = false;
       });
     }
 
-    /* ===== uploads UI ===== */
-    function bytes(n){ if(!n && n!==0) return ''; const u=['B','KB','MB','GB']; let i=0; let v=n; while(v>=1024 && i<u.length-1){ v/=1024;i++; } return v.toFixed(v<10?1:0)+' '+u[i]; }
-    function renderFileList(list){
-      el.list.innerHTML = '';
-      if(!list || !list.length) return;
-      list.forEach(f=>{
-        const div = document.createElement('div');
-        div.className='file-item';
-        div.innerHTML = `<div class="name">${f.name}</div><div class="muted">${bytes(f.size||0)}</div>`;
-        el.list.appendChild(div);
-      });
-    }
-    el.files.addEventListener('change', ()=> renderFileList(Array.from(el.files.files||[])));
-
-    /* ===== upload + save ===== */
-    async function uploadAll(uid, docId){
-      const out=[];
-      const files = Array.from(el.files.files||[]);
-      if(!files.length) return out;
-      const base=`user-uploads/${uid}/feedback/ideas/${docId}/`;
-      let i=0;
-      for(const f of files){
-        const clean = f.name.replace(/[^\w.\-]+/g,'_');
-        const path = base + (Date.now()+('_'+(i++))) + '_' + clean;
-        const r = ref(storage, path);
-        await uploadBytes(r, f, { contentType: f.type||'application/octet-stream' });
-        const url = await getDownloadURL(r);
-        out.push({ name:f.name, url, contentType:f.type||'', size:f.size||0, path });
-      }
-      return out;
-    }
-
+    /* ================= Save ================= */
     async function save(){
       try{
         showErr('');
@@ -340,45 +298,25 @@
         if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
         if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
 
-        setBusy(true);
-
-        // shell doc first
-        const payload={
-          type:'idea',
-          submittedBy:{ uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
+        const payload = {
+          type: 'idea',
+          submittedBy: { uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
           date: el.date.value,
-          mainMenu:{ id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent||el.main.value },
-          subMenu:{  id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent ||el.sub.value  },
+          mainMenu: { id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent || el.main.value },
+          subMenu:  { id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent  || el.sub.value  },
           notes: el.notes.value.trim(),
-          attachments: [],
           createdAt: serverTimestamp(),
-          appVersion: (window.FV_VERSION||null)
+          appVersion: (window.FV_VERSION || null)
         };
-        const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // files (if any)
-        const uid = el.by.dataset.uid || 'unknown';
-        const attachments = await uploadAll(uid, docRef.id);
-        if(attachments.length){
-          await updateDoc(doc(db,'feedback',docRef.id), {
-            attachments,
-            updatedAt: serverTimestamp()
-          });
-        }
-
-        // reset notes/files only
-        el.notes.value=''; el.files.value=''; renderFileList([]);
+        await addDoc(collection(db,'feedback'), payload);
+        el.notes.value='';
         showToast('Thanks — idea submitted.');
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){
-        console.error(e);
-        showErr('Save failed. Check permissions or network.');
-      }finally{
-        setBusy(false);
-      }
+      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
     }
 
-    /* ===== dictation (optional) ===== */
+    /* ================= Dictation (optional) ================= */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
@@ -390,20 +328,23 @@
       rec.onerror=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
     }
 
-    /* ===== init ===== */
+    /* ================= Init ================= */
     (async ()=>{
-      await ready; db=getFirestore(); storage=getStorage();
+      await ready; db=getFirestore();
 
-      let user = await waitForUser(6500);
+      // Preload user & date
+      let user = await waitForUser(6000);
       user = await enrichFromEmployees(user);
       el.by.value = user.name || 'Unknown User';
       el.by.dataset.uid   = user.uid   || '';
       el.by.dataset.email = user.email || '';
       el.date.value = todayISO();
 
+      // Menus from /js/menu.js
       const NAV = await getNavMenu();
       wireMenus(buildMainList(NAV));
 
+      // Wire buttons
       el.save.addEventListener('click', save);
       speechSetup();
     })();
