@@ -50,8 +50,8 @@
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
       white-space:nowrap; text-align:center; max-width:92vw; overflow:hidden; text-overflow:ellipsis;}
-    .toast.show{display:block;animation:fadeout 4s forwards;}
-    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+    .toast.show{display:block;animation:fadeout 2.4s forwards;}
+    @keyframes fadeout{0%{opacity:1}75%{opacity:1}100%{opacity:0}}
 
     .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
@@ -147,7 +147,6 @@
     ready,
     getFirestore, collection, addDoc, serverTimestamp, updateDoc
   } from '/Farm-vista/js/firebase-init.js';
-  // Storage is lazy-loaded from the SAME module to share the initialized app/auth.
 
   (function(){
     "use strict";
@@ -172,7 +171,7 @@
     let db;
 
     /* ===== helpers ===== */
-    function showToast(msg="Saved.", ms=4000){
+    function showToast(msg="Saved.", ms=2400){
       el.toast.textContent = msg;
       el.toast.classList.remove('show'); void el.toast.offsetWidth;
       el.toast.classList.add('show');
@@ -196,7 +195,7 @@
     };
 
     /* ===== Submitted-by (mirror shell behavior) ===== */
-    let _triesLeft = 30;   // ~6s polling
+    let _triesLeft = 30;
     function _setSubmittedByNow(){
       let label = '';
       try{
@@ -326,26 +325,40 @@
       el.fileHint.textContent = files.length + (files.length===1 ? ' file selected' : ' files selected');
     });
 
-    /* ===== Storage (lazy & safe) ===== */
+    /* ===== Storage (lazy, with compat fallback) ===== */
     let storageFns = null;
     async function ensureStorage(){
       if (storageFns) return storageFns;
+
+      // Try modular exports from your initialized firebase-init.js
       try{
-        const mod = await import('/Farm-vista/js/firebase-init.js'); // same initialized app
+        const mod = await import('/Farm-vista/js/firebase-init.js');
         const getStorage = mod.getStorage;
         const storageRef  = mod.ref || mod.storageRef;
         const uploadBytes = mod.uploadBytes;
         const getDownloadURL = mod.getDownloadURL;
         if (getStorage && (storageRef||mod.ref) && uploadBytes && getDownloadURL){
+          storageFns = { kind:'mod', getStorage, storageRef:(storageRef||mod.ref), uploadBytes, getDownloadURL };
+          return storageFns;
+        }
+      }catch(e){ /* keep going */ }
+
+      // Fallback to compat (firebase.storage()) if present
+      try{
+        const compat = window.firebase && window.firebase.storage && window.firebase.storage();
+        if (compat && compat.ref){
           storageFns = {
-            getStorage, storageRef: (storageRef||mod.ref), uploadBytes, getDownloadURL
+            kind:'compat',
+            getStorage: ()=> window.firebase.storage(),
+            storageRef: (store, path)=> store.ref(path),
+            uploadBytes: (ref, file, meta)=> ref.put(file, meta),
+            getDownloadURL: (ref)=> ref.getDownloadURL()
           };
           return storageFns;
         }
-      }catch(e){
-        console.warn('[Ideas] Storage import failed:', e);
-      }
-      return null; // gracefully skip uploads if Storage can’t load
+      }catch(e){ /* no compat */ }
+
+      return null;
     }
 
     async function uploadScreenshots(docId){
@@ -361,14 +374,7 @@
       for (let i=0; i<files.length; i++){
         const f = files[i];
         const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
-
-        /* >>>>>>> STORAGE RULES MATCH <<<<<<<
-           Path now conforms to:
-           match /feedback/{type}/{docId}/screenshots/{fileId}
-           using type='ideas'
-        */
         const path = `feedback/ideas/${docId}/screenshots/${safeName}`;
-
         try{
           const store = fns.getStorage();
           const ref = fns.storageRef(store, path);
@@ -383,7 +389,7 @@
       return { ok:true, meta, note:'' };
     }
 
-    /* ===== Save (two-phase; uploads non-blocking) ===== */
+    /* ===== Save (two-phase; then toast + redirect) ===== */
     async function save(){
       try{
         el.uploadNote.style.display='none';
@@ -408,10 +414,8 @@
           appVersion: (window.FV_VERSION || null)
         };
 
-        // Phase 1 — create the document
         const docRef = await addDoc(collection(db,'feedback'), payload);
 
-        // Phase 2 — optional uploads to feedback/ideas/{docId}/screenshots/{file}
         const up = await uploadScreenshots(docRef.id);
         if (up.meta.length){
           await updateDoc(docRef, { attachments: up.meta });
@@ -421,19 +425,20 @@
           el.uploadNote.style.display='block';
         }
 
-        // Reset notes and files (keep menu/date/user intact)
+        // Reset notes & files (keep menu/date/user)
         el.notes.value='';
         if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); }
 
         showToast('Thanks — idea submitted.');
-        window.scrollTo({top:0,behavior:'smooth'});
+        // brief pause so the toast is visible, then go back to Feedback index
+        setTimeout(()=>{ location.href='/Farm-vista/pages/feedback/index.html'; }, 700);
       }catch(e){
         console.error(e);
         showErr('Save failed. Check permissions or network.');
       }
     }
 
-    /* ===== Dictation toggle (unchanged) ===== */
+    /* ===== Dictation toggle ===== */
     function speechSetup(){
       const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
       if(!ok){ el.mic.style.display='none'; return; }
