@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes (match Ideas page boot order) -->
+  <!-- Match Ideas page boot order -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -38,7 +38,6 @@
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
     .textarea{min-height:96px;resize:vertical;}
-
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
@@ -116,7 +115,7 @@
 
               <div class="actions">
                 <button id="clear" class="btn" type="button">Clear</button>
-                <button id="save" class="btn btn-primary" type="button">Save</button>
+                <button id="save" class="btn btn-primary" type="button" disabled>Save</button>
               </div>
             </div>
 
@@ -141,10 +140,10 @@
           <div class="summary" id="summary" hidden>
             <h3>Current Details</h3>
             <div class="kv">
-              <div><strong>Name</strong></div><div id="sName"></div>
-              <div><strong>Address</strong></div><div id="sAddr"></div>
-              <div><strong>Phone</strong></div><div id="sPhone"></div>
-              <div><strong>Email</strong></div><div id="sEmail"></div>
+              <div><strong>Name</strong></div><div id="sName">—</div>
+              <div><strong>Address</strong></div><div id="sAddr">—</div>
+              <div><strong>Phone</strong></div><div id="sPhone">—</div>
+              <div><strong>Email</strong></div><div id="sEmail">—</div>
             </div>
           </div>
         </div>
@@ -152,10 +151,9 @@
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Match Ideas-form data flow: use firebase-init.js (modules + ready) -->
+  <!-- Use the same modular init pattern as Ideas page -->
   <script type="module">
     import {
       ready,
@@ -187,21 +185,22 @@
         sEmail: $('#sEmail')
       };
 
-      // Paths mirror Ideas’ convention
-      const FS_DOC_PATH = 'company/main';
-      const STORAGE_LOGO_PATH = 'company/logo-main.png';
+      // Paths (use explicit segments for v9 modular SDK)
+      const DOC_REF = (db)=>doc(db, 'company', 'main');
+      const STORAGE_PATH = 'company/logo-main.png';
 
       let db;
-      let logoDataUrl = "";   // unsaved compressed dataURL
-      let logoUrl     = "";   // storage URL (saved)
+      let pristineSnapshot = null; // last loaded values for change detection
+      let logoDataUrl = "";        // unsaved compressed dataURL
+      let logoUrl     = "";        // storage URL (saved)
       let busy = false;
 
-      /* ---------- UI helpers ---------- */
-      function showToast(msg="Saved.", ms=3200){
+      /* ------------ helpers ------------ */
+      const showToast = (msg="Saved.", ms=3200)=>{
         el.toast.textContent = msg;
         el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show');
         setTimeout(()=> el.toast.classList.remove('show'), ms);
-      }
+      };
       const showErr = (m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const setBusy = (on)=>{
         busy = !!on;
@@ -219,7 +218,45 @@
       const normalizeEmail=(s)=>String(s||"").trim().toLowerCase();
       const validEmail=(s)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s||"");
 
-      /* ---------- Logo handling (client compress like Ideas page does previews) ---------- */
+      function currentState(){
+        return {
+          name:  (el.name.value||"").trim(),
+          address: (el.addr.value||"").trim(),
+          phone: formatUSPhone(el.phone.value||""),
+          email: (()=>{
+            const e = normalizeEmail(el.email.value);
+            return validEmail(e) ? e : "";
+          })(),
+          logoUrl,
+          logoData: logoDataUrl ? logoDataUrl : "" // if we embed instead of storage
+        };
+      }
+
+      function markDirty(){
+        if (!pristineSnapshot){ el.save.disabled = false; return; }
+        const cur = currentState();
+        const changed =
+          cur.name      !== (pristineSnapshot.name||"") ||
+          cur.address   !== (pristineSnapshot.address||"") ||
+          cur.phone     !== (pristineSnapshot.phone||"") ||
+          cur.email     !== (pristineSnapshot.email||"") ||
+          (!!logoDataUrl); // any picked logo is a change
+        el.save.disabled = !changed || busy;
+      }
+
+      ['input','change','keyup'].forEach(evt=>{
+        el.name.addEventListener(evt, markDirty);
+        el.addr.addEventListener(evt, markDirty);
+        el.phone.addEventListener(evt, markDirty);
+        el.email.addEventListener(evt, markDirty);
+      });
+
+      // Cmd/Ctrl+S to save
+      window.addEventListener('keydown', (e)=>{
+        if ((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); if(!el.save.disabled) save(); }
+      });
+
+      /* ------------ logo handling ------------ */
       function renderLogo(src){
         el.logoPreview.innerHTML = "";
         const url = src || logoDataUrl || logoUrl || "";
@@ -278,13 +315,14 @@
           el.logoStatus.textContent = "Preparing logo…";
           if (f.type === "image/svg+xml"){
             const fr = new FileReader();
-            fr.onload = ()=>{ logoDataUrl = String(fr.result||""); renderLogo(logoDataUrl); el.logoStatus.textContent="Ready to save."; };
+            fr.onload = ()=>{ logoDataUrl = String(fr.result||""); renderLogo(logoDataUrl); el.logoStatus.textContent="Ready to save."; markDirty(); };
             fr.onerror = (e)=>{ console.error(e); showErr("Could not read SVG."); el.logoStatus.textContent=""; };
             fr.readAsDataURL(f);
           }else{
             logoDataUrl = await fileToCompressedDataURL(f, 1024);
             renderLogo(logoDataUrl);
             el.logoStatus.textContent = "Ready to save.";
+            markDirty();
           }
         }catch(e){ console.error(e); showErr("Could not read logo file."); }
       });
@@ -294,26 +332,21 @@
         try{
           setBusy(true); showErr("");
           const store = getStorage();
-          try{ await deleteObject(storageRef(store, STORAGE_LOGO_PATH)); }catch(_){} // best-effort
-          await setDoc(doc(db, FS_DOC_PATH), {
-            logoUrl:"", logoData:"", updatedAt: serverTimestamp()
-          }, { merge:true });
+          try{ await deleteObject(storageRef(store, STORAGE_PATH)); }catch(_){} // best-effort
+          await setDoc(DOC_REF(db), { logoUrl:"", logoData:"", updatedAt: serverTimestamp() }, { merge:true });
           logoUrl=""; logoDataUrl="";
           renderLogo("");
           showToast("Logo removed.");
+          await loadFromFirestore(); // refresh pristine
         }catch(e){ console.error(e); showErr("Failed to remove logo."); }
         finally{ setBusy(false); }
       });
 
-      /* ---------- Firestore IO (mirror Ideas pattern) ---------- */
+      /* ------------ Firestore IO (create + edit) ------------ */
       async function loadFromFirestore(){
         try{
-          const snap = await getDoc(doc(db, FS_DOC_PATH));
-          if (!snap.exists()){
-            renderLogo(""); renderSummary({name:"",address:"",phone:"",email:""});
-            return;
-          }
-          const d = snap.data()||{};
+          const snap = await getDoc(DOC_REF(db));
+          const d = snap.exists() ? (snap.data()||{}) : {};
           el.name.value  = d.name   || "";
           el.addr.value  = d.address|| "";
           el.phone.value = d.phone  || "";
@@ -321,7 +354,21 @@
           logoUrl        = d.logoUrl|| "";
           logoDataUrl    = d.logoData||"";
           renderLogo(logoUrl || logoDataUrl || "");
-          renderSummary({ name: el.name.value, address: el.addr.value, phone: el.phone.value, email: el.email.value });
+
+          // summary + pristine snapshot (for dirty detection)
+          renderSummary({
+            name: el.name.value,
+            address: el.addr.value,
+            phone: el.phone.value,
+            email: el.email.value
+          });
+          pristineSnapshot = {
+            name: el.name.value, address: el.addr.value,
+            phone: el.phone.value, email: (validEmail(el.email.value)?el.email.value:""),
+            logoUrl: logoUrl || "", logoData: logoDataUrl || ""
+          };
+          el.save.disabled = true;
+          showErr("");
         }catch(e){
           console.error("[Company] load error:", e);
           showErr("Failed to load details.");
@@ -329,10 +376,10 @@
       }
 
       async function uploadLogoIfNeeded(){
-        if (!logoDataUrl) return { logoUrl, logoData:"" };
+        if (!logoDataUrl) return { logoUrl, logoData:"" }; // no new logo selected
         try{
           const store = getStorage();
-          const ref = storageRef(store, STORAGE_LOGO_PATH);
+          const ref = storageRef(store, STORAGE_PATH);
           const blob = dataURLtoBlob(logoDataUrl);
           el.logoStatus.textContent = "Uploading logo…";
           await uploadBytes(ref, blob, {
@@ -342,7 +389,7 @@
           });
           const url = await getDownloadURL(ref);
           el.logoStatus.textContent = "Logo uploaded.";
-          return { logoUrl: url, logoData: "" };
+          return { logoUrl: url, logoData: "" }; // prefer URL
         }catch(e){
           console.warn("[Company] Storage upload failed, embedding data URL:", e);
           el.logoStatus.textContent = "Using inline logo.";
@@ -371,11 +418,16 @@
             logoData: logoRes.logoData,
             updatedAt: serverTimestamp()
           };
-          await setDoc(doc(db, FS_DOC_PATH), payload, { merge:true });
-          logoUrl = logoRes.logoUrl;
+          // Create-or-update (edit) exactly like Ideas page uses setDoc(..., {merge:true})
+          await setDoc(DOC_REF(db), payload, { merge:true });
+
+          // Reflect saved state in UI
+          logoUrl = logoRes.logoUrl || logoUrl;
           renderSummary({ name: payload.name, address: payload.address, phone: payload.phone, email: payload.email });
           showToast("Saved.");
-          el.logoStatus.textContent = logoRes.logoUrl ? "Logo linked." : (logoRes.logoData ? "Logo embedded." : "");
+
+          // Refresh pristine so later edits re-enable Save only when changed
+          await loadFromFirestore();
         }catch(e){
           console.error("[Company] save error:", e);
           showErr("Save failed. Check permissions or network.");
@@ -388,23 +440,24 @@
         el.sName.textContent  = o.name || "—";
         el.sAddr.innerHTML    = o.address ? escapeHTML(o.address).replace(/\n/g,"<br>") : "—";
         el.sPhone.textContent = o.phone ? formatUSPhone(o.phone) : "—";
-        el.sEmail.textContent = (o.email && validEmail(o.email)) ? o.email : "Not available";
+        el.sEmail.textContent = o.email && validEmail(o.email) ? o.email : "Not available";
         el.summary.hidden = false;
       }
 
-      /* ---------- Wire + init ---------- */
+      /* ------------ Wire + init ------------ */
       el.save.addEventListener('click', save);
       el.clear.addEventListener('click', ()=>{
-        if (busy) return;
-        if (!confirm("Clear unsaved changes?")) return;
+        if(busy) return;
+        if(!confirm("Clear unsaved changes?")) return;
         el.name.value = ""; el.addr.value = ""; el.phone.value = ""; el.email.value = "";
-        logoDataUrl = ""; renderLogo(""); el.logoStatus.textContent = ""; showErr("");
+        logoDataUrl = ""; renderLogo(""); el.logoStatus.textContent = "";
+        showErr(""); markDirty();
       });
 
       (async ()=>{
-        await ready;                 // wait for the same signal the Ideas page uses
-        db = getFirestore();         // modular SDK handle
-        await loadFromFirestore();   // load initial values
+        await ready;         // same readiness gate as Ideas form
+        db = getFirestore(); // modular handle
+        await loadFromFirestore();
       })();
     })();
   </script>
