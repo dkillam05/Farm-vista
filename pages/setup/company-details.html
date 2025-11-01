@@ -115,7 +115,7 @@
 
               <div class="actions">
                 <button id="clear" class="btn" type="button">Clear</button>
-                <button id="save" class="btn btn-primary" type="button" disabled>Save</button>
+                <button id="save" class="btn btn-primary" type="button">Save</button>
               </div>
             </div>
 
@@ -185,14 +185,13 @@
         sEmail: $('#sEmail')
       };
 
-      // Paths (use explicit segments for v9 modular SDK)
+      // Paths (v9 modular explicit segments)
       const DOC_REF = (db)=>doc(db, 'company', 'main');
       const STORAGE_PATH = 'company/logo-main.png';
 
       let db;
-      let pristineSnapshot = null; // last loaded values for change detection
-      let logoDataUrl = "";        // unsaved compressed dataURL
-      let logoUrl     = "";        // storage URL (saved)
+      let logoDataUrl = "";  // new selection to upload (dataURL)
+      let logoUrl     = "";  // saved Storage URL
       let busy = false;
 
       /* ------------ helpers ------------ */
@@ -209,54 +208,41 @@
       };
       const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
       const onlyDigits = (s)=> String(s||"").replace(/\D+/g,"");
-      function formatUSPhone(s){
+
+      // Live US phone formatter: (###) ###-#### with optional +1
+      function formatUSPhoneLive(value){
+        let d = onlyDigits(value);
+        if (d.startsWith('1') && d.length>10) d = d.slice(1); // drop country for display
+        if (d.length === 0) return '';
+        if (d.length < 4)   return `(${d}`;
+        if (d.length < 7)   return `(${d.slice(0,3)}) ${d.slice(3)}`;
+        return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}`;
+      }
+      function normalizeEmail(s){ return String(s||"").trim().toLowerCase(); }
+      function validEmail(s){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s||""); }
+
+      // Also supply a final formatter for storage
+      function formatUSPhoneFinal(s){
         const d = onlyDigits(s);
-        if(d.length===11 && d.startsWith("1")) return `+1 (${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7,11)}`;
-        if(d.length>=10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}` + (d.length>10 ? ` x${d.slice(10)}` : "");
+        if(d.length>=10){
+          return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}` + (d.length>10 ? ` x${d.slice(10)}` : "");
+        }
         return d;
       }
-      const normalizeEmail=(s)=>String(s||"").trim().toLowerCase();
-      const validEmail=(s)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s||"");
 
-      function currentState(){
-        return {
-          name:  (el.name.value||"").trim(),
-          address: (el.addr.value||"").trim(),
-          phone: formatUSPhone(el.phone.value||""),
-          email: (()=>{
-            const e = normalizeEmail(el.email.value);
-            return validEmail(e) ? e : "";
-          })(),
-          logoUrl,
-          logoData: logoDataUrl ? logoDataUrl : "" // if we embed instead of storage
-        };
-      }
-
-      function markDirty(){
-        if (!pristineSnapshot){ el.save.disabled = false; return; }
-        const cur = currentState();
-        const changed =
-          cur.name      !== (pristineSnapshot.name||"") ||
-          cur.address   !== (pristineSnapshot.address||"") ||
-          cur.phone     !== (pristineSnapshot.phone||"") ||
-          cur.email     !== (pristineSnapshot.email||"") ||
-          (!!logoDataUrl); // any picked logo is a change
-        el.save.disabled = !changed || busy;
-      }
-
-      ['input','change','keyup'].forEach(evt=>{
-        el.name.addEventListener(evt, markDirty);
-        el.addr.addEventListener(evt, markDirty);
-        el.phone.addEventListener(evt, markDirty);
-        el.email.addEventListener(evt, markDirty);
+      /* ------------ Phone field wiring ------------ */
+      el.phone.addEventListener('input', ()=>{
+        const pos = el.phone.selectionStart;
+        const old = el.phone.value;
+        el.phone.value = formatUSPhoneLive(old);
+        // best-effort caret keep
+        try{ el.phone.setSelectionRange(el.phone.value.length, el.phone.value.length); }catch{}
+      });
+      el.phone.addEventListener('blur', ()=>{
+        el.phone.value = formatUSPhoneFinal(el.phone.value);
       });
 
-      // Cmd/Ctrl+S to save
-      window.addEventListener('keydown', (e)=>{
-        if ((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); if(!el.save.disabled) save(); }
-      });
-
-      /* ------------ logo handling ------------ */
+      /* ------------ Logo handling ------------ */
       function renderLogo(src){
         el.logoPreview.innerHTML = "";
         const url = src || logoDataUrl || logoUrl || "";
@@ -315,14 +301,13 @@
           el.logoStatus.textContent = "Preparing logo…";
           if (f.type === "image/svg+xml"){
             const fr = new FileReader();
-            fr.onload = ()=>{ logoDataUrl = String(fr.result||""); renderLogo(logoDataUrl); el.logoStatus.textContent="Ready to save."; markDirty(); };
+            fr.onload = ()=>{ logoDataUrl = String(fr.result||""); renderLogo(logoDataUrl); el.logoStatus.textContent="Ready to save."; };
             fr.onerror = (e)=>{ console.error(e); showErr("Could not read SVG."); el.logoStatus.textContent=""; };
             fr.readAsDataURL(f);
           }else{
             logoDataUrl = await fileToCompressedDataURL(f, 1024);
             renderLogo(logoDataUrl);
             el.logoStatus.textContent = "Ready to save.";
-            markDirty();
           }
         }catch(e){ console.error(e); showErr("Could not read logo file."); }
       });
@@ -337,12 +322,12 @@
           logoUrl=""; logoDataUrl="";
           renderLogo("");
           showToast("Logo removed.");
-          await loadFromFirestore(); // refresh pristine
+          await loadFromFirestore();
         }catch(e){ console.error(e); showErr("Failed to remove logo."); }
         finally{ setBusy(false); }
       });
 
-      /* ------------ Firestore IO (create + edit) ------------ */
+      /* ------------ Firestore (create + edit) ------------ */
       async function loadFromFirestore(){
         try{
           const snap = await getDoc(DOC_REF(db));
@@ -354,20 +339,12 @@
           logoUrl        = d.logoUrl|| "";
           logoDataUrl    = d.logoData||"";
           renderLogo(logoUrl || logoDataUrl || "");
-
-          // summary + pristine snapshot (for dirty detection)
           renderSummary({
             name: el.name.value,
             address: el.addr.value,
             phone: el.phone.value,
             email: el.email.value
           });
-          pristineSnapshot = {
-            name: el.name.value, address: el.addr.value,
-            phone: el.phone.value, email: (validEmail(el.email.value)?el.email.value:""),
-            logoUrl: logoUrl || "", logoData: logoDataUrl || ""
-          };
-          el.save.disabled = true;
           showErr("");
         }catch(e){
           console.error("[Company] load error:", e);
@@ -403,7 +380,7 @@
         if (!name){ showErr("Please enter the farm/company name."); return; }
         setBusy(true); showErr("");
 
-        const phoneFormatted = formatUSPhone(el.phone.value);
+        const phoneFormatted = formatUSPhoneFinal(el.phone.value);
         const emailNorm = normalizeEmail(el.email.value);
         const emailToStore = validEmail(emailNorm) ? emailNorm : "";
 
@@ -418,16 +395,11 @@
             logoData: logoRes.logoData,
             updatedAt: serverTimestamp()
           };
-          // Create-or-update (edit) exactly like Ideas page uses setDoc(..., {merge:true})
           await setDoc(DOC_REF(db), payload, { merge:true });
-
-          // Reflect saved state in UI
           logoUrl = logoRes.logoUrl || logoUrl;
           renderSummary({ name: payload.name, address: payload.address, phone: payload.phone, email: payload.email });
           showToast("Saved.");
-
-          // Refresh pristine so later edits re-enable Save only when changed
-          await loadFromFirestore();
+          await loadFromFirestore(); // keep page as the edit surface
         }catch(e){
           console.error("[Company] save error:", e);
           showErr("Save failed. Check permissions or network.");
@@ -439,7 +411,7 @@
       function renderSummary(o){
         el.sName.textContent  = o.name || "—";
         el.sAddr.innerHTML    = o.address ? escapeHTML(o.address).replace(/\n/g,"<br>") : "—";
-        el.sPhone.textContent = o.phone ? formatUSPhone(o.phone) : "—";
+        el.sPhone.textContent = o.phone ? o.phone : "—";
         el.sEmail.textContent = o.email && validEmail(o.email) ? o.email : "Not available";
         el.summary.hidden = false;
       }
@@ -451,13 +423,15 @@
         if(!confirm("Clear unsaved changes?")) return;
         el.name.value = ""; el.addr.value = ""; el.phone.value = ""; el.email.value = "";
         logoDataUrl = ""; renderLogo(""); el.logoStatus.textContent = "";
-        showErr(""); markDirty();
+        showErr("");
       });
 
       (async ()=>{
         await ready;         // same readiness gate as Ideas form
         db = getFirestore(); // modular handle
         await loadFromFirestore();
+        // Always allow saving (you asked to edit here anytime)
+        el.save.disabled = false;
       })();
     })();
   </script>
