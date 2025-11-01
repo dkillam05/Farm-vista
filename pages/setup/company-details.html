@@ -95,22 +95,22 @@
             <div class="fields">
               <div class="field">
                 <label for="coName">Farm / Company Name</label>
-                <input id="coName" class="input" placeholder="e.g., Dowson Farms">
+                <input id="coName" class="input" placeholder="e.g., Dowson Farms" autocomplete="organization">
               </div>
 
               <div class="field">
                 <label for="coAddr">Address</label>
-                <textarea id="coAddr" class="textarea" placeholder="Street&#10;City, State ZIP"></textarea>
+                <textarea id="coAddr" class="textarea" placeholder="Street&#10;City, State ZIP" autocomplete="street-address"></textarea>
               </div>
 
               <div class="row">
                 <div class="field">
                   <label for="coPhone">Phone</label>
-                  <input id="coPhone" class="input" type="tel" inputmode="tel" placeholder="(217) 555-0123">
+                  <input id="coPhone" class="input" type="tel" inputmode="tel" placeholder="(217) 555-0123" autocomplete="tel">
                 </div>
                 <div class="field">
                   <label for="coEmail">Primary Email</label>
-                  <input id="coEmail" class="input" type="email" placeholder="office@example.com">
+                  <input id="coEmail" class="input" type="email" placeholder="office@example.com" autocomplete="email">
                 </div>
               </div>
 
@@ -124,7 +124,7 @@
             <div class="logo-card">
               <div class="field">
                 <label for="coLogo">Farm Logo</label>
-                <input id="coLogo" class="input" type="file" accept="image/*">
+                <input id="coLogo" class="input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml">
                 <div class="help">Upload a square-ish logo. We’ll auto-fit & compress it for reports and headers.</div>
               </div>
               <div class="logo-preview" id="logoPreview" aria-live="polite">
@@ -173,16 +173,20 @@
     const toast = $("toast"), errBox = $("err");
     const btnSave = $("save"), btnClear = $("clear");
 
-    const FS_DOC_PATH = 'company/main';           // Firestore doc
-    const STORAGE_LOGO_PATH = 'company/logo-main.png'; // Storage path
+    // --- Data paths ---
+    const FS_DOC_PATH = 'company/main';                 // Firestore doc (profile)
+    const STORAGE_LOGO_PATH = 'company/logo-main.png';  // Storage canonical file
 
     let db = null, storage = null;
-    let logoDataUrl = "";   // current chosen logo (data URL)
-    let logoUrl = "";       // saved download URL
+    let logoDataUrl = "";   // current chosen (compressed) logo as data URL (unsaved)
+    let logoUrl = "";       // last saved storage URL
     let busy = false;
 
     // ========= UI helpers =========
-    const showToast = (msg="Saved.")=>{ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
+    const showToast = (msg="Saved.")=>{
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+    };
     const showErr = (msg)=>{ errBox.textContent = msg || ""; errBox.classList.toggle("show", !!msg); };
     const setBusy = (on)=>{
       busy = !!on;
@@ -190,8 +194,6 @@
       logoStatus.textContent = on ? "Working…" : "";
     };
     const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-
-    // ========= Format helpers =========
     const onlyDigits = (s)=> String(s||"").replace(/\D+/g,"");
     function formatUSPhone(s){
       const d = onlyDigits(s);
@@ -241,10 +243,10 @@
             const scale = Math.min(1, maxSide / Math.max(w,h));
             c.width = Math.round(w * scale);
             c.height = Math.round(h * scale);
-            ctx.fillStyle = "#fff";
-            ctx.fillRect(0,0,c.width,c.height);
+            // Preserve alpha by clearing (no white bg)
+            ctx.clearRect(0,0,c.width,c.height);
             ctx.drawImage(img, 0, 0, c.width, c.height);
-            resolve(c.toDataURL("image/png"));
+            resolve(c.toDataURL("image/png")); // PNG keeps sharp logos
           };
           img.onerror = reject;
           img.src = fr.result;
@@ -265,11 +267,18 @@
     coLogo.addEventListener("change", async ()=>{
       const f = coLogo.files && coLogo.files[0];
       if(!f) return;
-      if (f.size > 8 * 1024 * 1024) { showErr("Logo file is too large (max 8 MB)."); return; }
+      if (f.size > 12 * 1024 * 1024) { showErr("Logo file is too large (max 12 MB)."); return; }
       showErr("");
       try{
         logoStatus.textContent = "Preparing logo…";
-        logoDataUrl = await fileToCompressedDataURL(f, 640);
+        if (f.type === "image/svg+xml") {
+          const fr = new FileReader();
+          fr.onload = ()=>{ logoDataUrl = String(fr.result||""); renderLogo(logoDataUrl); logoStatus.textContent = "Ready to save."; };
+          fr.onerror = (e)=>{ console.error(e); showErr("Could not read SVG."); logoStatus.textContent=""; };
+          fr.readAsDataURL(f);
+          return;
+        }
+        logoDataUrl = await fileToCompressedDataURL(f, 1024);
         renderLogo(logoDataUrl);
         logoStatus.textContent = "Ready to save.";
       }catch(e){
@@ -283,10 +292,10 @@
       try{
         setBusy(true);
         showErr("");
-        // best-effort delete from Storage
         try{
-          if (storage) await storage.ref(STORAGE_LOGO_PATH).delete();
-        }catch(e){}
+          if (!storage) storage = firebase.storage();
+          await storage.ref(STORAGE_LOGO_PATH).delete();
+        }catch(e){ /* ignore if not present or no permission */ }
         await firebase.firestore().doc(FS_DOC_PATH).set({
           logoUrl: "", logoData: "", updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge:true });
@@ -327,7 +336,11 @@
         const ref = storage.ref(STORAGE_LOGO_PATH);
         const blob = dataURLtoBlob(logoDataUrl);
         logoStatus.textContent = "Uploading logo…";
-        await ref.put(blob, { contentType: blob.type || 'image/png', cacheControl: 'public,max-age=31536000,immutable' });
+        await ref.put(blob, {
+          contentType: blob.type || 'image/png',
+          cacheControl: 'public,max-age=31536000,immutable',
+          customMetadata: { app: 'FarmVista', kind: 'company-logo' }
+        });
         const url = await ref.getDownloadURL();
         logoStatus.textContent = "Logo uploaded.";
         return { logoUrl: url, logoData:"" }; // prefer URL path
@@ -350,7 +363,7 @@
       const emailToStore = isLikelyValidEmail(emailNorm) ? emailNorm : "";
 
       try{
-        // handle logo first to get URL
+        // handle logo first to get URL (or inline data)
         const logoRes = await uploadLogoIfNeeded();
 
         const payload = {
@@ -398,7 +411,6 @@
     // ========= Init after boot =========
     document.addEventListener('DOMContentLoaded', async ()=>{
       try{
-        // theme-boot loads SDKs; just grab handles
         db = firebase.firestore();
         storage = firebase.storage();
       }catch(e){
