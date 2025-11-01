@@ -43,16 +43,18 @@
     .small{font-size:13px;color:#5b625e}
     .hl{padding:2px 6px;border-radius:6px;background:#f2f3f2}
     code{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px;}
+    .pill{display:inline-block;border:1px solid var(--border);padding:2px 6px;border-radius:8px;margin:2px 6px 0 0}
+    .list{max-height:200px;overflow:auto;border:1px dashed var(--border);border-radius:10px;padding:8px;background:#fafbfa}
   </style>
 
-  <!-- Ensure fv-shell (for consistent chrome); safe if already present -->
+  <!-- Ensure fv-shell -->
   <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s); }})();</script>
 </head>
 <body>
   <fv-shell>
     <div class="page container">
       <h1>Diagnostics</h1>
-      <p class="sub">Quick checks for build, auth, user context, Service Worker, Firestore, and Storage. Includes a real Storage upload test to your <span class="hl">user-uploads/&lt;uid&gt;/diagnostics</span> folder.</p>
+      <p class="sub">Deep checks for build, runtime mode, auth, user context, Service Worker, Firestore, Storage, and resource loads. Includes real Storage and Firestore tests.</p>
 
       <div class="grid">
 
@@ -63,14 +65,34 @@
             <div class="kvs mono">
               <div class="k">Location</div><div class="v" id="v-url"></div>
               <div class="k">FV Version</div><div class="v" id="v-version"></div>
+              <div class="k">Runtime Mode</div><div class="v" id="v-mode"></div>
               <div class="k">Config Present</div><div class="v" id="v-config"></div>
-              <div class="k">Config Project</div><div class="v" id="v-project"></div>
-              <div class="k">Storage Bucket</div><div class="v" id="v-bucket"></div>
+              <div class="k">Project ID</div><div class="v" id="v-project"></div>
+              <div class="k">Auth Domain</div><div class="v" id="v-authdomain"></div>
+              <div class="k">Storage Bucket (config)</div><div class="v" id="v-bucket"></div>
+              <div class="k">Config Checks</div><div class="v" id="v-config-checks"></div>
+              <div class="k">Init Signature</div><div class="v" id="v-init-sig"></div>
             </div>
             <div class="btns">
               <button id="btn-run" class="btn btn-primary">▶ Run All Tests</button>
-              <button id="btn-refresh" class="btn">↻ Soft Refresh (emit <code>fv:refresh</code>)</button>
+              <button id="btn-refresh" class="btn">↻ Soft Refresh (<code>fv:refresh</code>)</button>
+              <button id="btn-hard-nosw" class="btn btn-warn">🔄 Hard Reload w/o SW</button>
             </div>
+          </div>
+        </section>
+
+        <!-- Resource Loader -->
+        <section class="card">
+          <header class="head"><strong>Resource Loader</strong> <span id="st-res" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <div class="kvs mono">
+              <div class="k">firebase-app.js</div><div class="v" id="v-r-app"></div>
+              <div class="k">firebase-auth.js</div><div class="v" id="v-r-auth"></div>
+              <div class="k">firebase-firestore.js</div><div class="v" id="v-r-fs"></div>
+              <div class="k">firebase-storage.js</div><div class="v" id="v-r-st"></div>
+            </div>
+            <div class="small">Data is from <code>performance.getEntriesByType('resource')</code>. If storage is “false”, your page never fetched the Storage SDK and uploads will say “Storage not loaded”.</div>
+            <div class="list mono" id="v-res-list"></div>
           </div>
         </section>
 
@@ -83,7 +105,12 @@
               <div class="k">UID</div><div class="v" id="v-uid"></div>
               <div class="k">Email</div><div class="v" id="v-email"></div>
               <div class="k">Display Name</div><div class="v" id="v-name"></div>
-              <div class="k">Token Admin Claim</div><div class="v" id="v-admin"></div>
+              <div class="k">Admin Claim</div><div class="v" id="v-admin"></div>
+            </div>
+            <div class="btns">
+              <button id="btn-token" class="btn">♻ Force Token Refresh</button>
+              <button id="btn-signout" class="btn btn-danger">🚪 Sign Out</button>
+              <a class="btn" href="/Farm-vista/pages/login/index.html">➡ Go to Login</a>
             </div>
           </div>
         </section>
@@ -111,6 +138,8 @@
             </div>
             <div class="btns">
               <button id="btn-nuke" class="btn btn-danger">🧨 Nuke SW Caches</button>
+              <button id="btn-unreg" class="btn btn-danger">🚫 Unregister SW</button>
+              <button id="btn-clearsite" class="btn btn-danger">🧽 Clear local/session/IndexedDB</button>
             </div>
           </div>
         </section>
@@ -122,20 +151,33 @@
             <div class="kvs mono">
               <div class="k">Firestore API</div><div class="v" id="v-has-fs"></div>
               <div class="k">Storage API</div><div class="v" id="v-has-st"></div>
-              <div class="k">Storage Bucket (from SDK)</div><div class="v" id="v-bucket-sdk"></div>
+              <div class="k">Storage Bucket (SDK)</div><div class="v" id="v-bucket-sdk"></div>
               <div class="k">Module Fresh Import</div><div class="v" id="v-fresh"></div>
             </div>
             <div class="small">If “Module Fresh Import” is <em>false</em> or old, your Service Worker may be serving a stale <code>firebase-init.js</code>.</div>
           </div>
         </section>
 
-        <!-- Storage Upload Test -->
+        <!-- Firestore Tests -->
         <section class="card">
-          <header class="head"><strong>Storage Upload Test</strong> <span id="st-up" class="status warn">⏳ Pending</span></header>
+          <header class="head"><strong>Firestore Tests</strong> <span id="st-fs" class="status warn">⏳ Pending</span></header>
           <div class="body">
-            <p class="small">Uploads a tiny text blob to <span class="hl">user-uploads/&lt;uid&gt;/diagnostics/diag-&lt;timestamp&gt;.txt</span>. This path conforms to your Storage rules.</p>
             <div class="btns">
-              <button id="btn-upload" class="btn btn-primary">⬆ Run Storage Upload</button>
+              <button id="btn-fs-read" class="btn">🔎 Try Read: <code>accountRoles</code></button>
+              <button id="btn-fs-write" class="btn btn-primary">✍ Try Write: <code>diagnostics</code></button>
+            </div>
+            <div class="list mono" id="log-fs"></div>
+          </div>
+        </section>
+
+        <!-- Storage Tests -->
+        <section class="card">
+          <header class="head"><strong>Storage Tests</strong> <span id="st-up" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <p class="small">Uploads a tiny text blob to <span class="hl">user-uploads/&lt;uid&gt;/diagnostics/diag-&lt;timestamp&gt;.txt</span>, then lists that folder.</p>
+            <div class="btns">
+              <button id="btn-upload" class="btn btn-primary">⬆ Upload Blob</button>
+              <button id="btn-list" class="btn">📂 List Folder</button>
             </div>
             <div class="log mono" id="log"></div>
           </div>
@@ -149,34 +191,83 @@
     const $ = (s)=>document.querySelector(s);
     const st = {
       app: $('#st-app'), auth: $('#st-auth'), ctx: $('#st-ctx'),
-      sw: $('#st-sw'), mods: $('#st-mods'), up: $('#st-up')
+      sw: $('#st-sw'), mods: $('#st-mods'), up: $('#st-up'), res: $('#st-res'), fs: $('#st-fs')
     };
     const vv = {
-      url: $('#v-url'), version: $('#v-version'), config: $('#v-config'), project: $('#v-project'), bucket: $('#v-bucket'),
+      url: $('#v-url'), version: $('#v-version'), mode: $('#v-mode'),
+      config: $('#v-config'), project: $('#v-project'), bucket: $('#v-bucket'), authDomain: $('#v-authdomain'),
+      configChecks: $('#v-config-checks'), initSig: $('#v-init-sig'),
+      rApp: $('#v-r-app'), rAuth: $('#v-r-auth'), rFs: $('#v-r-fs'), rSt: $('#v-r-st'), resList: $('#v-res-list'),
       signed: $('#v-signed'), uid: $('#v-uid'), email: $('#v-email'), name: $('#v-name'), admin: $('#v-admin'),
       role: $('#v-role'), allow: $('#v-allow-count'), ctxUp: $('#v-ctx-updated'),
       sw: $('#v-sw'), swCtrl: $('#v-sw-ctrl'), cacheKeys: $('#v-cache-keys'),
       hasFs: $('#v-has-fs'), hasSt: $('#v-has-st'), bucketSdk: $('#v-bucket-sdk'), fresh: $('#v-fresh')
     };
     const logEl = $('#log');
-    const addLog = (l)=>{ const t = new Date().toLocaleTimeString(); logEl.textContent += `[${t}] ${l}\\n`; logEl.scrollTop = logEl.scrollHeight; };
+    const logFs = $('#log-fs');
+    const addLog = (el,l)=>{ const t = new Date().toLocaleTimeString(); el.textContent += `[${t}] ${l}\n`; el.scrollTop = el.scrollHeight; };
     const setOK   = (el)=>{ el.className='status ok';   el.textContent='✅ OK'; };
     const setWARN = (el)=>{ el.className='status warn'; el.textContent='⚠️ Check'; };
     const setERR  = (el)=>{ el.className='status err';  el.textContent='❌ Error'; };
 
     function setKV(el, val){ el.textContent = (val === undefined || val === null || val === '') ? '—' : String(val); }
 
-    async function runApp(){
+    /* ---------------- App/Build ---------------- */
+    async function fetchInitSig(){
+      try{
+        const res = await fetch('/Farm-vista/js/firebase-init.js?rev='+Date.now(), { cache:'reload' });
+        const txt = await res.text();
+        // simple signature: length + a small slice hash
+        const len = txt.length;
+        const slice = txt.slice(0, 256);
+        let hash = 0; for (let i=0;i<slice.length;i++){ hash = (hash*31 + slice.charCodeAt(i))|0; }
+        return `len:${len} hash:${(hash>>>0).toString(16)}`;
+      }catch(e){ return 'fetch-failed'; }
+    }
+
+    async function runApp(mod){
       setKV(vv.url, location.href);
       const ver = window.FV_VERSION && window.FV_VERSION.number;
       setKV(vv.version, ver || 'unknown');
       const cfg = window.FV_FIREBASE_CONFIG || null;
       setKV(vv.config, cfg ? 'true' : 'false');
       setKV(vv.project, cfg?.projectId || '—');
+      setKV(vv.authDomain, cfg?.authDomain || '—');
       setKV(vv.bucket, cfg?.storageBucket || '—');
+
+      let mode = 'unknown';
+      try{
+        const ready = await mod.ready;
+        mode = ready?.mode || (mod.isStub && mod.isStub() ? 'stub' : 'unknown');
+      }catch{}
+      setKV(vv.mode, mode);
+
+      // sanity checks
+      const checks = [];
+      if (cfg?.storageBucket && !cfg.storageBucket.endsWith('.appspot.com')) checks.push('⚠ storageBucket should end with .appspot.com');
+      if (cfg?.authDomain && !cfg.authDomain.endsWith('.firebaseapp.com')) checks.push('⚠ authDomain should be *.firebaseapp.com');
+      setKV(vv.configChecks, checks.length ? checks.join(' | ') : 'ok');
+
+      setKV(vv.initSig, await fetchInitSig());
       setOK(st.app);
     }
 
+    /* ---------------- Resource Loader ---------------- */
+    function runResources(){
+      const entries = performance.getEntriesByType('resource') || [];
+      const toBool = (needle) => entries.some(e => (e.name||'').includes(needle));
+      setKV(vv.rApp,  toBool('firebasejs/10.') && toBool('firebase-app.js'));
+      setKV(vv.rAuth, toBool('firebasejs/10.') && toBool('firebase-auth.js'));
+      setKV(vv.rFs,   toBool('firebasejs/10.') && toBool('firebase-firestore.js'));
+      setKV(vv.rSt,   toBool('firebasejs/10.') && toBool('firebase-storage.js'));
+      vv.resList.innerHTML = entries
+        .filter(e => /firebase|Farm-vista\/js\/firebase|serviceworker|manifest/.test(e.name))
+        .map(e => `<span class="pill mono">${e.initiatorType || 'res'} · ${e.name.replace(location.origin,'')}</span>`)
+        .join(' ');
+      setOK(st.res);
+    }
+
+    /* ---------------- Auth ---------------- */
     async function runAuth(mod){
       try{
         const auth = (mod.getAuth && mod.getAuth()) || window.firebaseAuth || null;
@@ -194,9 +285,10 @@
         }
         setKV(vv.admin, adminClaim);
         setOK(st.auth);
-      }catch(e){ setERR(st.auth); addLog('Auth error: '+e); }
+      }catch(e){ setERR(st.auth); addLog(logEl,'Auth error: '+e); }
     }
 
+    /* ---------------- User Context ---------------- */
     async function runCtx(){
       try{
         const ctx = window.FVUserContext && (await window.FVUserContext.ready());
@@ -204,9 +296,10 @@
         setKV(vv.allow, Array.isArray(ctx?.allowedIds) ? ctx.allowedIds.length : 0);
         setKV(vv.ctxUp, ctx?.updatedAt || '—');
         setOK(st.ctx);
-      }catch(e){ setERR(st.ctx); addLog('UserContext error: '+e); }
+      }catch(e){ setERR(st.ctx); addLog(logEl,'UserContext error: '+e); }
     }
 
+    /* ---------------- SW ---------------- */
     async function runSW(){
       try{
         const reg = await navigator.serviceWorker?.getRegistration?.();
@@ -215,9 +308,10 @@
         const keys = await caches?.keys?.() || [];
         setKV(vv.cacheKeys, keys.join(', ') || '—');
         setOK(st.sw);
-      }catch(e){ setERR(st.sw); addLog('SW error: '+e); }
+      }catch(e){ setERR(st.sw); addLog(logEl,'SW error: '+e); }
     }
 
+    /* ---------------- Module Freshness ---------------- */
     async function runModulesFresh(){
       try{
         const fresh = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
@@ -228,8 +322,6 @@
         let bucketSdk = '—';
         try{
           const app = (fresh.getApp ? fresh.getApp() : null) || window.firebaseApp || null;
-          const st = fresh.getStorage && fresh.getStorage(app);
-          // Read bucket from app options if available
           bucketSdk = app?.options?.storageBucket || '—';
         }catch{}
         setKV(vv.bucketSdk, bucketSdk);
@@ -238,22 +330,23 @@
       }catch(e){
         setERR(st.mods);
         setKV(vv.fresh, 'false');
-        addLog('Fresh import failed: '+e);
+        addLog(logEl,'Fresh import failed: '+e);
       }
     }
 
+    /* ---------------- Storage Tests ---------------- */
     async function doUploadTest(){
       try{
         const fresh = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
         const hasSt = !!(fresh.getStorage && (fresh.ref || fresh.storageRef) && fresh.uploadBytes && fresh.getDownloadURL);
         if (!hasSt){
           setERR(st.up);
-          addLog('Storage APIs not available (is firebase-storage.js imported in firebase-init.js?)');
+          addLog(logEl,'Storage APIs not available (is firebase-storage.js imported in firebase-init.js?)');
           return;
         }
         const auth = (fresh.getAuth && fresh.getAuth()) || window.firebaseAuth || null;
         const u = auth?.currentUser || null;
-        if (!u){ setERR(st.up); addLog('No signed-in user; cannot compute user-uploads/<uid> path.'); return; }
+        if (!u){ setERR(st.up); addLog(logEl,'No signed-in user; cannot compute user-uploads/<uid> path.'); return; }
 
         const store = fresh.getStorage();
         const storageRef = (fresh.storageRef || fresh.ref);
@@ -262,55 +355,171 @@
         const path = `user-uploads/${u.uid}/diagnostics/${filename}`;
 
         const blob = new Blob([`FarmVista Diagnostics OK @ ${new Date().toISOString()}`], { type:'text/plain' });
-        addLog(`Uploading to gs://${(window.FV_FIREBASE_CONFIG && window.FV_FIREBASE_CONFIG.storageBucket) || '(bucket?)'}/${path}`);
+        addLog(logEl,`Uploading to gs://${(window.FV_FIREBASE_CONFIG && window.FV_FIREBASE_CONFIG.storageBucket) || '(bucket?)'}/${path}`);
         const r = storageRef(store, path);
         await fresh.uploadBytes(r, blob, { contentType:'text/plain' });
         const url = await fresh.getDownloadURL(r);
-        addLog('Upload success. Download URL: '+url);
+        addLog(logEl,'Upload success. Download URL: '+url);
         setOK(st.up);
       }catch(e){
         setERR(st.up);
-        addLog('Upload failed: '+(e && (e.message||e.code||e)) );
+        addLog(logEl,'Upload failed: '+(e && (e.message||e.code||e)) );
       }
     }
 
-    // Buttons
+    async function doListFolder(){
+      try{
+        const fresh = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+        if (!fresh.getStorage || !(fresh.ref || fresh.storageRef)) { addLog(logEl,'List failed: Storage not loaded'); return; }
+        // Use modular listAll (firebase/storage v10) if present
+        const store = fresh.getStorage();
+        const storageRef = (fresh.storageRef || fresh.ref);
+        const listAll = fresh.listAll; // may exist on storage module
+        const auth = (fresh.getAuth && fresh.getAuth()) || window.firebaseAuth || null;
+        const u = auth?.currentUser || null;
+        if (!u){ addLog(logEl,'List failed: not signed in'); return; }
+
+        if (!listAll){ addLog(logEl,'listAll not available in exported API; skipping list.'); return; }
+        const base = storageRef(store, `user-uploads/${u.uid}/diagnostics/`);
+        const res = await listAll(base);
+        const names = [
+          ...res.prefixes.map(p=> ('[dir] '+ (p.name||'(prefix)'))),
+          ...res.items.map(it=> it.name)
+        ];
+        addLog(logEl, 'Folder entries: ' + (names.length ? names.join(', ') : '(empty)'));
+      }catch(e){
+        addLog(logEl, 'List failed: ' + (e && (e.message||e.code||e)));
+      }
+    }
+
+    /* ---------------- Firestore Tests ---------------- */
+    async function fsRead(){
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+        const db = m.getFirestore();
+        const q = m.query(m.collection(db,'accountRoles'), m.limit(5));
+        const snap = await m.getDocs(q);
+        let count = 0; snap.forEach(()=>count++);
+        addLog(logFs, `Read OK: accountRoles count<=5 => ${count}`);
+        setOK(st.fs);
+      }catch(e){
+        setERR(st.fs);
+        addLog(logFs, 'Read failed: ' + (e && (e.message||e.code||e)));
+      }
+    }
+
+    async function fsWrite(){
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+        const auth = (m.getAuth && m.getAuth()) || window.firebaseAuth || null;
+        const u = auth?.currentUser || null;
+        if (!u){ setERR(st.fs); addLog(logFs,'Write failed: not signed in'); return; }
+        const db = m.getFirestore();
+        const ref = await m.addDoc(m.collection(db,'diagnostics'), {
+          t: new Date().toISOString(),
+          uid: u.uid,
+          page: location.href,
+          ver: (window.FV_VERSION && window.FV_VERSION.number) || null
+        });
+        addLog(logFs, 'Write OK: doc id ' + ref.id);
+        setOK(st.fs);
+      }catch(e){
+        setERR(st.fs);
+        addLog(logFs, 'Write failed: ' + (e && (e.message||e.code||e)));
+      }
+    }
+
+    /* ---------------- Buttons ---------------- */
     $('#btn-run').addEventListener('click', async ()=>{
-      // reset statuses
-      [st.app, st.auth, st.ctx, st.sw, st.mods, st.up].forEach(set=>setWARN(set));
-      logEl.textContent = '';
+      [st.app, st.auth, st.ctx, st.sw, st.mods, st.up, st.res, st.fs].forEach(set=>setWARN(set));
+      logEl.textContent = ''; logFs.textContent = '';
       const mod = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
-      await runApp();
+      await runApp(mod);
+      runResources();
       await runAuth(mod);
       await runCtx();
       await runSW();
       await runModulesFresh();
-      addLog('All checks complete.');
+      addLog(logEl,'All checks complete.');
     });
 
     $('#btn-refresh').addEventListener('click', ()=>{
-      try { document.dispatchEvent(new CustomEvent('fv:refresh')); addLog('Emitted fv:refresh'); } catch {}
+      try { document.dispatchEvent(new CustomEvent('fv:refresh')); addLog(logEl,'Emitted fv:refresh'); } catch {}
+    });
+
+    $('#btn-hard-nosw').addEventListener('click', async ()=>{
+      // Add a random param and reload after unregister
+      try{
+        const regs = await navigator.serviceWorker?.getRegistrations?.();
+        for (const r of (regs||[])) { await r.unregister(); }
+      }catch{}
+      const u = new URL(location.href);
+      u.searchParams.set('bust', Date.now());
+      location.replace(u.toString());
     });
 
     $('#btn-nuke').addEventListener('click', async ()=>{
       try{
         navigator.serviceWorker?.controller?.postMessage('NUKE_CACHES');
-        addLog('Sent NUKE_CACHES to Service Worker. Reloading…');
+        addLog(logEl,'Sent NUKE_CACHES to Service Worker. Reloading…');
         setTimeout(()=>location.reload(), 600);
-      }catch(e){ addLog('NUKE_CACHES error: '+e); }
+      }catch(e){ addLog(logEl,'NUKE_CACHES error: '+e); }
+    });
+
+    $('#btn-unreg').addEventListener('click', async ()=>{
+      try{
+        const reg = await navigator.serviceWorker?.getRegistration?.();
+        if (reg){ await reg.unregister(); addLog(logEl,'SW unregistered'); } else { addLog(logEl,'No SW to unregister'); }
+      }catch(e){ addLog(logEl,'Unregister error: '+e); }
+    });
+
+    $('#btn-clearsite').addEventListener('click', async ()=>{
+      try{
+        localStorage.clear(); sessionStorage.clear();
+        if (indexedDB && indexedDB.databases){
+          const dbs = await indexedDB.databases();
+          for (const d of (dbs||[])){ try{ indexedDB.deleteDatabase(d.name); }catch{} }
+        }
+        addLog(logEl,'Cleared localStorage/sessionStorage/IndexedDB');
+      }catch(e){ addLog(logEl,'Clear site data error: '+e); }
+    });
+
+    $('#btn-token').addEventListener('click', async ()=>{
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+        const auth = (m.getAuth && m.getAuth()) || window.firebaseAuth || null;
+        const u = auth?.currentUser || null;
+        if (!u) { addLog(logEl,'No user to refresh'); return; }
+        const tok = await u.getIdToken(true);
+        addLog(logEl,'Token refreshed: ' + (tok ? ('len '+tok.length) : '(no token)'));
+      }catch(e){ addLog(logEl,'Token refresh error: '+e); }
+    });
+
+    $('#btn-signout').addEventListener('click', async ()=>{
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+        await m.signOut();
+        addLog(logEl,'Signed out.');
+        setTimeout(()=>location.href='/Farm-vista/pages/login/index.html', 300);
+      }catch(e){ addLog(logEl,'Sign out error: '+e); }
     });
 
     $('#btn-upload').addEventListener('click', doUploadTest);
+    $('#btn-list').addEventListener('click', doListFolder);
+
+    $('#btn-fs-read').addEventListener('click', fsRead);
+    $('#btn-fs-write').addEventListener('click', fsWrite);
 
     // Auto run basic checks on load
     (async()=>{
       const mod = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
-      await runApp();
+      await runApp(mod);
+      runResources();
       await runAuth(mod);
       await runCtx();
       await runSW();
       await runModulesFresh();
-      addLog('Initial checks complete. You can now run the Storage upload test.');
+      addLog(logEl,'Initial checks complete. Use the buttons to run Storage/Firestore tests.');
     })();
   </script>
 </body>
