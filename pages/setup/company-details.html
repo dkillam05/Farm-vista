@@ -82,7 +82,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Company Details</h1>
-      <p class="page-sub">Set your farm’s identity. One record: <span class="muted">/company/main</span></p>
+      <p class="page-sub">Single record lives at <span class="muted">/company/main</span></p>
 
       <section class="section">
         <header class="section-head">
@@ -94,7 +94,6 @@
           <div id="err" class="error"></div>
 
           <div class="grid">
-            <!-- Left: fields -->
             <div class="fields">
               <div class="field">
                 <label for="coName">Farm / Company Name *</label>
@@ -123,7 +122,7 @@
                     <option value="WI">WI</option><option value="WY">WY</option>
                   </select>
                   <div>
-                    <input id="addrZip" class="input" placeholder="ZIP" inputmode="numeric" maxlength="10" autocomplete="postal-code">
+                    <input id="addrZip" class="input" placeholder="ZIP" inputmode="numeric" maxlength="5" autocomplete="postal-code">
                     <div id="zipHint" class="hint"></div>
                   </div>
                 </div>
@@ -146,7 +145,6 @@
               </div>
             </div>
 
-            <!-- Right: logo -->
             <div class="logo-card">
               <div class="field">
                 <label for="coLogo">Farm Logo</label>
@@ -163,7 +161,6 @@
             </div>
           </div>
 
-          <!-- Saved preview -->
           <div class="summary" id="summary" hidden>
             <h3>Current Details</h3>
             <div class="kv">
@@ -180,7 +177,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Modular init (same pattern as Ideas page) -->
+  <!-- Same modular init as Ideas page -->
   <script type="module">
     import {
       ready,
@@ -192,376 +189,236 @@
       "use strict";
       const $ = (s)=>document.querySelector(s);
 
-      /* ---- Elements ---- */
+      /* Elements */
       const el = {
-        err:   $('#err'), toast: $('#toast'),
-        save:  $('#save'), clear: $('#clear'),
-        name:  $('#coName'),
+        err:$('#err'), toast:$('#toast'),
+        save:$('#save'), clear:$('#clear'),
+        name:$('#coName'),
         street:$('#addrStreet'), city:$('#addrCity'), state:$('#addrState'), zip:$('#addrZip'), zipHint:$('#zipHint'),
-        phone: $('#coPhone'), email:$('#coEmail'),
-        logo:  $('#coLogo'), logoPreview:$('#logoPreview'), logoStatus:$('#logoStatus'), removeLogo:$('#removeLogo'),
+        phone:$('#coPhone'), email:$('#coEmail'),
+        logo:$('#coLogo'), logoPreview:$('#logoPreview'), logoStatus:$('#logoStatus'), removeLogo:$('#removeLogo'),
         summary:$('#summary'), sName:$('#sName'), sAddr:$('#sAddr'), sPhone:$('#sPhone'), sEmail:$('#sEmail')
       };
 
-      /* ---- Constants ---- */
+      /* Constants */
       const DOC_REF = (db)=>doc(db, 'company', 'main');
       const STORAGE_PATH = 'company/logo-main.png';
 
-      let db;
-      let busy = false;
-      let logoDataUrl = "";  // pending data URL (newly selected)
-      let logoUrl     = "";  // last saved URL
-      let zipIndexCache = {}; // { 'IL': [{zip:'62629', city:'Chatham'}, ...] }
+      let db, busy=false, logoDataUrl="", logoUrl="";
 
-      /* ---- UI helpers ---- */
-      const showToast = (msg="Saved.", ms=3200)=>{
-        el.toast.textContent = msg;
-        el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show');
-        setTimeout(()=> el.toast.classList.remove('show'), ms);
+      /* Small IL ZIP map (fast offline; includes Divernon) */
+      const IL_ZIPS = {
+        "DIVERNON":"62530","SPRINGFIELD":"62704","SPRINGFIELD_DOWNTOWN":"62701","CHATHAM":"62629",
+        "JACKSONVILLE":"62650","QUINCY":"62301","ALTON":"62002","MOLINE":"61265",
+        "ROCKFORD":"61101","CHAMPAIGN":"61820","URBANA":"61801","DECATUR":"62521","AUBURN":"62615"
       };
-      const showErr = (m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
-      const setBusy = (on)=>{
-        busy = !!on;
-        [el.save, el.clear, el.logo, el.removeLogo, el.name, el.street, el.city, el.state, el.zip, el.phone, el.email]
-          .forEach(b=> b && (b.disabled = busy));
-        el.logoStatus.textContent = on ? "Working…" : "";
-      };
-      const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-      const onlyDigits = (s)=> String(s||"").replace(/\D+/g,"");
 
-      /* ---- Phone mask (default US format) ---- */
-      function formatUSPhoneLive(value){
-        let d = onlyDigits(value);
-        if (d.startsWith('1') && d.length>10) d = d.slice(1);
-        if (!d) return '';
-        if (d.length < 4)   return `(${d}`;
-        if (d.length < 7)   return `(${d.slice(0,3)}) ${d.slice(3)}`;
-        return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}` + (d.length>10 ? ` x${d.slice(10)}` : "");
-      }
-      function formatUSPhoneFinal(value){
-        let d = onlyDigits(value);
-        if (d.startsWith('1') && d.length>10) d = d.slice(1);
-        if (d.length>=10){
-          const base = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}`;
-          return d.length>10 ? `${base} x${d.slice(10)}` : base;
-        }
-        return value.trim();
-      }
-      el.phone.addEventListener('input', ()=>{ el.phone.value = formatUSPhoneLive(el.phone.value); });
-      el.phone.addEventListener('blur', ()=>{ el.phone.value = formatUSPhoneFinal(el.phone.value); });
-
-      /* ---- Email normalize ---- */
+      /* Helpers */
+      const showToast=(m="Saved.",ms=3200)=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); setTimeout(()=>el.toast.classList.remove('show'),ms); };
+      const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
+      const setBusy=(on)=>{ busy=!!on; [el.save,el.clear,el.logo,el.removeLogo,el.name,el.street,el.city,el.state,el.zip,el.phone,el.email].forEach(b=>b&&(b.disabled=busy)); el.logoStatus.textContent=on?"Working…":""; };
+      const onlyDigits=(s)=>String(s||"").replace(/\D+/g,"");
       const normalizeEmail=(s)=>String(s||"").trim().toLowerCase();
-      const validEmail=(s)=>/^[^\s@]+@[^\s@]{2,}\.[^\s@]{2,}$/i.test(String(s||""));
+      const validEmail=(s)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(String(s||""));
+      const escapeHTML=(s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-      /* ---- ZIP helpers ---- */
-      function maskZipLive(value){
-        const d = onlyDigits(value).slice(0,5);
-        return d;
+      /* Phone mask */
+      function fmtPhoneLive(v){
+        let d=onlyDigits(v); if(d.startsWith('1')&&d.length>10) d=d.slice(1);
+        if(!d) return ""; if(d.length<4) return `(${d}`; if(d.length<7) return `(${d.slice(0,3)}) ${d.slice(3)}`;
+        return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}` + (d.length>10?` x${d.slice(10)}`:"");
       }
-      el.zip.addEventListener('input', ()=>{ el.zip.value = maskZipLive(el.zip.value); el.zipHint.textContent = ""; });
-
-      async function loadZipIndexFor(state){
-        if (!state) return [];
-        if (zipIndexCache[state]) return zipIndexCache[state];
-
-        // Try to load a state JSON from your repo: /Farm-vista/assets/data/zips/IL.json
-        try{
-          const res = await fetch(`/Farm-vista/assets/data/zips/${state}.json`, { cache: 'force-cache' });
-          if (res.ok){
-            const arr = await res.json();
-            if (Array.isArray(arr)) { zipIndexCache[state] = arr; return arr; }
-          }
-        }catch(_){ /* ignore */ }
-
-        // Minimal inline IL fallback so IL "just works" without extra files.
-        if (state === 'IL' && !zipIndexCache['IL']) {
-          zipIndexCache['IL'] = [
-            {"zip":"62629","city":"Chatham"},{"zip":"62701","city":"Springfield"},
-            {"zip":"62301","city":"Quincy"},{"zip":"62002","city":"Alton"},
-            {"zip":"61265","city":"Moline"},{"zip":"61101","city":"Rockford"},
-            {"zip":"61820","city":"Champaign"},{"zip":"61801","city":"Urbana"},
-            {"zip":"62704","city":"Springfield"},{"zip":"62650","city":"Jacksonville"}
-          ];
-        }
-        return zipIndexCache[state] || [];
+      function fmtPhoneFinal(v){
+        let d=onlyDigits(v); if(d.startsWith('1')&&d.length>10) d=d.slice(1);
+        if(d.length>=10){ const base=`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}`; return d.length>10?`${base} x${d.slice(10)}`:base; }
+        return v.trim();
       }
+      el.phone.addEventListener('input', ()=>{ el.phone.value = fmtPhoneLive(el.phone.value); });
+      el.phone.addEventListener('blur',  ()=>{ el.phone.value = fmtPhoneFinal(el.phone.value); });
 
-      async function autofillZipFromCityState(){
-        const city = String(el.city.value||"").trim().toUpperCase();
-        const st   = String(el.state.value||"").trim().toUpperCase();
-        if (!city || !st) return;
-
-        const idx = await loadZipIndexFor(st);
-        if (!idx.length) { el.zipHint.textContent = "ZIP helper unavailable for this state."; return; }
-
-        const matches = idx.filter(r => String(r.city||"").toUpperCase() === city);
-        if (matches.length === 1){
-          el.zip.value = matches[0].zip;
-          el.zipHint.textContent = "";
-        }else if (matches.length > 1){
-          const list = matches.slice(0,5).map(r=>r.zip).join(', ');
-          el.zipHint.textContent = `Multiple ZIPs: ${list}`;
-        }else{
-          el.zipHint.textContent = "No ZIP match for city/state.";
-        }
+      /* ZIP helpers (IL offline) */
+      function autofillZipFromCityState(){
+        const st=(el.state.value||"").toUpperCase();
+        const city=(el.city.value||"").trim().toUpperCase();
+        if(st!=="IL"||!city) return;
+        const key = city.replace(/\s+/g,'_');
+        const z = IL_ZIPS[key] || IL_ZIPS[city] || "";
+        if(z){ el.zip.value=z; el.zipHint.textContent=""; }
       }
-
-      async function autofillCityStateFromZip(){
-        const zip = onlyDigits(el.zip.value).slice(0,5);
-        if (zip.length !== 5) return;
-        const st = (el.state.value||"").toUpperCase();
-        const states = st ? [st] : ['IL','MO','IA','IN','WI','KY','MI','OH','MN','KS','NE','SD','ND','OK','AR','TN','AL','MS','TX','CO','CA','NY','PA','NJ','GA','NC','SC','VA','WV','MD','MA','CT','RI','VT','NH','ME','AZ','NM','UT','NV','OR','WA','ID','MT','WY','AK','HI','LA','FL','DE','DC']; // broad but finite
-        for (const s of states){
-          const idx = await loadZipIndexFor(s);
-          const hit = idx.find(r=>r.zip === zip);
-          if (hit){
-            if (!el.state.value) el.state.value = s;
-            if (!el.city.value) el.city.value = hit.city;
-            el.zipHint.textContent = "";
-            return;
-          }
-        }
-        el.zipHint.textContent = "ZIP not found in local index.";
+      function autofillCityStateFromZip(){
+        const z=onlyDigits(el.zip.value);
+        if(z.length!==5) return;
+        // reverse for a few we know
+        if(z==="62530"){ if(!el.city.value) el.city.value="Divernon"; el.state.value="IL"; el.zipHint.textContent=""; }
+        if(z==="62629"){ if(!el.city.value) el.city.value="Chatham";  el.state.value="IL"; el.zipHint.textContent=""; }
+        if(z==="62704"||z==="62701"){ if(!el.city.value) el.city.value="Springfield"; el.state.value="IL"; el.zipHint.textContent=""; }
       }
+      el.city.addEventListener('blur',autofillZipFromCityState);
+      el.state.addEventListener('change',autofillZipFromCityState);
+      el.zip.addEventListener('input', ()=>{ el.zip.value = onlyDigits(el.zip.value).slice(0,5); });
+      el.zip.addEventListener('blur',autofillCityStateFromZip);
 
-      el.city.addEventListener('blur', autofillZipFromCityState);
-      el.state.addEventListener('change', async ()=>{ await autofillZipFromCityState(); });
-      el.zip.addEventListener('blur', autofillCityStateFromZip);
-
-      /* ---- Logo handling ---- */
+      /* Logo preview + compression for upload */
       function renderLogo(src){
-        el.logoPreview.innerHTML = "";
-        const url = src || logoDataUrl || logoUrl || "";
-        if(url){
-          const img = new Image();
-          img.alt = "Farm logo";
-          img.src = url;
-          el.logoPreview.appendChild(img);
+        el.logoPreview.innerHTML="";
+        if(src){
+          const img=new Image(); img.alt="Farm logo"; img.src=src; el.logoPreview.appendChild(img);
         }else{
-          const div = document.createElement("div");
-          div.className = "muted";
-          div.textContent = "No logo yet";
-          el.logoPreview.appendChild(div);
+          const div=document.createElement("div"); div.className="muted"; div.textContent="No logo yet"; el.logoPreview.appendChild(div);
         }
       }
-
-      function fileToCompressedDataURL(file, maxSide){
-        return new Promise((resolve, reject)=>{
-          const fr = new FileReader();
-          fr.onerror = reject;
-          fr.onload = ()=>{
-            const img = new Image();
-            img.onload = ()=>{
-              const c = document.createElement("canvas");
-              const ctx = c.getContext("2d");
-              const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
-              const scale = Math.min(1, maxSide / Math.max(w,h));
-              c.width = Math.round(w * scale);
-              c.height = Math.round(h * scale);
-              ctx.clearRect(0,0,c.width,c.height); // preserve alpha
-              ctx.drawImage(img, 0, 0, c.width, c.height);
-              resolve(c.toDataURL("image/png"));
-            };
-            img.onerror = reject;
-            img.src = fr.result;
+      function compressToDataURL(file,maxSide){
+        return new Promise((resolve,reject)=>{
+          const img=new Image(); const url=URL.createObjectURL(file);
+          img.onload=()=>{
+            const c=document.createElement('canvas'), ctx=c.getContext('2d');
+            const w=img.naturalWidth, h=img.naturalHeight, s=Math.min(1, maxSide/Math.max(w,h));
+            c.width=Math.round(w*s); c.height=Math.round(h*s);
+            ctx.clearRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+            URL.revokeObjectURL(url);
+            resolve(c.toDataURL('image/png'));
           };
-          fr.readAsDataURL(file);
+          img.onerror=reject; img.src=url;
         });
       }
       function dataURLtoBlob(dataUrl){
-        const parts = (dataUrl||'').split(',');
-        const mime = (parts[0].match(/:(.*?);/)||[])[1] || 'image/png';
-        const bin = atob(parts[1]||"");
-        const arr = new Uint8Array(bin.length);
-        for (let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
-        return new Blob([arr], { type:mime });
+        const [h,b]=String(dataUrl||'').split(','); const mime=(h.match(/:(.*?);/)||[])[1]||'image/png';
+        const bin=atob(b||""); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+        return new Blob([arr],{type:mime});
       }
-
-      el.logo.addEventListener("change", async ()=>{
-        const f = el.logo.files && el.logo.files[0];
-        if(!f) return;
-        if (f.size > 12*1024*1024){ showErr("Logo file is too large (max 12 MB)."); return; }
-        showErr("");
+      el.logo.addEventListener('change', async ()=>{
+        const f=el.logo.files && el.logo.files[0]; if(!f) return;
+        if (f.size > 12*1024*1024){ showErr("Logo too large (max 12 MB)."); return; }
+        showErr(""); el.logoStatus.textContent="Preparing logo…";
         try{
-          el.logoStatus.textContent = "Preparing logo…";
+          // Instant preview with object URL:
+          renderLogo(URL.createObjectURL(f));
+          // Keep a compressed data URL for upload:
           if (f.type === "image/svg+xml"){
-            const fr = new FileReader();
-            fr.onload = ()=>{ logoDataUrl = String(fr.result||""); renderLogo(logoDataUrl); el.logoStatus.textContent="Ready to save."; };
-            fr.onerror = (e)=>{ console.error(e); showErr("Could not read SVG."); el.logoStatus.textContent=""; };
-            fr.readAsDataURL(f);
+            const r=new FileReader(); r.onload=()=>{ logoDataUrl=String(r.result||""); el.logoStatus.textContent="Ready to save."; }; r.onerror=()=>{ showErr("SVG read failed."); el.logoStatus.textContent=""; }; r.readAsDataURL(f);
           }else{
-            logoDataUrl = await fileToCompressedDataURL(f, 1024);
-            renderLogo(logoDataUrl);
-            el.logoStatus.textContent = "Ready to save.";
+            logoDataUrl = await compressToDataURL(f, 1024);
+            el.logoStatus.textContent="Ready to save.";
           }
-        }catch(e){ console.error(e); showErr("Could not read logo file."); }
+        }catch(e){ console.error(e); showErr("Could not read logo file."); el.logoStatus.textContent=""; }
       });
 
-      el.removeLogo.addEventListener("click", async ()=>{
+      el.removeLogo.addEventListener('click', async ()=>{
         if(!confirm("Remove the saved logo?")) return;
         try{
           setBusy(true); showErr("");
-          const store = getStorage();
-          try{ await deleteObject(storageRef(store, STORAGE_PATH)); }catch(_){} // best-effort
+          const store=getStorage(); try{ await deleteObject(storageRef(store,STORAGE_PATH)); }catch(_){}
           await setDoc(DOC_REF(db), { logoUrl:"", logoData:"", updatedAt: serverTimestamp() }, { merge:true });
-          logoUrl=""; logoDataUrl="";
-          renderLogo("");
-          showToast("Saved. Logo removed.");
-          await loadFromFirestore();
+          logoUrl=""; logoDataUrl=""; renderLogo(""); showToast("Saved. Logo removed.");
         }catch(e){ console.error(e); showErr("Failed to remove logo."); }
         finally{ setBusy(false); }
       });
 
-      /* ---- Load / Save ---- */
-      function composeAddressLine(street, city, state, zip){
-        const a = [];
-        if (street) a.push(street);
-        const line2 = [city, state ? state.toUpperCase() : '', zip].filter(Boolean).join(' ');
-        if (line2) a.push(line2.includes(' ') ? line2 : line2.trim());
-        return a.join('\n').trim();
+      /* Load / Save */
+      function prettyAddress(street,city,state,zip){
+        const l1=(street||"").trim();
+        const l2=[(city||"").trim(), (state||"").trim().toUpperCase(), (zip||"").trim()].filter(Boolean).join(' ');
+        return [l1,l2].filter(Boolean).join('\n');
       }
 
-      async function loadFromFirestore(){
+      async function loadDoc(){
         try{
-          const snap = await getDoc(DOC_REF(db));
-          const d = snap.exists() ? (snap.data()||{}) : {};
+          const snap=await getDoc(DOC_REF(db));
+          const d=snap.exists()? (snap.data()||{}) : {};
+          el.name.value = d.name||"";
+          el.street.value=d.addressStreet||"";
+          el.city.value  =d.addressCity||"";
+          el.state.value =d.addressState||(el.state.value||"IL");
+          el.zip.value   =d.addressZip||"";
+          el.phone.value = d.phone? fmtPhoneFinal(d.phone):"";
+          el.email.value = d.email||"";
+          logoUrl        = d.logoUrl||"";
+          const logoData = d.logoData||"";
+          renderLogo(logoUrl || logoData || "");
 
-          el.name.value  = d.name || "";
-
-          // Prefer component fields; fallback to legacy 'address'
-          el.street.value = d.addressStreet || "";
-          el.city.value   = d.addressCity || "";
-          el.state.value  = d.addressState || (el.state.value || "IL");
-          el.zip.value    = d.addressZip || "";
-
-          el.phone.value  = d.phone ? formatUSPhoneLive(d.phone) : "";
-          el.phone.value  = formatUSPhoneFinal(el.phone.value); // snap to final mask
-          el.email.value  = d.email || "";
-
-          logoUrl         = d.logoUrl || "";
-          logoDataUrl     = d.logoData || "";
-          renderLogo(logoUrl || logoDataUrl || "");
-
-          // Summary view
-          const prettyAddr = composeAddressLine(el.street.value, el.city.value, el.state.value, el.zip.value);
+          const addr=prettyAddress(el.street.value,el.city.value,el.state.value,el.zip.value);
           el.sName.textContent  = el.name.value || "—";
-          el.sAddr.innerHTML    = prettyAddr ? escapeHTML(prettyAddr).replace(/\n/g,"<br>") : "—";
+          el.sAddr.innerHTML    = addr ? escapeHTML(addr).replace(/\n/g,"<br>") : "—";
           el.sPhone.textContent = el.phone.value || "—";
           el.sEmail.textContent = (el.email.value && validEmail(el.email.value)) ? el.email.value : "Not available";
-          el.summary.hidden = false;
+          el.summary.hidden=false;
 
-          showErr("");
-        }catch(e){
-          console.error("[Company] load error:", e);
-          showErr("Failed to load details.");
-        }
+          // Make sure phone shows mask even if number was raw digits
+          if (el.phone.value) el.phone.value = fmtPhoneFinal(el.phone.value);
+        }catch(e){ console.error(e); showErr("Failed to load details."); }
       }
 
       async function uploadLogoIfNeeded(){
-        if (!logoDataUrl) return { logoUrl, logoData:"" }; // nothing new chosen
+        if(!logoDataUrl) return { logoUrl, logoData:"" };
         try{
-          const store = getStorage();
-          const ref = storageRef(store, STORAGE_PATH);
-          const blob = dataURLtoBlob(logoDataUrl);
-          el.logoStatus.textContent = "Uploading logo…";
-          await uploadBytes(ref, blob, {
-            contentType: blob.type || 'image/png',
-            cacheControl: 'public,max-age=31536000,immutable',
-            customMetadata: { app: 'FarmVista', kind: 'company-logo' }
-          });
-          const url = await getDownloadURL(ref);
-          el.logoStatus.textContent = "Logo uploaded.";
-          return { logoUrl: url, logoData: "" }; // prefer URL
+          const store=getStorage(); const ref=storageRef(store,STORAGE_PATH);
+          const blob=dataURLtoBlob(logoDataUrl);
+          el.logoStatus.textContent="Uploading logo…";
+          await uploadBytes(ref,blob,{ contentType: blob.type||'image/png', cacheControl:'public,max-age=31536000,immutable', customMetadata:{app:'FarmVista',kind:'company-logo'} });
+          const url=await getDownloadURL(ref);
+          el.logoStatus.textContent="Logo uploaded.";
+          return { logoUrl:url, logoData:"" };
         }catch(e){
-          console.warn("[Company] Storage upload failed, embedding data URL:", e);
-          el.logoStatus.textContent = "Using inline logo.";
-          return { logoUrl:"", logoData: logoDataUrl };
+          console.warn("Storage failed, embedding logo:", e);
+          el.logoStatus.textContent="Using inline logo.";
+          return { logoUrl:"", logoData:logoDataUrl };
         }
       }
 
       function validate(){
-        if (!String(el.name.value||"").trim()){ showErr("Please enter the farm/company name."); return false; }
-        const z = onlyDigits(el.zip.value);
-        if (z && z.length !== 5){ showErr("ZIP must be 5 digits."); return false; }
-        const em = normalizeEmail(el.email.value);
-        if (em && !validEmail(em)){ showErr("Email looks invalid."); return false; }
+        if(!String(el.name.value||"").trim()){ showErr("Please enter the farm/company name."); return false; }
+        const z=onlyDigits(el.zip.value); if(z && z.length!==5){ showErr("ZIP must be 5 digits."); return false; }
+        const em=normalizeEmail(el.email.value); if(em && !validEmail(em)){ showErr("Email looks invalid."); return false; }
         showErr(""); return true;
       }
 
       async function save(){
-        if (busy) return;
-        if (!validate()) return;
-
+        if(busy) return;
+        if(!validate()) return;
         setBusy(true);
-
         try{
-          const logoRes = await uploadLogoIfNeeded();
-
-          const phoneFinal = formatUSPhoneFinal(el.phone.value);
-          const emailNorm  = normalizeEmail(el.email.value);
-          const zipClean   = onlyDigits(el.zip.value).slice(0,5);
-
-          const addressPretty = composeAddressLine(
-            String(el.street.value||"").trim(),
-            String(el.city.value||"").trim(),
-            String(el.state.value||"").trim(),
-            zipClean
-          );
-
-          const payload = {
-            name: String(el.name.value||"").trim(),
-            // address components
-            addressStreet: String(el.street.value||"").trim(),
-            addressCity:   String(el.city.value||"").trim(),
-            addressState:  String(el.state.value||"").trim().toUpperCase(),
-            addressZip:    zipClean,
-            // legacy combined (for reports that expect one block)
-            address: addressPretty,
-            // contact
-            phone: phoneFinal,
+          const logoRes=await uploadLogoIfNeeded();
+          const zipClean=onlyDigits(el.zip.value).slice(0,5);
+          const phoneFinal=fmtPhoneFinal(el.phone.value);
+          const emailNorm=normalizeEmail(el.email.value);
+          const payload={
+            name:String(el.name.value||"").trim(),
+            addressStreet:String(el.street.value||"").trim(),
+            addressCity:String(el.city.value||"").trim(),
+            addressState:String(el.state.value||"").trim().toUpperCase(),
+            addressZip:zipClean,
+            address: prettyAddress(el.street.value, el.city.value, el.state.value, zipClean),
+            phone:phoneFinal,
             email: emailNorm && validEmail(emailNorm) ? emailNorm : "",
-            // logo
-            logoUrl: logoRes.logoUrl,
-            logoData: logoRes.logoData,
+            logoUrl:logoRes.logoUrl,
+            logoData:logoRes.logoData,
             updatedAt: serverTimestamp()
           };
-
           await setDoc(DOC_REF(db), payload, { merge:true });
-
           logoUrl = logoRes.logoUrl || logoUrl;
-          const prettyAddr = addressPretty;
-          el.sName.textContent  = payload.name || "—";
-          el.sAddr.innerHTML    = prettyAddr ? escapeHTML(prettyAddr).replace(/\n/g,"<br>") : "—";
-          el.sPhone.textContent = payload.phone || "—";
-          el.sEmail.textContent = payload.email || "Not available";
-          el.summary.hidden = false;
-
           el.logoStatus.textContent = logoRes.logoUrl ? "Logo linked." : (logoRes.logoData ? "Logo embedded." : "");
           showToast("Saved.");
-        }catch(e){
-          console.error("[Company] save error:", e);
-          showErr("Save failed. Check permissions or network.");
-        }finally{
-          setBusy(false);
-        }
+          await loadDoc(); // refresh summary
+        }catch(e){ console.error(e); showErr("Save failed. Check permissions or network."); }
+        finally{ setBusy(false); }
       }
 
-      /* ---- Wire + init ---- */
       el.save.addEventListener('click', save);
-      window.addEventListener('keydown', (e)=>{ if ((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); save(); }});
+      window.addEventListener('keydown', (e)=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'){ e.preventDefault(); save(); }});
       el.clear.addEventListener('click', ()=>{
-        if (busy) return;
-        if (!confirm("Clear unsaved changes?")) return;
+        if(busy) return;
+        if(!confirm("Clear unsaved changes?")) return;
         el.name.value=""; el.street.value=""; el.city.value=""; el.state.value="IL"; el.zip.value="";
         el.phone.value=""; el.email.value=""; logoDataUrl=""; renderLogo(""); el.logoStatus.textContent=""; el.zipHint.textContent="";
         showErr("");
       });
 
       (async ()=>{
-        await ready;         // same readiness gate as Ideas form
+        await ready;           // same readiness gate as Ideas page
         db = getFirestore();
-        await loadFromFirestore();
+        await loadDoc();
+        // Ensure phone formats whatever you already typed
+        el.phone.value = fmtPhoneFinal(el.phone.value);
       })();
     })();
   </script>
