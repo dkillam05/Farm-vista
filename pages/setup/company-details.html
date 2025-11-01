@@ -10,7 +10,7 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <script src="/Farm-vista/js/theme-boot.js" defer></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -68,12 +68,14 @@
     .error.show{display:block}
   </style>
 
-  <!-- Ensure fv-shell (in case boot order differs on subpages) -->
-  <script>(function(){
-    if(!customElements.get('fv-shell')){
-      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
-    }
-  })();</script>
+  <script>
+    // Ensure <fv-shell> if navigating directly to this subpage
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+      }
+    })();
+  </script>
 </head>
 <body>
   <fv-shell>
@@ -159,11 +161,6 @@
   (function(){
     "use strict";
 
-    // ---- Guards: require Firebase from theme-boot ----
-    if(!(window.firebase && firebase.firestore && firebase.storage)){
-      console.error('Firebase SDK not available via theme-boot.js');
-    }
-
     const $ = id => document.getElementById(id);
 
     const coName = $("coName"), coAddr = $("coAddr"), coPhone = $("coPhone"), coEmail = $("coEmail");
@@ -173,16 +170,15 @@
     const toast = $("toast"), errBox = $("err");
     const btnSave = $("save"), btnClear = $("clear");
 
-    // --- Data paths ---
-    const FS_DOC_PATH = 'company/main';                 // Firestore doc (profile)
-    const STORAGE_LOGO_PATH = 'company/logo-main.png';  // Storage canonical file
+    // --- Firestore/Storage paths ---
+    const FS_DOC_PATH = 'company/main';
+    const STORAGE_LOGO_PATH = 'company/logo-main.png';
 
-    let db = null, storage = null;
-    let logoDataUrl = "";   // current chosen (compressed) logo as data URL (unsaved)
+    let logoDataUrl = "";   // chosen (compressed) logo as data URL (unsaved)
     let logoUrl = "";       // last saved storage URL
     let busy = false;
 
-    // ========= UI helpers =========
+    // ===== UI helpers =====
     const showToast = (msg="Saved.")=>{
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
@@ -213,7 +209,7 @@
     coPhone.addEventListener("blur", ()=>{ coPhone.value = formatUSPhone(coPhone.value); });
     coEmail.addEventListener("blur", ()=>{ coEmail.value = normalizeEmail(coEmail.value); });
 
-    // ========= Logo handling =========
+    // ===== Logo handling =====
     function renderLogo(src){
       logoPreview.innerHTML = "";
       const url = src || logoDataUrl || logoUrl || "";
@@ -243,10 +239,9 @@
             const scale = Math.min(1, maxSide / Math.max(w,h));
             c.width = Math.round(w * scale);
             c.height = Math.round(h * scale);
-            // Preserve alpha by clearing (no white bg)
-            ctx.clearRect(0,0,c.width,c.height);
+            ctx.clearRect(0,0,c.width,c.height); // preserve transparency
             ctx.drawImage(img, 0, 0, c.width, c.height);
-            resolve(c.toDataURL("image/png")); // PNG keeps sharp logos
+            resolve(c.toDataURL("image/png"));
           };
           img.onerror = reject;
           img.src = fr.result;
@@ -293,8 +288,7 @@
         setBusy(true);
         showErr("");
         try{
-          if (!storage) storage = firebase.storage();
-          await storage.ref(STORAGE_LOGO_PATH).delete();
+          await firebase.storage().ref(STORAGE_LOGO_PATH).delete();
         }catch(e){ /* ignore if not present or no permission */ }
         await firebase.firestore().doc(FS_DOC_PATH).set({
           logoUrl: "", logoData: "", updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -309,12 +303,30 @@
       }
     });
 
-    // ========= Firestore IO =========
+    // ===== Auth + load gating =====
+    function waitForAuth(){
+      return new Promise(resolve=>{
+        try{
+          const unsub = firebase.auth().onAuthStateChanged(u=>{ unsub(); resolve(u||null); });
+        }catch(e){
+          console.warn("Auth not ready yet; retrying…", e);
+          setTimeout(async ()=>resolve(await waitForAuth()), 250);
+        }
+      });
+    }
+
+    // ===== Firestore IO =====
     async function loadFromFirestore(){
       showErr("");
       try{
         const snap = await firebase.firestore().doc(FS_DOC_PATH).get();
-        const d = snap.exists ? (snap.data()||{}) : {};
+        if (!snap.exists) {
+          // No doc yet: don't error—just render empty controls.
+          renderLogo("");
+          renderSummary({ name:"", address:"", phone:"", email:"" });
+          return;
+        }
+        const d = snap.data()||{};
         coName.value  = d.name   || "";
         coAddr.value  = d.address|| "";
         coPhone.value = d.phone  || "";
@@ -324,16 +336,16 @@
         renderLogo(logoUrl || logoDataUrl || "");
         renderSummary({ name: coName.value, address: coAddr.value, phone: coPhone.value, email: coEmail.value });
       }catch(e){
-        console.error(e);
-        showErr("Failed to load details.");
+        console.error("Company Details load error:", e);
+        const code = (e && e.code) ? ` (${e.code})` : "";
+        showErr("Failed to load details"+code+".");
       }
     }
 
     async function uploadLogoIfNeeded(){
       if (!logoDataUrl) return { logoUrl, logoData:"" }; // nothing new chosen
       try{
-        if (!storage) storage = firebase.storage();
-        const ref = storage.ref(STORAGE_LOGO_PATH);
+        const ref = firebase.storage().ref(STORAGE_LOGO_PATH);
         const blob = dataURLtoBlob(logoDataUrl);
         logoStatus.textContent = "Uploading logo…";
         await ref.put(blob, {
@@ -343,9 +355,8 @@
         });
         const url = await ref.getDownloadURL();
         logoStatus.textContent = "Logo uploaded.";
-        return { logoUrl: url, logoData:"" }; // prefer URL path
+        return { logoUrl: url, logoData:"" }; // prefer URL
       }catch(e){
-        // If Storage blocked by rules, fall back to embedding data URL in Firestore
         console.warn("Storage upload failed, falling back to inline data URL:", e);
         logoStatus.textContent = "Using inline logo.";
         return { logoUrl:"", logoData: logoDataUrl };
@@ -363,9 +374,7 @@
       const emailToStore = isLikelyValidEmail(emailNorm) ? emailNorm : "";
 
       try{
-        // handle logo first to get URL (or inline data)
         const logoRes = await uploadLogoIfNeeded();
-
         const payload = {
           name,
           address: coAddr.value.trim(),
@@ -377,19 +386,20 @@
         };
 
         await firebase.firestore().doc(FS_DOC_PATH).set(payload, { merge:true });
-        logoUrl = logoRes.logoUrl;  // persist if we got one
+        logoUrl = logoRes.logoUrl;
         renderSummary({ name: payload.name, address: payload.address, phone: payload.phone, email: payload.email });
         showToast("Saved.");
         logoStatus.textContent = logoRes.logoUrl ? "Logo linked." : (logoRes.logoData ? "Logo embedded." : "");
       }catch(e){
-        console.error(e);
-        showErr("Save failed. Check permissions or network.");
+        console.error("Company Details save error:", e);
+        const code = (e && e.code) ? ` (${e.code})` : "";
+        showErr("Save failed"+code+". Check permissions or network.");
       }finally{
         setBusy(false);
       }
     }
 
-    // ========= Summary =========
+    // ===== Summary =====
     function renderSummary(obj){
       sName.textContent  = obj.name ? obj.name : "—";
       sAddr.innerHTML    = obj.address ? escapeHTML(obj.address).replace(/\n/g,"<br>") : "—";
@@ -398,7 +408,7 @@
       summary.hidden = false;
     }
 
-    // ========= Wire buttons =========
+    // ===== Wire buttons =====
     btnSave.addEventListener("click", saveToFirestore);
     btnClear.addEventListener("click", ()=>{
       if(busy) return;
@@ -408,14 +418,13 @@
       showErr("");
     });
 
-    // ========= Init after boot =========
+    // ===== Init after boot =====
     document.addEventListener('DOMContentLoaded', async ()=>{
-      try{
-        db = firebase.firestore();
-        storage = firebase.storage();
-      }catch(e){
-        console.warn('Firebase not ready yet; proceeding with Firestore-only features if possible.', e);
+      if(!(window.firebase && firebase.firestore && firebase.storage && firebase.auth)){
+        console.error('Firebase SDK not available via theme-boot.js'); showErr("Failed to load details (sdk)."); return;
       }
+      // Wait for a real auth user before reading (avoids rules “permission-denied” on first paint)
+      await waitForAuth();
       await loadFromFirestore();
     });
   })();
