@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Diagnostics</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes (absolute paths, Option A safe) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    :root{ --ok:#2F6C3C; --warn:#D0C542; --err:#B3261E; --ink:#141514; --card:var(--surface,#fff); }
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    h1{margin:0 0 6px 0}
+    p.sub{margin:0 0 18px 0;color:var(--muted,#67706B)}
+    .grid{display:grid;gap:14px}
+    .card{border:1px solid var(--border);border-radius:14px;background:var(--card);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden}
+    .head{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.10), transparent);}
+    .body{padding:14px}
+    .kvs{display:grid;grid-template-columns:260px 1fr;gap:8px 14px}
+    .k{color:#5b625e}
+    .v{color:var(--ink)}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace}
+    .btns{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 0}
+    .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:12px;
+      background:var(--card);padding:10px 14px;font-weight:800;cursor:pointer}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff}
+    .btn-warn{border-color:transparent;background:#D0C542;color:#141514}
+    .btn-danger{border-color:transparent;background:#B3261E;color:#fff}
+    .status{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;font-weight:800}
+    .ok{background:rgba(47,108,60,.12);color:#2F6C3C}
+    .warn{background:rgba(208,197,66,.18);color:#6a5f08}
+    .err{background:rgba(179,38,30,.12);color:#B3261E}
+    .log{border:1px dashed var(--border);border-radius:10px;background:#fafbfa;padding:10px;max-height:42vh;overflow:auto}
+    .small{font-size:13px;color:#5b625e}
+    .hl{padding:2px 6px;border-radius:6px;background:#f2f3f2}
+    code{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px;}
+  </style>
+
+  <!-- Ensure fv-shell (for consistent chrome); safe if already present -->
+  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s); }})();</script>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1>Diagnostics</h1>
+      <p class="sub">Quick checks for build, auth, user context, Service Worker, Firestore, and Storage. Includes a real Storage upload test to your <span class="hl">user-uploads/&lt;uid&gt;/diagnostics</span> folder.</p>
+
+      <div class="grid">
+
+        <!-- App / Build -->
+        <section class="card">
+          <header class="head"><strong>App & Build</strong> <span id="st-app" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <div class="kvs mono">
+              <div class="k">Location</div><div class="v" id="v-url"></div>
+              <div class="k">FV Version</div><div class="v" id="v-version"></div>
+              <div class="k">Config Present</div><div class="v" id="v-config"></div>
+              <div class="k">Config Project</div><div class="v" id="v-project"></div>
+              <div class="k">Storage Bucket</div><div class="v" id="v-bucket"></div>
+            </div>
+            <div class="btns">
+              <button id="btn-run" class="btn btn-primary">▶ Run All Tests</button>
+              <button id="btn-refresh" class="btn">↻ Soft Refresh (emit <code>fv:refresh</code>)</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Auth -->
+        <section class="card">
+          <header class="head"><strong>Auth</strong> <span id="st-auth" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <div class="kvs mono">
+              <div class="k">Signed In</div><div class="v" id="v-signed"></div>
+              <div class="k">UID</div><div class="v" id="v-uid"></div>
+              <div class="k">Email</div><div class="v" id="v-email"></div>
+              <div class="k">Display Name</div><div class="v" id="v-name"></div>
+              <div class="k">Token Admin Claim</div><div class="v" id="v-admin"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- User Context -->
+        <section class="card">
+          <header class="head"><strong>User Context</strong> <span id="st-ctx" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <div class="kvs mono">
+              <div class="k">Role</div><div class="v" id="v-role"></div>
+              <div class="k">Allowed IDs (count)</div><div class="v" id="v-allow-count"></div>
+              <div class="k">Last Updated</div><div class="v" id="v-ctx-updated"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Service Worker & Caches -->
+        <section class="card">
+          <header class="head"><strong>Service Worker & Caches</strong> <span id="st-sw" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <div class="kvs mono">
+              <div class="k">SW Registered</div><div class="v" id="v-sw"></div>
+              <div class="k">Controlled</div><div class="v" id="v-sw-ctrl"></div>
+              <div class="k">Cache Keys</div><div class="v" id="v-cache-keys"></div>
+            </div>
+            <div class="btns">
+              <button id="btn-nuke" class="btn btn-danger">🧨 Nuke SW Caches</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Firebase Modules -->
+        <section class="card">
+          <header class="head"><strong>Firebase Modules</strong> <span id="st-mods" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <div class="kvs mono">
+              <div class="k">Firestore API</div><div class="v" id="v-has-fs"></div>
+              <div class="k">Storage API</div><div class="v" id="v-has-st"></div>
+              <div class="k">Storage Bucket (from SDK)</div><div class="v" id="v-bucket-sdk"></div>
+              <div class="k">Module Fresh Import</div><div class="v" id="v-fresh"></div>
+            </div>
+            <div class="small">If “Module Fresh Import” is <em>false</em> or old, your Service Worker may be serving a stale <code>firebase-init.js</code>.</div>
+          </div>
+        </section>
+
+        <!-- Storage Upload Test -->
+        <section class="card">
+          <header class="head"><strong>Storage Upload Test</strong> <span id="st-up" class="status warn">⏳ Pending</span></header>
+          <div class="body">
+            <p class="small">Uploads a tiny text blob to <span class="hl">user-uploads/&lt;uid&gt;/diagnostics/diag-&lt;timestamp&gt;.txt</span>. This path conforms to your Storage rules.</p>
+            <div class="btns">
+              <button id="btn-upload" class="btn btn-primary">⬆ Run Storage Upload</button>
+            </div>
+            <div class="log mono" id="log"></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </fv-shell>
+
+  <script type="module">
+    const $ = (s)=>document.querySelector(s);
+    const st = {
+      app: $('#st-app'), auth: $('#st-auth'), ctx: $('#st-ctx'),
+      sw: $('#st-sw'), mods: $('#st-mods'), up: $('#st-up')
+    };
+    const vv = {
+      url: $('#v-url'), version: $('#v-version'), config: $('#v-config'), project: $('#v-project'), bucket: $('#v-bucket'),
+      signed: $('#v-signed'), uid: $('#v-uid'), email: $('#v-email'), name: $('#v-name'), admin: $('#v-admin'),
+      role: $('#v-role'), allow: $('#v-allow-count'), ctxUp: $('#v-ctx-updated'),
+      sw: $('#v-sw'), swCtrl: $('#v-sw-ctrl'), cacheKeys: $('#v-cache-keys'),
+      hasFs: $('#v-has-fs'), hasSt: $('#v-has-st'), bucketSdk: $('#v-bucket-sdk'), fresh: $('#v-fresh')
+    };
+    const logEl = $('#log');
+    const addLog = (l)=>{ const t = new Date().toLocaleTimeString(); logEl.textContent += `[${t}] ${l}\\n`; logEl.scrollTop = logEl.scrollHeight; };
+    const setOK   = (el)=>{ el.className='status ok';   el.textContent='✅ OK'; };
+    const setWARN = (el)=>{ el.className='status warn'; el.textContent='⚠️ Check'; };
+    const setERR  = (el)=>{ el.className='status err';  el.textContent='❌ Error'; };
+
+    function setKV(el, val){ el.textContent = (val === undefined || val === null || val === '') ? '—' : String(val); }
+
+    async function runApp(){
+      setKV(vv.url, location.href);
+      const ver = window.FV_VERSION && window.FV_VERSION.number;
+      setKV(vv.version, ver || 'unknown');
+      const cfg = window.FV_FIREBASE_CONFIG || null;
+      setKV(vv.config, cfg ? 'true' : 'false');
+      setKV(vv.project, cfg?.projectId || '—');
+      setKV(vv.bucket, cfg?.storageBucket || '—');
+      setOK(st.app);
+    }
+
+    async function runAuth(mod){
+      try{
+        const auth = (mod.getAuth && mod.getAuth()) || window.firebaseAuth || null;
+        const u = auth?.currentUser || null;
+        setKV(vv.signed, !!u);
+        setKV(vv.uid, u?.uid || '');
+        setKV(vv.email, u?.email || '');
+        setKV(vv.name, u?.displayName || '');
+        let adminClaim = '—';
+        if (u && mod.onIdTokenChanged){
+          try{
+            const tok = await u.getIdTokenResult?.();
+            adminClaim = tok?.claims?.admin === true ? 'true' : 'false';
+          }catch{}
+        }
+        setKV(vv.admin, adminClaim);
+        setOK(st.auth);
+      }catch(e){ setERR(st.auth); addLog('Auth error: '+e); }
+    }
+
+    async function runCtx(){
+      try{
+        const ctx = window.FVUserContext && (await window.FVUserContext.ready());
+        setKV(vv.role, ctx?.roleName || '—');
+        setKV(vv.allow, Array.isArray(ctx?.allowedIds) ? ctx.allowedIds.length : 0);
+        setKV(vv.ctxUp, ctx?.updatedAt || '—');
+        setOK(st.ctx);
+      }catch(e){ setERR(st.ctx); addLog('UserContext error: '+e); }
+    }
+
+    async function runSW(){
+      try{
+        const reg = await navigator.serviceWorker?.getRegistration?.();
+        setKV(vv.sw, !!reg);
+        setKV(vv.swCtrl, !!navigator.serviceWorker?.controller);
+        const keys = await caches?.keys?.() || [];
+        setKV(vv.cacheKeys, keys.join(', ') || '—');
+        setOK(st.sw);
+      }catch(e){ setERR(st.sw); addLog('SW error: '+e); }
+    }
+
+    async function runModulesFresh(){
+      try{
+        const fresh = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+        const hasFs = !!(fresh.getFirestore && fresh.doc && fresh.getDoc && fresh.addDoc);
+        const hasSt = !!(fresh.getStorage && (fresh.ref || fresh.storageRef) && fresh.uploadBytes && fresh.getDownloadURL);
+        setKV(vv.hasFs, hasFs);
+        setKV(vv.hasSt, hasSt);
+        let bucketSdk = '—';
+        try{
+          const app = (fresh.getApp ? fresh.getApp() : null) || window.firebaseApp || null;
+          const st = fresh.getStorage && fresh.getStorage(app);
+          // Read bucket from app options if available
+          bucketSdk = app?.options?.storageBucket || '—';
+        }catch{}
+        setKV(vv.bucketSdk, bucketSdk);
+        setKV(vv.fresh, hasSt && hasFs ? 'true' : 'false');
+        (hasSt && hasFs) ? setOK(st.mods) : setWARN(st.mods);
+      }catch(e){
+        setERR(st.mods);
+        setKV(vv.fresh, 'false');
+        addLog('Fresh import failed: '+e);
+      }
+    }
+
+    async function doUploadTest(){
+      try{
+        const fresh = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+        const hasSt = !!(fresh.getStorage && (fresh.ref || fresh.storageRef) && fresh.uploadBytes && fresh.getDownloadURL);
+        if (!hasSt){
+          setERR(st.up);
+          addLog('Storage APIs not available (is firebase-storage.js imported in firebase-init.js?)');
+          return;
+        }
+        const auth = (fresh.getAuth && fresh.getAuth()) || window.firebaseAuth || null;
+        const u = auth?.currentUser || null;
+        if (!u){ setERR(st.up); addLog('No signed-in user; cannot compute user-uploads/<uid> path.'); return; }
+
+        const store = fresh.getStorage();
+        const storageRef = (fresh.storageRef || fresh.ref);
+        const ts = Date.now();
+        const filename = `diag-${ts}.txt`;
+        const path = `user-uploads/${u.uid}/diagnostics/${filename}`;
+
+        const blob = new Blob([`FarmVista Diagnostics OK @ ${new Date().toISOString()}`], { type:'text/plain' });
+        addLog(`Uploading to gs://${(window.FV_FIREBASE_CONFIG && window.FV_FIREBASE_CONFIG.storageBucket) || '(bucket?)'}/${path}`);
+        const r = storageRef(store, path);
+        await fresh.uploadBytes(r, blob, { contentType:'text/plain' });
+        const url = await fresh.getDownloadURL(r);
+        addLog('Upload success. Download URL: '+url);
+        setOK(st.up);
+      }catch(e){
+        setERR(st.up);
+        addLog('Upload failed: '+(e && (e.message||e.code||e)) );
+      }
+    }
+
+    // Buttons
+    $('#btn-run').addEventListener('click', async ()=>{
+      // reset statuses
+      [st.app, st.auth, st.ctx, st.sw, st.mods, st.up].forEach(set=>setWARN(set));
+      logEl.textContent = '';
+      const mod = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+      await runApp();
+      await runAuth(mod);
+      await runCtx();
+      await runSW();
+      await runModulesFresh();
+      addLog('All checks complete.');
+    });
+
+    $('#btn-refresh').addEventListener('click', ()=>{
+      try { document.dispatchEvent(new CustomEvent('fv:refresh')); addLog('Emitted fv:refresh'); } catch {}
+    });
+
+    $('#btn-nuke').addEventListener('click', async ()=>{
+      try{
+        navigator.serviceWorker?.controller?.postMessage('NUKE_CACHES');
+        addLog('Sent NUKE_CACHES to Service Worker. Reloading…');
+        setTimeout(()=>location.reload(), 600);
+      }catch(e){ addLog('NUKE_CACHES error: '+e); }
+    });
+
+    $('#btn-upload').addEventListener('click', doUploadTest);
+
+    // Auto run basic checks on load
+    (async()=>{
+      const mod = await import('/Farm-vista/js/firebase-init.js?rev='+Date.now());
+      await runApp();
+      await runAuth(mod);
+      await runCtx();
+      await runSW();
+      await runModulesFresh();
+      addLog('Initial checks complete. You can now run the Storage upload test.');
+    })();
+  </script>
+</body>
+</html>
