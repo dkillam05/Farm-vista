@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes (absolute paths match your repo structure) -->
+  <!-- Standard includes -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -40,7 +40,7 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
-  <!-- Ensure <fv-shell> exists when deep-linking to this page -->
+  <!-- Ensure <fv-shell> exists when deep-linking -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
@@ -82,7 +82,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Modular Firebase init (same pattern as Ideas). Saves to /company/main -->
   <script type="module">
     import {
       ready,
@@ -101,8 +100,8 @@
         toast:$('#toast')
       };
 
-      // Firestore path for company settings (NOT under feedback)
       const REF=(db)=>doc(db,'company','main');
+      const CACHE_KEY='fv_company_main';
 
       const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const showToast=(m="Saved.")=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); };
@@ -114,22 +113,28 @@
         return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}`+(d.length>10?` x${d.slice(10)}`:""); }
       function fmtFinal(v){ let d=onlyDigits(v); if(d.startsWith('1')&&d.length>10)d=d.slice(1);
         if(d.length>=10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}`+(d.length>10?` x${d.slice(10)}`:""); return v.trim(); }
-      $('#farmPhone').addEventListener('input', ()=>{ el.phone.value = fmtLive(el.phone.value); });
-      $('#farmPhone').addEventListener('blur',  ()=>{ el.phone.value = fmtFinal(el.phone.value); });
+      el.phone.addEventListener('input', ()=>{ el.phone.value = fmtLive(el.phone.value); });
+      el.phone.addEventListener('blur',  ()=>{ el.phone.value = fmtFinal(el.phone.value); });
+
+      function fillForm(d){
+        el.name.value = d?.name || "";
+        el.phone.value = d?.phone ? fmtFinal(d.phone) : "";
+      }
+      function cacheWrite(d){
+        try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ name:d.name||"", phone:d.phone||"" })); }catch{}
+      }
+      function cacheRead(){
+        try{ const s=localStorage.getItem(CACHE_KEY); return s? JSON.parse(s): null; }catch{ return null; }
+      }
 
       let db;
 
-      async function load(){
+      async function loadFromFirestore(){
         try{
           const snap=await getDoc(REF(db));
-          if(snap.exists()){
-            const d=snap.data()||{};
-            el.name.value=d.name||"";
-            el.phone.value=d.phone?fmtFinal(d.phone):"";
-          }else{
-            // Empty form if doc doesn't exist yet
-            el.name.value=""; el.phone.value="";
-          }
+          const d=snap.exists()? (snap.data()||{}) : {};
+          fillForm(d);
+          cacheWrite(d);
           showErr("");
         }catch(e){
           console.error(e);
@@ -144,13 +149,11 @@
           const phone=fmtFinal(el.phone.value||"");
           if(!name || !phone){ showErr("Please fill both fields."); return; }
 
-          await setDoc(REF(db), {
-            name, phone,
-            updatedAt: serverTimestamp()
-          }, { merge:true });
-
+          const payload={ name, phone, updatedAt: serverTimestamp() };
+          await setDoc(REF(db), payload, { merge:true });
+          cacheWrite(payload);
           showToast("Saved.");
-          await load();
+          await loadFromFirestore();
         }catch(e){
           console.error(e);
           showErr(`Save failed.\n${e.code||''} ${e.message||''}`.trim());
@@ -158,12 +161,18 @@
       }
 
       el.save.addEventListener('click', save);
-      el.clear.addEventListener('click', ()=>{ el.name.value=""; el.phone.value=""; showErr(""); });
+      el.clear.addEventListener('click', ()=>{ fillForm({name:"", phone:""}); showErr(""); });
 
       (async ()=>{
-        await ready;          // wait for firebase-init.js to finish (same as Ideas)
+        await ready;
         db = getFirestore();
-        await load();
+
+        // 1) Instant repopulate from cache (if present)
+        const cached = cacheRead();
+        if (cached) fillForm(cached);
+
+        // 2) Fresh read from Firestore
+        await loadFromFirestore();
       })();
     })();
   </script>
