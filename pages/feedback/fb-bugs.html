@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Feedback → Bugs</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -24,6 +26,7 @@
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:14px;}
+
     .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
     .row-1{display:grid;gap:10px;grid-template-columns:1fr}
     @media(max-width:980px){.row{grid-template-columns:1fr 1fr}}
@@ -47,10 +50,13 @@
     .thumbs{display:flex;gap:8px;flex-wrap:wrap}
     .thumbs img{width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--border);background:var(--surface)}
 
+    /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
-      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
+      white-space:nowrap;text-align:center;max-width:92vw;overflow:hidden;text-overflow:ellipsis;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
     .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
   </style>
@@ -61,7 +67,8 @@
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
     }
   })();</script>
-</head><body>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Report a Bug / Issue</h1>
@@ -135,174 +142,250 @@
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <script type="module">
-  import {
-    ready,
-    getFirestore, collection, addDoc, serverTimestamp, updateDoc, doc,
-    getStorage, ref, uploadBytes, getDownloadURL
-  } from '/Farm-vista/js/firebase-init.js';
+    import {
+      ready,
+      getFirestore, collection, addDoc, serverTimestamp, updateDoc, doc,
+      getStorage, ref, uploadBytes, getDownloadURL
+    } from '/Farm-vista/js/firebase-init.js';
 
-  (function(){
-    "use strict";
-    const $ = s => document.querySelector(s);
-    const el = {
-      err:   $('#err'),
-      toast: $('#toast'),
-      save:  $('#save'),
-      date:  $('#date'),
-      by:    $('#submittedBy'),
-      main:  $('#mainMenu'),
-      sub:   $('#subMenu'),
-      notes: $('#notes'),
-      shots: $('#shots'),
-      prev:  $('#previews'),
-      mic:   $('#dictate')
-    };
+    (function(){
+      "use strict";
+      const $ = s => document.querySelector(s);
+      const el = {
+        err:   $('#err'),
+        toast: $('#toast'),
+        save:  $('#save'),
+        date:  $('#date'),
+        by:    $('#submittedBy'),
+        main:  $('#mainMenu'),
+        sub:   $('#subMenu'),
+        notes: $('#notes'),
+        shots: $('#shots'),
+        prev:  $('#previews'),
+        mic:   $('#dictate')
+      };
 
-    let db, storage;
+      let db, storage;
 
-    function showToast(msg="Saved.", ms=4000){
-      el.toast.textContent = msg;
-      el.toast.classList.remove('show'); void el.toast.offsetWidth;
-      el.toast.classList.add('show');
-      setTimeout(()=> el.toast.classList.remove('show'), ms);
-    }
-    const showErr = (m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
-    const todayISO = ()=> {
-      const d = new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
-    };
+      /* ============ UI helpers ============ */
+      function showToast(msg="Saved.", ms=4000){
+        el.toast.textContent = msg;
+        el.toast.classList.remove('show'); void el.toast.offsetWidth;
+        el.toast.classList.add('show');
+        setTimeout(()=> el.toast.classList.remove('show'), ms);
+      }
+      const showErr = (m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
+      const todayISO = ()=> {
+        const d = new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+      };
 
-    async function getNavMenu(){
-      try{
-        const mod = await import('/Farm-vista/js/menu.js');
-        if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
-        if (mod?.default?.items)  return mod.default;
-      }catch{}
-      if (window.NAV_MENU?.items) return window.NAV_MENU;
-      if (window.FV_MENU?.items)  return window.FV_MENU;
-      return { items: [] };
-    }
-    function toMainList(NAV_MENU){
-      const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
-      const mains=[];
-      for(const it of items){
-        if(it.type==='group'){
-          const kids=(Array.isArray(it.children)?it.children:[])
-            .filter(c=>c && (c.type==='link' || c.type==='group'))
-            .map(c=>({id: c.id||c.label||c.href||'', label: c.label||c.id||'Item'}));
-          mains.push({ id: it.id||it.label||it.href||'', label: it.label||it.id||'Group', children: kids });
-        }else if(it.type==='link'){
-          mains.push({ id: it.id||it.label||it.href||'', label: it.label||it.id||'Link', children: [] });
+      /* ============ Menu helpers ============ */
+      async function getNavMenu(){
+        try{
+          const mod = await import('/Farm-vista/js/menu.js');
+          if (mod?.NAV_MENU?.items) return mod.NAV_MENU;
+          if (mod?.default?.items)  return mod.default;
+        }catch{}
+        if (window.NAV_MENU?.items) return window.NAV_MENU;
+        if (window.FV_MENU?.items)  return window.FV_MENU;
+        return { items: [] };
+      }
+      function toMainList(NAV_MENU){
+        const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
+        const mains=[];
+        for(const it of items){
+          if(it.type==='group'){
+            const kids=(Array.isArray(it.children)?it.children:[])
+              .filter(c=>c && (c.type==='link' || c.type==='group'))
+              .map(c=>({id: c.id||c.label||c.href||'', label: c.label||c.id||'Item'}));
+            mains.push({ id: it.id||it.label||it.href||'', label: it.label||it.id||'Group', children: kids });
+          }else if(it.type==='link'){
+            mains.push({ id: it.id||it.label||it.href||'', label: it.label||it.id||'Link', children: [] });
+          }
+        }
+        return mains;
+      }
+      function buildMainAndHookSubs(mains){
+        el.main.innerHTML = '<option value="">— Select —</option>';
+        mains.forEach(m=>{
+          const o=document.createElement('option');
+          o.value=String(m.id); o.textContent=String(m.label);
+          o.dataset.children='[]';
+          if (Array.isArray(m.children) && m.children.length){
+            o.dataset.children = JSON.stringify(m.children);
+          }
+          el.main.appendChild(o);
+        });
+        const other=document.createElement('option'); other.value='other'; other.textContent='Other'; other.dataset.children='[]';
+        el.main.appendChild(other);
+
+        el.sub.innerHTML='<option value="">— Select a main menu first —</option>';
+        el.sub.disabled=true;
+
+        el.main.addEventListener('change', ()=>{
+          const opt=el.main.options[el.main.selectedIndex]; let kids=[]; try{ kids=JSON.parse(opt?.dataset?.children||'[]'); }catch{}
+          el.sub.innerHTML='';
+          kids.forEach(c=>{
+            const s=document.createElement('option'); s.value=String(c.id||c.label||''); s.textContent=String(c.label||c.id||'Item');
+            el.sub.appendChild(s);
+          });
+          const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other'; el.sub.appendChild(sOther);
+          el.sub.disabled=false;
+        });
+      }
+
+      /* ============ User prefill (mirrors shell behavior) ============ */
+      function titleCase(s){ return String(s||'').replace(/\s+/g,' ').trim().split(' ').filter(Boolean).map(w=>w[0]?.toUpperCase()+w.slice(1).toLowerCase()).join(' '); }
+      function nameFromEmail(email){
+        const local = String(email||'').split('@')[0]||'';
+        if(!local) return '';
+        if(/[._-]/.test(local)){
+          return titleCase(local.replace(/[0-9]+/g,' ').split(/[._-]+/).join(' '));
+        }
+        const spaced = local.replace(/([a-z])([A-Z])/g,'$1 $2');
+        return titleCase(spaced || local);
+      }
+      let tries = 30;
+      function setSubmittedByNow(){
+        let label='';
+        try{
+          const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+          if (ctx && (ctx.displayName || ctx.email)) label = ctx.displayName || ctx.email || '';
+          if (ctx && !el.by.dataset.uid && ctx.uid) el.by.dataset.uid = ctx.uid;
+          if (ctx && !el.by.dataset.email && ctx.email) el.by.dataset.email = ctx.email;
+        }catch{}
+        if (!label){
+          try{
+            const u = window.firebaseAuth && window.firebaseAuth.currentUser;
+            if (u){
+              label = u.displayName || u.email || '';
+              if (!el.by.dataset.uid) el.by.dataset.uid = u.uid || '';
+              if (!el.by.dataset.email) el.by.dataset.email = u.email || '';
+            }
+          }catch{}
+        }
+        if (label && label.includes('@')) label = nameFromEmail(label);
+        label = titleCase(label || '');
+        if (label) el.by.value = label;
+        return !!label;
+      }
+      function subscribeUserChanges(){
+        const ok = setSubmittedByNow();
+        try{
+          if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function'){
+            window.FVUserContext.onChange(()=> setSubmittedByNow());
+          }
+        }catch{}
+        const tick = setInterval(()=>{
+          if (setSubmittedByNow() || --tries <= 0) clearInterval(tick);
+        }, 200);
+        if (ok) { /* no-op */ }
+      }
+
+      /* ============ Previews ============ */
+      function previewFiles(files){
+        el.prev.innerHTML='';
+        Array.from(files||[]).forEach(f=>{
+          if (!f.type.startsWith('image/')) return;
+          const fr=new FileReader();
+          fr.onload=e=>{
+            const img=new Image(); img.src=e.target.result; img.alt=f.name||'screenshot';
+            el.prev.appendChild(img);
+          };
+          fr.readAsDataURL(f);
+        });
+      }
+
+      /* ============ Uploads ============ */
+      async function uploadShots(docId, files){
+        const out=[]; if(!files||!files.length) return out;
+        const base=`feedback/bugs/${docId}/screenshots`;
+        for(let i=0;i<files.length;i++){
+          const f = files[i];
+          const safe = (Date.now() + '-' + i + '-' + (f.name||'shot')).replace(/[^\w.\-]+/g,'_');
+          const r = ref(storage, `${base}/${safe}`);
+          await uploadBytes(r, f, { contentType: f.type || 'image/jpeg' });
+          const url = await getDownloadURL(r);
+          out.push({ name: f.name||safe, url, path:`${base}/${safe}`, contentType:f.type||'image/jpeg', size:f.size||0 });
+        }
+        return out;
+      }
+
+      /* ============ Save ============ */
+      async function save(){
+        try{
+          showErr('');
+          if(!el.by.value.trim()) { showErr('Missing user. Please re-login.'); return; }
+          if(!el.date.value)      { showErr('Please choose a date.'); return; }
+          if(!el.main.value)      { showErr('Please choose a main menu.'); return; }
+          if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
+          if(!el.notes.value.trim()){ showErr('Please describe the issue.'); return; }
+
+          const payload = {
+            type:'bug',
+            submittedBy:{ uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
+            date: el.date.value,
+            mainMenu:{ id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent||el.main.value },
+            subMenu:{  id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent ||el.sub.value  },
+            notes: el.notes.value.trim(),
+            createdAt: serverTimestamp(),
+            appVersion: (window.FV_VERSION||null)
+          };
+
+          const docRef = await addDoc(collection(db,'feedback'), payload);
+          const shots  = await uploadShots(docRef.id, el.shots.files);
+          if(shots.length){
+            await updateDoc(doc(db,'feedback',docRef.id), { screenshots: shots });
+          }
+
+          // Reset UI
+          el.notes.value=''; el.shots.value=''; el.prev.innerHTML='';
+
+          // Toast + auto-redirect after 3s (match Ideas page behavior)
+          showToast('Thanks — bug submitted.');
+          setTimeout(()=>{ location.href='/Farm-vista/pages/feedback/index.html'; }, 3000);
+
+          window.scrollTo({top:0,behavior:'smooth'});
+        }catch(e){
+          console.error(e);
+          showErr('Save failed. Check permissions or network.');
         }
       }
-      return mains;
-    }
-    function buildMainAndHookSubs(mains){
-      el.main.innerHTML = '<option value="">— Select —</option>';
-      mains.forEach(m=>{
-        const o=document.createElement('option');
-        o.value=String(m.id); o.textContent=String(m.label);
-        o.dataset.children = JSON.stringify(m.children||[]);
-        el.main.appendChild(o);
-      });
-      const other=document.createElement('option'); other.value='other'; other.textContent='Other'; other.dataset.children='[]';
-      el.main.appendChild(other);
-      el.sub.innerHTML='<option value="">— Select a main menu first —</option>';
-      el.sub.disabled=true;
-      el.main.addEventListener('change', ()=>{
-        const opt=el.main.options[el.main.selectedIndex]; let kids=[]; try{ kids=JSON.parse(opt?.dataset?.children||'[]'); }catch{}
-        el.sub.innerHTML=''; kids.forEach(c=>{
-          const s=document.createElement('option'); s.value=String(c.id||c.label||''); s.textContent=String(c.label||c.id||'Item');
-          el.sub.appendChild(s);
+
+      /* ============ Dictation ============ */
+      function speechSetup(){
+        const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
+        if(!ok){ el.mic.style.display='none'; return; }
+        const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
+        const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
+        let base=''; el.mic.addEventListener('click', ()=>{
+          base = el.notes.value ? (el.notes.value+' ') : '';
+          el.mic.disabled=true; el.mic.textContent='🎙️ Listening…';
+          try{ rec.start(); }catch{}
         });
-        const sOther=document.createElement('option'); sOther.value='other'; sOther.textContent='Other'; el.sub.appendChild(sOther);
-        el.sub.disabled=false;
-      });
-    }
-    async function waitForUser(ms=5000){
-      const start=Date.now();
-      for(;;){
-        const ctx=window.FVUserContext||{}; let name=ctx.displayName||ctx.name||''; let email=ctx.email||''; let uid=ctx.uid||'';
-        if (uid || email || name) return { name: name||email||uid, email, uid };
-        try{
-          const u=window.firebase?.auth?.currentUser || window.firebase?.auth?.().currentUser;
-          if(u) return { name: u.displayName||u.email||u.uid, email: u.email||'', uid: u.uid||'' };
-        }catch{}
-        if(Date.now()-start>ms) break;
-        await new Promise(r=>setTimeout(r,100));
-      }
-      return { name:'Unknown User', email:'', uid:'' };
-    }
-    function previewFiles(files){
-      el.prev.innerHTML=''; Array.from(files||[]).forEach(f=>{
-        const fr=new FileReader(); fr.onload=e=>{ const img=new Image(); img.src=e.target.result; img.alt='screenshot'; el.prev.appendChild(img); };
-        fr.readAsDataURL(f);
-      });
-    }
-    function speechSetup(){
-      const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
-      if(!ok){ el.mic.style.display='none'; return; }
-      const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
-      const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
-      let base=''; el.mic.addEventListener('click', ()=>{ base=el.notes.value?(el.notes.value+' '):''; el.mic.disabled=true; el.mic.textContent='🎙️ Listening…'; rec.start(); });
-      rec.onresult=ev=>{ let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; } el.notes.value=base+txt; };
-      rec.onend=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
-      rec.onerror=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
-    }
-    async function uploadShots(docId, files){
-      const out=[]; if(!files||!files.length) return out;
-      const base=`feedback/bugs/${docId}/screenshots`;
-      for(const f of files){
-        const safe=Date.now()+'-'+(f.name||'shot.jpg').replace(/[^\w.\-]+/g,'_');
-        const r=ref(storage,`${base}/${safe}`); await uploadBytes(r,f,{contentType:f.type||'image/jpeg'});
-        out.push({ name:safe, url: await getDownloadURL(r), path:`${base}/${safe}` });
-      }
-      return out;
-    }
-    async function save(){
-      try{
-        showErr('');
-        if(!el.by.value.trim()) { showErr('Missing user. Please re-login.'); return; }
-        if(!el.date.value)      { showErr('Please choose a date.'); return; }
-        if(!el.main.value)      { showErr('Please choose a main menu.'); return; }
-        if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
-        if(!el.notes.value.trim()){ showErr('Please describe the issue.'); return; }
-
-        const base={
-          type:'bug',
-          submittedBy:{ uid: el.by.dataset.uid||null, name: el.by.value, email: el.by.dataset.email||null },
-          date: el.date.value,
-          mainMenu:{ id: el.main.value, label: el.main.options[el.main.selectedIndex]?.textContent||el.main.value },
-          subMenu:{  id: el.sub.value,  label: el.sub.options[el.sub.selectedIndex]?.textContent ||el.sub.value  },
-          notes: el.notes.value.trim(),
-          createdAt: serverTimestamp(),
-          appVersion: (window.FV_VERSION||null)
+        rec.onresult=ev=>{
+          let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; }
+          el.notes.value=base+txt;
         };
-        const docRef=await addDoc(collection(db,'feedback'), base);
-        const shots=await uploadShots(docRef.id, el.shots.files);
-        if(shots.length){ await updateDoc(doc(db,'feedback',docRef.id), { screenshots: shots }); }
+        rec.onend=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
+        rec.onerror=()=>{ el.mic.disabled=false; el.mic.textContent='🎙️ Dictate'; };
+      }
 
-        el.notes.value=''; el.shots.value=''; el.prev.innerHTML='';
-        showToast('Thanks — bug submitted.');
-        window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){ console.error(e); showErr('Save failed. Check permissions or network.'); }
-    }
+      /* ============ Init ============ */
+      (async ()=>{
+        await ready; db=getFirestore(); storage=getStorage();
 
-    (async ()=>{
-      await ready; db=getFirestore(); storage=getStorage();
+        subscribeUserChanges();
+        el.date.value = todayISO();
 
-      const user = await waitForUser(5000);
-      el.by.value = user.name || 'Unknown User';
-      el.by.dataset.uid   = user.uid   || '';
-      el.by.dataset.email = user.email || '';
-      el.date.value = todayISO();
+        const NAV = await getNavMenu();
+        buildMainAndHookSubs(toMainList(NAV));
 
-      const NAV = await getNavMenu();
-      buildMainAndHookSubs(toMainList(NAV));
-
-      speechSetup();
-      el.shots.addEventListener('change', ()=> previewFiles(el.shots.files));
-      el.save.addEventListener('click', save);
+        el.shots.addEventListener('change', ()=> previewFiles(el.shots.files));
+        el.save.addEventListener('click', save);
+        speechSetup();
+      })();
     })();
-  })();
   </script>
-</body></html>
+</body>
+</html>
