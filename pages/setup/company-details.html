@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes -->
+  <!-- Standard includes (absolute paths match your repo structure) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -31,7 +31,7 @@
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:140px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
+    .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none;white-space:pre-wrap}
     .error.show{display:block}
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);
@@ -40,6 +40,7 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
+  <!-- Ensure <fv-shell> exists when deep-linking to this page -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
@@ -50,6 +51,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Company Details</h1>
+
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🏢</div>
@@ -61,12 +63,12 @@
 
           <div class="field">
             <label for="farmName">Farm / Company Name *</label>
-            <input id="farmName" class="input" placeholder="e.g., Dowson Farms">
+            <input id="farmName" class="input" placeholder="e.g., Dowson Farms" autocomplete="organization">
           </div>
 
           <div class="field">
             <label for="farmPhone">Phone *</label>
-            <input id="farmPhone" class="input" type="tel" inputmode="tel" placeholder="(217) 555-0123">
+            <input id="farmPhone" class="input" type="tel" inputmode="tel" placeholder="(217) 555-0123" autocomplete="tel">
           </div>
 
           <div class="actions">
@@ -80,6 +82,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- Modular Firebase init (same pattern as Ideas). Saves to /company/main -->
   <script type="module">
     import {
       ready,
@@ -98,11 +101,21 @@
         toast:$('#toast')
       };
 
-      const DOC_ID='company-main';
-      const REF=(db)=>doc(db,'feedback',DOC_ID); // same collection as Ideas
+      // Firestore path for company settings (NOT under feedback)
+      const REF=(db)=>doc(db,'company','main');
 
       const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const showToast=(m="Saved.")=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); };
+
+      // Live US phone formatting
+      const onlyDigits=(s)=>String(s||"").replace(/\D+/g,"");
+      function fmtLive(v){ let d=onlyDigits(v); if(d.startsWith('1')&&d.length>10)d=d.slice(1);
+        if(!d) return ""; if(d.length<4) return `(${d}`; if(d.length<7) return `(${d.slice(0,3)}) ${d.slice(3)}`;
+        return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}`+(d.length>10?` x${d.slice(10)}`:""); }
+      function fmtFinal(v){ let d=onlyDigits(v); if(d.startsWith('1')&&d.length>10)d=d.slice(1);
+        if(d.length>=10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}`+(d.length>10?` x${d.slice(10)}`:""); return v.trim(); }
+      $('#farmPhone').addEventListener('input', ()=>{ el.phone.value = fmtLive(el.phone.value); });
+      $('#farmPhone').addEventListener('blur',  ()=>{ el.phone.value = fmtFinal(el.phone.value); });
 
       let db;
 
@@ -110,13 +123,17 @@
         try{
           const snap=await getDoc(REF(db));
           if(snap.exists()){
-            const d=snap.data();
+            const d=snap.data()||{};
             el.name.value=d.name||"";
-            el.phone.value=d.phone||"";
+            el.phone.value=d.phone?fmtFinal(d.phone):"";
+          }else{
+            // Empty form if doc doesn't exist yet
+            el.name.value=""; el.phone.value="";
           }
+          showErr("");
         }catch(e){
           console.error(e);
-          showErr("Failed to load: "+(e.message||e.code));
+          showErr(`Failed to load.\n${e.code||''} ${e.message||''}`.trim());
         }
       }
 
@@ -124,11 +141,10 @@
         try{
           showErr("");
           const name=(el.name.value||"").trim();
-          const phone=(el.phone.value||"").trim();
-          if(!name||!phone){ showErr("Please fill both fields."); return; }
+          const phone=fmtFinal(el.phone.value||"");
+          if(!name || !phone){ showErr("Please fill both fields."); return; }
 
           await setDoc(REF(db), {
-            type:'ideas', // same as Ideas form
             name, phone,
             updatedAt: serverTimestamp()
           }, { merge:true });
@@ -137,7 +153,7 @@
           await load();
         }catch(e){
           console.error(e);
-          showErr("Save failed: "+(e.message||e.code));
+          showErr(`Save failed.\n${e.code||''} ${e.message||''}`.trim());
         }
       }
 
@@ -145,8 +161,8 @@
       el.clear.addEventListener('click', ()=>{ el.name.value=""; el.phone.value=""; showErr(""); });
 
       (async ()=>{
-        await ready;
-        db=getFirestore();
+        await ready;          // wait for firebase-init.js to finish (same as Ideas)
+        db = getFirestore();
         await load();
       })();
     })();
