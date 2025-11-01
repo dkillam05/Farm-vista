@@ -39,30 +39,35 @@
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
     .input[readonly]{opacity:1}
-    .textarea{min-height:120px;resize:vertical;}
+    .textarea{min-height:120px;resize:vertical; padding-right:52px;} /* room for mic */
+    .muted-line{font-size:13px;color:var(--muted);margin-top:4px}
 
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
-    .btn-quiet{min-width:auto;padding:8px 12px}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* Toast: single line, centered, never wraps */
+    /* Mic-in-textarea */
+    .ta-wrap{position:relative}
+    .mic-btn{position:absolute;right:10px;bottom:10px;width:36px;height:36px;border-radius:10px;
+      border:1px solid var(--border);background:var(--surface);display:grid;place-items:center;cursor:pointer}
+    .mic-btn[disabled]{opacity:.6;cursor:not-allowed}
+    .mic-svg{width:18px;height:18px;display:block}
+    .mic-active{background:#2F6C3C;color:#fff;border-color:#2F6C3C}
+
+    /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
       white-space:nowrap;text-align:center;max-width:92vw;overflow:hidden;text-overflow:ellipsis;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-
     .error{border:1px solid #b3261e;background:#fff;color:#b3261e;border-radius:10px;padding:10px 12px;display:none}
     .error.show{display:block}
-
-    /* Tiny thumbnails for chosen files (optional preview) */
+    /* Thumbs */
     .thumbs{display:flex;gap:8px;flex-wrap:wrap}
     .thumb{width:72px;height:72px;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:grid;place-items:center;background:var(--surface)}
     .thumb img{max-width:100%;max-height:100%;display:block}
-    .muted-line{font-size:13px;color:var(--muted);margin-top:4px}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -115,15 +120,19 @@
 
           <div class="row-1">
             <div class="field">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <label for="notes">Idea (notes) *</label>
-                <button id="dictate" type="button" class="btn btn-quiet" title="Dictate / Stop">🎙️ Dictate</button>
+              <label for="notes">Idea (notes) *</label>
+              <div class="ta-wrap">
+                <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
+                <button id="mic" type="button" class="mic-btn" aria-label="Start dictation">
+                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </button>
               </div>
-              <textarea id="notes" class="textarea" placeholder="Describe the improvement you’d like to see…" required></textarea>
             </div>
           </div>
 
-          <!-- OPTIONAL: Screenshots / files -->
+          <!-- Screenshots / files -->
           <div class="row-1">
             <div class="field">
               <label for="files">Screenshot(s) (optional)</label>
@@ -148,9 +157,7 @@
   <script type="module">
     import {
       ready,
-      // Firestore
       getFirestore, collection, addDoc, serverTimestamp, updateDoc,
-      // Storage (re-exported via firebase-init)
       getStorage, ref as storageRef, uploadBytes, getDownloadURL
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -167,7 +174,7 @@
         main:  $('#mainMenu'),
         sub:   $('#subMenu'),
         notes: $('#notes'),
-        mic:   $('#dictate'),
+        mic:   $('#mic'),
         files: $('#files'),
         thumbs: $('#thumbs'),
         fileHint: $('#fileHint'),
@@ -176,7 +183,6 @@
 
       let db;
 
-      /* ================= UI helpers ================= */
       function showToast(msg="Saved.", ms=4000){
         el.toast.textContent = msg;
         el.toast.classList.remove('show'); void el.toast.offsetWidth;
@@ -200,8 +206,7 @@
         return titleCase(spaced || local);
       };
 
-      /* ================= User prefill (mirrors shell) ================= */
-      let _triesLeft = 30;   // ~6s polling
+      let _triesLeft = 30;
       function _setSubmittedByNow(){
         let label = '';
         try{
@@ -238,7 +243,6 @@
         if (okNow) { /* no-op */ }
       }
 
-      /* ================= Menu helpers ================= */
       async function getNavMenu(){
         try{
           const mod = await import('/Farm-vista/js/menu.js');
@@ -251,7 +255,6 @@
         if (window.FV_MENU?.items)  return window.FV_MENU;
         return { items: [] };
       }
-
       function buildMainList(NAV_MENU){
         const items = Array.isArray(NAV_MENU.items) ? NAV_MENU.items : [];
         const out=[];
@@ -269,7 +272,6 @@
         }
         return out;
       }
-
       function wireMenus(mains){
         el.main.innerHTML = '<option value="">— Select —</option>';
         for(const m of mains){
@@ -315,7 +317,7 @@
         });
       }
 
-      /* ================= Optional file preview ================= */
+      /* File preview */
       el.files?.addEventListener('change', ()=>{
         const files = Array.from(el.files.files||[]);
         el.thumbs.innerHTML = '';
@@ -336,7 +338,37 @@
         el.fileHint.textContent = files.length + (files.length===1 ? ' file selected' : ' files selected');
       });
 
-      /* ================= Storage upload ================= */
+      /* Dictation (mic inside textarea) */
+      function speechSetup(){
+        const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
+        if(!ok){ el.mic.style.display='none'; return; }
+        const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
+        const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
+
+        let active=false, baseText='';
+        const setMic=(on)=>{
+          el.mic.classList.toggle('mic-active', on);
+          el.mic.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+        };
+
+        el.mic.addEventListener('click', ()=>{
+          if (!active){
+            baseText = el.notes.value ? (el.notes.value + ' ') : '';
+            try{ rec.start(); active=true; setMic(true); }catch{}
+          } else {
+            try{ rec.stop(); rec.abort(); }catch{}
+            active=false; setMic(false);
+          }
+        });
+
+        rec.onresult=(ev)=>{
+          let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; }
+          el.notes.value = baseText + txt;
+        };
+        rec.onend=()=>{ active=false; setMic(false); };
+        rec.onerror=()=>{ active=false; setMic(false); };
+      }
+
       async function uploadScreenshots(docId){
         const files = Array.from(el.files?.files || []);
         if (!files.length) return { ok:true, meta:[], note:'' };
@@ -345,10 +377,7 @@
         for (let i=0; i<files.length; i++){
           const f = files[i];
           const safeName = (Date.now() + '-' + i + '-' + (f.name||'file')).replace(/[^a-zA-Z0-9._-]+/g,'_');
-
-          // Path aligned to rules: feedback/{type}/{docId}/screenshots/{fileId}
           const path = `feedback/ideas/${docId}/screenshots/${safeName}`;
-
           try{
             const store = getStorage();
             const ref = storageRef(store, path);
@@ -363,7 +392,6 @@
         return { ok:true, meta, note:'' };
       }
 
-      /* ================= Save ================= */
       async function save(){
         try{
           el.uploadNote.style.display='none';
@@ -376,7 +404,6 @@
           if(el.sub.disabled || !el.sub.value){ showErr('Please choose a submenu.'); return; }
           if(!el.notes.value.trim()){ showErr('Please enter your idea.'); return; }
 
-          // OWNER UID/EMAIL (helps align with Storage/Firestore rules expectations)
           const authUser = (window.firebaseAuth && window.firebaseAuth.currentUser) || null;
           const ownerUid = el.by.dataset.uid || (authUser && authUser.uid) || null;
           const ownerEmail = el.by.dataset.email || (authUser && authUser.email) || null;
@@ -394,28 +421,17 @@
             appVersion: (window.FV_VERSION || null)
           };
 
-          // Phase 1 — create the document
           db = db || getFirestore();
           const docRef = await addDoc(collection(db,'feedback'), payload);
 
-          // Phase 2 — optional uploads
           const up = await uploadScreenshots(docRef.id);
-          if (up.meta.length){
-            await updateDoc(docRef, { attachments: up.meta });
-          }
-          if (!up.ok && up.note){
-            el.uploadNote.textContent = up.note;
-            el.uploadNote.style.display='block';
-          }
+          if (up.meta.length){ await updateDoc(docRef, { attachments: up.meta }); }
+          if (!up.ok && up.note){ el.uploadNote.textContent = up.note; el.uploadNote.style.display='block'; }
 
-          // Reset notes and files UI
-          el.notes.value='';
-          if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); }
+          el.notes.value=''; if (el.files){ el.files.value=''; el.thumbs.innerHTML=''; el.fileHint.textContent=''; el.thumbs.setAttribute('aria-hidden','true'); }
 
-          // Toast + auto-redirect after 3s
           showToast('Thanks — idea submitted.');
           setTimeout(()=>{ location.href='/Farm-vista/pages/feedback/index.html'; }, 3000);
-
           window.scrollTo({top:0,behavior:'smooth'});
         }catch(e){
           console.error(e);
@@ -423,35 +439,6 @@
         }
       }
 
-      /* ================= Dictation toggle ================= */
-      function speechSetup(){
-        const ok=('webkitSpeechRecognition' in window)||('SpeechRecognition' in window);
-        if(!ok){ el.mic.style.display='none'; return; }
-        const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
-        const rec=new Rec(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
-
-        let active=false, baseText='';
-        const setBtn=(listening)=>{ el.mic.textContent = listening ? '⏹️ Stop' : '🎙️ Dictate'; };
-
-        el.mic.addEventListener('click', ()=>{
-          if (!active){
-            baseText = el.notes.value ? (el.notes.value + ' ') : '';
-            try{ rec.start(); active=true; setBtn(true); }catch{}
-          } else {
-            try{ rec.stop(); rec.abort(); }catch{}
-            active=false; setBtn(false);
-          }
-        });
-
-        rec.onresult=(ev)=>{
-          let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ txt+=ev.results[i][0].transcript; }
-          el.notes.value = baseText + txt;
-        };
-        rec.onend=()=>{ active=false; setBtn(false); };
-        rec.onerror=()=>{ active=false; setBtn(false); };
-      }
-
-      /* ================= Init ================= */
       (async ()=>{
         await ready;
 
