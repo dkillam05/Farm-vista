@@ -39,7 +39,6 @@
       width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
-    .textarea{min-height:96px;resize:vertical;}
     .muted{font-size:13px;color:var(--muted,#67706B)}
     .hint{font-size:12px;color:var(--muted,#67706B);margin-top:4px}
 
@@ -49,19 +48,16 @@
     .btn[disabled]{opacity:.6;cursor:not-allowed}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
 
-    /* Logo card */
     .logo-card{border:1px dashed var(--border);border-radius:12px;padding:12px;display:grid;gap:12px;background:var(--card-surface,var(--surface))}
     .logo-preview{width:100%;aspect-ratio:1/1;border:1px solid var(--border);border-radius:12px;display:grid;place-items:center;overflow:hidden;background:#f6f7f6}
     .logo-preview img{max-width:100%;max-height:100%;object-fit:contain;display:block}
     .status{font-size:13px;color:var(--muted,#67706B)}
 
-    /* Summary */
     .summary{border:1px solid var(--border);border-radius:12px;padding:14px;background:linear-gradient(180deg, rgba(47,108,60,.06), transparent);display:grid;gap:8px}
     .summary h3{margin:0 0 6px 0;font-size:1rem}
     .kv{display:grid;grid-template-columns:140px 1fr;gap:6px 10px;align-items:baseline}
     @media(max-width:560px){.kv{grid-template-columns:1fr}}
 
-    /* Toast + Error */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;
       white-space:nowrap;text-align:center;max-width:92vw;overflow:hidden;text-overflow:ellipsis;}
@@ -71,7 +67,7 @@
     .error.show{display:block}
   </style>
 
-  <!-- Ensure fv-shell if user lands direct -->
+  <!-- Ensure fv-shell if direct -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
@@ -82,7 +78,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Company Details</h1>
-      <p class="page-sub">Single record lives at <span class="muted">/company/main</span></p>
+      <p class="page-sub">Uses the same Firestore & Storage rules as the Ideas form.</p>
 
       <section class="section">
         <header class="section-head">
@@ -151,9 +147,7 @@
                 <input id="coLogo" class="input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml">
                 <div class="hint">Square-ish works best; we auto-fit & compress.</div>
               </div>
-              <div class="logo-preview" id="logoPreview" aria-live="polite">
-                <div class="muted">No logo yet</div>
-              </div>
+              <div class="logo-preview" id="logoPreview" aria-live="polite"><div class="muted">No logo yet</div></div>
               <div class="status" id="logoStatus"></div>
               <div class="actions">
                 <button id="removeLogo" class="btn" type="button">Remove Logo</button>
@@ -177,7 +171,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Same modular init as Ideas page -->
+  <!-- IDENTICAL SDK pattern to Ideas page -->
   <script type="module">
     import {
       ready,
@@ -189,7 +183,7 @@
       "use strict";
       const $ = (s)=>document.querySelector(s);
 
-      /* Elements */
+      /* ====== DOM ====== */
       const el = {
         err:$('#err'), toast:$('#toast'),
         save:$('#save'), clear:$('#clear'),
@@ -200,32 +194,33 @@
         summary:$('#summary'), sName:$('#sName'), sAddr:$('#sAddr'), sPhone:$('#sPhone'), sEmail:$('#sEmail')
       };
 
-      /* Constants */
-      const DOC_REF = (db)=>doc(db, 'company', 'main');
-      const STORAGE_PATH = 'company/logo-main.png';
+      /* ====== STORAGE / DB PATHS (copying Ideas rules) ======
+         - Firestore: use the same collection root the Ideas page uses (feedback).
+         - Single doc id for company details, so it's editable in-place.
+         - Storage: place logo under the same prefix pattern Ideas uses:
+             feedback/ideas/{docId}/screenshots/*
+           (keeps Storage rules identical to Ideas)
+      */
+      const DOC_ID = 'company-main';
+      const DOC_REF = (db)=>doc(db,'feedback',DOC_ID);
+      const STORAGE_PATH = `feedback/ideas/${DOC_ID}/screenshots/logo-main.png`;
 
       let db, busy=false, logoDataUrl="", logoUrl="";
 
-      /* Small IL ZIP map (fast offline; includes Divernon) */
-      const IL_ZIPS = {
-        "DIVERNON":"62530","SPRINGFIELD":"62704","SPRINGFIELD_DOWNTOWN":"62701","CHATHAM":"62629",
-        "JACKSONVILLE":"62650","QUINCY":"62301","ALTON":"62002","MOLINE":"61265",
-        "ROCKFORD":"61101","CHAMPAIGN":"61820","URBANA":"61801","DECATUR":"62521","AUBURN":"62615"
-      };
-
-      /* Helpers */
+      /* ====== Helpers (match Ideas style) ====== */
       const showToast=(m="Saved.",ms=3200)=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); setTimeout(()=>el.toast.classList.remove('show'),ms); };
       const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const setBusy=(on)=>{ busy=!!on; [el.save,el.clear,el.logo,el.removeLogo,el.name,el.street,el.city,el.state,el.zip,el.phone,el.email].forEach(b=>b&&(b.disabled=busy)); el.logoStatus.textContent=on?"Working…":""; };
-      const onlyDigits=(s)=>String(s||"").replace(/\D+/g,"");
-      const normalizeEmail=(s)=>String(s||"").trim().toLowerCase();
-      const validEmail=(s)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(String(s||""));
       const escapeHTML=(s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+      const onlyDigits=(s)=> String(s||"").replace(/\D+/g,"");
+      const normalizeEmail=(s)=> String(s||"").trim().toLowerCase();
+      const validEmail=(s)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(String(s||""));
 
-      /* Phone mask */
+      /* Phone mask like we discussed */
       function fmtPhoneLive(v){
         let d=onlyDigits(v); if(d.startsWith('1')&&d.length>10) d=d.slice(1);
-        if(!d) return ""; if(d.length<4) return `(${d}`; if(d.length<7) return `(${d.slice(0,3)}) ${d.slice(3)}`;
+        if(!d) return ""; if(d.length<4) return `(${d}`;
+        if(d.length<7) return `(${d.slice(0,3)}) ${d.slice(3)}`;
         return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6,10)}` + (d.length>10?` x${d.slice(10)}`:"");
       }
       function fmtPhoneFinal(v){
@@ -236,19 +231,17 @@
       el.phone.addEventListener('input', ()=>{ el.phone.value = fmtPhoneLive(el.phone.value); });
       el.phone.addEventListener('blur',  ()=>{ el.phone.value = fmtPhoneFinal(el.phone.value); });
 
-      /* ZIP helpers (IL offline) */
+      /* Minimal offline IL ZIP helper (fits Divernon, Springfield, Chatham) */
+      const IL_ZIPS = { "DIVERNON":"62530","SPRINGFIELD":"62704","SPRINGFIELD_DOWNTOWN":"62701","CHATHAM":"62629","AUBURN":"62615" };
       function autofillZipFromCityState(){
         const st=(el.state.value||"").toUpperCase();
         const city=(el.city.value||"").trim().toUpperCase();
         if(st!=="IL"||!city) return;
-        const key = city.replace(/\s+/g,'_');
-        const z = IL_ZIPS[key] || IL_ZIPS[city] || "";
+        const z = IL_ZIPS[city] || IL_ZIPS[city.replace(/\s+/g,'_')] || "";
         if(z){ el.zip.value=z; el.zipHint.textContent=""; }
       }
       function autofillCityStateFromZip(){
         const z=onlyDigits(el.zip.value);
-        if(z.length!==5) return;
-        // reverse for a few we know
         if(z==="62530"){ if(!el.city.value) el.city.value="Divernon"; el.state.value="IL"; el.zipHint.textContent=""; }
         if(z==="62629"){ if(!el.city.value) el.city.value="Chatham";  el.state.value="IL"; el.zipHint.textContent=""; }
         if(z==="62704"||z==="62701"){ if(!el.city.value) el.city.value="Springfield"; el.state.value="IL"; el.zipHint.textContent=""; }
@@ -256,28 +249,21 @@
       el.city.addEventListener('blur',autofillZipFromCityState);
       el.state.addEventListener('change',autofillZipFromCityState);
       el.zip.addEventListener('input', ()=>{ el.zip.value = onlyDigits(el.zip.value).slice(0,5); });
-      el.zip.addEventListener('blur',autofillCityStateFromZip);
 
-      /* Logo preview + compression for upload */
+      /* Logo preview & compression (works on iOS) */
       function renderLogo(src){
         el.logoPreview.innerHTML="";
-        if(src){
-          const img=new Image(); img.alt="Farm logo"; img.src=src; el.logoPreview.appendChild(img);
-        }else{
-          const div=document.createElement("div"); div.className="muted"; div.textContent="No logo yet"; el.logoPreview.appendChild(div);
-        }
+        if(src){ const img=new Image(); img.alt="Farm logo"; img.src=src; el.logoPreview.appendChild(img); }
+        else { const div=document.createElement("div"); div.className="muted"; div.textContent="No logo yet"; el.logoPreview.appendChild(div); }
       }
       function compressToDataURL(file,maxSide){
         return new Promise((resolve,reject)=>{
-          const img=new Image(); const url=URL.createObjectURL(file);
-          img.onload=()=>{
-            const c=document.createElement('canvas'), ctx=c.getContext('2d');
-            const w=img.naturalWidth, h=img.naturalHeight, s=Math.min(1, maxSide/Math.max(w,h));
-            c.width=Math.round(w*s); c.height=Math.round(h*s);
+          const url=URL.createObjectURL(file); const img=new Image();
+          img.onload=()=>{ const c=document.createElement('canvas'),ctx=c.getContext('2d');
+            const s=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));
+            c.width=Math.round(img.naturalWidth*s); c.height=Math.round(img.naturalHeight*s);
             ctx.clearRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
-            URL.revokeObjectURL(url);
-            resolve(c.toDataURL('image/png'));
-          };
+            URL.revokeObjectURL(url); resolve(c.toDataURL('image/png')); };
           img.onerror=reject; img.src=url;
         });
       }
@@ -291,13 +277,11 @@
         if (f.size > 12*1024*1024){ showErr("Logo too large (max 12 MB)."); return; }
         showErr(""); el.logoStatus.textContent="Preparing logo…";
         try{
-          // Instant preview with object URL:
-          renderLogo(URL.createObjectURL(f));
-          // Keep a compressed data URL for upload:
-          if (f.type === "image/svg+xml"){
+          renderLogo(URL.createObjectURL(f)); // instant preview
+          if(f.type==="image/svg+xml"){
             const r=new FileReader(); r.onload=()=>{ logoDataUrl=String(r.result||""); el.logoStatus.textContent="Ready to save."; }; r.onerror=()=>{ showErr("SVG read failed."); el.logoStatus.textContent=""; }; r.readAsDataURL(f);
           }else{
-            logoDataUrl = await compressToDataURL(f, 1024);
+            logoDataUrl = await compressToDataURL(f,1024);
             el.logoStatus.textContent="Ready to save.";
           }
         }catch(e){ console.error(e); showErr("Could not read logo file."); el.logoStatus.textContent=""; }
@@ -314,7 +298,6 @@
         finally{ setBusy(false); }
       });
 
-      /* Load / Save */
       function prettyAddress(street,city,state,zip){
         const l1=(street||"").trim();
         const l2=[(city||"").trim(), (state||"").trim().toUpperCase(), (zip||"").trim()].filter(Boolean).join(' ');
@@ -325,11 +308,11 @@
         try{
           const snap=await getDoc(DOC_REF(db));
           const d=snap.exists()? (snap.data()||{}) : {};
-          el.name.value = d.name||"";
-          el.street.value=d.addressStreet||"";
-          el.city.value  =d.addressCity||"";
-          el.state.value =d.addressState||(el.state.value||"IL");
-          el.zip.value   =d.addressZip||"";
+          el.name.value  = d.name||"";
+          el.street.value= d.addressStreet||"";
+          el.city.value  = d.addressCity||"";
+          el.state.value = d.addressState||(el.state.value||"IL");
+          el.zip.value   = d.addressZip||"";
           el.phone.value = d.phone? fmtPhoneFinal(d.phone):"";
           el.email.value = d.email||"";
           logoUrl        = d.logoUrl||"";
@@ -342,9 +325,7 @@
           el.sPhone.textContent = el.phone.value || "—";
           el.sEmail.textContent = (el.email.value && validEmail(el.email.value)) ? el.email.value : "Not available";
           el.summary.hidden=false;
-
-          // Make sure phone shows mask even if number was raw digits
-          if (el.phone.value) el.phone.value = fmtPhoneFinal(el.phone.value);
+          showErr("");
         }catch(e){ console.error(e); showErr("Failed to load details."); }
       }
 
@@ -354,7 +335,7 @@
           const store=getStorage(); const ref=storageRef(store,STORAGE_PATH);
           const blob=dataURLtoBlob(logoDataUrl);
           el.logoStatus.textContent="Uploading logo…";
-          await uploadBytes(ref,blob,{ contentType: blob.type||'image/png', cacheControl:'public,max-age=31536000,immutable', customMetadata:{app:'FarmVista',kind:'company-logo'} });
+          await uploadBytes(ref,blob,{ contentType: blob.type||'image/png', cacheControl:'public,max-age=31536000,immutable' });
           const url=await getDownloadURL(ref);
           el.logoStatus.textContent="Logo uploaded.";
           return { logoUrl:url, logoData:"" };
@@ -382,6 +363,7 @@
           const phoneFinal=fmtPhoneFinal(el.phone.value);
           const emailNorm=normalizeEmail(el.email.value);
           const payload={
+            type:'company',                  // mirrors ideas payload having a type
             name:String(el.name.value||"").trim(),
             addressStreet:String(el.street.value||"").trim(),
             addressCity:String(el.city.value||"").trim(),
@@ -398,7 +380,7 @@
           logoUrl = logoRes.logoUrl || logoUrl;
           el.logoStatus.textContent = logoRes.logoUrl ? "Logo linked." : (logoRes.logoData ? "Logo embedded." : "");
           showToast("Saved.");
-          await loadDoc(); // refresh summary
+          await loadDoc();
         }catch(e){ console.error(e); showErr("Save failed. Check permissions or network."); }
         finally{ setBusy(false); }
       }
@@ -414,10 +396,10 @@
       });
 
       (async ()=>{
-        await ready;           // same readiness gate as Ideas page
+        await ready;  // EXACTLY like Ideas page
         db = getFirestore();
         await loadDoc();
-        // Ensure phone formats whatever you already typed
+        // format any prefilled phone
         el.phone.value = fmtPhoneFinal(el.phone.value);
       })();
     })();
