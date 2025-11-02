@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes (ABSOLUTE paths, same as Farms) -->
+  <!-- Standard includes (ABSOLUTE paths, like Farms) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -14,20 +14,13 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- FVData helpers (Firestore + Storage unified) -->
+  <!-- FVData helpers -->
   <script src="/Farm-vista/js/fv-data.js"></script>
 
-  <!-- Ensure fv-shell (same helper Farms uses) -->
-  <script>(function(){
-    if(!customElements.get('fv-shell')){
-      const s=document.createElement('script');
-      s.src='/Farm-vista/js/fv-shell.js';
-      s.defer=true;
-      document.head.appendChild(s);
-    }
-  })();</script>
+  <!-- Ensure fv-shell -->
+  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
 
-  <!-- Firebase config FIRST (same placement as Farms) -->
+  <!-- Firebase config FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -64,20 +57,27 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
+    .btn[disabled]{opacity:.45; cursor:not-allowed;}
 
-    /* Dictionary list */
-    .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);}
-    .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
-    .list{padding:14px 16px;display:grid;gap:12px;}
-    .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
-      display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
-    .cols{display:grid;grid-template-columns: minmax(160px,1fr) 120px 150px;gap:12px;align-items:center;}
-    .name{font-weight:800}
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px)+72px);
+      transform:translateX(-50%);background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 2.8s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* === Dictionary hero (phone-first) === */
+    .dict{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
+    .dict-head{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);}
+    .dict-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
+    .dict-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .dict-tools input{min-width:180px}
+    .dict-list{padding:10px 12px;display:grid;gap:10px;}
+    .tower-card{border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));padding:12px;display:grid;gap:8px;}
+    .tower-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .tower-name{font-weight:800}
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;}
-    .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
-
-    .search{display:flex;gap:10px;align-items:center}
-    .search input{max-width:260px}
+    .chip{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
 
     /* Modal */
     .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
@@ -88,13 +88,6 @@
     .dialog-body{padding:14px;display:grid;gap:12px;}
     .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
-
-    /* Toast */
-    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
-      transform:translateX(-50%);background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;
-      box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
-    .toast.show{display:block;animation:fadeout 2.8s forwards;}
-    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 </head>
 <body>
@@ -103,11 +96,10 @@
       <h1 class="page-title">RTK Tower Information</h1>
       <p class="page-sub">Enter a Tower Name, a 4-digit Network ID, and a Radio Frequency in MHz. Press Save to write to Firestore.</p>
 
-      <!-- visible error when something fails -->
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- === Add Tower === -->
-      <section class="section">
+      <!-- === Create / Edit form === -->
+      <section class="section" aria-label="Add RTK Tower">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛰️</div>
           <div>
@@ -139,16 +131,18 @@
             <button id="save" class="btn btn-primary" type="button">Save Tower</button>
           </div>
         </div>
+      </section>
 
-        <!-- === Dictionary (list) === -->
-        <div class="list-head">
-          <div class="list-title">RTK Tower Dictionary</div>
-          <div class="search">
-            <input id="q" class="input" placeholder="Search by name / net / freq">
+      <!-- === Dictionary hero === -->
+      <section class="dict" aria-label="RTK Tower Dictionary">
+        <div class="dict-head">
+          <div class="dict-title">RTK Tower Dictionary</div>
+          <div class="dict-tools">
+            <input id="q" class="input" placeholder="Search by name / NET / freq">
             <button id="reload" class="btn btn-quiet" type="button">Reload</button>
           </div>
         </div>
-        <div id="list" class="list">
+        <div id="dictList" class="dict-list">
           <div class="muted">No towers yet.</div>
         </div>
       </section>
@@ -162,7 +156,7 @@
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
-        <h3 id="mdTitle">View / Edit Tower</h3>
+        <h3 id="mdTitle">View / Edit RTK Tower</h3>
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
       <div class="dialog-body">
@@ -178,6 +172,7 @@
           <label for="editFreq">Radio Frequency (MHz)</label>
           <input id="editFreq" class="input" inputmode="decimal" placeholder="450.12345">
         </div>
+        <div class="help" id="editUsage">Checking usage…</div>
       </div>
       <div class="dialog-footer">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -188,23 +183,36 @@
     </div>
   </div>
 
-  <!-- Page logic (identical boot pattern as Farms) -->
+  <!-- Modal: In-use warning (list fields that block delete) -->
+  <div id="useModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="useTitle">
+      <div class="dialog-head">
+        <h3 id="useTitle">Cannot delete — tower in use</h3>
+        <button id="useClose" class="closex" type="button">Close</button>
+      </div>
+      <div class="dialog-body">
+        <p>This RTK tower is assigned to the following fields. Reassign these fields to a new tower before deleting:</p>
+        <ul id="useList" style="margin:0;padding-left:18px;display:grid;gap:6px"></ul>
+      </div>
+      <div class="dialog-footer">
+        <span class="help">Tip: open <strong>Setup → Fields</strong> to change the RTK tower on each field.</span>
+        <button id="useOk" class="btn btn-primary" type="button">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page logic -->
   <script type="module">
-    /* --------------------- tiny utils --------------------- */
     const $ = id => document.getElementById(id);
-    const toast = $("toast");
-    const alertBox = $("alert");
-    const listBox = $("list");
-    const q = $("q");
+    const toast = $("toast"), alertBox = $("alert");
+    const dictList = $("dictList"), q = $("q");
 
     const showToast = (msg="Saved.")=>{
       toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
     };
     const showError = (msg)=>{
-      alertBox.textContent = msg;
-      alertBox.classList.add('show');
-      clearTimeout(showError._t);
-      showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
+      alertBox.textContent = msg; alertBox.classList.add('show');
+      clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const escapeHTML = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
@@ -213,31 +221,40 @@
         if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
         if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
         await new Promise((resolve)=> {
-          let done=false;
-          const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
+          let done=false; const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
           window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
         });
       }catch{}
     }
 
-    /* --------------------- Validation --------------------- */
-    $("netid").addEventListener("input", e=>{
-      e.target.value = e.target.value.replace(/\D/g,"").slice(0,4);
-    });
+    // Formatters
+    const pad4 = n => String(n).padStart(4,'0');
+    const labelFor = t => `${t.name} — NET ${pad4(t.networkId||0)} • ${t.frequencyMHz} MHz`;
+
+    // State
+    let towers = [];     // [{id,name,networkId,frequencyMHz, inUse:[fieldNames]}]
+    let rows = [];       // rendered list (search filtered)
+    let editId = null;   // id in edit modal
+    let editUse = [];    // fields using the editId tower
+
+    // Inputs cleanup/validation
+    $("netid").addEventListener("input", e=>{ e.target.value = e.target.value.replace(/\D/g,"").slice(0,4); });
     $("freq").addEventListener("blur", e=>{
-      const v = e.target.value.trim();
-      const m = v.match(/^(\d{3})\.(\d{1,5})$/);
+      const v = e.target.value.trim(); const m = v.match(/^(\d{3})\.(\d{1,5})$/);
       if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
     });
 
-    function validateTriplet(name, netid, freq){
+    // Build payload
+    function validateCreate(){
+      const name = $("name").value.trim();
+      const netid = $("netid").value.trim();
+      const freq  = $("freq").value.trim();
       if(!name) return "Enter a tower name.";
       if(!/^\d{4}$/.test(netid)) return "Network ID must be exactly 4 digits.";
       if(!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
       return "";
     }
-
-    function payloadFromInputs(){
+    function newPayload(){
       return {
         name: $("name").value.trim(),
         networkId: Number($("netid").value.trim()),
@@ -246,147 +263,100 @@
       };
     }
 
-    /* --------------------- CRUD via FVData --------------------- */
-    let rows = [];   // cached dictionary list
-    let editId = null;
-
-    async function loadList(){
+    // CRUD
+    $("clear").addEventListener("click", ()=>{ ["name","netid","freq"].forEach(id=>$(id).value=""); });
+    $("save").addEventListener("click", async ()=>{
+      const err = validateCreate(); if(err){ alert(err); return; }
       try{
-        await FVData.ready();
-        await waitForAuthReady();
-        const data = await FVData.list('rtkTowers', { limit: 500 });
-        // normalize + sort A→Z by name, then by net, then freq
-        rows = (data||[]).map(d=>({
-          id: d.id,
-          name: String(d.name||'').trim(),
-          networkId: (typeof d.networkId === 'number' ? d.networkId : parseInt(d.networkId,10)) || 0,
-          frequencyMHz: String(d.frequencyMHz||'').trim(),
-          updatedAt: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : undefined
-        })).sort((a,b)=>{
-          const n = a.name.localeCompare(b.name, undefined, {sensitivity:'base'});
-          if (n) return n;
-          const x = a.networkId - b.networkId; if (x) return x;
-          return a.frequencyMHz.localeCompare(b.frequencyMHz, undefined, {numeric:true});
-        });
-        renderList();
-      }catch(err){
-        console.error('RTK list load failed:', err);
-        showError((err && err.message) ? err.message : 'Unable to load RTK towers.');
-        rows = [];
-        renderList();
-      }
-    }
-
-    function renderList(){
-      const term = (q.value||'').trim().toLowerCase();
-      const arr = !term ? rows : rows.filter(r=>{
-        return r.name.toLowerCase().includes(term) ||
-               String(r.networkId).padStart(4,'0').includes(term) ||
-               r.frequencyMHz.toLowerCase().includes(term);
-      });
-
-      if(!arr.length){
-        listBox.innerHTML = '<div class="muted">No towers yet.</div>';
-        return;
-      }
-
-      listBox.innerHTML = '';
-      arr.forEach(it=>{
-        const wrap = document.createElement('div');
-        wrap.className = 'item';
-        wrap.innerHTML = `
-          <div class="cols">
-            <div class="name">${escapeHTML(it.name)}</div>
-            <div class="mono">NET ${String(it.networkId).padStart(4,'0')}</div>
-            <div class="mono">${escapeHTML(it.frequencyMHz)} MHz</div>
-          </div>
-          <button class="view" type="button">View / Edit</button>
-        `;
-        wrap.querySelector('.view').addEventListener('click', ()=> openEdit(it.id));
-        listBox.appendChild(wrap);
-      });
-    }
-
-    async function addTower(){
-      const name = $("name").value.trim();
-      const netid = $("netid").value.trim();
-      const freq  = $("freq").value.trim();
-      const err = validateTriplet(name, netid, freq); if(err){ alert(err); return; }
-
-      try{
-        await FVData.ready();
-        await waitForAuthReady();
-        await FVData.add("rtkTowers", {
-          name,
-          networkId: Number(netid),
-          frequencyMHz: freq,
-          t: Date.now()
-        });
+        await FVData.ready(); await waitForAuthReady();
+        await FVData.add("rtkTowers", newPayload());
         ["name","netid","freq"].forEach(id=>$(id).value="");
         showToast("RTK tower saved.");
-        await loadList();
+        await loadAll();
         window.scrollTo({top:0,behavior:"smooth"});
-      }catch(e){
-        console.error(e);
-        showError("Save failed: " + (e?.message || e));
-      }
-    }
+      }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
+    });
 
-    async function saveEdit(){
-      const name = $("editName").value.trim();
-      const net  = $("editNet").value.trim();
-      const freq = $("editFreq").value.trim();
-      const err = validateTriplet(name, net, freq); if(err){ alert(err); return; }
-      try{
-        await FVData.ready();
-        await waitForAuthReady();
-        await FVData.update('rtkTowers', editId, {
-          name,
-          networkId: Number(net),
-          frequencyMHz: freq
+    // Load towers + usage map from Fields
+    async function loadAll(){
+      const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
+      // build usage map by querying fields per tower (fast enough at our scale)
+      const enriched = [];
+      for (const t of towersRaw) {
+        const usedBy = await FVData.getWhere('fields','rtkId','==', t.id, { limit: 5000 }) || [];
+        enriched.push({
+          id: t.id,
+          name: String(t.name||'').trim(),
+          networkId: typeof t.networkId==='number' ? t.networkId : parseInt(t.networkId,10) || 0,
+          frequencyMHz: String(t.frequencyMHz||'').trim(),
+          inUse: usedBy.map(f => String(f.name || f.fieldName || '(Unnamed field)').trim())
         });
-        showToast("Changes saved.");
-        await loadList();
-        closeModal();
-      }catch(e){
-        console.error(e);
-        showError("Update failed: " + (e?.message || e));
       }
+      towers = enriched.sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
+      renderDict();
     }
 
-    async function deleteEdit(){
-      try{
-        const it = rows.find(r=>r.id===editId);
-        if(!it) return;
-        if(!confirm(`Delete tower "${it.name}" (${String(it.networkId).padStart(4,'0')} / ${it.frequencyMHz} MHz)?`)) return;
-        await FVData.ready();
-        await waitForAuthReady();
-        await FVData.remove('rtkTowers', editId);
-        showToast("Tower deleted.");
-        await loadList();
-        closeModal();
-      }catch(e){
-        console.error(e);
-        showError("Delete failed: " + (e?.message || e));
-      }
+    // Render dictionary (phone-first cards)
+    function renderDict(){
+      const term = (q.value||'').trim().toLowerCase();
+      rows = towers.filter(t => {
+        return !term ||
+          t.name.toLowerCase().includes(term) ||
+          String(t.networkId).includes(term) ||
+          t.frequencyMHz.toLowerCase().includes(term);
+      });
+
+      if(!rows.length){ dictList.innerHTML = '<div class="muted">No towers yet.</div>'; return; }
+
+      dictList.innerHTML = '';
+      rows.forEach(t=>{
+        const card = document.createElement('div');
+        card.className = 'tower-card';
+        const usage = t.inUse.length ? `<span class="chip">${t.inUse.length} field${t.inUse.length===1?'':'s'}</span>` : `<span class="chip">not in use</span>`;
+        card.innerHTML = `
+          <div class="tower-row">
+            <div class="tower-name">${escapeHTML(t.name)}</div>
+            ${usage}
+          </div>
+          <div class="tower-row mono" style="font-size:14px">
+            <div>NET ${pad4(t.networkId)}</div>
+            <div>${escapeHTML(t.frequencyMHz)} MHz</div>
+          </div>
+          <div class="tower-row" style="gap:8px">
+            <button class="btn" data-act="edit">View / Edit</button>
+            <button class="btn btn-danger" data-act="delete"${t.inUse.length ? ' disabled':''}>Delete</button>
+          </div>
+        `;
+        card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEdit(t.id));
+        const delBtn = card.querySelector('[data-act="delete"]');
+        delBtn.addEventListener('click', ()=> tryDelete(t.id));
+        // If disabled, clicking should show usage list
+        if (t.inUse.length) {
+          delBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); showUsage(t); }, { capture:true });
+        }
+        dictList.appendChild(card);
+      });
     }
 
-    /* --------------------- Modal wiring --------------------- */
-    const modal = $("modal");
-    const mdClose = $("mdClose");
-    const mdSave = $("mdSave");
-    const mdDelete = $("mdDelete");
+    // Search + reload
+    q.addEventListener('input', renderDict);
+    $("reload").addEventListener('click', async ()=>{ await loadAll(); });
 
+    // Edit modal
+    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete");
     function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("editName").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
+    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; editUse = []; }
 
     function openEdit(id){
-      const it = rows.find(r=>r.id===id);
-      if(!it) return;
-      editId = id;
-      $("editName").value = it.name || '';
-      $("editNet").value  = String(it.networkId).padStart(4,'0');
-      $("editFreq").value = it.frequencyMHz || '';
+      const t = towers.find(x=>x.id===id); if(!t) return;
+      editId = id; editUse = t.inUse||[];
+      $("editName").value = t.name || '';
+      $("editNet").value  = pad4(t.networkId||0);
+      $("editFreq").value = t.frequencyMHz || '';
+      $("editUsage").textContent = editUse.length
+        ? `In use by ${editUse.length} field${editUse.length===1?'':'s'}.`
+        : 'Not currently used by any fields.';
+      mdDelete.disabled = editUse.length > 0;
       openModal();
     }
 
@@ -394,27 +364,62 @@
     modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
-    /* --------------------- Events --------------------- */
-    $("save").addEventListener("click", addTower);
-    $("clear").addEventListener("click", ()=>{ ["name","netid","freq"].forEach(id=>$(id).value=""); });
-    $("reload").addEventListener("click", loadList);
-    q.addEventListener("input", renderList);
+    mdSave.addEventListener('click', async ()=>{
+      const name = $("editName").value.trim();
+      const net  = $("editNet").value.trim();
+      const freq = $("editFreq").value.trim();
+      if(!name){ alert('Enter a tower name.'); return; }
+      if(!/^\d{4}$/.test(net)){ alert('Network ID must be exactly 4 digits.'); return; }
+      if(!/^\d{3}\.\d{5}$/.test(freq)){ alert('Frequency must match 450.12345 format.'); return; }
+      try{
+        await FVData.ready(); await waitForAuthReady();
+        await FVData.update('rtkTowers', editId, {
+          name, networkId: Number(net), frequencyMHz: freq
+        });
+        showToast('Changes saved.');
+        await loadAll();
+        closeModal();
+      }catch(e){ console.error(e); showError('Update failed: ' + (e?.message||e)); }
+    });
 
-    // edit modal actions
-    mdSave.addEventListener("click", saveEdit);
-    mdDelete.addEventListener("click", deleteEdit);
+    async function tryDelete(id){
+      const t = towers.find(x=>x.id===id); if(!t) return;
+      if (t.inUse.length){
+        showUsage(t);
+        return;
+      }
+      if(!confirm(`Delete RTK tower "${t.name}"? This cannot be undone.`)) return;
+      try{
+        await FVData.ready(); await waitForAuthReady();
+        await FVData.remove('rtkTowers', id);
+        showToast('Tower deleted.');
+        await loadAll();
+        closeModal();
+      }catch(e){ console.error(e); showError('Delete failed: ' + (e?.message||e)); }
+    }
 
-    /* --------------------- Boot --------------------- */
+    // Usage modal (when delete is blocked)
+    const useModal = $("useModal"), useClose = $("useClose"), useOk = $("useOk"), useList = $("useList");
+    function openUse(){ useModal.setAttribute('open',''); useModal.setAttribute('aria-hidden','false'); }
+    function closeUse(){ useModal.removeAttribute('open'); useModal.setAttribute('aria-hidden','true'); useList.innerHTML=''; }
+    useClose.addEventListener('click', closeUse); useOk.addEventListener('click', closeUse);
+    useModal.addEventListener('click', e=>{ if(e.target===useModal) closeUse(); });
+
+    function showUsage(t){
+      useList.innerHTML = '';
+      (t.inUse||[]).forEach(name=>{
+        const li = document.createElement('li'); li.textContent = name; useList.appendChild(li);
+      });
+      openUse();
+    }
+
+    // Boot
     (async function boot(){
       try{
         if(!window.FVData) throw new Error("FVData not loaded");
-        await FVData.ready();
-        await waitForAuthReady();
-      }catch(e){
-        console.warn(e);
-        showError(e?.message || "FVData not loaded");
-      }
-      await loadList();
+        await FVData.ready(); await waitForAuthReady();
+      }catch(e){ console.warn(e); showError(e?.message || "FVData not loaded"); }
+      await loadAll();
     })();
   </script>
 
