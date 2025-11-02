@@ -1,34 +1,32 @@
-/* FarmVista — fv-data.js v1.0.1
-   Unified Firestore + Storage helpers that auto-detect your Firebase init style.
-   - Works with your module-based /Farm-vista/js/firebase-init.js (preferred)
-   - Also falls back to global compat firebase.* if present
-   - Matches your ownership/timestamp patterns and employee email keying
-   - Honors admin via employee.permissionGroup or auth.token.admin === true
-   Public API: window.FVData.{ready,isSignedIn,uid,email,isOwner,isAdmin,addDocWithMeta,setDocMerge,updateDocWithMeta,getDocData,getWhere,uploadFile,deleteFile,getDownloadURL,saveRecordWithFiles,addRecordWithFiles}
+/* FarmVista — fv-data.js v1.0.2
+   Matches your Firestore/Storage rules:
+   - Firestore: auto uid + createdAt/updatedAt (serverTimestamp)
+   - Storage: default path user-uploads/{uid}/..., plus feedback screenshot helper
+   - Admin detection: custom claim (token.admin) OR employees/<lowercased email> group
+   Works with your modular /Farm-vista/js/firebase-init.js, falls back to compat if present.
 */
 
 (function () {
   'use strict';
 
-  // ====== tiny utils ======
+  // ---------- tiny utils ----------
   const pad2 = (n) => (n < 10 ? '0' + n : '' + n);
   const dateFolders = (d = new Date()) => `${d.getFullYear()}/${pad2(d.getMonth()+1)}/${pad2(d.getDate())}`;
   const slug = (s) => (s || '').toString().trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80) || 'file';
   const uuid = () => (crypto && crypto.randomUUID) ? crypto.randomUUID()
     : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
 
-  // ====== firebase binding (modular preferred, compat fallback) ======
+  // ---------- firebase binding (modular preferred, compat fallback) ----------
   let bind = null; // { mode:'mod'|'compat', app, auth, db, storage, fns:{...} }
-  let _user = undefined;     // null|user after first hydration
+  let _user = undefined;
   let _empDoc = null;
 
   async function bindFirebase() {
     if (bind) return bind;
 
-    // Try modular import of your firebase-init.js (preferred path)
+    // Prefer your modular init
     try {
       const mod = await import('/Farm-vista/js/firebase-init.js');
-      // Expect a "ready" promise that resolves to { app, auth } and modular getters
       const ctx = mod.ready ? await mod.ready : null;
       const app = (ctx && ctx.app) || (mod.getApp && mod.getApp()) || null;
       const auth = (ctx && ctx.auth) || (mod.getAuth && mod.getAuth()) || null;
@@ -40,33 +38,28 @@
           mode: 'mod',
           app, auth, db, storage,
           fns: {
-            // firestore helpers
             doc: mod.doc, collection: mod.collection, getDoc: mod.getDoc, getDocs: mod.getDocs,
             addDoc: mod.addDoc, setDoc: mod.setDoc, updateDoc: mod.updateDoc, query: mod.query, where: mod.where, limit: mod.limit,
-            serverTimestamp: mod.serverTimestamp,
-            arrayUnion: mod.arrayUnion,
-            // storage helpers
+            serverTimestamp: mod.serverTimestamp, arrayUnion: mod.arrayUnion,
             ref: mod.ref, uploadBytesResumable: mod.uploadBytesResumable, getDownloadURL: mod.getDownloadURL, deleteObject: mod.deleteObject
           }
         };
         return bind;
       }
     } catch (e) {
-      // fall through to compat
       console.warn('[FVData] modular init not available (will try compat):', e);
     }
 
-    // Compat fallback (global firebase.*)
+    // Compat fallback
     if (window.firebase && firebase.app) {
       const app = firebase.app();
-      const auth = firebase.auth();
-      const db = firebase.firestore();
-      const storage = firebase.storage();
       bind = {
         mode: 'compat',
-        app, auth, db, storage,
+        app,
+        auth: firebase.auth(),
+        db: firebase.firestore(),
+        storage: firebase.storage(),
         fns: {
-          // firestore
           serverTimestamp: () => firebase.firestore.FieldValue.serverTimestamp(),
           arrayUnion: (...args) => firebase.firestore.FieldValue.arrayUnion(...args),
         }
@@ -74,15 +67,10 @@
       return bind;
     }
 
-    throw new Error('[FVData] Firebase not initialized. Ensure theme-boot.js has run and /Farm-vista/js/firebase-init.js is reachable.');
+    throw new Error('[FVData] Firebase not initialized. Ensure theme-boot.js ran and /Farm-vista/js/firebase-init.js is reachable.');
   }
 
-  // ====== simple wrappers that abstract mod vs compat ======
-  const now = async () => {
-    const b = await bindFirebase();
-    return (b.mode === 'mod') ? b.fns.serverTimestamp() : b.fns.serverTimestamp();
-  };
-
+  const now = async () => (await bindFirebase()).fns.serverTimestamp();
   const isSignedIn = () => !!(bind && bind.auth && bind.auth.currentUser);
   const uid = () => (bind && bind.auth && bind.auth.currentUser ? bind.auth.currentUser.uid : null);
   const email = () => (bind && bind.auth && bind.auth.currentUser ? (bind.auth.currentUser.email || '') : '');
@@ -95,8 +83,7 @@
       const b = await bindFirebase();
       const em = email();
       if (!em) return null;
-
-      const key = em.toLowerCase();
+      const key = em.toLowerCase(); // your app writes employees LOWERCASE
       if (b.mode === 'mod') {
         const { doc, getDoc } = b.fns;
         const snap = await getDoc(doc(b.db, 'employees', key));
@@ -105,35 +92,19 @@
         const snap = await b.db.collection('employees').doc(key).get();
         return snap.exists ? ({ id: key, ...snap.data() }) : null;
       }
-    } catch {
-      return null;
-    }
-  }
-
-  function _hasAdminClaim() {
-    try {
-      const u = bind && bind.auth && bind.auth.currentUser;
-      const token = u && u.stsTokenManager ? (u.stsTokenManager.claims || null) : null;
-      // Not all SDKs expose claims here; safer path is getIdTokenResult if needed.
-      return !!(u && u.getIdTokenResult && (u.getIdTokenResult._tokenResponse || null));
-    } catch { return false; }
+    } catch { return null; }
   }
 
   async function isAdmin() {
     await ready();
-    // 1) Owner always admin
     if (isOwner()) return true;
-
-    // 2) Check custom claim admin === true (if available)
     try {
       const u = bind.auth.currentUser;
       if (u && u.getIdTokenResult) {
         const res = await u.getIdTokenResult();
-        if (res && res.claims && res.claims.admin === true) return true;
+        if (res && res.claims && res.claims.admin === true) return true; // matches rules: request.auth.token.admin == true
       }
     } catch {}
-
-    // 3) Check employee doc permissionGroup
     if (!_empDoc) _empDoc = await _fetchEmployeeDoc();
     if (_empDoc && typeof _empDoc.permissionGroup === 'string') {
       const g = _empDoc.permissionGroup.toLowerCase();
@@ -142,33 +113,29 @@
     return false;
   }
 
-  // ====== lifecycle: wait for auth hydration (mirrors your guard’s behavior) ======
+  // ---------- lifecycle: mirror your auth-guard hydration ----------
   async function ready() {
     await bindFirebase();
     if (_user !== undefined) return { user: _user, emp: _empDoc };
-
     _user = await new Promise((resolve) => {
       let done = (u)=> resolve(u || null);
       try {
         if (bind.auth.currentUser) return done(bind.auth.currentUser);
-        // Modular onAuthStateChanged lives on the auth export in your firebase-init
-        const off = (bind.auth.onAuthStateChanged)
-          ? bind.auth.onAuthStateChanged((u) => { off && off(); done(u); })
+        const off = bind.auth.onAuthStateChanged
+          ? bind.auth.onAuthStateChanged((u)=>{ off && off(); done(u); })
           : null;
-        setTimeout(() => done(bind.auth.currentUser), 1600);
-      } catch {
-        done(bind.auth && bind.auth.currentUser);
-      }
+        setTimeout(()=> done(bind.auth.currentUser), 1600);
+      } catch { done(bind.auth && bind.auth.currentUser); }
     });
-
     if (_user && !_empDoc) _empDoc = await _fetchEmployeeDoc();
     return { user: _user, emp: _empDoc };
   }
 
-  // ====== meta stamping ======
+  // ---------- meta stamping (rules-friendly) ----------
   async function _withMeta(data, { ownership = true, touched = true } = {}) {
     const out = { ...(data || {}) };
-    if (ownership && uid()) out.uid = out.uid || uid();
+    const me = uid();
+    if (ownership && me) out.uid = out.uid || me; // ensure request.resource.data.uid == request.auth.uid on create
     if (touched) {
       out.updatedAt = await now();
       if (!('createdAt' in out)) out.createdAt = await now();
@@ -176,17 +143,15 @@
     return out;
   }
 
-  // ====== Firestore helpers ======
+  // ---------- Firestore helpers ----------
   async function addDocWithMeta(colPath, data, opts = {}) {
     await ready();
     const b = await bindFirebase();
     const payload = await _withMeta(data, opts);
-
     if (b.mode === 'mod') {
       const { collection, addDoc } = b.fns;
       const ref = await addDoc(collection(b.db, colPath), payload);
-      const docData = await getDocData(`${colPath}/${ref.id}`);
-      return docData;
+      return await getDocData(`${colPath}/${ref.id}`);
     } else {
       const ref = await b.db.collection(colPath).add(payload);
       return (await ref.get()).data();
@@ -197,7 +162,6 @@
     await ready();
     const b = await bindFirebase();
     const payload = await _withMeta(data, opts);
-
     if (b.mode === 'mod') {
       const { setDoc, doc } = b.fns;
       await setDoc(doc(b.db, ...docPath.split('/')), payload, { merge: true });
@@ -211,7 +175,6 @@
     await ready();
     const b = await bindFirebase();
     const patch = { ...(data || {}), updatedAt: await now() };
-
     if (b.mode === 'mod') {
       const { updateDoc, doc } = b.fns;
       await updateDoc(doc(b.db, ...docPath.split('/')), patch);
@@ -248,8 +211,10 @@
     }
   }
 
-  // ====== Storage helpers ======
-  function _defaultKey(file, prefix = 'uploads') {
+  // ---------- Storage helpers ----------
+  const DEFAULT_PREFIX = 'user-uploads'; // conforms to rules match /user-uploads/{uid}/{rest=**}
+
+  function _defaultKey(file, prefix = DEFAULT_PREFIX) {
     const u = uid() || 'anon';
     const name = typeof file === 'string' ? file : (file.name || 'file');
     const base = slug(name.replace(/\.[^.]+$/,''));
@@ -261,8 +226,8 @@
 
   async function uploadFile(fileOrBlob, {
     storagePath = null,
-    prefix = 'uploads',
-    onProgress = null,              // cb(percent)
+    prefix = DEFAULT_PREFIX,
+    onProgress = null,
     cacheControl = 'public,max-age=31536000,immutable',
     contentType = null
   } = {}) {
@@ -342,12 +307,12 @@
     }
   }
 
-  // ====== High-level patterns ======
+  // ---------- High-level patterns ----------
   async function saveRecordWithFiles({
     docPath,            // "collection/docId"
     data,               // plain object
-    files = [],         // File[] or Blob[] (each may have a .name)
-    filePrefix = 'uploads',
+    files = [],         // File[] or Blob[]
+    filePrefix = DEFAULT_PREFIX,
     merge = true
   }) {
     await ready();
@@ -368,9 +333,8 @@
     const stamp = await now();
     const payload = {
       ...(data || {}),
-      attachments: (b.mode === 'mod')
-        ? (window.__FV_ARRAY_UNION__ || (await bindFirebase()).fns.arrayUnion)(...uploads)
-        : firebase.firestore.FieldValue.arrayUnion(...uploads),
+      // arrayUnion is allowed for owners/admins or doc owner; reads are covered by your rules
+      attachments: (bind.mode === 'mod') ? bind.fns.arrayUnion(...uploads) : firebase.firestore.FieldValue.arrayUnion(...uploads),
       updatedAt: stamp
     };
     if (!(data && 'createdAt' in data)) payload.createdAt = stamp;
@@ -379,14 +343,12 @@
     if (merge) {
       await setDocMerge(docPath, payload, { ownership: true, touched: false });
     } else {
-      // overwrite, still include meta
       const full = await _withMeta(payload, { ownership: true, touched: true });
-      const b2 = await bindFirebase();
-      if (b2.mode === 'mod') {
-        const { setDoc, doc } = b2.fns;
-        await setDoc(doc(b2.db, ...docPath.split('/')), full);
+      if (bind.mode === 'mod') {
+        const { setDoc, doc } = bind.fns;
+        await setDoc(doc(bind.db, ...docPath.split('/')), full);
       } else {
-        await b2.db.doc(docPath).set(full);
+        await bind.db.doc(docPath).set(full);
       }
     }
     const saved = await getDocData(docPath);
@@ -397,16 +359,15 @@
     collectionPath,
     data,
     files = [],
-    filePrefix = 'uploads'
+    filePrefix = DEFAULT_PREFIX
   }) {
     await ready();
     const b = await bindFirebase();
-
     if (b.mode === 'mod') {
       const { collection, addDoc } = b.fns;
       const stamp = await now();
       const base = { ...(data || {}), updatedAt: stamp, createdAt: stamp };
-      if (uid()) base.uid = base.uid || uid();
+      const me = uid(); if (me) base.uid = base.uid || me;
       const ref = await addDoc(collection(b.db, collectionPath), base);
       await saveRecordWithFiles({ docPath: `${collectionPath}/${ref.id}`, data: {}, files, filePrefix, merge: true });
       return await getDocData(`${collectionPath}/${ref.id}`);
@@ -417,7 +378,20 @@
     }
   }
 
-  // ====== Public API ======
+  // Feedback screenshots helper to match Storage rules:
+  //   feedback/{type}/{$docId}/screenshots/{$fileId}
+  async function uploadFeedbackScreenshot({ type = 'ideas', docId, file, onProgress = null }) {
+    if (!docId) throw new Error('docId required');
+    const base = slug((file && file.name) || 'screenshot');
+    const ext  = (file && file.name && file.name.includes('.')) ? file.name.slice(file.name.lastIndexOf('.')+1).toLowerCase() : 'png';
+    const fileId = `${uuid()}-${base}.${ext}`;
+    const path = `feedback/${type}/${docId}/screenshots/${fileId}`;
+    // (Optional) enforce images client-side; your rules can also enforce contentType
+    const contentType = file && file.type ? file.type : (ext === 'png' ? 'image/png' : undefined);
+    return await uploadFile(file, { storagePath: path, onProgress, contentType });
+  }
+
+  // ---------- Public API ----------
   window.FVData = {
     // lifecycle / identity
     ready, isSignedIn, uid, email, isOwner, isAdmin,
@@ -429,6 +403,6 @@
     uploadFile, deleteFile, getDownloadURL,
 
     // higher-level
-    saveRecordWithFiles, addRecordWithFiles
+    saveRecordWithFiles, addRecordWithFiles, uploadFeedbackScreenshot
   };
 })();
