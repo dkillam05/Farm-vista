@@ -1,17 +1,17 @@
-/**
+/** 
  * FarmVista — firebase-init.js
- * v2.3.0 — adds Firebase Storage exports + FV_HAS_STORAGE
+ * v2.3.1 — adds Firebase Storage exports + FV_HAS_STORAGE
  *
  * - v2.2.0 (prior): global RefreshBus + soft refresh handler (`fv:refresh`)
- * - This update ONLY adds Storage (getStorage/ref/uploadBytes/getDownloadURL)
- *   and a window.FV_HAS_STORAGE flag. All other behavior is unchanged.
+ * - v2.3.0: initial Storage (getStorage/ref/uploadBytes/getDownloadURL)
+ * - v2.3.1: also export uploadBytesResumable + deleteObject for parity with fv-data.js
  */
 
 const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
 const CDN_APP = `${CDN_BASE}firebase-app.js`;
 const CDN_AUTH = `${CDN_BASE}firebase-auth.js`;
 const CDN_STORE = `${CDN_BASE}firebase-firestore.js`;
-const CDN_STORAGE = `${CDN_BASE}firebase-storage.js`; // <-- ADDED
+const CDN_STORAGE = `${CDN_BASE}firebase-storage.js`;
 
 const STUB_USER_KEY = 'fv:stub:user';
 const STUB_ACCOUNT_KEY = 'fv:stub:accounts';
@@ -345,7 +345,7 @@ let auth = stubAuth;
 let firestore = stubFirestore;
 let authModule = null;
 let storeModule = null;
-let storageModule = null; // <-- ADDED
+let storageModule = null;
 export let mode = 'stub';
 
 let onAuthStateChangedImpl = (instance, cb) => stubSubscribe(instance || auth, cb);
@@ -505,7 +505,7 @@ export const ready = (async () => {
   if (!cfg) {
     mode = 'stub';
     ensureStubGlobals();
-    window.FV_HAS_STORAGE = false; // <-- ADDED (stub)
+    window.FV_HAS_STORAGE = false;
     return { app, auth, firestore, mode };
   }
 
@@ -514,12 +514,12 @@ export const ready = (async () => {
       import(CDN_APP),
       import(CDN_AUTH),
       import(CDN_STORE),
-      import(CDN_STORAGE) // <-- ADDED
+      import(CDN_STORAGE)
     ]);
 
     authModule = authMod;
     storeModule = storeMod;
-    storageModule = storageMod; // <-- ADDED
+    storageModule = storageMod;
 
     app = initializeApp(cfg);
     auth = authMod.getAuth(app);
@@ -553,8 +553,7 @@ export const ready = (async () => {
     window.firebaseFirestore = firestore;
     window.fvSignOut = () => authMod.signOut(auth);
 
-    // Expose storage presence for UI code that wants to skip uploads in stub.
-    window.FV_HAS_STORAGE = !!storageModule; // <-- ADDED
+    window.FV_HAS_STORAGE = !!storageModule;
 
     onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
@@ -567,31 +566,20 @@ export const ready = (async () => {
     mode = 'stub';
     authModule = null;
     storeModule = null;
-    storageModule = null; // <-- ADDED
+    storageModule = null;
     ensureStubGlobals();
-    window.FV_HAS_STORAGE = false; // <-- ADDED
+    window.FV_HAS_STORAGE = false;
     return { app, auth, firestore, mode };
   }
 })();
 
 /* ------------------------ Global PTR event handler ------------------------ */
-/* Soft refresh workflow:
-   1) If Firebase mode, ensure network is enabled (in case it's offline).
-   2) Nudge listeners by toggling network: disable→enable (safe no-op if already online).
-   3) Run all registered refreshers.
-   4) Emit 'fv:refreshed' for any UI that wants to show a toast, etc.
-*/
 async function _softRefreshNow(){
   try {
     if (mode === 'firebase' && storeModule && firestore) {
       try { await storeModule.enableNetwork(firestore); } catch {}
-      // nudge live listeners by toggling briefly
-      try {
-        await storeModule.disableNetwork(firestore);
-      } catch {}
-      try {
-        await storeModule.enableNetwork(firestore);
-      } catch {}
+      try { await storeModule.disableNetwork(firestore); } catch {}
+      try { await storeModule.enableNetwork(firestore); } catch {}
     }
   } catch (e) {
     console.warn('[FV] refresh network nudge failed', e);
@@ -635,20 +623,28 @@ export const limit = (...args) => limitImpl(...args);
 export const setStubUser = (user, password) => stubAuth._setUser(user, password);
 export const getStubUser = () => stubAuth.currentUser;
 
-/* ------ Storage API exports (ADDED) ------ */
+/* ------ Storage API exports (complete) ------ */
 export const getStorage = (appInstance) => (storageModule ? storageModule.getStorage(appInstance || app) : null);
 export const ref = (...args) => {
   if (!storageModule) throw new Error('Storage not loaded');
   return storageModule.ref(...args);
 };
-export const storageRef = ref; // alias for convenience
+export const storageRef = ref;
 export const uploadBytes = (...args) => {
   if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
   return storageModule.uploadBytes(...args);
 };
+export const uploadBytesResumable = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.uploadBytesResumable(...args);
+};
 export const getDownloadURL = (...args) => {
   if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
   return storageModule.getDownloadURL(...args);
+};
+export const deleteObject = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.deleteObject(...args);
 };
 
 window.__FV_USER = stubAuth.currentUser || null;
