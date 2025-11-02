@@ -6,18 +6,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard app includes (ABSOLUTE paths; same as your working Farms page) -->
+  <!-- Standard app includes (ABSOLUTE paths) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js" defer></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Load order matters: boot FIRST (no defer), then FVData -->
-  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <!-- IMPORTANT: config BEFORE fv-data so Firebase can initialize -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <!-- FVData (blocking) so window.FVData exists before our module runs -->
   <script src="/Farm-vista/js/fv-data.js?v=1.1.0"></script>
 
-  <!-- Shell last (deferred is fine) -->
+  <!-- Shell can be deferred -->
   <script defer src="/Farm-vista/js/fv-shell.js"></script>
 
   <style>
@@ -33,6 +36,7 @@
       background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);}
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:14px;}
+
     .grid-3{display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr;}
     @media(max-width:880px){.grid-3{grid-template-columns:1fr;}}
 
@@ -54,9 +58,11 @@
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    .error{display:none;margin-top:8px;color:#8a1c1c;background:#fdecea;border:1px solid #c62828;
-      padding:8px 10px;border-radius:10px;font-weight:700;}
-    .error.show{display:block;}
+    /* simple diag strip */
+    .diag{margin-top:14px;border:1px dashed var(--border);border-radius:10px;padding:10px 12px;background:var(--surface);}
+    .diag pre{white-space:pre-wrap;font-size:12px;margin:6px 0 0 0;}
+    .alert{display:none;margin-top:12px;border:1px solid #b32d2d;background:#fdeaea;color:#7d1e1e;border-radius:10px;padding:10px 12px;font-weight:700}
+    .alert.show{display:block}
   </style>
 </head>
 <body>
@@ -65,16 +71,13 @@
       <h1 class="page-title">RTK Tower Information</h1>
       <p class="page-sub">Enter a Tower Name, a 4-digit Network ID, and a Radio Frequency in MHz. Press Save to write to Firestore.</p>
 
-      <!-- Entry form ONLY (dictionary removed) -->
+      <!-- Entry form (no dictionary) -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛰️</div>
           <div>
             <strong>New RTK Tower</strong>
-            <div class="help">
-              Network ID: exactly 4 digits (e.g., <code>0123</code>).
-              Frequency: <code>###.#####</code> (e.g., <code>450.12345</code>).
-            </div>
+            <div class="help">Network ID: exactly 4 digits (e.g., <code>0123</code>). Frequency: <code>###.#####</code> (e.g., <code>450.12345</code>).</div>
           </div>
         </header>
 
@@ -87,13 +90,13 @@
 
             <div class="field">
               <label for="netid">Network ID</label>
-              <input id="netid" class="input" inputmode="numeric" maxlength="4" placeholder="0123" autocomplete="off">
+              <input id="netid" class="input" inputmode="numeric" maxlength="4" placeholder="e.g., 0123" autocomplete="off">
               <div class="help">Exactly 4 numbers.</div>
             </div>
 
             <div class="field">
               <label for="freq">Radio Frequency (MHz)</label>
-              <input id="freq" class="input" inputmode="decimal" placeholder="450.12345" autocomplete="off">
+              <input id="freq" class="input" inputmode="decimal" placeholder="e.g., 450.12345" autocomplete="off">
               <div class="help">Three digits, decimal, five digits.</div>
             </div>
           </div>
@@ -103,7 +106,18 @@
             <button id="save" class="btn btn-primary" type="button">Save Tower</button>
           </div>
 
-          <div id="errBox" class="error" role="alert"></div>
+          <!-- inline alert for quick visibility -->
+          <div id="alert" class="alert" role="alert"></div>
+
+          <!-- tiny diagnostics so we can replicate this pattern everywhere -->
+          <div class="diag" id="diagBox" hidden>
+            <strong>Data wiring diagnostics</strong>
+            <pre id="diagOut">Running…</pre>
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+              <button id="diagRefresh" class="btn" type="button">Re-check</button>
+              <button id="diagPing" class="btn" type="button">Ping Firestore (read 1 farm)</button>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -111,87 +125,84 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Page logic: save-only via FVData -->
+  <!-- Page logic -->
   <script type="module">
+    /* ====== utils ====== */
     const $ = id => document.getElementById(id);
-    const toast = $("toast");
+    const toast = $("toast"), alertBox = $("alert");
+    const showToast = (msg="Saved.")=>{
+      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+    };
+    const showAlert = (msg)=>{
+      alertBox.textContent = msg; alertBox.classList.add("show");
+      clearTimeout(showAlert._t); showAlert._t = setTimeout(()=> alertBox.classList.remove("show"), 7000);
+    };
 
-    function showToast(msg="Saved.") {
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
-    }
-    function showError(msg){
-      const b = $("errBox");
-      b.textContent = msg || "An error occurred.";
-      b.classList.add("show");
-      clearTimeout(showError._t);
-      showError._t = setTimeout(()=> b.classList.remove("show"), 6000);
-    }
-
-    // Wait for FVData (boot order already correct, but we still guard)
-    async function waitForFVData(timeoutMs=6000){
-      const t0 = Date.now();
-      while (!window.FVData) {
-        if (Date.now()-t0 > timeoutMs) throw new Error("FVData not loaded");
-        await new Promise(r=>setTimeout(r,80));
-      }
-      await window.FVData.ready?.();
-    }
-
-    // Validation rules
-    function validateFields(){
+    /* ====== validation ====== */
+    function validate(){
       const name = $("name").value.trim();
       const netid = $("netid").value.trim();
       const freq  = $("freq").value.trim();
-      if (!name) return "Enter a tower name.";
-      if (!/^\d{4}$/.test(netid)) return "Network ID must be exactly 4 digits.";
-      if (!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
+      if(!name) return "Enter a tower name.";
+      if(!/^\d{4}$/.test(netid)) return "Network ID must be exactly 4 digits.";
+      if(!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
       return "";
     }
-
-    // Normalize/pad inputs
-    $("netid").addEventListener("input", e=>{
-      e.target.value = e.target.value.replace(/\D/g,"").slice(0,4);
-    });
+    $("netid").addEventListener("input", e=>{ e.target.value = e.target.value.replace(/\D/g,"").slice(0,4); });
     $("freq").addEventListener("blur", e=>{
-      const v = e.target.value.trim();
-      const m = v.match(/^(\d{3})\.(\d{1,5})$/); // accept 1–5 decimals, pad to 5
-      if (m) e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`;
+      const m = (e.target.value||"").trim().match(/^(\d{3})\.(\d{1,5})$/);
+      if(m) e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`;
     });
 
-    // Clear
-    $("clear").addEventListener("click", ()=>{
-      ["name","netid","freq"].forEach(id=>$(id).value="");
-      $("errBox").classList.remove("show");
-    });
-
-    // Save (write-only)
+    /* ====== save ====== */
     $("save").addEventListener("click", async ()=>{
-      const err = validateFields();
-      if (err) { showError(err); return; }
-      const data = {
-        name: $("name").value.trim(),
-        networkId: Number($("netid").value.trim()),
-        frequencyMHz: $("freq").value.trim()
-      };
-
+      const err = validate(); if(err){ showAlert(err); return; }
       try{
-        await waitForFVData();
-        await FVData.add("rtkTowers", data);   // centralized meta (uid, createdAt, updatedAt) handled by FVData
+        if(!window.FVData){ showAlert("FVData not loaded"); return; }
+        await window.FVData.ready?.();
+        await window.FVData.add("rtkTowers", {
+          name: $("name").value.trim(),
+          networkId: Number($("netid").value.trim()),
+          frequencyMHz: $("freq").value.trim()
+        });
+        ["name","netid","freq"].forEach(id=> $(id).value = "");
         showToast("RTK tower saved.");
-        ["name","netid","freq"].forEach(id=>$(id).value="");
       }catch(e){
         console.error(e);
-        showError("Save failed: " + (e?.message || e));
+        showAlert("Save failed: " + (e?.message || e));
       }
     });
+    $("clear").addEventListener("click", ()=>{ ["name","netid","freq"].forEach(id=> $(id).value = ""); });
 
-    // Optional: quick health check on load (comment out if not wanted)
-    (async()=>{
-      try { await waitForFVData(); }
-      catch(e){ showError(e?.message || "FVData not loaded"); }
-    })();
+    /* ====== diagnostics (keep – this is our reusable template) ====== */
+    async function diag(){
+      const out = [];
+      out.push(`location: ${location.pathname}`);
+      out.push(`theme-boot: ${typeof window.ThemeBoot !== "undefined" ? "ok" : "not found"}`);
+      out.push(`FVData: ${typeof window.FVData}`);
+      if(window.FVData){
+        try{
+          await window.FVData.ready?.();
+          const me = window.FVData.uid?.();
+          out.push(`auth uid: ${me || "(none yet)"}`);
+        }catch(e){ out.push(`ready(): ERROR → ${e?.message||e}`); }
+      }
+      $("diagOut").textContent = out.join("\n");
+      $("diagBox").hidden = false;
+    }
+    $("diagRefresh").addEventListener("click", diag);
+    $("diagPing").addEventListener("click", async ()=>{
+      try{
+        if(!window.FVData){ showAlert("FVData not loaded"); return; }
+        await window.FVData.ready?.();
+        const rows = await window.FVData.list("farms", {limit:1});
+        showAlert(`Ping OK. farms[0]= ${rows && rows[0] ? JSON.stringify(rows[0]) : "none"}`);
+      }catch(e){
+        console.error(e);
+        showAlert("Ping failed: " + (e?.message||e));
+      }
+    });
+    diag(); // run once on load
   </script>
 </body>
 </html>
