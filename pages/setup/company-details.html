@@ -27,7 +27,7 @@
     .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
     @media(max-width:640px){.row{grid-template-columns:1fr}}
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
-    .input,.select{width:100%;font:inherit;font-size:16px;color:var(--text);
+    .input,.select,.textarea{width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
     .muted{font-size:13px;color:var(--muted,#67706B)}
@@ -43,10 +43,13 @@
       z-index:99999;display:none}
     .toast.show{display:block;animation:fadeout 3s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-
     .debug-path{font-size:12px;color:var(--muted);margin-top:-6px}
-    .ok{color:#2F6C3C}
-    .warn{color:#8a6d3b}
+    .ok{color:#2F6C3C}.warn{color:#8a6d3b}
+
+    /* Match Ideas file upload UI */
+    .thumbs{display:flex;gap:8px;flex-wrap:wrap}
+    .thumb{width:72px;height:72px;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:grid;place-items:center;background:var(--surface)}
+    .thumb img{max-width:100%;max-height:100%;display:block}
   </style>
 
   <!-- Ensure <fv-shell> exists when deep-linking -->
@@ -125,8 +128,19 @@
               <div class="muted">These details may appear where organization info is shown.</div>
             </div>
 
+            <!-- Logo upload (identical UI behavior to Ideas "Screenshots") -->
+            <div class="field">
+              <label for="logoFile">Logo upload (optional)</label>
+              <input id="logoFile" class="input" type="file" accept="image/*" />
+              <div id="logoThumbs" class="thumbs" aria-hidden="true"></div>
+              <div id="logoHint" class="muted" aria-hidden="true"></div>
+              <div id="logoNote" class="muted" style="display:none"></div>
+              <div class="muted" id="currentLogoWrap" style="display:none">Current logo:</div>
+              <div class="thumbs" id="currentLogoThumb" style="display:none"></div>
+            </div>
+
             <div class="actions">
-              <button id="clear" class="btn" type="button">Clear</button>
+              <button id="clear" class="btn" type="button">Cancel</button>
               <button id="save" class="btn btn-primary" type="button">Save</button>
             </div>
           </div>
@@ -142,7 +156,8 @@
   <script type="module">
     import {
       ready,
-      getFirestore, doc, getDoc, setDoc, serverTimestamp
+      getFirestore, doc, getDoc, setDoc, serverTimestamp,
+      getStorage, ref as storageRef, uploadBytes, getDownloadURL
     } from '/Farm-vista/js/firebase-init.js';
 
     (function(){
@@ -152,17 +167,20 @@
         name:$('#farmName'),
         street:$('#addrStreet'), city:$('#addrCity'), state:$('#addrState'), zip:$('#addrZip'),
         phone:$('#farmPhone'), email:$('#farmEmail'),
+        logo:$('#logoFile'), logoThumbs:$('#logoThumbs'), logoHint:$('#logoHint'), logoNote:$('#logoNote'),
+        currentLogoWrap:$('#currentLogoWrap'), currentLogoThumb:$('#currentLogoThumb'),
         save:$('#save'), clear:$('#clear'),
         err:$('#err'), toast:$('#toast'), saveStatus:$('#saveStatus')
       };
 
       const REF=(db)=>doc(db,'company','main');
+      const STORAGE_PATH_BASE='company/main/logo';
       const CACHE_KEY='fv_company_main';
 
       const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const showToast=(m="Saved.")=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); };
 
-      // Phone formatting: (AAA)-BBB-CCCC
+      // Phone formatting: (AAA)-BBB-CCCC (your preference)
       const onlyDigits=(s)=>String(s||"").replace(/\D+/g,"");
       function fmtPhoneLive(v){
         let d=onlyDigits(v);
@@ -192,12 +210,24 @@
         el.zip.value    = d?.addressZip || "";
         el.phone.value  = d?.phone ? fmtPhoneFinal(d.phone) : "";
         el.email.value  = d?.email || "";
+
+        // show current logo preview (persisted)
+        const logo = d?.logo;
+        if (logo && logo.url){
+          el.currentLogoWrap.style.display='block';
+          el.currentLogoThumb.style.display='flex';
+          el.currentLogoThumb.innerHTML='';
+          const div=document.createElement('div'); div.className='thumb';
+          const img=document.createElement('img'); img.alt='Current logo'; img.src=logo.url;
+          div.appendChild(img); el.currentLogoThumb.appendChild(div);
+        }else{
+          el.currentLogoWrap.style.display='none';
+          el.currentLogoThumb.style.display='none';
+          el.currentLogoThumb.innerHTML='';
+        }
       }
       function readCore(){
-        return {
-          name:(el.name.value||"").trim(),
-          phone:fmtPhoneFinal(el.phone.value||"")
-        };
+        return { name:(el.name.value||"").trim(), phone:fmtPhoneFinal(el.phone.value||"") };
       }
       function readExtras(){
         return {
@@ -210,6 +240,21 @@
       }
       function cacheWrite(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch{} }
       function cacheRead(){ try{ const s=localStorage.getItem(CACHE_KEY); return s? JSON.parse(s): null; }catch{ return null; } }
+
+      // Match Ideas page preview behavior (single file)
+      el.logo?.addEventListener('change', ()=>{
+        const f = (el.logo.files && el.logo.files[0]) || null;
+        el.logoThumbs.innerHTML='';
+        if (!f){ el.logoThumbs.setAttribute('aria-hidden','true'); el.logoHint.textContent=''; el.logoHint.setAttribute('aria-hidden','true'); return; }
+        const wrap=document.createElement('div'); wrap.className='thumb';
+        if (f.type.startsWith('image/')){
+          const img=document.createElement('img'); img.alt=f.name; wrap.appendChild(img);
+          const reader=new FileReader(); reader.onload=e=>{ img.src=e.target.result; }; reader.readAsDataURL(f);
+        } else { wrap.textContent=(f.name||'file').split('.').pop().toUpperCase(); }
+        el.logoThumbs.appendChild(wrap);
+        el.logoThumbs.removeAttribute('aria-hidden');
+        el.logoHint.textContent='1 file selected'; el.logoHint.removeAttribute('aria-hidden');
+      });
 
       let db;
 
@@ -225,17 +270,38 @@
         }
       }
 
+      async function uploadLogoAndUpdateDoc(){
+        const f = (el.logo.files && el.logo.files[0]) || null;
+        if (!f) return { ok:true, meta:null, note:'' };
+
+        const safeName = (Date.now() + '-' + (f.name||'logo.png')).replace(/[^a-zA-Z0-9._-]+/g,'_');
+        const path = `${STORAGE_PATH_BASE}/${safeName}`;
+        try{
+          const store = getStorage();
+          const ref = storageRef(store, path);
+          await uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
+          const url = await getDownloadURL(ref);
+          const logoMeta = { name:f.name||safeName, path, url, contentType:f.type||'', size:f.size||0 };
+          await setDoc(REF(db), { logo: logoMeta, updatedAt: serverTimestamp() }, { merge:true });
+          return { ok:true, meta:logoMeta, note:'' };
+        }catch(e){
+          console.warn('[Company] Logo upload failed', e);
+          return { ok:false, meta:null, note:'Saved details. Logo upload failed (check Storage rules/permissions).' };
+        }
+      }
+
       async function save(){
         try{
           showErr(""); el.saveStatus.textContent="";
+
           const core = readCore();
           if(!core.name || !core.phone){ showErr("Please fill required fields (Name, Phone)."); return; }
 
-          // ---- Stage 1: write the known-good fields first
+          // Stage 1: core
           await setDoc(REF(db), { ...core, updatedAt: serverTimestamp() }, { merge:true });
           el.saveStatus.innerHTML = `<span class="ok">Saved core fields (name, phone).</span>`;
 
-          // ---- Stage 2: write the extra fields
+          // Stage 2: extras
           const extras = readExtras();
           try{
             await setDoc(REF(db), { ...extras, updatedAt: serverTimestamp() }, { merge:true });
@@ -243,11 +309,17 @@
           }catch(e2){
             console.error('Extras save failed:', e2);
             el.saveStatus.innerHTML += ` <span class="warn">Extra fields not saved.</span>`;
-            // keep going; core is already persisted
           }
 
+          // Stage 3: logo (match Ideas uploader behavior)
+          const up = await uploadLogoAndUpdateDoc();
+          if (!up.ok && up.note){ el.logoNote.textContent = up.note; el.logoNote.style.display='block'; }
+          else { el.logoNote.style.display='none'; }
+
           showToast("Saved.");
-          // Reload from Firestore to verify/document state in UI
+          // reset file input (so same file can be chosen again later)
+          if (el.logo) { el.logo.value=''; el.logoThumbs.innerHTML=''; el.logoHint.textContent=''; el.logoThumbs.setAttribute('aria-hidden','true'); el.logoHint.setAttribute('aria-hidden','true'); }
+
           await loadFromFirestore();
         }catch(e){
           console.error(e);
@@ -256,10 +328,7 @@
       }
 
       el.save.addEventListener('click', save);
-      el.clear.addEventListener('click', ()=>{
-        fillForm({ name:"", addressStreet:"", addressCity:"", addressState:"", addressZip:"", phone:"", email:"" });
-        el.saveStatus.textContent=""; showErr("");
-      });
+      el.clear.addEventListener('click', ()=>{ history.back(); });
 
       (async ()=>{
         await ready;
