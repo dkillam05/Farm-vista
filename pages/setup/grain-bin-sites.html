@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Setup → Grain Bin Sites</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -11,6 +13,11 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Firebase config FIRST; FVData will bind to it -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <!-- New unified data layer -->
+  <script src="/Farm-vista/js/fv-data.js"></script>
 
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
@@ -91,7 +98,8 @@
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
     }
   })();</script>
-</head><body>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Grain Bin Sites</h1>
@@ -189,13 +197,6 @@
   </div>
 
   <script type="module">
-  import {
-    ready,
-    getFirestore, collection, query, orderBy,
-    getDocs, addDoc, doc, getDoc, setDoc, updateDoc, deleteDoc,
-    serverTimestamp
-  } from '/Farm-vista/js/firebase-init.js';
-
   (function(){
     "use strict";
 
@@ -215,13 +216,9 @@
     const statusPill = $("statusPill"), usedPill = $("usedPill");
 
     // State
-    let db;
     let addBins = [];       // [{num, bushels}]
     let editId = null;
     let mdBins = [];        // modal bins
-
-    // Firestore collection
-    const sitesRef = ()=> collection(db, 'binSites');
 
     /* ========== Utils ========== */
     const showToast = (msg="Successfully saved.")=>{
@@ -231,7 +228,7 @@
     };
     const showErr = (msg)=>{ errBox.textContent = msg||""; errBox.classList.toggle("show", !!msg); };
 
-    const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&gt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtComma = (n)=>{
       if(n==null||n==="") return "";
       const v = Number(String(n).replace(/,/g,""));
@@ -288,7 +285,6 @@
       if(!name){ alert("Please enter a site name."); return; }
       if(addBins.length===0 && !confirm("No bins added. Save site without bins?")) return;
 
-      // Normalize data
       const bins = addBins.map(b=>({ num: Number(b.num)||0, bushels: toNum(b.bushels) }));
       const set = new Set(); let dup=false;
       bins.forEach(b=>{ const k=String(b.num); if(set.has(k)) dup=true; set.add(k); });
@@ -298,14 +294,12 @@
 
       try{
         showErr("");
-        await addDoc(sitesRef(), {
+        await FVData.add('binSites', {
           name,
           bins,
           totalBushels: total,
-          status: "active",
-          used: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
+          status: 'active',
+          used: false
         });
         showToast("Successfully saved.");
         siteName.value = "";
@@ -319,22 +313,18 @@
       }
     });
 
-    /* ========== List & Modal ========== */
+    /* ========== List & Modal (FVData) ========== */
     async function fetchSites(){
-      const qs = await getDocs(query(sitesRef(), orderBy('updatedAt','desc')));
-      const out = [];
-      qs.forEach(s=>{
-        const d = s.data()||{};
-        out.push({ id:s.id, ...d });
-      });
-      // archived last
-      out.sort((a,b)=>{
-        const sa = a.status==="archived", sb = b.status==="archived";
+      // By default FVData.list() returns current-user docs (fits your rules)
+      const arr = await FVData.list('binSites', { limit: 500 });
+      // archived last, newest first
+      arr.sort((a,b)=>{
+        const sa = (a.status||'active')==='archived', sb = (b.status||'active')==='archived';
         const ta = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
         const tb = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
         return (sa - sb) || (tb - ta);
       });
-      return out;
+      return arr;
     }
 
     async function renderList(){
@@ -344,10 +334,11 @@
       items.forEach(it=>{
         const div = document.createElement("div");
         div.className = "item";
+        const binsCount = (it.bins||[]).length;
         const pills = `
-          <span class="pill">${(it.bins||[]).length} ${(it.bins||[]).length===1?'bin':'bins'}</span>
+          <span class="pill">${binsCount} ${binsCount===1?'bin':'bins'}</span>
           <span class="pill">${fmtComma(it.totalBushels||0)} bu</span>
-          ${it.status==="archived" ? `<span class="pill">Archived</span>` : ""}
+          ${(it.status==='archived') ? `<span class="pill">Archived</span>` : ""}
         `;
         div.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -363,18 +354,16 @@
 
     async function openEdit(id){
       try{
-        const ref = doc(db,'binSites', id);
-        const snap = await getDoc(ref);
-        if(!snap.exists()) return;
-        const it = snap.data()||{};
+        const it = await FVData.getDocData(`binSites/${id}`);
+        if(!it) return;
         editId = id;
         mdName.value = it.name || "";
         mdBins = (it.bins||[]).map(b=>({ num:Number(b.num)||0, bushels:Number(b.bushels)||0 }));
-        statusPill.textContent = it.status==="archived" ? "Archived" : "Active";
+        statusPill.textContent = (it.status==='archived') ? "Archived" : "Active";
         usedPill.style.display = it.used ? "inline-block" : "none";
         mdDelete.disabled = !!it.used;
         mdDelete.title = it.used ? "This site is in use and cannot be deleted. Archive instead." : "Delete this site";
-        mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+        mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
         renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill});
         openModal();
       }catch(e){
@@ -406,7 +395,6 @@
       const name = mdName.value.trim();
       if(!name){ alert("Please enter a site name."); return; }
       const bins = mdBins.map(b=>({ num:Number(b.num)||0, bushels: toNum(b.bushels) }));
-      // unique bin numbers
       const used = new Set(); let dup=false;
       bins.forEach(b=>{ const k=String(b.num); if(used.has(k)) dup=true; used.add(k); });
       if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
@@ -414,9 +402,8 @@
       const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
 
       try{
-        const ref = doc(db,'binSites', editId);
-        await updateDoc(ref, {
-          name, bins, totalBushels: total, updatedAt: serverTimestamp()
+        await FVData.update('binSites', editId, {
+          name, bins, totalBushels: total
         });
         showToast("Changes saved.");
         await renderList();
@@ -429,16 +416,14 @@
 
     mdArchive.addEventListener("click", async ()=>{
       try{
-        const ref = doc(db,'binSites', editId);
-        const snap = await getDoc(ref);
-        if(!snap.exists()) return;
-        const cur = snap.data()||{};
-        const next = cur.status==="archived" ? "active" : "archived";
-        await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
-        showToast(next==="archived" ? "Site archived." : "Site unarchived.");
+        const cur = await FVData.getDocData(`binSites/${editId}`);
+        if(!cur) return;
+        const next = (cur.status==='archived') ? 'active' : 'archived';
+        await FVData.update('binSites', editId, { status: next });
+        showToast(next==='archived' ? "Site archived." : "Site unarchived.");
         await renderList();
-        statusPill.textContent = next==='archived' ? 'Archived' : 'Active';
-        mdArchive.textContent = next==='archived' ? 'Unarchive' : 'Archive';
+        statusPill.textContent = (next==='archived') ? 'Archived' : 'Active';
+        mdArchive.textContent = (next==='archived') ? 'Unarchive' : 'Archive';
       }catch(e){
         console.error(e);
         showErr("Archive toggle failed.");
@@ -447,13 +432,11 @@
 
     mdDelete.addEventListener("click", async ()=>{
       try{
-        const ref = doc(db,'binSites', editId);
-        const snap = await getDoc(ref);
-        if(!snap.exists()) return;
-        const cur = snap.data()||{};
+        const cur = await FVData.getDocData(`binSites/${editId}`);
+        if(!cur) return;
         if(cur.used){ alert("This site is in use and cannot be deleted. Archive instead."); return; }
         if(!confirm(`Delete site "${cur.name||''}"? This cannot be undone.`)) return;
-        await deleteDoc(ref);
+        await FVData.remove('binSites', editId);
         showToast("Site deleted.");
         await renderList();
         closeModal();
@@ -465,14 +448,16 @@
 
     /* ========== Init ========== */
     (async ()=>{
-      const ctx = await ready;
-      if(ctx.mode!=='firebase'){ alert("Firestore not available (stub mode). This page expects Firebase to be live."); }
-      db = getFirestore();
-
+      try{
+        await FVData.ready(); // binds firebase-init or stub safely
+      }catch(e){
+        console.warn(e);
+      }
       renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
       await renderList();
     })();
 
   })();
   </script>
-</body></html>
+</body>
+</html>
