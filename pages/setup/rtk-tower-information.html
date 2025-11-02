@@ -10,7 +10,7 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <script src="/Farm-vista/js/theme-boot.js" defer></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -61,15 +61,10 @@
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);}
   </style>
 
-  <!-- Ensure <fv-shell> + fv-data.js are available -->
-  <script>(function(){
-    if(!customElements.get('fv-shell')){
-      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
-    }
-    if(!window.FVData){
-      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-data.js'; s.defer=true; document.head.appendChild(s);
-    }
-  })();</script>
+  <!-- Hard-blocking include so FVData is guaranteed before our module runs -->
+  <script src="/Farm-vista/js/fv-data.js?v=1.1.0"></script>
+  <!-- Shell can load async; it doesn't affect data API availability -->
+  <script defer src="/Farm-vista/js/fv-shell.js"></script>
 </head>
 <body>
   <fv-shell>
@@ -147,7 +142,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Page logic using FVData sugar API (v1.1.0) -->
+  <!-- Page logic (runs AFTER fv-data.js because that script is synchronous) -->
   <script type="module">
     const $ = id => document.getElementById(id);
     const toast = $("toast");
@@ -227,11 +222,18 @@
       }
     }
 
+    async function ensureReady(){
+      // FVData is guaranteed to exist because fv-data.js was blocking,
+      // but we still wait for Firebase auth/init.
+      if (!window.FVData) throw new Error("FVData not loaded");
+      await window.FVData.ready?.();
+    }
+
     async function loadDict(){
       try{
-        await window.FVData?.ready?.();
+        await ensureReady();
         const list = await window.FVData.list("rtkTowers", { limit: 500, mine: true });
-        list.sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"})); // A→Z
+        list.sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}));
         render(list);
       }catch(e){
         console.error(e);
@@ -244,7 +246,7 @@
       const err = validate(); if(err){ alert(err); return; }
       const data = payload();
       try{
-        await window.FVData?.ready?.();
+        await ensureReady();
         if(editingId){
           await window.FVData.update("rtkTowers", editingId, data);
           showToast("RTK tower updated.");
@@ -270,7 +272,7 @@
       const act = btn.dataset.act;
       const id  = btn.dataset.id;
       try{
-        await window.FVData?.ready?.();
+        await ensureReady();
         if(act === "edit"){
           const rows = await window.FVData.list("rtkTowers", { limit: 500, mine: true });
           const row = rows.find(x=>x.id===id);
@@ -296,9 +298,7 @@
     $("freq").addEventListener("blur", e=>{
       const v = e.target.value.trim();
       const m = v.match(/^(\d{3})\.(\d{1,5})$/); // accept 1–5 then pad
-      if(m){
-        e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`;
-      }
+      if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
     });
 
     loadDict();
