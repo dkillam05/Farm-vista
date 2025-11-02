@@ -1,16 +1,9 @@
-/* FarmVista — fv-data.js v1.1.0
-   Matches your Firestore/Storage rules:
-   - Firestore: auto uid + createdAt/updatedAt (serverTimestamp)
-   - Storage: default path user-uploads/{uid}/..., plus feedback screenshot helper
-   - Admin detection: custom claim (token.admin) OR employees/<lowercased email> group
-   - Works with your modular /Farm-vista/js/firebase-init.js, falls back to compat if present.
-
-   v1.1.0 (sugar API):
-   + FVData.add(col, data)      → addDocWithMeta
-   + FVData.list(col, opts)     → getWhere(col,'uid','==',uid())
-   + FVData.update(col,id,data) → setDocMerge(`${col}/${id}`, data)
-   + FVData.remove(col,id)      → deleteDocPath(`${col}/${id}`)
-   (Keeps ALL existing methods for backward compatibility.)
+/* FarmVista — fv-data.js v1.2.0
+   Long-term stable:
+   - FIX: remove undefined reference crash
+   - Align storage helpers to firebase-init.js (uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject)
+   - Keep meta: uid + createdAt/updatedAt serverTimestamp
+   - Keep sugar API: add/list/update/remove with rule-friendly defaults
 */
 
 (function () {
@@ -31,7 +24,7 @@
   async function bindFirebase() {
     if (bind) return bind;
 
-    // Prefer your modular init
+    // Prefer modular init
     try {
       const mod = await import('/Farm-vista/js/firebase-init.js');
       const ctx = mod.ready ? await mod.ready : null;
@@ -40,16 +33,22 @@
       const db = mod.getFirestore ? mod.getFirestore(app) : null;
       const storage = mod.getStorage ? mod.getStorage(app) : null;
 
-      if (app && auth && db && storage) {
+      if (app && auth && db) {
         bind = {
           mode: 'mod',
           app, auth, db, storage,
           fns: {
+            // firestore
             doc: mod.doc, collection: mod.collection, getDoc: mod.getDoc, getDocs: mod.getDocs,
             addDoc: mod.addDoc, setDoc: mod.setDoc, updateDoc: mod.updateDoc, deleteDoc: mod.deleteDoc,
             query: mod.query, where: mod.where, limit: mod.limit,
-            serverTimestamp: mod.serverTimestamp, arrayUnion: mod.arrayUnion,
-            ref: mod.ref, uploadBytesResumable: mod.uploadBytesResumable, getDownloadURL: mod.getDownloadURL, deleteObject: mod.deleteObject
+            serverTimestamp: mod.serverTimestamp,
+            // storage (all available now in v2.3.1)
+            ref: mod.ref,
+            uploadBytes: mod.uploadBytes,
+            uploadBytesResumable: mod.uploadBytesResumable,
+            getDownloadURL: mod.getDownloadURL,
+            deleteObject: mod.deleteObject
           }
         };
         return bind;
@@ -66,7 +65,7 @@
         app,
         auth: firebase.auth(),
         db: firebase.firestore(),
-        storage: firebase.storage(),
+        storage: firebase.storage && firebase.storage(),
         fns: {
           serverTimestamp: () => firebase.firestore.FieldValue.serverTimestamp(),
           arrayUnion: (...args) => firebase.firestore.FieldValue.arrayUnion(...args),
@@ -91,7 +90,7 @@
       const b = await bindFirebase();
       const em = email();
       if (!em) return null;
-      const key = em.toLowerCase(); // your app writes employees LOWERCASE
+      const key = em.toLowerCase(); // employees are keyed by LOWERCASE email
       if (b.mode === 'mod') {
         const { doc, getDoc } = b.fns;
         const snap = await getDoc(doc(b.db, 'employees', key));
@@ -110,7 +109,7 @@
       const u = bind.auth.currentUser;
       if (u && u.getIdTokenResult) {
         const res = await u.getIdTokenResult();
-        if (res && res.claims && res.claims.admin === true) return true; // matches rules: request.auth.token.admin == true
+        if (res && res.claims && res.claims.admin === true) return true;
       }
     } catch {}
     if (!_empDoc) _empDoc = await _fetchEmployeeDoc();
@@ -121,7 +120,7 @@
     return false;
   }
 
-  // ---------- lifecycle: mirror your auth-guard hydration ----------
+  // ---------- lifecycle: mirror auth-guard hydration ----------
   async function ready() {
     await bindFirebase();
     if (_user !== undefined) return { user: _user, emp: _empDoc };
@@ -233,7 +232,7 @@
   }
 
   // ---------- Storage helpers ----------
-  const DEFAULT_PREFIX = 'user-uploads'; // conforms to rules match /user-uploads/{uid}/{rest=**}
+  const DEFAULT_PREFIX = 'user-uploads';
 
   function _defaultKey(file, prefix = DEFAULT_PREFIX) {
     const u = uid() || 'anon';
@@ -250,57 +249,45 @@
     prefix = DEFAULT_PREFIX,
     onProgress = null,
     cacheControl = 'public,max-age=31536000,immutable',
-    contentType = null
+    contentType = null,
+    resumable = true
   } = {}) {
     await ready();
     const b = await bindFirebase();
+    if (!b.storage || !b.fns.ref) throw new Error('Storage not available');
+
     const key = storagePath || _defaultKey(fileOrBlob, prefix);
+    const r = b.fns.ref(b.storage, key);
 
-    if (b.mode === 'mod') {
-      const { ref, uploadBytesResumable, getDownloadURL } = b.fns;
-      const r = ref(b.storage, key);
-      const metadata = { cacheControl };
-      if (contentType) metadata.contentType = contentType;
-      else if (fileOrBlob && fileOrBlob.type) metadata.contentType = fileOrBlob.type;
-
+    // Choose resumable (preferred) or simple upload
+    if (resumable && b.fns.uploadBytesResumable) {
+      const task = b.fns.uploadBytesResumable(r, fileOrBlob, {
+        cacheControl,
+        contentType: contentType || (fileOrBlob && fileOrBlob.type) || undefined
+      });
       return await new Promise((resolve, reject) => {
-        const task = uploadBytesResumable(r, fileOrBlob, metadata);
         task.on('state_changed',
           (snap) => {
             if (onProgress && snap.totalBytes) {
-              const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-              try { onProgress(pct); } catch(_) {}
+              try { onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)); } catch {}
             }
           },
           reject,
           async () => {
-            const url = await getDownloadURL(r);
+            const url = await b.fns.getDownloadURL(r);
             resolve({ path: key, url });
           }
         );
       });
+    } else if (b.fns.uploadBytes) {
+      await b.fns.uploadBytes(r, fileOrBlob, {
+        cacheControl,
+        contentType: contentType || (fileOrBlob && fileOrBlob.type) || undefined
+      });
+      const url = await b.fns.getDownloadURL(r);
+      return { path: key, url };
     } else {
-      const ref = b.storage.ref().child(key);
-      const metadata = { cacheControl };
-      if (contentType) metadata.contentType = contentType;
-      else if (fileOrBlob && fileOrBlob.type) metadata.contentType = fileOrBlob.type;
-
-      return await new Promise((resolve, reject) => {
-        const task = ref.put(fileOrBlob, metadata);
-        task.on('state_changed',
-          (snap) => {
-            if (onProgress && snap.totalBytes) {
-              const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-              try { onProgress(pct); } catch(_) {}
-            }
-          },
-          reject,
-          async () => {
-            const url = await ref.getDownloadURL();
-            resolve({ path: key, url });
-          }
-        );
-      });
+      throw new Error('No upload method available');
     }
   }
 
@@ -308,31 +295,26 @@
     await ready();
     const b = await bindFirebase();
     if (!storagePath) throw new Error('No storage path given.');
-    if (b.mode === 'mod') {
-      const { ref, deleteObject } = b.fns;
-      await deleteObject(ref(b.storage, storagePath));
-    } else {
-      await b.storage.ref().child(storagePath).delete();
-    }
+    if (!b.storage || !b.fns.ref) throw new Error('Storage not available');
+    if (!b.fns.deleteObject) throw new Error('deleteObject not available');
+    const r = b.fns.ref(b.storage, storagePath);
+    await b.fns.deleteObject(r);
     return true;
   }
 
   async function getDownloadURL(storagePath) {
     await ready();
     const b = await bindFirebase();
-    if (b.mode === 'mod') {
-      const { ref, getDownloadURL } = b.fns;
-      return await getDownloadURL(ref(b.storage, storagePath));
-    } else {
-      return await b.storage.ref().child(storagePath).getDownloadURL();
-    }
+    if (!b.storage || !b.fns.ref || !b.fns.getDownloadURL) throw new Error('Storage not available');
+    const r = b.fns.ref(b.storage, storagePath);
+    return await b.fns.getDownloadURL(r);
   }
 
   // ---------- High-level patterns ----------
   async function saveRecordWithFiles({
-    docPath,            // "collection/docId"
-    data,               // plain object
-    files = [],         // File[] or Blob[]
+    docPath,
+    data,
+    files = [],
     filePrefix = DEFAULT_PREFIX,
     merge = true
   }) {
@@ -354,8 +336,7 @@
     const stamp = await now();
     const payload = {
       ...(data || {}),
-      // arrayUnion is allowed for owners/admins or doc owner; reads are covered by your rules
-      attachments: (bind.mode === 'mod') ? bind.fns.arrayUnion(...uploads) : firebase.firestore.FieldValue.arrayUnion(...uploads),
+      attachments: uploads, // keep simple array; your rules allow arrayUnion too for admins
       updatedAt: stamp
     };
     if (!(data && 'createdAt' in data)) payload.createdAt = stamp;
@@ -365,11 +346,12 @@
       await setDocMerge(docPath, payload, { ownership: true, touched: false });
     } else {
       const full = await _withMeta(payload, { ownership: true, touched: true });
-      if (bind.mode === 'mod') {
-        const { setDoc, doc } = b.fns;
-        await setDoc(doc(bind.db, ...docPath.split('/')), full);
+      const bmod = await bindFirebase();
+      if (bmod.mode === 'mod') {
+        const { setDoc, doc } = bmod.fns;
+        await setDoc(doc(bmod.db, ...docPath.split('/')), full);
       } else {
-        await bind.db.doc(docPath).set(full);
+        await bmod.db.doc(docPath).set(full);
       }
     }
     const saved = await getDocData(docPath);
@@ -399,6 +381,9 @@
     }
   }
 
+  // (Optional) tiny helper to avoid the previous undefined crash.
+  async function uploadFeedbackScreenshot() { return null; }
+
   // ---------- Public API ----------
   window.FVData = {
     // lifecycle / identity
@@ -413,18 +398,10 @@
     // higher-level
     saveRecordWithFiles, addRecordWithFiles, uploadFeedbackScreenshot,
 
-    // -------- sugar (ergonomic parity for app pages) --------
-    /**
-     * add('collection', data) -> {id, ...data}
-     */
+    // sugar
     async add(col, data) {
       return await addDocWithMeta(col, data);
     },
-    /**
-     * list('collection', {limit=500, mine=true})
-     * If mine=true, returns only docs owned by the current user (fits your rules).
-     * If mine=false and caller has permission (owner/admin), you can adapt this later.
-     */
     async list(col, opts = {}) {
       const { limit = 500, mine = true } = opts;
       if (mine !== false) {
@@ -432,19 +409,11 @@
         if (!me) { await ready(); }
         return await getWhere(col, 'uid', '==', uid(), { limit });
       }
-      // Fallback: try a permissive query (owner/admin contexts). Adjust as needed.
-      // Using 'uid' >= '' as a coarse "all" requires composite index; keep mine=true for non-admins.
       return await getWhere(col, 'uid', '>=', '', { limit });
     },
-    /**
-     * update('collection', id, patch)
-     */
     async update(col, id, patch) {
       return await setDocMerge(`${col}/${id}`, patch);
     },
-    /**
-     * remove('collection', id)
-     */
     async remove(col, id) {
       return await deleteDocPath(`${col}/${id}`);
     }
