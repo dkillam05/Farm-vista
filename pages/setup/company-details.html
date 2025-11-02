@@ -43,6 +43,10 @@
       z-index:99999;display:none}
     .toast.show{display:block;animation:fadeout 3s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    .debug-path{font-size:12px;color:var(--muted);margin-top:-6px}
+    .ok{color:#2F6C3C}
+    .warn{color:#8a6d3b}
   </style>
 
   <!-- Ensure <fv-shell> exists when deep-linking -->
@@ -56,6 +60,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Company Details</h1>
+      <div class="debug-path">Writing to: <code>/company/main</code></div>
 
       <section class="section">
         <header class="section-head">
@@ -117,7 +122,7 @@
             <div class="field">
               <label for="farmEmail">Primary Email</label>
               <input id="farmEmail" class="input" type="email" placeholder="name@example.com" autocomplete="email">
-              <div class="muted">These details may appear on pages and reports that include organization info.</div>
+              <div class="muted">These details may appear where organization info is shown.</div>
             </div>
 
             <div class="actions">
@@ -125,6 +130,8 @@
               <button id="save" class="btn btn-primary" type="button">Save</button>
             </div>
           </div>
+
+          <div class="muted" id="saveStatus" style="margin-top:6px"></div>
         </div>
       </section>
     </div>
@@ -146,7 +153,7 @@
         street:$('#addrStreet'), city:$('#addrCity'), state:$('#addrState'), zip:$('#addrZip'),
         phone:$('#farmPhone'), email:$('#farmEmail'),
         save:$('#save'), clear:$('#clear'),
-        err:$('#err'), toast:$('#toast')
+        err:$('#err'), toast:$('#toast'), saveStatus:$('#saveStatus')
       };
 
       const REF=(db)=>doc(db,'company','main');
@@ -155,7 +162,7 @@
       const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const showToast=(m="Saved.")=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); };
 
-      // Phone formatting: (AAA)-BBB-CCCC (matches your example "(630)-488-7220")
+      // Phone formatting: (AAA)-BBB-CCCC
       const onlyDigits=(s)=>String(s||"").replace(/\D+/g,"");
       function fmtPhoneLive(v){
         let d=onlyDigits(v);
@@ -186,14 +193,18 @@
         el.phone.value  = d?.phone ? fmtPhoneFinal(d.phone) : "";
         el.email.value  = d?.email || "";
       }
-      function readForm(){
+      function readCore(){
         return {
           name:(el.name.value||"").trim(),
+          phone:fmtPhoneFinal(el.phone.value||"")
+        };
+      }
+      function readExtras(){
+        return {
           addressStreet:(el.street.value||"").trim(),
           addressCity:(el.city.value||"").trim(),
           addressState:(el.state.value||"").trim(),
           addressZip:(el.zip.value||"").trim(),
-          phone:fmtPhoneFinal(el.phone.value||""),
           email:normalizeEmail(el.email.value||"")
         };
       }
@@ -206,7 +217,8 @@
         try{
           const snap=await getDoc(REF(db));
           const d=snap.exists()? (snap.data()||{}) : {};
-          fillForm(d); cacheWrite(d); showErr("");
+          fillForm(d); cacheWrite(d); el.saveStatus.textContent="";
+          showErr("");
         }catch(e){
           console.error(e);
           showErr(`Failed to load.\n${e.code||''} ${e.message||''}`.trim());
@@ -215,13 +227,27 @@
 
       async function save(){
         try{
-          showErr("");
-          const data = readForm();
-          if(!data.name || !data.phone){ showErr("Please fill required fields (Name, Phone)."); return; }
+          showErr(""); el.saveStatus.textContent="";
+          const core = readCore();
+          if(!core.name || !core.phone){ showErr("Please fill required fields (Name, Phone)."); return; }
 
-          await setDoc(REF(db), { ...data, updatedAt: serverTimestamp() }, { merge:true });
-          cacheWrite(data);
+          // ---- Stage 1: write the known-good fields first
+          await setDoc(REF(db), { ...core, updatedAt: serverTimestamp() }, { merge:true });
+          el.saveStatus.innerHTML = `<span class="ok">Saved core fields (name, phone).</span>`;
+
+          // ---- Stage 2: write the extra fields
+          const extras = readExtras();
+          try{
+            await setDoc(REF(db), { ...extras, updatedAt: serverTimestamp() }, { merge:true });
+            el.saveStatus.innerHTML += ` <span class="ok">Saved extra fields.</span>`;
+          }catch(e2){
+            console.error('Extras save failed:', e2);
+            el.saveStatus.innerHTML += ` <span class="warn">Extra fields not saved.</span>`;
+            // keep going; core is already persisted
+          }
+
           showToast("Saved.");
+          // Reload from Firestore to verify/document state in UI
           await loadFromFirestore();
         }catch(e){
           console.error(e);
@@ -232,7 +258,7 @@
       el.save.addEventListener('click', save);
       el.clear.addEventListener('click', ()=>{
         fillForm({ name:"", addressStreet:"", addressCity:"", addressState:"", addressZip:"", phone:"", email:"" });
-        showErr("");
+        el.saveStatus.textContent=""; showErr("");
       });
 
       (async ()=>{
