@@ -14,6 +14,9 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
+  <!-- FVData helpers (Firestore + Storage unified) -->
+  <script src="/Farm-vista/js/fv-data.js"></script>
+
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
@@ -154,8 +157,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, addDoc, doc, getDocs, updateDoc, deleteDoc,
-      query, orderBy, serverTimestamp
+      getFirestore, collection, doc, getDocs, query, orderBy, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     /* --------------------- tiny utils --------------------- */
@@ -168,7 +170,6 @@
     const showAlert = (msg)=>{
       alertBox.textContent = msg;
       alertBox.classList.add('show');
-      // auto-hide after 8s but keep visible on repeated errors
       clearTimeout(showAlert._t);
       showAlert._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
@@ -191,7 +192,7 @@
       }catch{}
     }
 
-    /* --------------------- Firestore helpers --------------------- */
+    /* --------------------- Firestore helpers (reads) --------------------- */
     const col = ()=> collection(db, 'farms');
 
     async function loadFarms(){
@@ -220,26 +221,26 @@
       }
     }
 
+    /* --------------------- FVData-backed writes --------------------- */
     async function addFarm(name){
+      // FVData will set uid, createdAt, updatedAt using serverTimestamp()
       const payload = {
         name: String(name||'').trim(),
         status: 'active',
         used: false,
-        t: Date.now(),
-        updatedAt: (typeof serverTimestamp === 'function') ? serverTimestamp() : new Date()
+        t: Date.now()
       };
-      await addDoc(col(), payload);
+      await FVData.addDocWithMeta('farms', payload);
     }
 
     async function updateFarm(id, patch){
       if(!id) return;
-      const dref = doc(db,'farms', id);
-      const body = { ...patch, updatedAt: (typeof serverTimestamp === 'function') ? serverTimestamp() : new Date() };
-      await updateDoc(dref, body);
+      await FVData.updateDocWithMeta(`farms/${id}`, { ...patch });
     }
 
     async function removeFarm(id){
       if(!id) return;
+      // delete via modular API (FVData doesn’t expose delete)
       await deleteDoc(doc(db,'farms', id));
     }
 
@@ -295,7 +296,8 @@
       const name = $("farmName").value.trim();
       if(!name){ alert("Please enter a farm name."); return; }
       try{
-        await ready; db = getFirestore(); await waitForAuthReady();
+        await FVData.ready();                   // hydrate auth + employee doc
+        await waitForAuthReady();
         await addFarm(name);
         $("farmName").value = "";
         showToast("Successfully saved.");
@@ -314,7 +316,8 @@
       const name = $("editName").value.trim();
       if(!name){ alert("Please enter a farm name."); return; }
       try{
-        await ready; db = getFirestore(); await waitForAuthReady();
+        await FVData.ready();
+        await waitForAuthReady();
         await updateFarm(editId, { name });
         showToast("Changes saved.");
         await loadFarms();
@@ -330,7 +333,8 @@
         const it = rows.find(r=>r.id===editId);
         if(!it) return;
         const nextStatus = it.status==='archived' ? 'active' : 'archived';
-        await ready; db = getFirestore(); await waitForAuthReady();
+        await FVData.ready();
+        await waitForAuthReady();
         await updateFarm(editId, { status: nextStatus });
         $("statusPill").textContent = nextStatus==='archived' ? 'Archived' : 'Active';
         mdArchive.textContent = nextStatus==='archived' ? 'Unarchive' : 'Archive';
