@@ -6,40 +6,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard app includes (ABSOLUTE paths) -->
+  <!-- Standard includes (absolute paths like Farms page) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  <script src="/Farm-vista/js/theme-boot.js" defer></script>
+
+  <!-- 1) Theme boot FIRST (blocking) -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <!-- 2) Firebase config (blocking) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <!-- 3) FVData (blocking so window.FVData exists before our module) -->
+  <script src="/Farm-vista/js/fv-data.js?v=1.1.0"></script>
+  <!-- 4) Shell can be deferred -->
+  <script defer src="/Farm-vista/js/fv-shell.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- IMPORTANT: config BEFORE fv-data so Firebase can initialize -->
-  <script src="/Farm-vista/js/firebase-config.js"></script>
-
-  <!-- FVData (blocking) so window.FVData exists before our module runs -->
-  <script src="/Farm-vista/js/fv-data.js?v=1.1.0"></script>
-
-  <!-- Shell can be deferred -->
-  <script defer src="/Farm-vista/js/fv-shell.js"></script>
-
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+96px)!important;}
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .page-title{margin:0 0 8px 0;}
     .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .alert{display:none;margin:0 0 12px 0;border:1px solid #c62828;background:#fdecea;color:#8a1c1c;
+      border-radius:12px;padding:12px 14px;font-weight:700}
+    .alert.show{display:block}
 
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
     .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
       padding:14px 16px;border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);}
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:14px;}
-
     .grid-3{display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr;}
     @media(max-width:880px){.grid-3{grid-template-columns:1fr;}}
-
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
@@ -57,12 +59,6 @@
       box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-
-    /* simple diag strip */
-    .diag{margin-top:14px;border:1px dashed var(--border);border-radius:10px;padding:10px 12px;background:var(--surface);}
-    .diag pre{white-space:pre-wrap;font-size:12px;margin:6px 0 0 0;}
-    .alert{display:none;margin-top:12px;border:1px solid #b32d2d;background:#fdeaea;color:#7d1e1e;border-radius:10px;padding:10px 12px;font-weight:700}
-    .alert.show{display:block}
   </style>
 </head>
 <body>
@@ -71,7 +67,9 @@
       <h1 class="page-title">RTK Tower Information</h1>
       <p class="page-sub">Enter a Tower Name, a 4-digit Network ID, and a Radio Frequency in MHz. Press Save to write to Firestore.</p>
 
-      <!-- Entry form (no dictionary) -->
+      <!-- visible error when something fails -->
+      <div id="alert" class="alert" role="alert"></div>
+
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛰️</div>
@@ -105,40 +103,53 @@
             <button id="clear" class="btn" type="button">Clear</button>
             <button id="save" class="btn btn-primary" type="button">Save Tower</button>
           </div>
-
-          <!-- inline alert for quick visibility -->
-          <div id="alert" class="alert" role="alert"></div>
-
-          <!-- tiny diagnostics so we can replicate this pattern everywhere -->
-          <div class="diag" id="diagBox" hidden>
-            <strong>Data wiring diagnostics</strong>
-            <pre id="diagOut">Running…</pre>
-            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-              <button id="diagRefresh" class="btn" type="button">Re-check</button>
-              <button id="diagPing" class="btn" type="button">Ping Firestore (read 1 farm)</button>
-            </div>
-          </div>
         </div>
       </section>
     </div>
   </fv-shell>
 
+  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Page logic -->
+  <!-- Page logic (mirrors Farms pattern: waitForAuthReady + FVData) -->
   <script type="module">
-    /* ====== utils ====== */
     const $ = id => document.getElementById(id);
-    const toast = $("toast"), alertBox = $("alert");
+    const toast = $("toast");
+    const alertBox = $("alert");
+
     const showToast = (msg="Saved.")=>{
       toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
     };
-    const showAlert = (msg)=>{
-      alertBox.textContent = msg; alertBox.classList.add("show");
-      clearTimeout(showAlert._t); showAlert._t = setTimeout(()=> alertBox.classList.remove("show"), 7000);
+    const showError = (msg)=>{
+      alertBox.textContent = msg;
+      alertBox.classList.add('show');
+      clearTimeout(showError._t);
+      showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
 
-    /* ====== validation ====== */
+    // Same guard used on Farms page
+    async function waitForAuthReady(timeoutMs=5000){
+      try{
+        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
+        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
+        await new Promise((resolve)=> {
+          let done=false;
+          const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
+          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
+        });
+      }catch{}
+    }
+
+    // Input guards / normalization (same style as other pages)
+    $("netid").addEventListener("input", e=>{
+      e.target.value = e.target.value.replace(/\D/g,"").slice(0,4);
+    });
+    $("freq").addEventListener("blur", e=>{
+      const v = e.target.value.trim();
+      const m = v.match(/^(\d{3})\.(\d{1,5})$/); // accept 1–5, then pad to 5
+      if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
+    });
+
     function validate(){
       const name = $("name").value.trim();
       const netid = $("netid").value.trim();
@@ -148,61 +159,47 @@
       if(!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
       return "";
     }
-    $("netid").addEventListener("input", e=>{ e.target.value = e.target.value.replace(/\D/g,"").slice(0,4); });
-    $("freq").addEventListener("blur", e=>{
-      const m = (e.target.value||"").trim().match(/^(\d{3})\.(\d{1,5})$/);
-      if(m) e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`;
-    });
 
-    /* ====== save ====== */
-    $("save").addEventListener("click", async ()=>{
-      const err = validate(); if(err){ showAlert(err); return; }
-      try{
-        if(!window.FVData){ showAlert("FVData not loaded"); return; }
-        await window.FVData.ready?.();
-        await window.FVData.add("rtkTowers", {
-          name: $("name").value.trim(),
-          networkId: Number($("netid").value.trim()),
-          frequencyMHz: $("freq").value.trim()
-        });
-        ["name","netid","freq"].forEach(id=> $(id).value = "");
-        showToast("RTK tower saved.");
-      }catch(e){
-        console.error(e);
-        showAlert("Save failed: " + (e?.message || e));
-      }
-    });
-    $("clear").addEventListener("click", ()=>{ ["name","netid","freq"].forEach(id=> $(id).value = ""); });
-
-    /* ====== diagnostics (keep – this is our reusable template) ====== */
-    async function diag(){
-      const out = [];
-      out.push(`location: ${location.pathname}`);
-      out.push(`theme-boot: ${typeof window.ThemeBoot !== "undefined" ? "ok" : "not found"}`);
-      out.push(`FVData: ${typeof window.FVData}`);
-      if(window.FVData){
-        try{
-          await window.FVData.ready?.();
-          const me = window.FVData.uid?.();
-          out.push(`auth uid: ${me || "(none yet)"}`);
-        }catch(e){ out.push(`ready(): ERROR → ${e?.message||e}`); }
-      }
-      $("diagOut").textContent = out.join("\n");
-      $("diagBox").hidden = false;
+    function payload(){
+      return {
+        name: $("name").value.trim(),
+        networkId: Number($("netid").value.trim()),
+        frequencyMHz: $("freq").value.trim(),
+        t: Date.now()
+      };
     }
-    $("diagRefresh").addEventListener("click", diag);
-    $("diagPing").addEventListener("click", async ()=>{
+
+    $("clear").addEventListener("click", ()=>{ ["name","netid","freq"].forEach(id=>$(id).value=""); });
+
+    $("save").addEventListener("click", async ()=>{
+      const err = validate(); if(err){ alert(err); return; }
+      if(!window.FVData){ showError("FVData not loaded"); return; }
       try{
-        if(!window.FVData){ showAlert("FVData not loaded"); return; }
-        await window.FVData.ready?.();
-        const rows = await window.FVData.list("farms", {limit:1});
-        showAlert(`Ping OK. farms[0]= ${rows && rows[0] ? JSON.stringify(rows[0]) : "none"}`);
+        await FVData.ready();
+        await waitForAuthReady();
+        await FVData.add("rtkTowers", payload());  // same sugar used across pages
+        ["name","netid","freq"].forEach(id=>$(id).value="");
+        showToast("RTK tower saved.");
+        window.scrollTo({top:0,behavior:"smooth"});
       }catch(e){
         console.error(e);
-        showAlert("Ping failed: " + (e?.message||e));
+        showError("Save failed: " + (e?.message || e));
       }
     });
-    diag(); // run once on load
+
+    // Boot: mirror Farms page (ensure auth + FVData present)
+    (async function boot(){
+      try{
+        if(!window.FVData){ throw new Error("FVData not loaded"); }
+        await FVData.ready();
+        await waitForAuthReady();
+      }catch(e){
+        console.warn(e);
+        showError(e?.message || "FVData not loaded");
+      }
+    })();
   </script>
+
+  <script nomodule>(function(){ /* no-op */ })();</script>
 </body>
 </html>
