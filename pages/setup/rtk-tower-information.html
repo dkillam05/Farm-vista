@@ -61,9 +61,8 @@
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);}
   </style>
 
-  <!-- BLOCKING include so FVData exists before our module runs (correct relative path) -->
-  <script src="../../js/fv-data.js?v=1.1.0"></script>
-  <!-- Shell can be deferred -->
+  <!-- Use absolute origin so we bypass any path/base quirks -->
+  <script src="https://dkillam05.github.io/Farm-vista/js/fv-data.js?v=1.1.0"></script>
   <script defer src="../../js/fv-shell.js"></script>
 </head>
 <body>
@@ -72,7 +71,6 @@
       <h1 class="page-title">RTK Tower Information</h1>
       <p class="page-sub">Save RTK base/tower entries for reuse. Each entry requires a Tower Name, a 4-digit Network ID, and a Radio Frequency in MHz.</p>
 
-      <!-- Entry form -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛰️</div>
@@ -88,13 +86,11 @@
               <label for="name">Tower Name</label>
               <input id="name" class="input" placeholder="e.g., Divernon NW" autocomplete="off">
             </div>
-
             <div class="field">
               <label for="netid">Network ID</label>
               <input id="netid" class="input" inputmode="numeric" maxlength="4" placeholder="e.g., 0123" autocomplete="off">
               <div class="help">Exactly 4 numbers.</div>
             </div>
-
             <div class="field">
               <label for="freq">Radio Frequency (MHz)</label>
               <input id="freq" class="input" inputmode="decimal" placeholder="e.g., 450.12345" autocomplete="off">
@@ -110,7 +106,6 @@
         </div>
       </section>
 
-      <!-- Dictionary / hero box -->
       <section class="section" style="margin-top:16px;">
         <header class="section-head">
           <div class="icon" aria-hidden="true">📚</div>
@@ -127,7 +122,7 @@
               <thead>
                 <tr>
                   <th style="min-width:220px;">Tower Name</th>
-                  <th>Network ID</th>
+                  <hth>Network ID</hth>
                   <th>Frequency (MHz)</th>
                   <th style="width:220px;">Actions</th>
                 </tr>
@@ -142,7 +137,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Page logic -->
   <script type="module">
     const $ = id => document.getElementById(id);
     const toast = $("toast");
@@ -154,7 +148,20 @@
       toast.classList.add("show");
     }
 
-    // Validation (4 digits for Network ID; 450.12345 pattern for frequency)
+    // Wait until FVData is truly present, then wait for Firebase auth/init
+    async function waitForFVData() {
+      for (let i = 0; i < 60; i++) { // up to ~6s
+        if (window.FVData) return;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      throw new Error("FVData not loaded");
+    }
+    async function ensureReady(){
+      await waitForFVData();
+      await window.FVData.ready?.();
+    }
+
+    // Validation (exact 4 digits; exactly ###.#####)
     function validate(){
       const name = $("name").value.trim();
       const netid = $("netid").value.trim();
@@ -222,11 +229,6 @@
       }
     }
 
-    async function ensureReady(){
-      if (!window.FVData) throw new Error("FVData not loaded");
-      await window.FVData.ready?.();
-    }
-
     async function loadDict(){
       try{
         await ensureReady();
@@ -239,12 +241,11 @@
       }
     }
 
-    // Save
     $("save").addEventListener("click", async ()=>{
       const err = validate(); if(err){ alert(err); return; }
-      const data = payload();
       try{
         await ensureReady();
+        const data = payload();
         if(editingId){
           await window.FVData.update("rtkTowers", editingId, data);
           showToast("RTK tower updated.");
@@ -260,15 +261,12 @@
       }
     });
 
-    // Clear
     $("clear").addEventListener("click", resetForm);
 
-    // Row actions
     $("dictBody").addEventListener("click", async (ev)=>{
       const btn = ev.target.closest("button[data-act]");
       if(!btn) return;
-      const act = btn.dataset.act;
-      const id  = btn.dataset.id;
+      const act = btn.dataset.act, id = btn.dataset.id;
       try{
         await ensureReady();
         if(act === "edit"){
@@ -289,13 +287,12 @@
       }
     });
 
-    // Input guards / normalization
     $("netid").addEventListener("input", e=>{
       e.target.value = e.target.value.replace(/\D/g,"").slice(0,4);
     });
     $("freq").addEventListener("blur", e=>{
       const v = e.target.value.trim();
-      const m = v.match(/^(\d{3})\.(\d{1,5})$/); // accept 1–5 then pad to 5
+      const m = v.match(/^(\d{3})\.(\d{1,5})$/);
       if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
     });
 
