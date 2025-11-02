@@ -61,9 +61,8 @@
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);}
   </style>
 
-  <!-- Use absolute origin so we bypass any path/base quirks -->
-  <script src="https://dkillam05.github.io/Farm-vista/js/fv-data.js?v=1.1.0"></script>
-  <script defer src="../../js/fv-shell.js"></script>
+  <!-- Try to load normally first -->
+  <script src="../../js/fv-shell.js" defer></script>
 </head>
 <body>
   <fv-shell>
@@ -116,13 +115,13 @@
         </header>
 
         <div class="section-body" id="dictBox">
-          <div class="muted" id="emptyState">No towers saved yet.</div>
+          <div class="muted" id="emptyState">Loading…</div>
           <div style="overflow:auto;display:none;" id="tblWrap">
             <table class="tbl" id="dictTable" aria-label="RTK Towers">
               <thead>
                 <tr>
                   <th style="min-width:220px;">Tower Name</th>
-                  <hth>Network ID</hth>
+                  <th>Network ID</th>
                   <th>Frequency (MHz)</th>
                   <th style="width:220px;">Actions</th>
                 </tr>
@@ -137,6 +136,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- Self-healing page logic -->
   <script type="module">
     const $ = id => document.getElementById(id);
     const toast = $("toast");
@@ -148,20 +148,34 @@
       toast.classList.add("show");
     }
 
-    // Wait until FVData is truly present, then wait for Firebase auth/init
-    async function waitForFVData() {
-      for (let i = 0; i < 60; i++) { // up to ~6s
-        if (window.FVData) return;
-        await new Promise(r => setTimeout(r, 100));
-      }
-      throw new Error("FVData not loaded");
+    // --- robust loader for FVData ---
+    async function injectFVDataIfMissing() {
+      if (window.FVData) return true;
+      // inject absolute origin to avoid any base/path issues
+      const url = "https://dkillam05.github.io/Farm-vista/js/fv-data.js?v=1.1.0&cb=" + Date.now();
+      await new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = url;
+        s.onload = () => res();
+        s.onerror = () => rej(new Error("fv-data.js failed to load"));
+        document.head.appendChild(s);
+      });
+      return !!window.FVData;
     }
-    async function ensureReady(){
-      await waitForFVData();
+
+    async function waitForFVData(maxMs = 6000) {
+      const ok = await injectFVDataIfMissing().catch(()=>false);
+      if (!ok) throw new Error("FVData not loaded");
+      const t0 = Date.now();
+      while (!window.FVData) {
+        if (Date.now() - t0 > maxMs) throw new Error("FVData not loaded");
+        await new Promise(r=>setTimeout(r,100));
+      }
+      // also wait for Firebase hydration
       await window.FVData.ready?.();
     }
 
-    // Validation (exact 4 digits; exactly ###.#####)
+    // --- validation + helpers ---
     function validate(){
       const name = $("name").value.trim();
       const netid = $("netid").value.trim();
@@ -171,7 +185,6 @@
       if(!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
       return "";
     }
-
     function payload(){
       return {
         name: $("name").value.trim(),
@@ -180,7 +193,6 @@
         updatedAt: Date.now()
       };
     }
-
     function resetForm(){
       ["name","netid","freq"].forEach(id=>$(id).value="");
       editingId = null;
@@ -189,7 +201,6 @@
       $("editHint").style.display = "none";
       $("editingName").textContent = "";
     }
-
     function startEdit(row){
       editingId = row.id;
       $("name").value = row.name ?? "";
@@ -201,12 +212,11 @@
       $("editingName").textContent = row.name ?? "";
       window.scrollTo({top:0, behavior:"smooth"});
     }
-
     function render(rows){
       const body = $("dictBody");
       body.innerHTML = "";
       if(!rows || rows.length === 0){
-        $("emptyState").style.display = "";
+        $("emptyState").textContent = "No towers saved yet.";
         $("tblWrap").style.display = "none";
         return;
       }
@@ -231,7 +241,8 @@
 
     async function loadDict(){
       try{
-        await ensureReady();
+        $("emptyState").textContent = "Loading…";
+        await waitForFVData();
         const list = await window.FVData.list("rtkTowers", { limit: 500, mine: true });
         list.sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}));
         render(list);
@@ -244,7 +255,7 @@
     $("save").addEventListener("click", async ()=>{
       const err = validate(); if(err){ alert(err); return; }
       try{
-        await ensureReady();
+        await waitForFVData();
         const data = payload();
         if(editingId){
           await window.FVData.update("rtkTowers", editingId, data);
@@ -268,7 +279,7 @@
       if(!btn) return;
       const act = btn.dataset.act, id = btn.dataset.id;
       try{
-        await ensureReady();
+        await waitForFVData();
         if(act === "edit"){
           const rows = await window.FVData.list("rtkTowers", { limit: 500, mine: true });
           const row = rows.find(x=>x.id===id);
