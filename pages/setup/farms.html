@@ -157,7 +157,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, doc, getDocs, query, orderBy, deleteDoc
+      getFirestore, collection, doc, getDocs, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     /* --------------------- tiny utils --------------------- */
@@ -197,8 +197,8 @@
 
     async function loadFarms(){
       try{
-        const qy = query(col(), orderBy('t','desc'));
-        const snap = await getDocs(qy);
+        // simple collection read; we’ll sort client-side A→Z
+        const snap = await getDocs(col());
         const out = [];
         snap.forEach(d=>{
           const v = d.data()||{};
@@ -223,7 +223,6 @@
 
     /* --------------------- FVData-backed writes --------------------- */
     async function addFarm(name){
-      // FVData will set uid, createdAt, updatedAt using serverTimestamp()
       const payload = {
         name: String(name||'').trim(),
         status: 'active',
@@ -248,9 +247,9 @@
     const listBox = $("list");
     function render(){
       if(!rows.length){ listBox.innerHTML = '<div class="muted">No farms yet.</div>'; return; }
+      // A → Z by name (case-insensitive)
       const arr = rows.slice().sort((a,b)=>{
-        const sa = a.status==='archived', sb = b.status==='archived';
-        return (sa - sb) || ((b.t||0) - (a.t||0));
+        return a.name.localeCompare(b.name, undefined, { sensitivity:'base' });
       });
       listBox.innerHTML = '';
       arr.forEach(it=>{
@@ -296,7 +295,7 @@
       const name = $("farmName").value.trim();
       if(!name){ alert("Please enter a farm name."); return; }
       try{
-        await FVData.ready();                   // hydrate auth + employee doc
+        await FVData.ready();
         await waitForAuthReady();
         await addFarm(name);
         $("farmName").value = "";
