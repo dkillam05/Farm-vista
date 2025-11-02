@@ -43,8 +43,6 @@
       z-index:99999;display:none}
     .toast.show{display:block;animation:fadeout 3s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-    .debug-path{font-size:12px;color:var(--muted);margin-top:-6px}
-    .ok{color:#2F6C3C}.warn{color:#8a6d3b}
 
     /* Match Ideas file upload UI */
     .thumbs{display:flex;gap:8px;flex-wrap:wrap}
@@ -63,7 +61,6 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Company Details</h1>
-      <div class="debug-path">Writing to: <code>/company/main</code></div>
 
       <section class="section">
         <header class="section-head">
@@ -114,11 +111,11 @@
             <div class="row">
               <div class="field">
                 <label for="addrZip">ZIP</label>
-                <input id="addrZip" class="input" placeholder="ZIP code" inputmode="numeric" maxlength="10" autocomplete="postal-code">
+                <input id="addrZip" class="input" placeholder="12345 or 12345-6789" inputmode="numeric" maxlength="10" autocomplete="postal-code">
               </div>
               <div class="field">
                 <label for="farmPhone">Phone *</label>
-                <input id="farmPhone" class="input" type="tel" inputmode="tel" placeholder="(000)-000-0000" autocomplete="tel">
+                <input id="farmPhone" class="input" type="tel" inputmode="tel" placeholder="(630)-555-0199" autocomplete="tel">
               </div>
             </div>
 
@@ -128,10 +125,10 @@
               <div class="muted">These details may appear where organization info is shown.</div>
             </div>
 
-            <!-- Logo upload (identical UI behavior to Ideas "Screenshots") -->
+            <!-- Logo upload (single file, Ideas-style UI) -->
             <div class="field">
               <label for="logoFile">Logo upload (optional)</label>
-              <input id="logoFile" class="input" type="file" accept="image/*" />
+              <input id="logoFile" class="input" type="file" accept="image/*"/>
               <div id="logoThumbs" class="thumbs" aria-hidden="true"></div>
               <div id="logoHint" class="muted" aria-hidden="true"></div>
               <div id="logoNote" class="muted" style="display:none"></div>
@@ -180,7 +177,7 @@
       const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const showToast=(m="Saved.")=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); };
 
-      // Phone formatting: (AAA)-BBB-CCCC (your preference)
+      // Phone formatting: (AAA)-BBB-CCCC
       const onlyDigits=(s)=>String(s||"").replace(/\D+/g,"");
       function fmtPhoneLive(v){
         let d=onlyDigits(v);
@@ -197,10 +194,15 @@
         return v.trim();
       }
       function normalizeEmail(s){ return String(s||"").trim().toLowerCase(); }
+      const emailOk=(e)=>/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,24}$/.test(String(e||"").trim());
+      const zipOk=(z)=>/^(\d{5})(-\d{4})?$/.test(String(z||"").trim());
 
+      // Live formatting / normalization
       el.phone.addEventListener('input', ()=>{ el.phone.value = fmtPhoneLive(el.phone.value); });
       el.phone.addEventListener('blur',  ()=>{ el.phone.value = fmtPhoneFinal(el.phone.value); });
-      el.email.addEventListener('blur', ()=>{ el.email.value = normalizeEmail(el.email.value); });
+      el.email.addEventListener('blur', ()=>{ const v=normalizeEmail(el.email.value); el.email.value=v; if(v && !emailOk(v)) showErr('Please enter a valid email.'); else showErr(''); });
+      el.city.addEventListener('blur', ()=>{ const s=String(el.city.value||'').trim(); el.city.value = s ? (s[0].toUpperCase()+s.slice(1).toLowerCase()) : ''; });
+      el.zip.addEventListener('blur', ()=>{ const z=String(el.zip.value||'').trim(); if(z && !zipOk(z)) showErr('ZIP must be 12345 or 12345-6789.'); else showErr(''); });
 
       function fillForm(d){
         el.name.value   = d?.name || "";
@@ -211,7 +213,6 @@
         el.phone.value  = d?.phone ? fmtPhoneFinal(d.phone) : "";
         el.email.value  = d?.email || "";
 
-        // show current logo preview (persisted)
         const logo = d?.logo;
         if (logo && logo.url){
           el.currentLogoWrap.style.display='block';
@@ -241,9 +242,12 @@
       function cacheWrite(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch{} }
       function cacheRead(){ try{ const s=localStorage.getItem(CACHE_KEY); return s? JSON.parse(s): null; }catch{ return null; } }
 
-      // Match Ideas page preview behavior (single file)
+      // Single-file preview (Ideas-style)
       el.logo?.addEventListener('change', ()=>{
-        const f = (el.logo.files && el.logo.files[0]) || null;
+        const files = Array.from(el.logo.files||[]);
+        // enforce single file
+        if (files.length > 1){ el.logo.value=''; files.length=0; }
+        const f = files[0] || null;
         el.logoThumbs.innerHTML='';
         if (!f){ el.logoThumbs.setAttribute('aria-hidden','true'); el.logoHint.textContent=''; el.logoHint.setAttribute('aria-hidden','true'); return; }
         const wrap=document.createElement('div'); wrap.className='thumb';
@@ -271,9 +275,11 @@
       }
 
       async function uploadLogoAndUpdateDoc(){
-        const f = (el.logo.files && el.logo.files[0]) || null;
-        if (!f) return { ok:true, meta:null, note:'' };
+        const files = Array.from(el.logo.files||[]);
+        if (files.length === 0) return { ok:true, note:'' };
+        if (files.length > 1){ return { ok:false, note:'Please choose only one logo file.' }; }
 
+        const f = files[0];
         const safeName = (Date.now() + '-' + (f.name||'logo.png')).replace(/[^a-zA-Z0-9._-]+/g,'_');
         const path = `${STORAGE_PATH_BASE}/${safeName}`;
         try{
@@ -283,10 +289,10 @@
           const url = await getDownloadURL(ref);
           const logoMeta = { name:f.name||safeName, path, url, contentType:f.type||'', size:f.size||0 };
           await setDoc(REF(db), { logo: logoMeta, updatedAt: serverTimestamp() }, { merge:true });
-          return { ok:true, meta:logoMeta, note:'' };
+          return { ok:true, note:'' };
         }catch(e){
           console.warn('[Company] Logo upload failed', e);
-          return { ok:false, meta:null, note:'Saved details. Logo upload failed (check Storage rules/permissions).' };
+          return { ok:false, note:'Saved details. Logo upload failed (check Storage permissions).' };
         }
       }
 
@@ -294,30 +300,30 @@
         try{
           showErr(""); el.saveStatus.textContent="";
 
+          // Validate core
           const core = readCore();
           if(!core.name || !core.phone){ showErr("Please fill required fields (Name, Phone)."); return; }
 
-          // Stage 1: core
+          // Validate extras (if provided)
+          const extras = readExtras();
+          if (extras.email && !emailOk(extras.email)){ showErr('Please enter a valid email.'); return; }
+          if (extras.addressZip && !zipOk(extras.addressZip)){ showErr('ZIP must be 12345 or 12345-6789.'); return; }
+
+          // Core
           await setDoc(REF(db), { ...core, updatedAt: serverTimestamp() }, { merge:true });
           el.saveStatus.innerHTML = `<span class="ok">Saved core fields (name, phone).</span>`;
 
-          // Stage 2: extras
-          const extras = readExtras();
-          try{
-            await setDoc(REF(db), { ...extras, updatedAt: serverTimestamp() }, { merge:true });
-            el.saveStatus.innerHTML += ` <span class="ok">Saved extra fields.</span>`;
-          }catch(e2){
-            console.error('Extras save failed:', e2);
-            el.saveStatus.innerHTML += ` <span class="warn">Extra fields not saved.</span>`;
-          }
+          // Extras
+          await setDoc(REF(db), { ...extras, updatedAt: serverTimestamp() }, { merge:true });
+          el.saveStatus.innerHTML += ` <span class="ok">Saved extra fields.</span>`;
 
-          // Stage 3: logo (match Ideas uploader behavior)
+          // Logo (single)
           const up = await uploadLogoAndUpdateDoc();
           if (!up.ok && up.note){ el.logoNote.textContent = up.note; el.logoNote.style.display='block'; }
           else { el.logoNote.style.display='none'; }
 
           showToast("Saved.");
-          // reset file input (so same file can be chosen again later)
+          // reset file input (so same file can be re-chosen)
           if (el.logo) { el.logo.value=''; el.logoThumbs.innerHTML=''; el.logoHint.textContent=''; el.logoThumbs.setAttribute('aria-hidden','true'); el.logoHint.setAttribute('aria-hidden','true'); }
 
           await loadFromFirestore();
