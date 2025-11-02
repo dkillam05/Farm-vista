@@ -61,8 +61,10 @@
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);}
   </style>
 
-  <!-- Try to load normally first -->
-  <script src="../../js/fv-shell.js" defer></script>
+  <!-- 1) Load fv-data.js as a MODULE from the absolute origin -->
+  <script type="module" src="https://dkillam05.github.io/Farm-vista/js/fv-data.js?v=1.1.0"></script>
+  <!-- 2) Shell (deferred) -->
+  <script defer src="../../js/fv-shell.js"></script>
 </head>
 <body>
   <fv-shell>
@@ -70,6 +72,7 @@
       <h1 class="page-title">RTK Tower Information</h1>
       <p class="page-sub">Save RTK base/tower entries for reuse. Each entry requires a Tower Name, a 4-digit Network ID, and a Radio Frequency in MHz.</p>
 
+      <!-- Entry form -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛰️</div>
@@ -85,11 +88,13 @@
               <label for="name">Tower Name</label>
               <input id="name" class="input" placeholder="e.g., Divernon NW" autocomplete="off">
             </div>
+
             <div class="field">
               <label for="netid">Network ID</label>
               <input id="netid" class="input" inputmode="numeric" maxlength="4" placeholder="e.g., 0123" autocomplete="off">
               <div class="help">Exactly 4 numbers.</div>
             </div>
+
             <div class="field">
               <label for="freq">Radio Frequency (MHz)</label>
               <input id="freq" class="input" inputmode="decimal" placeholder="e.g., 450.12345" autocomplete="off">
@@ -105,6 +110,7 @@
         </div>
       </section>
 
+      <!-- Dictionary -->
       <section class="section" style="margin-top:16px;">
         <header class="section-head">
           <div class="icon" aria-hidden="true">📚</div>
@@ -136,8 +142,22 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Self-healing page logic -->
+  <!-- Page logic (replicable pattern) -->
   <script type="module">
+    /* ===== FV PAGE BOOT PATTERN (copy this block to other pages) =====
+       - Ensures fv-data.js is present
+       - Waits for FVData.ready() (auth + Firebase bound)
+       - Then runs page logic
+    ------------------------------------------------------------------*/
+    async function waitForFVData(maxMs=8000){
+      const t0 = Date.now();
+      while (!window.FVData) {
+        if (Date.now()-t0 > maxMs) throw new Error("FVData not loaded");
+        await new Promise(r=>setTimeout(r,100));
+      }
+      await window.FVData.ready?.();
+    }
+
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     let editingId = null;
@@ -148,34 +168,7 @@
       toast.classList.add("show");
     }
 
-    // --- robust loader for FVData ---
-    async function injectFVDataIfMissing() {
-      if (window.FVData) return true;
-      // inject absolute origin to avoid any base/path issues
-      const url = "https://dkillam05.github.io/Farm-vista/js/fv-data.js?v=1.1.0&cb=" + Date.now();
-      await new Promise((res, rej) => {
-        const s = document.createElement("script");
-        s.src = url;
-        s.onload = () => res();
-        s.onerror = () => rej(new Error("fv-data.js failed to load"));
-        document.head.appendChild(s);
-      });
-      return !!window.FVData;
-    }
-
-    async function waitForFVData(maxMs = 6000) {
-      const ok = await injectFVDataIfMissing().catch(()=>false);
-      if (!ok) throw new Error("FVData not loaded");
-      const t0 = Date.now();
-      while (!window.FVData) {
-        if (Date.now() - t0 > maxMs) throw new Error("FVData not loaded");
-        await new Promise(r=>setTimeout(r,100));
-      }
-      // also wait for Firebase hydration
-      await window.FVData.ready?.();
-    }
-
-    // --- validation + helpers ---
+    // === validation: 4 digits & ###.#####
     function validate(){
       const name = $("name").value.trim();
       const netid = $("netid").value.trim();
@@ -185,14 +178,15 @@
       if(!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
       return "";
     }
+
     function payload(){
       return {
         name: $("name").value.trim(),
         networkId: Number($("netid").value.trim()),
-        frequencyMHz: $("freq").value.trim(),
-        updatedAt: Date.now()
+        frequencyMHz: $("freq").value.trim()
       };
     }
+
     function resetForm(){
       ["name","netid","freq"].forEach(id=>$(id).value="");
       editingId = null;
@@ -201,6 +195,7 @@
       $("editHint").style.display = "none";
       $("editingName").textContent = "";
     }
+
     function startEdit(row){
       editingId = row.id;
       $("name").value = row.name ?? "";
@@ -212,6 +207,7 @@
       $("editingName").textContent = row.name ?? "";
       window.scrollTo({top:0, behavior:"smooth"});
     }
+
     function render(rows){
       const body = $("dictBody");
       body.innerHTML = "";
@@ -222,7 +218,6 @@
       }
       $("emptyState").style.display = "none";
       $("tblWrap").style.display = "";
-
       for(const r of rows){
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -243,15 +238,26 @@
       try{
         $("emptyState").textContent = "Loading…";
         await waitForFVData();
-        const list = await window.FVData.list("rtkTowers", { limit: 500, mine: true });
-        list.sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}));
-        render(list);
+        const rows = await window.FVData.list("rtkTowers", { limit: 500, mine: true });
+        rows.sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}));
+        render(rows);
       }catch(e){
         console.error(e);
         $("emptyState").textContent = e?.message || "Failed to load towers.";
       }
     }
 
+    // Inputs: guard & normalize
+    $("netid").addEventListener("input", e=>{
+      e.target.value = e.target.value.replace(/\D/g,"").slice(0,4);
+    });
+    $("freq").addEventListener("blur", e=>{
+      const v = e.target.value.trim();
+      const m = v.match(/^(\d{3})\.(\d{1,5})$/);
+      if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
+    });
+
+    // Save / Update
     $("save").addEventListener("click", async ()=>{
       const err = validate(); if(err){ alert(err); return; }
       try{
@@ -261,7 +267,7 @@
           await window.FVData.update("rtkTowers", editingId, data);
           showToast("RTK tower updated.");
         }else{
-          await window.FVData.add("rtkTowers", { ...data, createdAt: Date.now() });
+          await window.FVData.add("rtkTowers", data);
           showToast("RTK tower saved.");
         }
         resetForm();
@@ -272,8 +278,10 @@
       }
     });
 
+    // Clear
     $("clear").addEventListener("click", resetForm);
 
+    // Row actions (edit/delete)
     $("dictBody").addEventListener("click", async (ev)=>{
       const btn = ev.target.closest("button[data-act]");
       if(!btn) return;
@@ -298,15 +306,7 @@
       }
     });
 
-    $("netid").addEventListener("input", e=>{
-      e.target.value = e.target.value.replace(/\D/g,"").slice(0,4);
-    });
-    $("freq").addEventListener("blur", e=>{
-      const v = e.target.value.trim();
-      const m = v.match(/^(\d{3})\.(\d{1,5})$/);
-      if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
-    });
-
+    // Boot
     loadDict();
   </script>
 </body>
