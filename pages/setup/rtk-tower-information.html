@@ -51,19 +51,13 @@
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);}
   </style>
 
-  <!-- Ensure <fv-shell> is loaded -->
+  <!-- Ensure <fv-shell> and FVData are available -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
-      const s=document.createElement('script');
-      s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
     }
-  })();</script>
-
-  <!-- Try to auto-load the FVData layer if the page is opened directly -->
-  <script>(function(){
     if(!window.FVData){
-      const s=document.createElement('script');
-      s.src='/Farm-vista/js/fv-data.js'; s.defer=true; document.head.appendChild(s);
+      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-data.js'; s.defer=true; document.head.appendChild(s);
     }
   })();</script>
 </head>
@@ -143,9 +137,9 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- FVData-powered logic -->
+  <!-- Data-layer wrapper with FVData compatibility + Firebase fallback -->
   <script type="module">
-    const $ = (id)=>document.getElementById(id);
+    const $ = id=>document.getElementById(id);
     const toast = $("toast");
     let editingId = null;
 
@@ -155,12 +149,11 @@
       toast.classList.add("show");
     }
 
-    // ✅ FIXED REGEXES (no double backslashes inside regex literals)
+    // ----- Validation (fixed regex) -----
     function validate(){
       const name = $("name").value.trim();
       const netid = $("netid").value.trim();
       const freq  = $("freq").value.trim();
-
       if(!name) return "Enter a tower name.";
       if(!/^\d{4}$/.test(netid)) return "Network ID must be exactly 4 digits.";
       if(!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
@@ -219,42 +212,116 @@
               <button type="button" class="btn" data-act="edit" data-id="${r.id}">Edit</button>
               <button type="button" class="btn btn-danger" data-act="del" data-id="${r.id}">Delete</button>
             </div>
-          </td>
-        `;
+          </td>`;
         body.appendChild(tr);
       }
     }
 
-    async function loadDict(){
-      if(!window.FVData){
-        $("emptyState").innerHTML = "FVData not available.";
-        return;
+    // ---------- UNIVERSAL DATA WRAPPER ----------
+    async function getDataAPI(){
+      // Prefer FVData if present
+      if (window.FVData){
+        await FVData.init?.();
+
+        const has = fn => typeof FVData[fn] === "function";
+
+        const add = async (col, data)=>{
+          if (has("add"))     return await FVData.add(col, data);
+          if (has("create"))  return await FVData.create(col, data);
+          if (has("insert"))  return await FVData.insert(col, data);
+          if (has("upsert"))  return await FVData.upsert(col, null, data);
+          // collection-style API?
+          if (FVData.collection?.(col)?.add) return await FVData.collection(col).add(data);
+          throw new Error("FVData.add is not available");
+        };
+
+        const list = async (col)=>{
+          if (has("list"))    return await FVData.list(col);
+          if (has("all"))     return await FVData.all(col);
+          if (has("getAll"))  return await FVData.getAll(col);
+          if (FVData.collection?.(col)?.list) return await FVData.collection(col).list();
+          throw new Error("FVData.list is not available");
+        };
+
+        const update = async (col, id, partial)=>{
+          if (has("update"))  return await FVData.update(col, id, partial);
+          if (has("patch"))   return await FVData.patch(col, id, partial);
+          if (has("set"))     return await FVData.set(col, id, partial, {merge:true});
+          if (FVData.collection?.(col)?.update) return await FVData.collection(col).update(id, partial);
+          throw new Error("FVData.update is not available");
+        };
+
+        const remove = async (col, id)=>{
+          if (has("remove"))  return await FVData.remove(col, id);
+          if (has("delete"))  return await FVData.delete(col, id);
+          if (has("del"))     return await FVData.del(col, id);
+          if (FVData.collection?.(col)?.delete) return await FVData.collection(col).delete(id);
+          throw new Error("FVData.remove is not available");
+        };
+
+        return { add, list, update, remove };
       }
+
+      // Fallback: Firestore direct (keeps the page usable)
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      const ctx = await mod.ready;
+      if (ctx.mode !== 'firebase') throw new Error("Data layer unavailable (no FVData and Firebase stub).");
+
+      const { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, serverTimestamp } = mod;
+      const db = getFirestore();
+
+      return {
+        add: async (col, data)=>{
+          const ref = await addDoc(collection(db, col), { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          return ref.id;
+        },
+        list: async (col)=>{
+          const snap = await getDocs(collection(db, col));
+          const rows = [];
+          snap.forEach(d=>rows.push({ id: d.id, ...d.data() }));
+          return rows;
+        },
+        update: async (col, id, partial)=>{
+          await updateDoc(doc(db, col, id), { ...partial, updatedAt: serverTimestamp() });
+        },
+        remove: async (col, id)=>{
+          await deleteDoc(doc(db, col, id));
+        }
+      };
+    }
+
+    // ---------- Page wiring ----------
+    const COL = "rtkTowers";
+    let api = null;
+
+    async function ensureAPI(){
+      if(!api) api = await getDataAPI();
+      return api;
+    }
+
+    async function loadDict(){
       try{
-        if (typeof FVData.init === "function") { await FVData.init(); }
-        const list = await FVData.list("rtkTowers");
-        list.sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}));
-        renderTable(list);
+        const { list } = await ensureAPI();
+        const rows = await list(COL);
+        rows.sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}));
+        renderTable(rows);
       }catch(e){
         console.error(e);
-        $("emptyState").textContent = "Failed to load towers.";
+        $("emptyState").textContent = (e?.message || "Failed to load towers.");
       }
     }
 
-    // Save / Update
     $("save").addEventListener("click", async ()=>{
       const err = validate(); if (err) { alert(err); return; }
       const data = formPayload();
 
       try{
-        if(!window.FVData) throw new Error("FVData not available.");
-
+        const api = await ensureAPI();
         if(editingId){
-          await FVData.update("rtkTowers", editingId, data);
+          await api.update(COL, editingId, data);
           showToast("RTK tower updated.");
         }else{
-          data.createdAt = Date.now();
-          await FVData.add("rtkTowers", data);
+          await api.add(COL, { ...data, createdAt: Date.now() });
           showToast("RTK tower saved.");
         }
         resetForm();
@@ -265,10 +332,8 @@
       }
     });
 
-    // Clear / Cancel
     $("clear").addEventListener("click", resetForm);
 
-    // Dictionary actions
     $("dictBody").addEventListener("click", async (ev)=>{
       const btn = ev.target.closest("button[data-act]");
       if(!btn) return;
@@ -277,13 +342,14 @@
       if(!id) return;
 
       try{
+        const api = await ensureAPI();
         if(act==="edit"){
-          const list = await FVData.list("rtkTowers");
-          const rec = list.find(x=>x.id===id);
+          const rows = await api.list(COL);
+          const rec = rows.find(x=>x.id===id);
           if(rec) startEdit(rec);
         }else if(act==="del"){
           if(confirm("Delete this RTK tower? This cannot be undone.")){
-            await FVData.remove("rtkTowers", id);
+            await api.remove(COL, id);
             showToast("Deleted.");
             if(editingId===id) resetForm();
             await loadDict();
@@ -295,22 +361,14 @@
       }
     });
 
-    // Input guards / normalization
-    $("netid").addEventListener("input", (e)=>{
-      e.target.value = e.target.value.replace(/\D/g,"").slice(0,4);
-    });
-    $("freq").addEventListener("blur", (e)=>{
-      // Normalize to ###.##### if user typed fewer fractional digits
+    // UX guards
+    $("netid").addEventListener("input", e=> e.target.value = e.target.value.replace(/\D/g,"").slice(0,4));
+    $("freq").addEventListener("blur", e=>{
       const v = e.target.value.trim();
-      const m = v.match(/^(\d{3})\.(\d{1,5})$/);  // accept 1–5 then pad
-      if(m){
-        const whole = m[1];
-        const frac  = (m[2]+"00000").slice(0,5);
-        e.target.value = `${whole}.${frac}`;
-      }
+      const m = v.match(/^(\d{3})\.(\d{1,5})$/);
+      if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
     });
 
-    // Boot
     loadDict();
   </script>
 </body>
