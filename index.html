@@ -9,15 +9,16 @@
   <!-- IMPORTANT: make all relative URLs resolve under /Farm-vista/ -->
   <base href="/Farm-vista/">
 
-  <!-- Standard includes (now relative to <base>) -->
+  <!-- Standard includes (relative to <base>) -->
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="assets/icons/icon-192.png" />
   <link rel="stylesheet" href="assets/css/theme.css?v=PV1" />
   <link rel="stylesheet" href="assets/css/app.css?v=PV1" />
 
-  <!-- ✅ Provide Firebase config BEFORE anything that may load js/firebase-init.js -->
+  <!-- Firebase config + FVData (needed to read messages from Firestore) -->
   <script src="js/firebase-config.js"></script>
+  <script src="js/fv-data.js"></script>
 
   <!-- Load core first (theme + App API), then the shell -->
   <script src="js/core.js?v=PV1"></script>
@@ -36,6 +37,9 @@
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
     .section-body{padding:16px;display:grid;gap:10px}
     .msg{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface))}
+    .msg .title{font-weight:800;margin:0 0 4px 0}
+    .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+    .chip{font-size:12px;border:1px solid var(--border);border-radius:999px;padding:4px 8px;color:var(--muted,#67706B);background:var(--surface)}
     .empty{color:var(--muted,#67706B)}
   </style>
 </head>
@@ -59,21 +63,118 @@
   <script>
   (function(){
     "use strict";
-    const KEY = "fv_message_board_v1";
+
+    const COL = "messageBoard";                 // Firestore collection used by mb-admin.js
+    const FALLBACK_KEYS = [                     // legacy/local fallback keys (just in case)
+      "df_message_board_fallback",
+      "df_message_board",
+      "fv_message_board_v1"
+    ];
     const box = document.getElementById("board");
-    console.log('fv-shell defined?', !!customElements.get('fv-shell'));
-    try{
-      const arr = JSON.parse(localStorage.getItem(KEY)||"[]");
-      if(Array.isArray(arr) && arr.length){
-        box.innerHTML = "";
-        arr.forEach(m=>{
-          const d=document.createElement("div");
-          d.className="msg";
-          d.textContent = String(m && m.text || m || "").trim() || "(message)";
-          box.appendChild(d);
-        });
+
+    const toMs = (v)=>{
+      if (v == null || v === "") return null;
+      if (typeof v === "number") return v;
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : null;
+    };
+    const tsToMs = (t)=>{
+      // Firestore Timestamp -> ms
+      if (t && typeof t === "object" && typeof t.seconds === "number") return t.seconds*1000;
+      if (typeof t === "number") return t;
+      return null;
+    };
+    const fmtDate = (ms)=>{
+      try{
+        return new Date(ms).toLocaleString(undefined, { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+      }catch{ return ""; }
+    };
+
+    async function loadFromFirestore(){
+      if (!window.FVData || typeof FVData.list !== "function") return null;
+      try{
+        await FVData.ready();
+        // show all messages (rules control access); mobile-friendly cap
+        const arr = await FVData.list(COL, { limit: 200, mine: false });
+        return Array.isArray(arr) ? arr.map(d => ({
+          id: d.id,
+          title: (d.title||"").toString(),
+          body: (d.body||"").toString(),
+          pinned: !!d.pinned,
+          authorName: (d.authorName||"").toString(),
+          createdAt: tsToMs(d.createdAt) || Date.now(),
+          expiresAt: toMs(d.expiresAt)
+        })) : [];
+      }catch(e){
+        console.warn("[dashboard] Firestore read failed, falling back:", e);
+        return null;
       }
-    }catch(e){}
+    }
+
+    function loadFromLocal(){
+      for (const k of FALLBACK_KEYS){
+        try{
+          const raw = localStorage.getItem(k);
+          if (!raw) continue;
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr) && arr.length){
+            // normalize legacy shapes
+            return arr.map(m => ({
+              id: m.id || String(Math.random()),
+              title: (m.title||"").toString(),
+              body: (m.body || m.text || "").toString(),
+              pinned: !!m.pinned,
+              authorName: (m.authorName||"").toString(),
+              createdAt: toMs(m.createdAt) || Date.now(),
+              expiresAt: toMs(m.expiresAt)
+            }));
+          }
+        }catch{}
+      }
+      return [];
+    }
+
+    function render(list){
+      const now = Date.now();
+      const active = (list||[]).filter(m => !m.expiresAt || m.expiresAt > now);
+
+      // sort: pinned first, then newest
+      active.sort((a,b)=> (b.pinned - a.pinned) || ((b.createdAt||0) - (a.createdAt||0)));
+
+      if (!active.length){
+        box.innerHTML = '<div class="msg empty">No messages at this time.</div>';
+        return;
+      }
+
+      box.innerHTML = "";
+      active.forEach(m=>{
+        const el = document.createElement("div");
+        el.className = "msg";
+        el.innerHTML = `
+          ${m.title ? `<div class="title">${m.title}</div>` : ``}
+          <div class="body" style="white-space:pre-wrap">${m.body}</div>
+          <div class="chips">
+            ${m.pinned ? `<span class="chip">Pinned</span>` : ``}
+            ${m.authorName ? `<span class="chip">by ${m.authorName}</span>` : ``}
+            ${m.createdAt ? `<span class="chip">Posted ${fmtDate(m.createdAt)}</span>` : ``}
+            ${m.expiresAt ? `<span class="chip">Expires ${fmtDate(m.expiresAt)}</span>` : ``}
+          </div>
+        `;
+        box.appendChild(el);
+      });
+    }
+
+    async function refresh(){
+      // Try Firestore first, then fall back
+      const fs = await loadFromFirestore();
+      if (fs) { render(fs); return; }
+      render(loadFromLocal());
+    }
+
+    // Initial load + refresh when returning to tab
+    refresh();
+    document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") refresh(); });
+
   })();
   </script>
 
