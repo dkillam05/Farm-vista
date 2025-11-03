@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes (ABSOLUTE paths, like Farms) -->
+  <!-- Standard includes (ABSOLUTE paths) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -14,11 +14,19 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
+  <!-- Ensure fv-shell is registered -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');
+      s.src='/Farm-vista/js/fv-shell.js'; s.defer=true;
+      document.head.appendChild(s);
+    }
+  })();</script>
+
+  <!-- Firebase config MUST load before FVData -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
   <!-- FVData helpers -->
   <script src="/Farm-vista/js/fv-data.js"></script>
-
-  <!-- Firebase config FIRST -->
-  <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
@@ -211,7 +219,10 @@
       alertBox.textContent = msg; alertBox.classList.add('show');
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
-    const escapeHTML = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]}));
+    /* FIX: removed stray brace that broke JS */
+    const escapeHTML = s => String(s||"").replace(/[&<>"']/g,
+      m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])
+    );
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -224,16 +235,13 @@
       }catch{}
     }
 
-    // Formatters
     const pad4 = n => String(n).padStart(4,'0');
 
-    // State
-    let towers = [];     // [{id,name,networkId,frequencyMHz, inUse:[fieldNames]}]
-    let rows = [];       // rendered list (search filtered)
-    let editId = null;   // id in edit modal
-    let editUse = [];    // fields using the editId tower
+    let towers = [];
+    let rows = [];
+    let editId = null;
+    let editUse = [];
 
-    // Inputs cleanup/validation
     $("netid").addEventListener("input", e=>{ e.target.value = e.target.value.replace(/\D/g,"").slice(0,4); });
     $("freq").addEventListener("blur", e=>{
       const v = e.target.value.trim(); const m = v.match(/^(\d{3})\.(\d{1,5})$/);
@@ -271,23 +279,16 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    /** ---- FIX: detect usage via rtkId OR rtkTowerId (and embedded objects) ---- **/
     async function fieldsUsingTower(towerId){
       const names = new Set();
-
-      // Direct equality on rtkId
       try{
         const a = await FVData.getWhere('fields','rtkId','==', towerId, { limit: 5000 }) || [];
         a.forEach(f => names.add(String(f.name || f.fieldName || '(Unnamed field)').trim()));
-      }catch(e){ /* ignore */ }
-
-      // Direct equality on rtkTowerId
+      }catch(e){}
       try{
         const b = await FVData.getWhere('fields','rtkTowerId','==', towerId, { limit: 5000 }) || [];
         b.forEach(f => names.add(String(f.name || f.fieldName || '(Unnamed field)').trim()));
-      }catch(e){ /* ignore */ }
-
-      // Fallback: scan if fields store an object like {id: "..."} or other legacy keys
+      }catch(e){}
       try{
         const all = await FVData.list('fields', { limit: 5000 }) || [];
         for (const f of all){
@@ -299,12 +300,10 @@
             names.add(String(f.name || f.fieldName || '(Unnamed field)').trim());
           }
         }
-      }catch(e){ /* ignore */ }
-
+      }catch(e){}
       return Array.from(names);
     }
 
-    // Load towers + usage map
     async function loadAll(){
       const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
       const enriched = [];
@@ -322,7 +321,6 @@
       renderDict();
     }
 
-    // Render dictionary
     function renderDict(){
       const term = (q.value||'').trim().toLowerCase();
       rows = towers.filter(t => {
@@ -366,7 +364,6 @@
     q.addEventListener('input', renderDict);
     $("reload").addEventListener('click', async ()=>{ await loadAll(); });
 
-    // Edit modal
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete");
     function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("editName").focus(); }
     function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; editUse = []; }
@@ -422,7 +419,6 @@
       }catch(e){ console.error(e); showError('Delete failed: ' + (e?.message||e)); }
     }
 
-    // Usage modal (when delete is blocked)
     const useModal = $("useModal"), useClose = $("useClose"), useOk = $("useOk"), useList = $("useList");
     function openUse(){ useModal.setAttribute('open',''); useModal.setAttribute('aria-hidden','false'); }
     function closeUse(){ useModal.removeAttribute('open'); useModal.setAttribute('aria-hidden','true'); useList.innerHTML=''; }
@@ -437,7 +433,6 @@
       openUse();
     }
 
-    // Boot
     (async function boot(){
       try{
         if(!window.FVData) throw new Error("FVData not loaded");
