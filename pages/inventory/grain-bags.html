@@ -67,7 +67,7 @@
               <select id="productId" name="productId" required>
                 <option value="">Loading options…</option>
               </select>
-              <div class="help">Options come from <em>Products → Grain Bags</em> (non-archived).</div>
+              <div class="help">Options come from <em>Products → Grain Bags</em> with <code>status="active"</code>.</div>
             </div>
 
             <div class="fld">
@@ -100,11 +100,10 @@
   <script>
     (function(){
       const $ = (sel,root=document)=>root.querySelector(sel);
-      const $$ = (sel,root=document)=>Array.from(root.querySelectorAll(sel));
 
-      let app, db, auth, FieldValue;
-      let products = [];           // array of {id, brand, diameterFt, lengthFt, archived}
-      const productMap = new Map();// id -> product
+      let db, auth, FieldValue;
+      let products = [];            // [{id, brand, diameterFt, lengthFt, status, ...}]
+      const productMap = new Map(); // id -> product
 
       const form = $('#bagForm');
       const productSel = $('#productId');
@@ -123,11 +122,11 @@
       function labelFor(p){
         const d = (p.diameterFt!=null)? String(p.diameterFt).replace(/\.0$/,'') : '?';
         const l = (p.lengthFt!=null)? String(p.lengthFt).replace(/\.0$/,'') : '?';
-        return `${p.brand || 'Unknown'} • ${d}' × ${l}'`;
+        const brand = p.brand || 'Unknown';
+        return `${brand} • ${d}' × ${l}'`;
       }
 
       function renderProductOptions(){
-        // Clear and repopulate
         productSel.innerHTML = '';
         const ph = document.createElement('option');
         ph.value = '';
@@ -135,8 +134,11 @@
         ph.disabled = true; ph.selected = true;
         productSel.appendChild(ph);
 
+        // Only status === "active"
+        const active = products.filter(p => (p.status || 'active').toLowerCase() === 'active');
+
         // Sort by brand, then diameter, then length
-        products.sort((a,b)=>{
+        active.sort((a,b)=>{
           const ba=(a.brand||'').toLowerCase(), bb=(b.brand||'').toLowerCase();
           if(ba!==bb) return ba<bb?-1:1;
           const da = Number(a.diameterFt||0), db = Number(b.diameterFt||0);
@@ -145,8 +147,7 @@
           return la-lb;
         });
 
-        for(const p of products){
-          if(p.archived===true) continue; // exclude archived
+        for(const p of active){
           const opt = document.createElement('option');
           opt.value = p.id;
           opt.textContent = labelFor(p);
@@ -156,22 +157,20 @@
       }
 
       async function loadProducts(){
-        // Prefer FVData if available; otherwise use firestore directly
+        // Try FVData first (preferred), then Firestore
         try{
           if(window.FVData && typeof FVData.collection === 'function'){
-            // FVData API (generic): FVData.collection(path) -> array of docs {id, ...data}
-            const list = await FVData.collection('products_grain_bags');
+            // Correct camelCase collection name per your DB
+            const list = await FVData.collection('productsGrainBags');
             products = Array.isArray(list) ? list : [];
           }else{
-            // Direct Firestore fallback (fetch all then client-filter)
-            const snap = await db.collection('products_grain_bags').get();
+            const snap = await db.collection('productsGrainBags').get();
             products = snap.docs.map(d=>({id:d.id, ...d.data()}));
           }
           renderProductOptions();
         }catch(err){
-          console.error('Failed to load products_grain_bags', err);
+          console.error('Failed to load productsGrainBags', err);
           productSel.innerHTML = '<option value="">Failed to load products</option>';
-          throw err;
         }
       }
 
@@ -189,10 +188,13 @@
         const payload = {
           type: 'add',
           qty: Number(qty),
-          productRef: db.collection('products_grain_bags').doc(productId),
+          productRef: db.collection('productsGrainBags').doc(productId),
           brand: p.brand || null,
           diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
           lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
+          // keep extra denorm fields if you want later analytics:
+          thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
+          status: p.status || null,
           location: location || null,
           note: note || null,
           uid: uid,
@@ -201,11 +203,10 @@
         };
 
         if(window.FVData && typeof FVData.add === 'function'){
-          // FVData helper
-          return FVData.add('inventory_grain_bag_movements', payload);
+          // Use camelCase for new inventory movements to match your conventions
+          return FVData.add('inventoryGrainBagMovements', payload);
         }else{
-          // Direct Firestore
-          return db.collection('inventory_grain_bag_movements').add(payload);
+          return db.collection('inventoryGrainBagMovements').add(payload);
         }
       }
 
@@ -237,7 +238,7 @@
 
           await saveMovement(data);
           form.reset();
-          renderProductOptions(); // keep list as-is; reset selection placeholder
+          renderProductOptions(); // reset selection back to placeholder
           validate();
           showToast('Saved: bags added to inventory');
         }catch(err){
@@ -249,21 +250,18 @@
         }
       });
 
-      // Boot
+      // Boot — don’t rely only on auth callback to load products
       window.addEventListener('DOMContentLoaded', async ()=>{
         try{
-          app = firebase.app();
           db = firebase.firestore();
           auth = firebase.auth();
           FieldValue = firebase.firestore.FieldValue;
 
-          // Wait for auth (fv-shell usually handles UI flow, but we still guard data)
-          auth.onAuthStateChanged(async (user)=>{
-            try{
-              await loadProducts();
-              validate();
-            }catch(_e){}
-          });
+          await loadProducts(); // load immediately
+          validate();
+
+          // Also refresh when auth state changes (if any rules/filter depend on it)
+          auth.onAuthStateChanged(async ()=>{ try{ await loadProducts(); validate(); }catch(_e){} });
         }catch(err){
           console.error('Firebase init error', err);
           showToast('Startup error');
