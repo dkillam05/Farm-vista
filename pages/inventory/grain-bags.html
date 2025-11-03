@@ -1,26 +1,275 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Inventory → Grain Bag Inventory</title>
+  <title>FarmVista • Inventory → Add Grain Bags</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"/>
   <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes (ABSOLUTE paths) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
-  <style>.form-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(10px,2.5vw,16px)}@media(min-width:900px){.form-tiles{grid-template-columns:repeat(4,minmax(0,1fr))}}</style>
-  <script>(function(){if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s)}if(!customElements.get('fv-form-button')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-form-button.js';s.defer=true;document.head.appendChild(s)}})();</script>
-</head><body>
+
+  <!-- Firebase config FIRST, then FVData helpers -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <script src="/Farm-vista/js/fv-data.js"></script>
+
+  <!-- Ensure fv-shell custom element is available -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    .page{max-width:960px;margin:0 auto;padding:clamp(14px,3vw,22px)}
+    .card{background:#fff;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06);padding:clamp(14px,2.5vw,20px)}
+    form .grid{display:grid;gap:14px}
+    @media(min-width:820px){form .grid{grid-template-columns:1fr 1fr}}
+    .fld{display:flex;flex-direction:column;gap:6px}
+    .fld label{font-weight:600}
+    .row-span-2{grid-column:1 / -1}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#141514;color:#fff;padding:10px 14px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;transition:opacity .25s}
+    .toast.show{opacity:1}
+    .help{font-size:.95em;color:#4b4e4b}
+    select, input[type="number"], input[type="text"], textarea{
+      appearance:none;border:1px solid #CBCDCB;border-radius:12px;padding:12px 12px;font:inherit;line-height:1.2;background:#fff
+    }
+    textarea{min-height:96px;resize:vertical}
+    button.btn{
+      border:0;border-radius:999px;padding:10px 16px;line-height:1.2;font-weight:600;background:#3B7E46;color:#fff;cursor:pointer
+    }
+    button.btn:disabled{opacity:.55;cursor:not-allowed}
+    button.btn.secondary{background:#CBCDCB;color:#141514}
+  </style>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
-      <h1 class="page-title">Grain Bag Inventory</h1>
-      <p class="page-sub">Log bag purchases and view a summary of what’s on hand.</p>
+      <h1 class="page-title">Add Grain Bags to Inventory</h1>
+      <p class="page-sub">Record <strong>bags on-hand in the shed</strong>. Choose the bag (brand • size) from your Products list, enter quantity, and save.</p>
 
-      <section class="form-tiles" aria-label="Grain bag inventory actions">
-        <fv-form-button label="Add to Inventory"  icon-svg="plus"   href="./grain-bags-add.html"></fv-form-button>
-        <fv-form-button label="Inventory Summary" icon-svg="report" href="./grain-bags-summary.html"></fv-form-button>
+      <section class="card" aria-label="Add bags form">
+        <form id="bagForm" novalidate>
+          <div class="grid">
+            <div class="fld row-span-2">
+              <label for="productId">Grain bag (brand • size)</label>
+              <select id="productId" name="productId" required>
+                <option value="">Loading options…</option>
+              </select>
+              <div class="help">Options come from <em>Products → Grain Bags</em> (non-archived).</div>
+            </div>
+
+            <div class="fld">
+              <label for="qty">Quantity (bags)</label>
+              <input id="qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required placeholder="e.g., 10"/>
+            </div>
+
+            <div class="fld">
+              <label for="location">Storage location (optional)</label>
+              <input id="location" name="location" type="text" placeholder="e.g., North shed, bay 2"/>
+            </div>
+
+            <div class="fld row-span-2">
+              <label for="note">Note (optional)</label>
+              <textarea id="note" name="note" placeholder="Any extra details…"></textarea>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn" id="submitBtn" type="submit" disabled>Save to Inventory</button>
+            <button class="btn secondary" type="reset">Reset</button>
+          </div>
+        </form>
       </section>
     </div>
   </fv-shell>
-</body></html>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function(){
+      const $ = (sel,root=document)=>root.querySelector(sel);
+      const $$ = (sel,root=document)=>Array.from(root.querySelectorAll(sel));
+
+      let app, db, auth, FieldValue;
+      let products = [];           // array of {id, brand, diameterFt, lengthFt, archived}
+      const productMap = new Map();// id -> product
+
+      const form = $('#bagForm');
+      const productSel = $('#productId');
+      const qtyEl = $('#qty');
+      const locEl = $('#location');
+      const noteEl = $('#note');
+      const submitBtn = $('#submitBtn');
+      const toast = $('#toast');
+
+      function showToast(msg){
+        toast.textContent = msg;
+        toast.classList.add('show');
+        setTimeout(()=>toast.classList.remove('show'), 2200);
+      }
+
+      function labelFor(p){
+        const d = (p.diameterFt!=null)? String(p.diameterFt).replace(/\.0$/,'') : '?';
+        const l = (p.lengthFt!=null)? String(p.lengthFt).replace(/\.0$/,'') : '?';
+        return `${p.brand || 'Unknown'} • ${d}' × ${l}'`;
+      }
+
+      function renderProductOptions(){
+        // Clear and repopulate
+        productSel.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = 'Select a grain bag…';
+        ph.disabled = true; ph.selected = true;
+        productSel.appendChild(ph);
+
+        // Sort by brand, then diameter, then length
+        products.sort((a,b)=>{
+          const ba=(a.brand||'').toLowerCase(), bb=(b.brand||'').toLowerCase();
+          if(ba!==bb) return ba<bb?-1:1;
+          const da = Number(a.diameterFt||0), db = Number(b.diameterFt||0);
+          if(da!==db) return da-db;
+          const la = Number(a.lengthFt||0), lb = Number(b.lengthFt||0);
+          return la-lb;
+        });
+
+        for(const p of products){
+          if(p.archived===true) continue; // exclude archived
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = labelFor(p);
+          productSel.appendChild(opt);
+          productMap.set(p.id, p);
+        }
+      }
+
+      async function loadProducts(){
+        // Prefer FVData if available; otherwise use firestore directly
+        try{
+          if(window.FVData && typeof FVData.collection === 'function'){
+            // FVData API (generic): FVData.collection(path) -> array of docs {id, ...data}
+            const list = await FVData.collection('products_grain_bags');
+            products = Array.isArray(list) ? list : [];
+          }else{
+            // Direct Firestore fallback (fetch all then client-filter)
+            const snap = await db.collection('products_grain_bags').get();
+            products = snap.docs.map(d=>({id:d.id, ...d.data()}));
+          }
+          renderProductOptions();
+        }catch(err){
+          console.error('Failed to load products_grain_bags', err);
+          productSel.innerHTML = '<option value="">Failed to load products</option>';
+          throw err;
+        }
+      }
+
+      function currentUserMeta(user){
+        const name = (user && (user.displayName || user.email || user.uid)) || 'Unknown';
+        return { uid: user ? user.uid : null, submittedBy: name };
+      }
+
+      async function saveMovement({productId, qty, location, note}){
+        const p = productMap.get(productId);
+        if(!p) throw new Error('Invalid product selection');
+
+        const { uid, submittedBy } = currentUserMeta(auth.currentUser);
+
+        const payload = {
+          type: 'add',
+          qty: Number(qty),
+          productRef: db.collection('products_grain_bags').doc(productId),
+          brand: p.brand || null,
+          diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
+          lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
+          location: location || null,
+          note: note || null,
+          uid: uid,
+          submittedBy: submittedBy,
+          ts: FieldValue.serverTimestamp()
+        };
+
+        if(window.FVData && typeof FVData.add === 'function'){
+          // FVData helper
+          return FVData.add('inventory_grain_bag_movements', payload);
+        }else{
+          // Direct Firestore
+          return db.collection('inventory_grain_bag_movements').add(payload);
+        }
+      }
+
+      function validate(){
+        const valid = !!productSel.value && Number(qtyEl.value)>=1 && Number.isInteger(Number(qtyEl.value));
+        submitBtn.disabled = !valid;
+      }
+
+      // Wire events
+      form.addEventListener('input', validate);
+      form.addEventListener('change', validate);
+
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        validate();
+        if(submitBtn.disabled) return;
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving…';
+
+        try{
+          const data = {
+            productId: productSel.value,
+            qty: Number(qtyEl.value),
+            location: (locEl.value||'').trim(),
+            note: (noteEl.value||'').trim()
+          };
+          if(!(data.qty>=1 && Number.isInteger(data.qty))) throw new Error('Quantity must be a whole number ≥ 1');
+
+          await saveMovement(data);
+          form.reset();
+          renderProductOptions(); // keep list as-is; reset selection placeholder
+          validate();
+          showToast('Saved: bags added to inventory');
+        }catch(err){
+          console.error(err);
+          showToast('Error: could not save');
+        }finally{
+          submitBtn.textContent = 'Save to Inventory';
+          validate();
+        }
+      });
+
+      // Boot
+      window.addEventListener('DOMContentLoaded', async ()=>{
+        try{
+          app = firebase.app();
+          db = firebase.firestore();
+          auth = firebase.auth();
+          FieldValue = firebase.firestore.FieldValue;
+
+          // Wait for auth (fv-shell usually handles UI flow, but we still guard data)
+          auth.onAuthStateChanged(async (user)=>{
+            try{
+              await loadProducts();
+              validate();
+            }catch(_e){}
+          });
+        }catch(err){
+          console.error('Firebase init error', err);
+          showToast('Startup error');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
