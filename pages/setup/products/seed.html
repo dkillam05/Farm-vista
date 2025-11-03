@@ -66,25 +66,31 @@
     .btn-quiet{min-width:auto;padding:8px 12px}
     .btn[disabled]{opacity:.45; cursor:not-allowed;}
 
+    .list{padding:14px 0;display:grid;gap:12px;}
+    .item{border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));
+      padding:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .name{font-weight:800}
+    .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
+
+    /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px)+72px);
       transform:translateX(-50%);background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;
       box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* === Dictionary hero (phone-first) === */
-    .dict{border:1px solid var(--border);border-radius:14px;background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
-    .dict-head{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);}
-    .dict-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
-    .dict-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .dict-tools input{min-width:180px}
-    .dict-list{padding:10px 12px;display:grid;gap:10px;}
-    .seed-card{border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));padding:12px;display:grid;gap:8px;}
-    .row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-    .name{font-weight:800}
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;}
-    .chip{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
+    /* Modal */
+    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
+    .modal[open]{display:grid;opacity:1;}
+    .dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);overflow:hidden}
+    .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+    .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
+    .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
+    .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
+
+    /* Scroll lock when modal open */
+    html.lock, body.lock { overflow:hidden; height:100%; }
   </style>
 </head>
 <body>
@@ -95,7 +101,7 @@
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- === Create form === -->
+      <!-- Create form -->
       <section class="section" aria-label="Add Seed Product">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🌱</div>
@@ -152,17 +158,16 @@
         </div>
       </section>
 
-      <!-- === Dictionary hero === -->
-      <section class="dict" aria-label="Seed Dictionary">
-        <div class="dict-head">
-          <div class="dict-title">Seed Dictionary</div>
-          <div class="dict-tools">
-            <input id="q" class="input" placeholder="Search by brand / variety / crop / trait">
-            <button id="reload" class="btn btn-quiet" type="button">Reload</button>
+      <!-- List -->
+      <section class="section" aria-label="Seed Dictionary" style="margin-top:14px">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">📚</div>
+          <div><strong>Seed Dictionary</strong></div>
+        </header>
+        <div class="section-body">
+          <div id="list" class="list">
+            <div class="muted">No seed products yet.</div>
           </div>
-        </div>
-        <div id="dictList" class="dict-list">
-          <div class="muted">No seed products yet.</div>
         </div>
       </section>
     </div>
@@ -171,7 +176,7 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Modal: View/Edit -->
+  <!-- Edit Modal -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -218,33 +223,15 @@
         </div>
 
         <div class="field" style="align-self:end">
-          <span class="chip" id="statusPill">Active</span>
-          <span class="chip" id="usedPill" style="display:none">In use</span>
+          <span class="pill" id="statusPill">Active</span>
         </div>
       </div>
       <div class="dialog-footer">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
           <button id="mdDelete" class="btn btn-danger" type="button">Delete</button>
         </div>
         <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: In-use warning -->
-  <div id="useModal" class="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="useTitle">
-      <div class="dialog-head">
-        <h3 id="useTitle">Cannot delete — seed in use</h3>
-        <button id="useClose" class="closex" type="button">Close</button>
-      </div>
-      <div class="dialog-body">
-        <p>This seed product is referenced by the following records. Remove or reassign before deleting:</p>
-        <ul id="useList" style="margin:0;padding-left:18px;display:grid;gap:6px"></ul>
-      </div>
-      <div class="dialog-footer">
-        <span class="help">Tip: check Planting / Trial Yields / Fields for seed assignments.</span>
-        <button id="useOk" class="btn btn-primary" type="button">Got it</button>
       </div>
     </div>
   </div>
@@ -253,7 +240,7 @@
   <script type="module">
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
-    const dictList = $("dictList"), q = $("q");
+    const listBox = $("list");
     const COLL = 'productsSeed';
 
     const showToast = (msg="Saved.")=>{
@@ -263,9 +250,7 @@
       alertBox.textContent = msg; alertBox.classList.add('show');
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
-    const escapeHTML = s => String(s||"").replace(/[&<>"']/g,
-      m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])
-    );
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -278,31 +263,31 @@
       }catch{}
     }
 
-    /* === Trait options by crop === */
+    /* Trait options */
     const TRAITS = {
       corn: [
-        {v:"CONV",     t:"Conventional (Non-GMO)"},
-        {v:"VT2P",     t:"VT Double PRO (VT2P)"},
-        {v:"TRE",      t:"Trecepta"},
-        {v:"SS",       t:"SmartStax"},
-        {v:"SSPRO",    t:"SmartStax PRO"},
-        {v:"QROME",    t:"Qrome"},
-        {v:"PC",       t:"PowerCore"},
-        {v:"PCU",      t:"PowerCore Ultra"},
-        {v:"VIPTERA",  t:"Agrisure Viptera"},
-        {v:"DURACADE", t:"Agrisure Duracade"},
-        {v:"ENLISTC",  t:"Enlist Corn (herbicide)"},
-        {v:"CLEAR",    t:"CLEARFIELD (IMI)"}
+        {v:"CONV",t:"Conventional (Non-GMO)"},
+        {v:"VT2P",t:"VT Double PRO (VT2P)"},
+        {v:"TRE",t:"Trecepta"},
+        {v:"SS",t:"SmartStax"},
+        {v:"SSPRO",t:"SmartStax PRO"},
+        {v:"QROME",t:"Qrome"},
+        {v:"PC",t:"PowerCore"},
+        {v:"PCU",t:"PowerCore Ultra"},
+        {v:"VIPTERA",t:"Agrisure Viptera"},
+        {v:"DURACADE",t:"Agrisure Duracade"},
+        {v:"ENLISTC",t:"Enlist Corn (herbicide)"},
+        {v:"CLEAR",t:"CLEARFIELD (IMI)"}
       ],
       soybean: [
-        {v:"E3",       t:"Enlist E3"},
-        {v:"XF",       t:"XtendFlex"},
-        {v:"RR2X",     t:"Roundup Ready 2 Xtend"},
-        {v:"RR2Y",     t:"Roundup Ready 2 Yield"},
-        {v:"LL",       t:"LibertyLink"},
-        {v:"LLGT27",   t:"LibertyLink GT27"},
-        {v:"STS",      t:"STS"},
-        {v:"CONV",     t:"Conventional (Non-GMO)"}
+        {v:"E3",t:"Enlist E3"},
+        {v:"XF",t:"XtendFlex"},
+        {v:"RR2X",t:"Roundup Ready 2 Xtend"},
+        {v:"RR2Y",t:"Roundup Ready 2 Yield"},
+        {v:"LL",t:"LibertyLink"},
+        {v:"LLGT27",t:"LibertyLink GT27"},
+        {v:"STS",t:"STS"},
+        {v:"CONV",t:"Conventional (Non-GMO)"}
       ]
     };
 
@@ -333,20 +318,12 @@
         matHelp.textContent = "";
       }
     }
-    crop.addEventListener("change", ()=>{
-      const c = crop.value;
-      fillTraitOptions(c);
-      setMaturityUI(c);
-    });
+    crop.addEventListener("change", ()=>{ fillTraitOptions(crop.value); setMaturityUI(crop.value); });
     maturity.addEventListener("blur", ()=>{
-      const c=crop.value;
-      const raw = maturity.value.trim();
-      if(!raw) return;
-      let n = Number(raw);
-      if(!isFinite(n)){ maturity.value=""; return; }
-      if(c==="corn"){ n = Math.round(n); }
-      else if(c==="soybean"){ n = Math.round(n*10)/10; }
-      maturity.value = String(n);
+      const c=crop.value, raw=maturity.value.trim(); if(!raw) return;
+      let n = Number(raw); if(!isFinite(n)){ maturity.value=""; return; }
+      if(c==="corn") n=Math.round(n); else if(c==="soybean") n=Math.round(n*10)/10;
+      maturity.value=String(n);
     });
 
     function validateCreate(){
@@ -359,14 +336,16 @@
     }
     function payloadFromForm(){
       const cropVal = crop.value;
-      const traitText = traits.selectedOptions?.[0]?.textContent || "";
-      return {
+      const traitLabel = traits.selectedOptions?.[0]?.textContent || "";
+      const user = (window.FVData && (FVData.user || {})) || {};
+      const uid = user.uid || (window.FVUserContext && FVUserContext.uid) || null;
+      const base = {
         crop: cropVal,
         brand: brand.value.trim(),
         variety: variety.value.trim(),
         maturity: maturity.value.trim(),
         trait: traits.value,
-        traitLabel: traitText,
+        traitLabel,
         notes: notes.value.trim(),
         cropCorn: cropVal==="corn",
         cropSoy: cropVal==="soybean",
@@ -375,115 +354,56 @@
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
+      if(uid) base.uid = uid;
+      return base;
     }
 
-    $("clear").addEventListener("click", ()=>{ ["crop","brand","variety","maturity","traits","notes"].forEach(id=>{
-      const el=$(id); if(!el) return; if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
-    }); setMaturityUI(""); fillTraitOptions(""); });
+    $("clear").addEventListener("click", ()=>{
+      ["crop","brand","variety","maturity","traits","notes"].forEach(id=>{
+        const el=$(id); if(!el) return; if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
+      });
+      setMaturityUI(""); fillTraitOptions("");
+    });
 
     $("save").addEventListener("click", async ()=>{
       const err = validateCreate(); if(err){ alert(err); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
-        // include uid if your rules require it:
-        const user = (window.FVData && (FVData.user || {})) || {};
-        const uid = user.uid || (window.FVUserContext && FVUserContext.uid) || null;
-        const data = payloadFromForm();
-        if(uid) data.uid = uid;
-
-        await FVData.add(COLL, data);
+        await FVData.add(COLL, payloadFromForm());
+        showToast("Seed saved.");
         ["crop","brand","variety","maturity","traits","notes"].forEach(id=>{
           const el=$(id); if(!el) return; if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
         });
         setMaturityUI(""); fillTraitOptions("");
-        showToast("Seed saved.");
-        await loadAll();
+        await renderList();
         window.scrollTo({top:0,behavior:"smooth"});
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    /* === Dictionary / list === */
-    let seeds = [];
-    let rows = [];
-
-    function chip(text){ return `<span class="chip">${escapeHTML(text)}</span>`; }
-
-    function renderDict(){
-      const term = (q.value||'').trim().toLowerCase();
-      rows = seeds.filter(s=>{
-        return !term ||
-          (s.brand||'').toLowerCase().includes(term) ||
-          (s.variety||'').toLowerCase().includes(term) ||
-          (s.crop||'').toLowerCase().includes(term) ||
-          (s.traitLabel||s.trait||'').toLowerCase().includes(term);
-      });
-
-      if(!rows.length){ dictList.innerHTML = '<div class="muted">No seed products yet.</div>'; return; }
-
-      dictList.innerHTML = '';
-      rows.forEach(s=>{
-        const cCrop = s.crop ? chip(s.crop) : '';
-        const cMat  = s.maturity ? chip(`${s.maturity} ${s.crop==="corn"?"CRM":"RM"}`) : '';
-        const cTrait= s.traitLabel ? chip(s.traitLabel) : (s.trait ? chip(s.trait) : '');
-        const cStat = s.status==="archived" ? chip("Archived") : '';
-        const usage = s.inUse && s.inUse.length ? `<span class="chip">${s.inUse.length} ref</span>` : `<span class="chip">not in use</span>`;
-
-        const card = document.createElement('div');
-        card.className = 'seed-card';
-        card.innerHTML = `
-          <div class="row">
-            <div class="name">${escapeHTML(s.brand||'(Brand)')} ${escapeHTML(s.variety||'')}</div>
-            ${usage}
-          </div>
-          <div class="row mono" style="font-size:14px;gap:6px;justify-content:flex-start">
-            ${cCrop}${cMat}${cTrait}${cStat}
-          </div>
-          <div class="row" style="gap:8px">
-            <button class="btn" data-act="edit">View / Edit</button>
-            <button class="btn btn-danger" data-act="delete"${s.inUse && s.inUse.length ? ' disabled':''}>Delete</button>
-          </div>
-        `;
-        card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEdit(s.id));
-        const delBtn = card.querySelector('[data-act="delete"]');
-        delBtn.addEventListener('click', ()=> tryDelete(s.id));
-        if (s.inUse && s.inUse.length) {
-          delBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); showUsage(s); }, { capture:true });
-        }
-        dictList.appendChild(card);
-      });
+    /* List + in-memory items so we never call FVData.get() */
+    let items = [];
+    function card(it){
+      const cropPill = it.crop ? `<span class="pill">${esc(it.crop)}</span>` : "";
+      const matPill  = it.maturity ? `<span class="pill">${esc(it.maturity)} ${it.crop==="corn"?"CRM":"RM"}</span>` : "";
+      const traitPill= it.traitLabel ? `<span class="pill">${esc(it.traitLabel)}</span>` : (it.trait ? `<span class="pill">${esc(it.trait)}</span>` : "");
+      const archPill = it.status==="archived" ? `<span class="pill">Archived</span>` : "";
+      const el = document.createElement("div");
+      el.className="item";
+      el.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="name">${esc(it.brand||'(Brand)')} ${esc(it.variety||'')}</div>
+          ${cropPill}${matPill}${traitPill}${archPill}
+        </div>
+        <button class="btn" type="button">View / Edit</button>
+      `;
+      el.querySelector(".btn").addEventListener("click", ()=> openEdit(it));
+      return el;
     }
-
-    q.addEventListener('input', renderDict);
-    $("reload").addEventListener('click', async ()=>{ await loadAll(); });
-
-    async function findUsage(seedId){
-      // Best-effort scan across common places it might be referenced
-      const names = new Set();
+    async function renderList(){
       try{
-        const a = await FVData.getWhere('plantingRecords','seedProductId','==', seedId, { limit: 5000 }) || [];
-        a.forEach(r => names.add(String(r.fieldName || r.name || '(Unnamed)').trim()));
-      }catch(e){}
-      try{
-        const b = await FVData.getWhere('trialYields','seedProductId','==', seedId, { limit: 5000 }) || [];
-        b.forEach(r => names.add(String(r.field || r.fieldName || r.name || '(Trial)').trim()));
-      }catch(e){}
-      try{
-        const c = await FVData.getWhere('fields','seedProductId','==', seedId, { limit: 5000 }) || [];
-        c.forEach(r => names.add(String(r.name || r.fieldName || '(Field)').trim()));
-      }catch(e){}
-      return Array.from(names);
-    }
-
-    async function loadAll(){
-      try{
-        const raw = await FVData.list(COLL, { limit: 2000 }) || [];
-        const enriched = [];
-        for (const s of raw){
-          const inUse = await findUsage(s.id);
-          enriched.push({ ...s, inUse });
-        }
-        // Sort: active first, crop (corn -> soy), then brand, variety
-        seeds = enriched.sort((a,b)=>{
+        await FVData.ready(); await waitForAuthReady();
+        const rows = await FVData.list(COLL, { limit:2000 }) || [];
+        items = rows.slice().sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
           const ca = (a.crop==="corn") ? 0 : (a.crop==="soybean" ? 1 : 2);
           const cb = (b.crop==="corn") ? 0 : (b.crop==="soybean" ? 1 : 2);
@@ -491,24 +411,22 @@
           const nv = (a.variety||'').localeCompare(b.variety||'', undefined, {sensitivity:'base'});
           return (sa - sb) || (ca - cb) || nb || nv;
         });
-        renderDict();
+        listBox.innerHTML = items.length ? "" : '<div class="muted">No seed products yet.</div>';
+        items.forEach(it=> listBox.appendChild(card(it)));
       }catch(e){ console.error(e); showError(e?.message || "Load failed."); }
     }
 
-    /* === Edit modal === */
-    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete");
-    function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("editBrand").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; editUse = []; }
+    /* Edit modal (no FVData.get) */
+    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
+    let current = null;
 
-    let editId = null;
-    let editUse = [];
-
-    function setEditMaturityUI(c){
-      const lbl=$("editMatLabel"), help=$("editMatHelp"), inp=$("editMaturity");
-      if(c==="corn"){ lbl.textContent="Maturity (CRM days)"; inp.placeholder="e.g., 108"; help.textContent="Enter CRM (relative maturity) in days."; }
-      else if(c==="soybean"){ lbl.textContent="Maturity (RM group)"; inp.placeholder="e.g., 3.4"; help.textContent="Enter RM as a decimal (e.g., 2.8)."; }
-      else { lbl.textContent="Maturity"; inp.placeholder="—"; help.textContent=""; }
+    function lockBody(lock){
+      document.documentElement.classList.toggle('lock', lock);
+      document.body.classList.toggle('lock', lock);
     }
+    function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); lockBody(true); $("editBrand").focus(); }
+    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); lockBody(false); current=null; }
+
     function fillEditTraitOptions(c){
       const el = $("editTraits");
       el.innerHTML = '<option value="">—</option>';
@@ -516,43 +434,37 @@
         const opt=document.createElement("option"); opt.value=o.v; opt.textContent=o.t; el.appendChild(opt);
       });
     }
-
-    async function openEdit(id){
-      try{
-        await FVData.ready(); await waitForAuthReady();
-        const rec = await FVData.get(COLL, id);
-        const it = rec?.data || rec || null;
-        if(!it) return;
-        editId = id;
-
-        $("editCrop").value = it.crop || "";
-        fillEditTraitOptions(it.crop||"");
-        setEditMaturityUI(it.crop||"");
-
-        $("editBrand").value = it.brand || "";
-        $("editVariety").value = it.variety || "";
-        $("editMaturity").value = it.maturity ?? "";
-        $("editTraits").value = it.trait || "";
-        $("editNotes").value = it.notes || "";
-
-        editUse = await findUsage(id);
-        $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
-        $("usedPill").style.display = editUse.length ? "inline-block" : "none";
-        mdDelete.disabled = editUse.length > 0;
-
-        openModal();
-      }catch(e){ console.error(e); showError("Open failed: " + (e?.message||e)); }
+    function setEditMaturityUI(c){
+      const lbl=$("editMatLabel"), help=$("editMatHelp"), inp=$("editMaturity");
+      if(c==="corn"){ lbl.textContent="Maturity (CRM days)"; inp.placeholder="e.g., 108"; help.textContent="Enter CRM (relative maturity) in days."; }
+      else if(c==="soybean"){ lbl.textContent="Maturity (RM group)"; inp.placeholder="e.g., 3.4"; help.textContent="Enter RM as a decimal (e.g., 2.8)."; }
+      else { lbl.textContent="Maturity"; inp.placeholder="—"; help.textContent=""; }
     }
+
+    function openEdit(it){
+      current = {...it}; // clone so we can edit without side-effects
+      $("editCrop").value = current.crop || "";
+      fillEditTraitOptions(current.crop||"");
+      setEditMaturityUI(current.crop||"");
+      $("editBrand").value = current.brand || "";
+      $("editVariety").value = current.variety || "";
+      $("editMaturity").value = current.maturity ?? "";
+      $("editTraits").value = current.trait || "";
+      $("editNotes").value = current.notes || "";
+      $("statusPill").textContent = current.status==="archived" ? "Archived" : "Active";
+      mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
+      openModal();
+    }
+
+    $("editCrop").addEventListener("change", ()=>{
+      fillEditTraitOptions($("editCrop").value);
+      setEditMaturityUI($("editCrop").value);
+      $("editTraits").value=""; $("editMaturity").value="";
+    });
 
     mdClose.addEventListener('click', closeModal);
     modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
-    $("editCrop").addEventListener("change", ()=>{
-      fillEditTraitOptions($("editCrop").value);
-      setEditMaturityUI($("editCrop").value);
-      $("editTraits").value = "";
-      $("editMaturity").value = "";
-    });
 
     mdSave.addEventListener('click', async ()=>{
       const cropV = $("editCrop").value;
@@ -565,14 +477,10 @@
       if(!varV){ alert("Enter a product/variety."); return; }
       if(!matV){ alert("Enter maturity."); return; }
       if(!traitV){ alert("Select a trait system."); return; }
-
-      const traitLabel = $("editTraits").selectedOptions?.[0]?.textContent || "";
       try{
         await FVData.ready(); await waitForAuthReady();
-        const user = (window.FVData && (FVData.user || {})) || {};
-        const uid = user.uid || (window.FVUserContext && FVUserContext.uid) || null;
-
-        const update = {
+        const traitLabel = $("editTraits").selectedOptions?.[0]?.textContent || "";
+        await FVData.update(COLL, current.id, {
           crop: cropV,
           brand: brandV,
           variety: varV,
@@ -583,46 +491,60 @@
           cropCorn: cropV==="corn",
           cropSoy: cropV==="soybean",
           updatedAt: Date.now()
-        };
-        if(uid) update.uid = uid;
-
-        await FVData.update(COLL, editId, update);
-        showToast('Changes saved.');
-        await loadAll();
+        });
+        showToast("Changes saved.");
+        await renderList();
         closeModal();
       }catch(e){ console.error(e); showError('Update failed: ' + (e?.message||e)); }
     });
 
-    async function tryDelete(id){
-      const s = seeds.find(x=>x.id===id); if(!s) return;
-      if (s.inUse && s.inUse.length){
-        showUsage(s);
-        return;
-      }
-      if(!confirm(`Delete seed product "${(s.brand||'') + ' ' + (s.variety||'')}"? This cannot be undone.`)) return;
+    mdArchive.addEventListener('click', async ()=>{
       try{
         await FVData.ready(); await waitForAuthReady();
-        await FVData.remove(COLL, id);
-        showToast('Seed deleted.');
-        await loadAll();
+        const next = current.status==="archived" ? "active" : "archived";
+        await FVData.update(COLL, current.id, { status: next, updatedAt: Date.now() });
+        showToast(next==="archived" ? "Product archived." : "Product unarchived.");
+        await renderList();
+        // keep modal open, just reflect state
+        current.status = next;
+        $("statusPill").textContent = next==="archived" ? "Archived" : "Active";
+        mdArchive.textContent = next==="archived" ? "Unarchive" : "Archive";
+      }catch(e){ console.error(e); showError('Archive failed: ' + (e?.message||e)); }
+    });
+
+    async function isInUse(id){
+      try{
+        const a = await FVData.getWhere('plantingRecords','seedProductId','==', id, { limit: 1 }) || [];
+        if (a.length) return true;
+      }catch(e){}
+      try{
+        const b = await FVData.getWhere('trialYields','seedProductId','==', id, { limit: 1 }) || [];
+        if (b.length) return true;
+      }catch(e){}
+      try{
+        const c = await FVData.getWhere('fields','seedProductId','==', id, { limit: 1 }) || [];
+        if (c.length) return true;
+      }catch(e){}
+      return false;
+    }
+
+    mdDelete.addEventListener('click', async ()=>{
+      try{
+        await FVData.ready(); await waitForAuthReady();
+        if (await isInUse(current.id)){
+          await FVData.update(COLL, current.id, { status:'archived', updatedAt: Date.now() });
+          showToast("In use — archived instead of deleted.");
+          await renderList();
+          closeModal();
+          return;
+        }
+        if(!confirm(`Delete seed "${(current.brand||'') + ' ' + (current.variety||'')}"? This cannot be undone.`)) return;
+        await FVData.remove(COLL, current.id);
+        showToast("Product deleted.");
+        await renderList();
         closeModal();
       }catch(e){ console.error(e); showError('Delete failed: ' + (e?.message||e)); }
-    }
-
-    /* In-use modal */
-    const useModal = $("useModal"), useClose = $("useClose"), useOk = $("useOk"), useList = $("useList");
-    function openUse(){ useModal.setAttribute('open',''); useModal.setAttribute('aria-hidden','false'); }
-    function closeUse(){ useModal.removeAttribute('open'); useModal.setAttribute('aria-hidden','true'); useList.innerHTML=''; }
-    useClose.addEventListener('click', closeUse); useOk.addEventListener('click', closeUse);
-    useModal.addEventListener('click', e=>{ if(e.target===useModal) closeUse(); });
-
-    function showUsage(s){
-      useList.innerHTML = '';
-      (s.inUse||[]).forEach(name=>{
-        const li = document.createElement('li'); li.textContent = name; useList.appendChild(li);
-      });
-      openUse();
-    }
+    });
 
     (async function boot(){
       try{
@@ -630,7 +552,7 @@
         await FVData.ready(); await waitForAuthReady();
       }catch(e){ console.warn(e); showError(e?.message || "FVData not loaded"); }
       setMaturityUI(""); fillTraitOptions("");
-      await loadAll();
+      await renderList();
     })();
   </script>
 
