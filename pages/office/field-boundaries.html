@@ -63,8 +63,6 @@
     .toolrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .toolrow .btn{min-width:auto;padding:8px 10px}
     .toolrow label{font-size:13px}
-    .progress{font-size:13px}
-
     .chip{border:1px solid var(--border);border-radius:999px;padding:6px 10px;font-weight:700;background:var(--surface);cursor:pointer;user-select:none}
     .chip.active{background:#2F6C3C;color:#fff;border-color:#2F6C3C}
   </style>
@@ -197,11 +195,7 @@
       collection, getDocs, addDoc, updateDoc, doc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
-    import {
-      getStorage, ref, uploadBytes, getDownloadURL
-    } from '/Farm-vista/js/firebase-init.js';
-
-    /* ===== Short helpers ===== */
+    /* ===== Helpers ===== */
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const todayISO = ()=> new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
@@ -223,7 +217,7 @@
 
     when.value = todayISO();
 
-    /* =================== Auth / User =================== */
+    /* ===== Current user ===== */
     async function currentUser(){
       const auth = getAuth();
       const u = auth.currentUser;
@@ -231,7 +225,7 @@
       return {name:"",email:""};
     }
 
-    /* =================== Load Fields =================== */
+    /* ===== Fields ===== */
     async function loadFields(db){
       errBox.hidden = true; fieldHelp.textContent = "Loading…";
       try{
@@ -258,7 +252,7 @@
       }
     }
 
-    /* =================== Employees / Submitted By =================== */
+    /* ===== Employees / Submitted By ===== */
     function empName(d){
       const full = (d.fullName||"").trim();
       if(full) return full;
@@ -294,7 +288,7 @@
       if (idx>=0) submittedBySel.selectedIndex = idx;
     }
 
-    /* =================== Photos & Annotations =================== */
+    /* ===== Photos & Annotations ===== */
     let selectedFiles = []; // File[]
     photos.addEventListener("change", ()=>{
       const list = Array.from(photos.files||[]);
@@ -354,7 +348,6 @@
 
       const img = new Image(); ann.img=img;
       img.onload = ()=>{
-        // Fit canvas to viewport with devicePixelRatio for sharpness
         const maxW = Math.min(820, window.innerWidth*0.9);
         const scale = Math.min(1, maxW / img.width);
         const cssW = Math.round(img.width * scale);
@@ -363,8 +356,6 @@
         cvs.style.width = cssW+"px"; cvs.style.height = cssH+"px";
         cvs.width = Math.round(cssW * dpr);
         cvs.height= Math.round(cssH * dpr);
-
-        // Base draw
         ann.ctx.setTransform(dpr,0,0,dpr,0,0);
         ann.ctx.drawImage(img,0,0,cssW,cssH);
         pushUndo();
@@ -377,7 +368,8 @@
 
     function pushUndo(){
       try{
-        const snap = ann.ctx.getImageData(0,0,ann.canvas.width/ann.dpr,ann.canvas.height/ann.dpr);
+        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
+        const snap = ann.ctx.getImageData(0,0,w,h);
         ann.undoStack.push(snap);
         if(ann.undoStack.length>30) ann.undoStack.shift();
       }catch(_){}
@@ -395,9 +387,10 @@
     mdUndo.addEventListener("click", restoreLast);
     mdReset.addEventListener("click", ()=>{
       if(ann.img && ann.canvas){
+        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
         ann.ctx.setTransform(ann.dpr,0,0,ann.dpr,0,0);
-        ann.ctx.clearRect(0,0,ann.canvas.width/ann.dpr,ann.canvas.height/ann.dpr);
-        ann.ctx.drawImage(ann.img,0,0,ann.canvas.width/ann.dpr,ann.canvas.height/ann.dpr);
+        ann.ctx.clearRect(0,0,w,h);
+        ann.ctx.drawImage(ann.img,0,0,w,h);
         ann.undoStack.length=0;
         pushUndo();
       }
@@ -432,15 +425,11 @@
 
     function wireDrawHandlers(cvs){
       const ctx = ann.ctx;
-      const cssW = parseInt(cvs.style.width,10) || (cvs.width/ann.dpr);
-      const cssH = parseInt(cvs.style.height,10)|| (cvs.height/ann.dpr);
 
       const getPos = e=>{
         const r=cvs.getBoundingClientRect();
-        const client = e.touches?.[0] || e;
-        const x = (client.clientX - r.left);
-        const y = (client.clientY - r.top);
-        return {x, y};
+        const c = e.touches?.[0] || e;
+        return { x: (c.clientX - r.left), y: (c.clientY - r.top) };
       };
 
       const strokeStyle = ()=> {
@@ -470,18 +459,16 @@
       const end = e=>{
         if(!ann.drawing) return;
         ann.drawing=false;
-        const p = ann.start ? (e ? getPos(e) : ann.start) : null;
-        if(ann.tool==="arrow" && p){
-          // draw arrow from start -> current
-          const q = getPos(e||{clientX:p.x, clientY:p.y});
-          drawArrow(ann.ctx, p, q, Number(toolSize.value)||4, toolColor.value||"#ff0000");
+        const pStart = ann.start;
+        const pEnd = e ? getPos(e) : pStart;
+        if(ann.tool==="arrow" && pStart && pEnd){
+          drawArrow(ctx, pStart, pEnd, Number(toolSize.value)||4, toolColor.value||"#ff0000");
         }
-        if(ann.tool==="text"){
-          // prompt for text then place at click start
+        if(ann.tool==="text" && pStart){
           const txt = prompt("Enter note text:");
           if(txt){
             ctx.font = `bold ${Math.max(12,(Number(toolSize.value)||4)*4)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-            ctx.fillText(txt, p.x+4, p.y+4);
+            ctx.fillText(txt, pStart.x+4, pStart.y+4);
           }
         }
         pushUndo();
@@ -496,5 +483,126 @@
     }
 
     function drawArrow(ctx, p, q, width, color){
+      const headLen = Math.max(8, width*4);
+      const angle = Math.atan2(q.y - p.y, q.x - p.x);
       ctx.save();
-      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width; ctx.lineJoin="round"; ctx
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width; ctx.lineJoin="round"; ctx.lineCap="round";
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(q.x, q.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      ctx.lineTo(q.x - headLen * Math.cos(angle - Math.PI/6), q.y - headLen * Math.sin(angle - Math.PI/6));
+      ctx.lineTo(q.x - headLen * Math.cos(angle + Math.PI/6), q.y - headLen * Math.sin(angle + Math.PI/6));
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    /* ===== Lazy Storage loader (prevents boot breakage) ===== */
+    async function loadStorageFns(){
+      // Try to load from your firebase-init.js first
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js');
+        const fns = { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
+        if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) return fns;
+      }catch(_){}
+      // If not exported there, throw a clear error so you know to add them
+      throw new Error('Storage functions are not exported by /Farm-vista/js/firebase-init.js. Please export getStorage, ref, uploadBytes, getDownloadURL.');
+    }
+
+    /* ===== Collect / validate / save ===== */
+    const DATA_FIELDS = () => Array.from(document.querySelectorAll("[data-field]"));
+    function collect(){
+      const o={}; DATA_FIELDS().forEach(el=>o[el.dataset.field]=el.value);
+      const opt = fieldSel.options[fieldSel.selectedIndex];
+      o.field = (opt?.dataset?.name || opt?.text || "").trim();
+      const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
+      o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
+      o.status="Open"; o.t=Date.now(); o.timestampISO=new Date(o.t).toISOString();
+      return o;
+    }
+    function validate(o){
+      if(!o.fieldId || !o.field) return "Please select a field.";
+      if(!o.boundaryType) return "Please choose Interior or Exterior.";
+      if(!o.scope) return "Please choose Small section or Entire field.";
+      if(!o.submittedBy || !o.submittedBy.trim()) return "Please choose who is submitting this.";
+      if(!o.when) return "Please set the date.";
+      return "";
+    }
+
+    async function saveRequest(db, obj){
+      const ref = await addDoc(collection(db, 'boundary_requests'), { ...obj, createdAt: serverTimestamp() });
+      return ref.id;
+    }
+
+    async function uploadPhotosLazy(docId, files){
+      if(!files || !files.length) return [];
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
+      const st = getStorage();
+      const out = [];
+      for (const f of files){
+        const safe = safeName(f.name);
+        const path = `boundary-requests/${docId}/${safe}`;
+        const r = ref(st, path);
+        await uploadBytes(r, f, { contentType: f.type || 'image/png' });
+        const url = await getDownloadURL(r);
+        out.push({ name: f.name, url, path });
+      }
+      return out;
+    }
+
+    $("primary").addEventListener("click", async ()=>{
+      const o = collect(); const err = validate(o); if(err){ alert(err); return; }
+      summary.hidden=false; summary.textContent="Submitting…";
+      try{
+        const db = getFirestore();
+        const id = await saveRequest(db, o);
+
+        // Only load Storage if we actually have files
+        let uploaded = [];
+        if (selectedFiles.length){
+          try{
+            uploaded = await uploadPhotosLazy(id, selectedFiles);
+          }catch(stErr){
+            console.error(stErr);
+            alert("Saved request, but photo upload failed:\n\n" + (stErr?.message||stErr));
+          }
+        }
+
+        // Patch doc with photos if any
+        if (uploaded.length){
+          try{
+            await updateDoc(doc(db,'boundary_requests',id), { photos: uploaded, updatedAt: serverTimestamp() });
+          }catch(_){}
+        }
+
+        summary.innerHTML = `<strong>Submitted:</strong> ${esc(o.field)}${o.boundaryType?` • ${esc(o.boundaryType)}`:""}${o.when?` • ${new Date(o.when).toLocaleDateString()}`:""}`;
+        // reset
+        fieldSel.selectedIndex=0; ["boundaryType","scope"].forEach(id=>document.getElementById(id).selectedIndex=0);
+        when.value=todayISO(); notes.value=""; photos.value=""; selectedFiles=[]; renderThumbs();
+        window.scrollTo({top:0,behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        alert("Save failed: " + e.message);
+        summary.hidden=true;
+      }
+    });
+
+    $("clear").addEventListener("click", ()=>{
+      fieldSel.selectedIndex=0; ["boundaryType","scope"].forEach(id=>document.getElementById(id).selectedIndex=0);
+      when.value=todayISO(); notes.value=""; photos.value=""; selectedFiles=[]; renderThumbs();
+      summary.hidden=true;
+    });
+
+    /* ===== Boot (same modular flow as Fields page) ===== */
+    (async function(){
+      const ctx = await ready;
+      const db = getFirestore();
+      await loadFields(db);
+      await loadEmployees(db);
+    })();
+  </script>
+</body>
+</html>
