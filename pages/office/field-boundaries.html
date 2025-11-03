@@ -90,7 +90,7 @@
           <div class="row">
             <div class="field">
               <label for="fieldName">Field</label>
-              <!-- value = fieldId; text = field name (same pattern as Grain Bags / RTK Towers) -->
+              <!-- value = fieldId; text = field name -->
               <select id="fieldName" class="select" data-field="fieldId" data-label="Field">
                 <option value="">— Select field —</option>
               </select>
@@ -177,6 +177,7 @@
 
   <script type="module">
     const $ = id => document.getElementById(id);
+    const DEBUG = location.hash.includes('debug');
 
     /* ===== Collections / folders ===== */
     const COLL_REQUESTS = "boundary_requests";
@@ -209,14 +210,22 @@
 
     when.value = todayISO();
 
-    /* ===== FVData helpers ===== */
+    /* ===== Helpers ===== */
+    async function waitAuthReady(){
+      if (!fb || !fb.auth) return null;
+      const cur = fb.auth().currentUser;
+      if (cur) return cur;
+      return new Promise(res => {
+        const off = fb.auth().onAuthStateChanged(u => { off && off(); res(u||null); });
+      });
+    }
+
     async function fvReady(){
       if(!window.FVData) throw new Error("FVData not loaded");
       if(FVData.ready) await FVData.ready();
       return FVData;
     }
 
-    /* ===== Current user helpers (Auth or FVUserContext) ===== */
     function titleCase(s){
       return String(s||"")
         .toLowerCase()
@@ -226,21 +235,7 @@
         .join(" ");
     }
 
-    async function getAuthUser() {
-      try{
-        if (fb && fb.auth) {
-          const cur = fb.auth().currentUser;
-          if (cur) return cur;
-          return await new Promise(resolve => {
-            const unsub = fb.auth().onAuthStateChanged(u => { unsub && unsub(); resolve(u||null); });
-          });
-        }
-      }catch(_){}
-      return null;
-    }
-
     async function currentUserIdentity(){
-      // Prefer fv-shell context if present
       const ctx = window.FVUserContext || {};
       const ctxName = ctx.displayName || ctx.name;
       const ctxEmail = ctx.email;
@@ -250,8 +245,7 @@
           email: ctxEmail || ""
         };
       }
-      // Fallback to Firebase Auth user
-      const u = await getAuthUser();
+      const u = await waitAuthReady();
       if (u) {
         const email = u.email || "";
         const name = u.displayName || (email ? titleCase(email.replace(/@.*/,"").replace(/\./g," ")) : "");
@@ -260,30 +254,39 @@
       return { name:"", email:"" };
     }
 
-    /* ---------- Load fields (Firestore → fields) ---------- */
+    /* ---------- Load fields (three-tier strategy like Grain Bags) ---------- */
     async function loadFields(){
       let rows = [];
+      // 1) FVData.list (no filters → avoids composite index requirements)
       try{
         const FV = await fvReady();
         if (FV.list) {
-          rows = await FV.list(COLL_FIELDS, { where:[["status","==","active"]], orderBy:"name", limit:5000 });
-          if (!rows?.length) rows = await FV.list(COLL_FIELDS, { orderBy:"name", limit:5000 });
-        } else {
+          rows = await FV.list(COLL_FIELDS, { limit: 5000 });
+        }
+        if ((!rows || !rows.length) && FV.loadAll) {
           rows = await FV.loadAll(COLL_FIELDS);
         }
-      }catch(_){
-        if(db){
-          try{
-            let q = db.collection(COLL_FIELDS).orderBy("name");
-            try{ q = db.collection(COLL_FIELDS).where("status","==","active").orderBy("name"); }catch(__){}
-            const snap = await q.limit(5000).get();
-            rows = snap.docs.map(d=>({ id:d.id, data:d.data() }));
-          }catch(__){}
+        if (DEBUG) console.log('[fields] FVData rows:', rows?.length);
+      }catch(e){
+        if (DEBUG) console.warn('[fields] FVData error', e);
+      }
+
+      // 3) Firestore fallback (plain get, then client-sort)
+      if ((!rows || !rows.length) && db){
+        try{
+          const snap = await db.collection(COLL_FIELDS).get();
+          rows = snap.docs.map(d => ({ id:d.id, data:d.data() }));
+          if (DEBUG) console.log('[fields] Firestore rows:', rows?.length);
+        }catch(e){
+          if (DEBUG) console.warn('[fields] Firestore error', e);
         }
       }
 
       const items = (rows||[])
-        .map(r => ({ id: r.id || r.key || r.docId, name: (r.data?.name ?? r.name ?? "").trim() }))
+        .map(r => {
+          const d = r.data ?? r;
+          return { id: r.id || r.key || r.docId, name: (d?.name ?? r.name ?? "").trim() };
+        })
         .filter(x => x.id && x.name)
         .sort((a,b)=>a.name.localeCompare(b.name));
 
@@ -291,9 +294,10 @@
         items.map(x=>`<option value="${esc(x.id)}" data-name="${esc(x.name)}">${esc(x.name)}</option>`).join("");
 
       fieldHelp.textContent = `${items.length} fields`;
+      if (DEBUG) console.log('[fields] rendered', items.length);
     }
 
-    /* ---------- Load employees (Firestore → employees) & default to current user ---------- */
+    /* ---------- Employees + default to current user ---------- */
     function empName(d){
       const full = (d.fullName||"").trim();
       if(full) return full;
@@ -314,35 +318,33 @@
           const d = r.data ?? r;
           return { id:r.id || d.email || empName(d), email:d.email||"", name: empName(d) };
         });
-      }catch(_){
+      }catch(e){
+        if (DEBUG) console.warn('[employees] FV error', e);
         if(db){
           try{
-            const snap = await db.collection(COLL_EMPLOYEES).limit(5000).get();
+            const snap = await db.collection(COLL_EMPLOYEES).get();
             emps = snap.docs.map(doc => {
               const d = doc.data();
               return { id:doc.id, email:d.email||"", name: empName(d) };
             });
-          }catch(__){}
+          }catch(e2){ if (DEBUG) console.warn('[employees] FS error', e2); }
         }
       }
 
-      // ensure current user shows up
       const norm = s => String(s||"").trim().toLowerCase();
       const hasMe = emps.some(e => (e.email && norm(e.email)===norm(me.email)) || norm(e.name)===norm(me.name));
-      if(!hasMe){
-        if (me.name || me.email) {
-          emps.unshift({ id: me.email || "current-user", email: me.email || "", name: me.name || titleCase((me.email||"").replace(/@.*/,"").replace(/\./g," ")) });
-        }
+      if(!hasMe && (me.name || me.email)){
+        emps.unshift({ id: me.email || "current-user", email: me.email || "", name: me.name || titleCase((me.email||"").replace(/@.*/,"").replace(/\./g," ")) });
       }
 
-      // sort & render
       emps = emps.filter(x=>x.name).sort((a,b)=>a.name.localeCompare(b.name));
       submittedBySel.innerHTML = emps.map(e=>`<option value="${esc(e.name)}" data-email="${esc(e.email)}">${esc(e.name)}</option>`).join("");
 
-      // preselect current user (by email, then by name)
       let idx = emps.findIndex(e => e.email && norm(e.email)===norm(me.email));
       if (idx<0) idx = emps.findIndex(e => norm(e.name)===norm(me.name));
       if (idx>=0) submittedBySel.selectedIndex = idx;
+
+      if (DEBUG) console.log('[employees] rendered', emps.length, 'default idx', idx, 'me', me);
     }
 
     /* ---------- Photos & annotate ---------- */
@@ -434,14 +436,10 @@
     const FIELDS = Array.from(document.querySelectorAll("[data-field]"));
     function collect(){
       const o={}; FIELDS.forEach(el=>o[el.dataset.field]=el.value);
-      // also store the field name from the selected option, like other pages
       const opt = fieldSel.options[fieldSel.selectedIndex];
       o.field = (opt?.dataset?.name || opt?.text || "").trim();
-
-      // capture submittedByEmail for audit
       const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
       o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
-
       o.status="Open"; o.t=Date.now(); o.timestampISO=new Date(o.t).toISOString();
       return o;
     }
@@ -454,7 +452,7 @@
       return "";
     }
 
-    /* ---------- Save to Firestore/Storage (via FVData first) ---------- */
+    /* ---------- Save to Firestore/Storage ---------- */
     async function saveRequest(obj){
       try{
         const FV = await fvReady();
@@ -515,7 +513,6 @@
           }catch(_){}
         }
         summary.innerHTML = `<strong>Submitted:</strong> ${esc(o.field)}${o.boundaryType?` • ${esc(o.boundaryType)}`:""}${o.when?` • ${new Date(o.when).toLocaleDateString()}`:""}`;
-        // reset
         fieldSel.selectedIndex = 0;
         ["boundaryType","scope"].forEach(i=>$(i).selectedIndex=0);
         when.value=todayISO(); notes.value=""; photos.value=""; selectedFiles=[]; renderThumbs();
@@ -534,20 +531,10 @@
 
     /* ---------- Boot ---------- */
     (async function boot(){
-      await loadFields();
-      await loadEmployees();
+      await waitAuthReady();     // make sure auth is settled (helps with multi-tenant FVData)
+      await loadFields();        // 3-tier loader (FVData → FVData.loadAll → Firestore)
+      await loadEmployees();     // default to current user
     })();
-
-    /* ====== Notes ======
-       - Fields dropdown  → collection "fields"
-           * value = document id
-           * label = field name
-           * we save both: fieldId + field (name)
-       - Submitted By      → collection "employees", defaults to the signed-in user
-           * derived from FVUserContext/Auth; inserted if missing; preselected
-       - Requests saved    → collection "boundary_requests"
-       - Photos stored     → Storage "boundary-photos/{docId}/..."
-    ================================================= */
   </script>
 </body>
 </html>
