@@ -31,26 +31,26 @@
   </script>
 
   <style>
+    /* Keep styling minimal so theme controls colors in light/dark */
     .page{max-width:960px;margin:0 auto;padding:clamp(14px,3vw,22px)}
-    .card{background:#fff;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06);padding:clamp(14px,2.5vw,20px)}
+    .card{border-radius:14px;box-shadow:var(--elev-2,0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06));padding:clamp(14px,2.5vw,20px);background:var(--surface,inherit)}
     form .grid{display:grid;gap:14px}
     @media(min-width:820px){form .grid{grid-template-columns:1fr 1fr}}
     .fld{display:flex;flex-direction:column;gap:6px}
     .fld label{font-weight:600}
     .row-span-2{grid-column:1 / -1}
     .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
-    .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#141514;color:#fff;padding:10px 14px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;transition:opacity .25s}
-    .toast.show{opacity:1}
-    .help{font-size:.95em;color:#4b4e4b}
+    .help{font-size:.95em;opacity:.8}
     select, input[type="number"], input[type="text"], textarea{
-      appearance:none;border:1px solid #CBCDCB;border-radius:12px;padding:12px 12px;font:inherit;line-height:1.2;background:#fff
+      appearance:none;border:1px solid var(--border,#CBCDCB);border-radius:12px;padding:12px 12px;font:inherit;line-height:1.2;background:var(--surface-2,#fff);color:inherit
     }
     textarea{min-height:96px;resize:vertical}
-    button.btn{
-      border:0;border-radius:999px;padding:10px 16px;line-height:1.2;font-weight:600;background:#3B7E46;color:#fff;cursor:pointer
-    }
-    button.btn:disabled{opacity:.55;cursor:not-allowed}
-    button.btn.secondary{background:#CBCDCB;color:#141514}
+    .btn{border:0;border-radius:999px;padding:10px 16px;line-height:1.2;font-weight:600;cursor:pointer}
+    .btn.primary{background:#3B7E46;color:#fff}
+    .btn.secondary{background:var(--surface-3,#CBCDCB);color:inherit}
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 14px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.2);background:var(--surface-4,#141514);color:var(--on-surface-4,#fff);opacity:0;pointer-events:none;transition:opacity .25s}
+    .toast.show{opacity:1}
   </style>
 </head>
 <body>
@@ -87,7 +87,7 @@
           </div>
 
           <div class="actions">
-            <button class="btn" id="submitBtn" type="submit" disabled>Save to Inventory</button>
+            <button class="btn primary" id="submitBtn" type="submit" disabled>Save to Inventory</button>
             <button class="btn secondary" type="reset">Reset</button>
           </div>
         </form>
@@ -100,6 +100,9 @@
   <script>
     (function(){
       const $ = (sel,root=document)=>root.querySelector(sel);
+
+      const PRODUCTS_COL = 'productsGrainBags';
+      const MOVEMENTS_COL = 'inventoryGrainBagMovements';
 
       let db, auth, FieldValue;
       let products = [];            // [{id, brand, diameterFt, lengthFt, status, ...}]
@@ -134,11 +137,17 @@
         ph.disabled = true; ph.selected = true;
         productSel.appendChild(ph);
 
-        // Only status === "active"
-        const active = products.filter(p => (p.status || 'active').toLowerCase() === 'active');
+        if (!products.length){
+          const none = document.createElement('option');
+          none.value = '';
+          none.textContent = 'No active grain bag products found';
+          none.disabled = true;
+          productSel.appendChild(none);
+          return;
+        }
 
         // Sort by brand, then diameter, then length
-        active.sort((a,b)=>{
+        products.sort((a,b)=>{
           const ba=(a.brand||'').toLowerCase(), bb=(b.brand||'').toLowerCase();
           if(ba!==bb) return ba<bb?-1:1;
           const da = Number(a.diameterFt||0), db = Number(b.diameterFt||0);
@@ -147,7 +156,7 @@
           return la-lb;
         });
 
-        for(const p of active){
+        for(const p of products){
           const opt = document.createElement('option');
           opt.value = p.id;
           opt.textContent = labelFor(p);
@@ -156,17 +165,40 @@
         }
       }
 
+      async function ensureFirebaseReady(){
+        // wait for global firebase + app + firestore
+        const start = Date.now();
+        while(!(window.firebase && firebase.apps && firebase.apps.length)){
+          if(Date.now()-start > 8000) throw new Error('Firebase app not ready');
+          await new Promise(r=>setTimeout(r,100));
+        }
+        db = firebase.firestore();
+        auth = firebase.auth();
+        FieldValue = firebase.firestore.FieldValue;
+      }
+
+      function authReady(){
+        return new Promise(resolve=>{
+          const unsub = auth.onAuthStateChanged(u=>{ unsub(); resolve(u||null); });
+        });
+      }
+
       async function loadProducts(){
-        // Try FVData first (preferred), then Firestore
+        // Use a direct Firestore query with status == "active"
         try{
-          if(window.FVData && typeof FVData.collection === 'function'){
-            // Correct camelCase collection name per your DB
-            const list = await FVData.collection('productsGrainBags');
-            products = Array.isArray(list) ? list : [];
+          let list = [];
+          if(window.FVData && typeof FVData.query === 'function'){
+            // Prefer FVData query if available in your project
+            list = await FVData.query(PRODUCTS_COL, [['status','==','active']]);
+          }else if(window.FVData && typeof FVData.collection === 'function'){
+            // Fallback to FVData.collection then filter
+            const all = await FVData.collection(PRODUCTS_COL);
+            list = (all||[]).filter(p => (p.status||'').toLowerCase()==='active');
           }else{
-            const snap = await db.collection('productsGrainBags').get();
-            products = snap.docs.map(d=>({id:d.id, ...d.data()}));
+            const snap = await db.collection(PRODUCTS_COL).where('status','==','active').get();
+            list = snap.docs.map(d=>({id:d.id, ...d.data()}));
           }
+          products = Array.isArray(list) ? list : [];
           renderProductOptions();
         }catch(err){
           console.error('Failed to load productsGrainBags', err);
@@ -188,11 +220,11 @@
         const payload = {
           type: 'add',
           qty: Number(qty),
-          productRef: db.collection('productsGrainBags').doc(productId),
+          productRef: db.collection(PRODUCTS_COL).doc(productId),
           brand: p.brand || null,
           diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
           lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
-          // keep extra denorm fields if you want later analytics:
+          // denorm that may help later:
           thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
           status: p.status || null,
           location: location || null,
@@ -203,10 +235,9 @@
         };
 
         if(window.FVData && typeof FVData.add === 'function'){
-          // Use camelCase for new inventory movements to match your conventions
-          return FVData.add('inventoryGrainBagMovements', payload);
+          return FVData.add(MOVEMENTS_COL, payload);
         }else{
-          return db.collection('inventoryGrainBagMovements').add(payload);
+          return db.collection(MOVEMENTS_COL).add(payload);
         }
       }
 
@@ -238,7 +269,7 @@
 
           await saveMovement(data);
           form.reset();
-          renderProductOptions(); // reset selection back to placeholder
+          renderProductOptions(); // back to placeholder
           validate();
           showToast('Saved: bags added to inventory');
         }catch(err){
@@ -250,20 +281,19 @@
         }
       });
 
-      // Boot — don’t rely only on auth callback to load products
+      // Boot: wait for Firebase + Auth, then load
       window.addEventListener('DOMContentLoaded', async ()=>{
         try{
-          db = firebase.firestore();
-          auth = firebase.auth();
-          FieldValue = firebase.firestore.FieldValue;
-
-          await loadProducts(); // load immediately
+          await ensureFirebaseReady();
+          await authReady();         // ensures request.auth is set for rules that require it
+          await loadProducts();      // now safe to query
           validate();
 
-          // Also refresh when auth state changes (if any rules/filter depend on it)
-          auth.onAuthStateChanged(async ()=>{ try{ await loadProducts(); validate(); }catch(_e){} });
+          // Optional: refresh if auth context changes (keeps behavior consistent with acl’ed reads)
+          auth.onAuthStateChanged(async ()=>{ try{ await loadProducts(); }catch(_e){} });
         }catch(err){
-          console.error('Firebase init error', err);
+          console.error('Startup error', err);
+          productSel.innerHTML = '<option value="">Failed to initialize</option>';
           showToast('Startup error');
         }
       });
