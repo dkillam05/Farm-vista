@@ -31,7 +31,7 @@
   </script>
 
   <style>
-    /* Keep styling minimal so theme controls colors in light/dark */
+    /* Let theme control colors; this is layout-only */
     .page{max-width:960px;margin:0 auto;padding:clamp(14px,3vw,22px)}
     .card{border-radius:14px;box-shadow:var(--elev-2,0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06));padding:clamp(14px,2.5vw,20px);background:var(--surface,inherit)}
     form .grid{display:grid;gap:14px}
@@ -41,8 +41,8 @@
     .row-span-2{grid-column:1 / -1}
     .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
     .help{font-size:.95em;opacity:.8}
-    select, input[type="number"], input[type="text"], textarea{
-      appearance:none;border:1px solid var(--border,#CBCDCB);border-radius:12px;padding:12px 12px;font:inherit;line-height:1.2;background:var(--surface-2,#fff);color:inherit
+    select,input[type="number"],input[type="text"],textarea{
+      appearance:none;border:1px solid var(--border,#CBCDCB);border-radius:12px;padding:12px;font:inherit;line-height:1.2;background:var(--surface-2,#fff);color:inherit
     }
     textarea{min-height:96px;resize:vertical}
     .btn{border:0;border-radius:999px;padding:10px 16px;line-height:1.2;font-weight:600;cursor:pointer}
@@ -105,8 +105,8 @@
       const MOVEMENTS_COL = 'inventoryGrainBagMovements';
 
       let db, auth, FieldValue;
-      let products = [];            // [{id, brand, diameterFt, lengthFt, status, ...}]
-      const productMap = new Map(); // id -> product
+      let products = [];
+      const productMap = new Map();
 
       const form = $('#bagForm');
       const productSel = $('#productId');
@@ -122,11 +122,20 @@
         setTimeout(()=>toast.classList.remove('show'), 2200);
       }
 
+      function setSelectError(msg){
+        productSel.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = msg;
+        opt.disabled = true;
+        opt.selected = true;
+        productSel.appendChild(opt);
+      }
+
       function labelFor(p){
         const d = (p.diameterFt!=null)? String(p.diameterFt).replace(/\.0$/,'') : '?';
         const l = (p.lengthFt!=null)? String(p.lengthFt).replace(/\.0$/,'') : '?';
-        const brand = p.brand || 'Unknown';
-        return `${brand} • ${d}' × ${l}'`;
+        return `${p.brand || 'Unknown'} • ${d}' × ${l}'`;
       }
 
       function renderProductOptions(){
@@ -137,7 +146,7 @@
         ph.disabled = true; ph.selected = true;
         productSel.appendChild(ph);
 
-        if (!products.length){
+        if(!products.length){
           const none = document.createElement('option');
           none.value = '';
           none.textContent = 'No active grain bag products found';
@@ -146,7 +155,6 @@
           return;
         }
 
-        // Sort by brand, then diameter, then length
         products.sort((a,b)=>{
           const ba=(a.brand||'').toLowerCase(), bb=(b.brand||'').toLowerCase();
           if(ba!==bb) return ba<bb?-1:1;
@@ -156,6 +164,7 @@
           return la-lb;
         });
 
+        productMap.clear();
         for(const p of products){
           const opt = document.createElement('option');
           opt.value = p.id;
@@ -165,79 +174,59 @@
         }
       }
 
-      async function ensureFirebaseReady(){
-        // wait for global firebase + app + firestore
+      // ------- Robust readiness polling (FVData first) -------
+      async function waitFor(testFn, timeoutMs=12000, intervalMs=120){
         const start = Date.now();
-        while(!(window.firebase && firebase.apps && firebase.apps.length)){
-          if(Date.now()-start > 8000) throw new Error('Firebase app not ready');
-          await new Promise(r=>setTimeout(r,100));
+        while(!testFn()){
+          if(Date.now()-start>timeoutMs) return false;
+          await new Promise(r=>setTimeout(r, intervalMs));
         }
-        db = firebase.firestore();
-        auth = firebase.auth();
-        FieldValue = firebase.firestore.FieldValue;
-      }
-
-      function authReady(){
-        return new Promise(resolve=>{
-          const unsub = auth.onAuthStateChanged(u=>{ unsub(); resolve(u||null); });
-        });
+        return true;
       }
 
       async function loadProducts(){
-        // Use a direct Firestore query with status == "active"
         try{
-          let list = [];
-          if(window.FVData && typeof FVData.query === 'function'){
-            // Prefer FVData query if available in your project
-            list = await FVData.query(PRODUCTS_COL, [['status','==','active']]);
-          }else if(window.FVData && typeof FVData.collection === 'function'){
-            // Fallback to FVData.collection then filter
-            const all = await FVData.collection(PRODUCTS_COL);
-            list = (all||[]).filter(p => (p.status||'').toLowerCase()==='active');
-          }else{
-            const snap = await db.collection(PRODUCTS_COL).where('status','==','active').get();
-            list = snap.docs.map(d=>({id:d.id, ...d.data()}));
+          // Try FVData.query first (preferred)
+          if(await waitFor(()=> window.FVData && (FVData.query || FVData.collection))){
+            if(typeof FVData.query === 'function'){
+              const list = await FVData.query(PRODUCTS_COL, [['status','==','active']]);
+              products = Array.isArray(list) ? list : [];
+              renderProductOptions();
+              return;
+            }
+            if(typeof FVData.collection === 'function'){
+              const all = await FVData.collection(PRODUCTS_COL);
+              products = (all||[]).filter(p => (p.status||'').toLowerCase()==='active');
+              renderProductOptions();
+              return;
+            }
           }
-          products = Array.isArray(list) ? list : [];
-          renderProductOptions();
+
+          // Fallback to Firestore (namespaced v8)
+          if(await waitFor(()=> window.firebase && firebase.firestore)){
+            db = firebase.firestore();
+            auth = firebase.auth();
+            FieldValue = firebase.firestore.FieldValue;
+
+            // If rules require auth, wait for a state (signed in user or null) then query
+            await new Promise(res=>{
+              let ran=false;
+              const unsub = auth.onAuthStateChanged(()=>{ if(!ran){ ran=true; unsub(); res(); }});
+              // safety: if onAuthStateChanged never fires quickly, still proceed after 1s
+              setTimeout(()=>{ if(!ran){ ran=true; try{unsub();}catch(_){} res(); }}, 1000);
+            });
+
+            const snap = await db.collection(PRODUCTS_COL).where('status','==','active').get();
+            products = snap.docs.map(d=>({id:d.id, ...d.data()}));
+            renderProductOptions();
+            return;
+          }
+
+          // If neither FVData nor Firestore became ready:
+          setSelectError('Failed to initialize');
         }catch(err){
-          console.error('Failed to load productsGrainBags', err);
-          productSel.innerHTML = '<option value="">Failed to load products</option>';
-        }
-      }
-
-      function currentUserMeta(user){
-        const name = (user && (user.displayName || user.email || user.uid)) || 'Unknown';
-        return { uid: user ? user.uid : null, submittedBy: name };
-      }
-
-      async function saveMovement({productId, qty, location, note}){
-        const p = productMap.get(productId);
-        if(!p) throw new Error('Invalid product selection');
-
-        const { uid, submittedBy } = currentUserMeta(auth.currentUser);
-
-        const payload = {
-          type: 'add',
-          qty: Number(qty),
-          productRef: db.collection(PRODUCTS_COL).doc(productId),
-          brand: p.brand || null,
-          diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
-          lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
-          // denorm that may help later:
-          thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
-          status: p.status || null,
-          location: location || null,
-          note: note || null,
-          uid: uid,
-          submittedBy: submittedBy,
-          ts: FieldValue.serverTimestamp()
-        };
-
-        if(window.FVData && typeof FVData.add === 'function'){
-          return FVData.add(MOVEMENTS_COL, payload);
-        }else{
-          return db.collection(MOVEMENTS_COL).add(payload);
+          console.error('loadProducts error', err);
+          setSelectError('Failed to load products');
         }
       }
 
@@ -246,10 +235,55 @@
         submitBtn.disabled = !valid;
       }
 
-      // Wire events
+      async function saveMovement({productId, qty, location, note}){
+        const p = productMap.get(productId);
+        if(!p) throw new Error('Invalid product selection');
+
+        // Prefer FVData.add; fallback to Firestore add
+        if(window.FVData && typeof FVData.add === 'function'){
+          return FVData.add(MOVEMENTS_COL, {
+            type:'add',
+            qty:Number(qty),
+            productRef:`/${PRODUCTS_COL}/${productId}`, // FVData can resolve from path
+            brand:p.brand||null,
+            diameterFt:(p.diameterFt!=null)?Number(p.diameterFt):null,
+            lengthFt:(p.lengthFt!=null)?Number(p.lengthFt):null,
+            thicknessMil:(p.thicknessMil!=null)?Number(p.thicknessMil):null,
+            status:p.status||null,
+            location:location||null,
+            note:note||null,
+            ts:(window.firebase && firebase.firestore)? firebase.firestore.FieldValue.serverTimestamp() : new Date()
+          });
+        }
+
+        // Firestore fallback
+        if(!db){
+          db = firebase.firestore();
+          FieldValue = firebase.firestore.FieldValue;
+        }
+        const auth = firebase.auth();
+        const user = auth.currentUser;
+        const submittedBy = (user && (user.displayName || user.email || user.uid)) || 'Unknown';
+        return db.collection(MOVEMENTS_COL).add({
+          type:'add',
+          qty:Number(qty),
+          productRef: db.collection(PRODUCTS_COL).doc(productId),
+          brand:p.brand||null,
+          diameterFt:(p.diameterFt!=null)?Number(p.diameterFt):null,
+          lengthFt:(p.lengthFt!=null)?Number(p.lengthFt):null,
+          thicknessMil:(p.thicknessMil!=null)?Number(p.thicknessMil):null,
+          status:p.status||null,
+          location:location||null,
+          note:note||null,
+          uid: user ? user.uid : null,
+          submittedBy,
+          ts: FieldValue.serverTimestamp()
+        });
+      }
+
+      // Events
       form.addEventListener('input', validate);
       form.addEventListener('change', validate);
-
       form.addEventListener('submit', async (e)=>{
         e.preventDefault();
         validate();
@@ -257,7 +291,6 @@
 
         submitBtn.disabled = true;
         submitBtn.textContent = 'Saving…';
-
         try{
           const data = {
             productId: productSel.value,
@@ -269,7 +302,7 @@
 
           await saveMovement(data);
           form.reset();
-          renderProductOptions(); // back to placeholder
+          renderProductOptions();
           validate();
           showToast('Saved: bags added to inventory');
         }catch(err){
@@ -281,22 +314,8 @@
         }
       });
 
-      // Boot: wait for Firebase + Auth, then load
-      window.addEventListener('DOMContentLoaded', async ()=>{
-        try{
-          await ensureFirebaseReady();
-          await authReady();         // ensures request.auth is set for rules that require it
-          await loadProducts();      // now safe to query
-          validate();
-
-          // Optional: refresh if auth context changes (keeps behavior consistent with acl’ed reads)
-          auth.onAuthStateChanged(async ()=>{ try{ await loadProducts(); }catch(_e){} });
-        }catch(err){
-          console.error('Startup error', err);
-          productSel.innerHTML = '<option value="">Failed to initialize</option>';
-          showToast('Startup error');
-        }
-      });
+      // Boot
+      window.addEventListener('DOMContentLoaded', loadProducts);
     })();
   </script>
 </body>
