@@ -79,7 +79,7 @@
                 <option value="">Loading options…</option>
               </select>
               <p class="muted" style="margin:6px 2px 0; line-height:1.3">
-                Options pulled from <em>Products → Grain Bags</em> with <code>status="active"</code>.
+                Options pulled from <em>Products → Grain Bags</em> (only items with <code>status="active"</code> are shown).
               </p>
             </div>
           </div>
@@ -103,7 +103,7 @@
           </div>
 
           <div class="actions">
-            <button id="save" class="btn btn-primary" type="button">Save to Inventory</button>
+            <button id="save" class="btn btn-primary" type="button" disabled>Save to Inventory</button>
             <button id="reset" class="btn" type="button">Reset</button>
           </div>
         </div>
@@ -114,12 +114,12 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Modular Firebase (same as Fields) -->
+  <!-- Modular Firebase (same pattern as Fields) -->
   <script type="module">
     import {
       ready,
-      getFirestore, collection, query, where, orderBy, getDocs,
-      addDoc, doc, serverTimestamp
+      getFirestore, collection, query, orderBy, getDocs,
+      where, addDoc, doc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     (function(){
@@ -132,11 +132,10 @@
         toast.classList.add("show");
         setTimeout(()=> toast.classList.remove("show"), 3500);
       };
-
       const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
       const toInt = (v)=> {
         const n = Number(String(v||"").replace(/,/g,"").trim());
-        return (Number.isInteger(n) && n>0) ? n : Math.floor(n);
+        return Number.isFinite(n) ? Math.round(n) : 0;
       };
 
       let db;
@@ -153,12 +152,8 @@
 
       async function loadProducts(){
         PRODUCTS = []; P_MAP.clear();
-        // status == "active"; order brand, diameterFt, lengthFt
-        const qs = await getDocs(
-          query(productsRef(),
-                where('status','==','active'),
-                orderBy('brand'))
-        );
+        // Simple orderBy (no composite index needed); filter status client-side
+        const qs = await getDocs(query(productsRef(), orderBy('brand')));
         qs.forEach(s=>{
           const d = s.data()||{};
           const it = {
@@ -167,12 +162,15 @@
             diameterFt: d.diameterFt ?? null,
             lengthFt: d.lengthFt ?? null,
             thicknessMil: d.thicknessMil ?? null,
-            status: d.status || 'active'
+            status: (d.status || 'active')
           };
           PRODUCTS.push(it); P_MAP.set(it.id, it);
         });
 
-        // stable secondary/tertiary sorts
+        // Keep only active
+        PRODUCTS = PRODUCTS.filter(p => String(p.status).toLowerCase() === 'active');
+
+        // Secondary sorts
         PRODUCTS.sort((a,b)=>{
           const ba=a.brand.toLowerCase(), bb=b.brand.toLowerCase();
           if(ba!==bb) return ba<bb?-1:1;
@@ -210,13 +208,13 @@
       }
 
       async function saveMovement(){
-        if(!validate()) { alert("Pick a grain bag and enter a quantity ≥ 1."); return; }
+        if(!validate()){ alert("Pick a grain bag and enter a quantity ≥ 1."); return; }
         const id = $("bagSelect").value;
         const p = P_MAP.get(id);
         if(!p){ alert("Invalid bag selection."); return; }
 
         const qty = toInt($("qty").value);
-        if(!(qty>=1)) { alert("Quantity must be a whole number ≥ 1."); return; }
+        if(!(qty>=1)){ alert("Quantity must be a whole number ≥ 1."); return; }
 
         const payload = {
           type: 'add',
@@ -235,7 +233,6 @@
 
         await addDoc(movesRef(), payload);
 
-        // reset
         $("qty").value = "";
         $("location").value = "";
         $("note").value = "";
@@ -246,7 +243,7 @@
       }
 
       (async()=>{
-        const ctx = await ready; // same as Fields
+        const ctx = await ready; // same readiness gate as Fields
         if(ctx.mode!=='firebase'){
           alert("Firestore not available (stub mode). This page expects Firebase to be live.");
         }
