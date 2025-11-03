@@ -1,16 +1,30 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Setup → Products → Chemical</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- App includes -->
+  <!-- Standard includes (ABSOLUTE paths) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Firebase config FIRST, then FVData helpers -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <script src="/Farm-vista/js/fv-data.js"></script>
+
+  <!-- Ensure fv-shell -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');
+      s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+    }
+  })();</script>
 
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
@@ -31,11 +45,13 @@
     .input,.select,.textarea{width:100%; font:inherit; font-size:16px; color:var(--text); background:var(--card-surface,var(--surface)); border:1px solid var(--border); border-radius:10px; padding:12px; outline:none;}
     .textarea{min-height:96px; resize:vertical;}
     .help{font-size:13px; color:var(--muted,#67706B);}
+
     .actions{display:flex; gap:12px; flex-wrap:wrap}
     .btn{display:inline-flex; align-items:center; justify-content:center; min-width:148px; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text); cursor:pointer;}
     .btn-primary{border-color:transparent; background:#2F6C3C; color:#fff;}
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
+    .btn[disabled]{opacity:.45; cursor:not-allowed;}
 
     /* List */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
@@ -66,20 +82,14 @@
 
     .muted{ color:var(--muted,#67706B); }
   </style>
-
-  <!-- Ensure fv-shell -->
-  <script>(function(){
-    if(!customElements.get('fv-shell')){
-      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
-    }
-  })();</script>
-</head><body>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Chemical Setup</h1>
       <p class="page-sub">Add crop-protection products (herbicides, fungicides, insecticides, adjuvants). Track crop fit, formulation, density, and labeled rates for reports & mixes.</p>
 
-      <section class="section">
+      <section class="section" aria-label="Add Chemical">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
             <!-- beaker icon (MIT Tabler) -->
@@ -237,100 +247,23 @@
     </div>
   </fv-shell>
 
+  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- DATA LAYER: FVData first, Firestore fallback -->
+  <!-- Page logic (FVData-only) -->
   <script type="module">
-  import {
-    ready,
-    getFirestore, collection, query, orderBy,
-    getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc,
-    serverTimestamp
-  } from '/Farm-vista/js/firebase-init.js';
-
-  // Try to load FVData if present (not fatal if missing)
-  let FV = null;
-  try { FV = (window.FVData ?? null); } catch {}
-
-  (function(){
-    "use strict";
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     const listBox = $("list"), countsEl = $("counts");
-    const COLL = 'productsChemical'; // single source of truth
+    const COLL = 'productsChemical';
 
-    /* ===== Net toasts ===== */
-    function showToast(msg="Saved.", ms=4200){
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
-      setTimeout(()=> toast.classList.remove("show"), ms);
-    }
-    window.addEventListener('online',  ()=> showToast("Back online — syncing…", 4200));
-    window.addEventListener('offline', ()=> showToast("Currently offline — using saved data", 4200));
-
-    /* ===== Utils ===== */
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const toNum = (v)=> {
-      const n = Number(String(v||"").replace(/,/g,"").trim());
-      return isFinite(n) ? n : 0;
-    };
+    const toNum = (v)=> { const n = Number(String(v||"").replace(/,/g,"").trim()); return isFinite(n) ? n : 0; };
     const cap = (s)=> s ? (s[0].toUpperCase()+s.slice(1)) : s;
-
-    /* ===== Data adapter (FVData first, Firestore fallback) ===== */
-    let db;
-    const fsCol = ()=> collection(db, COLL);
-
-    const Data = {
-      async list(){
-        if (FV && (FV.list || FV.loadAll)){
-          // Prefer FV.list if available, else FV.loadAll
-          const rows = (FV.list ? await FV.list(COLL, { orderBy:'updatedAt', desc:true }) : await FV.loadAll(COLL)) || [];
-          // normalize id field if FV returns {id,data}
-          return rows.map(r => ('id' in r && !r.data) ? r : (r.data ? ({ id:r.id, ...r.data }) : r));
-        }
-        // Firestore fallback
-        const qs = await getDocs(query(fsCol(), orderBy('updatedAt','desc')));
-        const out=[]; qs.forEach(s=> out.push({ id:s.id, ...s.data() }));
-        return out;
-      },
-      async create(payload){
-        if (FV && FV.save){
-          return await FV.save(COLL, {
-            ...payload,
-            status: "active",
-            used: false
-          });
-        }
-        await addDoc(fsCol(), {
-          ...payload,
-          status: "active",
-          used: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-      },
-      async read(id){
-        if (FV && FV.get) {
-          const it = await FV.get(COLL, id);
-          return it ? ({ id, ...(it.data||it) }) : null;
-        }
-        const s = await getDoc(doc(db, COLL, id));
-        return s.exists() ? ({ id, ...s.data() }) : null;
-      },
-      async update(id, patch){
-        if (FV && FV.update){
-          return await FV.update(COLL, id, patch);
-        }
-        await updateDoc(doc(db, COLL, id), { ...patch, updatedAt: serverTimestamp() });
-      },
-      async remove(id){
-        if (FV && FV.remove){ return await FV.remove(COLL, id); }
-        await deleteDoc(doc(db, COLL, id));
-      }
+    const showToast = (msg="Saved.")=>{
+      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
     };
 
-    /* ===== Validate & Build payload ===== */
     function validateNew(){
       if(!$("product").value.trim()) return "Enter a product name.";
       if(!$("category").value) return "Choose a product category.";
@@ -339,7 +272,7 @@
     }
     function buildPayload(fromModal=false){
       const g = (id)=> (fromModal ? document.getElementById('edit_'+id) : document.getElementById(id));
-      const base = {
+      return {
         company:      (g('company')?.value ?? g('edit_company')?.value ?? "").trim(),
         product:      (g('product')?.value ?? g('edit_product')?.value ?? "").trim(),
         category:     (g('category')?.value ?? g('edit_category')?.value ?? ""),
@@ -358,43 +291,52 @@
         rup:          (g('rup')?.value ?? g('edit_rup')?.value ?? ""),
         notes:        (g('notes')?.value ?? g('edit_notes')?.value ?? "").trim()
       };
-      // FVData often wants timestamps added by itself; we only add FS timestamps in FS fallback.
-      if (!FV) { base.createdAt = serverTimestamp(); base.updatedAt = serverTimestamp(); }
-      return base;
     }
 
-    /* ===== Create ===== */
+    async function ensureFV(){
+      if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
+      await FVData.ready();
+    }
+
+    // Create
     $("save").addEventListener("click", async ()=>{
       const err = validateNew(); if(err){ alert(err); return; }
       const payload = buildPayload(false);
       try{
-        await Data.create(payload);
+        await ensureFV();
+        await FVData.save(COLL, {
+          ...payload,
+          status: "active",
+          used: false
+        });
         showToast("Chemical saved.");
         clearForm();
         await renderList();
         window.scrollTo({top:0, behavior:"smooth"});
       }catch(e){
-        console.error(e); alert("Save failed. Check permissions or network.");
+        console.error(e); alert("Save failed. " + (e?.message || e));
       }
     });
 
     function clearForm(){
       ["company","product","category","cropfit","ai","moa","form","density","densityUnit","carrier","carrierUnit","rate","rateUnit","rei","phi","rup","notes"].forEach(id=>{
-        const el=$(id);
-        if(!el) return;
+        const el=$(id); if(!el) return;
         if(el.tagName==="SELECT") el.selectedIndex = 0; else el.value = "";
       });
     }
     $("clear").addEventListener("click", clearForm);
 
-    /* ===== List render ===== */
+    // List
     async function renderList(){
-      const itemsRaw = await Data.list();
-      // Normalize and sort: active first, then updatedAt desc (fallback to createdAt)
-      const items = (itemsRaw||[]).map(x=>x).sort((a,b)=>{
+      await ensureFV();
+      const rows = await (FVData.list ? FVData.list(COLL, { orderBy:'updatedAt', desc:true }) : FVData.loadAll(COLL)) || [];
+      const items = rows.map(r => ('id' in r && !r.data) ? r : (r.data ? ({ id:r.id, ...r.data }) : r));
+
+      // Normalize + sort: active first, then updatedAt desc (fallback t field if present)
+      items.sort((a,b)=>{
         const sa = a.status==='archived', sb = b.status==='archived';
-        const ta = (a.updatedAt?.seconds ?? a.updatedAt ?? a.createdAt?.seconds ?? a.createdAt ?? 0);
-        const tb = (b.updatedAt?.seconds ?? b.updatedAt ?? b.createdAt?.seconds ?? b.createdAt ?? 0);
+        const ta = a.updatedAt || a.t || 0;
+        const tb = b.updatedAt || b.t || 0;
         return (sa - sb) || (tb - ta);
       });
 
@@ -430,24 +372,27 @@
       });
     }
 
-    /* ===== Modal (edit/archive/delete) ===== */
+    // Modal (edit / archive / delete)
     let editId = null;
     function openModal(){
       const m = $("modal");
       m.setAttribute("open",""); m.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
       setTimeout(()=> $("edit_product")?.focus(), 0);
     }
     function closeModal(){
       const m = $("modal");
       m.removeAttribute("open"); m.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
       editId = null;
     }
+    function setInputValue(id, v){ const el=$(id); if(el) el.value = v; }
+    function setTextValue(id, v){ const el=$(id); if(el) el.value = v; }
+    function setSelectValue(id, v){ const el=$(id); if(el){ el.value = v || ""; } }
 
     async function openEdit(id){
+      await ensureFV();
       editId = id;
-      const it = await Data.read(id);
+      const rec = await (FVData.get ? FVData.get(COLL, id) : null);
+      const it = rec ? (rec.data || rec) : null;
       if(!it) return;
 
       setSelectValue('edit_company', it.company||"");
@@ -477,10 +422,6 @@
       openModal();
     }
 
-    function setInputValue(id, v){ const el=$(id); if(el) el.value = v; }
-    function setTextValue(id, v){ const el=$(id); if(el) el.value = v; }
-    function setSelectValue(id, v){ const el=$(id); if(el){ el.value = v || ""; } }
-
     $("mdClose").addEventListener("click", closeModal);
     $("modal").addEventListener("click", e=>{ if(e.target===$("modal")) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && $("modal").hasAttribute("open")) closeModal(); });
@@ -492,20 +433,20 @@
       if(!name){ alert("Enter a product name."); return; }
       if(!category){ alert("Choose a product category."); return; }
       if(!cropfit){ alert("Select crop fit."); return; }
-      await Data.update(editId, {
-        ...buildPayload(true),
-        ...(FV ? {} : { updatedAt: serverTimestamp() }) // FS fallback timestamps only
-      });
+      await ensureFV();
+      await FVData.update(COLL, editId, { ...buildPayload(true) });
       await renderList();
       showToast("Changes saved.");
       closeModal();
     });
 
     $("mdArchive").addEventListener("click", async ()=>{
-      const it = await Data.read(editId);
+      await ensureFV();
+      const rec = await (FVData.get ? FVData.get(COLL, editId) : null);
+      const it = rec ? (rec.data || rec) : null;
       if(!it) return;
       const next = it.status==="archived" ? "active" : "archived";
-      await Data.update(editId, { status: next, ...(FV ? {} : { updatedAt: serverTimestamp() }) });
+      await FVData.update(COLL, editId, { status: next });
       await renderList();
       showToast(next==="archived" ? "Product archived." : "Product unarchived.");
       $("statusPill").textContent = next==='archived' ? "Archived" : "Active";
@@ -513,32 +454,33 @@
     });
 
     $("mdDelete").addEventListener("click", async ()=>{
-      const it = await Data.read(editId);
+      await ensureFV();
+      const rec = await (FVData.get ? FVData.get(COLL, editId) : null);
+      const it = rec ? (rec.data || rec) : null;
       if(!it) return;
       if(it.used){ alert("This product is in use and cannot be deleted. Archive instead."); return; }
       if(!confirm(`Delete product "${it.product||''}"? This cannot be undone.`)) return;
-      await Data.remove(editId);
+      await FVData.remove(COLL, editId);
       await renderList();
       showToast("Product deleted.");
       closeModal();
     });
 
-    /* ===== Init ===== */
-    (async ()=>{
-      const ctx = await ready;
-      if(ctx.mode!=='firebase'){
-        alert("Firestore not available (stub mode). This page expects Firebase to be live.");
+    // Init
+    (async function boot(){
+      try{
+        await ensureFV();
+      }catch(e){
+        console.warn(e);
+        alert(e?.message || "FVData not loaded");
       }
-      db = getFirestore();
       await renderList();
 
-      // If FVData appears later in session (hot-load), re-render once
+      // If FVData signals it became ready later in session, re-render once
       if (window.addEventListener) {
         window.addEventListener('fvdata-ready', ()=> renderList(), { once:true });
       }
     })();
-
-  })();
   </script>
 
   <!-- Edit Modal -->
@@ -678,4 +620,5 @@
       </div>
     </div>
   </div>
-</body></html>
+</body>
+</html>
