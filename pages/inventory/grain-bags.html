@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8"/>
   <title>FarmVista • Inventory → Add Grain Bags</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Standard includes (ABSOLUTE paths) -->
+  <!-- Standard includes -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -14,44 +14,50 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Firebase config FIRST, then FVData helpers -->
-  <script src="/Farm-vista/js/firebase-config.js"></script>
-  <script src="/Farm-vista/js/fv-data.js"></script>
-
-  <!-- Ensure fv-shell custom element is available -->
-  <script>
-    (function(){
-      if(!customElements.get('fv-shell')){
-        const s=document.createElement('script');
-        s.src='/Farm-vista/js/fv-shell.js';
-        s.defer=true;
-        document.head.appendChild(s);
-      }
-    })();
-  </script>
-
   <style>
-    /* Let theme control colors; this is layout-only */
-    .page{max-width:960px;margin:0 auto;padding:clamp(14px,3vw,22px)}
-    .card{border-radius:14px;box-shadow:var(--elev-2,0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06));padding:clamp(14px,2.5vw,20px);background:var(--surface,inherit)}
-    form .grid{display:grid;gap:14px}
-    @media(min-width:820px){form .grid{grid-template-columns:1fr 1fr}}
-    .fld{display:flex;flex-direction:column;gap:6px}
-    .fld label{font-weight:600}
-    .row-span-2{grid-column:1 / -1}
-    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
-    .help{font-size:.95em;opacity:.8}
-    select,input[type="number"],input[type="text"],textarea{
-      appearance:none;border:1px solid var(--border,#CBCDCB);border-radius:12px;padding:12px;font:inherit;line-height:1.2;background:var(--surface-2,#fff);color:inherit
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:16px;display:grid;gap:14px;}
+
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    .row-1{display:grid;gap:10px;grid-template-columns:1fr}
+    @media(max-width:720px){.row{grid-template-columns:1fr}}
+
+    .field label{display:block;font-weight:800;margin:0 0 6px 0;}
+    .input, .select, textarea{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px;padding:12px;outline:none;resize:vertical;
     }
-    textarea{min-height:96px;resize:vertical}
-    .btn{border:0;border-radius:999px;padding:10px 16px;line-height:1.2;font-weight:600;cursor:pointer}
-    .btn.primary{background:#3B7E46;color:#fff}
-    .btn.secondary{background:var(--surface-3,#CBCDCB);color:inherit}
-    .btn:disabled{opacity:.55;cursor:not-allowed}
-    .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 14px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.2);background:var(--surface-4,#141514);color:var(--on-surface-4,#fff);opacity:0;pointer-events:none;transition:opacity .25s}
-    .toast.show{opacity:1}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
+      border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-quiet{min-width:auto;padding:8px 12px}
+    .muted{ color:var(--muted,#67706B); }
+
+    /* Toast (same pattern as Fields) */
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 4s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
+
+  <!-- Ensure fv-shell -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
 </head>
 <body>
   <fv-shell>
@@ -59,104 +65,116 @@
       <h1 class="page-title">Add Grain Bags to Inventory</h1>
       <p class="page-sub">Record <strong>bags on-hand in the shed</strong>. Choose the bag (brand • size) from your Products list, enter quantity, and save.</p>
 
-      <section class="card" aria-label="Add bags form">
-        <form id="bagForm" novalidate>
-          <div class="grid">
-            <div class="fld row-span-2">
-              <label for="productId">Grain bag (brand • size)</label>
-              <select id="productId" name="productId" required>
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">👜</div>
+          <div><strong>Add Bags</strong></div>
+        </header>
+
+        <div class="section-body">
+          <div class="row-1">
+            <div class="field">
+              <label for="bagSelect">Grain bag (brand • size)</label>
+              <select id="bagSelect" class="select">
                 <option value="">Loading options…</option>
               </select>
-              <div class="help">Options come from <em>Products → Grain Bags</em> with <code>status="active"</code>.</div>
+              <p class="muted" style="margin:6px 2px 0; line-height:1.3">
+                Options pulled from <em>Products → Grain Bags</em> with <code>status="active"</code>.
+              </p>
             </div>
+          </div>
 
-            <div class="fld">
+          <div class="row">
+            <div class="field">
               <label for="qty">Quantity (bags)</label>
-              <input id="qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required placeholder="e.g., 10"/>
+              <input id="qty" class="input" inputmode="numeric" type="number" min="1" step="1" placeholder="e.g., 10">
             </div>
-
-            <div class="fld">
-              <label for="location">Storage location (optional)</label>
-              <input id="location" name="location" type="text" placeholder="e.g., North shed, bay 2"/>
+            <div class="field">
+              <label for="location">Storage location <span class="muted">(optional)</span></label>
+              <input id="location" class="input" placeholder="e.g., North shed, bay 2">
             </div>
+          </div>
 
-            <div class="fld row-span-2">
-              <label for="note">Note (optional)</label>
-              <textarea id="note" name="note" placeholder="Any extra details…"></textarea>
+          <div class="row-1">
+            <div class="field">
+              <label for="note">Note <span class="muted">(optional)</span></label>
+              <textarea id="note" class="input" placeholder="Any extra details…"></textarea>
             </div>
           </div>
 
           <div class="actions">
-            <button class="btn primary" id="submitBtn" type="submit" disabled>Save to Inventory</button>
-            <button class="btn secondary" type="reset">Reset</button>
+            <button id="save" class="btn btn-primary" type="button">Save to Inventory</button>
+            <button id="reset" class="btn" type="button">Reset</button>
           </div>
-        </form>
+        </div>
       </section>
     </div>
   </fv-shell>
 
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <script>
+  <!-- Modular Firebase (same as Fields) -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, query, where, orderBy, getDocs,
+      addDoc, doc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
     (function(){
-      const $ = (sel,root=document)=>root.querySelector(sel);
-
-      const PRODUCTS_COL = 'productsGrainBags';
-      const MOVEMENTS_COL = 'inventoryGrainBagMovements';
-
-      let db, auth, FieldValue;
-      let products = [];
-      const productMap = new Map();
-
-      const form = $('#bagForm');
-      const productSel = $('#productId');
-      const qtyEl = $('#qty');
-      const locEl = $('#location');
-      const noteEl = $('#note');
-      const submitBtn = $('#submitBtn');
-      const toast = $('#toast');
-
-      function showToast(msg){
+      "use strict";
+      const $ = id => document.getElementById(id);
+      const toast = $("toast");
+      const showToast = (msg="Saved.")=>{
         toast.textContent = msg;
-        toast.classList.add('show');
-        setTimeout(()=>toast.classList.remove('show'), 2200);
-      }
+        toast.classList.remove("show"); void toast.offsetWidth;
+        toast.classList.add("show");
+        setTimeout(()=> toast.classList.remove("show"), 3500);
+      };
 
-      function setSelectError(msg){
-        productSel.innerHTML = '';
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = msg;
-        opt.disabled = true;
-        opt.selected = true;
-        productSel.appendChild(opt);
-      }
+      const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+      const toInt = (v)=> {
+        const n = Number(String(v||"").replace(/,/g,"").trim());
+        return (Number.isInteger(n) && n>0) ? n : Math.floor(n);
+      };
 
-      function labelFor(p){
+      let db;
+      const productsRef  = ()=> collection(db, 'productsGrainBags');
+      const movesRef     = ()=> collection(db, 'inventoryGrainBagMovements');
+
+      let PRODUCTS = []; const P_MAP = new Map();
+
+      function bagLabel(p){
         const d = (p.diameterFt!=null)? String(p.diameterFt).replace(/\.0$/,'') : '?';
         const l = (p.lengthFt!=null)? String(p.lengthFt).replace(/\.0$/,'') : '?';
         return `${p.brand || 'Unknown'} • ${d}' × ${l}'`;
       }
 
-      function renderProductOptions(){
-        productSel.innerHTML = '';
-        const ph = document.createElement('option');
-        ph.value = '';
-        ph.textContent = 'Select a grain bag…';
-        ph.disabled = true; ph.selected = true;
-        productSel.appendChild(ph);
+      async function loadProducts(){
+        PRODUCTS = []; P_MAP.clear();
+        // status == "active"; order brand, diameterFt, lengthFt
+        const qs = await getDocs(
+          query(productsRef(),
+                where('status','==','active'),
+                orderBy('brand'))
+        );
+        qs.forEach(s=>{
+          const d = s.data()||{};
+          const it = {
+            id: s.id,
+            brand: String(d.brand||'').trim(),
+            diameterFt: d.diameterFt ?? null,
+            lengthFt: d.lengthFt ?? null,
+            thicknessMil: d.thicknessMil ?? null,
+            status: d.status || 'active'
+          };
+          PRODUCTS.push(it); P_MAP.set(it.id, it);
+        });
 
-        if(!products.length){
-          const none = document.createElement('option');
-          none.value = '';
-          none.textContent = 'No active grain bag products found';
-          none.disabled = true;
-          productSel.appendChild(none);
-          return;
-        }
-
-        products.sort((a,b)=>{
-          const ba=(a.brand||'').toLowerCase(), bb=(b.brand||'').toLowerCase();
+        // stable secondary/tertiary sorts
+        PRODUCTS.sort((a,b)=>{
+          const ba=a.brand.toLowerCase(), bb=b.brand.toLowerCase();
           if(ba!==bb) return ba<bb?-1:1;
           const da = Number(a.diameterFt||0), db = Number(b.diameterFt||0);
           if(da!==db) return da-db;
@@ -164,158 +182,87 @@
           return la-lb;
         });
 
-        productMap.clear();
-        for(const p of products){
-          const opt = document.createElement('option');
-          opt.value = p.id;
-          opt.textContent = labelFor(p);
-          productSel.appendChild(opt);
-          productMap.set(p.id, p);
-        }
-      }
+        const sel = $("bagSelect");
+        sel.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value=''; ph.textContent='Select a grain bag…'; ph.disabled=true; ph.selected=true;
+        sel.appendChild(ph);
 
-      // ------- Robust readiness polling (FVData first) -------
-      async function waitFor(testFn, timeoutMs=12000, intervalMs=120){
-        const start = Date.now();
-        while(!testFn()){
-          if(Date.now()-start>timeoutMs) return false;
-          await new Promise(r=>setTimeout(r, intervalMs));
-        }
-        return true;
-      }
-
-      async function loadProducts(){
-        try{
-          // Try FVData.query first (preferred)
-          if(await waitFor(()=> window.FVData && (FVData.query || FVData.collection))){
-            if(typeof FVData.query === 'function'){
-              const list = await FVData.query(PRODUCTS_COL, [['status','==','active']]);
-              products = Array.isArray(list) ? list : [];
-              renderProductOptions();
-              return;
-            }
-            if(typeof FVData.collection === 'function'){
-              const all = await FVData.collection(PRODUCTS_COL);
-              products = (all||[]).filter(p => (p.status||'').toLowerCase()==='active');
-              renderProductOptions();
-              return;
-            }
-          }
-
-          // Fallback to Firestore (namespaced v8)
-          if(await waitFor(()=> window.firebase && firebase.firestore)){
-            db = firebase.firestore();
-            auth = firebase.auth();
-            FieldValue = firebase.firestore.FieldValue;
-
-            // If rules require auth, wait for a state (signed in user or null) then query
-            await new Promise(res=>{
-              let ran=false;
-              const unsub = auth.onAuthStateChanged(()=>{ if(!ran){ ran=true; unsub(); res(); }});
-              // safety: if onAuthStateChanged never fires quickly, still proceed after 1s
-              setTimeout(()=>{ if(!ran){ ran=true; try{unsub();}catch(_){} res(); }}, 1000);
-            });
-
-            const snap = await db.collection(PRODUCTS_COL).where('status','==','active').get();
-            products = snap.docs.map(d=>({id:d.id, ...d.data()}));
-            renderProductOptions();
-            return;
-          }
-
-          // If neither FVData nor Firestore became ready:
-          setSelectError('Failed to initialize');
-        }catch(err){
-          console.error('loadProducts error', err);
-          setSelectError('Failed to load products');
-        }
-      }
-
-      function validate(){
-        const valid = !!productSel.value && Number(qtyEl.value)>=1 && Number.isInteger(Number(qtyEl.value));
-        submitBtn.disabled = !valid;
-      }
-
-      async function saveMovement({productId, qty, location, note}){
-        const p = productMap.get(productId);
-        if(!p) throw new Error('Invalid product selection');
-
-        // Prefer FVData.add; fallback to Firestore add
-        if(window.FVData && typeof FVData.add === 'function'){
-          return FVData.add(MOVEMENTS_COL, {
-            type:'add',
-            qty:Number(qty),
-            productRef:`/${PRODUCTS_COL}/${productId}`, // FVData can resolve from path
-            brand:p.brand||null,
-            diameterFt:(p.diameterFt!=null)?Number(p.diameterFt):null,
-            lengthFt:(p.lengthFt!=null)?Number(p.lengthFt):null,
-            thicknessMil:(p.thicknessMil!=null)?Number(p.thicknessMil):null,
-            status:p.status||null,
-            location:location||null,
-            note:note||null,
-            ts:(window.firebase && firebase.firestore)? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-          });
+        if(!PRODUCTS.length){
+          const none = document.createElement('option');
+          none.value=''; none.textContent='No active grain bag products found'; none.disabled=true;
+          sel.appendChild(none);
+          return;
         }
 
-        // Firestore fallback
-        if(!db){
-          db = firebase.firestore();
-          FieldValue = firebase.firestore.FieldValue;
-        }
-        const auth = firebase.auth();
-        const user = auth.currentUser;
-        const submittedBy = (user && (user.displayName || user.email || user.uid)) || 'Unknown';
-        return db.collection(MOVEMENTS_COL).add({
-          type:'add',
-          qty:Number(qty),
-          productRef: db.collection(PRODUCTS_COL).doc(productId),
-          brand:p.brand||null,
-          diameterFt:(p.diameterFt!=null)?Number(p.diameterFt):null,
-          lengthFt:(p.lengthFt!=null)?Number(p.lengthFt):null,
-          thicknessMil:(p.thicknessMil!=null)?Number(p.thicknessMil):null,
-          status:p.status||null,
-          location:location||null,
-          note:note||null,
-          uid: user ? user.uid : null,
-          submittedBy,
-          ts: FieldValue.serverTimestamp()
+        PRODUCTS.forEach(p=>{
+          const o=document.createElement('option');
+          o.value = p.id;
+          o.textContent = bagLabel(p);
+          sel.appendChild(o);
         });
       }
 
-      // Events
-      form.addEventListener('input', validate);
-      form.addEventListener('change', validate);
-      form.addEventListener('submit', async (e)=>{
-        e.preventDefault();
+      function validate(){
+        const ok = $("bagSelect").value && toInt($("qty").value) >= 1;
+        $("save").disabled = !ok;
+        return ok;
+      }
+
+      async function saveMovement(){
+        if(!validate()) { alert("Pick a grain bag and enter a quantity ≥ 1."); return; }
+        const id = $("bagSelect").value;
+        const p = P_MAP.get(id);
+        if(!p){ alert("Invalid bag selection."); return; }
+
+        const qty = toInt($("qty").value);
+        if(!(qty>=1)) { alert("Quantity must be a whole number ≥ 1."); return; }
+
+        const payload = {
+          type: 'add',
+          qty,
+          productRef: doc(db, 'productsGrainBags', id),
+          brand: p.brand || null,
+          diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
+          lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
+          thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
+          status: p.status || null,
+          location: String($("location").value||"").trim() || null,
+          note: String($("note").value||"").trim() || null,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        await addDoc(movesRef(), payload);
+
+        // reset
+        $("qty").value = "";
+        $("location").value = "";
+        $("note").value = "";
+        $("bagSelect").value = "";
         validate();
-        if(submitBtn.disabled) return;
+        showToast("Saved: bags added to inventory.");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
 
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Saving…';
-        try{
-          const data = {
-            productId: productSel.value,
-            qty: Number(qtyEl.value),
-            location: (locEl.value||'').trim(),
-            note: (noteEl.value||'').trim()
-          };
-          if(!(data.qty>=1 && Number.isInteger(data.qty))) throw new Error('Quantity must be a whole number ≥ 1');
-
-          await saveMovement(data);
-          form.reset();
-          renderProductOptions();
-          validate();
-          showToast('Saved: bags added to inventory');
-        }catch(err){
-          console.error(err);
-          showToast('Error: could not save');
-        }finally{
-          submitBtn.textContent = 'Save to Inventory';
-          validate();
+      (async()=>{
+        const ctx = await ready; // same as Fields
+        if(ctx.mode!=='firebase'){
+          alert("Firestore not available (stub mode). This page expects Firebase to be live.");
         }
-      });
+        db = getFirestore();
 
-      // Boot
-      window.addEventListener('DOMContentLoaded', loadProducts);
+        await loadProducts();
+        validate();
+
+        $("bagSelect").addEventListener("change", validate);
+        $("qty").addEventListener("input", validate);
+        $("save").addEventListener("click", saveMovement);
+        $("reset").addEventListener("click", ()=>{
+          $("bagSelect").value = ""; $("qty").value=""; $("location").value=""; $("note").value="";
+          validate();
+        });
+      })();
     })();
   </script>
 </body>
