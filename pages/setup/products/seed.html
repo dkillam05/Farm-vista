@@ -205,8 +205,7 @@
       ]
     };
 
-    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const toNum = (v)=> { const n = Number(String(v||"").replace(/,/g,"").trim()); return isFinite(n) ? n : 0; };
+    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const showToast = (msg="Saved.")=>{
       toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
     };
@@ -270,43 +269,62 @@
     function buildPayload(fromModal=false){
       const g = (id)=> (fromModal ? document.getElementById('edit_'+id) : document.getElementById(id));
       const cropVal = (g('crop')?.value ?? g('edit_crop')?.value ?? "");
+      const traitSel = g('traits') || g('edit_traits');
+      const traitLabel = traitSel && traitSel.selectedOptions && traitSel.selectedOptions[0] ? traitSel.selectedOptions[0].textContent : "";
       return {
         crop:        cropVal,
         brand:       (g('brand')?.value ?? g('edit_brand')?.value ?? "").trim(),
         variety:     (g('variety')?.value ?? g('edit_variety')?.value ?? "").trim(),
         maturity:    (g('maturity')?.value ?? g('edit_maturity')?.value ?? "").trim(),
         trait:       (g('traits')?.value ?? g('edit_traits')?.value ?? ""),
-        traitLabel:  (g('traits') ? g('traits').selectedOptions[0]?.textContent
-                      : g('edit_traits')?.selectedOptions?.[0]?.textContent) || "",
+        traitLabel:  traitLabel || "",
         notes:       (g('notes')?.value ?? g('edit_notes')?.value ?? "").trim(),
-        // convenience flags for display/sorting
         cropCorn:    cropVal==="corn",
         cropSoy:     cropVal==="soybean"
       };
     }
 
-    async function ensureFV(){
+    async function ensureFVReady(){
       if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
       await FVData.ready();
+    }
+
+    async function currentUid(){
+      // Try FVData, then FVUserContext, then Firebase Auth
+      const uid =
+        (FVData && (FVData.uid || FVData.user?.uid)) ||
+        (window.FVUserContext && window.FVUserContext.uid) ||
+        (window.firebase && firebase.auth && firebase.auth().currentUser && firebase.auth().currentUser.uid) ||
+        null;
+      if(!uid) throw new Error("Not signed in (no uid).");
+      return uid;
     }
 
     // Create
     $("save").addEventListener("click", async ()=>{
       const err = validateNew(); if(err){ alert(err); return; }
-      const payload = buildPayload(false);
       try{
-        await ensureFV();
-        await FVData.save(COLL, {
-          ...payload,
+        await ensureFVReady();
+        const uid = await currentUid();
+
+        const now = Date.now();
+        const payload = {
+          ...buildPayload(false),
+          uid,                   // REQUIRED by your rules
           status: "active",
-          used: false
-        });
+          used: false,
+          createdAt: now,        // common rule checks
+          updatedAt: now
+        };
+
+        await FVData.save(COLL, payload);
         showToast("Seed saved.");
         clearForm();
         await renderList();
         window.scrollTo({top:0, behavior:"smooth"});
       }catch(e){
-        console.error(e); alert("Save failed. " + (e?.message || e));
+        console.error(e);
+        alert("Save failed: " + (e?.message || e));
       }
     });
 
@@ -322,7 +340,12 @@
 
     // List
     async function renderList(){
-      await ensureFV();
+      try{
+        await ensureFVReady();
+      }catch(e){
+        console.warn(e);
+        return;
+      }
       const rows = await (FVData.list ? FVData.list(COLL, { orderBy:'updatedAt', desc:true }) : FVData.loadAll(COLL)) || [];
       const items = rows.map(r => ('id' in r && !r.data) ? r : (r.data ? ({ id:r.id, ...r.data }) : r));
 
@@ -377,7 +400,6 @@
     }
 
     function setInputValue(id, v){ const el=$(id); if(el) el.value = v; }
-    function setTextValue(id, v){ const el=$(id); if(el) el.value = v; }
     function setSelectValue(id, v){ const el=$(id); if(el){ el.value = v || ""; } }
 
     function fillEditTraitOptions(c){
@@ -406,7 +428,7 @@
     }
 
     async function openEdit(id){
-      await ensureFV();
+      await ensureFVReady();
       editId = id;
       const rec = await (FVData.get ? FVData.get(COLL, id) : null);
       const it = rec ? (rec.data || rec) : null;
@@ -420,7 +442,7 @@
       setInputValue('edit_variety', it.variety||"");
       setInputValue('edit_maturity', it.maturity ?? "");
       setSelectValue('edit_traits', it.trait||"");
-      setTextValue('edit_notes', it.notes||"");
+      const nEl = $("edit_notes"); if(nEl) nEl.value = it.notes||"";
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -454,9 +476,12 @@
       if(!matV){ alert("Enter maturity."); return; }
       if(!traitV){ alert("Select a trait system."); return; }
 
-      await ensureFV();
+      await ensureFVReady();
+      const uid = await currentUid();
       await FVData.update(COLL, editId, {
-        ...buildPayload(true)
+        ...buildPayload(true),
+        uid,
+        updatedAt: Date.now()
       });
       await renderList();
       showToast("Changes saved.");
@@ -464,12 +489,12 @@
     });
 
     $("mdArchive").addEventListener("click", async ()=>{
-      await ensureFV();
+      await ensureFVReady();
       const rec = await (FVData.get ? FVData.get(COLL, editId) : null);
       const it = rec ? (rec.data || rec) : null;
       if(!it) return;
       const next = it.status==="archived" ? "active" : "archived";
-      await FVData.update(COLL, editId, { status: next });
+      await FVData.update(COLL, editId, { status: next, updatedAt: Date.now() });
       await renderList();
       showToast(next==="archived" ? "Product archived." : "Product unarchived.");
       $("statusPill").textContent = next==='archived' ? "Archived" : "Active";
@@ -477,7 +502,7 @@
     });
 
     $("mdDelete").addEventListener("click", async ()=>{
-      await ensureFV();
+      await ensureFVReady();
       const rec = await (FVData.get ? FVData.get(COLL, editId) : null);
       const it = rec ? (rec.data || rec) : null;
       if(!it) return;
@@ -492,18 +517,15 @@
     // Init
     (async function boot(){
       try{
-        await ensureFV();
+        await ensureFVReady();
       }catch(e){
         console.warn(e);
         alert(e?.message || "FVData not loaded");
       }
-      // prime create-form UI
       setMaturityUI("");
       fillTraitOptions("");
-
       await renderList();
 
-      // If FVData signals it became ready later in session, re-render once
       if (window.addEventListener) {
         window.addEventListener('fvdata-ready', ()=> renderList(), { once:true });
       }
