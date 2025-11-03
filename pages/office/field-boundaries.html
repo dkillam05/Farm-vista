@@ -49,14 +49,12 @@
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
 
-    /* Thumbs + annotate */
     .thumbs{display:flex;gap:10px;flex-wrap:wrap}
     .thumb{width:92px;height:92px;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:grid;place-items:center;background:#f6f7f6;position:relative}
     .thumb img{width:100%;height:100%;object-fit:cover}
     .thumb .tools{position:absolute;inset:auto 6px 6px 6px;display:flex;gap:6px}
     .thumb .tools button{font-size:12px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer}
 
-    /* Modal (details or annotate) */
     .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0}
     .modal[open]{display:grid;opacity:1}
     .dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
@@ -92,9 +90,11 @@
           <div class="row">
             <div class="field">
               <label for="fieldName">Field</label>
-              <select id="fieldName" class="select" data-field="field" data-label="Field">
+              <!-- value = fieldId; text = field name (same pattern as Grain Bags / RTK Towers) -->
+              <select id="fieldName" class="select" data-field="fieldId" data-label="Field">
                 <option value="">— Select field —</option>
               </select>
+              <div class="help" id="fieldHelp"></div>
             </div>
 
             <div class="field">
@@ -129,7 +129,7 @@
             <div class="field">
               <label for="submittedBy">Submitted By</label>
               <select id="submittedBy" class="select" data-field="submittedBy" data-label="Submitted By"></select>
-              <div class="help" id="submittedByHelp">Defaults to your account; choose another employee if submitting on their behalf.</div>
+              <div class="help" id="submittedByHelp">Defaults to the currently signed-in user.</div>
             </div>
             <div class="field"></div>
           </div>
@@ -143,7 +143,6 @@
           <!-- Photos -->
           <div class="field">
             <label for="photos">Photos (optional)</label>
-            <!-- allow camera OR file picker -->
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple>
             <div id="thumbs" class="thumbs" aria-live="polite"></div>
             <div id="photoNote" class="help"></div>
@@ -197,6 +196,7 @@
 
     /* ===== UI refs ===== */
     const fieldSel = $("fieldName");
+    const fieldHelp = $("fieldHelp");
     const submittedBySel = $("submittedBy");
     const when = $("when");
     const boundaryType = $("boundaryType");
@@ -216,26 +216,84 @@
       return FVData;
     }
 
-    /* ---------- Load fields (Firestore → fields) ---------- */
-    async function loadFields(){
-      let names = [];
-      try{
-        const FV = await fvReady();
-        const rows = FV.list ? await FV.list(COLL_FIELDS,{orderBy:"name",limit:5000}) : await FV.loadAll(COLL_FIELDS);
-        names = (rows||[]).map(r => (r.data?.name ?? r.name ?? "").trim()).filter(Boolean);
-      }catch(e){
-        if(db){
-          try{
-            const snap = await db.collection(COLL_FIELDS).orderBy("name").limit(5000).get();
-            names = snap.docs.map(d=>(d.data().name||"").trim()).filter(Boolean);
-          }catch{}
-        }
-      }
-      names = Array.from(new Set(names)).sort((a,b)=>a.localeCompare(b));
-      fieldSel.innerHTML = '<option value="">— Select field —</option>' + names.map(n=>`<option>${esc(n)}</option>`).join("");
+    /* ===== Current user helpers (Auth or FVUserContext) ===== */
+    function titleCase(s){
+      return String(s||"")
+        .toLowerCase()
+        .split(/[\s._-]+/)
+        .filter(Boolean)
+        .map(w => w.charAt(0).toUpperCase()+w.slice(1))
+        .join(" ");
     }
 
-    /* ---------- Load employees (Firestore → employees) ---------- */
+    async function getAuthUser() {
+      try{
+        if (fb && fb.auth) {
+          const cur = fb.auth().currentUser;
+          if (cur) return cur;
+          return await new Promise(resolve => {
+            const unsub = fb.auth().onAuthStateChanged(u => { unsub && unsub(); resolve(u||null); });
+          });
+        }
+      }catch(_){}
+      return null;
+    }
+
+    async function currentUserIdentity(){
+      // Prefer fv-shell context if present
+      const ctx = window.FVUserContext || {};
+      const ctxName = ctx.displayName || ctx.name;
+      const ctxEmail = ctx.email;
+      if (ctxName || ctxEmail) {
+        return {
+          name: ctxName ? ctxName : (ctxEmail ? titleCase(String(ctxEmail).replace(/@.*/,"").replace(/\./g," ")) : ""),
+          email: ctxEmail || ""
+        };
+      }
+      // Fallback to Firebase Auth user
+      const u = await getAuthUser();
+      if (u) {
+        const email = u.email || "";
+        const name = u.displayName || (email ? titleCase(email.replace(/@.*/,"").replace(/\./g," ")) : "");
+        return { name, email };
+      }
+      return { name:"", email:"" };
+    }
+
+    /* ---------- Load fields (Firestore → fields) ---------- */
+    async function loadFields(){
+      let rows = [];
+      try{
+        const FV = await fvReady();
+        if (FV.list) {
+          rows = await FV.list(COLL_FIELDS, { where:[["status","==","active"]], orderBy:"name", limit:5000 });
+          if (!rows?.length) rows = await FV.list(COLL_FIELDS, { orderBy:"name", limit:5000 });
+        } else {
+          rows = await FV.loadAll(COLL_FIELDS);
+        }
+      }catch(_){
+        if(db){
+          try{
+            let q = db.collection(COLL_FIELDS).orderBy("name");
+            try{ q = db.collection(COLL_FIELDS).where("status","==","active").orderBy("name"); }catch(__){}
+            const snap = await q.limit(5000).get();
+            rows = snap.docs.map(d=>({ id:d.id, data:d.data() }));
+          }catch(__){}
+        }
+      }
+
+      const items = (rows||[])
+        .map(r => ({ id: r.id || r.key || r.docId, name: (r.data?.name ?? r.name ?? "").trim() }))
+        .filter(x => x.id && x.name)
+        .sort((a,b)=>a.name.localeCompare(b.name));
+
+      fieldSel.innerHTML = '<option value="">— Select field —</option>' +
+        items.map(x=>`<option value="${esc(x.id)}" data-name="${esc(x.name)}">${esc(x.name)}</option>`).join("");
+
+      fieldHelp.textContent = `${items.length} fields`;
+    }
+
+    /* ---------- Load employees (Firestore → employees) & default to current user ---------- */
     function empName(d){
       const full = (d.fullName||"").trim();
       if(full) return full;
@@ -245,7 +303,9 @@
       if(d.name) return d.name;
       return (d.email||"").replace(/@.*/,"");
     }
+
     async function loadEmployees(){
+      const me = await currentUserIdentity(); // {name,email}
       let emps=[];
       try{
         const FV = await fvReady();
@@ -254,7 +314,7 @@
           const d = r.data ?? r;
           return { id:r.id || d.email || empName(d), email:d.email||"", name: empName(d) };
         });
-      }catch(e){
+      }catch(_){
         if(db){
           try{
             const snap = await db.collection(COLL_EMPLOYEES).limit(5000).get();
@@ -262,30 +322,27 @@
               const d = doc.data();
               return { id:doc.id, email:d.email||"", name: empName(d) };
             });
-          }catch{}
+          }catch(__){}
         }
       }
+
+      // ensure current user shows up
+      const norm = s => String(s||"").trim().toLowerCase();
+      const hasMe = emps.some(e => (e.email && norm(e.email)===norm(me.email)) || norm(e.name)===norm(me.name));
+      if(!hasMe){
+        if (me.name || me.email) {
+          emps.unshift({ id: me.email || "current-user", email: me.email || "", name: me.name || titleCase((me.email||"").replace(/@.*/,"").replace(/\./g," ")) });
+        }
+      }
+
       // sort & render
       emps = emps.filter(x=>x.name).sort((a,b)=>a.name.localeCompare(b.name));
-      const me = fb?.auth?.().currentUser || null;
-      const myEmail = (me?.email||"").toLowerCase();
-      submittedBySel.innerHTML = emps.map(e=>`<option value="${esc(e.name)}">${esc(e.name)}</option>`).join("");
-      // default to current user if we can match by email OR by name root (before @)
-      if(emps.length){
-        let idx = emps.findIndex(e => e.email && e.email.toLowerCase()===myEmail);
-        if(idx<0 && me?.displayName){
-          idx = emps.findIndex(e => e.name.trim().toLowerCase() === me.displayName.trim().toLowerCase());
-        }
-        if(idx<0 && myEmail){
-          const nick = myEmail.replace(/@.*/,'');
-          idx = emps.findIndex(e => e.name.toLowerCase().includes(nick));
-        }
-        if(idx>=0) submittedBySel.selectedIndex = idx;
-      }else{
-        // fallback single option (still “First Last” if available)
-        const fallback = me?.displayName || (me ? (me.email||"") : "");
-        submittedBySel.innerHTML = `<option>${esc(fallback||"")}</option>`;
-      }
+      submittedBySel.innerHTML = emps.map(e=>`<option value="${esc(e.name)}" data-email="${esc(e.email)}">${esc(e.name)}</option>`).join("");
+
+      // preselect current user (by email, then by name)
+      let idx = emps.findIndex(e => e.email && norm(e.email)===norm(me.email));
+      if (idx<0) idx = emps.findIndex(e => norm(e.name)===norm(me.name));
+      if (idx>=0) submittedBySel.selectedIndex = idx;
     }
 
     /* ---------- Photos & annotate ---------- */
@@ -322,7 +379,6 @@
       const cvs = $("annCvs"); ann.canvas=cvs; ann.ctx=cvs.getContext("2d");
       const img = new Image(); ann.img=img;
       img.onload = ()=>{
-        // fit within dialog width while maintaining ratio
         const maxW = Math.min(720, window.innerWidth*0.9);
         const scale = Math.min(1, maxW / img.width);
         ann.scale = scale;
@@ -332,7 +388,6 @@
         ann.ctx.lineWidth = 3; ann.ctx.strokeStyle = "#ff0000";
       };
       img.src = URL.createObjectURL(file);
-      // draw handlers
       const pos = e => {
         const r=cvs.getBoundingClientRect();
         if(e.touches?.length){ return {x:e.touches[0].clientX-r.left, y:e.touches[0].clientY-r.top}; }
@@ -379,11 +434,19 @@
     const FIELDS = Array.from(document.querySelectorAll("[data-field]"));
     function collect(){
       const o={}; FIELDS.forEach(el=>o[el.dataset.field]=el.value);
+      // also store the field name from the selected option, like other pages
+      const opt = fieldSel.options[fieldSel.selectedIndex];
+      o.field = (opt?.dataset?.name || opt?.text || "").trim();
+
+      // capture submittedByEmail for audit
+      const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
+      o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
+
       o.status="Open"; o.t=Date.now(); o.timestampISO=new Date(o.t).toISOString();
       return o;
     }
     function validate(o){
-      if(!o.field) return "Please select a field.";
+      if(!o.fieldId || !o.field) return "Please select a field.";
       if(!o.boundaryType) return "Please choose Interior or Exterior.";
       if(!o.scope) return "Please choose Small section or Entire field.";
       if(!o.submittedBy || !o.submittedBy.trim()) return "Please choose who is submitting this.";
@@ -393,7 +456,6 @@
 
     /* ---------- Save to Firestore/Storage (via FVData first) ---------- */
     async function saveRequest(obj){
-      // try FVData
       try{
         const FV = await fvReady();
         const refId = FV.add ? await FV.add(COLL_REQUESTS,obj) : (FV.save ? await FV.save(COLL_REQUESTS,obj) : null);
@@ -410,7 +472,6 @@
 
     async function uploadPhotos(docId, files){
       if(!files.length) return [];
-      // FVData if available
       try{
         const FV = await fvReady();
         const out=[];
@@ -447,7 +508,6 @@
         const id = await saveRequest(o);
         const uploaded = await uploadPhotos(id, selectedFiles);
         if(uploaded.length){
-          // patch record with photos
           try{
             const FV = await fvReady();
             if(FV.update) await FV.update(COLL_REQUESTS, id, { photos: uploaded });
@@ -456,7 +516,8 @@
         }
         summary.innerHTML = `<strong>Submitted:</strong> ${esc(o.field)}${o.boundaryType?` • ${esc(o.boundaryType)}`:""}${o.when?` • ${new Date(o.when).toLocaleDateString()}`:""}`;
         // reset
-        ["fieldName","boundaryType","scope"].forEach(i=>$(i).selectedIndex=0);
+        fieldSel.selectedIndex = 0;
+        ["boundaryType","scope"].forEach(i=>$(i).selectedIndex=0);
         when.value=todayISO(); notes.value=""; photos.value=""; selectedFiles=[]; renderThumbs();
         window.scrollTo({top:0,behavior:"smooth"});
       }catch(e){
@@ -465,7 +526,8 @@
     });
 
     $("clear").addEventListener("click", ()=>{
-      ["fieldName","boundaryType","scope"].forEach(i=>$(i).selectedIndex=0);
+      fieldSel.selectedIndex = 0;
+      ["boundaryType","scope"].forEach(i=>$(i).selectedIndex=0);
       when.value=todayISO(); notes.value=""; photos.value=""; selectedFiles=[]; renderThumbs();
       summary.hidden=true;
     });
@@ -476,11 +538,15 @@
       await loadEmployees();
     })();
 
-    /* ====== FAQ for you (how boxes link) ======
-       - Fields dropdown → Firestore collection: "fields", uses document field: name
-       - Submitted By     → Firestore collection: "employees", uses firstName + lastName (or fullName)
-       - Requests saved   → Firestore collection: "boundary_requests"
-       - Photos stored    → Firebase Storage folder: "boundary-photos/{docId}/..."
+    /* ====== Notes ======
+       - Fields dropdown  → collection "fields"
+           * value = document id
+           * label = field name
+           * we save both: fieldId + field (name)
+       - Submitted By      → collection "employees", defaults to the signed-in user
+           * derived from FVUserContext/Auth; inserted if missing; preselected
+       - Requests saved    → collection "boundary_requests"
+       - Photos stored     → Storage "boundary-photos/{docId}/..."
     ================================================= */
   </script>
 </body>
