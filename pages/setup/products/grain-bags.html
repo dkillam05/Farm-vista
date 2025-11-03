@@ -228,12 +228,16 @@
       const rows = await (FVData.list ? FVData.list(COLL, { orderBy:'updatedAt', desc:true }) : FVData.loadAll(COLL)) || [];
       const items = rows.map(r => ('id' in r && !r.data) ? r : (r.data ? ({ id:r.id, ...r.data }) : r));
 
-      // Normalize + sort: active first, then updatedAt desc (fallback t field if present)
+      // Normalize + sort: active first, then BRAND A→Z, then updatedAt desc
       items.sort((a,b)=>{
         const sa = a.status==='archived', sb = b.status==='archived';
+        if(sa !== sb) return sa - sb;
+        const an = (a.brand||'').toString().toLowerCase();
+        const bn = (b.brand||'').toString().toLowerCase();
+        if(an !== bn) return an.localeCompare(bn);
         const ta = a.updatedAt || a.t || 0;
         const tb = b.updatedAt || b.t || 0;
-        return (sa - sb) || (tb - ta);
+        return (tb - ta);
       });
 
       if(!items.length){
