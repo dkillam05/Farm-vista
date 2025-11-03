@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Firebase config FIRST, then FVData helpers -->
+  <!-- Firebase + FVData -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/fv-data.js"></script>
 
@@ -170,12 +170,70 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Page logic (FVData-only) -->
+  <!-- Page logic -->
   <script type="module">
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     const listBox = $("list"), countsEl = $("counts");
-    const COLL = 'productsSeed'; // single source of truth
+    const COLL = 'productsSeed';
+
+    /* ==== COMPAT LAYER for fv-data.js differences ==== */
+    const genId = () =>
+      (crypto && crypto.randomUUID) ? crypto.randomUUID() :
+      ('id_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8));
+
+    async function ensureFVReady(){
+      if(!window.FVData) throw new Error("FVData not loaded");
+      // FVData.ready may be a function returning a promise, or a promise itself, or absent.
+      if (typeof FVData.ready === 'function') { await FVData.ready(); }
+      else if (FVData.ready && typeof FVData.ready.then === 'function') { await FVData.ready; }
+    }
+
+    async function createDoc(coll, data){
+      const api = window.FVData || {};
+      if (api.add)                 return api.add(coll, data);
+      if (api.create)              return api.create(coll, data);
+      if (api.save)                return api.save(coll, data);
+      if (api.setDoc)              return api.setDoc(coll, genId(), data);
+      if (api.set)                 return api.set(coll, genId(), data);
+      throw new Error("FVData has no create method (add/create/save/setDoc/set).");
+    }
+    async function updateDoc(coll, id, data){
+      const api = window.FVData || {};
+      if (api.update)              return api.update(coll, id, data);
+      if (api.patch)               return api.patch(coll, id, data);
+      if (api.set)                 return api.set(coll, id, {...data, __merge:true});
+      if (api.setDoc)              return api.setDoc(coll, id, {...data, __merge:true});
+      throw new Error("FVData has no update method (update/patch/set/setDoc).");
+    }
+    async function removeDoc(coll, id){
+      const api = window.FVData || {};
+      if (api.remove)              return api.remove(coll, id);
+      if (api.delete)              return api.delete(coll, id);
+      if (api.deleteDoc)           return api.deleteDoc(coll, id);
+      throw new Error("FVData has no delete method (remove/delete/deleteDoc).");
+    }
+    async function getDoc(coll, id){
+      const api = window.FVData || {};
+      if (api.get)                 return api.get(coll, id);
+      if (api.read)                return api.read(coll, id);
+      throw new Error("FVData has no get method (get/read).");
+    }
+    async function listDocs(coll){
+      const api = window.FVData || {};
+      if (api.list)                return api.list(coll, { orderBy:'updatedAt', desc:true });
+      if (api.loadAll)             return api.loadAll(coll);
+      throw new Error("FVData has no list method (list/loadAll).");
+    }
+    async function currentUid(){
+      const uid =
+        (window.FVData && (FVData.uid || FVData.user?.uid)) ||
+        (window.FVUserContext && window.FVUserContext.uid) ||
+        (window.firebase && firebase.auth && firebase.auth().currentUser && firebase.auth().currentUser.uid) ||
+        null;
+      if(!uid) throw new Error("Not signed in (no uid).");
+      return uid;
+    }
 
     /* === Trait options by crop === */
     const TRAITS = {
@@ -205,14 +263,15 @@
       ]
     };
 
-    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const showToast = (msg="Saved.")=>{
-      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
-    };
+    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
     const crop=$("crop"), brand=$("brand"), variety=$("variety"),
           maturity=$("maturity"), matLabel=$("matLabel"), matHelp=$("matHelp"),
           traits=$("traits"), traitHelp=$("traitHelp"), notes=$("notes");
+
+    const showToast = (msg="Saved.")=>{
+      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+    };
 
     function fillTraitOptions(c){
       traits.innerHTML = '<option value="">—</option>';
@@ -245,7 +304,7 @@
       setMaturityUI(c);
     });
 
-    /* Basic number hygiene for maturity */
+    /* number hygiene for maturity */
     maturity.addEventListener("blur", ()=>{
       const c=crop.value;
       const raw = maturity.value.trim();
@@ -284,40 +343,22 @@
       };
     }
 
-    async function ensureFVReady(){
-      if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
-      await FVData.ready();
-    }
-
-    async function currentUid(){
-      // Try FVData, then FVUserContext, then Firebase Auth
-      const uid =
-        (FVData && (FVData.uid || FVData.user?.uid)) ||
-        (window.FVUserContext && window.FVUserContext.uid) ||
-        (window.firebase && firebase.auth && firebase.auth().currentUser && firebase.auth().currentUser.uid) ||
-        null;
-      if(!uid) throw new Error("Not signed in (no uid).");
-      return uid;
-    }
-
     // Create
     $("save").addEventListener("click", async ()=>{
-      const err = validateNew(); if(err){ alert(err); return; }
+      const msg = validateNew(); if(msg){ alert(msg); return; }
       try{
         await ensureFVReady();
         const uid = await currentUid();
-
         const now = Date.now();
         const payload = {
           ...buildPayload(false),
-          uid,                   // REQUIRED by your rules
+          uid,
           status: "active",
           used: false,
-          createdAt: now,        // common rule checks
+          createdAt: now,
           updatedAt: now
         };
-
-        await FVData.save(COLL, payload);
+        await createDoc(COLL, payload);
         showToast("Seed saved.");
         clearForm();
         await renderList();
@@ -342,14 +383,17 @@
     async function renderList(){
       try{
         await ensureFVReady();
+      }catch(e){ console.warn(e); return; }
+
+      let rows = [];
+      try{
+        rows = await listDocs(COLL) || [];
       }catch(e){
-        console.warn(e);
-        return;
+        console.warn("List failed:", e);
       }
-      const rows = await (FVData.list ? FVData.list(COLL, { orderBy:'updatedAt', desc:true }) : FVData.loadAll(COLL)) || [];
       const items = rows.map(r => ('id' in r && !r.data) ? r : (r.data ? ({ id:r.id, ...r.data }) : r));
 
-      // Normalize + sort: active first, then crop (corn before soy), then updated desc
+      // sort: active first, corn→soy, then updated desc
       items.sort((a,b)=>{
         const sa = a.status==='archived', sb = b.status==='archived';
         const ca = (a.crop==="corn") ? 0 : (a.crop==="soybean" ? 1 : 2);
@@ -430,7 +474,7 @@
     async function openEdit(id){
       await ensureFVReady();
       editId = id;
-      const rec = await (FVData.get ? FVData.get(COLL, id) : null);
+      const rec = await getDoc(COLL, id);
       const it = rec ? (rec.data || rec) : null;
       if(!it) return;
 
@@ -478,7 +522,7 @@
 
       await ensureFVReady();
       const uid = await currentUid();
-      await FVData.update(COLL, editId, {
+      await updateDoc(COLL, editId, {
         ...buildPayload(true),
         uid,
         updatedAt: Date.now()
@@ -490,11 +534,11 @@
 
     $("mdArchive").addEventListener("click", async ()=>{
       await ensureFVReady();
-      const rec = await (FVData.get ? FVData.get(COLL, editId) : null);
+      const rec = await getDoc(COLL, editId);
       const it = rec ? (rec.data || rec) : null;
       if(!it) return;
       const next = it.status==="archived" ? "active" : "archived";
-      await FVData.update(COLL, editId, { status: next, updatedAt: Date.now() });
+      await updateDoc(COLL, editId, { status: next, updatedAt: Date.now() });
       await renderList();
       showToast(next==="archived" ? "Product archived." : "Product unarchived.");
       $("statusPill").textContent = next==='archived' ? "Archived" : "Active";
@@ -503,12 +547,12 @@
 
     $("mdDelete").addEventListener("click", async ()=>{
       await ensureFVReady();
-      const rec = await (FVData.get ? FVData.get(COLL, editId) : null);
+      const rec = await getDoc(COLL, editId);
       const it = rec ? (rec.data || rec) : null;
       if(!it) return;
       if(it.used){ alert("This product is in use and cannot be deleted. Archive instead."); return; }
       if(!confirm(`Delete seed "${(it.brand||'') + ' ' + (it.variety||'')}"? This cannot be undone.`)) return;
-      await FVData.remove(COLL, editId);
+      await removeDoc(COLL, editId);
       await renderList();
       showToast("Product deleted.");
       closeModal();
@@ -516,16 +560,9 @@
 
     // Init
     (async function boot(){
-      try{
-        await ensureFVReady();
-      }catch(e){
-        console.warn(e);
-        alert(e?.message || "FVData not loaded");
-      }
-      setMaturityUI("");
-      fillTraitOptions("");
+      try{ await ensureFVReady(); }catch(e){ console.warn(e); alert(e?.message || "FVData not loaded"); }
+      setMaturityUI(""); fillTraitOptions("");
       await renderList();
-
       if (window.addEventListener) {
         window.addEventListener('fvdata-ready', ()=> renderList(), { once:true });
       }
