@@ -17,9 +17,6 @@
   <!-- FVData helpers -->
   <script src="/Farm-vista/js/fv-data.js"></script>
 
-  <!-- Ensure fv-shell -->
-  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
-
   <!-- Firebase config FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
@@ -214,7 +211,7 @@
       alertBox.textContent = msg; alertBox.classList.add('show');
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
-    const escapeHTML = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const escapeHTML = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]}));
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -229,7 +226,6 @@
 
     // Formatters
     const pad4 = n => String(n).padStart(4,'0');
-    const labelFor = t => `${t.name} — NET ${pad4(t.networkId||0)} • ${t.frequencyMHz} MHz`;
 
     // State
     let towers = [];     // [{id,name,networkId,frequencyMHz, inUse:[fieldNames]}]
@@ -244,7 +240,6 @@
       if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
     });
 
-    // Build payload
     function validateCreate(){
       const name = $("name").value.trim();
       const netid = $("netid").value.trim();
@@ -263,7 +258,6 @@
       };
     }
 
-    // CRUD
     $("clear").addEventListener("click", ()=>{ ["name","netid","freq"].forEach(id=>$(id).value=""); });
     $("save").addEventListener("click", async ()=>{
       const err = validateCreate(); if(err){ alert(err); return; }
@@ -277,26 +271,58 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    // Load towers + usage map from Fields
+    /** ---- FIX: detect usage via rtkId OR rtkTowerId (and embedded objects) ---- **/
+    async function fieldsUsingTower(towerId){
+      const names = new Set();
+
+      // Direct equality on rtkId
+      try{
+        const a = await FVData.getWhere('fields','rtkId','==', towerId, { limit: 5000 }) || [];
+        a.forEach(f => names.add(String(f.name || f.fieldName || '(Unnamed field)').trim()));
+      }catch(e){ /* ignore */ }
+
+      // Direct equality on rtkTowerId
+      try{
+        const b = await FVData.getWhere('fields','rtkTowerId','==', towerId, { limit: 5000 }) || [];
+        b.forEach(f => names.add(String(f.name || f.fieldName || '(Unnamed field)').trim()));
+      }catch(e){ /* ignore */ }
+
+      // Fallback: scan if fields store an object like {id: "..."} or other legacy keys
+      try{
+        const all = await FVData.list('fields', { limit: 5000 }) || [];
+        for (const f of all){
+          const cand = f.rtkTowerId ?? f.rtkId ?? f.rtk ?? null;
+          const match =
+            (typeof cand === 'string' && cand === towerId) ||
+            (cand && typeof cand === 'object' && (cand.id === towerId || cand._id === towerId));
+          if (match){
+            names.add(String(f.name || f.fieldName || '(Unnamed field)').trim());
+          }
+        }
+      }catch(e){ /* ignore */ }
+
+      return Array.from(names);
+    }
+
+    // Load towers + usage map
     async function loadAll(){
       const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
-      // build usage map by querying fields per tower (fast enough at our scale)
       const enriched = [];
       for (const t of towersRaw) {
-        const usedBy = await FVData.getWhere('fields','rtkId','==', t.id, { limit: 5000 }) || [];
+        const usedByNames = await fieldsUsingTower(t.id);
         enriched.push({
           id: t.id,
           name: String(t.name||'').trim(),
           networkId: typeof t.networkId==='number' ? t.networkId : parseInt(t.networkId,10) || 0,
           frequencyMHz: String(t.frequencyMHz||'').trim(),
-          inUse: usedBy.map(f => String(f.name || f.fieldName || '(Unnamed field)').trim())
+          inUse: usedByNames
         });
       }
       towers = enriched.sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
       renderDict();
     }
 
-    // Render dictionary (phone-first cards)
+    // Render dictionary
     function renderDict(){
       const term = (q.value||'').trim().toLowerCase();
       rows = towers.filter(t => {
@@ -330,7 +356,6 @@
         card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEdit(t.id));
         const delBtn = card.querySelector('[data-act="delete"]');
         delBtn.addEventListener('click', ()=> tryDelete(t.id));
-        // If disabled, clicking should show usage list
         if (t.inUse.length) {
           delBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); showUsage(t); }, { capture:true });
         }
@@ -338,7 +363,6 @@
       });
     }
 
-    // Search + reload
     q.addEventListener('input', renderDict);
     $("reload").addEventListener('click', async ()=>{ await loadAll(); });
 
