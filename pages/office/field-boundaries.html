@@ -4,27 +4,21 @@
   <meta charset="utf-8">
   <title>FarmVista • Field Boundary Fix Request</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3B7E46">
+  <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Absolute paths -->
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png">
-
-  <!-- CSS -->
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css">
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css">
-
-  <!-- Boot + Firebase (compat) -->
+  <!-- Standard includes (ABSOLUTE paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
-  <script src="/Farm-vista/js/firebase-config.js"></script>
-  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>(function(){if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);}})();</script>
 
   <style>
-    :root{
-      --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C;
-      --hero-icon-col:36px; --hero-icon-size:24px;
-    }
+    :root{ --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C; --hero-icon-col:36px; --hero-icon-size:24px; }
     body{ background:var(--app-bg,var(--surface)); }
     .wrap{max-width:var(--card-max);margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+var(--page-bottom-gap))!important;}
@@ -48,6 +42,7 @@
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
     .error{color:#b00020;font-weight:700}
+    .note{font-size:13px;padding:8px 10px;border-radius:10px;border:1px dashed var(--border);background:linear-gradient(180deg,rgba(47,108,60,.06),transparent)}
   </style>
 </head>
 <body>
@@ -72,7 +67,7 @@
           <div class="row">
             <div class="field">
               <label for="fieldName">Field</label>
-              <!-- Match RTK pattern: value=doc.id, label=name -->
+              <!-- RTK-style: value = doc.id, label = name -->
               <select id="fieldName" class="select" data-field="fieldId" data-label="Field">
                 <option value="">— Select field —</option>
               </select>
@@ -136,67 +131,53 @@
   </fv-shell>
 
   <script type="module">
-    /* ===== Short helpers ===== */
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, getDocs, addDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const todayISO = ()=> new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
     const titleCase = s => String(s||"").toLowerCase().split(/[\s._-]+/).filter(Boolean).map(w=>w[0].toUpperCase()+w.slice(1)).join(" ");
-    const DEBUG = location.hash.includes('debug');
 
-    /* ===== Firebase handles ===== */
-    const fb = window.firebase || {};
-    const db = fb.firestore ? fb.firestore() : null;
-
-    /* ===== UI refs ===== */
     const fieldSel = $("fieldName");
     const fieldHelp = $("fieldHelp");
     const submittedBySel = $("submittedBy");
     const when = $("when");
-    const notes = $("notes");
     const boundaryType = $("boundaryType");
     const scope = $("scope");
+    const notes = $("notes");
     const summary = $("summary");
     const errBox = $("err");
 
     when.value = todayISO();
 
-    /* ===== Auth wait + current user ===== */
-    async function waitAuth(){
-      if (!fb.auth) return null;
-      const cur = fb.auth().currentUser;
-      if (cur) return cur;
-      return new Promise(res=>{
-        const off = fb.auth().onAuthStateChanged(u=>{ off&&off(); res(u||null); });
-      });
-    }
     async function currentUser(){
-      const ctx = window.FVUserContext || {};
-      const n = ctx.displayName || ctx.name;
-      const e = ctx.email;
-      if (n || e) return {name: n || titleCase(String(e||"").replace(/@.*/,"").replace(/\./g," ")), email:e||""};
-      const u = await waitAuth();
-      if (!u) return {name:"",email:""};
-      return {name: u.displayName || titleCase(String(u.email||"").replace(/@.*/,"").replace(/\./g," ")), email: u.email||""};
+      const auth = getAuth();
+      const u = auth.currentUser;
+      if (u) return { name: u.displayName || titleCase(String(u.email||"").replace(/@.*/,"").replace(/\./g," ")), email: u.email||"" };
+      // ready waits auth; but if null, still return empty
+      return {name:"",email:""};
     }
 
-    /* ===== Load fields (RTK-style: value=id, label=name) ===== */
-    async function loadFields(){
+    async function loadFields(db){
       errBox.hidden = true; fieldHelp.textContent = "Loading…";
       try{
-        if (!db) throw new Error("Firestore not available");
-        const snap = await db.collection("fields").get(); // simple get → client sort
-        const items = snap.docs
-          .map(d => ({ id:d.id, name: String(d.data()?.name||"").trim() }))
-          .filter(x => x.id && x.name)
-          .sort((a,b)=>a.name.localeCompare(b.name));
-
+        const snap = await getDocs(collection(db, 'fields'));
+        const items = [];
+        snap.forEach(d=>{
+          const data = d.data()||{};
+          const name = String(data.name||"").trim();
+          if (name) items.push({ id:d.id, name });
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
         fieldSel.innerHTML = '<option value="">— Select field —</option>' +
           items.map(x=>`<option value="${esc(x.id)}" data-name="${esc(x.name)}">${esc(x.name)}</option>`).join("");
-
         fieldHelp.textContent = `${items.length} fields`;
-        if (DEBUG) console.log('[fields] loaded', items.length);
         if (!items.length){
-          errBox.textContent = 'No fields found. Check Firestore rules allow READ on "fields".';
+          errBox.textContent = 'No fields found. Verify rules allow READ on "fields".';
           errBox.hidden = false;
         }
       }catch(e){
@@ -207,27 +188,27 @@
       }
     }
 
-    /* ===== Load employees + default to signed-in user ===== */
     function empName(d){
       const full = (d.fullName||"").trim();
       if(full) return full;
-      const fn = (d.firstName||"").trim(), ln=(d.lastName||"").trim();
+      const fn=(d.firstName||"").trim(), ln=(d.lastName||"").trim();
       if(fn||ln) return (fn+" "+ln).trim();
       if(d.displayName) return d.displayName;
       if(d.name) return d.name;
       return (d.email||"").replace(/@.*/,"");
     }
-    async function loadEmployees(){
+
+    async function loadEmployees(db){
       const me = await currentUser(); // {name,email}
       let emps = [];
       try{
-        if (!db) throw new Error("Firestore not available");
-        const snap = await db.collection("employees").get();
-        emps = snap.docs.map(doc=>{
+        const snap = await getDocs(collection(db, 'employees'));
+        snap.forEach(doc=>{
           const d = doc.data()||{};
-          return { name: empName(d), email: d.email||"" };
+          const nm = empName(d);
+          if(nm) emps.push({ name:nm, email:d.email||"" });
         });
-      }catch(_){ /* ignore */ }
+      }catch(_){ /* ignore and fallback to current user */ }
 
       const norm = s => String(s||"").trim().toLowerCase();
       const hasMe = emps.some(e => (e.email && norm(e.email)===norm(me.email)) || norm(e.name)===norm(me.name));
@@ -241,21 +222,15 @@
       let idx = emps.findIndex(e => norm(e.email)===norm(me.email));
       if (idx<0) idx = emps.findIndex(e => norm(e.name)===norm(me.name));
       if (idx>=0) submittedBySel.selectedIndex = idx;
-
-      if (DEBUG) console.log('[employees] loaded', emps.length, 'me=', me);
     }
 
-    /* ===== Collect / validate / save ===== */
-    const DATA_FIELDS = Array.from(document.querySelectorAll("[data-field]"));
+    const DATA_FIELDS = () => Array.from(document.querySelectorAll("[data-field]"));
     function collect(){
-      const o={}; DATA_FIELDS.forEach(el=>o[el.dataset.field]=el.value);
-      // also store human field name (like RTK page)
+      const o={}; DATA_FIELDS().forEach(el=>o[el.dataset.field]=el.value);
       const opt = fieldSel.options[fieldSel.selectedIndex];
       o.field = (opt?.dataset?.name || opt?.text || "").trim();
-
       const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
       o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
-
       o.status="Open"; o.t=Date.now(); o.timestampISO=new Date(o.t).toISOString();
       return o;
     }
@@ -268,12 +243,10 @@
       return "";
     }
 
-    async function save(obj){
-      if (!db) throw new Error("Firestore not available");
-      const FieldValue = fb.firestore.FieldValue;
-      const ref = await db.collection("boundary_requests").add({
+    async function save(db, obj){
+      const ref = await addDoc(collection(db, 'boundary_requests'), {
         ...obj,
-        createdAt: FieldValue?.serverTimestamp ? FieldValue.serverTimestamp() : null
+        createdAt: serverTimestamp()
       });
       return ref.id;
     }
@@ -282,7 +255,8 @@
       const o = collect(); const err = validate(o); if(err){ alert(err); return; }
       summary.hidden=false; summary.textContent="Submitting…";
       try{
-        await save(o);
+        const db = getFirestore();
+        await save(db, o);
         summary.innerHTML = `<strong>Submitted:</strong> ${esc(o.field)}${o.boundaryType?` • ${esc(o.boundaryType)}`:""}${o.when?` • ${new Date(o.when).toLocaleDateString()}`:""}`;
         fieldSel.selectedIndex=0; ["boundaryType","scope"].forEach(id=>document.getElementById(id).selectedIndex=0);
         when.value=todayISO(); notes.value="";
@@ -298,11 +272,12 @@
       when.value=todayISO(); notes.value=""; summary.hidden=true;
     });
 
-    /* ===== Boot ===== */
+    // ===== Boot with the SAME modular flow as Fields page =====
     (async function(){
-      await waitAuth();   // helps if rules require auth for reads
-      await loadFields(); // fields → value=id, label=name (RTK-style)
-      await loadEmployees(); // default Submitted By
+      const ctx = await ready; // waits Firebase init + (typically) auth
+      const db = getFirestore();
+      await loadFields(db);
+      await loadEmployees(db);
     })();
   </script>
 </body>
