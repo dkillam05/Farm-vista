@@ -4,6 +4,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
+  <!-- App includes -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -238,6 +239,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- DATA LAYER: FVData first, Firestore fallback -->
   <script type="module">
   import {
     ready,
@@ -246,11 +248,16 @@
     serverTimestamp
   } from '/Farm-vista/js/firebase-init.js';
 
+  // Try to load FVData if present (not fatal if missing)
+  let FV = null;
+  try { FV = (window.FVData ?? null); } catch {}
+
   (function(){
     "use strict";
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     const listBox = $("list"), countsEl = $("counts");
+    const COLL = 'productsChemical'; // single source of truth
 
     /* ===== Net toasts ===== */
     function showToast(msg="Saved.", ms=4200){
@@ -268,27 +275,60 @@
       const n = Number(String(v||"").replace(/,/g,"").trim());
       return isFinite(n) ? n : 0;
     };
+    const cap = (s)=> s ? (s[0].toUpperCase()+s.slice(1)) : s;
 
-    /* ===== Firestore ===== */
+    /* ===== Data adapter (FVData first, Firestore fallback) ===== */
     let db;
-    const productsRef = ()=> collection(db, 'productsChemical');
+    const fsCol = ()=> collection(db, COLL);
 
-    async function fetchAll(){
-      const qs = await getDocs(query(productsRef(), orderBy('updatedAt','desc')));
-      const out = [];
-      qs.forEach(s=>{
-        const d = s.data()||{};
-        out.push({ id:s.id, ...d });
-      });
-      // Sort active first, then updatedAt desc
-      out.sort((a,b)=>{
-        const sa = a.status==='archived', sb = b.status==='archived';
-        const ta = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
-        const tb = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
-        return (sa - sb) || (tb - ta);
-      });
-      return out;
-    }
+    const Data = {
+      async list(){
+        if (FV && (FV.list || FV.loadAll)){
+          // Prefer FV.list if available, else FV.loadAll
+          const rows = (FV.list ? await FV.list(COLL, { orderBy:'updatedAt', desc:true }) : await FV.loadAll(COLL)) || [];
+          // normalize id field if FV returns {id,data}
+          return rows.map(r => ('id' in r && !r.data) ? r : (r.data ? ({ id:r.id, ...r.data }) : r));
+        }
+        // Firestore fallback
+        const qs = await getDocs(query(fsCol(), orderBy('updatedAt','desc')));
+        const out=[]; qs.forEach(s=> out.push({ id:s.id, ...s.data() }));
+        return out;
+      },
+      async create(payload){
+        if (FV && FV.save){
+          return await FV.save(COLL, {
+            ...payload,
+            status: "active",
+            used: false
+          });
+        }
+        await addDoc(fsCol(), {
+          ...payload,
+          status: "active",
+          used: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      },
+      async read(id){
+        if (FV && FV.get) {
+          const it = await FV.get(COLL, id);
+          return it ? ({ id, ...(it.data||it) }) : null;
+        }
+        const s = await getDoc(doc(db, COLL, id));
+        return s.exists() ? ({ id, ...s.data() }) : null;
+      },
+      async update(id, patch){
+        if (FV && FV.update){
+          return await FV.update(COLL, id, patch);
+        }
+        await updateDoc(doc(db, COLL, id), { ...patch, updatedAt: serverTimestamp() });
+      },
+      async remove(id){
+        if (FV && FV.remove){ return await FV.remove(COLL, id); }
+        await deleteDoc(doc(db, COLL, id));
+      }
+    };
 
     /* ===== Validate & Build payload ===== */
     function validateNew(){
@@ -299,7 +339,7 @@
     }
     function buildPayload(fromModal=false){
       const g = (id)=> (fromModal ? document.getElementById('edit_'+id) : document.getElementById(id));
-      return {
+      const base = {
         company:      (g('company')?.value ?? g('edit_company')?.value ?? "").trim(),
         product:      (g('product')?.value ?? g('edit_product')?.value ?? "").trim(),
         category:     (g('category')?.value ?? g('edit_category')?.value ?? ""),
@@ -318,6 +358,9 @@
         rup:          (g('rup')?.value ?? g('edit_rup')?.value ?? ""),
         notes:        (g('notes')?.value ?? g('edit_notes')?.value ?? "").trim()
       };
+      // FVData often wants timestamps added by itself; we only add FS timestamps in FS fallback.
+      if (!FV) { base.createdAt = serverTimestamp(); base.updatedAt = serverTimestamp(); }
+      return base;
     }
 
     /* ===== Create ===== */
@@ -325,13 +368,7 @@
       const err = validateNew(); if(err){ alert(err); return; }
       const payload = buildPayload(false);
       try{
-        await addDoc(productsRef(), {
-          ...payload,
-          status: "active",
-          used: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
+        await Data.create(payload);
         showToast("Chemical saved.");
         clearForm();
         await renderList();
@@ -352,7 +389,15 @@
 
     /* ===== List render ===== */
     async function renderList(){
-      const items = await fetchAll();
+      const itemsRaw = await Data.list();
+      // Normalize and sort: active first, then updatedAt desc (fallback to createdAt)
+      const items = (itemsRaw||[]).map(x=>x).sort((a,b)=>{
+        const sa = a.status==='archived', sb = b.status==='archived';
+        const ta = (a.updatedAt?.seconds ?? a.updatedAt ?? a.createdAt?.seconds ?? a.createdAt ?? 0);
+        const tb = (b.updatedAt?.seconds ?? b.updatedAt ?? b.createdAt?.seconds ?? b.createdAt ?? 0);
+        return (sa - sb) || (tb - ta);
+      });
+
       if(!items.length){
         listBox.innerHTML = '<div class="muted">No chemicals yet.</div>';
         countsEl.textContent = '0 active';
@@ -384,7 +429,6 @@
         listBox.appendChild(row);
       });
     }
-    const cap = (s)=> s ? (s[0].toUpperCase()+s.slice(1)) : s;
 
     /* ===== Modal (edit/archive/delete) ===== */
     let editId = null;
@@ -403,10 +447,8 @@
 
     async function openEdit(id){
       editId = id;
-      const ref = doc(db,'productsChemical', id);
-      const snap = await getDoc(ref);
-      if(!snap.exists()) return;
-      const it = snap.data()||{};
+      const it = await Data.read(id);
+      if(!it) return;
 
       setSelectValue('edit_company', it.company||"");
       setInputValue('edit_product', it.product||"");
@@ -450,20 +492,20 @@
       if(!name){ alert("Enter a product name."); return; }
       if(!category){ alert("Choose a product category."); return; }
       if(!cropfit){ alert("Select crop fit."); return; }
-      const ref = doc(db,'productsChemical', editId);
-      await updateDoc(ref, { ...buildPayload(true), updatedAt: serverTimestamp() });
+      await Data.update(editId, {
+        ...buildPayload(true),
+        ...(FV ? {} : { updatedAt: serverTimestamp() }) // FS fallback timestamps only
+      });
       await renderList();
       showToast("Changes saved.");
       closeModal();
     });
 
     $("mdArchive").addEventListener("click", async ()=>{
-      const ref = doc(db,'productsChemical', editId);
-      const snap = await getDoc(ref);
-      if(!snap.exists()) return;
-      const cur = snap.data()||{};
-      const next = cur.status==="archived" ? "active" : "archived";
-      await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
+      const it = await Data.read(editId);
+      if(!it) return;
+      const next = it.status==="archived" ? "active" : "archived";
+      await Data.update(editId, { status: next, ...(FV ? {} : { updatedAt: serverTimestamp() }) });
       await renderList();
       showToast(next==="archived" ? "Product archived." : "Product unarchived.");
       $("statusPill").textContent = next==='archived' ? "Archived" : "Active";
@@ -471,13 +513,11 @@
     });
 
     $("mdDelete").addEventListener("click", async ()=>{
-      const ref = doc(db,'productsChemical', editId);
-      const snap = await getDoc(ref);
-      if(!snap.exists()) return;
-      const cur = snap.data()||{};
-      if(cur.used){ alert("This product is in use and cannot be deleted. Archive instead."); return; }
-      if(!confirm(`Delete product "${cur.product||''}"? This cannot be undone.`)) return;
-      await deleteDoc(ref);
+      const it = await Data.read(editId);
+      if(!it) return;
+      if(it.used){ alert("This product is in use and cannot be deleted. Archive instead."); return; }
+      if(!confirm(`Delete product "${it.product||''}"? This cannot be undone.`)) return;
+      await Data.remove(editId);
       await renderList();
       showToast("Product deleted.");
       closeModal();
@@ -491,6 +531,11 @@
       }
       db = getFirestore();
       await renderList();
+
+      // If FVData appears later in session (hot-load), re-render once
+      if (window.addEventListener) {
+        window.addEventListener('fvdata-ready', ()=> renderList(), { once:true });
+      }
     })();
 
   })();
