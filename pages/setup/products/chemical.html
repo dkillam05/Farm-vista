@@ -89,6 +89,7 @@
       <h1 class="page-title">Chemical Setup</h1>
       <p class="page-sub">Add crop-protection products (herbicides, fungicides, insecticides, adjuvants). Track crop fit, formulation, density, and labeled rates for reports & mixes.</p>
 
+      <!-- CREATE -->
       <section class="section" aria-label="Add Chemical">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
@@ -130,6 +131,7 @@
             <div class="field">
               <label for="category">Product Category</label>
               <select id="category" class="select">
+                <option value="">—</option>
                 <option value="herbicide">Herbicide</option>
                 <option value="fungicide">Fungicide</option>
                 <option value="insecticide">Insecticide</option>
@@ -237,6 +239,7 @@
         </div>
       </section>
 
+      <!-- LIST -->
       <div class="list-head">
         <div class="list-title">Chemical Products</div>
         <div class="muted" id="counts">0 active</div>
@@ -255,7 +258,7 @@
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     const listBox = $("list"), countsEl = $("counts");
-    const COLL = 'productsChemical';
+    const COLL = 'productsChemical'; // Firestore collection name
 
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const toNum = (v)=> { const n = Number(String(v||"").replace(/,/g,"").trim()); return isFinite(n) ? n : 0; };
@@ -332,12 +335,15 @@
       const rows = await (FVData.list ? FVData.list(COLL, { orderBy:'updatedAt', desc:true }) : FVData.loadAll(COLL)) || [];
       const items = rows.map(r => ('id' in r && !r.data) ? r : (r.data ? ({ id:r.id, ...r.data }) : r));
 
-      // Normalize + sort: active first, then updatedAt desc (fallback t field if present)
+      // Normalize + sort:
+      // 1) Active first
+      // 2) Product name A→Z (case-insensitive) within each status group
       items.sort((a,b)=>{
         const sa = a.status==='archived', sb = b.status==='archived';
-        const ta = a.updatedAt || a.t || 0;
-        const tb = b.updatedAt || b.t || 0;
-        return (sa - sb) || (tb - ta);
+        if (sa !== sb) return sa - sb;
+        const an = String(a.product||'').toLowerCase();
+        const bn = String(b.product||'').toLowerCase();
+        return an.localeCompare(bn);
       });
 
       if(!items.length){
