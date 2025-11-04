@@ -321,6 +321,8 @@
     };
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
+    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
+
     function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
       return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
@@ -382,7 +384,7 @@
       }
     });
 
-    /* County loading into a dropdown */
+    // County loading into a dropdown
     async function loadCountiesIntoDropdown(cfg, statusEl, stateCode, presetValue){
       const {btn, search, list, hidden} = cfg;
       statusEl.textContent = "Loading…";
@@ -399,7 +401,7 @@
           cfg.root.classList.remove("open");
         });
         btn.disabled = false; search.disabled = false;
-        statusEl.textContent = ""; // no "Live" helper
+        statusEl.textContent = ""; // no helper
         if(presetValue && counties.includes(presetValue)){
           hidden.value = presetValue;
           btn.textContent = presetValue;
@@ -411,13 +413,12 @@
       }
     }
 
-    /* ===== App helpers (unchanged) ===== */
+    /* ===== App helpers ===== */
     function showToast(msg="Saved.", ms=5000){
-      const el=$("toast");
-      el.textContent = msg;
-      el.classList.remove("show"); void el.offsetWidth;
-      el.classList.add("show");
-      setTimeout(()=> el.classList.remove("show"), ms);
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=> toast.classList.remove("show"), ms);
     }
     function wireNetToasts(){
       window.addEventListener('online', ()=> showToast("Back online — syncing…", 5000));
@@ -432,8 +433,6 @@
       const v = Number(n);
       return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
     };
-
-    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
 
     let db;
     let FARMS_CACHE = []; let FARMS_MAP = new Map();
@@ -552,8 +551,8 @@
       const payload = {
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
-        state: $("stateSelect").value,        // from hidden input (kept same ID)
-        county: $("countySelect").value,      // from hidden input
+        state: $("stateSelect").value,        // hidden
+        county: $("countySelect").value,      // hidden
         tillable: toNum($("tillable").value),
         hasHEL: false, helAcres: 0,
         hasCRP: false, crpAcres: 0,
@@ -653,7 +652,7 @@
       populateFarmSelects();
       populateRTKSelect($("editRtkSelect"));
 
-      // preset dropdown button labels (will be overridden by data)
+      // preset dropdowns (overridden by data)
       ddEditState.btn.textContent = "Illinois";
       ddEditCounty.btn.textContent = "Select a county…";
       ddEditCounty.btn.disabled = true; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML = "";
@@ -668,7 +667,7 @@
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
 
-      // set state/hidden + button
+      // set state
       $("editState").value = it.state || "IL";
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
@@ -762,13 +761,11 @@
       closeModal();
     });
 
-    /* ===== Boot ===== */
-    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function'); // keep after functions too
+    /* ===== Build dropdown components (Add + Edit) ===== */
     let ddState, ddCounty;
 
-    // Build State dropdowns (Add + Edit)
     function buildStateDropdowns(){
-      // Add form dropdown refs
+      // Add form
       ddState = {
         root: $("ddState"),
         btn: $("ddStateBtn"),
@@ -779,7 +776,7 @@
       wireDropdownOpenClose(ddState.root);
       setupSearch(ddState.search, ddState.list);
 
-      // Edit modal dropdown refs
+      // Edit modal
       ddEditState = {
         root: $("ddEditState"),
         btn: $("ddEditStateBtn"),
@@ -830,6 +827,7 @@
       setupSearch(ddEditCounty.search, ddEditCounty.list);
     }
 
+    /* ===== Boot ===== */
     (async ()=>{
       wireNetToasts();
       const ctx = await ready;
