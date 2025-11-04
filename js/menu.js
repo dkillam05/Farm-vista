@@ -219,6 +219,9 @@ export const NAV_MENU = {
           ]
         },
 
+        /* NEW: Import Templates, directly under Products */
+        { type: 'link', id: 'setup-import-templates', icon: '📥', label: 'Import Templates', href: '/Farm-vista/pages/setup/import-templates.html', activeMatch: 'starts-with' },
+
         { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
 
         { type: 'link', id: 'setup-farms',   icon: '🏷️', label: 'Farms',  href: '/Farm-vista/pages/setup/farms.html',  activeMatch: 'starts-with' },
