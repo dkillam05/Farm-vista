@@ -44,11 +44,6 @@
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
-    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-    .switch{display:flex;gap:10px;align-items:center}
-    .switch input{width:22px;height:22px}
-
-    /* List + filter */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
     .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
     .list-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -78,9 +73,18 @@
 
     .muted{ color:var(--muted,#67706B); }
 
-    /* ===== searchable dropdowns (state/county) ===== */
+    /* ===== Searchable dropdowns (with chevrons) ===== */
     .dd{position:relative}
-    .dd-btn{width:100%;text-align:left;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));font:inherit;color:var(--text);cursor:pointer}
+    .dd-btn{
+      width:100%;text-align:left;padding:12px;padding-right:40px;
+      border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));
+      font:inherit;color:var(--text);cursor:pointer;appearance:none;position:relative;
+    }
+    .dd-btn::after{
+      content:""; position:absolute; right:12px; top:50%; transform:translateY(-50%);
+      width:18px; height:18px; pointer-events:none; opacity:.7;
+      background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+    }
     .dd-list{position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
     .dd.open .dd-list{display:block}
     .dd-list input{width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);font:inherit;outline:none;background:var(--surface)}
@@ -152,7 +156,6 @@
                 </div>
               </div>
             </div>
-            <!-- removed the little status pill -->
           </div>
 
           <!-- RTK Tower Information -->
@@ -229,7 +232,10 @@
               </div>
             </div>
           </div>
-          <!-- removed the modal status pill -->
+          <div class="field" id="statusRow" style="align-self:end">
+            <span class="pill" id="statusPill">Active</span>
+            <span class="pill" id="usedPill" style="display:none">In use</span>
+          </div>
         </div>
 
         <div class="row-3">
@@ -264,10 +270,6 @@
           <div class="field">
             <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
             <select id="editRtkSelect" class="select"></select>
-          </div>
-          <div class="field" id="statusRow" style="align-self:end">
-            <span class="pill" id="statusPill">Active</span>
-            <span class="pill" id="usedPill" style="display:none">In use</span>
           </div>
         </div>
       </div>
@@ -315,9 +317,19 @@
       NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
-    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
+    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
+
+    /* Build quick maps */
+    const NAME_TO_CODE = (() => {
+      const m = new Map();
+      STATES.forEach(([code,name])=>{
+        m.set(name.toLowerCase(), code);
+        m.set(code.toLowerCase(), code);
+      });
+      return m;
+    })();
 
     function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
@@ -380,10 +392,9 @@
       }
     });
 
-    // County loading into a dropdown (statusEl optional)
-    async function loadCountiesIntoDropdown(cfg, statusEl, stateCode, presetValue){
+    // County loading into a dropdown (no helper/status text)
+    async function loadCountiesIntoDropdown(cfg, stateCode, presetValue){
       const {btn, search, list, hidden} = cfg;
-      if(statusEl) statusEl.textContent = "";
       btn.textContent = "Select a county…";
       btn.disabled = true; search.value=""; search.disabled = true; list.innerHTML="";
       hidden.value = "";
@@ -402,7 +413,6 @@
           btn.textContent = presetValue;
         }
       }catch(e){
-        // leave disabled on error; no helper text requested
         btn.disabled = true; search.disabled = true; list.innerHTML="";
         hidden.value = "";
       }
@@ -564,6 +574,7 @@
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
+
       // reset county dropdown
       ddCounty.btn.textContent = "Select a county…";
       ddCounty.btn.disabled = true;
@@ -638,15 +649,15 @@
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
     let editId = null;
 
-    // Edit dropdown configs (declared ahead so openEdit can use them)
-    let ddEditState, ddEditCounty;
+    // dropdown configs used in multiple scopes
+    let ddState, ddCounty, ddEditState, ddEditCounty;
 
     async function openEdit(id){
       editId = id;
       populateFarmSelects();
       populateRTKSelect($("editRtkSelect"));
 
-      // preset dropdowns (overridden by data)
+      // reset edit dropdowns
       ddEditState.btn.textContent = "Illinois";
       ddEditCounty.btn.textContent = "Select a county…";
       ddEditCounty.btn.disabled = true; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML = "";
@@ -666,7 +677,7 @@
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
 
-      await loadCountiesIntoDropdown(ddEditCounty, null, $("editState").value, it.county || "");
+      await loadCountiesIntoDropdown(ddEditCounty, $("editState").value, it.county || "");
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -691,14 +702,14 @@
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
-    // Edit: change state => clear county and load
+    // Edit: state picked
     function onEditStatePicked(code,label){
       $("editState").value = code;
       ddEditState.root.classList.remove("open");
       $("editCounty").value = "";
       ddEditCounty.btn.textContent = "Select a county…";
       ddEditCounty.btn.disabled = true; ddEditCounty.search.value=""; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML="";
-      loadCountiesIntoDropdown(ddEditCounty, null, code);
+      loadCountiesIntoDropdown(ddEditCounty, code);
     }
 
     mdSave.addEventListener("click", async ()=>{
@@ -752,8 +763,6 @@
     });
 
     /* ===== Build dropdown components (Add + Edit) ===== */
-    let ddState, ddCounty;
-
     function buildStateDropdowns(){
       // Add form
       ddState = {
@@ -782,12 +791,11 @@
         ddState.hidden.value = code;
         ddState.btn.textContent = label;
         ddState.root.classList.remove("open");
-
         // when state changes, clear county + load
         ddCounty.btn.textContent = "Select a county…";
         ddCounty.btn.disabled = true; ddCounty.search.value=""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
         $("countySelect").value = "";
-        loadCountiesIntoDropdown(ddCounty, null, code);
+        loadCountiesIntoDropdown(ddCounty, code);
       });
       buildList(ddEditState.list, STATES.map(([c,n])=>[c,n]), onEditStatePicked);
     }
@@ -816,6 +824,21 @@
       setupSearch(ddEditCounty.search, ddEditCounty.list);
     }
 
+    /* ===== Company default state ===== */
+    function normalizeStateToCode(v){
+      if(!v) return "";
+      const key = String(v).trim().toLowerCase();
+      return NAME_TO_CODE.get(key) || "";
+    }
+    async function getCompanyStateCode(){
+      try{
+        const snap = await getDoc(doc(db, 'company', 'main'));
+        if(!snap.exists()) return "";
+        const d = snap.data()||{};
+        return normalizeStateToCode(d.addressState || d.state || "");
+      }catch{ return ""; }
+    }
+
     /* ===== Boot ===== */
     (async ()=>{
       wireNetToasts();
@@ -834,11 +857,14 @@
       buildStateDropdowns();
       buildCountyDropdowns();
 
-      // Initial state default = IL for Add form
-      const stIL = STATES.find(([c])=>c==="IL");
-      ddState.hidden.value = "IL";
-      ddState.btn.textContent = stIL ? stIL[1] : "Illinois";
-      await loadCountiesIntoDropdown(ddCounty, null, "IL");
+      // Default state from company/main; fallback to IL
+      let defaultState = await getCompanyStateCode();
+      if(!defaultState) defaultState = "IL";
+      const stRec = STATES.find(([c])=>c===defaultState) || ["IL","Illinois"];
+
+      ddState.hidden.value = stRec[0];
+      ddState.btn.textContent = stRec[1];
+      await loadCountiesIntoDropdown(ddCounty, stRec[0]);
 
       await renderList();
 
@@ -848,9 +874,9 @@
         $("tillable").value = "";
         $("rtkSelect").value = "";
 
-        // Reset State/County to IL / empty
-        ddState.hidden.value = "IL";
-        ddState.btn.textContent = "Illinois";
+        // Reset to company default (or IL)
+        ddState.hidden.value = stRec[0];
+        ddState.btn.textContent = stRec[1];
         ddState.search.value = "";
         ddState.root.classList.remove("open");
 
