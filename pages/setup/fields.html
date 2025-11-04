@@ -33,10 +33,13 @@
     @media(max-width:720px){.row,.row-2,.row-3{grid-template-columns:1fr}}
 
     .field label{display:block;font-weight:800;margin:0 0 6px 0;}
-    .input, .select{
+    .input, .select, .select-like{
       width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
+    .select-like{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
+    .select-like[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
@@ -44,11 +47,6 @@
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
-    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-    .switch{display:flex;gap:10px;align-items:center}
-    .switch input{width:22px;height:22px}
-
-    /* List + filter */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
     .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
     .list-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -59,15 +57,18 @@
     .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
     .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
 
-    /* Modal */
-    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
-    .modal[open]{display:grid;opacity:1;}
-    .dialog{width:min(640px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
-      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
-    .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
-    .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
-    .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
-    .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    /* Modal shell for in-place pickers */
+    .picker-scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;place-items:end;z-index:99999}
+    .picker-scrim[open]{display:grid}
+    .picker{width:100%;max-width:720px;margin:0 auto;background:var(--surface);border-top-left-radius:14px;border-top-right-radius:14px;
+      box-shadow:0 -12px 24px rgba(0,0,0,.24);border:1px solid var(--border);border-bottom:0}
+    .picker-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)}
+    .picker-search{flex:1;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;background:var(--card-surface,var(--surface))}
+    .picker-list{max-height:min(62vh,520px);overflow:auto}
+    .picker-item{padding:12px;border-bottom:1px solid var(--border);cursor:pointer}
+    .picker-item[aria-selected="true"]{font-weight:800}
+    .picker-empty{padding:16px;color:var(--muted)}
+    .picker-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px;border-top:1px solid var(--border)}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
 
     /* Toast */
@@ -117,19 +118,21 @@
             </div>
           </div>
 
-          <!-- NEW: State → County (live ACS API) -->
+          <!-- State → County with searchable pickers -->
           <div class="row-3">
             <div class="field">
-              <label for="stateSelect">State</label>
-              <select id="stateSelect" class="select"></select>
+              <label>State</label>
+              <div id="stateSelect" class="select-like" role="button" aria-haspopup="listbox" aria-expanded="false">
+                <span id="stateLabel">Select…</span><span aria-hidden="true">▾</span>
+              </div>
             </div>
             <div class="field">
-              <label for="countySelect">County</label>
-              <select id="countySelect" class="select" disabled></select>
+              <label>County</label>
+              <div id="countySelect" class="select-like" role="button" aria-haspopup="listbox" aria-expanded="false" aria-disabled="true">
+                <span id="countyLabel">Select…</span><span aria-hidden="true">▾</span>
+              </div>
             </div>
-            <div class="field" style="display:flex;align-items:end;gap:8px">
-              <span id="countyStatus" class="pill">Idle</span>
-            </div>
+            <div class="field" style="display:flex;align-items:end;gap:8px"></div>
           </div>
 
           <!-- RTK Tower Information -->
@@ -163,6 +166,19 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
+  <!-- Shared picker scrim -->
+  <div id="pickerScrim" class="picker-scrim" aria-hidden="true">
+    <div class="picker" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+      <div class="picker-head">
+        <input id="pickerSearch" class="picker-search" placeholder="Search…"/>
+      </div>
+      <div id="pickerList" class="picker-list" role="listbox" aria-labelledby="pickerTitle"></div>
+      <div class="picker-actions">
+        <button id="pickerClose" class="closex" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: View/Edit Field -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
@@ -182,19 +198,20 @@
           </div>
         </div>
 
-        <!-- NEW: State → County in Edit modal -->
         <div class="row-3">
           <div class="field">
-            <label for="editState">State</label>
-            <select id="editState" class="select"></select>
+            <label>State</label>
+            <div id="editState" class="select-like" role="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="editStateLabel">Select…</span><span aria-hidden="true">▾</span>
+            </div>
           </div>
           <div class="field">
-            <label for="editCounty">County</label>
-            <select id="editCounty" class="select" disabled></select>
+            <label>County</label>
+            <div id="editCounty" class="select-like" role="button" aria-haspopup="listbox" aria-expanded="false" aria-disabled="true">
+              <span id="editCountyLabel">Select…</span><span aria-hidden="true">▾</span>
+            </div>
           </div>
-          <div class="field" style="display:flex;align-items:end;gap:8px">
-            <span id="editCountyStatus" class="pill">Idle</span>
-          </div>
+          <div class="field" style="display:flex;align-items:end;gap:8px"></div>
         </div>
 
         <div class="row-3">
@@ -224,7 +241,6 @@
           </div>
         </div>
 
-        <!-- RTK in Edit -->
         <div class="row-2">
           <div class="field">
             <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
@@ -260,6 +276,61 @@
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
+    /* ===== Searchable Picker (shared) ===== */
+    const picker = {
+      scrim: $("pickerScrim"),
+      list: $("pickerList"),
+      search: $("pickerSearch"),
+      closeBtn: $("pickerClose"),
+      current: null,          // { labelEl, onPick(value), options:[{v,t,sel}], title }
+      options: [],
+      open(config){
+        this.current = config;
+        this.options = config.options || [];
+        this.search.value = "";
+        this.renderList();
+        this.scrim.setAttribute("open","");
+        this.scrim.removeAttribute("aria-hidden");
+        this.search.focus({preventScroll:true});
+      },
+      close(){
+        this.scrim.removeAttribute("open");
+        this.scrim.setAttribute("aria-hidden","true");
+        this.current = null;
+        this.options = [];
+        this.list.innerHTML = "";
+      },
+      renderList(){
+        const q = this.search.value.trim().toLowerCase();
+        const rows = q
+          ? this.options.filter(o => o.t.toLowerCase().includes(q) || (o.v||"").toLowerCase().includes(q))
+          : this.options;
+
+        if(!rows.length){
+          this.list.innerHTML = '<div class="picker-empty">No matches</div>';
+          return;
+        }
+        this.list.innerHTML = rows.map(o => 
+          `<div class="picker-item" role="option" data-v="${o.v}" aria-selected="${o.sel?'true':'false'}">${o.t}</div>`
+        ).join('');
+      }
+    };
+    picker.search.addEventListener("input", ()=> picker.renderList());
+    picker.list.addEventListener("click", (e)=>{
+      const row = e.target.closest(".picker-item");
+      if(!row || !picker.current) return;
+      const v = row.getAttribute("data-v");
+      const opt = picker.options.find(o=>o.v===v);
+      if(opt){
+        if(picker.current.labelEl) picker.current.labelEl.textContent = opt.t;
+        if(picker.current.onPick) picker.current.onPick(opt.v, opt.t);
+      }
+      picker.close();
+    });
+    picker.closeBtn.addEventListener("click", ()=> picker.close());
+    picker.scrim.addEventListener("click", (e)=> { if(e.target===picker.scrim) picker.close(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && picker.scrim.hasAttribute("open")) picker.close(); });
+
     /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
@@ -280,6 +351,7 @@
       NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
+    const COUNTY_CACHE = new Map(); // stateCode -> [names]
     function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
       return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
@@ -289,7 +361,7 @@
       const t = setTimeout(()=>ctrl.abort(), ms);
       try{
         const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
-        if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
+        if(!res.ok){ throw new Error(\`HTTP \${res.status}\`); }
         return await res.json();
       } finally { clearTimeout(t); }
     }
@@ -306,47 +378,25 @@
       out.sort((a,b)=>a.localeCompare(b));
       return out;
     }
-    async function loadCountiesInto(selectEl, statusEl, stateCode, presetValue){
-      statusEl.textContent = "Loading…";
-      selectEl.innerHTML = ""; selectEl.disabled = true;
-      try{
-        const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
-        const list = parseCountyNames(data);
-        const opts = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
-        selectEl.innerHTML = opts;
-        selectEl.disabled = list.length===0;
-        if(presetValue){ selectEl.value = presetValue; }
-        statusEl.textContent = "Live";
-      }catch(_){
-        statusEl.textContent = "Error";
-        selectEl.innerHTML = '<option value="">—</option>';
-        selectEl.disabled = true;
-      }
+    async function ensureCounties(stateCode){
+      if(COUNTY_CACHE.has(stateCode)) return;
+      const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
+      COUNTY_CACHE.set(stateCode, parseCountyNames(data));
     }
 
-    /* ===== App helpers ===== */
+    /* ===== Helpers ===== */
+    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
+    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const toNum = (v)=> { const n = Number(String(v||"").replace(/,/g,"").trim()); return isFinite(n)?n:0; };
+    const fmt = (n, dec=1)=> (n==null||n==="")?"":Number(n).toLocaleString(undefined,{minimumFractionDigits:dec,maximumFractionDigits:dec});
     function showToast(msg="Saved.", ms=5000){
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
-      setTimeout(()=> toast.classList.remove("show"), ms);
+      const el = $("toast"); el.textContent = msg; el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
+      setTimeout(()=> el.classList.remove("show"), ms);
     }
     function wireNetToasts(){
       window.addEventListener('online', ()=> showToast("Back online — syncing…", 5000));
       window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 5000));
     }
-    const toNum = (v)=> {
-      const n = Number(String(v||"").replace(/,/g,"").trim());
-      return isFinite(n) ? n : 0;
-    };
-    const fmt = (n, dec=1)=>{
-      if(n==null || n==="") return "";
-      const v = Number(n);
-      return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
-    };
-    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-
-    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
 
     let db;
     let FARMS_CACHE = []; let FARMS_MAP = new Map();
@@ -374,10 +424,7 @@
         FARMS_CACHE.push(it); FARMS_MAP.set(it.id, it);
       });
     }
-    function farmLabel(id){
-      const f = FARMS_MAP.get(id);
-      return f ? (f.name + (f.status==='archived'?' (Archived)':'')) : '(Unknown)';
-    }
+    function farmLabel(id){ const f = FARMS_MAP.get(id); return f ? (f.name + (f.status==='archived'?' (Archived)':'')) : '(Unknown)'; }
     function populateFarmSelects(){
       const addSel = $("farmSelect");
       const editSel = $("editFarm");
@@ -428,7 +475,6 @@
       });
     }
 
-    /* RTK Towers */
     async function loadRTKTowers(){
       RTK_CACHE = []; RTK_MAP.clear();
       const qs = await getDocs(query(rtkTowersRef(), orderBy('name')));
@@ -439,20 +485,60 @@
       });
     }
     function populateRTKSelect(sel, val){
-      const opts = ['<option value="">—</option>'].concat(
-        RTK_CACHE.map(t=> `<option value="${esc(t.id)}">${esc(t.name)}</option>`)
-      ).join('');
+      const opts = ['<option value="">—</option>'].concat(RTK_CACHE.map(t=> `<option value="${esc(t.id)}">${esc(t.name)}</option>`)).join('');
       sel.innerHTML = opts;
       if(val) sel.value = val;
     }
+
+    /* ===== State/County picker wiring ===== */
+    let addState = "IL"; let addCounty = ""; // Add form values
+    let editStateVal = "IL"; let editCountyVal = "";
+
+    function openStatePicker(target){
+      const labelEl = (target === "add") ? $("stateLabel") : $("editStateLabel");
+      const onPick = async (v,t)=>{
+        if(target==="add"){ addState = v; addCounty=""; $("stateLabel").textContent=t; $("countyLabel").textContent="Select…"; setCountyEnabled("add", false); await ensureCounties(v); setCountyEnabled("add", true); }
+        else { editStateVal = v; editCountyVal=""; $("editStateLabel").textContent=t; $("editCountyLabel").textContent="Select…"; setCountyEnabled("edit", false); await ensureCounties(v); setCountyEnabled("edit", true); }
+      };
+      const options = STATES.map(([v,t])=>({v,t,sel:(target==="add"?addState:editStateVal)===v}));
+      picker.open({ labelEl, onPick, options });
+    }
+    function openCountyPicker(target){
+      const state = (target==="add") ? addState : editStateVal;
+      const counties = COUNTY_CACHE.get(state) || [];
+      const selected = (target==="add") ? addCounty : editCountyVal;
+      const labelEl = (target==="add") ? $("countyLabel") : $("editCountyLabel");
+      const onPick = (v,t)=>{
+        if(target==="add"){ addCounty = v; labelEl.textContent = t; }
+        else { editCountyVal = v; labelEl.textContent = t; }
+      };
+      const options = counties.map(c=>({v:c,t:c,sel:selected===c}));
+      picker.open({ labelEl, onPick, options });
+    }
+    function setCountyEnabled(target, enabled){
+      const el = (target==="add")?$("countySelect"):$("editCounty");
+      el.setAttribute("aria-disabled", enabled?"false":"true");
+    }
+
+    // Click handlers for the select-like controls
+    $("stateSelect").addEventListener("click", ()=> openStatePicker("add"));
+    $("countySelect").addEventListener("click", ()=> {
+      if($("countySelect").getAttribute("aria-disabled")==="true") return;
+      openCountyPicker("add");
+    });
+    $("editState").addEventListener("click", ()=> openStatePicker("edit"));
+    $("editCounty").addEventListener("click", ()=> {
+      if($("editCounty").getAttribute("aria-disabled")==="true") return;
+      openCountyPicker("edit");
+    });
 
     /* ===== Create / Validate ===== */
     function validateNew(){
       if($("farmSelect").disabled) return "Please add a Farm first.";
       if(!$("farmSelect").value) return "Please choose a Farm.";
       if(!$("fieldName").value.trim()) return "Please enter a Field Name.";
-      if(!$("stateSelect").value) return "Please choose a State.";
-      if(!$("countySelect").value) return "Please choose a County.";
+      if(!addState) return "Please choose a State.";
+      if(!addCounty) return "Please choose a County.";
       const till = toNum($("tillable").value);
       if(!(till>0)) return "Please enter Tillable Acres.";
       return "";
@@ -465,10 +551,10 @@
       const payload = {
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
-        state: $("stateSelect").value,             // NEW
-        county: $("countySelect").value,           // county name only
+        state: addState,
+        county: addCounty,
         tillable: toNum($("tillable").value),
-        hasHEL: false, helAcres: 0,                // (you can re-enable the HEL/CRP UI later if needed)
+        hasHEL: false, helAcres: 0,
         hasCRP: false, crpAcres: 0,
         rtkTowerId: $("rtkSelect").value || "",
         status: "active",
@@ -483,9 +569,10 @@
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
-      // reset county
-      $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
-      $("countyStatus").textContent = "Idle";
+      addState = "IL"; addCounty = "";
+      $("stateLabel").textContent = "Illinois";
+      $("countyLabel").textContent = "Select…";
+      setCountyEnabled("add", false);
 
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
@@ -505,11 +592,7 @@
       return out;
     }
 
-    function rtkLabel(id){
-      if(!id) return '';
-      const t = RTK_MAP.get(id);
-      return t ? t.name : '';
-    }
+    function rtkLabel(id){ if(!id) return ''; const t = RTK_MAP.get(id); return t ? t.name : ''; }
 
     async function renderList(){
       const box = $("list");
@@ -557,8 +640,6 @@
     async function openEdit(id){
       editId = id;
       populateFarmSelects();
-      populateStates($("editState"));
-      populateStates($("stateSelect")); // ensure add-form has states too
       populateRTKSelect($("editRtkSelect"));
 
       const ref = doc(db, 'fields', id);
@@ -569,10 +650,18 @@
       $("editFarm").value     = it.farmId || "";
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
-      $("editState").value    = it.state || "IL";
-      $("editCountyStatus").textContent = "Loading…";
-      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value, it.county || "");
-      $("editCountyStatus").textContent = "Live";
+
+      editStateVal = it.state || "IL";
+      editCountyVal = it.county || "";
+      $("editStateLabel").textContent = (STATES.find(s=>s[0]===editStateVal)||["","Select…"])[1] || "Select…";
+      $("editCountyLabel").textContent = editCountyVal || "Select…";
+
+      try{
+        await ensureCounties(editStateVal);
+        setCountyEnabled("edit", true);
+      }catch{
+        setCountyEnabled("edit", false);
+      }
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -597,16 +686,11 @@
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
-    $("editState").addEventListener("change", async ()=>{
-      $("editCounty").value = "";
-      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value);
-    });
-
     mdSave.addEventListener("click", async ()=>{
       const name = $("editName").value.trim();
       const farmId = $("editFarm").value;
-      const state = $("editState").value;
-      const county = $("editCounty").value;
+      const state = editStateVal;
+      const county = editCountyVal;
       const tillable = toNum($("editTillable").value);
 
       if(!name){ alert("Please enter a field name."); return; }
@@ -616,10 +700,7 @@
       if(!(tillable>0)){ alert("Please enter Tillable Acres."); return; }
 
       const ref = doc(db,'fields', editId);
-      await updateDoc(ref, {
-        name, farmId, state, county, tillable,
-        updatedAt: serverTimestamp()
-      });
+      await updateDoc(ref, { name, farmId, state, county, tillable, updatedAt: serverTimestamp() });
 
       await renderList();
       showToast("Changes saved.");
@@ -645,18 +726,12 @@
       if(!snap.exists()) return;
       const cur = snap.data()||{};
       if(cur.used){ alert("This field is in use and cannot be deleted. Archive instead."); return; }
-      if(!confirm(`Delete field "${cur.name}"? This cannot be undone.`)) return;
+      if(!confirm(\`Delete field "\${cur.name}"? This cannot be undone.\`)) return;
       await deleteDoc(ref);
       await renderList();
       showToast("Field deleted.");
       closeModal();
     });
-
-    /* ===== State dropdowns (both Add + Edit) ===== */
-    function populateStates(sel){
-      sel.innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-      sel.value = "IL";
-    }
 
     /* ===== Boot ===== */
     (async ()=>{
@@ -668,14 +743,16 @@
       await loadFarms();
       populateFarmSelects();
 
-      // State dropdowns + first county load for Add form
-      populateStates($("stateSelect"));
-      $("countyStatus").textContent = "Loading…";
-      await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
-      $("stateSelect").addEventListener("change", async ()=>{
-        $("countySelect").value = "";
-        await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
-      });
+      // Default state to IL in Add form
+      addState = "IL";
+      $("stateLabel").textContent = "Illinois";
+      setCountyEnabled("add", false);
+      try{
+        await ensureCounties(addState);
+        setCountyEnabled("add", true);
+      }catch{
+        setCountyEnabled("add", false);
+      }
 
       await loadRTKTowers();
       populateRTKSelect($("rtkSelect"));
@@ -688,9 +765,10 @@
         $("fieldName").value = "";
         $("tillable").value = "";
         $("rtkSelect").value = "";
-        $("stateSelect").value = "IL";
-        $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
-        $("countyStatus").textContent = "Idle";
+        addState = "IL"; addCounty = "";
+        $("stateLabel").textContent = "Illinois";
+        $("countyLabel").textContent = "Select…";
+        setCountyEnabled("add", false);
       });
 
       $("filterFarm").addEventListener("change", renderList);
