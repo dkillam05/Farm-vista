@@ -92,6 +92,11 @@
     .dd-list li{padding:10px 12px;cursor:pointer}
     .dd-list li:hover{background:#f0f1f0}
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
+
+    /* Inline row small controls */
+    .inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .acre-wrap{display:none;min-width:180px;flex:1}
+    .inline .label-strong{font-weight:800}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -163,6 +168,26 @@
             <div class="field">
               <label for="rtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
               <select id="rtkSelect" class="select"></select>
+            </div>
+          </div>
+
+          <!-- HEL / CRP -->
+          <div class="row-2">
+            <div class="field">
+              <div class="inline">
+                <label class="label-strong"><input id="hasHEL" type="checkbox" style="width:18px;height:18px;margin-right:6px"> HEL Ground</label>
+                <div id="helAcreWrap" class="acre-wrap">
+                  <input id="helAcres" class="input" inputmode="decimal" placeholder="HEL acres">
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <div class="inline">
+                <label class="label-strong"><input id="hasCRP" type="checkbox" style="width:18px;height:18px;margin-right:6px"> CRP</label>
+                <div id="crpAcreWrap" class="acre-wrap">
+                  <input id="crpAcres" class="input" inputmode="decimal" placeholder="CRP acres">
+                </div>
+              </div>
             </div>
           </div>
 
@@ -242,6 +267,26 @@
           <div class="field">
             <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
             <select id="editRtkSelect" class="select"></select>
+          </div>
+        </div>
+
+        <!-- HEL / CRP in Edit -->
+        <div class="row-2">
+          <div class="field">
+            <div class="inline">
+              <label class="label-strong"><input id="editHasHEL" type="checkbox" style="width:18px;height:18px;margin-right:6px"> HEL Ground</label>
+              <div id="editHelAcreWrap" class="acre-wrap">
+                <input id="editHelAcres" class="input" inputmode="decimal" placeholder="HEL acres">
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <div class="inline">
+              <label class="label-strong"><input id="editHasCRP" type="checkbox" style="width:18px;height:18px;margin-right:6px"> CRP</label>
+              <div id="editCrpAcreWrap" class="acre-wrap">
+                <input id="editCrpAcres" class="input" inputmode="decimal" placeholder="CRP acres">
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -516,6 +561,8 @@
       if(!$("countySelect").value) return "Please choose a County.";
       const till = toNum($("tillable").value);
       if(!(till>0)) return "Please enter Tillable Acres.";
+      if($("hasHEL").checked && !(toNum($("helAcres").value)>0)) return "Enter HEL acres.";
+      if($("hasCRP").checked && !(toNum($("crpAcres").value)>0)) return "Enter CRP acres.";
       return "";
     }
 
@@ -529,8 +576,10 @@
         state: $("stateSelect").value,
         county: $("countySelect").value,
         tillable: toNum($("tillable").value),
-        hasHEL: false, helAcres: 0,
-        hasCRP: false, crpAcres: 0,
+        hasHEL: $("hasHEL").checked,
+        helAcres: $("hasHEL").checked ? toNum($("helAcres").value) : 0,
+        hasCRP: $("hasCRP").checked,
+        crpAcres: $("hasCRP").checked ? toNum($("crpAcres").value) : 0,
         rtkTowerId: $("rtkSelect").value || "",
         status: "active",
         used: false,
@@ -545,11 +594,14 @@
       $("tillable").value = "";
       $("rtkSelect").value = "";
 
+      // reset HEL/CRP
+      $("hasHEL").checked = false; $("helAcres").value = ""; $("helAcreWrap").style.display="none";
+      $("hasCRP").checked = false; $("crpAcres").value = ""; $("crpAcreWrap").style.display="none";
+
       // reset county dropdown
       ddCounty.btn.textContent = "Select a county…";
       ddCounty.btn.disabled = true;
-      ddCounty.search.value = ""; ddCounty.search.disabled = true;
-      ddCounty.list.innerHTML = "";
+      ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
       $("countySelect").value = "";
 
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
@@ -630,12 +682,20 @@
       if(!snap.exists()){ return; }
       const it = snap.data()||{};
 
-      // selects and inputs
       $("editFarm").value     = it.farmId || "";
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
 
-      // populate RTK towers and preselect saved one
+      // HEL/CRP set + show/hide
+      $("editHasHEL").checked = !!it.hasHEL;
+      $("editHelAcres").value = it.helAcres ?? "";
+      $("editHelAcreWrap").style.display = it.hasHEL ? "block" : "none";
+
+      $("editHasCRP").checked = !!it.hasCRP;
+      $("editCrpAcres").value = it.crpAcres ?? "";
+      $("editCrpAcreWrap").style.display = it.hasCRP ? "block" : "none";
+
+      // RTK towers + preselect saved one
       populateRTKSelect($("editRtkSelect"), it.rtkTowerId || "");
 
       // set state + counties
@@ -682,16 +742,23 @@
       const county = $("editCounty").value;
       const tillable = toNum($("editTillable").value);
       const rtkTowerId = $("editRtkSelect").value || "";
+      const hasHEL = $("editHasHEL").checked;
+      const helAcres = hasHEL ? toNum($("editHelAcres").value) : 0;
+      const hasCRP = $("editHasCRP").checked;
+      const crpAcres = hasCRP ? toNum($("editCrpAcres").value) : 0;
 
       if(!name){ alert("Please enter a field name."); return; }
       if(!farmId){ alert("Please choose a Farm."); return; }
       if(!state){ alert("Please choose a State."); return; }
       if(!county){ alert("Please choose a County."); return; }
       if(!(tillable>0)){ alert("Please enter Tillable Acres."); return; }
+      if(hasHEL && !(helAcres>0)){ alert("Enter HEL acres."); return; }
+      if(hasCRP && !(crpAcres>0)){ alert("Enter CRP acres."); return; }
 
       const ref = doc(db,'fields', editId);
       await updateDoc(ref, {
         name, farmId, state, county, tillable, rtkTowerId,
+        hasHEL, helAcres, hasCRP, crpAcres,
         updatedAt: serverTimestamp()
       });
 
@@ -788,11 +855,11 @@
     }
 
     /* ===== Company default state ===== */
-    function normalizeStateToCode(v){
-      if(!v) return "";
-      const key = String(v).trim().toLowerCase();
-      return NAME_TO_CODE.get(key) || "";
-    }
+    const NAME_TO_CODE = new Map([
+      ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
+      ...STATES.map(([c])=>[c.toLowerCase(),c])
+    ]);
+    function normalizeStateToCode(v){ return NAME_TO_CODE.get(String(v||"").trim().toLowerCase()) || ""; }
     async function getCompanyStateCode(){
       try{
         const snap = await getDoc(doc(db, 'company', 'main'));
@@ -820,6 +887,26 @@
       buildStateDropdowns();
       buildCountyDropdowns();
 
+      // Toggle HEL/CRP acre inputs (Add)
+      $("hasHEL").addEventListener("change", e=>{
+        $("helAcreWrap").style.display = e.target.checked ? "block" : "none";
+        if(!e.target.checked) $("helAcres").value = "";
+      });
+      $("hasCRP").addEventListener("change", e=>{
+        $("crpAcreWrap").style.display = e.target.checked ? "block" : "none";
+        if(!e.target.checked) $("crpAcres").value = "";
+      });
+
+      // Toggle HEL/CRP acre inputs (Edit)
+      $("editHasHEL").addEventListener("change", e=>{
+        $("editHelAcreWrap").style.display = e.target.checked ? "block" : "none";
+        if(!e.target.checked) $("editHelAcres").value = "";
+      });
+      $("editHasCRP").addEventListener("change", e=>{
+        $("editCrpAcreWrap").style.display = e.target.checked ? "block" : "none";
+        if(!e.target.checked) $("editCrpAcres").value = "";
+      });
+
       // Default state from company/main; fallback to IL
       let defaultState = await getCompanyStateCode();
       if(!defaultState) defaultState = "IL";
@@ -836,6 +923,9 @@
         $("fieldName").value = "";
         $("tillable").value = "";
         $("rtkSelect").value = "";
+
+        $("hasHEL").checked=false; $("helAcres").value=""; $("helAcreWrap").style.display="none";
+        $("hasCRP").checked=false; $("crpAcres").value=""; $("crpAcreWrap").style.display="none";
 
         ddState.hidden.value = stRec[0];
         ddState.btn.textContent = stRec[1];
