@@ -232,41 +232,13 @@
               </div>
             </div>
           </div>
-          <div class="field" id="statusRow" style="align-self:end">
-            <span class="pill" id="statusPill">Active</span>
-            <span class="pill" id="usedPill" style="display:none">In use</span>
-          </div>
         </div>
 
-        <div class="row-3">
+        <div class="row-2">
           <div class="field">
             <label for="editTillable">Tillable Acres</label>
             <input id="editTillable" class="input" inputmode="decimal">
           </div>
-          <div class="field">
-            <div class="switch" style="margin-top:28px">
-              <input id="editHasHEL" type="checkbox"/>
-              <label for="editHasHEL"><strong>HEL</strong> (Highly Erodible Land)</label>
-            </div>
-            <div class="field" id="editHelAcreWrap" style="margin-top:8px;display:none">
-              <label for="editHelAcres" class="muted">HEL Acres</label>
-              <input id="editHelAcres" class="input" inputmode="decimal">
-            </div>
-          </div>
-          <div class="field">
-            <div class="switch" style="margin-top:28px">
-              <input id="editHasCRP" type="checkbox"/>
-              <label for="editHasCRP"><strong>CRP</strong> (Conservation Reserve Program)</label>
-            </div>
-            <div class="field" id="editCrpAcreWrap" style="margin-top:8px;display:none">
-              <label for="editCrpAcres" class="muted">CRP Acres</label>
-              <input id="editCrpAcres" class="input" inputmode="decimal">
-            </div>
-          </div>
-        </div>
-
-        <!-- RTK in Edit -->
-        <div class="row-2">
           <div class="field">
             <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
             <select id="editRtkSelect" class="select"></select>
@@ -321,7 +293,6 @@
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
 
-    /* Build quick maps */
     const NAME_TO_CODE = (() => {
       const m = new Map();
       STATES.forEach(([code,name])=>{
@@ -392,7 +363,6 @@
       }
     });
 
-    // County loading into a dropdown (no helper/status text)
     async function loadCountiesIntoDropdown(cfg, stateCode, presetValue){
       const {btn, search, list, hidden} = cfg;
       btn.textContent = "Select a county…";
@@ -412,7 +382,7 @@
           hidden.value = presetValue;
           btn.textContent = presetValue;
         }
-      }catch(e){
+      }catch{
         btn.disabled = true; search.disabled = true; list.innerHTML="";
         hidden.value = "";
       }
@@ -556,8 +526,8 @@
       const payload = {
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
-        state: $("stateSelect").value,        // hidden
-        county: $("countySelect").value,      // hidden
+        state: $("stateSelect").value,
+        county: $("countySelect").value,
         tillable: toNum($("tillable").value),
         hasHEL: false, helAcres: 0,
         hasCRP: false, crpAcres: 0,
@@ -649,39 +619,33 @@
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
     let editId = null;
 
-    // dropdown configs used in multiple scopes
     let ddState, ddCounty, ddEditState, ddEditCounty;
 
     async function openEdit(id){
       editId = id;
       populateFarmSelects();
-      populateRTKSelect($("editRtkSelect"));
-
-      // reset edit dropdowns
-      ddEditState.btn.textContent = "Illinois";
-      ddEditCounty.btn.textContent = "Select a county…";
-      ddEditCounty.btn.disabled = true; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML = "";
-      $("editCounty").value = "";
 
       const ref = doc(db, 'fields', id);
       const snap = await getDoc(ref);
       if(!snap.exists()){ return; }
       const it = snap.data()||{};
 
+      // selects and inputs
       $("editFarm").value     = it.farmId || "";
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
 
-      // set state
+      // populate RTK towers and preselect saved one
+      populateRTKSelect($("editRtkSelect"), it.rtkTowerId || "");
+
+      // set state + counties
       $("editState").value = it.state || "IL";
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
-
       await loadCountiesIntoDropdown(ddEditCounty, $("editState").value, it.county || "");
 
-      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
-      $("usedPill").style.display = it.used ? "inline-block" : "none";
-      mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+      // archive/delete setup
+      mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
 
@@ -702,7 +666,6 @@
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
-    // Edit: state picked
     function onEditStatePicked(code,label){
       $("editState").value = code;
       ddEditState.root.classList.remove("open");
@@ -718,6 +681,7 @@
       const state = $("editState").value;
       const county = $("editCounty").value;
       const tillable = toNum($("editTillable").value);
+      const rtkTowerId = $("editRtkSelect").value || "";
 
       if(!name){ alert("Please enter a field name."); return; }
       if(!farmId){ alert("Please choose a Farm."); return; }
@@ -727,7 +691,7 @@
 
       const ref = doc(db,'fields', editId);
       await updateDoc(ref, {
-        name, farmId, state, county, tillable,
+        name, farmId, state, county, tillable, rtkTowerId,
         updatedAt: serverTimestamp()
       });
 
@@ -745,7 +709,6 @@
       await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
       await renderList();
       showToast(next==='archived' ? "Field archived." : "Field unarchived.");
-      $("statusPill").textContent = next==='archived' ? "Archived" : "Active";
       mdArchive.textContent = next==='archived' ? "Unarchive" : "Archive";
     });
 
@@ -874,7 +837,6 @@
         $("tillable").value = "";
         $("rtkSelect").value = "";
 
-        // Reset to company default (or IL)
         ddState.hidden.value = stRec[0];
         ddState.btn.textContent = stRec[1];
         ddState.search.value = "";
