@@ -1,273 +1,894 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<title>State → County Picker (Searchable + Copyable URL)</title>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<style>
-  html,body{margin:0;padding:0;background:#fff;color:#141514;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial}
-  .wrap{max-width:760px;margin:32px auto;padding:0 16px}
-  h1{margin:0 0 6px;font-size:22px}
-  p{margin:0 0 16px;color:#67706B}
-  .card{border:1px solid #d7dad7;border-radius:12px;padding:16px}
-  .row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
-  @media(max-width:720px){.row{grid-template-columns:1fr}}
-  label{display:block;font-weight:800;margin:0 0 6px}
-  .dropdown{position:relative}
-  .dropdown button{width:100%;text-align:left;padding:10px 12px;border:1px solid #d7dad7;border-radius:10px;background:#fff;font:inherit;color:#141514;cursor:pointer}
-  .dropdown-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid #d7dad7;border-radius:10px;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
-  .dropdown.open .dropdown-list{display:block}
-  .dropdown-list input{width:100%;box-sizing:border-box;padding:8px 10px;border:none;border-bottom:1px solid #d7dad7;font:inherit;outline:none}
-  .dropdown-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
-  .dropdown-list li{padding:8px 10px;cursor:pointer}
-  .dropdown-list li:hover{background:#f0f1f0}
-  .btn{border:1px solid #d7dad7;border-radius:10px;background:#f7f8f7;padding:8px 12px;font-weight:800;cursor:pointer}
-  .btn-primary{background:#3B7E46;border-color:#3B7E46;color:#fff}
-  .pill{font-size:12px;border:1px solid #d7dad7;border-radius:999px;padding:4px 8px;color:#67706B;background:#fff}
-  .help{margin-top:6px;font-size:13px;color:#67706B}
-  .bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
-  .out{margin-top:12px;border:1px dashed #d7dad7;border-radius:10px;padding:10px}
-  .err{color:#b3261e;font-weight:700}
-  .urlbox{display:flex;gap:6px;align-items:center;margin-top:12px}
-  .urlbox input{flex:1;padding:6px 8px;border:1px solid #d7dad7;border-radius:8px;font-size:13px;color:#333;background:#f9f9f9}
-  .urlbox button{padding:6px 10px;border:1px solid #d7dad7;border-radius:8px;background:#3B7E46;color:#fff;font-weight:600;cursor:pointer}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1>State → County Picker (with Search + Copyable URL)</h1>
-  <p>Live data from the U.S. Census (ACS5). Search inside each dropdown and copy the API URL below.</p>
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Setup → Fields</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
 
-  <div class="card">
-    <div class="row">
-      <div>
-        <label>State</label>
-        <div id="stateDropdown" class="dropdown">
-          <button type="button" id="stateBtn">Select a state…</button>
-          <div class="dropdown-list">
-            <input type="text" placeholder="Search state…" id="stateSearch">
-            <ul id="stateList"></ul>
+  <!-- Standard includes -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:16px;display:grid;gap:14px;}
+
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr}
+    .row-2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    .row-3{display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr}
+    @media(max-width:980px){.row{grid-template-columns:1fr 1fr}.row-3{grid-template-columns:1fr 1fr}}
+    @media(max-width:720px){.row,.row-2,.row-3{grid-template-columns:1fr}}
+
+    .field label{display:block;font-weight:800;margin:0 0 6px 0;}
+    .input, .select{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px;padding:12px;outline:none;}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
+      border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
+    .btn-quiet{min-width:auto;padding:8px 12px}
+
+    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+    .switch{display:flex;gap:10px;align-items:center}
+    .switch input{width:22px;height:22px}
+
+    /* List + filter */
+    .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
+    .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
+    .list-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .list{padding:14px 16px;display:grid;gap:12px;}
+    .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
+      display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+    .name{font-weight:800}
+    .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
+    .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
+
+    /* Modal */
+    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
+    .modal[open]{display:grid;opacity:1;}
+    .dialog{width:min(640px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
+    .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+    .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
+    .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
+    .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
+
+    /* Toast */
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 5s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    .muted{ color:var(--muted,#67706B); }
+
+    /* ===== searchable dropdowns (state/county) ===== */
+    .dd{position:relative}
+    .dd-btn{width:100%;text-align:left;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));font:inherit;color:var(--text);cursor:pointer}
+    .dd-list{position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
+    .dd.open .dd-list{display:block}
+    .dd-list input{width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);font:inherit;outline:none;background:var(--surface)}
+    .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+    .dd-list li{padding:10px 12px;cursor:pointer}
+    .dd-list li:hover{background:#f0f1f0}
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
+  </style>
+
+  <!-- Ensure fv-shell -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
+</head><body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Fields</h1>
+      <p class="page-sub">Assign fields to farms, track county and acres (tillable, HEL, CRP).</p>
+
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🗺️</div>
+          <div><strong>Add Field</strong></div>
+        </header>
+
+        <div class="section-body">
+          <div id="noFarms" class="muted" style="display:none">
+            No farms found. Add farms in <em>Setup → Farms</em> first.
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="farmSelect">Farm</label>
+              <select id="farmSelect" class="select"></select>
+            </div>
+            <div class="field">
+              <label for="fieldName">Field Name</label>
+              <input id="fieldName" class="input" placeholder="e.g., North 80">
+            </div>
+            <div class="field">
+              <label for="tillable">Tillable Acres</label>
+              <input id="tillable" class="input" inputmode="decimal" placeholder="e.g., 80.0">
+            </div>
+          </div>
+
+          <!-- State → County (searchable dropdowns + hidden inputs with same IDs) -->
+          <div class="row-3">
+            <div class="field">
+              <label>State</label>
+              <input type="hidden" id="stateSelect" value="IL"/>
+              <div id="ddState" class="dd">
+                <button type="button" id="ddStateBtn" class="dd-btn">Illinois</button>
+                <div class="dd-list">
+                  <input type="text" id="ddStateSearch" placeholder="Search state…">
+                  <ul id="ddStateList"></ul>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label>County</label>
+              <input type="hidden" id="countySelect" value=""/>
+              <div id="ddCounty" class="dd">
+                <button type="button" id="ddCountyBtn" class="dd-btn" disabled>Select a county…</button>
+                <div class="dd-list">
+                  <input type="text" id="ddCountySearch" placeholder="Search county…" disabled>
+                  <ul id="ddCountyList"></ul>
+                </div>
+              </div>
+            </div>
+            <div class="field" style="display:flex;align-items:end;gap:8px">
+              <span id="countyStatus" class="pill">Idle</span>
+            </div>
+          </div>
+
+          <!-- RTK Tower Information -->
+          <div class="row-2">
+            <div class="field">
+              <label for="rtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
+              <select id="rtkSelect" class="select"></select>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear</button>
+            <button id="save" class="btn btn-primary" type="button">Save</button>
+          </div>
+        </div>
+
+        <div class="list-head">
+          <div class="list-title">Fields</div>
+          <div class="list-filters">
+            <label for="filterFarm" class="muted" style="font-weight:700">Filter:</label>
+            <select id="filterFarm" class="select" style="min-width:220px"></select>
+          </div>
+        </div>
+        <div id="list" class="list">
+          <div class="muted">No fields yet.</div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
+
+  <!-- Modal: View/Edit Field -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">View / Edit Field</h3>
+        <button id="mdClose" class="closex" type="button">Back</button>
+      </div>
+      <div class="dialog-body">
+        <div class="row-2">
+          <div class="field">
+            <label for="editFarm">Farm</label>
+            <select id="editFarm" class="select"></select>
+          </div>
+          <div class="field">
+            <label for="editName">Field Name</label>
+            <input id="editName" class="input" placeholder="Field name">
+          </div>
+        </div>
+
+        <!-- State → County in Edit modal (searchable + hidden inputs) -->
+        <div class="row-3">
+          <div class="field">
+            <label>State</label>
+            <input type="hidden" id="editState" value="IL"/>
+            <div id="ddEditState" class="dd">
+              <button type="button" id="ddEditStateBtn" class="dd-btn">Illinois</button>
+              <div class="dd-list">
+                <input type="text" id="ddEditStateSearch" placeholder="Search state…">
+                <ul id="ddEditStateList"></ul>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <label>County</label>
+            <input type="hidden" id="editCounty" value=""/>
+            <div id="ddEditCounty" class="dd">
+              <button type="button" id="ddEditCountyBtn" class="dd-btn" disabled>Select a county…</button>
+              <div class="dd-list">
+                <input type="text" id="ddEditCountySearch" placeholder="Search county…" disabled>
+                <ul id="ddEditCountyList"></ul>
+              </div>
+            </div>
+          </div>
+          <div class="field" style="display:flex;align-items:end;gap:8px">
+            <span id="editCountyStatus" class="pill">Idle</span>
+          </div>
+        </div>
+
+        <div class="row-3">
+          <div class="field">
+            <label for="editTillable">Tillable Acres</label>
+            <input id="editTillable" class="input" inputmode="decimal">
+          </div>
+          <div class="field">
+            <div class="switch" style="margin-top:28px">
+              <input id="editHasHEL" type="checkbox"/>
+              <label for="editHasHEL"><strong>HEL</strong> (Highly Erodible Land)</label>
+            </div>
+            <div class="field" id="editHelAcreWrap" style="margin-top:8px;display:none">
+              <label for="editHelAcres" class="muted">HEL Acres</label>
+              <input id="editHelAcres" class="input" inputmode="decimal">
+            </div>
+          </div>
+          <div class="field">
+            <div class="switch" style="margin-top:28px">
+              <input id="editHasCRP" type="checkbox"/>
+              <label for="editHasCRP"><strong>CRP</strong> (Conservation Reserve Program)</label>
+            </div>
+            <div class="field" id="editCrpAcreWrap" style="margin-top:8px;display:none">
+              <label for="editCrpAcres" class="muted">CRP Acres</label>
+              <input id="editCrpAcres" class="input" inputmode="decimal">
+            </div>
+          </div>
+        </div>
+
+        <!-- RTK in Edit -->
+        <div class="row-2">
+          <div class="field">
+            <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
+            <select id="editRtkSelect" class="select"></select>
+          </div>
+          <div class="field" id="statusRow" style="align-self:end">
+            <span class="pill" id="statusPill">Active</span>
+            <span class="pill" id="usedPill" style="display:none">In use</span>
           </div>
         </div>
       </div>
-      <div>
-        <label>County</label>
-        <div id="countyDropdown" class="dropdown">
-          <button type="button" id="countyBtn" disabled>Select a county…</button>
-          <div class="dropdown-list">
-            <input type="text" placeholder="Search county…" id="countySearch" disabled>
-            <ul id="countyList"></ul>
-          </div>
+
+      <div class="dialog-footer">
+        <div class="left-btns">
+          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the field is in use.">Delete</button>
         </div>
-        <div id="countyHelp" class="help">Pick a state to load counties.</div>
+        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
       </div>
-    </div>
-
-    <div class="urlbox">
-      <input type="text" id="urlOut" readonly value="—"/>
-      <button id="copyUrl">Copy URL</button>
-    </div>
-
-    <div class="bar">
-      <button id="retry" class="btn" type="button">Retry</button>
-      <button id="clear" class="btn" type="button">Clear</button>
-      <button id="copySel" class="btn btn-primary" type="button">Copy selection</button>
-      <span id="status" class="pill">Idle</span>
-    </div>
-
-    <div class="out">
-      <div><strong>Selected:</strong> <span id="selOut">—</span></div>
     </div>
   </div>
-</div>
 
-<script>
-(function(){
-"use strict";
-const $=id=>document.getElementById(id);
-const CENSUS_KEY="14a8ad456efef642983bd8e830809694965b003f";
+  <script type="module">
+  import {
+    ready,
+    getFirestore, collection, query, orderBy,
+    getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc,
+    serverTimestamp
+  } from '/Farm-vista/js/firebase-init.js';
 
-const STATES=[["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
-["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],["GA","Georgia"],
-["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],
-["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],
-["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],
-["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],
-["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],
-["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],
-["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]];
-const STATE_TO_FIPS={AL:"01",AK:"02",AZ:"04",AR:"05",CA:"06",CO:"08",CT:"09",DE:"10",DC:"11",FL:"12",GA:"13",
-HI:"15",ID:"16",IL:"17",IN:"18",IA:"19",KS:"20",KY:"21",LA:"22",ME:"23",MD:"24",MA:"25",MI:"26",MN:"27",
-MS:"28",MO:"29",MT:"30",NE:"31",NV:"32",NH:"33",NJ:"34",NM:"35",NY:"36",NC:"37",ND:"38",OH:"39",OK:"40",
-OR:"41",PA:"42",RI:"44",SC:"45",SD:"46",TN:"47",TX:"48",UT:"49",VT:"50",VA:"51",WA:"53",WV:"54",WI:"55",WY:"56"};
+  (function(){
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const toast = $("toast");
 
-let selectedState="IL", selectedCounty="";
+    /* ===== ACS (County) config ===== */
+    const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
+    const STATES = [
+      ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
+      ["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],["GA","Georgia"],
+      ["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],
+      ["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],
+      ["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],
+      ["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],
+      ["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],
+      ["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],
+      ["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]
+    ];
+    const STATE_TO_FIPS = {
+      AL:"01", AK:"02", AZ:"04", AR:"05", CA:"06", CO:"08", CT:"09", DE:"10", DC:"11", FL:"12", GA:"13",
+      HI:"15", ID:"16", IL:"17", IN:"18", IA:"19", KS:"20", KY:"21", LA:"22", ME:"23", MD:"24", MA:"25",
+      MI:"26", MN:"27", MS:"28", MO:"29", MT:"30", NE:"31", NV:"32", NH:"33", NJ:"34", NM:"35", NY:"36",
+      NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
+      UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
+    };
+    const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-function setStatus(t){$("status").textContent=t;}
-function updateSelected(){
-  const stName=STATES.find(([c])=>c===selectedState)?.[1]||"";
-  // Only show selection once BOTH are chosen
-  $("selOut").textContent=(selectedState && selectedCounty)
-    ? `${selectedCounty}, ${selectedState} — ${stName}`
-    : "—";
-}
+    function acsUrl(stateCode){
+      const fips = STATE_TO_FIPS[stateCode];
+      return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
+    }
+    async function fetchWithTimeout(url, ms){
+      const ctrl = new AbortController();
+      const t = setTimeout(()=>ctrl.abort(), ms);
+      try{
+        const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
+        if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
+        return await res.json();
+      } finally { clearTimeout(t); }
+    }
+    function parseCountyNames(rows){
+      const out = [];
+      for(let i=1;i<rows.length;i++){
+        const nm = String(rows[i][0]||"");
+        const m = nm.match(/^(.+?)\s+County\b/i)
+               || nm.match(/^(.+?)\s+Parish\b/i)
+               || nm.match(/^(.+?)\s+Borough\b/i)
+               || nm.match(/^(.+?)\s+Census Area\b/i);
+        out.push((m?m[1]:nm).trim());
+      }
+      out.sort((a,b)=>a.localeCompare(b));
+      return out;
+    }
 
-function buildList(container, items, clickHandler){
-  container.innerHTML="";
-  items.forEach(([val,label])=>{
-    const li=document.createElement("li");
-    li.textContent=label;
-    li.dataset.value=val;
-    li.onclick=()=>clickHandler(val,label);
-    container.appendChild(li);
-  });
-}
-
-function acsUrl(stateCode){
-  const fips=STATE_TO_FIPS[stateCode];
-  return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
-}
-async function fetchWithTimeout(url,ms){
-  const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),ms);
-  try{
-    const res=await fetch(url,{signal:ctrl.signal,mode:"cors",cache:"no-store"});
-    if(!res.ok)throw new Error("HTTP "+res.status);
-    return await res.json();
-  }finally{clearTimeout(t);}
-}
-function parseCountyNames(rows){
-  const out=[];
-  for(let i=1;i<rows.length;i++){
-    const nm=String(rows[i][0]||"");
-    const m=nm.match(/^(.+?)\s+(County|Parish|Borough|Census Area)/i);
-    out.push((m?m[1]:nm).trim());
-  }
-  out.sort((a,b)=>a.localeCompare(b));
-  return out;
-}
-
-async function loadCounties(stateCode){
-  $("countyHelp").textContent="Requesting from Census…";
-  setStatus("Loading…");
-  // ensure county UI is cleared/disabled during load
-  $("countyBtn").textContent="Select a county…";
-  $("countyBtn").disabled=true;
-  $("countySearch").value="";
-  $("countySearch").disabled=true;
-  $("countyList").innerHTML="";
-  const url=acsUrl(stateCode);
-  $("urlOut").value=url;
-
-  try{
-    const data=await fetchWithTimeout(url,12000);
-    const list=parseCountyNames(data);
-    buildList($("countyList"),list.map(c=>[c,c]),(val,label)=>{
-      selectedCounty=val;
-      $("countyBtn").textContent=label;
-      $("countyDropdown").classList.remove("open");
-      updateSelected();
+    /* ===== Searchable dropdown helpers ===== */
+    function buildList(listEl, items, onPick){
+      listEl.innerHTML="";
+      items.forEach(([val,label])=>{
+        const li=document.createElement("li");
+        li.textContent=label;
+        li.dataset.value=val;
+        li.onclick=()=>onPick(val,label);
+        listEl.appendChild(li);
+      });
+    }
+    function setupSearch(inputEl, listEl){
+      inputEl.addEventListener("input", ()=>{
+        const term=inputEl.value.toLowerCase();
+        listEl.querySelectorAll("li").forEach(li=>{
+          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+        });
+      });
+    }
+    function wireDropdownOpenClose(root){
+      const btn = root.querySelector(".dd-btn");
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+        root.classList.toggle("open");
+        const inp = root.querySelector(".dd-list input");
+        if(root.classList.contains("open") && inp){ setTimeout(()=>inp.focus(), 60); }
+      });
+    }
+    document.addEventListener("click",(e)=>{
+      if(!e.target.closest(".dd")){
+        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+      }
     });
-    $("countyBtn").disabled=false;
-    $("countySearch").disabled=false;
-    $("countyHelp").textContent="Live from U.S. Census (ACS5).";
-    setStatus("Live");
-  }catch(e){
-    $("countyHelp").innerHTML=`<span class="err">Error:</span> ${e.message}`;
-    setStatus("Error");
-  }
-}
 
-/* ---- Dropdown search filtering ---- */
-function setupSearch(inputEl,listEl){
-  inputEl.addEventListener("input",()=>{
-    const term=inputEl.value.toLowerCase();
-    listEl.querySelectorAll("li").forEach(li=>{
-      li.style.display=li.textContent.toLowerCase().includes(term)?"":"none";
+    /* County loading into a dropdown */
+    async function loadCountiesIntoDropdown(cfg, statusEl, stateCode, presetValue){
+      const {btn, search, list, hidden} = cfg;
+      statusEl.textContent = "Loading…";
+      btn.textContent = "Select a county…";
+      btn.disabled = true; search.value=""; search.disabled = true; list.innerHTML="";
+      hidden.value = "";
+
+      try{
+        const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
+        const counties = parseCountyNames(data);
+        buildList(list, counties.map(c=>[c,c]), (val,label)=>{
+          hidden.value = val;
+          btn.textContent = label;
+          cfg.root.classList.remove("open");
+        });
+        btn.disabled = false; search.disabled = false;
+        statusEl.textContent = ""; // no "Live" helper
+        if(presetValue && counties.includes(presetValue)){
+          hidden.value = presetValue;
+          btn.textContent = presetValue;
+        }
+      }catch(e){
+        statusEl.textContent = "Error";
+        btn.disabled = true; search.disabled = true; list.innerHTML="";
+        hidden.value = "";
+      }
+    }
+
+    /* ===== App helpers (unchanged) ===== */
+    function showToast(msg="Saved.", ms=5000){
+      const el=$("toast");
+      el.textContent = msg;
+      el.classList.remove("show"); void el.offsetWidth;
+      el.classList.add("show");
+      setTimeout(()=> el.classList.remove("show"), ms);
+    }
+    function wireNetToasts(){
+      window.addEventListener('online', ()=> showToast("Back online — syncing…", 5000));
+      window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 5000));
+    }
+    const toNum = (v)=> {
+      const n = Number(String(v||"").replace(/,/g,"").trim());
+      return isFinite(n) ? n : 0;
+    };
+    const fmt = (n, dec=1)=>{
+      if(n==null || n==="") return "";
+      const v = Number(n);
+      return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
+    };
+
+    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
+
+    let db;
+    let FARMS_CACHE = []; let FARMS_MAP = new Map();
+    const farmsRef  = ()=> collection(db, 'farms');
+    const fieldsRef = ()=> collection(db, 'fields');
+
+    /* RTK Towers */
+    let RTK_CACHE = []; let RTK_MAP = new Map();
+    const rtkTowersRef = ()=> collection(db, 'rtkTowers');
+
+    async function loadFarms(){
+      if (hasStore){
+        const fromStore = (window.FVStore.getAll && window.FVStore.getAll('farms')) || [];
+        if (fromStore && fromStore.length){
+          FARMS_CACHE = fromStore.map(x=>({ id:x.id, name:x.name, status:x.status||'active' }));
+          FARMS_MAP.clear(); FARMS_CACHE.forEach(f=> FARMS_MAP.set(f.id,f));
+          return;
+        }
+      }
+      const qs = await getDocs(query(farmsRef(), orderBy('name')));
+      FARMS_CACHE = []; FARMS_MAP.clear();
+      qs.forEach(snap=>{
+        const d = snap.data()||{};
+        const it = { id: snap.id, name: String(d.name||'').trim(), status: d.status || 'active' };
+        FARMS_CACHE.push(it); FARMS_MAP.set(it.id, it);
+      });
+    }
+    function farmLabel(id){
+      const f = FARMS_MAP.get(id);
+      return f ? (f.name + (f.status==='archived'?' (Archived)':'')) : '(Unknown)';
+    }
+    function populateFarmSelects(){
+      const addSel = $("farmSelect");
+      const editSel = $("editFarm");
+      const filterSel = $("filterFarm");
+
+      const farms = FARMS_CACHE.slice();
+      const active = farms.filter(f=>f.status!=='archived');
+      const archived = farms.filter(f=>f.status==='archived');
+
+      addSel.innerHTML = '';
+      if(!farms.length){
+        $("noFarms").style.display = "block";
+        addSel.disabled = true; $("save").disabled = true;
+      }else{
+        $("noFarms").style.display = "none";
+        $("save").disabled = false;
+        active.forEach(f=>{
+          const o=document.createElement("option");
+          o.value=f.id; o.textContent=f.name;
+          addSel.appendChild(o);
+        });
+        if(archived.length){
+          const grp=document.createElement("optgroup"); grp.label='Archived';
+          archived.forEach(f=>{
+            const o=document.createElement("option");
+            o.value=f.id; o.textContent=f.name + " (Archived)"; o.disabled = true;
+            grp.appendChild(o);
+          });
+          addSel.appendChild(grp);
+        }
+      }
+
+      editSel.innerHTML='';
+      farms.forEach(f=>{
+        const o=document.createElement('option');
+        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
+        editSel.appendChild(o);
+      });
+
+      filterSel.innerHTML='';
+      const optAll = document.createElement('option');
+      optAll.value=''; optAll.textContent='All Farms';
+      filterSel.appendChild(optAll);
+      farms.forEach(f=>{
+        const o=document.createElement('option');
+        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
+        filterSel.appendChild(o);
+      });
+    }
+
+    /* RTK Towers */
+    async function loadRTKTowers(){
+      RTK_CACHE = []; RTK_MAP.clear();
+      const qs = await getDocs(query(rtkTowersRef(), orderBy('name')));
+      qs.forEach(s=>{
+        const d = s.data()||{};
+        const it = { id: s.id, name: String(d.name||'').trim(), networkId: d.networkId||'', frequencyMHz: d.frequencyMHz||'' };
+        if(it.name){ RTK_CACHE.push(it); RTK_MAP.set(it.id, it); }
+      });
+    }
+    function populateRTKSelect(sel, val){
+      const opts = ['<option value="">—</option>'].concat(
+        RTK_CACHE.map(t=> `<option value="${esc(t.id)}">${esc(t.name)}</option>`)
+      ).join('');
+      sel.innerHTML = opts;
+      if(val) sel.value = val;
+    }
+
+    /* ===== Create / Validate ===== */
+    function validateNew(){
+      if($("farmSelect").disabled) return "Please add a Farm first.";
+      if(!$("farmSelect").value) return "Please choose a Farm.";
+      if(!$("fieldName").value.trim()) return "Please enter a Field Name.";
+      if(!$("stateSelect").value) return "Please choose a State.";
+      if(!$("countySelect").value) return "Please choose a County.";
+      const till = toNum($("tillable").value);
+      if(!(till>0)) return "Please enter Tillable Acres.";
+      return "";
+    }
+
+    async function createField(){
+      const err = validateNew();
+      if(err){ alert(err); return; }
+
+      const payload = {
+        farmId: $("farmSelect").value,
+        name: $("fieldName").value.trim(),
+        state: $("stateSelect").value,        // from hidden input (kept same ID)
+        county: $("countySelect").value,      // from hidden input
+        tillable: toNum($("tillable").value),
+        hasHEL: false, helAcres: 0,
+        hasCRP: false, crpAcres: 0,
+        rtkTowerId: $("rtkSelect").value || "",
+        status: "active",
+        used: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await addDoc(fieldsRef(), payload);
+      showToast("Successfully saved.");
+
+      $("fieldName").value = "";
+      $("tillable").value = "";
+      $("rtkSelect").value = "";
+      // reset county dropdown
+      ddCounty.btn.textContent = "Select a county…";
+      ddCounty.btn.disabled = true;
+      ddCounty.search.value = ""; ddCounty.search.disabled = true;
+      ddCounty.list.innerHTML = "";
+      $("countySelect").value = "";
+      $("countyStatus").textContent = "Idle";
+
+      await renderList(); window.scrollTo({top:0, behavior:"smooth"});
+    }
+
+    async function fetchFields(farmIdFilter=""){
+      if (hasStore){
+        const all = (window.FVStore.getAll && window.FVStore.getAll('fields')) || [];
+        return farmIdFilter ? all.filter(x=>x.farmId===farmIdFilter) : all;
+      }
+      const qs = await getDocs(query(fieldsRef(), orderBy('updatedAt', 'desc')));
+      const out=[];
+      qs.forEach(s=>{
+        const d=s.data()||{};
+        out.push({ id:s.id, ...d });
+      });
+      if(farmIdFilter) return out.filter(x=>x.farmId===farmIdFilter);
+      return out;
+    }
+
+    function rtkLabel(id){
+      if(!id) return '';
+      const t = RTK_MAP.get(id);
+      return t ? t.name : '';
+    }
+
+    async function renderList(){
+      const box = $("list");
+      const farmFilter = $("filterFarm").value || "";
+      const items = await fetchFields(farmFilter);
+
+      if(!items.length){ box.innerHTML = '<div class="muted">No fields yet.</div>'; return; }
+
+      items.sort((a,b)=>{
+        const sa = (a.status==='archived')|0;
+        const sb = (b.status==='archived')|0;
+        const tA = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+        const tB = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+        return (sa - sb) || (tB - tA);
+      });
+
+      box.innerHTML = "";
+      items.forEach(it=>{
+        const pills = [
+          `<span class="pill">${esc(farmLabel(it.farmId))}</span>`,
+          (it.county || it.state) ? `<span class="pill">${esc(it.county||'—')}${it.state?`, ${esc(it.state)}`:''}</span>` : "",
+          (it.tillable? `<span class="pill">${fmt(it.tillable)} ac</span>` : ""),
+          (it.rtkTowerId ? `<span class="pill">RTK: ${esc(rtkLabel(it.rtkTowerId))}</span>` : ""),
+          it.status==="archived" ? `<span class="pill">Archived</span>` : ""
+        ].filter(Boolean).join(" ");
+
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div class="name">${esc(it.name)}</div>
+            ${pills}
+          </div>
+          <button class="view" type="button">View / Edit</button>
+        `;
+        div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
+        box.appendChild(div);
+      });
+    }
+
+    /* =================== Edit Modal =================== */
+    const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
+    let editId = null;
+
+    // Edit dropdown configs (declared ahead so openEdit can use them)
+    let ddEditState, ddEditCounty;
+
+    async function openEdit(id){
+      editId = id;
+      populateFarmSelects();
+      populateRTKSelect($("editRtkSelect"));
+
+      // preset dropdown button labels (will be overridden by data)
+      ddEditState.btn.textContent = "Illinois";
+      ddEditCounty.btn.textContent = "Select a county…";
+      ddEditCounty.btn.disabled = true; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML = "";
+      $("editCounty").value = ""; $("editCountyStatus").textContent = "Idle";
+
+      const ref = doc(db, 'fields', id);
+      const snap = await getDoc(ref);
+      if(!snap.exists()){ return; }
+      const it = snap.data()||{};
+
+      $("editFarm").value     = it.farmId || "";
+      $("editName").value     = it.name || "";
+      $("editTillable").value = (it.tillable ?? "");
+
+      // set state/hidden + button
+      $("editState").value = it.state || "IL";
+      const stRec = STATES.find(([c])=>c === $("editState").value);
+      ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
+
+      $("editCountyStatus").textContent = "Loading…";
+      await loadCountiesIntoDropdown(ddEditCounty, $("editCountyStatus"), $("editState").value, it.county || "");
+      $("editCountyStatus").textContent = "";
+
+      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
+      $("usedPill").style.display = it.used ? "inline-block" : "none";
+      mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+      mdDelete.disabled = !!it.used;
+      mdDelete.title = it.used ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
+
+      openModal();
+    }
+
+    function openModal(){
+      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      $("editName").focus();
+    }
+    function closeModal(){
+      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      editId = null;
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
+
+    // Edit: change state => clear county and load
+    function onEditStatePicked(code,label){
+      $("editState").value = code;
+      ddEditState.root.classList.remove("open");
+      // clear and reload counties
+      $("editCounty").value = "";
+      ddEditCounty.btn.textContent = "Select a county…";
+      ddEditCounty.btn.disabled = true; ddEditCounty.search.value=""; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML="";
+      $("editCountyStatus").textContent = "Loading…";
+      loadCountiesIntoDropdown(ddEditCounty, $("editCountyStatus"), code).then(()=>{$("editCountyStatus").textContent="";});
+    }
+
+    mdSave.addEventListener("click", async ()=>{
+      const name = $("editName").value.trim();
+      const farmId = $("editFarm").value;
+      const state = $("editState").value;
+      const county = $("editCounty").value;
+      const tillable = toNum($("editTillable").value);
+
+      if(!name){ alert("Please enter a field name."); return; }
+      if(!farmId){ alert("Please choose a Farm."); return; }
+      if(!state){ alert("Please choose a State."); return; }
+      if(!county){ alert("Please choose a County."); return; }
+      if(!(tillable>0)){ alert("Please enter Tillable Acres."); return; }
+
+      const ref = doc(db,'fields', editId);
+      await updateDoc(ref, {
+        name, farmId, state, county, tillable,
+        updatedAt: serverTimestamp()
+      });
+
+      await renderList();
+      showToast("Changes saved.");
+      closeModal();
     });
-  });
-}
 
-/* ---- State dropdown ---- */
-buildList($("stateList"),STATES,(val,label)=>{
-  // CLEAR COUNTY when state changes
-  selectedState=val;
-  selectedCounty="";                  // clear selection
-  $("stateBtn").textContent=label;
-  $("stateDropdown").classList.remove("open");
+    mdArchive.addEventListener("click", async ()=>{
+      const ref = doc(db,'fields', editId);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return;
+      const cur = snap.data()||{};
+      const next = (cur.status==='archived') ? 'active' : 'archived';
+      await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
+      await renderList();
+      showToast(next==='archived' ? "Field archived." : "Field unarchived.");
+      $("statusPill").textContent = next==='archived' ? "Archived" : "Active";
+      mdArchive.textContent = next==='archived' ? "Unarchive" : "Archive";
+    });
 
-  // hard clear county UI before loading
-  $("countyBtn").textContent="Select a county…";
-  $("countyBtn").disabled=true;
-  $("countySearch").value="";
-  $("countySearch").disabled=true;
-  $("countyList").innerHTML="";
-  $("countyHelp").textContent="Loading counties…";
+    mdDelete.addEventListener("click", async ()=>{
+      const ref = doc(db,'fields', editId);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return;
+      const cur = snap.data()||{};
+      if(cur.used){ alert("This field is in use and cannot be deleted. Archive instead."); return; }
+      if(!confirm(`Delete field "${cur.name}"? This cannot be undone.`)) return;
+      await deleteDoc(ref);
+      await renderList();
+      showToast("Field deleted.");
+      closeModal();
+    });
 
-  updateSelected();                   // clears the Selected line to "—"
-  loadCounties(val);                  // fetch new counties
-});
+    /* ===== Boot ===== */
+    const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function'); // keep after functions too
+    let ddState, ddCounty;
 
-/* open/close handlers */
-document.querySelectorAll(".dropdown button").forEach(btn=>{
-  btn.addEventListener("click",e=>{
-    const dd=e.target.closest(".dropdown");
-    document.querySelectorAll(".dropdown").forEach(d=>{if(d!==dd)d.classList.remove("open");});
-    dd.classList.toggle("open");
-    const inp=dd.querySelector("input");
-    if(dd.classList.contains("open")&&inp){setTimeout(()=>inp.focus(),100);}
-  });
-});
-document.addEventListener("click",e=>{
-  if(!e.target.closest(".dropdown"))document.querySelectorAll(".dropdown").forEach(d=>d.classList.remove("open"));
-});
+    // Build State dropdowns (Add + Edit)
+    function buildStateDropdowns(){
+      // Add form dropdown refs
+      ddState = {
+        root: $("ddState"),
+        btn: $("ddStateBtn"),
+        search: $("ddStateSearch"),
+        list: $("ddStateList"),
+        hidden: $("stateSelect")
+      };
+      wireDropdownOpenClose(ddState.root);
+      setupSearch(ddState.search, ddState.list);
 
-/* searches */
-setupSearch($("stateSearch"),$("stateList"));
-setupSearch($("countySearch"),$("countyList"));
+      // Edit modal dropdown refs
+      ddEditState = {
+        root: $("ddEditState"),
+        btn: $("ddEditStateBtn"),
+        search: $("ddEditStateSearch"),
+        list: $("ddEditStateList"),
+        hidden: $("editState")
+      };
+      wireDropdownOpenClose(ddEditState.root);
+      setupSearch(ddEditState.search, ddEditState.list);
 
-/* bar buttons */
-$("retry").onclick=()=>loadCounties(selectedState||"IL");
-$("clear").onclick=()=>{
-  selectedState="IL"; selectedCounty="";
-  $("stateBtn").textContent="Illinois";
-  // reset county UI & state
-  $("countyBtn").textContent="Select a county…";
-  $("countyBtn").disabled=true;
-  $("countySearch").value="";
-  $("countySearch").disabled=true;
-  $("countyList").innerHTML="";
-  $("countyHelp").textContent="Cleared. Pick a state to load counties.";
-  $("urlOut").value="—";
-  setStatus("Idle");
-  updateSelected();
-};
-$("copySel").onclick=()=>navigator.clipboard.writeText($("selOut").textContent||"");
-$("copyUrl").onclick=()=>navigator.clipboard.writeText($("urlOut").value||"");
+      // populate both state lists
+      buildList(ddState.list, STATES.map(([c,n])=>[c,n]), (code,label)=>{
+        ddState.hidden.value = code;
+        ddState.btn.textContent = label;
+        ddState.root.classList.remove("open");
 
-/* boot */
-(async()=>{
-  $("stateBtn").textContent="Illinois";
-  // ensure state list is ready (again) for boot selection
-  buildList($("stateList"),STATES,(val,label)=>{
-    // same handler as above: clear county and load for chosen state
-    selectedState=val;
-    selectedCounty="";
-    $("stateBtn").textContent=label;
-    $("stateDropdown").classList.remove("open");
-    $("countyBtn").textContent="Select a county…";
-    $("countyBtn").disabled=true;
-    $("countySearch").value="";
-    $("countySearch").disabled=true;
-    $("countyList").innerHTML="";
-    $("countyHelp").textContent="Loading counties…";
-    updateSelected();
-    loadCounties(val);
-  });
+        // when state changes, clear county + load
+        $("countyStatus").textContent = "Loading…";
+        ddCounty.btn.textContent = "Select a county…";
+        ddCounty.btn.disabled = true; ddCounty.search.value=""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
+        $("countySelect").value = "";
+        loadCountiesIntoDropdown(ddCounty, $("countyStatus"), code).then(()=>{$("countyStatus").textContent="";});
+      });
+      buildList(ddEditState.list, STATES.map(([c,n])=>[c,n]), onEditStatePicked);
+    }
 
-  await loadCounties("IL"); // initial load
-  updateSelected();
-})();
-})();
-</script>
-</body>
-</html>
+    function buildCountyDropdowns(){
+      // Add form
+      ddCounty = {
+        root: $("ddCounty"),
+        btn: $("ddCountyBtn"),
+        search: $("ddCountySearch"),
+        list: $("ddCountyList"),
+        hidden: $("countySelect")
+      };
+      wireDropdownOpenClose(ddCounty.root);
+      setupSearch(ddCounty.search, ddCounty.list);
+
+      // Edit modal
+      ddEditCounty = {
+        root: $("ddEditCounty"),
+        btn: $("ddEditCountyBtn"),
+        search: $("ddEditCountySearch"),
+        list: $("ddEditCountyList"),
+        hidden: $("editCounty")
+      };
+      wireDropdownOpenClose(ddEditCounty.root);
+      setupSearch(ddEditCounty.search, ddEditCounty.list);
+    }
+
+    (async ()=>{
+      wireNetToasts();
+      const ctx = await ready;
+      if(ctx.mode!=='firebase'){ alert("Firestore not available (stub mode)."); }
+      db = getFirestore();
+
+      await loadFarms();
+      populateFarmSelects();
+
+      await loadRTKTowers();
+      populateRTKSelect($("rtkSelect"));
+      populateRTKSelect($("editRtkSelect"));
+
+      // Build dropdown components
+      buildStateDropdowns();
+      buildCountyDropdowns();
+
+      // Initial state default = IL for Add form
+      const stIL = STATES.find(([c])=>c==="IL");
+      ddState.hidden.value = "IL";
+      ddState.btn.textContent = stIL ? stIL[1] : "Illinois";
+      $("countyStatus").textContent = "Loading…";
+      await loadCountiesIntoDropdown(ddCounty, $("countyStatus"), "IL");
+      $("countyStatus").textContent = "";
+
+      await renderList();
+
+      $("save").addEventListener("click", createField);
+      $("clear").addEventListener("click", ()=>{
+        $("fieldName").value = "";
+        $("tillable").value = "";
+        $("rtkSelect").value = "";
+
+        // Reset State/County to IL / empty
+        ddState.hidden.value = "IL";
+        ddState.btn.textContent = "Illinois";
+        ddState.search.value = "";
+        ddState.root.classList.remove("open");
+
+        ddCounty.btn.textContent = "Select a county…";
+        ddCounty.btn.disabled = true; ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
+        $("countySelect").value = "";
+        $("countyStatus").textContent = "Idle";
+      });
+
+      $("filterFarm").addEventListener("change", renderList);
+
+      if (hasStore && window.FVStore.subscribe){
+        try{
+          window.FVStore.subscribe('farms', ()=>{
+            FARMS_CACHE = (window.FVStore.getAll('farms')||[]).map(x=>({id:x.id, name:x.name, status:x.status||'active'}));
+            FARMS_MAP.clear(); FARMS_CACHE.forEach(f=>FARMS_MAP.set(f.id,f));
+            populateFarmSelects();
+          });
+          window.FVStore.subscribe('fields', ()=> renderList());
+        }catch{}
+      }
+    })();
+
+  })();
+  </script>
+</body></html>
