@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>State → County Picker (Searchable)</title>
+<title>State → County Picker (Searchable + Copyable URL)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
   html,body{margin:0;padding:0;background:#fff;color:#141514;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial}
@@ -28,13 +28,15 @@
   .bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
   .out{margin-top:12px;border:1px dashed #d7dad7;border-radius:10px;padding:10px}
   .err{color:#b3261e;font-weight:700}
-  code{background:#f3f4f3;border:1px solid #e4e6e4;border-radius:6px;padding:2px 6px}
+  .urlbox{display:flex;gap:6px;align-items:center;margin-top:12px}
+  .urlbox input{flex:1;padding:6px 8px;border:1px solid #d7dad7;border-radius:8px;font-size:13px;color:#333;background:#f9f9f9}
+  .urlbox button{padding:6px 10px;border:1px solid #d7dad7;border-radius:8px;background:#3B7E46;color:#fff;font-weight:600;cursor:pointer}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>State → County Picker (with Built-In Search)</h1>
-  <p>Live pulls from U.S. Census (ACS5). Built-in search boxes appear inside each dropdown.</p>
+  <h1>State → County Picker (with Search + Copyable URL)</h1>
+  <p>Live data from the U.S. Census (ACS5). Search inside each dropdown and copy the API URL below.</p>
 
   <div class="card">
     <div class="row">
@@ -61,16 +63,20 @@
       </div>
     </div>
 
+    <div class="urlbox">
+      <input type="text" id="urlOut" readonly value="—"/>
+      <button id="copyUrl">Copy URL</button>
+    </div>
+
     <div class="bar">
       <button id="retry" class="btn" type="button">Retry</button>
       <button id="clear" class="btn" type="button">Clear</button>
-      <button id="copy" class="btn btn-primary" type="button">Copy selection</button>
+      <button id="copySel" class="btn btn-primary" type="button">Copy selection</button>
       <span id="status" class="pill">Idle</span>
     </div>
 
     <div class="out">
       <div><strong>Selected:</strong> <span id="selOut">—</span></div>
-      <div id="debug" class="help" style="margin-top:8px"></div>
     </div>
   </div>
 </div>
@@ -142,8 +148,10 @@ async function loadCounties(stateCode){
   setStatus("Loading…");
   $("countyList").innerHTML="";
   $("countySearch").value="";
+  const url=acsUrl(stateCode);
+  $("urlOut").value=url;
   try{
-    const data=await fetchWithTimeout(acsUrl(stateCode),12000);
+    const data=await fetchWithTimeout(url,12000);
     const list=parseCountyNames(data);
     buildList($("countyList"),list.map(c=>[c,c]),(val,label)=>{
       selectedCounty=val;
@@ -209,9 +217,11 @@ $("clear").onclick=()=>{
   $("countyList").innerHTML="";$("countySearch").value="";
   $("countyBtn").disabled=true;$("countySearch").disabled=true;
   $("countyHelp").textContent="Cleared. Pick a state to load counties.";
-  $("debug").textContent="";setStatus("Idle");updateSelected();
+  $("urlOut").value="—";
+  setStatus("Idle");updateSelected();
 };
-$("copy").onclick=()=>navigator.clipboard.writeText($("selOut").textContent||"");
+$("copySel").onclick=()=>navigator.clipboard.writeText($("selOut").textContent||"");
+$("copyUrl").onclick=()=>navigator.clipboard.writeText($("urlOut").value||"");
 
 /* boot */
 (async()=>{
