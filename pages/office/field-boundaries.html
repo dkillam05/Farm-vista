@@ -50,7 +50,7 @@
     .thumb .tools{position:absolute;inset:auto 6px 6px 6px;display:flex;gap:6px}
     .thumb .tools button{font-size:12px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer}
 
-    /* Modal (Annotate) */
+    /* Modal (Annotate & View) */
     .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0}
     .modal[open]{display:grid;opacity:1}
     .dialog{width:min(880px,94vw);max-height:88vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
@@ -67,9 +67,16 @@
 
     /* Work orders list */
     .wo-list{padding:14px;display:grid;gap:10px}
-    .wo-item{border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--card-surface,var(--surface))}
+    .wo-item{border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--card-surface,var(--surface));
+      cursor:pointer}
+    .wo-item:active{transform:scale(.995)}
     .wo-head{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
     .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;background:var(--surface);color:var(--muted,#67706B)}
+
+    /* View modal photos */
+    .vm-photos{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+    .vm-photos a{display:block;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#f6f7f6}
+    .vm-photos img{width:96px;height:96px;object-fit:cover;display:block}
   </style>
 </head>
 <body>
@@ -206,11 +213,27 @@
     </div>
   </div>
 
+  <!-- Modal (READ-ONLY view of an existing work order) -->
+  <div id="viewModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
+      <div class="dialog-head">
+        <h3 id="vmTitle">Work Order</h3>
+        <button class="closex" id="vmClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="vmBody">
+        <!-- filled dynamically -->
+      </div>
+      <div class="dialog-foot">
+        <div class="muted">View only</div>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, addDoc, updateDoc, doc, serverTimestamp,
+      collection, getDocs, addDoc, updateDoc, doc, getDoc, serverTimestamp,
       query, where, orderBy
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -343,11 +366,8 @@
 
     let ann = {
       canvas:null, ctx:null, img:null, idx:null,
-      tool:"pen",
-      drawing:false,
-      start:null,
-      undoStack:[],
-      dpr: 1
+      tool:"pen", drawing:false, start:null,
+      undoStack:[], dpr: 1
     };
 
     function setTool(which){
@@ -397,7 +417,6 @@
         if(ann.undoStack.length>30) ann.undoStack.shift();
       }catch(_){}
     }
-
     function restoreLast(){
       if(!ann.undoStack.length) return;
       const last = ann.undoStack.pop();
@@ -406,7 +425,6 @@
         ann.ctx.putImageData(last,0,0);
       }
     }
-
     mdUndo.addEventListener("click", restoreLast);
     mdReset.addEventListener("click", ()=>{
       if(ann.img && ann.canvas){
@@ -418,7 +436,6 @@
         pushUndo();
       }
     });
-
     mdSave.addEventListener("click", ()=>{
       if(!ann.canvas || ann.idx==null) return;
       ann.canvas.toBlob(b=>{
@@ -616,9 +633,8 @@
     async function renderActiveWorkOrders(db, fieldId){
       if(!fieldId){ woHero.hidden=true; return; }
       try{
-        // Query all for fieldId, newest first; filter out Closed client-side
-        const q = query(collection(db,'boundary_requests'), where('fieldId','==',fieldId), orderBy('createdAt','desc'));
-        const snap = await getDocs(q);
+        const qy = query(collection(db,'boundary_requests'), where('fieldId','==',fieldId), orderBy('createdAt','desc'));
+        const snap = await getDocs(qy);
         const items = [];
         snap.forEach(s=>{
           const d = s.data()||{};
@@ -642,6 +658,10 @@
         items.forEach(it=>{
           const li = document.createElement('div');
           li.className = 'wo-item';
+          li.setAttribute('role','button');
+          li.setAttribute('tabindex','0');
+          li.dataset.id = it.id;
+
           const whenTxt = fmtDate(it.createdAt) || it.when || '';
           li.innerHTML = `
             <div class="wo-head">
@@ -654,6 +674,8 @@
             </div>
             ${it.notes? `<div style="margin-top:6px">${esc(it.notes)}</div>` : ''}
           `;
+          li.addEventListener('click', ()=> openWorkOrderView(db, it.id, fieldName));
+          li.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); openWorkOrderView(db, it.id, fieldName); }});
           woList.appendChild(li);
         });
       }catch(e){
@@ -669,6 +691,68 @@
       const db = getFirestore();
       await renderActiveWorkOrders(db, fieldSel.value);
     });
+
+    /* ===== View (read-only) modal for an existing request ===== */
+    const viewModal = $("viewModal"), vmClose = $("vmClose"), vmBody = $("vmBody"), vmTitle = $("vmTitle");
+    function openView(){ viewModal.setAttribute("open",""); viewModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); }
+    function closeView(){ viewModal.removeAttribute("open"); viewModal.setAttribute("aria-hidden","true");
+      vmBody.innerHTML=""; document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll"); }
+    vmClose.addEventListener("click", closeView);
+    viewModal.addEventListener("click", e=>{ if(e.target===viewModal) closeView(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && viewModal.hasAttribute("open")) closeView(); });
+
+    async function openWorkOrderView(db, id, fieldNameLabel){
+      try{
+        const ref = doc(db, 'boundary_requests', id);
+        const snap = await getDoc(ref);
+        if(!snap.exists()){ return; }
+        const it = snap.data() || {};
+        const whenTxt = fmtDate(it.createdAt) || it.when || '';
+        vmTitle.textContent = `Work Order — ${fieldNameLabel || it.field || ''}`;
+
+        const photos = Array.isArray(it.photos) ? it.photos : [];
+        const photoHTML = photos.length
+          ? `<div class="vm-photos">` + photos.map(p=> {
+              const url = esc(p.url || "");
+              const nm  = esc(p.name || "photo");
+              return `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${nm}"/></a>`;
+            }).join("") + `</div>`
+          : `<div class="muted">No photos attached.</div>`;
+
+        vmBody.innerHTML = `
+          <div class="row" style="margin-bottom:8px">
+            <div class="field"><label>Status</label><div class="pill">${esc(it.status||'Open')}</div></div>
+            <div class="field"><label>Date</label><div class="pill">${esc(whenTxt)}</div></div>
+          </div>
+
+          <div class="field" style="margin-bottom:8px">
+            <label>Boundary Type</label>
+            <div><strong>${esc(it.boundaryType||'—')}</strong></div>
+          </div>
+
+          <div class="field" style="margin-bottom:8px">
+            <label>Submitted By</label>
+            <div>${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}</div>
+          </div>
+
+          ${it.notes ? `
+          <div class="field" style="margin-bottom:8px">
+            <label>Notes</label>
+            <div>${esc(it.notes)}</div>
+          </div>` : ''}
+
+          <div class="field">
+            <label>Photos</label>
+            ${photoHTML}
+            <div class="help" style="margin-top:6px">Tap a thumbnail to open the full image in a new tab.</div>
+          </div>
+        `;
+        openView();
+      }catch(e){
+        alert("Unable to open work order: " + (e?.message||e));
+      }
+    }
 
     /* ===== Boot ===== */
     (async function(){
