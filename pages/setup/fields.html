@@ -44,6 +44,11 @@
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
+    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+    .switch{display:flex;gap:10px;align-items:center}
+    .switch input{width:22px;height:22px}
+
+    /* List + filter */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
     .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
     .list-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -54,19 +59,24 @@
     .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
     .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
 
-    /* Picker (used purely to *choose* a value; underlying <select> stays real & working) */
-    .picker-scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;place-items:end;z-index:99999}
-    .picker-scrim[open]{display:grid}
-    .picker{width:100%;max-width:720px;margin:0 auto;background:var(--surface);border-top-left-radius:14px;border-top-right-radius:14px;
-      box-shadow:0 -12px 24px rgba(0,0,0,.24);border:1px solid var(--border);border-bottom:0}
-    .picker-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)}
-    .picker-search{flex:1;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;background:var(--card-surface,var(--surface))}
-    .picker-list{max-height:min(62vh,520px);overflow:auto}
-    .picker-item{padding:12px;border-bottom:1px solid var(--border);cursor:pointer}
-    .picker-item[aria-selected="true"]{font-weight:800}
-    .picker-empty{padding:16px;color:var(--muted)}
-    .picker-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px;border-top:1px solid var(--border)}
+    /* Modal */
+    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
+    .modal[open]{display:grid;opacity:1;}
+    .dialog{width:min(640px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
+    .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+    .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
+    .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
+    .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
+
+    /* Toast */
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 5s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    .muted{ color:var(--muted,#67706B); }
   </style>
 
   <!-- Ensure fv-shell -->
@@ -107,7 +117,7 @@
             </div>
           </div>
 
-          <!-- State → County (status pill removed) -->
+          <!-- NEW: State → County (live ACS API) -->
           <div class="row-3">
             <div class="field">
               <label for="stateSelect">State</label>
@@ -117,7 +127,9 @@
               <label for="countySelect">County</label>
               <select id="countySelect" class="select" disabled></select>
             </div>
-            <div class="field"></div>
+            <div class="field" style="display:flex;align-items:end;gap:8px">
+              <span id="countyStatus" class="pill">Idle</span>
+            </div>
           </div>
 
           <!-- RTK Tower Information -->
@@ -151,20 +163,7 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
-  <!-- Shared picker for searchable State/County -->
-  <div id="pickerScrim" class="picker-scrim" aria-hidden="true">
-    <div class="picker" role="dialog" aria-modal="true">
-      <div class="picker-head">
-        <input id="pickerSearch" class="picker-search" placeholder="Search…"/>
-      </div>
-      <div id="pickerList" class="picker-list" role="listbox"></div>
-      <div class="picker-actions">
-        <button id="pickerClose" class="closex" type="button">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: View/Edit Field (unchanged visually, pill removed) -->
+  <!-- Modal: View/Edit Field -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -183,6 +182,7 @@
           </div>
         </div>
 
+        <!-- NEW: State → County in Edit modal -->
         <div class="row-3">
           <div class="field">
             <label for="editState">State</label>
@@ -192,7 +192,9 @@
             <label for="editCounty">County</label>
             <select id="editCounty" class="select" disabled></select>
           </div>
-          <div class="field"></div>
+          <div class="field" style="display:flex;align-items:end;gap:8px">
+            <span id="editCountyStatus" class="pill">Idle</span>
+          </div>
         </div>
 
         <div class="row-3">
@@ -222,6 +224,7 @@
           </div>
         </div>
 
+        <!-- RTK in Edit -->
         <div class="row-2">
           <div class="field">
             <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
@@ -257,64 +260,6 @@
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
-    /* ---------------- Searchable Picker (non-destructive) ---------------- */
-    const Picker = (()=> {
-      const scrim = $("pickerScrim");
-      const list  = $("pickerList");
-      const search= $("pickerSearch");
-      const close = $("pickerClose");
-      let current = null; // { selectEl }
-
-      function openFor(selectEl){
-        current = { selectEl };
-        // Mirror options from the real <select>
-        const opts = Array.from(selectEl.options).map(o=>({v:o.value, t:o.textContent, sel:o.selected}));
-        render(opts);
-        scrim.setAttribute("open","");
-        scrim.removeAttribute("aria-hidden");
-        search.value=""; search.focus({preventScroll:true});
-      }
-      function closePicker(){
-        scrim.removeAttribute("open");
-        scrim.setAttribute("aria-hidden","true");
-        list.innerHTML=""; current=null;
-      }
-      function render(opts){
-        const q = search.value.trim().toLowerCase();
-        const rows = q ? opts.filter(o=> o.t.toLowerCase().includes(q) || (o.v||"").toLowerCase().includes(q)) : opts;
-        if(!rows.length){ list.innerHTML='<div class="picker-empty">No matches</div>'; return; }
-        list.innerHTML = rows.map(o=>`<div class="picker-item" role="option" data-v="${o.v}" aria-selected="${o.sel?'true':'false'}">${o.t}</div>`).join('');
-      }
-
-      search.addEventListener("input", ()=>{
-        if(!current) return;
-        const opts = Array.from(current.selectEl.options).map(o=>({v:o.value, t:o.textContent, sel:o.selected}));
-        render(opts);
-      });
-      list.addEventListener("click", (e)=>{
-        const row = e.target.closest(".picker-item"); if(!row || !current) return;
-        const v = row.getAttribute("data-v");
-        current.selectEl.value = v;
-        current.selectEl.dispatchEvent(new Event("change",{bubbles:true}));
-        closePicker();
-      });
-      close.addEventListener("click", closePicker);
-      scrim.addEventListener("click", e=>{ if(e.target===scrim) closePicker(); });
-      document.addEventListener("keydown", e=>{ if(e.key==="Escape" && scrim.hasAttribute("open")) closePicker(); });
-
-      // Attach to selects—intercept before native menu opens
-      function enhance(selectEl){
-        selectEl.addEventListener("pointerdown", (e)=>{
-          // Only open our picker for State/County – farms should behave natively
-          if(selectEl.dataset.picker!=="true") return;
-          e.preventDefault();
-          openFor(selectEl);
-        }, {capture:true});
-      }
-
-      return { enhance };
-    })();
-
     /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
@@ -335,7 +280,6 @@
       NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
-    const COUNTY_CACHE = new Map(); // state -> [names]
     function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
       return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
@@ -345,7 +289,7 @@
       const t = setTimeout(()=>ctrl.abort(), ms);
       try{
         const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
-        if(!res.ok){ throw new Error(\`HTTP \${res.status}\`); }
+        if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
         return await res.json();
       } finally { clearTimeout(t); }
     }
@@ -362,12 +306,22 @@
       out.sort((a,b)=>a.localeCompare(b));
       return out;
     }
-    async function ensureCounties(stateCode){
-      if(COUNTY_CACHE.has(stateCode)) return COUNTY_CACHE.get(stateCode);
-      const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
-      const list = parseCountyNames(data);
-      COUNTY_CACHE.set(stateCode, list);
-      return list;
+    async function loadCountiesInto(selectEl, statusEl, stateCode, presetValue){
+      statusEl.textContent = "Loading…";
+      selectEl.innerHTML = ""; selectEl.disabled = true;
+      try{
+        const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
+        const list = parseCountyNames(data);
+        const opts = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
+        selectEl.innerHTML = opts;
+        selectEl.disabled = list.length===0;
+        if(presetValue){ selectEl.value = presetValue; }
+        statusEl.textContent = "Live";
+      }catch(_){
+        statusEl.textContent = "Error";
+        selectEl.innerHTML = '<option value="">—</option>';
+        selectEl.disabled = true;
+      }
     }
 
     /* ===== App helpers ===== */
@@ -492,24 +446,6 @@
       if(val) sel.value = val;
     }
 
-    /* ===== States & Counties ===== */
-    function populateStates(sel, preset="IL"){
-      sel.innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-      sel.value = preset;
-    }
-    async function loadCountiesInto(selectEl, stateCode, presetValue){
-      selectEl.innerHTML = '<option value="">—</option>'; selectEl.disabled = true;
-      try{
-        const list = await ensureCounties(stateCode);
-        const html = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
-        selectEl.innerHTML = html;
-        selectEl.disabled = list.length===0;
-        if(presetValue){ selectEl.value = presetValue; }
-      }catch{
-        selectEl.innerHTML = '<option value="">—</option>'; selectEl.disabled = true;
-      }
-    }
-
     /* ===== Create / Validate ===== */
     function validateNew(){
       if($("farmSelect").disabled) return "Please add a Farm first.";
@@ -529,10 +465,10 @@
       const payload = {
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
-        state: $("stateSelect").value,
-        county: $("countySelect").value,
+        state: $("stateSelect").value,             // NEW
+        county: $("countySelect").value,           // county name only
         tillable: toNum($("tillable").value),
-        hasHEL: false, helAcres: 0,
+        hasHEL: false, helAcres: 0,                // (you can re-enable the HEL/CRP UI later if needed)
         hasCRP: false, crpAcres: 0,
         rtkTowerId: $("rtkSelect").value || "",
         status: "active",
@@ -547,7 +483,9 @@
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
+      // reset county
       $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
+      $("countyStatus").textContent = "Idle";
 
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
@@ -620,7 +558,7 @@
       editId = id;
       populateFarmSelects();
       populateStates($("editState"));
-      populateStates($("stateSelect"));
+      populateStates($("stateSelect")); // ensure add-form has states too
       populateRTKSelect($("editRtkSelect"));
 
       const ref = doc(db, 'fields', id);
@@ -632,7 +570,9 @@
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
       $("editState").value    = it.state || "IL";
-      await loadCountiesInto($("editCounty"), $("editState").value, it.county || "");
+      $("editCountyStatus").textContent = "Loading…";
+      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value, it.county || "");
+      $("editCountyStatus").textContent = "Live";
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -659,7 +599,7 @@
 
     $("editState").addEventListener("change", async ()=>{
       $("editCounty").value = "";
-      await loadCountiesInto($("editCounty"), $("editState").value);
+      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value);
     });
 
     mdSave.addEventListener("click", async ()=>{
@@ -676,7 +616,10 @@
       if(!(tillable>0)){ alert("Please enter Tillable Acres."); return; }
 
       const ref = doc(db,'fields', editId);
-      await updateDoc(ref, { name, farmId, state, county, tillable, updatedAt: serverTimestamp() });
+      await updateDoc(ref, {
+        name, farmId, state, county, tillable,
+        updatedAt: serverTimestamp()
+      });
 
       await renderList();
       showToast("Changes saved.");
@@ -709,6 +652,12 @@
       closeModal();
     });
 
+    /* ===== State dropdowns (both Add + Edit) ===== */
+    function populateStates(sel){
+      sel.innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
+      sel.value = "IL";
+    }
+
     /* ===== Boot ===== */
     (async ()=>{
       wireNetToasts();
@@ -719,12 +668,13 @@
       await loadFarms();
       populateFarmSelects();
 
-      // States + first county load (Add form)
+      // State dropdowns + first county load for Add form
       populateStates($("stateSelect"));
-      await loadCountiesInto($("countySelect"), $("stateSelect").value);
+      $("countyStatus").textContent = "Loading…";
+      await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
       $("stateSelect").addEventListener("change", async ()=>{
         $("countySelect").value = "";
-        await loadCountiesInto($("countySelect"), $("stateSelect").value);
+        await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
       });
 
       await loadRTKTowers();
@@ -740,19 +690,10 @@
         $("rtkSelect").value = "";
         $("stateSelect").value = "IL";
         $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
+        $("countyStatus").textContent = "Idle";
       });
 
       $("filterFarm").addEventListener("change", renderList);
-
-      // Make State/County selects searchable (without breaking their real values)
-      $("stateSelect").dataset.picker = "true";
-      $("countySelect").dataset.picker = "true";
-      $("editState").dataset.picker = "true";
-      $("editCounty").dataset.picker = "true";
-      Picker.enhance($("stateSelect"));
-      Picker.enhance($("countySelect"));
-      Picker.enhance($("editState"));
-      Picker.enhance($("editCounty"));
 
       if (hasStore && window.FVStore.subscribe){
         try{
