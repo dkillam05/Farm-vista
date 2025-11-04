@@ -1,195 +1,232 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>State → County Picker (API-Only • ACS5)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <style>
-    html,body{margin:0;padding:0;background:#fff;color:#141514;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    .wrap{max-width:760px;margin:32px auto;padding:0 16px}
-    h1{margin:0 0 6px 0;font-size:22px}
-    p{margin:0 0 16px 0;color:#67706B}
-    .card{border:1px solid #d7dad7;border-radius:12px;padding:16px}
-    .row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
-    @media (max-width:720px){.row{grid-template-columns:1fr}}
-    label{display:block;font-weight:800;margin:0 0 6px}
-    select{width:100%;padding:10px 12px;border:1px solid #d7dad7;border-radius:10px;background:#fff;color:#141514;font:inherit;outline:none}
-    .help{margin-top:6px;font-size:13px;color:#67706B}
-    .bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
-    .btn{border:1px solid #d7dad7;border-radius:10px;background:#f7f8f7;padding:8px 12px;font-weight:800;cursor:pointer}
-    .btn-primary{background:#3B7E46;border-color:#3B7E46;color:#fff}
-    .pill{font-size:12px;border:1px solid #d7dad7;border-radius:999px;padding:4px 8px;color:#67706B;background:#fff}
-    .out{margin-top:12px;border:1px dashed #d7dad7;border-radius:10px;padding:10px}
-    .err{color:#b3261e;font-weight:700}
-    code{background:#f3f4f3;border:1px solid #e4e6e4;border-radius:6px;padding:2px 6px}
-  </style>
+<meta charset="utf-8"/>
+<title>State → County Picker (Searchable)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  html,body{margin:0;padding:0;background:#fff;color:#141514;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  .wrap{max-width:760px;margin:32px auto;padding:0 16px}
+  h1{margin:0 0 6px;font-size:22px}
+  p{margin:0 0 16px;color:#67706B}
+  .card{border:1px solid #d7dad7;border-radius:12px;padding:16px}
+  .row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  @media(max-width:720px){.row{grid-template-columns:1fr}}
+  label{display:block;font-weight:800;margin:0 0 6px}
+  .dropdown{position:relative}
+  .dropdown button{width:100%;text-align:left;padding:10px 12px;border:1px solid #d7dad7;border-radius:10px;background:#fff;font:inherit;color:#141514;cursor:pointer}
+  .dropdown-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid #d7dad7;border-radius:10px;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
+  .dropdown.open .dropdown-list{display:block}
+  .dropdown-list input{width:100%;box-sizing:border-box;padding:8px 10px;border:none;border-bottom:1px solid #d7dad7;font:inherit;outline:none}
+  .dropdown-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+  .dropdown-list li{padding:8px 10px;cursor:pointer}
+  .dropdown-list li:hover{background:#f0f1f0}
+  .btn{border:1px solid #d7dad7;border-radius:10px;background:#f7f8f7;padding:8px 12px;font-weight:800;cursor:pointer}
+  .btn-primary{background:#3B7E46;border-color:#3B7E46;color:#fff}
+  .pill{font-size:12px;border:1px solid #d7dad7;border-radius:999px;padding:4px 8px;color:#67706B;background:#fff}
+  .help{margin-top:6px;font-size:13px;color:#67706B}
+  .bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .out{margin-top:12px;border:1px dashed #d7dad7;border-radius:10px;padding:10px}
+  .err{color:#b3261e;font-weight:700}
+  code{background:#f3f4f3;border:1px solid #e4e6e4;border-radius:6px;padding:2px 6px}
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>State → County Picker (API-Only • ACS5)</h1>
-    <p>Calls the U.S. Census <strong>ACS 5-year</strong> API with your key. No cache. No fallback. If it fails, you’ll see the URL and error.</p>
+<div class="wrap">
+  <h1>State → County Picker (with Built-In Search)</h1>
+  <p>Live pulls from U.S. Census (ACS5). Built-in search boxes appear inside each dropdown.</p>
 
-    <div class="card">
-      <div class="row">
-        <div>
-          <label for="stateSel">State</label>
-          <select id="stateSel"></select>
-        </div>
-        <div>
-          <label for="countySel">County</label>
-          <select id="countySel" disabled><option value="">—</option></select>
-          <div id="countyHelp" class="help">Pick a state to load counties.</div>
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>State</label>
+        <div id="stateDropdown" class="dropdown">
+          <button type="button" id="stateBtn">Select a state…</button>
+          <div class="dropdown-list">
+            <input type="text" placeholder="Search state…" id="stateSearch">
+            <ul id="stateList"></ul>
+          </div>
         </div>
       </div>
-
-      <div class="bar">
-        <button id="retry" class="btn" type="button">Retry</button>
-        <button id="clear" class="btn" type="button">Clear</button>
-        <button id="copy" class="btn btn-primary" type="button">Copy selection</button>
-        <span id="status" class="pill">Idle</span>
-      </div>
-
-      <div class="out">
-        <div><strong>Selected:</strong> <span id="selOut">—</span></div>
-        <div id="debug" class="help" style="margin-top:8px"></div>
+      <div>
+        <label>County</label>
+        <div id="countyDropdown" class="dropdown">
+          <button type="button" id="countyBtn" disabled>Select a county…</button>
+          <div class="dropdown-list">
+            <input type="text" placeholder="Search county…" id="countySearch" disabled>
+            <ul id="countyList"></ul>
+          </div>
+        </div>
+        <div id="countyHelp" class="help">Pick a state to load counties.</div>
       </div>
     </div>
+
+    <div class="bar">
+      <button id="retry" class="btn" type="button">Retry</button>
+      <button id="clear" class="btn" type="button">Clear</button>
+      <button id="copy" class="btn btn-primary" type="button">Copy selection</button>
+      <span id="status" class="pill">Idle</span>
+    </div>
+
+    <div class="out">
+      <div><strong>Selected:</strong> <span id="selOut">—</span></div>
+      <div id="debug" class="help" style="margin-top:8px"></div>
+    </div>
   </div>
+</div>
 
-  <script>
-  (function(){
-    "use strict";
-    const $ = id => document.getElementById(id);
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const CENSUS_KEY="14a8ad456efef642983bd8e830809694965b003f";
 
-    /* --- Your Census API key --- */
-    const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
+const STATES=[["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
+["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],["GA","Georgia"],
+["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],
+["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],
+["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],
+["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],
+["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],
+["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],
+["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]];
+const STATE_TO_FIPS={AL:"01",AK:"02",AZ:"04",AR:"05",CA:"06",CO:"08",CT:"09",DE:"10",DC:"11",FL:"12",GA:"13",
+HI:"15",ID:"16",IL:"17",IN:"18",IA:"19",KS:"20",KY:"21",LA:"22",ME:"23",MD:"24",MA:"25",MI:"26",MN:"27",
+MS:"28",MO:"29",MT:"30",NE:"31",NV:"32",NH:"33",NJ:"34",NM:"35",NY:"36",NC:"37",ND:"38",OH:"39",OK:"40",
+OR:"41",PA:"42",RI:"44",SC:"45",SD:"46",TN:"47",TX:"48",UT:"49",VT:"50",VA:"51",WA:"53",WV:"54",WI:"55",WY:"56"};
 
-    /* --- States + FIPS --- */
-    const STATES = [
-      ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
-      ["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],["GA","Georgia"],
-      ["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],
-      ["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],
-      ["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],
-      ["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],
-      ["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],
-      ["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],
-      ["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]
-    ];
-    const STATE_TO_FIPS = {
-      AL:"01", AK:"02", AZ:"04", AR:"05", CA:"06", CO:"08", CT:"09", DE:"10", DC:"11", FL:"12", GA:"13",
-      HI:"15", ID:"16", IL:"17", IN:"18", IA:"19", KS:"20", KY:"21", LA:"22", ME:"23", MD:"24", MA:"25",
-      MI:"26", MN:"27", MS:"28", MO:"29", MT:"30", NE:"31", NV:"32", NH:"33", NJ:"34", NM:"35", NY:"36",
-      NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
-      UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
-    };
+let selectedState="IL", selectedCounty="";
 
-    /* --- UI helpers --- */
-    function setStatus(txt){ $("status").textContent = txt; }
-    function setCounties(list){
-      const sel = $("countySel");
-      const opts = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
-      sel.innerHTML = opts;
-      sel.disabled = list.length===0;
-    }
-    function populateStates(defaultCode="IL"){
-      $("stateSel").innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-      $("stateSel").value = defaultCode;
-    }
-    function updateSelected(){
-      const st = $("stateSel").value || "";
-      const stName = STATES.find(([c])=>c===st)?.[1] || "";
-      const county = $("countySel").value || "";
-      $("selOut").textContent = (st && county) ? `${county}, ${st} — ${stName}` : "—";
-    }
+function setStatus(t){$("status").textContent=t;}
+function updateSelected(){
+  const stName=STATES.find(([c])=>c===selectedState)?.[1]||"";
+  $("selOut").textContent=(selectedState&&selectedCounty)?`${selectedCounty}, ${selectedState} — ${stName}`:"—";
+}
 
-    /* --- Build ACS5 URL and fetch --- */
-    function acsUrl(stateCode){
-      const fips = STATE_TO_FIPS[stateCode];
-      // ACS 5-year — returns rows: ["NAME","state","county"], then one per county
-      return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
-    }
-    async function fetchWithTimeout(url, ms){
-      const ctrl = new AbortController();
-      const t = setTimeout(()=>ctrl.abort(), ms);
-      try{
-        const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
-        if(!res.ok){
-          const text = await res.text().catch(()=> "");
-          throw new Error(`HTTP ${res.status} ${res.statusText}${text ? " — "+text.slice(0,120) : ""}`);
-        }
-        return await res.json();
-      } finally { clearTimeout(t); }
-    }
-    function parseCountyNames(rows){
-      const out = [];
-      for(let i=1;i<rows.length;i++){
-        const nm = String(rows[i][0]||""); // "Adams County, Illinois"
-        const m = nm.match(/^(.+?)\s+County\b/i)
-               || nm.match(/^(.+?)\s+Parish\b/i)
-               || nm.match(/^(.+?)\s+Borough\b/i)
-               || nm.match(/^(.+?)\s+Census Area\b/i);
-        out.push((m?m[1]:nm).trim());
-      }
-      out.sort((a,b)=>a.localeCompare(b));
-      return out;
-    }
+function buildList(container, items, clickHandler){
+  container.innerHTML="";
+  items.forEach(([val,label])=>{
+    const li=document.createElement("li");
+    li.textContent=label;
+    li.dataset.value=val;
+    li.onclick=()=>clickHandler(val,label);
+    container.appendChild(li);
+  });
+}
 
-    async function loadCounties(stateCode){
-      const help = $("countyHelp");
-      const url = acsUrl(stateCode);
-      $("debug").innerHTML = `URL: <code>${url}</code>`;
-      setStatus("Loading…");
-      help.textContent = "Requesting from U.S. Census (ACS5)…";
-      setCounties([]);
+function acsUrl(stateCode){
+  const fips=STATE_TO_FIPS[stateCode];
+  return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
+}
+async function fetchWithTimeout(url,ms){
+  const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),ms);
+  try{
+    const res=await fetch(url,{signal:ctrl.signal,mode:"cors",cache:"no-store"});
+    if(!res.ok)throw new Error("HTTP "+res.status);
+    return await res.json();
+  }finally{clearTimeout(t);}
+}
+function parseCountyNames(rows){
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const nm=String(rows[i][0]||"");
+    const m=nm.match(/^(.+?)\s+(County|Parish|Borough|Census Area)/i);
+    out.push((m?m[1]:nm).trim());
+  }
+  out.sort((a,b)=>a.localeCompare(b));
+  return out;
+}
 
-      try{
-        const data = await fetchWithTimeout(url, 12000);
-        const list = parseCountyNames(data);
-        if(!list.length) throw new Error("Empty result");
-        setCounties(list);
-        help.textContent = "Live from U.S. Census (ACS5).";
-        setStatus("Live");
-      }catch(err){
-        console.error(err);
-        help.innerHTML = `<span class="err">Error:</span> ${err.message}`;
-        setStatus("Error");
-        setCounties([]);
-      }
-    }
-
-    /* --- Wire UI --- */
-    $("stateSel").addEventListener("change", async ()=>{
-      await loadCounties($("stateSel").value);
-      $("countySel").value = "";
+async function loadCounties(stateCode){
+  $("countyHelp").textContent="Requesting from Census…";
+  setStatus("Loading…");
+  $("countyList").innerHTML="";
+  $("countySearch").value="";
+  try{
+    const data=await fetchWithTimeout(acsUrl(stateCode),12000);
+    const list=parseCountyNames(data);
+    buildList($("countyList"),list.map(c=>[c,c]),(val,label)=>{
+      selectedCounty=val;
+      $("countyBtn").textContent=label;
+      $("countyDropdown").classList.remove("open");
       updateSelected();
     });
-    $("countySel").addEventListener("change", updateSelected);
-    $("retry").addEventListener("click", async ()=>{
-      await loadCounties($("stateSel").value || "IL");
-    });
-    $("clear").addEventListener("click", ()=>{
-      $("stateSel").value = "IL";
-      setCounties([]);
-      $("countySel").value = "";
-      $("countySel").disabled = true;
-      $("countyHelp").textContent = "Cleared. Pick a state to load counties.";
-      setStatus("Idle");
-      $("debug").textContent = "";
-      updateSelected();
-    });
-    $("copy").addEventListener("click", async ()=>{
-      try{ await navigator.clipboard.writeText($("selOut").textContent||""); }catch{}
-    });
+    $("countyBtn").disabled=false;
+    $("countySearch").disabled=false;
+    $("countyHelp").textContent="Live from U.S. Census (ACS5).";
+    setStatus("Live");
+  }catch(e){
+    $("countyHelp").innerHTML=`<span class="err">Error:</span> ${e.message}`;
+    setStatus("Error");
+  }
+}
 
-    /* --- Boot --- */
-    (async ()=>{
-      populateStates("IL");
-      await loadCounties("IL");
-      updateSelected();
-    })();
+/* ---- Dropdown search filtering ---- */
+function setupSearch(inputEl,listEl){
+  inputEl.addEventListener("input",()=>{
+    const term=inputEl.value.toLowerCase();
+    listEl.querySelectorAll("li").forEach(li=>{
+      li.style.display=li.textContent.toLowerCase().includes(term)?"":"none";
+    });
+  });
+}
 
-  })();
-  </script>
+/* ---- State dropdown ---- */
+buildList($("stateList"),STATES,(val,label)=>{
+  selectedState=val;
+  $("stateBtn").textContent=label;
+  $("stateDropdown").classList.remove("open");
+  selectedCounty="";
+  $("countyBtn").textContent="Select a county…";
+  loadCounties(val);
+  updateSelected();
+});
+
+/* open/close handlers */
+document.querySelectorAll(".dropdown button").forEach(btn=>{
+  btn.addEventListener("click",e=>{
+    const dd=e.target.closest(".dropdown");
+    document.querySelectorAll(".dropdown").forEach(d=>{if(d!==dd)d.classList.remove("open");});
+    dd.classList.toggle("open");
+    const inp=dd.querySelector("input");
+    if(dd.classList.contains("open")&&inp){setTimeout(()=>inp.focus(),100);}
+  });
+});
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".dropdown"))document.querySelectorAll(".dropdown").forEach(d=>d.classList.remove("open"));
+});
+
+/* searches */
+setupSearch($("stateSearch"),$("stateList"));
+setupSearch($("countySearch"),$("countyList"));
+
+/* bar buttons */
+$("retry").onclick=()=>loadCounties(selectedState||"IL");
+$("clear").onclick=()=>{
+  selectedState="IL";selectedCounty="";
+  $("stateBtn").textContent="Illinois";
+  $("countyBtn").textContent="Select a county…";
+  $("countyList").innerHTML="";$("countySearch").value="";
+  $("countyBtn").disabled=true;$("countySearch").disabled=true;
+  $("countyHelp").textContent="Cleared. Pick a state to load counties.";
+  $("debug").textContent="";setStatus("Idle");updateSelected();
+};
+$("copy").onclick=()=>navigator.clipboard.writeText($("selOut").textContent||"");
+
+/* boot */
+(async()=>{
+  $("stateBtn").textContent="Illinois";
+  buildList($("stateList"),STATES,(val,label)=>{
+    selectedState=val;
+    $("stateBtn").textContent=label;
+    $("stateDropdown").classList.remove("open");
+    loadCounties(val);
+    updateSelected();
+  });
+  await loadCounties("IL");
+  updateSelected();
+})();
+})();
+</script>
 </body>
 </html>
