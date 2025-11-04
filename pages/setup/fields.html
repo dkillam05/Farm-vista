@@ -44,6 +44,10 @@
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
+    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+    .switch{display:flex;gap:10px;align-items:center}
+    .switch input{width:22px;height:22px}
+
     /* List + filter */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
     .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
@@ -113,7 +117,7 @@
             </div>
           </div>
 
-          <!-- State → County (ACS) -->
+          <!-- NEW: State → County (live ACS API) -->
           <div class="row-3">
             <div class="field">
               <label for="stateSelect">State</label>
@@ -124,7 +128,7 @@
               <select id="countySelect" class="select" disabled></select>
             </div>
             <div class="field" style="display:flex;align-items:end;gap:8px">
-              <!-- helper pill removed -->
+              <span id="countyStatus" class="pill">Idle</span>
             </div>
           </div>
 
@@ -178,6 +182,7 @@
           </div>
         </div>
 
+        <!-- NEW: State → County in Edit modal -->
         <div class="row-3">
           <div class="field">
             <label for="editState">State</label>
@@ -187,7 +192,9 @@
             <label for="editCounty">County</label>
             <select id="editCounty" class="select" disabled></select>
           </div>
-          <div class="field" style="display:flex;align-items:end;gap:8px"></div>
+          <div class="field" style="display:flex;align-items:end;gap:8px">
+            <span id="editCountyStatus" class="pill">Idle</span>
+          </div>
         </div>
 
         <div class="row-3">
@@ -217,6 +224,7 @@
           </div>
         </div>
 
+        <!-- RTK in Edit -->
         <div class="row-2">
           <div class="field">
             <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
@@ -281,7 +289,7 @@
       const t = setTimeout(()=>ctrl.abort(), ms);
       try{
         const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
-        if(!res.ok){ throw new Error(\`HTTP \${res.status}\`); }
+        if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
         return await res.json();
       } finally { clearTimeout(t); }
     }
@@ -298,7 +306,8 @@
       out.sort((a,b)=>a.localeCompare(b));
       return out;
     }
-    async function loadCountiesInto(selectEl, stateCode, presetValue){
+    async function loadCountiesInto(selectEl, statusEl, stateCode, presetValue){
+      statusEl.textContent = "Loading…";
       selectEl.innerHTML = ""; selectEl.disabled = true;
       try{
         const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
@@ -307,7 +316,9 @@
         selectEl.innerHTML = opts;
         selectEl.disabled = list.length===0;
         if(presetValue){ selectEl.value = presetValue; }
+        statusEl.textContent = "Live";
       }catch(_){
+        statusEl.textContent = "Error";
         selectEl.innerHTML = '<option value="">—</option>';
         selectEl.disabled = true;
       }
@@ -454,10 +465,10 @@
       const payload = {
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
-        state: $("stateSelect").value,
-        county: $("countySelect").value,
+        state: $("stateSelect").value,             // NEW
+        county: $("countySelect").value,           // county name only
         tillable: toNum($("tillable").value),
-        hasHEL: false, helAcres: 0,
+        hasHEL: false, helAcres: 0,                // (you can re-enable the HEL/CRP UI later if needed)
         hasCRP: false, crpAcres: 0,
         rtkTowerId: $("rtkSelect").value || "",
         status: "active",
@@ -472,7 +483,9 @@
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
+      // reset county
       $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
+      $("countyStatus").textContent = "Idle";
 
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
@@ -544,11 +557,8 @@
     async function openEdit(id){
       editId = id;
       populateFarmSelects();
-
-      // states
-      $("editState").innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-      $("stateSelect").innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-
+      populateStates($("editState"));
+      populateStates($("stateSelect")); // ensure add-form has states too
       populateRTKSelect($("editRtkSelect"));
 
       const ref = doc(db, 'fields', id);
@@ -560,9 +570,9 @@
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
       $("editState").value    = it.state || "IL";
-
-      await loadCountiesInto($("editCounty"), $("editState").value, it.county || "");
-      $("editCounty").disabled = false;
+      $("editCountyStatus").textContent = "Loading…";
+      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value, it.county || "");
+      $("editCountyStatus").textContent = "Live";
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -589,9 +599,7 @@
 
     $("editState").addEventListener("change", async ()=>{
       $("editCounty").value = "";
-      $("editCounty").disabled = true;
-      await loadCountiesInto($("editCounty"), $("editState").value);
-      $("editCounty").disabled = false;
+      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value);
     });
 
     mdSave.addEventListener("click", async ()=>{
@@ -644,6 +652,12 @@
       closeModal();
     });
 
+    /* ===== State dropdowns (both Add + Edit) ===== */
+    function populateStates(sel){
+      sel.innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
+      sel.value = "IL";
+    }
+
     /* ===== Boot ===== */
     (async ()=>{
       wireNetToasts();
@@ -654,17 +668,13 @@
       await loadFarms();
       populateFarmSelects();
 
-      // states + initial county load for Add form
-      $("stateSelect").innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-      $("stateSelect").value = "IL";
-      await loadCountiesInto($("countySelect"), $("stateSelect").value);
-      $("countySelect").disabled = false;
-
+      // State dropdowns + first county load for Add form
+      populateStates($("stateSelect"));
+      $("countyStatus").textContent = "Loading…";
+      await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
       $("stateSelect").addEventListener("change", async ()=>{
         $("countySelect").value = "";
-        $("countySelect").disabled = true;
-        await loadCountiesInto($("countySelect"), $("stateSelect").value);
-        $("countySelect").disabled = false;
+        await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
       });
 
       await loadRTKTowers();
@@ -680,6 +690,7 @@
         $("rtkSelect").value = "";
         $("stateSelect").value = "IL";
         $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
+        $("countyStatus").textContent = "Idle";
       });
 
       $("filterFarm").addEventListener("change", renderList);
