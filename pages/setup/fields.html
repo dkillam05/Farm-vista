@@ -44,10 +44,6 @@
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
-    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-    .switch{display:flex;gap:10px;align-items:center}
-    .switch input{width:22px;height:22px}
-
     /* List + filter */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
     .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
@@ -70,13 +66,14 @@
     .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
 
-    /* Toast */
+    /* Toast + inline help */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 5s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
     .muted{ color:var(--muted,#67706B); }
+    .help-inline{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -123,10 +120,9 @@
               <select id="stateSelect" class="select"></select>
             </div>
             <div class="field">
-              <label for="countyInput">County</label>
-              <input id="countyInput" class="input" list="countyList" placeholder="Start typing…"/>
-              <datalist id="countyList"></datalist>
-              <div class="muted" style="margin-top:6px">County options come live from the U.S. Census for the selected state.</div>
+              <label for="countySelect">County</label>
+              <select id="countySelect" class="select"></select>
+              <div id="countyHelp" class="help-inline"></div>
             </div>
             <div class="field">
               <label for="rtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
@@ -210,9 +206,9 @@
             <select id="editState" class="select"></select>
           </div>
           <div class="field">
-            <label for="editCountyInput">County</label>
-            <input id="editCountyInput" class="input" list="editCountyList" placeholder="Start typing…"/>
-            <datalist id="editCountyList"></datalist>
+            <label for="editCountySelect">County</label>
+            <select id="editCountySelect" class="select"></select>
+            <div id="editCountyHelp" class="help-inline"></div>
           </div>
           <div class="field">
             <label for="editTillable">Tillable Acres</label>
@@ -323,6 +319,13 @@
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
 
+    /* ---------- Built-in minimal county lists for fallback ---------- */
+    const STATIC_COUNTIES = {
+      IL:["Adams","Alexander","Bond","Boone","Brown","Bureau","Calhoun","Carroll","Cass","Champaign","Christian","Clark","Clay","Clinton","Coles","Cook","Crawford","Cumberland","DeKalb","De Witt","Douglas","DuPage","Edgar","Edwards","Effingham","Fayette","Ford","Franklin","Fulton","Gallatin","Greene","Grundy","Hamilton","Hancock","Hardin","Henderson","Henry","Iroquois","Jackson","Jasper","Jefferson","Jersey","Jo Daviess","Johnson","Kane","Kankakee","Kendall","Knox","LaSalle","Lake","Lawrence","Lee","Livingston","Logan","McDonough","McHenry","McLean","Macon","Macoupin","Madison","Marion","Marshall","Mason","Massac","Menard","Mercer","Monroe","Montgomery","Morgan","Moultrie","Ogle","Peoria","Perry","Piatt","Pike","Pope","Pulaski","Putnam","Randolph","Richland","Rock Island","Saline","Sangamon","Schuyler","Scott","Shelby","St. Clair","Stark","Stephenson","Tazewell","Union","Vermilion","Wabash","Warren","Washington","Wayne","White","Whiteside","Will","Williamson","Winnebago","Woodford"],
+      MO:["Adair","Andrew","Atchison","Audrain","Barry","Barton","Bates","Benton","Bollinger","Boone","Buchanan","Butler","Caldwell","Callaway","Camden","Cape Girardeau","Carroll","Carter","Cass","Cedar","Chariton","Christian","Clark","Clay","Clinton","Cole","Cooper","Crawford","Dade","Dallas","Daviess","DeKalb","Dent","Douglas","Dunklin","Franklin","Gasconade","Gentry","Greene","Grundy","Harrison","Henry","Hickory","Holt","Howard","Howell","Iron","Jackson","Jasper","Jefferson","Johnson","Knox","Laclede","Lafayette","Lawrence","Lewis","Lincoln","Linn","Livingston","McDonald","Macon","Madison","Maries","Marion","Mercer","Miller","Mississippi","Moniteau","Monroe","Montgomery","Morgan","New Madrid","Newton","Nodaway","Oregon","Osage","Ozark","Pemiscot","Perry","Pettis","Phelps","Pike","Platte","Polk","Pulaski","Putnam","Ralls","Randolph","Ray","Reynolds","Ripley","Saline","Schuyler","Scotland","Scott","Shannon","Shelby","St. Charles","St. Clair","St. Francois","St. Louis","Ste. Genevieve","Stoddard","Stone","Sullivan","Taney","Texas","Vernon","Warren","Washington","Wayne","Webster","Worth","Wright","St. Louis City"],
+      IA:["Adair","Adams","Allamakee","Appanoose","Audubon","Benton","Black Hawk","Boone","Bremer","Buchanan","Buena Vista","Butler","Calhoun","Carroll","Cass","Cedar","Cerro Gordo","Cherokee","Chickasaw","Clarke","Clay","Clayton","Clinton","Crawford","Dallas","Davis","Decatur","Delaware","Des Moines","Dickinson","Dubuque","Emmet","Fayette","Floyd","Franklin","Fremont","Greene","Grundy","Guthrie","Hamilton","Hancock","Hardin","Harrison","Henry","Howard","Humboldt","Ida","Iowa","Jackson","Jasper","Jefferson","Johnson","Jones","Keokuk","Kossuth","Lee","Linn","Louisa","Lucas","Lyon","Madison","Mahaska","Marion","Marshall","Mills","Mitchell","Monona","Monroe","Montgomery","Muscatine","O'Brien","Osceola","Page","Palo Alto","Plymouth","Pocahontas","Polk","Pottawattamie","Poweshiek","Ringgold","Sac","Scott","Shelby","Sioux","Story","Tama","Taylor","Union","Van Buren","Wapello","Warren","Washington","Wayne","Webster","Winnebago","Winneshiek","Woodbury","Worth","Wright"]
+    };
+
     /* ---------- Firestore refs/cache ---------- */
     let db;
     let FARMS_CACHE = []; let FARMS_MAP = new Map();
@@ -334,39 +337,89 @@
     let RTK_MAP = new Map();
     const rtkTowersRef = ()=> collection(db, 'rtkTowers');
 
-    /* ---------- Live counties via U.S. Census API ---------- */
-    // Current allowed county names for chosen state (lowercased set for validation)
-    let CURRENT_COUNTY_SET = new Set();
+    /* ---------- County loading (cache → network → static) ---------- */
+    const COUNTY_CACHE_KEY = 'fv_counties_by_state_v1';
+
+    function getCountyCache(){
+      try{ return JSON.parse(localStorage.getItem(COUNTY_CACHE_KEY)||'{}'); }catch{ return {}; }
+    }
+    function setCountyCache(obj){
+      try{ localStorage.setItem(COUNTY_CACHE_KEY, JSON.stringify(obj)); }catch{}
+    }
 
     function populateStateSelect(sel, defaultCode="IL"){
       sel.innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join("");
       sel.value = defaultCode;
     }
 
-    async function fetchCountiesForState(stateCode){
-      const fips = STATE_TO_FIPS[stateCode];
-      if(!fips) { CURRENT_COUNTY_SET = new Set(); return []; }
-      const url = `https://api.census.gov/data/2023/pep/population?get=NAME&for=county:*&in=state:${fips}`;
-      const res = await fetch(url, {mode:'cors'});
-      if(!res.ok) throw new Error(`Census API ${res.status}`);
-      const data = await res.json(); // first row is header
-      // data rows like ["Adams County, Illinois","05000US17001", "001", "17"]
-      const out = [];
-      for (let i=1;i<data.length;i++){
-        const nameFull = String(data[i][0]||"");
-        // Extract "Adams" from "Adams County, Illinois"
-        const m = nameFull.match(/^(.+?)\s+County\b/i) || nameFull.match(/^(.+?)\s+Parish\b/i) || nameFull.match(/^(.+?)\s+Borough\b/i) || nameFull.match(/^(.+?)\s+Census Area\b/i);
-        const short = (m ? m[1] : nameFull).trim();
-        if(short) out.push(short);
-      }
-      // Sort alpha, build validation set
-      out.sort((a,b)=>a.localeCompare(b));
-      CURRENT_COUNTY_SET = new Set(out.map(x=>x.toLowerCase()));
-      return out;
+    function setCountyOptions(selectEl, list){
+      const opts = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`));
+      selectEl.innerHTML = opts.join('');
+      selectEl.disabled = list.length === 0;
     }
 
-    function setCountyDatalist(listEl, names){
-      listEl.innerHTML = names.map(c=>`<option value="${esc(c)}"></option>`).join("");
+    async function fetchCountiesFromCensus(stateCode, timeoutMs=6000){
+      const fips = STATE_TO_FIPS[stateCode];
+      if(!fips) return [];
+      const url = `https://api.census.gov/data/2023/pep/population?get=NAME&for=county:*&in=state:${fips}`;
+      const ctrl = new AbortController();
+      const t = setTimeout(()=>ctrl.abort(), timeoutMs);
+      try{
+        const res = await fetch(url, {mode:'cors', signal: ctrl.signal});
+        if(!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const out = [];
+        for (let i=1;i<data.length;i++){
+          const nameFull = String(data[i][0]||"");
+          const m = nameFull.match(/^(.+?)\s+County\b/i) || nameFull.match(/^(.+?)\s+Parish\b/i) || nameFull.match(/^(.+?)\s+Borough\b/i) || nameFull.match(/^(.+?)\s+Census Area\b/i);
+          const short = (m ? m[1] : nameFull).trim();
+          if(short) out.push(short);
+        }
+        out.sort((a,b)=>a.localeCompare(b));
+        return out;
+      } finally { clearTimeout(t); }
+    }
+
+    async function loadCountiesForState(stateCode, selectEl, helpEl){
+      helpEl.textContent = "Loading counties…";
+      // 1) local cache
+      const cache = getCountyCache();
+      if(cache[stateCode] && Array.isArray(cache[stateCode]) && cache[stateCode].length){
+        setCountyOptions(selectEl, cache[stateCode]);
+        helpEl.textContent = "Loaded from cache.";
+      }else{
+        setCountyOptions(selectEl, []); // clear
+      }
+
+      // 2) try live (with retry once)
+      try{
+        const live = await fetchCountiesFromCensus(stateCode);
+        if(live.length){
+          cache[stateCode] = live; setCountyCache(cache);
+          setCountyOptions(selectEl, live);
+          helpEl.textContent = "Live from U.S. Census.";
+          return;
+        }
+        throw new Error("Empty response");
+      }catch(_first){
+        try{
+          const live2 = await fetchCountiesFromCensus(stateCode, 9000); // retry w/ longer timeout
+          if(live2.length){
+            cache[stateCode] = live2; setCountyCache(cache);
+            setCountyOptions(selectEl, live2);
+            helpEl.textContent = "Live from U.S. Census.";
+            return;
+          }
+          throw new Error("Empty response");
+        }catch(_second){
+          // 3) static fallback
+          const fallback = STATIC_COUNTIES[stateCode] || [];
+          setCountyOptions(selectEl, fallback);
+          helpEl.textContent = fallback.length
+            ? "Using built-in list (offline fallback)."
+            : "No counties available. Check connection.";
+        }
+      }
     }
 
     /* ---------- Farms ---------- */
@@ -435,6 +488,8 @@
     }
 
     /* ---------- RTK Towers ---------- */
+    let RTK_CACHE = []; let RTK_MAP = new Map();
+    const rtkTowersRef = ()=> collection(db, 'rtkTowers');
     async function loadRTKTowers(){
       RTK_CACHE = []; RTK_MAP.clear();
       const qs = await getDocs(query(rtkTowersRef(), orderBy('name')));
@@ -526,9 +581,8 @@
       if(!$("fieldName").value.trim()) return "Please enter a Field Name.";
       const state = $("stateSelect").value;
       if(!state) return "Please choose a State.";
-      const county = $("countyInput").value.trim();
+      const county = $("countySelect").value;
       if(!county) return "Please choose a County.";
-      if(!CURRENT_COUNTY_SET.has(county.toLowerCase())) return "County must match a choice in the list (live data).";
       const till = toNum($("tillable").value);
       if(!(till>0)) return "Please enter Tillable Acres.";
       if($("hasHEL").checked){
@@ -551,7 +605,7 @@
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
         state: $("stateSelect").value,
-        county: $("countyInput").value.trim(),
+        county: $("countySelect").value,
         tillable: toNum($("tillable").value),
         hasHEL: $("hasHEL").checked,
         helAcres: $("hasHEL").checked ? toNum($("helAcres").value) : 0,
@@ -572,7 +626,7 @@
       $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
       $("hasCRP").checked = false; $("crpAcreWrap").style.display = "none"; $("crpAcres").value = "";
       $("rtkSelect").value = ""; setRTKHelpText("", $("rtkHelp"));
-      $("countyInput").value = "";
+      $("countySelect").value = "";
 
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
@@ -596,16 +650,8 @@
       $("editName").value     = it.name || "";
       $("editState").value    = it.state || "IL";
 
-      // Load counties live for the edit state, then set input
-      try{
-        const names = await fetchCountiesForState($("editState").value);
-        setCountyDatalist($("editCountyList"), names);
-        $("editCountyInput").value = it.county || "";
-      }catch(e){
-        console.error(e);
-        setCountyDatalist($("editCountyList"), []);
-        $("editCountyInput").value = it.county || "";
-      }
+      await loadCountiesForState($("editState").value, $("editCountySelect"), $("editCountyHelp"));
+      $("editCountySelect").value = it.county || "";
 
       $("editTillable").value = (it.tillable ?? "");
       $("editHasHEL").checked = !!it.hasHEL;
@@ -647,22 +693,15 @@
 
     $("editState").addEventListener("change", async ()=>{
       const st = $("editState").value;
-      try{
-        const names = await fetchCountiesForState(st);
-        setCountyDatalist($("editCountyList"), names);
-        $("editCountyInput").value = "";
-      }catch(e){
-        console.error(e);
-        setCountyDatalist($("editCountyList"), []);
-        $("editCountyInput").value = "";
-      }
+      await loadCountiesForState(st, $("editCountySelect"), $("editCountyHelp"));
+      $("editCountySelect").value = "";
     });
 
     mdSave.addEventListener("click", async ()=>{
       const name = $("editName").value.trim();
       const farmId = $("editFarm").value;
       const state = $("editState").value;
-      const county = $("editCountyInput").value.trim();
+      const county = $("editCountySelect").value;
       const tillable = toNum($("editTillable").value);
       const hasHEL = $("editHasHEL").checked;
       const helAcres = hasHEL ? toNum($("editHelAcres").value) : 0;
@@ -674,7 +713,6 @@
       if(!farmId){ alert("Please choose a Farm."); return; }
       if(!state){ alert("Please choose a State."); return; }
       if(!county){ alert("Please choose a County."); return; }
-      if(!CURRENT_COUNTY_SET.has(county.toLowerCase())){ alert("County must match a choice in the list (live data)."); return; }
       if(!(tillable>0)){ alert("Please enter Tillable Acres."); return; }
       if(hasHEL && (!helAcres || helAcres>tillable)){ alert("HEL Acres must be > 0 and ≤ Tillable."); return; }
       if(hasCRP && (crpAcres>tillable)){ alert("CRP Acres must be ≤ Tillable."); return; }
@@ -729,22 +767,14 @@
       $("hasHEL").checked = false; $("helAcreWrap").style.display = "none"; $("helAcres").value = "";
       $("hasCRP").checked = false; $("crpAcreWrap").style.display = "none"; $("crpAcres").value = "";
       $("rtkSelect").value = ""; setRTKHelpText("", $("rtkHelp"));
-      $("countyInput").value = "";
+      $("countySelect").value = "";
     });
     $("save").addEventListener("click", createField);
 
     $("stateSelect").addEventListener("change", async ()=>{
       const st = $("stateSelect").value;
-      try{
-        const names = await fetchCountiesForState(st);
-        setCountyDatalist($("countyList"), names);
-        $("countyInput").value = "";
-      }catch(e){
-        console.error(e);
-        setCountyDatalist($("countyList"), []);
-        $("countyInput").value = "";
-        alert("Could not load counties from Census. Try again or check connection.");
-      }
+      await loadCountiesForState(st, $("countySelect"), $("countyHelp"));
+      $("countySelect").value = "";
     });
 
     (async ()=>{
@@ -753,7 +783,8 @@
       if(ctx.mode!=='firebase'){
         alert("Firestore not available (stub mode). This page expects Firebase to be live.");
       }
-      db = getFirestore();
+      const dbi = getFirestore(); // keep local var for inner funcs that close over it
+      window.db = db = dbi;
 
       await loadFarms();
       populateFarmSelects();
@@ -761,13 +792,7 @@
       // states + initial counties
       populateStateSelect($("stateSelect"), "IL");
       populateStateSelect($("editState"), "IL");
-      try{
-        const names = await fetchCountiesForState("IL");
-        setCountyDatalist($("countyList"), names);
-      }catch(e){
-        console.error(e);
-        setCountyDatalist($("countyList"), []);
-      }
+      await loadCountiesForState("IL", $("countySelect"), $("countyHelp"));
 
       // RTK
       await loadRTKTowers();
