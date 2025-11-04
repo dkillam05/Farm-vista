@@ -2,33 +2,34 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>State → County Picker (Test)</title>
+  <title>State → County Picker (API-Only Test)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    :root{--bg:#fff;--text:#141514;--border:#d7dad7;--muted:#67706B;--green:#3B7E46}
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    html,body{margin:0;padding:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#fff;color:#141514}
     .wrap{max-width:760px;margin:32px auto;padding:0 16px}
-    h1{margin:0 0 4px 0;font-size:22px}
-    p{margin:0 0 16px 0;color:var(--muted)}
-    .card{border:1px solid var(--border);border-radius:12px;padding:16px}
+    h1{margin:0 0 6px 0;font-size:22px}
+    p{margin:0 0 16px 0;color:#67706B}
+    .card{border:1px solid #d7dad7;border-radius:12px;padding:16px}
     .row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
     @media (max-width:720px){.row{grid-template-columns:1fr}}
     label{display:block;font-weight:800;margin:0 0 6px}
-    select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:#fff;color:var(--text);font:inherit;outline:none}
-    .help{margin-top:6px;font-size:13px;color:var(--muted)}
+    select{width:100%;padding:10px 12px;border:1px solid #d7dad7;border-radius:10px;background:#fff;color:#141514;font:inherit;outline:none}
+    .help{margin-top:6px;font-size:13px;color:#67706B}
     .bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
-    .btn{border:1px solid var(--border);border-radius:10px;background:#f7f8f7;padding:8px 12px;font-weight:800;cursor:pointer}
-    .btn-primary{background:var(--green);border-color:var(--green);color:#fff}
-    .pill{font-size:12px;border:1px solid var(--border);border-radius:999px;padding:4px 8px;color:var(--muted);background:#fff}
-    .out{margin-top:12px;border:1px dashed var(--border);border-radius:10px;padding:10px}
-    .ok{color:var(--green);font-weight:700}
+    .btn{border:1px solid #d7dad7;border-radius:10px;background:#f7f8f7;padding:8px 12px;font-weight:800;cursor:pointer}
+    .btn-primary{background:#3B7E46;border-color:#3B7E46;color:#fff}
+    .pill{font-size:12px;border:1px solid #d7dad7;border-radius:999px;padding:4px 8px;color:#67706B;background:#fff}
+    .out{margin-top:12px;border:1px dashed #d7dad7;border-radius:10px;padding:10px}
+    .ok{color:#3B7E46;font-weight:700}
     .err{color:#b3261e;font-weight:700}
+    code{background:#f3f4f3;border:1px solid #e4e6e4;border-radius:6px;padding:2px 6px}
+    a.inline{font-weight:700;text-decoration:none;border-bottom:1px dashed #3B7E46;color:#3B7E46}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>State → County Picker (Test)</h1>
-    <p>Simple test: choose a state; counties load via U.S. Census (keyed), with local cache and fallback.</p>
+    <h1>State → County Picker (API-Only Test)</h1>
+    <p>Exact API call to U.S. Census. No cache. No fallback. If it fails, you’ll see the URL and error.</p>
 
     <div class="card">
       <div class="row">
@@ -38,7 +39,9 @@
         </div>
         <div>
           <label for="countySel">County</label>
-          <select id="countySel" disabled></select>
+          <select id="countySel" disabled>
+            <option value="">—</option>
+          </select>
           <div id="countyHelp" class="help">Pick a state to load counties.</div>
         </div>
       </div>
@@ -51,7 +54,8 @@
       </div>
 
       <div class="out">
-        <strong>Selected:</strong> <span id="selOut">—</span>
+        <div><strong>Selected:</strong> <span id="selOut">—</span></div>
+        <div id="debug" class="help" style="margin-top:8px"></div>
       </div>
     </div>
   </div>
@@ -61,9 +65,8 @@
     "use strict";
     const $ = id => document.getElementById(id);
 
-    /* ---------- Config ---------- */
+    /* ---------- Your Census API key ---------- */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
-    const CACHE_KEY  = "fv_counties_by_state_v1";
 
     /* ---------- States + FIPS ---------- */
     const STATES = [
@@ -85,23 +88,13 @@
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
 
-    /* ---------- Built-in fallback (expand as needed) ---------- */
-    const STATIC_COUNTIES = {
-      IL:["Adams","Alexander","Bond","Boone","Brown","Bureau","Calhoun","Carroll","Cass","Champaign","Christian","Clark","Clay","Clinton","Coles","Cook","Crawford","Cumberland","DeKalb","De Witt","Douglas","DuPage","Edgar","Edwards","Effingham","Fayette","Ford","Franklin","Fulton","Gallatin","Greene","Grundy","Hamilton","Hancock","Hardin","Henderson","Henry","Iroquois","Jackson","Jasper","Jefferson","Jersey","Jo Daviess","Johnson","Kane","Kankakee","Kendall","Knox","LaSalle","Lake","Lawrence","Lee","Livingston","Logan","McDonough","McHenry","McLean","Macon","Macoupin","Madison","Marion","Marshall","Mason","Massac","Menard","Mercer","Monroe","Montgomery","Morgan","Moultrie","Ogle","Peoria","Perry","Piatt","Pike","Pope","Pulaski","Putnam","Randolph","Richland","Rock Island","Saline","Sangamon","Schuyler","Scott","Shelby","St. Clair","Stark","Stephenson","Tazewell","Union","Vermilion","Wabash","Warren","Washington","Wayne","White","Whiteside","Will","Williamson","Winnebago","Woodford"],
-      MO:["Adair","Andrew","Atchison","Audrain","Barry","Barton","Bates","Benton","Bollinger","Boone","Buchanan","Butler","Caldwell","Callaway","Camden","Cape Girardeau","Carroll","Carter","Cass","Cedar","Chariton","Christian","Clark","Clay","Clinton","Cole","Cooper","Crawford","Dade","Dallas","Daviess","DeKalb","Dent","Douglas","Dunklin","Franklin","Gasconade","Gentry","Greene","Grundy","Harrison","Henry","Hickory","Holt","Howard","Howell","Iron","Jackson","Jasper","Jefferson","Johnson","Knox","Laclede","Lafayette","Lawrence","Lewis","Lincoln","Linn","Livingston","McDonald","Macon","Madison","Maries","Marion","Mercer","Miller","Mississippi","Moniteau","Monroe","Montgomery","Morgan","New Madrid","Newton","Nodaway","Oregon","Osage","Ozark","Pemiscot","Perry","Pettis","Phelps","Pike","Platte","Polk","Pulaski","Putnam","Ralls","Randolph","Ray","Reynolds","Ripley","Saline","Schuyler","Scotland","Scott","Shannon","Shelby","St. Charles","St. Clair","St. Francois","St. Louis","Ste. Genevieve","Stoddard","Stone","Sullivan","Taney","Texas","Vernon","Warren","Washington","Wayne","Webster","Worth","Wright","St. Louis City"],
-      IA:["Adair","Adams","Allamakee","Appanoose","Audubon","Benton","Black Hawk","Boone","Bremer","Buchanan","Buena Vista","Butler","Calhoun","Carroll","Cass","Cedar","Cerro Gordo","Cherokee","Chickasaw","Clarke","Clay","Clayton","Clinton","Crawford","Dallas","Davis","Decatur","Delaware","Des Moines","Dickinson","Dubuque","Emmet","Fayette","Floyd","Franklin","Fremont","Greene","Grundy","Guthrie","Hamilton","Hancock","Hardin","Harrison","Henry","Howard","Humboldt","Ida","Iowa","Jackson","Jasper","Jefferson","Johnson","Jones","Keokuk","Kossuth","Lee","Linn","Louisa","Lucas","Lyon","Madison","Mahaska","Marion","Marshall","Mills","Mitchell","Monona","Monroe","Montgomery","Muscatine","O'Brien","Osceola","Page","Palo Alto","Plymouth","Pocahontas","Polk","Pottawattamie","Poweshiek","Ringgold","Sac","Scott","Shelby","Sioux","Story","Tama","Taylor","Union","Van Buren","Wapello","Warren","Washington","Wayne","Webster","Winnebago","Winneshiek","Woodbury","Worth","Wright"]
-    };
-
-    /* ---------- Cache helpers ---------- */
-    function getCache(){ try{ return JSON.parse(localStorage.getItem(CACHE_KEY)||"{}"); }catch(_){ return {}; } }
-    function setCache(obj){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(obj)); }catch(_){} }
-
     /* ---------- UI helpers ---------- */
     function setStatus(txt){ $("status").textContent = txt; }
-    function setCounties(selectEl, list){
+    function setCounties(list){
+      const sel = $("countySel");
       const opts = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
-      selectEl.innerHTML = opts;
-      selectEl.disabled = list.length===0;
+      sel.innerHTML = opts;
+      sel.disabled = list.length===0;
     }
     function populateStates(defaultCode="IL"){
       $("stateSel").innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
@@ -114,7 +107,7 @@
       $("selOut").textContent = (st && county) ? `${county}, ${st} — ${stName}` : "—";
     }
 
-    /* ---------- Census fetch ---------- */
+    /* ---------- API ---------- */
     function censusUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
       return `https://api.census.gov/data/2023/pep/population?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
@@ -124,66 +117,47 @@
       const t = setTimeout(()=>ctrl.abort(), ms);
       try{
         const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
+        if(!res.ok){
+          const text = await res.text().catch(()=> "");
+          throw new Error(`HTTP ${res.status} ${res.statusText} ${text ? "— "+text.slice(0,140) : ""}`.trim());
+        }
         return await res.json();
       } finally { clearTimeout(t); }
     }
-    async function fetchCountiesFromCensus(stateCode, timeoutMs=8000){
-      const url = censusUrl(stateCode);
-      const data = await fetchWithTimeout(url, timeoutMs);
+    function parseCountyNames(rows){
       const out = [];
-      for(let i=1;i<data.length;i++){
-        const name = String(data[i][0]||"");
-        const m = name.match(/^(.+?)\s+County\b/i) || name.match(/^(.+?)\s+Parish\b/i) ||
-                  name.match(/^(.+?)\s+Borough\b/i) || name.match(/^(.+?)\s+Census Area\b/i);
+      for(let i=1;i<rows.length;i++){
+        const name = String(rows[i][0]||"");
+        const m = name.match(/^(.+?)\s+County\b/i)
+              || name.match(/^(.+?)\s+Parish\b/i)
+              || name.match(/^(.+?)\s+Borough\b/i)
+              || name.match(/^(.+?)\s+Census Area\b/i);
         out.push((m?m[1]:name).trim());
       }
       out.sort((a,b)=>a.localeCompare(b));
       return out;
     }
 
-    /* ---------- Load sequence: cache → live (retry) → fallback ---------- */
     async function loadCounties(stateCode){
-      const countySel = $("countySel");
       const help = $("countyHelp");
+      const url = censusUrl(stateCode);
+      $("debug").innerHTML = `URL: <code>${url}</code>`;
       setStatus("Loading…");
-      help.textContent = "Loading counties…";
-      setCounties(countySel, []);
-
-      const cache = getCache();
-      if(Array.isArray(cache[stateCode]) && cache[stateCode].length){
-        setCounties(countySel, cache[stateCode]);
-        help.textContent = "Loaded from cache (offline ready).";
-        setStatus("Cached");
-      }
+      help.textContent = "Requesting from U.S. Census…";
+      setCounties([]);
 
       try{
-        const live = await fetchCountiesFromCensus(stateCode, 8000);
-        if(live.length){
-          cache[stateCode] = live; setCache(cache);
-          setCounties(countySel, live);
-          help.textContent = "Live from U.S. Census.";
-          setStatus("Live");
-          return;
-        }
-        throw new Error("Empty response");
-      }catch(_e1){
-        try{
-          const live2 = await fetchCountiesFromCensus(stateCode, 10000);
-          if(live2.length){
-            cache[stateCode] = live2; setCache(cache);
-            setCounties(countySel, live2);
-            help.textContent = "Live from U.S. Census (retry).";
-            setStatus("Live");
-            return;
-          }
-          throw new Error("Empty response");
-        }catch(_e2){
-          const fb = STATIC_COUNTIES[stateCode] || [];
-          setCounties(countySel, fb);
-          help.textContent = fb.length ? "Using built-in fallback list." : "No counties available. Check connection.";
-          setStatus(fb.length ? "Fallback" : "Error");
-        }
+        const json = await fetchWithTimeout(url, 10000);
+        const list = parseCountyNames(json);
+        if(!list.length) throw new Error("Empty result");
+        setCounties(list);
+        help.textContent = "Live from U.S. Census.";
+        setStatus("Live");
+      }catch(err){
+        console.error(err);
+        help.innerHTML = `<span class="err">Error:</span> ${err.message}`;
+        setStatus("Error");
+        setCounties([]);
       }
     }
 
@@ -195,17 +169,16 @@
     });
     $("countySel").addEventListener("change", updateSelected);
     $("retry").addEventListener("click", async ()=>{
-      const st = $("stateSel").value || "IL";
-      const cache = getCache(); delete cache[st]; setCache(cache);
-      await loadCounties(st);
+      await loadCounties($("stateSel").value || "IL");
     });
     $("clear").addEventListener("click", ()=>{
       $("stateSel").value = "IL";
-      setCounties($("countySel"), []);
+      setCounties([]);
       $("countySel").value = "";
       $("countySel").disabled = true;
       $("countyHelp").textContent = "Cleared. Pick a state to load counties.";
       setStatus("Idle");
+      $("debug").textContent = "";
       updateSelected();
     });
     $("copy").addEventListener("click", async ()=>{
@@ -217,8 +190,6 @@
       populateStates("IL");
       await loadCounties("IL");
       updateSelected();
-      window.addEventListener("online", ()=> { /* noop, just keeps it simple */ });
-      window.addEventListener("offline",()=> { /* noop */ });
     })();
 
   })();
