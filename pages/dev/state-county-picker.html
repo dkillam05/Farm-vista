@@ -106,7 +106,10 @@ let selectedState="IL", selectedCounty="";
 function setStatus(t){$("status").textContent=t;}
 function updateSelected(){
   const stName=STATES.find(([c])=>c===selectedState)?.[1]||"";
-  $("selOut").textContent=(selectedState&&selectedCounty)?`${selectedCounty}, ${selectedState} — ${stName}`:"—";
+  // Only show selection once BOTH are chosen
+  $("selOut").textContent=(selectedState && selectedCounty)
+    ? `${selectedCounty}, ${selectedState} — ${stName}`
+    : "—";
 }
 
 function buildList(container, items, clickHandler){
@@ -146,10 +149,15 @@ function parseCountyNames(rows){
 async function loadCounties(stateCode){
   $("countyHelp").textContent="Requesting from Census…";
   setStatus("Loading…");
-  $("countyList").innerHTML="";
+  // ensure county UI is cleared/disabled during load
+  $("countyBtn").textContent="Select a county…";
+  $("countyBtn").disabled=true;
   $("countySearch").value="";
+  $("countySearch").disabled=true;
+  $("countyList").innerHTML="";
   const url=acsUrl(stateCode);
   $("urlOut").value=url;
+
   try{
     const data=await fetchWithTimeout(url,12000);
     const list=parseCountyNames(data);
@@ -181,13 +189,22 @@ function setupSearch(inputEl,listEl){
 
 /* ---- State dropdown ---- */
 buildList($("stateList"),STATES,(val,label)=>{
+  // CLEAR COUNTY when state changes
   selectedState=val;
+  selectedCounty="";                  // clear selection
   $("stateBtn").textContent=label;
   $("stateDropdown").classList.remove("open");
-  selectedCounty="";
+
+  // hard clear county UI before loading
   $("countyBtn").textContent="Select a county…";
-  loadCounties(val);
-  updateSelected();
+  $("countyBtn").disabled=true;
+  $("countySearch").value="";
+  $("countySearch").disabled=true;
+  $("countyList").innerHTML="";
+  $("countyHelp").textContent="Loading counties…";
+
+  updateSelected();                   // clears the Selected line to "—"
+  loadCounties(val);                  // fetch new counties
 });
 
 /* open/close handlers */
@@ -211,14 +228,18 @@ setupSearch($("countySearch"),$("countyList"));
 /* bar buttons */
 $("retry").onclick=()=>loadCounties(selectedState||"IL");
 $("clear").onclick=()=>{
-  selectedState="IL";selectedCounty="";
+  selectedState="IL"; selectedCounty="";
   $("stateBtn").textContent="Illinois";
+  // reset county UI & state
   $("countyBtn").textContent="Select a county…";
-  $("countyList").innerHTML="";$("countySearch").value="";
-  $("countyBtn").disabled=true;$("countySearch").disabled=true;
+  $("countyBtn").disabled=true;
+  $("countySearch").value="";
+  $("countySearch").disabled=true;
+  $("countyList").innerHTML="";
   $("countyHelp").textContent="Cleared. Pick a state to load counties.";
   $("urlOut").value="—";
-  setStatus("Idle");updateSelected();
+  setStatus("Idle");
+  updateSelected();
 };
 $("copySel").onclick=()=>navigator.clipboard.writeText($("selOut").textContent||"");
 $("copyUrl").onclick=()=>navigator.clipboard.writeText($("urlOut").value||"");
@@ -226,14 +247,24 @@ $("copyUrl").onclick=()=>navigator.clipboard.writeText($("urlOut").value||"");
 /* boot */
 (async()=>{
   $("stateBtn").textContent="Illinois";
+  // ensure state list is ready (again) for boot selection
   buildList($("stateList"),STATES,(val,label)=>{
+    // same handler as above: clear county and load for chosen state
     selectedState=val;
+    selectedCounty="";
     $("stateBtn").textContent=label;
     $("stateDropdown").classList.remove("open");
-    loadCounties(val);
+    $("countyBtn").textContent="Select a county…";
+    $("countyBtn").disabled=true;
+    $("countySearch").value="";
+    $("countySearch").disabled=true;
+    $("countyList").innerHTML="";
+    $("countyHelp").textContent="Loading counties…";
     updateSelected();
+    loadCounties(val);
   });
-  await loadCounties("IL");
+
+  await loadCounties("IL"); // initial load
   updateSelected();
 })();
 })();
