@@ -1,0 +1,263 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Dev → State & County Picker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes (ABSOLUTE paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (header/footer) if available -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+    }
+  })();</script>
+
+  <style>
+    :root{ --card-max:900px; }
+    body{ background:var(--app-bg,var(--surface)); }
+    .wrap{max-width:var(--card-max);margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+80px)!important;}
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);}
+    .section-head .icon{width:24px;height:24px;display:grid;place-items:center;color:#2F6C3C}
+    .section-body{padding:16px;display:grid;gap:14px}
+    .row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+    @media(max-width:820px){.row{grid-template-columns:1fr}}
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+    .select,.input{width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none}
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:140px;padding:10px 14px;border-radius:12px;
+      border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff}
+    .btn-quiet{min-width:auto}
+    .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;background:var(--surface);color:var(--muted,#67706B)}
+    .out{border:1px dashed var(--border);border-radius:10px;padding:10px}
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px)+72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:9999;display:none}
+    .toast.show{display:block;animation:fadeout 4s forwards}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🧭</div>
+          <div>
+            <h1 style="margin:0">State & County Picker (Dev)</h1>
+            <p class="help" style="margin:4px 0 0">Purpose-built test page: choose a state, then counties auto-fill from cache → Census → fallback.</p>
+          </div>
+        </header>
+
+        <div class="section-body">
+          <div class="row">
+            <div class="field">
+              <label for="stateSel">State</label>
+              <select id="stateSel" class="select"></select>
+            </div>
+            <div class="field">
+              <label for="countySel">County</label>
+              <select id="countySel" class="select"></select>
+              <div id="countyHelp" class="help">Pick a state to load counties.</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="retry" class="btn" type="button">Retry Load</button>
+            <button id="clear" class="btn" type="button">Clear</button>
+            <button id="copy" class="btn btn-primary" type="button">Copy Selection</button>
+            <span id="status" class="pill">Idle</span>
+          </div>
+
+          <div class="out">
+            <div><strong>Selected:</strong> <span id="selOut">—</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <script type="module">
+  (function(){
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const toast = $("toast");
+
+    function showToast(msg="Done.", ms=4000){
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=> toast.classList.remove("show"), ms);
+    }
+
+    /* ---------- States + FIPS ---------- */
+    const STATES = [
+      ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
+      ["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],["GA","Georgia"],
+      ["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],
+      ["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],
+      ["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],
+      ["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],
+      ["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],
+      ["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],
+      ["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]
+    ];
+    const STATE_TO_FIPS = {
+      AL:"01", AK:"02", AZ:"04", AR:"05", CA:"06", CO:"08", CT:"09", DE:"10", DC:"11", FL:"12", GA:"13",
+      HI:"15", ID:"16", IL:"17", IN:"18", IA:"19", KS:"20", KY:"21", LA:"22", ME:"23", MD:"24", MA:"25",
+      MI:"26", MN:"27", MS:"28", MO:"29", MT:"30", NE:"31", NV:"32", NH:"33", NJ:"34", NM:"35", NY:"36",
+      NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
+      UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
+    };
+
+    /* ---------- Built-in fallback lists (expand anytime) ---------- */
+    const STATIC_COUNTIES = {
+      IL:["Adams","Alexander","Bond","Boone","Brown","Bureau","Calhoun","Carroll","Cass","Champaign","Christian","Clark","Clay","Clinton","Coles","Cook","Crawford","Cumberland","DeKalb","De Witt","Douglas","DuPage","Edgar","Edwards","Effingham","Fayette","Ford","Franklin","Fulton","Gallatin","Greene","Grundy","Hamilton","Hancock","Hardin","Henderson","Henry","Iroquois","Jackson","Jasper","Jefferson","Jersey","Jo Daviess","Johnson","Kane","Kankakee","Kendall","Knox","LaSalle","Lake","Lawrence","Lee","Livingston","Logan","McDonough","McHenry","McLean","Macon","Macoupin","Madison","Marion","Marshall","Mason","Massac","Menard","Mercer","Monroe","Montgomery","Morgan","Moultrie","Ogle","Peoria","Perry","Piatt","Pike","Pope","Pulaski","Putnam","Randolph","Richland","Rock Island","Saline","Sangamon","Schuyler","Scott","Shelby","St. Clair","Stark","Stephenson","Tazewell","Union","Vermilion","Wabash","Warren","Washington","Wayne","White","Whiteside","Will","Williamson","Winnebago","Woodford"],
+      MO:["Adair","Andrew","Atchison","Audrain","Barry","Barton","Bates","Benton","Bollinger","Boone","Buchanan","Butler","Caldwell","Callaway","Camden","Cape Girardeau","Carroll","Carter","Cass","Cedar","Chariton","Christian","Clark","Clay","Clinton","Cole","Cooper","Crawford","Dade","Dallas","Daviess","DeKalb","Dent","Douglas","Dunklin","Franklin","Gasconade","Gentry","Greene","Grundy","Harrison","Henry","Hickory","Holt","Howard","Howell","Iron","Jackson","Jasper","Jefferson","Johnson","Knox","Laclede","Lafayette","Lawrence","Lewis","Lincoln","Linn","Livingston","McDonald","Macon","Madison","Maries","Marion","Mercer","Miller","Mississippi","Moniteau","Monroe","Montgomery","Morgan","New Madrid","Newton","Nodaway","Oregon","Osage","Ozark","Pemiscot","Perry","Pettis","Phelps","Pike","Platte","Polk","Pulaski","Putnam","Ralls","Randolph","Ray","Reynolds","Ripley","Saline","Schuyler","Scotland","Scott","Shannon","Shelby","St. Charles","St. Clair","St. Francois","St. Louis","Ste. Genevieve","Stoddard","Stone","Sullivan","Taney","Texas","Vernon","Warren","Washington","Wayne","Webster","Worth","Wright","St. Louis City"],
+      IA:["Adair","Adams","Allamakee","Appanoose","Audubon","Benton","Black Hawk","Boone","Bremer","Buchanan","Buena Vista","Butler","Calhoun","Carroll","Cass","Cedar","Cerro Gordo","Cherokee","Chickasaw","Clarke","Clay","Clayton","Clinton","Crawford","Dallas","Davis","Decatur","Delaware","Des Moines","Dickinson","Dubuque","Emmet","Fayette","Floyd","Franklin","Fremont","Greene","Grundy","Guthrie","Hamilton","Hancock","Hardin","Harrison","Henry","Howard","Humboldt","Ida","Iowa","Jackson","Jasper","Jefferson","Johnson","Jones","Keokuk","Kossuth","Lee","Linn","Louisa","Lucas","Lyon","Madison","Mahaska","Marion","Marshall","Mills","Mitchell","Monona","Monroe","Montgomery","Muscatine","O'Brien","Osceola","Page","Palo Alto","Plymouth","Pocahontas","Polk","Pottawattamie","Poweshiek","Ringgold","Sac","Scott","Shelby","Sioux","Story","Tama","Taylor","Union","Van Buren","Wapello","Warren","Washington","Wayne","Webster","Winnebago","Winneshiek","Woodbury","Worth","Wright"]
+    };
+
+    /* ---------- Cache ---------- */
+    const CACHE_KEY = 'fv_counties_by_state_v1';
+    const getCache = ()=> { try{ return JSON.parse(localStorage.getItem(CACHE_KEY)||'{}'); }catch{ return {}; } };
+    const setCache = (obj)=> { try{ localStorage.setItem(CACHE_KEY, JSON.stringify(obj)); }catch{} };
+
+    /* ---------- UI helpers ---------- */
+    function setStatus(txt){ $("status").textContent = txt; }
+    function setCounties(selectEl, list){
+      selectEl.innerHTML = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
+      selectEl.disabled = list.length===0;
+    }
+    function populateStates(defaultCode="IL"){
+      $("stateSel").innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
+      $("stateSel").value = defaultCode;
+    }
+
+    /* ---------- Census fetch with timeout ---------- */
+    function censusUrl(stateCode){
+      const fips = STATE_TO_FIPS[stateCode];
+      return `https://api.census.gov/data/2023/pep/population?get=NAME&for=county:*&in=state:${fips}`;
+    }
+    async function fetchCountiesFromCensus(stateCode, timeoutMs=6000){
+      const url = censusUrl(stateCode);
+      const ctrl = new AbortController();
+      const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
+      try{
+        const res = await fetch(url, {mode:'cors', signal: ctrl.signal});
+        if(!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const out=[];
+        for(let i=1;i<json.length;i++){
+          const name = String(json[i][0]||"");
+          const m = name.match(/^(.+?)\s+County\b/i) || name.match(/^(.+?)\s+Parish\b/i) || name.match(/^(.+?)\s+Borough\b/i) || name.match(/^(.+?)\s+Census Area\b/i);
+          out.push((m?m[1]:name).trim());
+        }
+        out.sort((a,b)=>a.localeCompare(b));
+        return out;
+      } finally { clearTimeout(timer); }
+    }
+
+    /* ---------- Load sequence: cache → census (retry) → static ---------- */
+    async function loadCounties(stateCode){
+      const countySel = $("countySel");
+      const help = $("countyHelp");
+      setStatus("Loading…");
+      help.textContent = "Loading counties…";
+      setCounties(countySel, []);
+
+      const cache = getCache();
+      if(Array.isArray(cache[stateCode]) && cache[stateCode].length){
+        setCounties(countySel, cache[stateCode]);
+        help.textContent = "Loaded from cache (offline ready).";
+        setStatus("Cached");
+      }
+
+      try{
+        const live = await fetchCountiesFromCensus(stateCode, 6000);
+        if(live.length){
+          cache[stateCode] = live; setCache(cache);
+          setCounties(countySel, live);
+          help.textContent = "Live from U.S. Census.";
+          setStatus("Live");
+          return;
+        }
+        throw new Error("Empty response");
+      }catch(_first){
+        try{
+          const live2 = await fetchCountiesFromCensus(stateCode, 9000);
+          if(live2.length){
+            cache[stateCode] = live2; setCache(cache);
+            setCounties(countySel, live2);
+            help.textContent = "Live from U.S. Census (retry).";
+            setStatus("Live");
+            return;
+          }
+          throw new Error("Empty response");
+        }catch(_second){
+          const fb = STATIC_COUNTIES[stateCode] || [];
+          setCounties(countySel, fb);
+          help.textContent = fb.length ? "Using built-in fallback list." : "No counties available. Check connection.";
+          setStatus(fb.length ? "Fallback" : "Error");
+        }
+      }
+    }
+
+    /* ---------- Wire UI ---------- */
+    function updateSelected(){
+      const stCode = $("stateSel").value || "";
+      const stName = STATES.find(([c])=>c===stCode)?.[1] || "";
+      const county = $("countySel").value || "";
+      $("selOut").textContent = county && stCode ? `${county}, ${stCode} — ${stName}` : "—";
+    }
+
+    $("stateSel").addEventListener("change", async ()=>{
+      await loadCounties($("stateSel").value);
+      $("countySel").value = "";
+      updateSelected();
+    });
+    $("countySel").addEventListener("change", updateSelected);
+    $("retry").addEventListener("click", async ()=>{
+      await loadCounties($("stateSel").value);
+      showToast("Counties reloaded.");
+    });
+    $("clear").addEventListener("click", ()=>{
+      $("stateSel").value = "IL";
+      setCounties($("countySel"), []);
+      $("countySel").value = "";
+      $("countyHelp").textContent = "Cleared. Pick a state to load counties.";
+      setStatus("Idle");
+      updateSelected();
+    });
+    $("copy").addEventListener("click", async ()=>{
+      const txt = $("selOut").textContent || "";
+      try{ await navigator.clipboard.writeText(txt); showToast("Copied selection."); }
+      catch{ showToast("Copy failed."); }
+    });
+
+    /* ---------- Boot ---------- */
+    (async ()=>{
+      populateStates("IL");
+      await loadCounties("IL");
+      updateSelected();
+      window.addEventListener('online', ()=> showToast("Back online — you can fetch fresh counties."));
+      window.addEventListener('offline',()=> showToast("Offline — using cached/fallback counties."));
+    })();
+
+  })();
+  </script>
+</body>
+</html>
