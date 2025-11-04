@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>State → County Picker (API-Only Test)</title>
+  <title>State → County Picker (API-Only • ACS5)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    html,body{margin:0;padding:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#fff;color:#141514}
+    html,body{margin:0;padding:0;background:#fff;color:#141514;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial}
     .wrap{max-width:760px;margin:32px auto;padding:0 16px}
     h1{margin:0 0 6px 0;font-size:22px}
     p{margin:0 0 16px 0;color:#67706B}
@@ -20,16 +20,14 @@
     .btn-primary{background:#3B7E46;border-color:#3B7E46;color:#fff}
     .pill{font-size:12px;border:1px solid #d7dad7;border-radius:999px;padding:4px 8px;color:#67706B;background:#fff}
     .out{margin-top:12px;border:1px dashed #d7dad7;border-radius:10px;padding:10px}
-    .ok{color:#3B7E46;font-weight:700}
     .err{color:#b3261e;font-weight:700}
     code{background:#f3f4f3;border:1px solid #e4e6e4;border-radius:6px;padding:2px 6px}
-    a.inline{font-weight:700;text-decoration:none;border-bottom:1px dashed #3B7E46;color:#3B7E46}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>State → County Picker (API-Only Test)</h1>
-    <p>Exact API call to U.S. Census. No cache. No fallback. If it fails, you’ll see the URL and error.</p>
+    <h1>State → County Picker (API-Only • ACS5)</h1>
+    <p>Calls the U.S. Census <strong>ACS 5-year</strong> API with your key. No cache. No fallback. If it fails, you’ll see the URL and error.</p>
 
     <div class="card">
       <div class="row">
@@ -39,9 +37,7 @@
         </div>
         <div>
           <label for="countySel">County</label>
-          <select id="countySel" disabled>
-            <option value="">—</option>
-          </select>
+          <select id="countySel" disabled><option value="">—</option></select>
           <div id="countyHelp" class="help">Pick a state to load counties.</div>
         </div>
       </div>
@@ -65,10 +61,10 @@
     "use strict";
     const $ = id => document.getElementById(id);
 
-    /* ---------- Your Census API key ---------- */
+    /* --- Your Census API key --- */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
 
-    /* ---------- States + FIPS ---------- */
+    /* --- States + FIPS --- */
     const STATES = [
       ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
       ["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],["GA","Georgia"],
@@ -88,7 +84,7 @@
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
 
-    /* ---------- UI helpers ---------- */
+    /* --- UI helpers --- */
     function setStatus(txt){ $("status").textContent = txt; }
     function setCounties(list){
       const sel = $("countySel");
@@ -107,10 +103,11 @@
       $("selOut").textContent = (st && county) ? `${county}, ${st} — ${stName}` : "—";
     }
 
-    /* ---------- API ---------- */
-    function censusUrl(stateCode){
+    /* --- Build ACS5 URL and fetch --- */
+    function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
-      return `https://api.census.gov/data/2023/pep/population?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
+      // ACS 5-year — returns rows: ["NAME","state","county"], then one per county
+      return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
     }
     async function fetchWithTimeout(url, ms){
       const ctrl = new AbortController();
@@ -119,7 +116,7 @@
         const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
         if(!res.ok){
           const text = await res.text().catch(()=> "");
-          throw new Error(`HTTP ${res.status} ${res.statusText} ${text ? "— "+text.slice(0,140) : ""}`.trim());
+          throw new Error(`HTTP ${res.status} ${res.statusText}${text ? " — "+text.slice(0,120) : ""}`);
         }
         return await res.json();
       } finally { clearTimeout(t); }
@@ -127,12 +124,12 @@
     function parseCountyNames(rows){
       const out = [];
       for(let i=1;i<rows.length;i++){
-        const name = String(rows[i][0]||"");
-        const m = name.match(/^(.+?)\s+County\b/i)
-              || name.match(/^(.+?)\s+Parish\b/i)
-              || name.match(/^(.+?)\s+Borough\b/i)
-              || name.match(/^(.+?)\s+Census Area\b/i);
-        out.push((m?m[1]:name).trim());
+        const nm = String(rows[i][0]||""); // "Adams County, Illinois"
+        const m = nm.match(/^(.+?)\s+County\b/i)
+               || nm.match(/^(.+?)\s+Parish\b/i)
+               || nm.match(/^(.+?)\s+Borough\b/i)
+               || nm.match(/^(.+?)\s+Census Area\b/i);
+        out.push((m?m[1]:nm).trim());
       }
       out.sort((a,b)=>a.localeCompare(b));
       return out;
@@ -140,18 +137,18 @@
 
     async function loadCounties(stateCode){
       const help = $("countyHelp");
-      const url = censusUrl(stateCode);
+      const url = acsUrl(stateCode);
       $("debug").innerHTML = `URL: <code>${url}</code>`;
       setStatus("Loading…");
-      help.textContent = "Requesting from U.S. Census…";
+      help.textContent = "Requesting from U.S. Census (ACS5)…";
       setCounties([]);
 
       try{
-        const json = await fetchWithTimeout(url, 10000);
-        const list = parseCountyNames(json);
+        const data = await fetchWithTimeout(url, 12000);
+        const list = parseCountyNames(data);
         if(!list.length) throw new Error("Empty result");
         setCounties(list);
-        help.textContent = "Live from U.S. Census.";
+        help.textContent = "Live from U.S. Census (ACS5).";
         setStatus("Live");
       }catch(err){
         console.error(err);
@@ -161,7 +158,7 @@
       }
     }
 
-    /* ---------- Wire UI ---------- */
+    /* --- Wire UI --- */
     $("stateSel").addEventListener("change", async ()=>{
       await loadCounties($("stateSel").value);
       $("countySel").value = "";
@@ -185,7 +182,7 @@
       try{ await navigator.clipboard.writeText($("selOut").textContent||""); }catch{}
     });
 
-    /* ---------- Boot ---------- */
+    /* --- Boot --- */
     (async ()=>{
       populateStates("IL");
       await loadCounties("IL");
