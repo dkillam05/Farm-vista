@@ -91,12 +91,13 @@
     .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
     .dd-list li{padding:10px 12px;cursor:pointer}
     .dd-list li:hover{background:#f0f1f0}
+
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* Inline row small controls */
-    .inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .acre-wrap{display:none;min-width:180px;flex:1}
-    .inline .label-strong{font-weight:800}
+    /* Inline bits for HEL/CRP */
+    .tick{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .tick input[type="checkbox"]{width:18px;height:18px}
+    .acre-wrap{display:none;min-width:200px}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -137,7 +138,7 @@
             </div>
           </div>
 
-          <!-- State → County (searchable dropdowns + hidden inputs with same IDs) -->
+          <!-- State → County (searchable dropdowns + hidden inputs) -->
           <div class="row-3">
             <div class="field">
               <label>State</label>
@@ -171,22 +172,21 @@
             </div>
           </div>
 
-          <!-- HEL / CRP -->
-          <div class="row-2">
-            <div class="field">
-              <div class="inline">
-                <label class="label-strong"><input id="hasHEL" type="checkbox" style="width:18px;height:18px;margin-right:6px"> HEL Ground</label>
-                <div id="helAcreWrap" class="acre-wrap">
-                  <input id="helAcres" class="input" inputmode="decimal" placeholder="HEL acres">
-                </div>
+          <!-- HEL (line 1) -->
+          <div class="field">
+            <div class="tick">
+              <label class="label-strong"><input id="hasHEL" type="checkbox"> <strong>HEL Ground</strong></label>
+              <div id="helAcreWrap" class="acre-wrap">
+                <input id="helAcres" class="input" inputmode="decimal" placeholder="HEL acres">
               </div>
             </div>
-            <div class="field">
-              <div class="inline">
-                <label class="label-strong"><input id="hasCRP" type="checkbox" style="width:18px;height:18px;margin-right:6px"> CRP</label>
-                <div id="crpAcreWrap" class="acre-wrap">
-                  <input id="crpAcres" class="input" inputmode="decimal" placeholder="CRP acres">
-                </div>
+          </div>
+          <!-- CRP (line 2) -->
+          <div class="field">
+            <div class="tick">
+              <label class="label-strong"><input id="hasCRP" type="checkbox"> <strong>CRP</strong></label>
+              <div id="crpAcreWrap" class="acre-wrap">
+                <input id="crpAcres" class="input" inputmode="decimal" placeholder="CRP acres">
               </div>
             </div>
           </div>
@@ -233,7 +233,7 @@
           </div>
         </div>
 
-        <!-- State → County in Edit modal (searchable + hidden inputs) -->
+        <!-- State → County in Edit modal -->
         <div class="row-3">
           <div class="field">
             <label>State</label>
@@ -270,22 +270,21 @@
           </div>
         </div>
 
-        <!-- HEL / CRP in Edit -->
-        <div class="row-2">
-          <div class="field">
-            <div class="inline">
-              <label class="label-strong"><input id="editHasHEL" type="checkbox" style="width:18px;height:18px;margin-right:6px"> HEL Ground</label>
-              <div id="editHelAcreWrap" class="acre-wrap">
-                <input id="editHelAcres" class="input" inputmode="decimal" placeholder="HEL acres">
-              </div>
+        <!-- HEL (line 1) -->
+        <div class="field">
+          <div class="tick">
+            <label class="label-strong"><input id="editHasHEL" type="checkbox"> <strong>HEL Ground</strong></label>
+            <div id="editHelAcreWrap" class="acre-wrap">
+              <input id="editHelAcres" class="input" inputmode="decimal" placeholder="HEL acres">
             </div>
           </div>
-          <div class="field">
-            <div class="inline">
-              <label class="label-strong"><input id="editHasCRP" type="checkbox" style="width:18px;height:18px;margin-right:6px"> CRP</label>
-              <div id="editCrpAcreWrap" class="acre-wrap">
-                <input id="editCrpAcres" class="input" inputmode="decimal" placeholder="CRP acres">
-              </div>
+        </div>
+        <!-- CRP (line 2) -->
+        <div class="field">
+          <div class="tick">
+            <label class="label-strong"><input id="editHasCRP" type="checkbox"> <strong>CRP</strong></label>
+            <div id="editCrpAcreWrap" class="acre-wrap">
+              <input id="editCrpAcres" class="input" inputmode="decimal" placeholder="CRP acres">
             </div>
           </div>
         </div>
@@ -338,14 +337,12 @@
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
 
-    const NAME_TO_CODE = (() => {
-      const m = new Map();
-      STATES.forEach(([code,name])=>{
-        m.set(name.toLowerCase(), code);
-        m.set(code.toLowerCase(), code);
-      });
-      return m;
-    })();
+    /* name->state code map (single definition — no duplicates) */
+    const NAME_TO_CODE = new Map([
+      ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
+      ...STATES.map(([c])=>[c.toLowerCase(),c])
+    ]);
+    const normalizeStateToCode = (v)=> NAME_TO_CODE.get(String(v||"").trim().toLowerCase()) || "";
 
     function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
@@ -793,7 +790,9 @@
     });
 
     /* ===== Build dropdown components (Add + Edit) ===== */
+    let ddStateCfgBuilt = false;
     function buildStateDropdowns(){
+      if(ddStateCfgBuilt) return;
       // Add form
       ddState = {
         root: $("ddState"),
@@ -828,6 +827,8 @@
         loadCountiesIntoDropdown(ddCounty, code);
       });
       buildList(ddEditState.list, STATES.map(([c,n])=>[c,n]), onEditStatePicked);
+
+      ddStateCfgBuilt = true;
     }
 
     function buildCountyDropdowns(){
@@ -854,12 +855,6 @@
       setupSearch(ddEditCounty.search, ddEditCounty.list);
     }
 
-    /* ===== Company default state ===== */
-    const NAME_TO_CODE = new Map([
-      ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
-      ...STATES.map(([c])=>[c.toLowerCase(),c])
-    ]);
-    function normalizeStateToCode(v){ return NAME_TO_CODE.get(String(v||"").trim().toLowerCase()) || ""; }
     async function getCompanyStateCode(){
       try{
         const snap = await getDoc(doc(db, 'company', 'main'));
