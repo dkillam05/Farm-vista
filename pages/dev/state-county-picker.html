@@ -152,9 +152,7 @@
                 </div>
               </div>
             </div>
-            <div class="field" style="display:flex;align-items:end;gap:8px">
-              <span id="countyStatus" class="pill">Idle</span>
-            </div>
+            <!-- removed the little status pill -->
           </div>
 
           <!-- RTK Tower Information -->
@@ -231,9 +229,7 @@
               </div>
             </div>
           </div>
-          <div class="field" style="display:flex;align-items:end;gap:8px">
-            <span id="editCountyStatus" class="pill">Idle</span>
-          </div>
+          <!-- removed the modal status pill -->
         </div>
 
         <div class="row-3">
@@ -384,10 +380,10 @@
       }
     });
 
-    // County loading into a dropdown
+    // County loading into a dropdown (statusEl optional)
     async function loadCountiesIntoDropdown(cfg, statusEl, stateCode, presetValue){
       const {btn, search, list, hidden} = cfg;
-      statusEl.textContent = "Loading…";
+      if(statusEl) statusEl.textContent = "";
       btn.textContent = "Select a county…";
       btn.disabled = true; search.value=""; search.disabled = true; list.innerHTML="";
       hidden.value = "";
@@ -401,13 +397,12 @@
           cfg.root.classList.remove("open");
         });
         btn.disabled = false; search.disabled = false;
-        statusEl.textContent = ""; // no helper
         if(presetValue && counties.includes(presetValue)){
           hidden.value = presetValue;
           btn.textContent = presetValue;
         }
       }catch(e){
-        statusEl.textContent = "Error";
+        // leave disabled on error; no helper text requested
         btn.disabled = true; search.disabled = true; list.innerHTML="";
         hidden.value = "";
       }
@@ -575,7 +570,6 @@
       ddCounty.search.value = ""; ddCounty.search.disabled = true;
       ddCounty.list.innerHTML = "";
       $("countySelect").value = "";
-      $("countyStatus").textContent = "Idle";
 
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
@@ -656,7 +650,7 @@
       ddEditState.btn.textContent = "Illinois";
       ddEditCounty.btn.textContent = "Select a county…";
       ddEditCounty.btn.disabled = true; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML = "";
-      $("editCounty").value = ""; $("editCountyStatus").textContent = "Idle";
+      $("editCounty").value = "";
 
       const ref = doc(db, 'fields', id);
       const snap = await getDoc(ref);
@@ -672,9 +666,7 @@
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
 
-      $("editCountyStatus").textContent = "Loading…";
-      await loadCountiesIntoDropdown(ddEditCounty, $("editCountyStatus"), $("editState").value, it.county || "");
-      $("editCountyStatus").textContent = "";
+      await loadCountiesIntoDropdown(ddEditCounty, null, $("editState").value, it.county || "");
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -703,12 +695,10 @@
     function onEditStatePicked(code,label){
       $("editState").value = code;
       ddEditState.root.classList.remove("open");
-      // clear and reload counties
       $("editCounty").value = "";
       ddEditCounty.btn.textContent = "Select a county…";
       ddEditCounty.btn.disabled = true; ddEditCounty.search.value=""; ddEditCounty.search.disabled = true; ddEditCounty.list.innerHTML="";
-      $("editCountyStatus").textContent = "Loading…";
-      loadCountiesIntoDropdown(ddEditCounty, $("editCountyStatus"), code).then(()=>{$("editCountyStatus").textContent="";});
+      loadCountiesIntoDropdown(ddEditCounty, null, code);
     }
 
     mdSave.addEventListener("click", async ()=>{
@@ -794,11 +784,10 @@
         ddState.root.classList.remove("open");
 
         // when state changes, clear county + load
-        $("countyStatus").textContent = "Loading…";
         ddCounty.btn.textContent = "Select a county…";
         ddCounty.btn.disabled = true; ddCounty.search.value=""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
         $("countySelect").value = "";
-        loadCountiesIntoDropdown(ddCounty, $("countyStatus"), code).then(()=>{$("countyStatus").textContent="";});
+        loadCountiesIntoDropdown(ddCounty, null, code);
       });
       buildList(ddEditState.list, STATES.map(([c,n])=>[c,n]), onEditStatePicked);
     }
@@ -849,9 +838,7 @@
       const stIL = STATES.find(([c])=>c==="IL");
       ddState.hidden.value = "IL";
       ddState.btn.textContent = stIL ? stIL[1] : "Illinois";
-      $("countyStatus").textContent = "Loading…";
-      await loadCountiesIntoDropdown(ddCounty, $("countyStatus"), "IL");
-      $("countyStatus").textContent = "";
+      await loadCountiesIntoDropdown(ddCounty, null, "IL");
 
       await renderList();
 
@@ -870,7 +857,6 @@
         ddCounty.btn.textContent = "Select a county…";
         ddCounty.btn.disabled = true; ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
         $("countySelect").value = "";
-        $("countyStatus").textContent = "Idle";
       });
 
       $("filterFarm").addEventListener("change", renderList);
