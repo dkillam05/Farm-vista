@@ -37,8 +37,6 @@
       width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
-    .searchbox{width:100%;margin:0 0 6px 0;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font:inherit}
-
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
@@ -75,6 +73,24 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
     .muted{ color:var(--muted,#67706B); }
+
+    /* === Combobox (search-in-dropdown) === */
+    .combo{position:relative}
+    .combo-btn{
+      width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; gap:8px;
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border); border-radius:10px; padding:12px; cursor:pointer; font:inherit;
+    }
+    .combo-btn:after{content:"▾"; opacity:.6}
+    .combo-pop{
+      position:absolute; z-index:9999; left:0; right:0; top:calc(100% + 6px);
+      background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 12px 24px rgba(0,0,0,.18); display:none;
+    }
+    .combo[open] .combo-pop{display:block;}
+    .combo-search{width:100%; border:none; border-bottom:1px solid var(--border); padding:10px 12px; font:inherit; outline:none; border-radius:12px 12px 0 0;}
+    .combo-list{max-height:260px; overflow:auto; padding:6px}
+    .combo-item{padding:8px 10px; border-radius:8px; cursor:pointer}
+    .combo-item:hover, .combo-item[aria-selected="true"]{background:rgba(47,108,60,.10)}
+    .sr-only{position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(1px,1px,1px,1px);white-space:nowrap}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -115,17 +131,19 @@
             </div>
           </div>
 
-          <!-- State → County (live ACS API) -->
+          <!-- State → County -->
           <div class="row-3">
             <div class="field">
-              <label for="stateSearch">Search States</label>
-              <input id="stateSearch" class="searchbox" placeholder="Type to filter states…">
-              <select id="stateSelect" class="select"></select>
+              <label>State</label>
+              <!-- hidden select (kept for compatibility) -->
+              <select id="stateSelect" class="select" style="display:none"></select>
+              <!-- searchable combobox UI -->
+              <div id="stateCombo" class="combo"></div>
             </div>
             <div class="field">
-              <label for="countySearch">Search Counties</label>
-              <input id="countySearch" class="searchbox" placeholder="Type to filter counties…" disabled>
-              <select id="countySelect" class="select" disabled></select>
+              <label>County</label>
+              <select id="countySelect" class="select" style="display:none" disabled></select>
+              <div id="countyCombo" class="combo"></div>
             </div>
             <div class="field" style="display:flex;align-items:end;gap:8px">
               <!-- helper pill removed -->
@@ -185,18 +203,16 @@
         <!-- State → County in Edit modal -->
         <div class="row-3">
           <div class="field">
-            <label for="editStateSearch">Search States</label>
-            <input id="editStateSearch" class="searchbox" placeholder="Type to filter states…">
-            <select id="editState" class="select"></select>
+            <label>State</label>
+            <select id="editState" class="select" style="display:none"></select>
+            <div id="editStateCombo" class="combo"></div>
           </div>
           <div class="field">
-            <label for="editCountySearch">Search Counties</label>
-            <input id="editCountySearch" class="searchbox" placeholder="Type to filter counties…" disabled>
-            <select id="editCounty" class="select" disabled></select>
+            <label>County</label>
+            <select id="editCounty" class="select" style="display:none" disabled></select>
+            <div id="editCountyCombo" class="combo"></div>
           </div>
-          <div class="field" style="display:flex;align-items:end;gap:8px">
-            <!-- helper pill removed -->
-          </div>
+          <div class="field" style="display:flex;align-items:end;gap:8px"></div>
         </div>
 
         <div class="row-3">
@@ -262,6 +278,63 @@
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
+    /* ===== Tiny Combobox builder ===== */
+    function buildCombo(container, selectEl, {placeholder="Search…"}={}){
+      container.innerHTML = `
+        <button type="button" class="combo-btn"><span class="combo-label">${selectEl.options[selectEl.selectedIndex]?.text||"Select…"}</span></button>
+        <div class="combo-pop" role="listbox" aria-label="options">
+          <input class="combo-search" placeholder="${placeholder}" aria-label="Search">
+          <div class="combo-list"></div>
+        </div>`;
+      const btn = container.querySelector(".combo-btn");
+      const pop = container.querySelector(".combo-pop");
+      const input = container.querySelector(".combo-search");
+      const list = container.querySelector(".combo-list");
+      let items = [];
+
+      function readOptions(){
+        items = Array.from(selectEl.options).map(o=>({value:o.value, text:o.text, disabled:o.disabled}));
+      }
+      function render(filter=""){
+        const q = filter.trim().toLowerCase();
+        list.innerHTML = items
+          .filter(it=>!it.disabled && (q? it.text.toLowerCase().includes(q):true))
+          .map(it=>`<div class="combo-item" data-v="${it.value}">${it.text}</div>`).join('') || `<div class="combo-item" aria-disabled="true">No matches</div>`;
+        // scroll to current selection
+        const sel = list.querySelector(`[data-v="${selectEl.value}"]`);
+        if(sel){ sel.setAttribute("aria-selected","true"); sel.scrollIntoView({block:"nearest"}); }
+      }
+      function setValue(v){
+        selectEl.value = v;
+        container.querySelector(".combo-label").textContent = selectEl.options[selectEl.selectedIndex]?.text || "Select…";
+        container.removeAttribute("open");
+      }
+
+      readOptions(); render("");
+
+      btn.addEventListener("click", ()=>{
+        container.toggleAttribute("open");
+        if(container.hasAttribute("open")){ input.value=""; render(""); input.focus(); }
+      });
+      list.addEventListener("click", e=>{
+        const it = e.target.closest(".combo-item"); if(!it || !it.dataset.v) return;
+        setValue(it.dataset.v);
+        selectEl.dispatchEvent(new Event("change"));
+      });
+      input.addEventListener("input", ()=> render(input.value));
+      document.addEventListener("click", (e)=>{
+        if(!container.contains(e.target)) container.removeAttribute("open");
+      });
+
+      // public API to re-sync when select options change
+      return {
+        syncFromSelect(){
+          readOptions(); render(input.value||"");
+          container.querySelector(".combo-label").textContent = selectEl.options[selectEl.selectedIndex]?.text || "Select…";
+        }
+      };
+    }
+
     /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
@@ -307,26 +380,6 @@
       }
       out.sort((a,b)=>a.localeCompare(b));
       return out;
-    }
-
-    /* ========= Search helpers (filter visible options) ========= */
-    const STATES_LIST = STATES.map(([v,t])=>({v,t}));
-    function renderOptions(selectEl, list, selectedValue){
-      const html = list.map(o=>`<option value="${o.v}">${o.t}</option>`).join('');
-      selectEl.innerHTML = html;
-      if(selectedValue){ selectEl.value = selectedValue; }
-    }
-    function filterStates(inputEl, selectEl, selectedValue){
-      const q = inputEl.value.trim().toLowerCase();
-      const filtered = q ? STATES_LIST.filter(s=> s.t.toLowerCase().includes(q) || s.v.toLowerCase().includes(q)) : STATES_LIST;
-      renderOptions(selectEl, filtered, selectedValue && filtered.some(s=>s.v===selectedValue) ? selectedValue : "");
-    }
-    function toCountyList(arr){ return (arr||[]).map(n=>({v:n,t:n})); }
-    function filterCounties(inputEl, selectEl, all, selectedValue){
-      const q = inputEl.value.trim().toLowerCase();
-      const base = toCountyList(all);
-      const filtered = q ? base.filter(c=> c.t.toLowerCase().includes(q)) : base;
-      renderOptions(selectEl, filtered, selectedValue && filtered.some(c=>c.v===selectedValue) ? selectedValue : "");
     }
 
     /* ===== App helpers ===== */
@@ -489,7 +542,7 @@
       $("tillable").value = "";
       $("rtkSelect").value = "";
       $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
-      $("countySearch").value = ""; $("countySearch").disabled = true;
+      countyCombo.syncFromSelect(); // reflect cleared counties
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
 
@@ -556,14 +609,22 @@
     /* =================== Edit Modal =================== */
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
     let editId = null;
-    let CURRENT_ADD_COUNTIES = [];   // for filtering
-    let CURRENT_EDIT_COUNTIES = [];
+
+    // build combos (after selects exist)
+    const stateCombo  = buildCombo($("stateCombo"), $("stateSelect"), {placeholder:"Search states…"});
+    const countyCombo = buildCombo($("countyCombo"), $("countySelect"), {placeholder:"Search counties…"});
+    const editStateCombo  = buildCombo($("editStateCombo"), $("editState"), {placeholder:"Search states…"});
+    const editCountyCombo = buildCombo($("editCountyCombo"), $("editCounty"), {placeholder:"Search counties…"});
 
     async function openEdit(id){
       editId = id;
       populateFarmSelects();
-      renderOptions($("editState"), STATES_LIST, "IL");
-      renderOptions($("stateSelect"), STATES_LIST, "IL");
+
+      // ensure state lists
+      $("editState").innerHTML = STATES.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+      $("stateSelect").innerHTML = STATES.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+      stateCombo.syncFromSelect(); editStateCombo.syncFromSelect();
+
       populateRTKSelect($("editRtkSelect"));
 
       const ref = doc(db, 'fields', id);
@@ -575,10 +636,11 @@
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
 
-      // Set state + counties in edit
-      $("editState").value = it.state || "IL";
-      await loadCountiesFor("edit", $("editState").value);
-      $("editCounty").value = it.county || "";
+      $("editState").value = it.state || "IL";  editStateCombo.syncFromSelect();
+
+      await loadCountiesInto($("editCounty"), null, $("editState").value, it.county || "");
+      $("editCounty").disabled = false;
+      editCountyCombo.syncFromSelect();
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -605,8 +667,11 @@
 
     $("editState").addEventListener("change", async ()=>{
       $("editCounty").value = "";
-      $("editCountySearch").value = "";
-      await loadCountiesFor("edit", $("editState").value);
+      $("editCounty").disabled = true;
+      editCountyCombo.syncFromSelect();
+      await loadCountiesInto($("editCounty"), null, $("editState").value);
+      $("editCounty").disabled = false;
+      editCountyCombo.syncFromSelect();
     });
 
     mdSave.addEventListener("click", async ()=>{
@@ -660,22 +725,23 @@
     });
 
     /* ===== State dropdowns (both Add + Edit) ===== */
-    function populateStates(sel){ renderOptions(sel, STATES_LIST, "IL"); }
+    function populateStates(sel){
+      sel.innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
+    }
 
-    async function loadCountiesFor(which, stateCode){
-      const url = acsUrl(stateCode);
-      const data = await fetchWithTimeout(url, 12000);
-      const list = parseCountyNames(data);
-      if(which === "add"){
-        CURRENT_ADD_COUNTIES = list.slice();
-        $("countySearch").disabled = false;
-        $("countySelect").disabled = false;
-        filterCounties($("countySearch"), $("countySelect"), CURRENT_ADD_COUNTIES, $("countySelect").value);
-      }else{
-        CURRENT_EDIT_COUNTIES = list.slice();
-        $("editCountySearch").disabled = false;
-        $("editCounty").disabled = false;
-        filterCounties($("editCountySearch"), $("editCounty"), CURRENT_EDIT_COUNTIES, $("editCounty").value);
+    async function loadCountiesInto(selectEl, _statusEl, stateCode, presetValue){
+      // status pill removed by request; just load
+      selectEl.innerHTML = ""; selectEl.disabled = true;
+      try{
+        const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
+        const list = parseCountyNames(data);
+        const opts = ['<option value=""></option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
+        selectEl.innerHTML = opts;
+        selectEl.disabled = list.length===0;
+        if(presetValue){ selectEl.value = presetValue; }
+      }catch(_){
+        selectEl.innerHTML = '<option value=""></option>';
+        selectEl.disabled = true;
       }
     }
 
@@ -692,23 +758,21 @@
       // State dropdowns + first county load for Add form
       populateStates($("stateSelect"));
       populateStates($("editState"));
+      $("stateSelect").value = "IL";
+      stateCombo.syncFromSelect();
 
-      // initial: IL
-      await loadCountiesFor("add", $("stateSelect").value);
+      await loadCountiesInto($("countySelect"), null, $("stateSelect").value);
+      $("countySelect").disabled = false;
+      countyCombo.syncFromSelect();
 
       $("stateSelect").addEventListener("change", async ()=>{
         $("countySelect").value = "";
-        $("countySearch").value = "";
-        $("countySearch").disabled = true;
+        countyCombo.syncFromSelect();
         $("countySelect").disabled = true;
-        await loadCountiesFor("add", $("stateSelect").value);
+        await loadCountiesInto($("countySelect"), null, $("stateSelect").value);
+        $("countySelect").disabled = false;
+        countyCombo.syncFromSelect();
       });
-
-      // Search filters
-      $("stateSearch").addEventListener("input", ()=> filterStates($("stateSearch"), $("stateSelect"), $("stateSelect").value));
-      $("countySearch").addEventListener("input", ()=> filterCounties($("countySearch"), $("countySelect"), CURRENT_ADD_COUNTIES, $("countySelect").value));
-      $("editStateSearch").addEventListener("input", ()=> filterStates($("editStateSearch"), $("editState"), $("editState").value));
-      $("editCountySearch").addEventListener("input", ()=> filterCounties($("editCountySearch"), $("editCounty"), CURRENT_EDIT_COUNTIES, $("editCounty").value));
 
       await loadRTKTowers();
       populateRTKSelect($("rtkSelect"));
@@ -721,10 +785,8 @@
         $("fieldName").value = "";
         $("tillable").value = "";
         $("rtkSelect").value = "";
-        $("stateSelect").value = "IL";
-        $("stateSearch").value = "";
-        $("countySearch").value = "";
-        $("countySelect").innerHTML = ""; $("countySelect").disabled = true; $("countySearch").disabled = true;
+        $("stateSelect").value = "IL"; stateCombo.syncFromSelect();
+        $("countySelect").innerHTML = ""; $("countySelect").disabled = true; countyCombo.syncFromSelect();
       });
 
       $("filterFarm").addEventListener("change", renderList);
