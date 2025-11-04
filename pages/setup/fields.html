@@ -37,16 +37,14 @@
       width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none;}
+    .searchbox{width:100%;margin:0 0 6px 0;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font:inherit}
+
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
-
-    .inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-    .switch{display:flex;gap:10px;align-items:center}
-    .switch input{width:22px;height:22px}
 
     /* List + filter */
     .list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap}
@@ -117,18 +115,20 @@
             </div>
           </div>
 
-          <!-- NEW: State → County (live ACS API) -->
+          <!-- State → County (live ACS API) -->
           <div class="row-3">
             <div class="field">
-              <label for="stateSelect">State</label>
+              <label for="stateSearch">Search States</label>
+              <input id="stateSearch" class="searchbox" placeholder="Type to filter states…">
               <select id="stateSelect" class="select"></select>
             </div>
             <div class="field">
-              <label for="countySelect">County</label>
+              <label for="countySearch">Search Counties</label>
+              <input id="countySearch" class="searchbox" placeholder="Type to filter counties…" disabled>
               <select id="countySelect" class="select" disabled></select>
             </div>
             <div class="field" style="display:flex;align-items:end;gap:8px">
-              <span id="countyStatus" class="pill">Idle</span>
+              <!-- helper pill removed -->
             </div>
           </div>
 
@@ -182,18 +182,20 @@
           </div>
         </div>
 
-        <!-- NEW: State → County in Edit modal -->
+        <!-- State → County in Edit modal -->
         <div class="row-3">
           <div class="field">
-            <label for="editState">State</label>
+            <label for="editStateSearch">Search States</label>
+            <input id="editStateSearch" class="searchbox" placeholder="Type to filter states…">
             <select id="editState" class="select"></select>
           </div>
           <div class="field">
-            <label for="editCounty">County</label>
+            <label for="editCountySearch">Search Counties</label>
+            <input id="editCountySearch" class="searchbox" placeholder="Type to filter counties…" disabled>
             <select id="editCounty" class="select" disabled></select>
           </div>
           <div class="field" style="display:flex;align-items:end;gap:8px">
-            <span id="editCountyStatus" class="pill">Idle</span>
+            <!-- helper pill removed -->
           </div>
         </div>
 
@@ -289,7 +291,7 @@
       const t = setTimeout(()=>ctrl.abort(), ms);
       try{
         const res = await fetch(url, {signal:ctrl.signal, mode:"cors", cache:"no-store"});
-        if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
+        if(!res.ok){ throw new Error(\`HTTP \${res.status}\`); }
         return await res.json();
       } finally { clearTimeout(t); }
     }
@@ -306,22 +308,25 @@
       out.sort((a,b)=>a.localeCompare(b));
       return out;
     }
-    async function loadCountiesInto(selectEl, statusEl, stateCode, presetValue){
-      statusEl.textContent = "Loading…";
-      selectEl.innerHTML = ""; selectEl.disabled = true;
-      try{
-        const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
-        const list = parseCountyNames(data);
-        const opts = ['<option value="">—</option>'].concat(list.map(c=>`<option value="${c}">${c}</option>`)).join('');
-        selectEl.innerHTML = opts;
-        selectEl.disabled = list.length===0;
-        if(presetValue){ selectEl.value = presetValue; }
-        statusEl.textContent = "Live";
-      }catch(_){
-        statusEl.textContent = "Error";
-        selectEl.innerHTML = '<option value="">—</option>';
-        selectEl.disabled = true;
-      }
+
+    /* ========= Search helpers (filter visible options) ========= */
+    const STATES_LIST = STATES.map(([v,t])=>({v,t}));
+    function renderOptions(selectEl, list, selectedValue){
+      const html = list.map(o=>`<option value="${o.v}">${o.t}</option>`).join('');
+      selectEl.innerHTML = html;
+      if(selectedValue){ selectEl.value = selectedValue; }
+    }
+    function filterStates(inputEl, selectEl, selectedValue){
+      const q = inputEl.value.trim().toLowerCase();
+      const filtered = q ? STATES_LIST.filter(s=> s.t.toLowerCase().includes(q) || s.v.toLowerCase().includes(q)) : STATES_LIST;
+      renderOptions(selectEl, filtered, selectedValue && filtered.some(s=>s.v===selectedValue) ? selectedValue : "");
+    }
+    function toCountyList(arr){ return (arr||[]).map(n=>({v:n,t:n})); }
+    function filterCounties(inputEl, selectEl, all, selectedValue){
+      const q = inputEl.value.trim().toLowerCase();
+      const base = toCountyList(all);
+      const filtered = q ? base.filter(c=> c.t.toLowerCase().includes(q)) : base;
+      renderOptions(selectEl, filtered, selectedValue && filtered.some(c=>c.v===selectedValue) ? selectedValue : "");
     }
 
     /* ===== App helpers ===== */
@@ -465,10 +470,10 @@
       const payload = {
         farmId: $("farmSelect").value,
         name: $("fieldName").value.trim(),
-        state: $("stateSelect").value,             // NEW
-        county: $("countySelect").value,           // county name only
+        state: $("stateSelect").value,
+        county: $("countySelect").value,
         tillable: toNum($("tillable").value),
-        hasHEL: false, helAcres: 0,                // (you can re-enable the HEL/CRP UI later if needed)
+        hasHEL: false, helAcres: 0,
         hasCRP: false, crpAcres: 0,
         rtkTowerId: $("rtkSelect").value || "",
         status: "active",
@@ -483,10 +488,8 @@
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
-      // reset county
       $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
-      $("countyStatus").textContent = "Idle";
-
+      $("countySearch").value = ""; $("countySearch").disabled = true;
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
 
@@ -553,12 +556,14 @@
     /* =================== Edit Modal =================== */
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
     let editId = null;
+    let CURRENT_ADD_COUNTIES = [];   // for filtering
+    let CURRENT_EDIT_COUNTIES = [];
 
     async function openEdit(id){
       editId = id;
       populateFarmSelects();
-      populateStates($("editState"));
-      populateStates($("stateSelect")); // ensure add-form has states too
+      renderOptions($("editState"), STATES_LIST, "IL");
+      renderOptions($("stateSelect"), STATES_LIST, "IL");
       populateRTKSelect($("editRtkSelect"));
 
       const ref = doc(db, 'fields', id);
@@ -569,10 +574,11 @@
       $("editFarm").value     = it.farmId || "";
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
-      $("editState").value    = it.state || "IL";
-      $("editCountyStatus").textContent = "Loading…";
-      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value, it.county || "");
-      $("editCountyStatus").textContent = "Live";
+
+      // Set state + counties in edit
+      $("editState").value = it.state || "IL";
+      await loadCountiesFor("edit", $("editState").value);
+      $("editCounty").value = it.county || "";
 
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       $("usedPill").style.display = it.used ? "inline-block" : "none";
@@ -599,7 +605,8 @@
 
     $("editState").addEventListener("change", async ()=>{
       $("editCounty").value = "";
-      await loadCountiesInto($("editCounty"), $("editCountyStatus"), $("editState").value);
+      $("editCountySearch").value = "";
+      await loadCountiesFor("edit", $("editState").value);
     });
 
     mdSave.addEventListener("click", async ()=>{
@@ -653,9 +660,23 @@
     });
 
     /* ===== State dropdowns (both Add + Edit) ===== */
-    function populateStates(sel){
-      sel.innerHTML = STATES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-      sel.value = "IL";
+    function populateStates(sel){ renderOptions(sel, STATES_LIST, "IL"); }
+
+    async function loadCountiesFor(which, stateCode){
+      const url = acsUrl(stateCode);
+      const data = await fetchWithTimeout(url, 12000);
+      const list = parseCountyNames(data);
+      if(which === "add"){
+        CURRENT_ADD_COUNTIES = list.slice();
+        $("countySearch").disabled = false;
+        $("countySelect").disabled = false;
+        filterCounties($("countySearch"), $("countySelect"), CURRENT_ADD_COUNTIES, $("countySelect").value);
+      }else{
+        CURRENT_EDIT_COUNTIES = list.slice();
+        $("editCountySearch").disabled = false;
+        $("editCounty").disabled = false;
+        filterCounties($("editCountySearch"), $("editCounty"), CURRENT_EDIT_COUNTIES, $("editCounty").value);
+      }
     }
 
     /* ===== Boot ===== */
@@ -670,12 +691,24 @@
 
       // State dropdowns + first county load for Add form
       populateStates($("stateSelect"));
-      $("countyStatus").textContent = "Loading…";
-      await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
+      populateStates($("editState"));
+
+      // initial: IL
+      await loadCountiesFor("add", $("stateSelect").value);
+
       $("stateSelect").addEventListener("change", async ()=>{
         $("countySelect").value = "";
-        await loadCountiesInto($("countySelect"), $("countyStatus"), $("stateSelect").value);
+        $("countySearch").value = "";
+        $("countySearch").disabled = true;
+        $("countySelect").disabled = true;
+        await loadCountiesFor("add", $("stateSelect").value);
       });
+
+      // Search filters
+      $("stateSearch").addEventListener("input", ()=> filterStates($("stateSearch"), $("stateSelect"), $("stateSelect").value));
+      $("countySearch").addEventListener("input", ()=> filterCounties($("countySearch"), $("countySelect"), CURRENT_ADD_COUNTIES, $("countySelect").value));
+      $("editStateSearch").addEventListener("input", ()=> filterStates($("editStateSearch"), $("editState"), $("editState").value));
+      $("editCountySearch").addEventListener("input", ()=> filterCounties($("editCountySearch"), $("editCounty"), CURRENT_EDIT_COUNTIES, $("editCounty").value));
 
       await loadRTKTowers();
       populateRTKSelect($("rtkSelect"));
@@ -689,8 +722,9 @@
         $("tillable").value = "";
         $("rtkSelect").value = "";
         $("stateSelect").value = "IL";
-        $("countySelect").innerHTML = ""; $("countySelect").disabled = true;
-        $("countyStatus").textContent = "Idle";
+        $("stateSearch").value = "";
+        $("countySearch").value = "";
+        $("countySelect").innerHTML = ""; $("countySelect").disabled = true; $("countySearch").disabled = true;
       });
 
       $("filterFarm").addEventListener("change", renderList);
