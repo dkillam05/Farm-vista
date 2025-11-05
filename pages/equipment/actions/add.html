@@ -54,15 +54,16 @@
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
-    .view-link{ font-weight:800; font-size:12px; opacity:.8; text-decoration:underline; cursor:pointer; user-select:none }
+    .view-link{ font-weight:800; font-size:12px; opacity:.85; text-decoration:underline; cursor:pointer; user-select:none }
+
     .input,.select,.textarea{ width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface)); border:1px solid var(--border);
       border-radius:10px; padding:12px; outline:none }
     .textarea{ min-height:110px; resize:vertical }
 
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
-    .btn{ display:inline-flex; align-items:center; justify-content:center; min-width:160px;
-      padding:12px 16px; border-radius:12px; border:1px solid var(--border);
+    .btn{ display:inline-flex; align-items:center; justify-content:center; min-width:148px;
+      padding:10px 14px; border-radius:12px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent }
@@ -86,6 +87,7 @@
     @media (max-width:560px){ .qr-grid{ grid-template-columns:1fr } }
     .qr-img{ width:160px; height:160px; background:#fff; border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden }
     .qr-meta code{ font-size:13px; background:rgba(0,0,0,.06); padding:3px 6px; border-radius:6px; color:var(--text) }
+    .qr-banner{ margin-top:8px; font-size:12px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; display:inline-block; background:color-mix(in srgb, var(--brand) 10%, transparent) }
 
     /* Print */
     @media print{
@@ -99,16 +101,16 @@
     @media (max-width:560px){ .qr-big{ width:82vw; height:82vw } }
     .qr-note{ font-size:14px; color:#555 }
 
-    /* Modal (native dialog) */
+    /* Modal (native dialog) — compact controls */
     dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw); box-shadow:0 18px 60px rgba(0,0,0,.35) }
     dialog::backdrop{ background:rgba(0,0,0,.35) }
     .modal{ padding:16px; background:var(--surface); border:1px solid var(--border); border-radius:14px; display:grid; gap:12px }
     .modal h3{ margin:0; color:var(--text) }
     .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px }
-    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border) }
+    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border) }
     .rowlist:last-child{ border-bottom:none }
-    .rowlist .act{ display:flex; gap:8px }
-    .chip{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:4px 8px; background:var(--surface) }
+    .rowlist .act{ display:flex; gap:8px; flex-wrap:wrap }
+    .btn-mini{ padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800; border:1px solid var(--border); background:var(--surface); }
   </style>
 </head>
 
@@ -180,7 +182,7 @@
           <div class="actions">
             <button id="btnClear" class="btn" type="button">Clear</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save</button>
-            <button id="btnQr" class="btn" type="button" disabled>Create QR Code</button>
+            <button id="btnQr" class="btn" type="button">Create QR Code</button>
             <button id="btnPrint" class="btn btn-quiet" type="button" disabled>Print QR</button>
           </div>
 
@@ -191,6 +193,7 @@
               <div class="qr-meta">
                 <div><strong>Equipment:</strong> <span id="qrEquipLabel">—</span></div>
                 <div><strong>Deep link:</strong> <code id="qrUrl">—</code></div>
+                <div id="qrBanner" class="qr-banner" hidden>QR created but <strong>not saved</strong> yet. Hit <strong>Save</strong> to activate.</div>
               </div>
             </div>
           </div>
@@ -214,7 +217,7 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, addDoc, doc, updateDoc, deleteDoc, getDocs, getDoc,
+      collection, setDoc, doc, updateDoc, deleteDoc, getDocs,
       query, orderBy, where,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
@@ -228,8 +231,15 @@
       void t.offsetWidth; t.classList.add("show");
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
-    const randToken = (len=24) => { const a=new Uint8Array(len); crypto.getRandomValues(a); return Array.from(a, b => ('0'+b.toString(16)).slice(-2)).join(''); };
-    function buildQrUrl(docId, token){ return `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(docId)}&t=${encodeURIComponent(token)}`; }
+    const randTokenHex = (len=24) => {
+      const a=new Uint8Array(len); crypto.getRandomValues(a);
+      return Array.from(a, b => ('0'+b.toString(16)).slice(-2)).join('');
+    };
+    const makeUUID = () => (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+Math.random().toString(36).slice(2)));
+
+    function buildQrUrl(equipId, token){
+      return `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(equipId)}&t=${encodeURIComponent(token)}`;
+    }
 
     async function loadStorageFns(){
       const m = await import('/Farm-vista/js/firebase-init.js');
@@ -281,7 +291,7 @@
              list.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
     }
 
-    /* ===== View/Edit modals ===== */
+    /* ===== View/Edit modals (compact buttons) ===== */
     function openListModal({title, rows}){
       const dlg=document.createElement('dialog');
       dlg.innerHTML=`
@@ -290,16 +300,16 @@
           <div class="list">
             ${rows.map(r=>`
               <div class="rowlist" data-id="${esc(r.id)}">
-                <div><strong>${esc(r.name)}</strong>${r.meta?` <span class="chip">${esc(r.meta)}</span>`:''}</div>
+                <div><strong>${esc(r.name)}</strong></div>
                 <div class="act">
-                  <button class="btn" data-act="edit"  type="button">Edit</button>
-                  <button class="btn" data-act="archive" type="button">Archive</button>
-                  <button class="btn" data-act="delete" type="button">Delete</button>
+                  <button class="btn-mini" data-act="edit"  type="button">Edit</button>
+                  <button class="btn-mini" data-act="archive" type="button">Archive</button>
+                  <button class="btn-mini" data-act="delete" type="button">Delete</button>
                 </div>
               </div>
             `).join('')}
           </div>
-          <div class="actions">
+          <div class="actions" style="justify-content:flex-end">
             <button class="btn" value="cancel">Close</button>
           </div>
         </form>`;
@@ -315,7 +325,7 @@
           <form method="dialog" class="modal">
             <h3>${label}</h3>
             <input id="txt" class="input" value="${esc(value)}" autofocus>
-            <div class="actions">
+            <div class="actions" style="justify-content:flex-end">
               <button class="btn" value="cancel">Cancel</button>
               <button class="btn btn-primary" value="ok">Save</button>
             </div>
@@ -332,7 +342,7 @@
           <form method="dialog" class="modal">
             <h3>Confirm</h3>
             <div>${esc(msg)}</div>
-            <div class="actions">
+            <div class="actions" style="justify-content:flex-end">
               <button class="btn" value="no">No</button>
               <button class="btn btn-primary" value="yes">Yes</button>
             </div>
@@ -356,10 +366,13 @@
       for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(qr.isDark(y,x)) ctx.fillRect(ox+pad+x*px, oy+pad+y*px, px, px);
     }
 
+    /* ===== State for instant-QR ===== */
+    let pending = { equipId:null, token:null, url:null };
+
     /* ===== Boot ===== */
     (async()=>{
       const ctx = await ready;
-      const db = getFirestore();
+      const db  = getFirestore();
       const auth = getAuth();
 
       const params = new URLSearchParams(location.search);
@@ -379,22 +392,20 @@
         if(val==="__add_make__"){
           const name = await promptText("Add Make");
           if(name){
-            const ref = await addDoc(collection(db,'equipment-makes'), { name, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
+            const ref = doc(collection(db,'equipment-makes'));
+            await setDoc(ref, { name, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
             makes = await getMakes(db);
             $("make").innerHTML = renderMakeOptions(makes);
             $("make").value = ref.id;
-            // refresh models for new make (empty)
             $("model").disabled=false;
             $("model").innerHTML = renderModelOptions([]);
           }else{
-            // revert to default
             $("make").selectedIndex = 0;
             $("model").disabled=true;
             $("model").innerHTML = '<option value="">— Select a Make first —</option>';
           }
           return;
         }
-        // normal selection
         if(!val){
           $("model").disabled=true;
           $("model").innerHTML = '<option value="">— Select a Make first —</option>';
@@ -405,7 +416,7 @@
         $("model").innerHTML = renderModelOptions(models);
       });
 
-      // Model change
+      // Model change (add-new option)
       $("model").addEventListener("change", async (e)=>{
         const makeId = $("make").value;
         const val = e.target.value;
@@ -413,10 +424,10 @@
           if(!makeId){ alert("Choose a Make first."); $("model").selectedIndex=0; return; }
           const name = await promptText("Add Model");
           if(name){
-            await addDoc(collection(db,'equipment-models'), { name, makeId, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
+            const ref = doc(collection(db,'equipment-models'));
+            await setDoc(ref, { name, makeId, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
             const models = await getModels(db, makeId);
             $("model").innerHTML = renderModelOptions(models);
-            // select the newly added by name
             const opt = Array.from($("model").options).find(o=>o.textContent.trim()===name);
             if(opt) $("model").value = opt.value;
           }else{
@@ -468,17 +479,60 @@
         }, { once:false });
       });
 
-      // Save
+      // Create QR instantly (no write yet)
+      $("btnQr").addEventListener("click", ()=>{
+        if(!pending.equipId){
+          pending.equipId = makeUUID();
+          pending.token   = randTokenHex(24);
+        }
+        pending.url = buildQrUrl(pending.equipId, pending.token);
+
+        // draw canvases + labels
+        drawQr($("qrCanvas"), pending.url);
+        drawQr($("qrCanvasBig"), pending.url);
+
+        const makeName = $("make").options[$("make").selectedIndex]?.textContent || '';
+        const modelName = $("model").options[$("model").selectedIndex]?.textContent || '';
+        const yr = $("year").value;
+        const label = `${makeName} ${modelName}${yr?` (${yr})`:''}`.trim() || 'Equipment';
+
+        $("qrEquipLabel").textContent = label;
+        $("qrUrl").textContent = pending.url;
+
+        $("qrBanner").hidden = false;     // not saved yet
+        $("qrWrap").classList.add("show");
+        $("btnPrint").disabled = false;
+        $("qrWrap").scrollIntoView({ behavior:'smooth', block:'start' });
+        showToast("QR created — not saved yet");
+      });
+
+      // Print QR
+      $("btnPrint").addEventListener("click", ()=>{
+        $("qrSheet").style.display='block';
+        $("qrMetaLine").textContent = `${$("qrEquipLabel").textContent} — ${pending.url || ''}`;
+        window.print();
+      });
+
+      // Save (writes to pending.equipId if present; otherwise generates a new id)
       $("btnSave").addEventListener("click", async ()=>{
         $("err").hidden=true;
+
         const makeId = $("make").value, modelId=$("model").value;
         if(!makeId){ alert("Please choose a Make."); return; }
         if(!modelId){ alert("Please choose a Model."); return; }
+
+        const db = getFirestore();
+        const type = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
 
         const makeName = $("make").options[$("make").selectedIndex].textContent.trim();
         const modelName = $("model").options[$("model").selectedIndex].textContent.trim();
         const yr = $("year").value ? Number($("year").value) : null;
         const name = `${makeName} ${modelName}${yr?` (${yr})`:''}`;
+
+        // ensure we have an id/token (if user never hit Create QR)
+        if(!pending.equipId){ pending.equipId = makeUUID(); }
+        if(!pending.token){ pending.token = randTokenHex(24); }
+        pending.url = buildQrUrl(pending.equipId, pending.token);
 
         const base = {
           type, name, makeId, modelId, makeName, modelName,
@@ -487,13 +541,16 @@
           engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
           notes: $("notes").value.trim() || null,
           status: "active",
+          qr: { token: pending.token, url: pending.url, createdAt: serverTimestamp() },
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
 
-        const db = getFirestore();
-        const ref = await addDoc(collection(db,'equipment'), base);
+        // setDoc at chosen id (no orphan records unless you actually save)
+        const ref = doc(db,'equipment', pending.equipId);
+        await setDoc(ref, base, { merge:true });
 
+        // optional photos
         const files = Array.from(($("photos").files||[]));
         if(files.length){
           try{
@@ -502,22 +559,20 @@
             const out = [];
             for(const f of files){
               const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-              const path = `equipment/${ref.id}/${safe}`;
+              const path = `equipment/${pending.equipId}/${safe}`;
               const r = stRef(st, path);
               await uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
               const url = await getDownloadURL(r);
               out.push({name:f.name, url, path});
             }
-            await updateDoc(doc(db,'equipment',ref.id), { photos: out, updatedAt: serverTimestamp() });
+            await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
           }catch(stErr){
             $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
           }
         }
 
-        // Enable QR for this new doc
-        $("btnQr").disabled=false;
-        $("btnQr").dataset.docId=ref.id;
-        $("btnPrint").disabled=true;
+        // saved — clear banner
+        $("qrBanner").hidden = true;
 
         // Toast + reset + top
         showToast("Saved — Ready for next unit");
@@ -525,47 +580,20 @@
         $("photos").value=""; $("year").selectedIndex=0;
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0; window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
-        $("qrWrap").classList.remove("show");
 
-      }, { once:false });
-
-      // QR
-      $("btnQr").addEventListener("click", async ()=>{
-        const id = $("btnQr").dataset.docId;
-        if(!id){ alert("Save the equipment first."); return; }
-        const token = randToken(24);
-        const url = buildQrUrl(id, token);
-        const db = getFirestore();
-        await updateDoc(doc(db,'equipment',id), { qr:{ token, url, createdAt:serverTimestamp() }, updatedAt:serverTimestamp() });
-
-        drawQr($("qrCanvas"), url);
-        drawQr($("qrCanvasBig"), url);
-
-        const makeName = $("make").options[$("make").selectedIndex]?.textContent || '';
-        const modelName = $("model").options[$("model").selectedIndex]?.textContent || '';
-        const yr = $("year").value;
-        const label = `${makeName} ${modelName}${yr?` (${yr})`:''}`.trim();
-        $("qrEquipLabel").textContent = label || id;
-        $("qrUrl").textContent = url;
-        $("qrMetaLine").textContent = `${label || 'Equipment'} — ${url}`;
-
-        $("qrWrap").classList.add("show");
-        $("btnPrint").disabled=false;
-        $("qrWrap").scrollIntoView({ behavior:'smooth', block:'start' });
-        showToast("QR code created");
+        // keep QR visible (now active), but reset pending for next entry
+        pending = { equipId:null, token:null, url:null };
       });
 
-      $("btnPrint").addEventListener("click", ()=>{
-        $("qrSheet").style.display='block';
-        window.print();
-      });
-
+      // Clear
       $("btnClear").addEventListener("click", ()=>{
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
         $("photos").value=""; $("year").selectedIndex=0;
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
-        $("make").selectedIndex=0; $("qrWrap").classList.remove("show");
-        $("btnPrint").disabled=true; $("btnQr").dataset.docId="";
+        $("make").selectedIndex=0;
+        $("qrWrap").classList.remove("show");
+        $("btnPrint").disabled=true;
+        pending = { equipId:null, token:null, url:null };
         window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
       });
 
