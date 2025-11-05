@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <!-- Ensure fv-shell -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -36,7 +36,9 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important; }
 
     .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      /* IMPORTANT: allow dropdown panels to overflow */
+      overflow:visible; margin-bottom:var(--page-bottom-gap); }
     .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
       padding:14px 16px; border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent); }
@@ -59,8 +61,7 @@
     .buttonish.has-caret::after{
       content:""; position:absolute; right:14px; top:50%; width:0; height:0;
       border-left:6px solid transparent; border-right:6px solid transparent;
-      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%);
-      pointer-events:none;
+      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
     }
 
     .textarea{ min-height:110px; resize:vertical }
@@ -74,7 +75,7 @@
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* Inline combo dropdown (Field & Bag) — aligned directly under control */
+    /* Inline combo dropdowns (Field & Bag) */
     .combo{ position:relative }
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + 6px);
@@ -84,7 +85,7 @@
     .combo-panel.show{ display:block }
     .combo-panel .search{ padding:4px 2px 8px }
     .combo-panel .search input{ width:100%; padding:10px; border:1px solid var(--border); border-radius:10px }
-    .combo-panel .list{ max-height:260px; overflow:auto; border-top:1px solid var(--border) }
+    .combo-panel .list{ max-height:50vh; overflow:auto; border-top:1px solid var(--border) }
     .combo-item{ padding:10px 8px; border-bottom:1px solid var(--border); cursor:pointer }
     .combo-item:hover{ background:rgba(0,0,0,.04) }
     .combo-empty{ padding:10px 8px; color:#67706B }
@@ -126,13 +127,11 @@
                 <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"/></div>
                 <div class="list" id="fieldList"></div>
               </div>
-              <div id="fieldHelp" class="help">0 fields</div>
             </div>
 
             <div class="field">
               <label for="cropYear">Crop Year</label>
               <select id="cropYear" class="select"></select>
-              <div class="help">Defaults to current year.</div>
             </div>
           </div>
 
@@ -140,13 +139,12 @@
             <button id="addBag" class="btn btn-primary" type="button">Add Bag Entry</button>
           </div>
 
-          <!-- Hidden bag form (shown after Add Bag Entry) -->
+          <!-- Hidden bag form -->
           <div id="bagForm" hidden>
             <div class="row">
               <div class="field">
                 <label for="submittedBy">Submitted By</label>
                 <select id="submittedBy" class="select"></select>
-                <div id="subHelp" class="help">Defaults to current user.</div>
               </div>
 
               <div class="field">
@@ -173,7 +171,6 @@
                   <div class="search"><input id="bagSearch" type="search" placeholder="Search bags…"/></div>
                   <div class="list" id="bagList"></div>
                 </div>
-                <div id="bagHelp" class="help">0 bag SKUs</div>
               </div>
             </div>
 
@@ -194,7 +191,7 @@
               <div class="field">
                 <label for="partialBags">Number of Partial Bags</label>
                 <input id="partialBags" class="input" type="number" inputmode="numeric" min="0" step="1" value="0"/>
-                <div class="help">We’ll ask for each partial’s estimated length.</div>
+                <div class="help">Each partial must be at least 50 ft (final max shown after choosing a bag).</div>
               </div>
               <div class="field"><!-- spacer --></div>
             </div>
@@ -262,7 +259,6 @@
     // ===== FIELD combo =====
     function renderFieldPanel(list){
       $("fieldList").innerHTML = list.map(f=>`<div class="combo-item" data-id="${esc(f.id)}">${esc(f.name)}</div>`).join('') || `<div class="combo-empty">(no fields)</div>`;
-      $("fieldHelp").textContent = `${list.length} fields`;
     }
     function filterFieldPanel(q){
       q=(q||"").toLowerCase().trim();
@@ -283,7 +279,6 @@
     }
     function renderBagPanel(list){
       $("bagList").innerHTML = list.map(b=>`<div class="combo-item" data-id="${esc(b.id)}">${esc(composeBagLabel(b))}</div>`).join('') || `<div class="combo-empty">(no bags)</div>`;
-      $("bagHelp").textContent = `${list.length} bag SKUs`;
     }
     function filterBagPanel(q){
       q=(q||"").toLowerCase().trim();
@@ -311,7 +306,6 @@
       $("partialsRangeHelp").textContent = L ? `Allowed range: ${min}–${max} ft per partial (bag ${L} ft).` : "";
       return {min, max};
     }
-
     function renderPartialInputs(){
       const n = Math.max(0, Number($("partialBags").value||0));
       const wrap = $("partialsBlock");
@@ -352,21 +346,17 @@
       updatePartialRangeHelp();
       schedulePartialValidate();
     }
-
     function schedulePartialValidate(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(validatePartials, 1000); }
-
     function validatePartials(){
       const L = Number(chosenBag?.sizeFeet||0);
       const min=50, max=Math.max(0,L-50);
       let ok=true;
-
       const rows=[...$("partialsList").querySelectorAll('.partial-row')];
       for(const r of rows){
         const inp=r.querySelector('input');
         const help=r.querySelector('.partial-help');
         const v=Number(inp.value||0);
         const bad = !(v>=min && v<=max);
-        // turn red only when outside range AND user entered something
         const showInvalid = bad && inp.value!=="";
         inp.classList.toggle('invalid', showInvalid);
         help.textContent = (inp.value==="") ? "" : (showInvalid ? `Enter ${min}–${max} ft.` : "");
@@ -397,10 +387,8 @@
         const me=(auth.currentUser?.email||"").toLowerCase();
         const mine=list.find(e=>(e.email||"").toLowerCase()===me);
         $("submittedBy").value = mine ? mine.id : (list[0]?.id||"");
-        $("subHelp").textContent=`${list.length} employees`;
       }catch(e){
         $("submittedBy").innerHTML=`<option value="">(no employees)</option>`;
-        $("subHelp").textContent=`0 employees`;
       }
     }
     async function loadBags(db){
@@ -436,7 +424,6 @@
       const partialCount=Math.max(0,Number($("partialBags").value||0));
       if(partialCount>0 && !validatePartials()){ $("err").hidden=false; $("err").textContent="One or more partial lengths are outside the allowed range."; return; }
 
-      // Gather partials (lengths + usage per-row)
       const rows=[...$("partialsList").querySelectorAll('.partial-row')];
       const partialFeet=[], partialUsage=[];
       for(const r of rows){
@@ -448,7 +435,6 @@
 
       const fullBags=Math.max(0,Number($("fullBags").value||0));
 
-      // Submitted by (name only on UI, full details in record)
       const subId=$("submittedBy").value||"";
       const me=EMPLOYEES.find(e=>e.id===subId)||{};
       const subEmail=me.email||getAuth().currentUser?.email||"";
@@ -511,9 +497,10 @@
 
     // ===== Boot =====
     (async()=>{
-      fillYears(); fillPriority(); $("datePlaced").value = todayISO();
+      fillYears(); $("datePlaced").value = todayISO();
       await ready;
       const db=getFirestore(); const auth=getAuth();
+      fillPriority();
 
       await Promise.all([loadFields(db), loadEmployees(db,auth), loadBags(db)]);
 
