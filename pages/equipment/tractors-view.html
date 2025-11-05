@@ -1,1 +1,517 @@
-.gitkeep
+<!-- =========================================================
+FILE 2 of 2
+/Farm-vista/pages/equipment/tractors-view.html
+Tractors summary list + detail drawer: edit core fields, show QR, Reprint QR
+========================================================= -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • View Tractors</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true; document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{ --brand:var(--green,#3B7E46); --card-max:1200px; }
+    body{ background:var(--app-bg,var(--surface)); }
+    .wrap{
+      max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 80px)!important;
+    }
+
+    header.page{margin:8px 0 14px;}
+    header.page h1{margin:0 0 6px 0; font-size:clamp(22px,3.5vw,28px)}
+    header.page p{margin:0; color:var(--muted,#67706B)}
+
+    .toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:10px 0 14px}
+    .input,.select{
+      font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:10px 12px;
+    }
+    .toolbar .input{ min-width:240px; }
+    .toolbar .select{ min-width:160px; }
+
+    .list{
+      border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--surface);
+    }
+    .thead,.row{
+      display:grid; grid-template-columns: 40px 1.2fr 1fr 0.8fr 0.8fr 120px;
+      gap:10px; align-items:center;
+    }
+    .thead{ padding:10px 12px; font-weight:800; background:color-mix(in srgb, var(--brand) 10%, transparent); }
+    .row{ padding:10px 12px; border-top:1px solid var(--border); cursor:pointer }
+    .row:hover{ background:color-mix(in srgb, var(--brand) 6%, transparent); }
+    .status{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
+
+    @media (max-width:960px){
+      .thead,.row{ grid-template-columns: 32px 1.6fr 1fr 1fr 120px; }
+      .col-hours{ display:none }
+    }
+    @media (max-width:720px){
+      .thead{ display:none }
+      .row{ grid-template-columns: 1fr; gap:4px }
+      .row > div{ display:flex; gap:8px; }
+      .row .mobile-line{ font-size:13px; color:var(--muted) }
+    }
+
+    /* Drawer */
+    .drawer{ position:fixed; right:0; top:0; bottom:0; width:min(520px, 96vw);
+      background:var(--surface); border-left:1px solid var(--border); box-shadow:-12px 0 40px rgba(0,0,0,.2);
+      transform:translateX(100%); transition:transform .25s ease; z-index:9000; display:flex; flex-direction:column;
+    }
+    .drawer.show{ transform:translateX(0) }
+    .dw-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand) 10%, transparent) }
+    .dw-body{ padding:16px; display:grid; gap:12px; overflow:auto }
+    .btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
+    .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
+    .btn-quiet{ background:transparent }
+
+    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+    @media (max-width:640px){ .grid2{ grid-template-columns:1fr } }
+
+    .textarea,.input, .select{ width:100%; }
+
+    /* QR */
+    .qr-box{ border:1px dashed var(--border); border-radius:12px; padding:12px; display:grid; gap:10px; }
+    .qr-img{ width:180px; height:180px; background:#fff; border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden }
+    .qr-meta code{ font-size:12px; background:rgba(0,0,0,.06); padding:3px 6px; border-radius:6px; color:var(--text) }
+
+    /* Print sheet */
+    @media print{
+      body{ background:#fff }
+      header.page, .toolbar, .list, .dw-head, .btn, header.app, footer.app{ display:none !important }
+      .print-sheet{ display:block !important; }
+    }
+    .print-sheet{ display:none; text-align:center; padding:24px }
+    .qr-big{ width:520px; height:520px; margin:12px auto; border:1px solid var(--border); border-radius:16px; display:grid; place-items:center; background:#fff; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <header class="page">
+        <h1>View Tractors</h1>
+        <p class="muted">Search and filter tractors. Tap a row to view details, edit, or reprint the QR.</p>
+      </header>
+
+      <div class="toolbar">
+        <input id="search" class="input" placeholder="Search make, model, year, serial…">
+        <select id="filter" class="select">
+          <option value="active">Active</option>
+          <option value="archived">Archived</option>
+          <option value="all">All</option>
+        </select>
+        <select id="sort" class="select">
+          <option value="name">Name (A→Z)</option>
+          <option value="year">Year (new→old)</option>
+          <option value="hours">Hours (high→low)</option>
+          <option value="created">Recently added</option>
+        </select>
+        <a class="btn" href="/Farm-vista/pages/equipment/actions/add.html?type=tractor">Add Tractor</a>
+      </div>
+
+      <div class="list">
+        <div class="thead">
+          <div>#</div>
+          <div>Name</div>
+          <div>Make / Model</div>
+          <div class="col-hours">Hours</div>
+          <div>Status</div>
+          <div>Added</div>
+        </div>
+        <div id="rows"></div>
+      </div>
+    </div>
+  </fv-shell>
+
+  <!-- Right drawer for details -->
+  <aside id="drawer" class="drawer" aria-modal="true" aria-hidden="true">
+    <div class="dw-head">
+      <strong id="dwTitle">Unit</strong>
+      <div style="display:flex;gap:8px">
+        <button id="btnClose" class="btn">Close</button>
+        <button id="btnSave" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+    <div class="dw-body">
+      <div class="grid2">
+        <div>
+          <label>Make</label>
+          <input id="dwMake" class="input" placeholder="Make">
+        </div>
+        <div>
+          <label>Model</label>
+          <input id="dwModel" class="input" placeholder="Model">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Year</label>
+          <select id="dwYear" class="select"></select>
+        </div>
+        <div>
+          <label>Serial #</label>
+          <input id="dwSerial" class="input" placeholder="Serial (optional)">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Engine Hours</label>
+          <input id="dwHours" type="number" step="0.1" class="input" placeholder="e.g., 1250.5">
+        </div>
+        <div>
+          <label>Status</label>
+          <select id="dwStatus" class="select">
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label>Notes</label>
+        <textarea id="dwNotes" class="textarea" placeholder="Optional details"></textarea>
+      </div>
+
+      <!-- QR area -->
+      <div class="qr-box">
+        <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap">
+          <div class="qr-img"><canvas id="qrSmall" width="180" height="180" aria-label="QR"></canvas></div>
+          <div class="qr-meta">
+            <div><strong>Deep link:</strong> <code id="qrUrl">—</code></div>
+            <div id="qrWarn" class="status" style="margin-top:6px" hidden>QR missing — create from Add page</div>
+            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+              <button id="btnReprint" class="btn">Reprint QR</button>
+              <a id="btnOpenHub" class="btn btn-quiet" target="_blank" rel="noopener">Open Hub</a>
+            </div>
+          </div>
+        </div>
+        <!-- print-only sheet -->
+        <div id="printSheet" class="print-sheet">
+          <h2 id="psTitle">Equipment QR</h2>
+          <div class="qr-big"><canvas id="qrBig" width="520" height="520" aria-label="QR Big"></canvas></div>
+          <div id="psMeta"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, getDocs, query, where, orderBy, doc, getDoc, updateDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    /* ---------- Utils ---------- */
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
+    function buildYearOptions(sel){
+      sel.innerHTML = '<option value="">—</option>';
+      const now = new Date().getFullYear();
+      for(let y=now;y>=1980;y--){
+        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
+      }
+    }
+
+    /* ---------- QR drawing (same tiny encoder as add.html) ---------- */
+    function drawQr(canvas, text){
+      if(!canvas || !text) return;
+      const qr = new QRCodeImpl(text);
+      const ctx = canvas.getContext('2d');
+      const n = qr.size, pad=8;
+      const px = Math.floor((canvas.width - pad*2) / n);
+      const size = px*n + pad*2;
+      ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      const ox=Math.floor((canvas.width-size)/2), oy=Math.floor((canvas.height-size)/2);
+      ctx.fillStyle='#000';
+      for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(qr.isDark(y,x)) ctx.fillRect(ox+pad+x*px, oy+pad+y*px, px, px);
+    }
+
+    /* ---------- State ---------- */
+    let DB, tractors = [];
+    let currentId = null;
+
+    /* ---------- Fetch and render list ---------- */
+    async function loadList(){
+      const rows = $("rows");
+      rows.innerHTML = "";
+
+      let snap;
+      try{
+        // Try indexed query (active by default)
+        const f = $("filter").value;
+        const base = collection(DB,'equipment');
+        let qy;
+        if(f === 'active'){
+          qy = query(base, where('type','==','tractor'), where('status','==','active'), orderBy('name'));
+        }else if(f === 'archived'){
+          qy = query(base, where('type','==','tractor'), where('status','==','archived'), orderBy('name'));
+        }else{
+          qy = query(base, where('type','==','tractor'), orderBy('name'));
+        }
+        snap = await getDocs(qy);
+      }catch(e){
+        // Fallback (no composite index)
+        const base = collection(DB,'equipment');
+        const all = await getDocs(query(base, where('type','==','tractor')));
+        // emulate sorting by name
+        const temp = [];
+        all.forEach(d=>{ temp.push({ id:d.id, ...d.data() }) });
+        temp.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+        tractors = temp;
+        renderList();
+        return;
+      }
+
+      const list = [];
+      snap.forEach(d=> list.push({ id:d.id, ...d.data() }));
+      tractors = list;
+      renderList();
+    }
+
+    function applySearchSort(items){
+      const q = $("search").value.trim().toLowerCase();
+      let out = items.filter(x=>{
+        if($("filter").value==='active'   && x.status!=='active') return false;
+        if($("filter").value==='archived' && x.status!=='archived') return false;
+        if(!q) return true;
+        const hay = [
+          x.name, x.makeName, x.modelName, x.year, x.serial, x.engineHours
+        ].map(v=>String(v||"").toLowerCase()).join(" ");
+        return hay.includes(q);
+      });
+
+      const sort = $("sort").value;
+      if(sort==='name') out.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+      else if(sort==='year') out.sort((a,b)=>(b.year||0)-(a.year||0));
+      else if(sort==='hours') out.sort((a,b)=>(Number(b.engineHours||0) - Number(a.engineHours||0)));
+      else if(sort==='created') out.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
+
+      return out;
+    }
+
+    function renderList(){
+      const rows = $("rows");
+      rows.innerHTML = "";
+      const data = applySearchSort(tractors);
+      let i=0;
+      for(const x of data){
+        const row = document.createElement('div');
+        row.className='row';
+        row.dataset.id = x.id;
+
+        const name = x.name || [x.makeName, x.modelName].filter(Boolean).join(' ');
+        const makeModel = [x.makeName, x.modelName].filter(Boolean).join(' ');
+
+        row.innerHTML = `
+          <div>${++i}</div>
+          <div>${esc(name||'—')}</div>
+          <div>${esc(makeModel||'—')}${x.year?` • ${esc(x.year)}`:''}</div>
+          <div class="col-hours">${x.engineHours!=null? esc(x.engineHours) : '—'}</div>
+          <div><span class="status">${esc(x.status||'active')}</span></div>
+          <div>${esc(fmtDate(x.createdAt))}</div>
+
+          <div class="mobile-line">#${i} • ${esc(makeModel||'—')} ${x.year?`• ${esc(x.year)}`:''} • ${x.engineHours!=null?`${esc(x.engineHours)} hrs`:'—'} • ${esc(x.status||'active')}</div>
+        `;
+        row.addEventListener('click', ()=> openDrawer(x.id));
+        rows.appendChild(row);
+      }
+    }
+
+    /* ---------- Drawer (view/edit + QR) ---------- */
+    function yearOptions(sel, value){
+      buildYearOptions(sel);
+      if(value) sel.value = String(value);
+    }
+
+    async function openDrawer(id){
+      currentId = id;
+      const ref = doc(DB,'equipment', id);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return;
+
+      const d = snap.data() || {};
+      const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
+
+      $("dwTitle").textContent = name || `Unit ${id.slice(0,6)}`;
+      $("dwMake").value  = d.makeName || '';
+      $("dwModel").value = d.modelName || '';
+      yearOptions($("dwYear"), d.year||'');
+      $("dwSerial").value = d.serial || '';
+      $("dwHours").value  = (d.engineHours!=null)? d.engineHours : '';
+      $("dwStatus").value = d.status || 'active';
+      $("dwNotes").value  = d.notes || '';
+
+      // QR
+      if(d.qr?.url){
+        $("qrUrl").textContent = d.qr.url;
+        $("qrWarn").hidden = true;
+        drawQr($("qrSmall"), d.qr.url);
+        drawQr($("qrBig"),   d.qr.url);
+        $("btnOpenHub").href = d.qr.url;
+      }else{
+        $("qrUrl").textContent = "—";
+        $("qrWarn").hidden = false;
+        const ctx = $("qrSmall").getContext('2d');
+        ctx.clearRect(0,0,180,180);
+        $("btnOpenHub").removeAttribute('href');
+      }
+
+      $("drawer").classList.add("show");
+      $("drawer").setAttribute('aria-hidden','false');
+    }
+
+    async function saveDrawer(){
+      if(!currentId) return;
+      const ref = doc(DB,'equipment', currentId);
+      const patch = {
+        makeName: $("dwMake").value.trim() || null,
+        modelName: $("dwModel").value.trim() || null,
+        year: $("dwYear").value ? Number($("dwYear").value) : null,
+        serial: $("dwSerial").value.trim() || null,
+        engineHours: $("dwHours").value ? Number($("dwHours").value) : null,
+        status: $("dwStatus").value || 'active',
+        notes: $("dwNotes").value.trim() || null,
+        // keep name consistent if present
+      };
+      // If name follows "Make Model (Year)" logic, refresh it
+      const nm = [patch.makeName, patch.modelName].filter(Boolean).join(' ');
+      patch.name = nm ? (patch.year ? `${nm} (${patch.year})` : nm) : null;
+
+      patch.updatedAt = serverTimestamp();
+      await updateDoc(ref, patch);
+      // refresh in-memory + re-render
+      const idx = tractors.findIndex(x=>x.id===currentId);
+      if(idx>-1){
+        tractors[idx] = { ...tractors[idx], ...patch };
+      }
+      renderList();
+    }
+
+    function closeDrawer(){
+      $("drawer").classList.remove("show");
+      $("drawer").setAttribute('aria-hidden','true');
+      currentId = null;
+    }
+
+    function reprintQR(){
+      // print current QR (already drawn at openDrawer)
+      const title = $("dwTitle").textContent || "Equipment QR";
+      $("psTitle").textContent = title;
+      $("psMeta").textContent  = $("qrUrl").textContent;
+      window.print();
+    }
+
+    /* ---------- Boot ---------- */
+    (async()=>{
+      await ready;
+      DB = getFirestore();
+
+      buildYearOptions($("dwYear"));
+      await loadList();
+
+      $("search").addEventListener('input', ()=> renderList());
+      $("filter").addEventListener('change', ()=> loadList());
+      $("sort").addEventListener('change', ()=> renderList());
+
+      $("btnClose").addEventListener('click', closeDrawer);
+      $("btnSave").addEventListener('click', async ()=>{
+        await saveDrawer();
+        closeDrawer();
+      });
+      $("btnReprint").addEventListener('click', reprintQR);
+      $("btnOpenHub").addEventListener('click', (e)=>{
+        if(!e.currentTarget.href) e.preventDefault();
+      });
+    })();
+
+    /* ---------- Tiny QR encoder ---------- */
+    class QRBitBuffer{ constructor(){ this.buffer=[]; this.length=0 } get(i){ return ((this.buffer[i>>3] >>> (7 - i%8)) & 1) == 1 } put(num,len){ for(let i=0;i<len;i++) this.putBit(((num >>> (len-i-1))&1)==1) } putBit(bit){ const b=this.length>>3; if(this.buffer.length<=b) this.buffer.push(0); if(bit) this.buffer[b]|=(0x80 >>> (this.length%8)); this.length++ } }
+    class QRPolynomial{
+      constructor(num, shift){ let o=0; while(o<num.length && num[o]==0) o++; this.num=new Array(num.length-o+shift); for(let i=0;i<num.length-o;i++) this.num[i]=num[i+o]; }
+      get length(){ return this.num.length }
+      multiply(e){ const num=new Array(this.length+e.length-1).fill(0); for(let i=0;i<this.length;i++) for(let j=0;j<e.length;j++) num[i+j]^=QRMath.gexp(QRMath.glog(this.num[i])+QRMath.glog(e.num[j])); return new QRPolynomial(num,0) }
+      mod(e){ if(this.length-e.length<0) return this; const ratio=QRMath.glog(this.num[0]) - QRMath.glog(e.num[0]); const num=this.num.slice(0); for(let i=0;i<e.length;i++) num[i]^=QRMath.gexp(QRMath.glog(e.num[i])+ratio); return new QRPolynomial(num,0).mod(e) }
+    }
+    class QRMath{ static glog(n){ if(n<1) throw new Error("glog"); return this.LOG_TABLE[n] } static gexp(n){ while(n<0) n+=255; while(n>=256) n-=255; return this.EXP_TABLE[n] } }
+    QRMath.EXP_TABLE = new Array(256); QRMath.LOG_TABLE = new Array(256);
+    for(let i=0;i<8;i++) QRMath.EXP_TABLE[i]=1<<i;
+    for(let i=8;i<256;i++) QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];
+    for(let i=0;i<256;i++) QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
+    const QR_RS_BLOCK_TABLE={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]],14:[[614,458]],16:[[782,574]],18:[[976,700]],20:[[1196,842]],21:[[1316,902]]};
+    class QRCodeImpl{
+      constructor(text){ this.text=text; this.make() }
+      get size(){ return this.moduleCount }
+      isDark(r,c){ return this.modules[r][c] }
+      make(){
+        const bytes = new TextEncoder().encode(this.text);
+        let ver=1; while(ver<21){ const rs=QR_RS_BLOCK_TABLE[ver]||QR_RS_BLOCK_TABLE[21]; const cap=rs[0][1]; if(bytes.length+6<cap) break; ver++; }
+        this.moduleCount=4*ver+17; this.modules=new Array(this.moduleCount); for(let r=0;r<this.moduleCount;r++) this.modules[r]=new Array(this.moduleCount).fill(null);
+        this.pp(0,0); this.pp(this.moduleCount-7,0); this.pp(0,this.moduleCount-7); this.tp();
+        const data=this.data(ver,bytes); this.map(data);
+      }
+      pp(row,col){
+        for(let r=-1;r<=7;r++){ if(row+r<=-1||this.moduleCount<=row+r) continue;
+          for(let c=-1;c<=7;c++){ if(col+c<=-1||this.moduleCount<=col+c) continue;
+            if((0<=r&&r<=6&&(c==0||c==6))||(0<=c&&c<=6&&(r==0||r==6))||(2<=r&&r<=4&&2<=c&&c<=4)) this.modules[row+r][col+c]=true;
+            else this.modules[row+r][col+c]=false;
+          }
+        }
+      }
+      tp(){ for(let i=8;i<this.moduleCount-8;i++){ const v=(i%2)==0; if(this.modules[i][6]===null) this.modules[i][6]=v; if(this.modules[6][i]===null) this.modules[6][i]=v; } }
+      data(ver, bytes){
+        const buf=new QRBitBuffer(); buf.put(4,4); if(ver<10) buf.put(bytes.length,8); else buf.put(bytes.length,16); for(const b of bytes) buf.put(b,8);
+        const dataCount=(QR_RS_BLOCK_TABLE[ver]||QR_RS_BLOCK_TABLE[21])[0][1];
+        const out=[]; for(let i=0;i<buf.length;i+=8) out.push((buf.get(i)?128:0)|(buf.get(i+1)?64:0)|(buf.get(i+2)?32:0)|(buf.get(i+3)?16:0)|(buf.get(i+4)?8:0)|(buf.get(i+5)?4:0)|(buf.get(i+6)?2:0)|(buf.get(i+7)?1:0));
+        while(out.length<dataCount) out.push((out.length%2)?0x11:0xEC);
+        const total=(QR_RS_BLOCK_TABLE[ver]||QR_RS_BLOCK_TABLE[21])[0][0];
+        const ec=total-dataCount; const rs=QRUtil.getErrorCorrectPolynomial(ec); const raw=new QRPolynomial(out, rs.length-1); const mod=raw.mod(rs);
+        const ecBytes=new Array(ec).fill(0); const m=mod.num; const off=ecBytes.length-m.length; for(let i=0;i<m.length;i++) ecBytes[i+off]=m[i];
+        return out.concat(ecBytes);
+      }
+      map(data){
+        let inc=-1,row=this.moduleCount-1,bit=0,byte=0;
+        for(let col=this.moduleCount-1; col>0; col-=2){
+          if(col==6) col--;
+          while(true){
+            for(let c=0;c<2;c++){
+              if(this.modules[row][col-c]===null){
+                let dark=false; if(byte<data.length) dark = (((data[byte] >>> (7-bit)) & 1) == 1);
+                this.modules[row][col-c]=dark; bit++; if(bit==8){ bit=0; byte++; }
+              }
+            }
+            row+=inc; if(row<0||this.moduleCount<=row){ row-=inc; inc=-inc; break; }
+          }
+        }
+      }
+    }
+    const QRUtil={ getErrorCorrectPolynomial(ec){ let a=new QRPolynomial([1],0); for(let i=0;i<ec;i++) a=a.multiply(new QRPolynomial([1, QRMath.gexp(i)],0)); return a; } };
+  </script>
+</body>
+</html>
+
