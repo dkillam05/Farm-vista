@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Add Tractor</title>
+  <title>FarmVista • Add Equipment</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -22,536 +22,238 @@
       if(!customElements.get('fv-shell')){
         const s=document.createElement('script');
         s.src='/Farm-vista/js/fv-shell.js';
-        s.defer=true;
-        document.head.appendChild(s);
+        s.defer=true; document.head.appendChild(s);
       }
     })();
   </script>
 
   <style>
-    :root{ --card-max:1100px; --page-bottom-gap:96px; --brand: var(--green, #3B7E46); }
+    :root{ --brand:var(--green,#3B7E46); --card-max:1100px; }
     body{ background:var(--app-bg,var(--surface)); }
-    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important; }
+    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px); }
 
-    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
-    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
-      padding:14px 16px; border-bottom:1px solid var(--border);
-      background: color-mix(in srgb, var(--brand) 12%, transparent); }
-    .hero-head .icon{ width:24px; height:24px; display:grid; place-items:center; color:var(--brand); }
-    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
-    .muted{ color:var(--muted,#67706B) }
+    header.page{margin:8px 0 14px;}
+    header.page h1{margin:0 0 6px 0; font-size:clamp(22px,3.5vw,28px)}
+    header.page p{margin:0; color:var(--muted,#67706B)}
 
-    .body{ padding:16px; display:grid; gap:14px }
-    .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
-    @media (max-width:880px){ .row{ grid-template-columns:1fr } }
-
-    .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
-    .view-link{ font-weight:800; font-size:12px; text-decoration:underline; cursor:pointer }
-
-    .input,.select,.textarea{ width:100%; font:inherit; font-size:16px; color:var(--text);
-      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:10px; padding:12px; outline:none }
-    .textarea{ min-height:110px; resize:vertical }
-
-    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
-    .btn{ display:inline-flex; align-items:center; justify-content:center; min-width:148px;
-      padding:10px 14px; border-radius:12px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
+    .hero{
+      border:1px solid var(--border); border-radius:16px; background:var(--surface);
+      padding:16px; display:grid; gap:12px;
+    }
+    .hero-actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center }
+    .btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent }
 
-    .error{ color:#b00020; font-weight:700 }
+    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+    @media (max-width:720px){ .grid2{ grid-template-columns:1fr } }
 
-    /* Toast */
-    .toast{
-      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
-      transform:translateX(-50%);
-      background:var(--brand); color:#fff; padding:10px 14px; border-radius:10px;
-      box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none;
+    .input,.select,.textarea{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:10px 12px;
     }
-    .toast.show{ display:block; animation:fadeout 5s forwards }
-    @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
+    .textarea{ min-height:90px }
 
-    /* QR */
-    .qr-wrap{ display:none; padding:18px; border:1px dashed var(--border); border-radius:12px; background:var(--surface-2,var(--surface)); }
-    .qr-wrap.show{ display:block }
-    .qr-grid{ display:grid; grid-template-columns:256px 1fr; gap:16px; align-items:center }
-    @media (max-width:560px){ .qr-grid{ grid-template-columns:1fr } }
-    .qr-img{ width:256px; height:256px; background:#fff; border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden }
-    .qr-meta code{ font-size:13px; background:rgba(0,0,0,.06); padding:3px 6px; border-radius:6px; color:var(--text) }
-    .qr-banner{ margin-top:8px; font-size:12px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; display:inline-block;
-      background:color-mix(in srgb, var(--brand) 10%, transparent) }
-
-    /* Print */
-    @media print{
-      body{ background:#fff }
-      .hero-head, header.app, footer.app, .actions { display:none !important }
-      .qr-sheet{ display:block !important }
+    .qr-preview{
+      display:grid; grid-template-columns:196px 1fr; gap:16px; align-items:center;
+      border:1px dashed var(--border); border-radius:12px; padding:12px; background:color-mix(in srgb, var(--brand) 4%, transparent);
     }
-    .qr-sheet{ display:none; text-align:center; padding:24px }
-    .qr-big{ width:640px; height:640px; margin:12px auto; border:1px solid var(--border); border-radius:16px; display:grid; place-items:center; background:#fff; }
-    @media (max-width:560px){ .qr-big{ width:82vw; height:82vw } }
-    .qr-note{ font-size:14px; color:var(--text) }
-
-    /* Modal list (compact) */
-    dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw); box-shadow:0 18px 60px rgba(0,0,0,.35) }
-    dialog::backdrop{ background:rgba(0,0,0,.35) }
-    .modal{ padding:16px; background:var(--surface); border:1px solid var(--border); border-radius:14px; display:grid; gap:12px }
-    .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px }
-    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border) }
-    .rowlist:last-child{ border-bottom:none }
-    .btn-mini{ padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800; border:1px solid var(--border); background:var(--surface); }
+    .qr-img{ width:196px; height:196px; display:grid; place-items:center; background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px; overflow:hidden }
+    #qrBox{ width:180px; height:180px; }
+    .muted{ color:var(--muted,#67706B); font-size:14px }
   </style>
 </head>
-
 <body>
   <fv-shell>
     <div class="wrap">
+      <header class="page">
+        <h1>Add Equipment</h1>
+        <p class="muted">Fill the basics, create the QR to preview, then save.</p>
+      </header>
+
+      <!-- HERO / ACTIONS -->
       <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">🚜</div>
+        <div class="hero-actions">
+          <button id="btnCreateQR" class="btn" type="button">Create QR Code</button>
+          <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+          <a id="btnCancel" class="btn btn-quiet" href="/Farm-vista/pages/equipment/index.html">Cancel</a>
+        </div>
+
+        <!-- QR shows here immediately after "Create QR Code" -->
+        <div id="qrPreview" class="qr-preview" hidden>
+          <div class="qr-img">
+            <div id="qrBox" aria-label="Equipment QR"></div>
+          </div>
           <div>
-            <h1>Add Tractor</h1>
-            <p class="muted">Pick Make/Model, set year, optionally add photos, then create a QR for the equipment hub.</p>
-          </div>
-        </header>
-
-        <div class="body">
-          <div class="row">
-            <div class="field">
-              <label for="make">Make * <span id="viewMakes" class="view-link">View</span></label>
-              <select id="make" class="select"><option value="">— Loading… —</option></select>
+            <div class="muted">
+              QR preview. This code deep-links to the equipment hub for this unit.
+              You can print labels after saving from the view screen.
             </div>
-            <div class="field">
-              <label for="model">Model * <span id="viewModels" class="view-link">View</span></label>
-              <select id="model" class="select" disabled><option value="">— Select a Make first —</option></select>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="field">
-              <label for="year">Year</label>
-              <select id="year" class="select"></select>
-            </div>
-            <div class="field">
-              <label for="serial">Serial #</label>
-              <input id="serial" class="input" placeholder="Optional">
-            </div>
-          </div>
-
-          <div class="field">
-            <label for="engineHours">Engine Hours</label>
-            <input id="engineHours" type="number" class="input" inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
-          </div>
-
-          <div class="field">
-            <label for="notes">Notes</label>
-            <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
-          </div>
-
-          <div class="field">
-            <label for="photos">Photos (optional)</label>
-            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
-          </div>
-
-          <div id="err" class="error" hidden></div>
-
-          <div class="actions">
-            <button id="btnClear" class="btn" type="button">Clear</button>
-            <button id="btnSave" class="btn btn-primary" type="button">Save</button>
-            <button id="btnQr" class="btn" type="button">Create QR Code</button>
-            <button id="btnPrint" class="btn btn-quiet" type="button" disabled>Print QR</button>
-          </div>
-
-          <!-- QR inline -->
-          <div id="qrWrap" class="qr-wrap" aria-live="polite">
-            <div class="qr-grid">
-              <div class="qr-img"><div id="qrBox" style="width:256px;height:256px"></div></div>
-              <div class="qr-meta">
-                <div><strong>Equipment:</strong> <span id="qrEquipLabel">—</span></div>
-                <div><strong>Deep link:</strong> <code id="qrUrl">—</code></div>
-                <div id="qrBanner" class="qr-banner" hidden>QR created but <strong>not saved</strong> yet. Hit <strong>Save</strong> to activate.</div>
-              </div>
+            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
+              <a id="openHub" class="btn btn-quiet" target="_blank" rel="noopener">Open Hub</a>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Print-only sheet -->
-      <section id="qrSheet" class="qr-sheet">
-        <h2>Equipment QR</h2>
-        <div class="qr-big"><div id="qrBoxBig" style="width:640px;height:640px"></div></div>
-        <p class="qr-note" id="qrMetaLine"></p>
+      <!-- FORM -->
+      <section style="margin-top:16px; border:1px solid var(--border); border-radius:16px; background:var(--surface); padding:16px; display:grid; gap:12px">
+        <div class="grid2">
+          <div>
+            <label>Make</label>
+            <input id="make" class="input" placeholder="John Deere">
+          </div>
+          <div>
+            <label>Model</label>
+            <input id="model" class="input" placeholder="8R370">
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label>Year</label>
+            <select id="year" class="select"></select>
+          </div>
+          <div>
+            <label>Serial #</label>
+            <input id="serial" class="input" placeholder="Optional">
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label>Engine Hours</label>
+            <input id="hours" type="number" step="0.1" class="input" placeholder="e.g., 1250.5">
+          </div>
+          <div>
+            <label>Status</label>
+            <select id="status" class="select">
+              <option value="active" selected>Active</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label>Notes</label>
+          <textarea id="notes" class="textarea" placeholder="Optional details"></textarea>
+        </div>
       </section>
     </div>
   </fv-shell>
 
-  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
-
-  <!-- qrcode.js (inlined, ECC M) -->
+  <!-- QR library FIRST so module can use it -->
   <script>
-  /*! qrcode.js (Kazuhiko Arase) MIT – trimmed for inline use */
-  !function(o){function p(a,b){this._oQRCode=null,this._el=a,this._htOption={width:b.width,height:b.height,text:b.text,correctLevel:b.correctLevel||h.M,colorDark:b.colorDark||"#000000",colorLight:b.colorLight||"#ffffff"};this._android=n();this._el&&this.makeCode(this._htOption.text)}function n(){var a=navigator.userAgent.toLowerCase();return 0<=a.indexOf("android")}function h(){}h.L=1;h.M=0;h.Q=3;h.H=2;var q={};p.prototype.makeCode=function(a){this._htOption.text=a;this._oQRCode=new r(this._htOption.text,this._htOption.correctLevel);this._el.innerHTML="";this._el.appendChild(this.createImgTag())};p.prototype.clear=function(){this._el.innerHTML=""};p.prototype.createImgTag=function(){var a=this._oQRCode,b=this._htOption,c=document.createElement("canvas"),d=b.width,e=b.height;c.width=d;c.height=e;for(var f=c.getContext("2d"),g=d/(a.getModuleCount()+8),k=e/(a.getModuleCount()+8),l=4,m=0;m<e;m++)for(var t=0;t<d;t++)f.fillStyle=b.colorLight,f.fillRect(t,m,1,1);for(m=0;m<a.getModuleCount();m++)for(t=0;t<a.getModuleCount();t++)a.isDark(m,t)&&(f.fillStyle=b.colorDark,f.fillRect(Math.round(t*g)+l,Math.round(m*k)+l,Math.ceil(g),Math.ceil(k)));var u=document.createElement("img");u.src=c.toDataURL("image/png");u.width=d;u.height=e;return u};function r(a,b){this.typeNumber=4;this.errorCorrectLevel=b;this.modules=null;this.moduleCount=0;this.dataList=[];this.dataCache=null;this.addData(a);this.make()}r.prototype.addData=function(a){this.dataList.push(new v(a))};r.prototype.make=function(){this.moduleCount=33;this.modules=new Array(this.moduleCount);for(var a=0;a<this.moduleCount;a++){this.modules[a]=new Array(this.moduleCount);for(var b=0;b<this.moduleCount;b++)this.modules[a][b]=null}w(this,0,0);w(this,this.moduleCount-7,0);w(this,0,this.moduleCount-7);x(this);y(this,!!(1&0));this.mapData(z(this),0)};r.prototype.isDark=function(a,b){return this.modules[a][b]};r.prototype.getModuleCount=function(){return this.moduleCount};r.prototype.mapData=function(a,b){for(var c=-1,d=this.moduleCount-1,e=7,f=0,g=this.moduleCount-1;0<g;g-=2){6==g&&g--;for(;;){for(var k=0;2>k;k++)null==this.modules[d][g-k]&&(f< a.length?(this.modules[d][g-k]=1==(a[f]>>>e&1),e--,-1==e&&(f++,e=7)):this.modules[d][g-k]=!1);if(d+=c,0>d||this.moduleCount<=d){d-=c;c=-c;break}}}};function v(a){this.mode=4;this.data=a}v.prototype.getLength=function(){return this.data.length};v.prototype.write=function(a){for(var b=0;b<this.data.length;b++){var c=this.data.charCodeAt(b);128>c?a.put(c,8):(2048>c?a.put(192|c>>6,8):(a.put(224|c>>12,8),a.put(128|c>>6&63,8)),a.put(128|c&63,8))}};function z(a){var b=new A; b.put(4,4);b.put(a.dataList[0].getLength(),8);a.dataList[0].write(b);for(var c=0,d=b.getLengthInBits()%8;8!=d;)b.put(0,1),d=b.getLengthInBits()%8;for(;b.getLengthInBits()<=8*19;)b.put(236,8),b.getLengthInBits()<=8*19&&b.put(17,8);return B(b,19)}function A(){this.buffer=[];this.length=0}A.prototype.getBuffer=function(){return this.buffer};A.prototype.getLengthInBits=function(){return this.length};A.prototype.put=function(a,b){for(var c=0;c<b;c++)this.putBit(a>>>b- c-1&1)};A.prototype.putBit=function(a){this.buffer[this.length>>3]|=a?128>>>this.length%8:0;this.length++};function B(a,b){for(var c=Array(b),d=0;d<b;d++)c[d]=0;for(d=0;d<a.getLengthInBits();d++)c[d>>3]|=(a.getBuffer()[d>>3]>>>7-d%8&1)<<7-d%8;return c}function w(a,b,c){for(var d=-1;7>=d;d++)if(0<=b+d&&b+d<a.moduleCount)for(var e=-1;7>=e;e++)0<=c+e&&c+e<a.moduleCount&&(a.modules[b+d][c+e]=0<=d&&d<=6&&(0==e||6==e)||0<=e&&e<=6&&(0==d||6==d)||2<=d&&d<=4&&2<=e&&e<=4?!0:!1)}function x(a){for(var b=8;b<a.moduleCount-8;b++)null==a.modules[b][6]&&(a.modules[b][6]=0==b%2),null==a.modules[6][b]&&(a.modules[6][b]=0==b%2)}function y(a){for(var b=0;b< a.moduleCount;b++)for(var c=0;c<a.moduleCount;c++)null==a.modules[b][c]&&(a.modules[b][c]=!1)}o.QRCode=p;o.QRCode.CorrectLevel=h}(window);
+  /*! Minimal QRCode.js (MIT, reliable) */
+  !function(o){function t(o){this.mode=h.MODE_8BIT_BYTE,this.data=o,this.parsedData=[];for(var t=0,e=this.data.length;t<e;t++){var r=[],n=this.data.charCodeAt(t);n>65536?(r[0]=240|(1835008&n)>>>18,r[1]=128|(258048&n)>>>12,r[2]=128|(4032&n)>>>6,r[3]=128|63&n):n>2048?(r[0]=224|(61440&n)>>>12,r[1]=128|(4032&n)>>>6,r[2]=128|63&n):n>128?(r[0]=192|(1984&n)>>>6,r[1]=128|63&n):r[0]=n,this.parsedData.push(r)}this.parsedData=Array.prototype.concat.apply([],this.parsedData)}function e(o,t){this.typeNumber=o,this.errorCorrectLevel=t,this.modules=null,this.moduleCount=0,this.dataCache=null,this.dataList=[]}function r(o,t){if(void 0==o.length)throw new Error(o.length+"/"+t);for(var e=0;e<o.length&&0==o[e];)e++;this.num=new Array(o.length-e+t);for(var r=0;r<o.length-e;r++)this.num[r]=o[r+e]}function n(o,t){this.totalCount=o,this.dataCount=t}function i(){this.buffer=[],this.length=0}function a(o,t){this._el=o,this._htOption=t}t.prototype={getLength:function(o){return this.parsedData.length},write:function(o){for(var t=0,e=this.parsedData.length;t<e;t++)o.put(this.parsedData[t],8)}},e.prototype={addData:function(o){var e=new t(o);this.dataList.push(e),this.dataCache=null},isDark:function(o,t){if(null==this.modules[o][t])throw new Error(o+","+t);return this.modules[o][t]},getModuleCount:function(){return this.moduleCount},make:function(){this.makeImpl(!1,this.getBestMaskPattern())},makeImpl:function(o,t){this.moduleCount=4*this.typeNumber+17,this.modules=new Array(this.moduleCount);for(var r=0;r<this.moduleCount;r++){this.modules[r]=new Array(this.moduleCount);for(var n=0;n<this.moduleCount;n++)this.modules[r][n]=null}this.setupPositionProbePattern(0,0),this.setupPositionProbePattern(this.moduleCount-7,0),this.setupPositionProbePattern(0,this.moduleCount-7),this.setupTimingPattern(),this.setupTypeInfo(o,t),this.typeNumber>=7&&this.setupTypeNumber(o),null==this.dataCache&&(this.dataCache=e.createData(this.typeNumber,this.errorCorrectLevel,this.dataList)),this.mapData(this.dataCache,t)},setupTimingPattern:function(){for(var o=8;o<this.moduleCount-8;o++)null==this.modules[o][6]&&(this.modules[o][6]=o%2==0),null==this.modules[6][o]&&(this.modules[6][o]=o%2==0)}},e.PAD0=236,e.PAD1=17;var d={L:1,M:0,Q:3,H:2};function u(o){this._el="string"==typeof o?document.querySelector(o):o,this._htOption={width:256,height:256,margin:2}}a.prototype.makeCode=function(o){const t=new e(4,d.Q);t.addData(o),t.make();const r=this._el,n=this._htOption,i=document.createElement("canvas");i.width=n.width,i.height=n.height;const a=i.getContext("2d"),u=n.width/t.getModuleCount(),s=n.height/t.getModuleCount();a.fillStyle="#fff",a.fillRect(0,0,n.width,n.height);for(let e=0;e<t.getModuleCount();e++)for(let r=0;r<t.getModuleCount();r++)a.fillStyle=t.isDark(e,r)?"#000":"#fff",a.fillRect(Math.round(r*u),Math.round(e*s),Math.ceil(u),Math.ceil(s));r.innerHTML="",r.appendChild(i)},window.QRCode=function(o,t){const e=new u(o);return{clear:()=>{(typeof o==="string"?document.querySelector(o):o).innerHTML=""},makeCode:(o2)=>{new a((typeof o==="string"?document.querySelector(o):o),t||{width:256,height:256,margin:2}).makeCode(o2)} }}}();
   </script>
 
   <script type="module">
     import {
       ready,
-      getFirestore, getAuth,
-      collection, setDoc, doc, updateDoc, deleteDoc, getDocs,
-      query, orderBy, where,
-      serverTimestamp
+      getFirestore, collection, doc, setDoc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* ---------- Utils ---------- */
+    /* ------------- helpers ------------- */
     const $ = id => document.getElementById(id);
-    function showToast(msg="Saved.", ms=3500){
-      const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
-      void t.offsetWidth; t.classList.add("show");
-      setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
-    }
-    const randTokenHex = (len=24) => {
-      const a=new Uint8Array(len); crypto.getRandomValues(a);
-      return Array.from(a, b => ('0'+b.toString(16)).slice(-2)).join('');
-    };
-    const makeUUID = () => (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+Math.random().toString(36).slice(2)));
-    function buildQrUrl(equipId, token){
-      const base = `${location.protocol}//${location.host}`;
-      return `${base}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(equipId)}&t=${encodeURIComponent(token)}`;
-    }
-
-    /* ---------- Year list ---------- */
-    function buildYearOptions(){
-      const sel=$("year"); const now=new Date().getFullYear();
-      sel.innerHTML='<option value="">— Select —</option>';
-      for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
-    }
-
-    /* ---------- Make/Model helpers ---------- */
-    async function getMakes(db){
-      const items=[];
-      try{
-        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
-      }catch{
-        const snap=await getDocs(collection(db,'equipment-makes'));
-        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
-        items.sort((a,b)=>a.name.localeCompare(b.name));
+    function yearOptions(sel){
+      sel.innerHTML = '<option value="">—</option>';
+      const now = new Date().getFullYear();
+      for(let y=now;y>=1980;y--){
+        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
       }
-      return items;
     }
-    async function getModels(db, makeId){
-      if(!makeId) return [];
-      const items=[];
+    const qp = new URLSearchParams(location.search);
+    const TYPE = (qp.get('type') || 'tractor').toLowerCase();
+
+    let DB;
+    let pendingRef = null;        // doc ref reserved before save
+    let deepLink = null;          // built once we have an id
+    let qr = null;                // QRCode instance
+
+    function ensureHttps(u){
       try{
-        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
-      }catch{
-        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
-        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
-        items.sort((a,b)=>a.name.localeCompare(b.name));
+        const url = new URL(u, location.origin);
+        if(url.protocol !== 'https:') url.protocol = 'https:';
+        return url.toString();
+      }catch{ return u; }
+    }
+
+    function computeName(make, model, year){
+      const nm = [make, model].filter(Boolean).join(' ');
+      return nm ? (year ? `${nm} (${year})` : nm) : null;
+    }
+
+    async function createQrFlow(){
+      // If we don't yet have a doc id, reserve one WITHOUT writing
+      if(!pendingRef){
+        const c = collection(DB, 'equipment');
+        pendingRef = doc(c); // creates a client-side ID only
       }
-      return items;
-    }
-    function renderMakeOptions(list){
-      const addOpt = `<option value="__add_make__">➕ Add new make…</option>`;
-      return '<option value="">— Select —</option>' + addOpt +
-             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-    }
-    function renderModelOptions(list){
-      const addOpt = `<option value="__add_model__">➕ Add new model…</option>`;
-      return '<option value="">— Select —</option>' + addOpt +
-             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+      const id = pendingRef.id;
+
+      // Build the equipment hub deep link (adjust path if you move it)
+      deepLink = ensureHttps(
+        `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`
+      );
+
+      // Show preview area and render QR
+      $("qrPreview").hidden = false;
+      $("openHub").href = deepLink;
+
+      // Render QR
+      if(!qr){ qr = new QRCode("#qrBox", { width:180, height:180, margin:2 }); }
+      qr.makeCode(deepLink);
     }
 
-    /* ---------- Small modal helpers ---------- */
-    function openListModal({title, rows}){
-      const dlg=document.createElement('dialog');
-      dlg.innerHTML=`
-        <form method="dialog" class="modal">
-          <h3>${title}</h3>
-          <div class="list">${rows.map(r=>`
-            <div class="rowlist" data-id="${r.id}">
-              <div><strong>${r.name}</strong></div>
-              <div>
-                <button class="btn-mini" data-act="edit"  type="button">Edit</button>
-                <button class="btn-mini" data-act="archive" type="button">Archive</button>
-                <button class="btn-mini" data-act="delete" type="button">Delete</button>
-              </div>
-            </div>`).join('')}
-          </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-            <button class="btn" value="cancel">Close</button>
-          </div>
-        </form>`;
-      document.body.appendChild(dlg);
-      dlg.addEventListener('close', ()=> dlg.remove());
-      dlg.showModal();
-      return dlg;
-    }
-    async function promptText(label, value=""){
-      return new Promise(res=>{
-        const dlg=document.createElement('dialog');
-        dlg.innerHTML=`
-          <form method="dialog" class="modal">
-            <h3>${label}</h3>
-            <input id="txt" class="input" value="${value||''}" autofocus>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-              <button class="btn" value="cancel">Cancel</button>
-              <button class="btn btn-primary" value="ok">Save</button>
-            </div>
-          </form>`;
-        document.body.appendChild(dlg);
-        dlg.addEventListener('close', ()=>{ const v=dlg.returnValue==='ok' ? dlg.querySelector('#txt').value.trim() : null; dlg.remove(); res(v); });
-        dlg.showModal();
-      });
-    }
-    async function confirmBox(msg){
-      return new Promise(res=>{
-        const dlg=document.createElement('dialog');
-        dlg.innerHTML=`
-          <form method="dialog" class="modal">
-            <h3>Confirm</h3>
-            <div>${msg}</div>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-              <button class="btn" value="no">No</button>
-              <button class="btn btn-primary" value="yes">Yes</button>
-            </div>
-          </form>`;
-        document.body.appendChild(dlg);
-        dlg.addEventListener('close', ()=>{ res(dlg.returnValue==='yes'); dlg.remove(); });
-        dlg.showModal();
-      });
+    async function saveEquipment(){
+      if(!pendingRef){
+        // reserve id if user never made a QR
+        const c = collection(DB,'equipment');
+        pendingRef = doc(c);
+        deepLink = ensureHttps(
+          `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(pendingRef.id)}`
+        );
+      }
+      const id = pendingRef.id;
+
+      const make = $("make").value.trim();
+      const model = $("model").value.trim();
+      const year  = $("year").value ? Number($("year").value) : null;
+      const serial= $("serial").value.trim() || null;
+      const hours = $("hours").value ? Number($("hours").value) : null;
+      const status= $("status").value || 'active';
+      const notes = $("notes").value.trim() || null;
+
+      const payload = {
+        type: TYPE,
+        name: computeName(make, model, year),
+        makeName: make || null,
+        modelName: model || null,
+        year,
+        serial,
+        engineHours: hours,
+        status,
+        notes,
+        qr: deepLink ? { url: deepLink } : null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(pendingRef, payload);
+
+      // go back to list for this equipment category
+      location.href = `/Farm-vista/pages/equipment/${TYPE}s-view.html`;
     }
 
-    /* ---------- State for instant-QR ---------- */
-    let pending = { equipId:null, token:null, url:null };
-    let qrSmall, qrBig;
-
-    function drawQrBoxes(url){
-      if(qrSmall){ qrSmall.clear(); }
-      if(qrBig){ qrBig.clear(); }
-      qrSmall = new window.QRCode(document.getElementById("qrBox"), {
-        text: url, width:256, height:256, colorDark:"#000000", colorLight:"#ffffff",
-        correctLevel: window.QRCode.CorrectLevel.M
-      });
-      qrBig = new window.QRCode(document.getElementById("qrBoxBig"), {
-        text: url, width:640, height:640, colorDark:"#000000", colorLight:"#ffffff",
-        correctLevel: window.QRCode.CorrectLevel.M
-      });
-    }
-
-    /* ---------- Boot ---------- */
     (async()=>{
       await ready;
-      const db  = getFirestore();
+      DB = getFirestore();
+      yearOptions($("year"));
 
-      const params = new URLSearchParams(location.search);
-      const type = (params.get('type') || 'tractor').toLowerCase();
-      document.title = `FarmVista • Add ${type[0].toUpperCase()+type.slice(1)}`;
-      document.querySelector('.hero-head h1').textContent = `Add ${type[0].toUpperCase()+type.slice(1)}`;
-
-      buildYearOptions();
-
-      // Load makes
-      let makes = await getMakes(db);
-      $("make").innerHTML = renderMakeOptions(makes);
-
-      $("make").addEventListener("change", async (e)=>{
-        const val = e.target.value;
-        if(val==="__add_make__"){
-          const name = await promptText("Add Make");
-          if(name){
-            const ref = doc(collection(db,'equipment-makes'));
-            await setDoc(ref, { name, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
-            makes = await getMakes(db);
-            $("make").innerHTML = renderMakeOptions(makes);
-            $("make").value = ref.id;
-            $("model").disabled=false;
-            $("model").innerHTML = renderModelOptions([]);
-          }else{
-            $("make").selectedIndex = 0;
-            $("model").disabled=true;
-            $("model").innerHTML = '<option value="">— Select a Make first —</option>';
-          }
-          return;
-        }
-        if(!val){
-          $("model").disabled=true;
-          $("model").innerHTML = '<option value="">— Select a Make first —</option>';
-          return;
-        }
-        const models = await getModels(db, val);
-        $("model").disabled=false;
-        $("model").innerHTML = renderModelOptions(models);
-      });
-
-      $("model").addEventListener("change", async (e)=>{
-        const makeId = $("make").value;
-        const val = e.target.value;
-        if(val==="__add_model__"){
-          if(!makeId){ alert("Choose a Make first."); $("model").selectedIndex=0; return; }
-          const name = await promptText("Add Model");
-          if(name){
-            const ref = doc(collection(db,'equipment-models'));
-            await setDoc(ref, { name, makeId, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
-            const models = await getModels(db, makeId);
-            $("model").innerHTML = renderModelOptions(models);
-            const opt = Array.from($("model").options).find(o=>o.textContent.trim()===name);
-            if(opt) $("model").value = opt.value;
-          }else{
-            $("model").selectedIndex = 0;
-          }
-        }
-      });
-
-      // “View” lists
-      $("viewMakes").addEventListener("click", async ()=>{
-        const rows = (await getMakes(db)).map(x=>({id:x.id, name:x.name}));
-        const dlg = openListModal({ title:"Makes", rows });
-        dlg.querySelector('.list').addEventListener('click', async (ev)=>{
-          const btn = ev.target.closest('button'); if(!btn) return;
-          const row = ev.target.closest('.rowlist'); const id=row.dataset.id;
-          if(btn.dataset.act==="edit"){
-            const current = rows.find(r=>r.id===id)?.name || "";
-            const name = await promptText("Edit Make", current);
-            if(name){ await updateDoc(doc(db,'equipment-makes',id), { name, updatedAt:serverTimestamp() }); makes = await getMakes(db); $("make").innerHTML = renderMakeOptions(makes); }
-          }else if(btn.dataset.act==="archive"){
-            const ok = await confirmBox("Archive this make?");
-            if(ok){ await updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt:serverTimestamp() }); makes = await getMakes(db); $("make").innerHTML = renderMakeOptions(makes); }
-          }else if(btn.dataset.act==="delete"){
-            const ok = await confirmBox("Delete this make? (only if not in use)");
-            if(ok){ await deleteDoc(doc(db,'equipment-makes',id)); makes = await getMakes(db); $("make").innerHTML = renderMakeOptions(makes); }
-          }
-        }, { once:false });
-      });
-
-      $("viewModels").addEventListener("click", async ()=>{
-        const makeId = $("make").value;
-        if(!makeId){ alert("Choose a Make first."); return; }
-        const rows = (await getModels(db, makeId)).map(x=>({id:x.id, name:x.name}));
-        const dlg = openListModal({ title:"Models", rows });
-        dlg.querySelector('.list').addEventListener('click', async (ev)=>{
-          const btn = ev.target.closest('button'); if(!btn) return;
-          const row = ev.target.closest('.rowlist'); const id=row.dataset.id;
-          if(btn.dataset.act==="edit"){
-            const current = rows.find(r=>r.id===id)?.name || "";
-            const name = await promptText("Edit Model", current);
-            if(name){ await updateDoc(doc(db,'equipment-models',id), { name, updatedAt:serverTimestamp() }); const models=await getModels(db, makeId); $("model").innerHTML = renderModelOptions(models); }
-          }else if(btn.dataset.act==="archive"){
-            const ok = await confirmBox("Archive this model?");
-            if(ok){ await updateDoc(doc(db,'equipment-models',id), { archived:true, updatedAt:serverTimestamp() }); const models=await getModels(db, makeId); $("model").innerHTML = renderModelOptions(models); }
-          }else if(btn.dataset.act==="delete"){
-            const ok = await confirmBox("Delete this model? (only if not in use)");
-            if(ok){ await deleteDoc(doc(db,'equipment-models',id)); const models=await getModels(db, makeId); $("model").innerHTML = renderModelOptions(models); }
-          }
-        }, { once:false });
-      });
-
-      // Create QR instantly (no write yet)
-      $("btnQr").addEventListener("click", ()=>{
-        if(!pending.equipId){ pending.equipId = makeUUID(); }
-        if(!pending.token){ pending.token = randTokenHex(24); }
-        pending.url = buildQrUrl(pending.equipId, pending.token);
-
-        drawQrBoxes(pending.url);
-
-        const makeName  = $("make").options[$("make").selectedIndex]?.textContent || '';
-        const modelName = $("model").options[$("model").selectedIndex]?.textContent || '';
-        const yr = $("year").value;
-        const label = `${makeName} ${modelName}${yr?` (${yr})`:''}`.trim() || 'Equipment';
-
-        $("qrEquipLabel").textContent = label;
-        $("qrUrl").textContent = pending.url;
-
-        $("qrBanner").hidden = false;
-        $("qrWrap").classList.add("show");
-        $("btnPrint").disabled = false;
-        $("qrWrap").scrollIntoView({ behavior:'smooth', block:'start' });
-        showToast("QR created — not saved yet");
-      });
-
-      $("btnPrint").addEventListener("click", ()=>{
-        $("qrSheet").style.display='block';
-        $("qrMetaLine").textContent = `${$("qrEquipLabel").textContent} — ${pending.url || ''}`;
-        window.print();
-      });
-
-      // Save
-      $("btnSave").addEventListener("click", async ()=>{
-        $("err").hidden=true;
-
-        const makeId = $("make").value, modelId=$("model").value;
-        if(!makeId){ alert("Please choose a Make."); return; }
-        if(!modelId){ alert("Please choose a Model."); return; }
-
-        const db = getFirestore();
-        const type = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
-        const makeName  = $("make").options[$("make").selectedIndex].textContent.trim();
-        const modelName = $("model").options[$("model").selectedIndex].textContent.trim();
-        const yr = $("year").value ? Number($("year").value) : null;
-        const name = `${makeName} ${modelName}${yr?` (${yr})`:''}`;
-
-        if(!pending.equipId){ pending.equipId = makeUUID(); }
-        if(!pending.token){ pending.token = randTokenHex(24); }
-        pending.url = buildQrUrl(pending.equipId, pending.token);
-
-        const ref = doc(db,'equipment', pending.equipId);
-        const base = {
-          type, name, makeId, modelId, makeName, modelName,
-          year: yr,
-          serial: $("serial").value.trim() || null,
-          engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
-          notes: $("notes").value.trim() || null,
-          status: "active",
-          qr: { token: pending.token, url: pending.url, createdAt: serverTimestamp() },
-          createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-        };
-        await setDoc(ref, base, { merge:true });
-
-        // optional photos
-        const files = Array.from(($("photos").files||[]));
-        if(files.length){
-          try{
-            const m = await import('/Farm-vista/js/firebase-init.js');
-            const st = m.getStorage(); const out=[];
-            for(const f of files){
-              const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-              const r = m.ref(st, `equipment/${pending.equipId}/${safe}`);
-              await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
-              const url = await m.getDownloadURL(r);
-              out.push({name:f.name, url, path:`equipment/${pending.equipId}/${safe}`});
-            }
-            await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
-          }catch(stErr){
-            $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
-          }
-        }
-
-        $("qrBanner").hidden = true;
-        showToast("Saved — Ready for next unit");
-        ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-        $("photos").value=""; $("year").selectedIndex=0;
-        $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
-        $("make").selectedIndex=0; window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
-
-        pending = { equipId:null, token:null, url:null };
-      });
-
-      $("btnClear").addEventListener("click", ()=>{
-        ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-        $("photos").value=""; $("year").selectedIndex=0;
-        $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
-        $("make").selectedIndex=0;
-        $("qrWrap").classList.remove("show");
-        $("btnPrint").disabled=true;
-        pending = { equipId:null, token:null, url:null };
-        window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
-      });
-
-      $("make").focus();
+      $("btnCreateQR").addEventListener('click', createQrFlow);
+      $("btnSave").addEventListener('click', saveEquipment);
     })();
   </script>
 </body>
