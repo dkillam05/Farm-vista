@@ -70,7 +70,7 @@
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* Combo */
+    /* Combo (same as Put Bag Down) */
     .combo{ position:relative }
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + 4px);
@@ -96,7 +96,7 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* Sheet */
+    /* Bottom sheet */
     .sheet{position:fixed;inset:auto 0 0 0;background:var(--surface);border-top:1px solid var(--border);
       box-shadow:0 -12px 30px rgba(0,0,0,.18);border-radius:16px 16px 0 0;transform:translateY(105%);transition:transform .25s ease;z-index:10000}
     .sheet.show{transform:translateY(0)}
@@ -165,7 +165,7 @@
             <div id="bagList" class="cards"></div>
           </div>
 
-          <!-- Single action button for whole list -->
+          <!-- One action button for entire list -->
           <div class="actions" id="bulkActions" hidden>
             <button id="openPickup" class="btn btn-primary" type="button">Pick Up</button>
           </div>
@@ -253,18 +253,19 @@
     /* ===== State ===== */
     let YEAR = new Date().getFullYear();
     let EMPLOYEES = [];
-    let FIELDS_INDEX = []; // [{id,name}]
+    let FIELDS_INDEX = [];
     // Map: fieldId -> { id,name, crops: { 'Corn':[rows], 'Soybeans':[rows], ... } }
     let OPEN_INDEX = new Map();
 
-    let CHOSEN_FIELD = null; // {id,name}
-    let CHOSEN_CROP = null;  // 'Corn' | 'Soybeans' | ...
+    let CHOSEN_FIELD = null;
+    let CHOSEN_CROP = null;
 
-    /* ===== Combo infra (single open at a time) ===== */
+    /* ===== Single-open combo infra (Put-Down exact) ===== */
     function closeAllCombos(except=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
     }
     document.addEventListener('click', ()=> closeAllCombos());
+
     function makeCombo({btn, panel, list, items=[], searchable=false, formatter=x=>String(x.label||x), onPick}){
       function render(q=""){
         const qq=(q||"").toLowerCase();
@@ -276,11 +277,14 @@
       function open(){
         closeAllCombos(panel);
         panel.classList.add('show');
-        if(searchable){ const i=panel.querySelector('input'); if(i){ i.value=""; i.focus(); } }
+        if(searchable){
+          const i=panel.querySelector('input'); if(i){ i.value=""; i.focus(); }
+        }
         render("");
       }
       function close(){ panel.classList.remove('show'); }
 
+      // IMPORTANT: stopPropagation so global click doesn’t immediately close it.
       btn.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.contains('show')?close():open(); });
       list.addEventListener('click', (e)=>{
         const el=e.target.closest('.combo-item'); if(!el) return;
@@ -314,6 +318,11 @@
       }catch(e){ console.warn("employees load:", e); }
       list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
       EMPLOYEES = list;
+      empCombo.setItems(list);
+      // Default to current user if present
+      const me = (getAuth().currentUser?.email||"").toLowerCase();
+      const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
+      if(mine){ $("empBtn").textContent=mine.name; $("empBtn").dataset.value=mine.id; }
     }
 
     async function loadFields(db){
@@ -330,7 +339,6 @@
       FIELDS_INDEX = arr;
     }
 
-    // Build OPEN_INDEX for selected YEAR from *all* events (no query filters)
     async function buildOpenIndexForYear(db){
       OPEN_INDEX.clear();
       $("fieldHelp").textContent = "Loading…";
@@ -345,9 +353,7 @@
           const yr = yearOf(x);
           if(yr===null || Number(yr)!==Number(YEAR)) return;
 
-          const fid = x.field?.id;
-          if(!fid) return;
-
+          const fid = x.field?.id; if(!fid) return;
           const name = (FIELDS_INDEX.find(f=>f.id===fid)?.name) || x.field?.name || fid;
           const crop = x.cropType || x.crop || 'Unknown';
           const row = { id:d.id, ...x };
@@ -357,17 +363,19 @@
           (bucket[crop] ||= []).push(row);
         });
 
-        // toss empties
+        // remove empties
         for(const [fid, obj] of [...OPEN_INDEX.entries()]){
           const hasAny = Object.values(obj.crops).some(arr => (arr||[]).length>0);
           if(!hasAny) OPEN_INDEX.delete(fid);
         }
-
         $("fieldHelp").textContent = `${OPEN_INDEX.size} field(s) with open bags in ${YEAR}`;
       }catch(err){
         console.error("buildOpenIndexForYear error:", err);
         $("fieldHelp").textContent = `0 field(s) (load error)`;
       }
+
+      // (Re)seed the field combo items from OPEN_INDEX
+      fieldCombo.setItems( [...OPEN_INDEX.values()].sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(f=>({id:f.id,name:f.name})) );
     }
 
     const getFieldsWithOpen = ()=> [...OPEN_INDEX.values()].sort((a,b)=> (a.name||"").localeCompare(b.name||""));
@@ -375,7 +383,6 @@
       const obj = OPEN_INDEX.get(fid);
       return obj ? Object.keys(obj.crops).sort() : [];
     };
-
     function rowsForCurrent(){
       if(!CHOSEN_FIELD) return [];
       const obj = OPEN_INDEX.get(CHOSEN_FIELD.id);
@@ -384,13 +391,14 @@
       return obj.crops[CHOSEN_CROP] || [];
     }
 
-    /* ===== UI wiring ===== */
-    const y = new Date().getFullYear();
-    const YEARS = [y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
+    /* ===== Combos ===== */
+    // Year items
+    const nowY = new Date().getFullYear();
+    const YEAR_ITEMS = [nowY-1, nowY, nowY+1].map(v=>({id:String(v), value:v, label:String(v)}));
 
     const yearCombo = makeCombo({
       btn:$("yearBtn"), panel:$("yearPanel"), list:$("yearList"),
-      items:YEARS, searchable:false, formatter:x=>x.label,
+      items:YEAR_ITEMS, searchable:false, formatter:x=>x.label,
       onPick: async (it)=>{
         YEAR = Number(it.value);
         $("yearBtn").textContent = it.label;
@@ -400,7 +408,6 @@
         $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
         $("bulkActions").hidden = true;
         await buildOpenIndexForYear(db);
-        fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
       }
     });
 
@@ -435,6 +442,16 @@
       }
     });
 
+    // Employee combo (in sheet)
+    const empCombo = makeCombo({
+      btn:$("empBtn"),
+      panel:$("empBtn").nextElementSibling,
+      list:$("empList"),
+      items:[], searchable:false, formatter:x=>x.name,
+      onPick: it => { $("empBtn").textContent = it.name; $("empBtn").dataset.value = it.id; }
+    });
+
+    /* ===== Render list ===== */
     async function renderOpenBags(){
       $("bagList").innerHTML = "";
       $("bulkActions").hidden = true;
@@ -454,7 +471,6 @@
       $("summary").innerHTML = `<b>Total:</b> ${sum.full} full, ${sum.partial} partial • ${sum.entries} open entr${sum.entries===1?'y':'ies'}`;
       $("listHelp").textContent = `${rows.length} open bag entr${rows.length===1?'y':'ies'}`;
 
-      // Render each line with NO per-line button
       $("bagList").innerHTML = rows.map(r=>{
         return `
           <div class="card" data-row="${esc(r.id)}">
@@ -473,7 +489,7 @@
       $("bulkActions").hidden = false;
     }
 
-    /* ===== Bulk pickup sheet (per-line counts) ===== */
+    /* ===== Bulk sheet ===== */
     function openPickupSheet(){
       const rows = rowsForCurrent();
       if(!rows.length) return;
@@ -483,7 +499,6 @@
       $("sheetDate").value = todayISO();
       $("pickupMeta").innerHTML = `Field: <b>${esc(CHOSEN_FIELD?.name||'')}</b>${CHOSEN_CROP?` • Crop: <b>${esc(CHOSEN_CROP)}</b>`:''} • Year: <b>${esc(String(YEAR))}</b>`;
 
-      // Build per-line inputs
       const wrap = $("lineInputs");
       wrap.innerHTML = rows.map(r=>{
         const fid = esc(r.id);
@@ -529,7 +544,7 @@
       const rows = rowsForCurrent();
       if(!rows.length){ closePickupSheet(); return; }
 
-      // Read the user-entered amounts
+      // Read amounts
       const picks = [];
       for(const r of rows){
         const id = r.id;
@@ -543,7 +558,7 @@
       }
       if(!picks.length){ $("sheetErr").textContent="Enter at least one pickup amount."; $("sheetErr").hidden=false; return; }
 
-      // Optional photos (shared across the batch; attach to each pickUp event)
+      // Optional photos (shared set, attached to each event)
       let uploaded = [];
       const files = Array.from(($("sheetFiles").files||[]));
       if(files.length){
@@ -564,7 +579,7 @@
         }
       }
 
-      // For each picked line: make a pickUp event and update source counts
+      // Apply updates
       for(const p of picks){
         const src = p.row;
         const leftFull = Math.max(0, Number(src.counts?.full||0) - p.takeFull);
@@ -586,18 +601,18 @@
           updatedAt: serverTimestamp(),
           files: uploaded.length ? uploaded : undefined
         };
-        const evRef = await addDoc(collection(db,'grain_bag_events'), ev);
+        await addDoc(collection(db,'grain_bag_events'), ev);
 
-        // update the source putDown doc
+        // update source row
         const patch = {
           'counts.full': leftFull,
           'counts.partial': leftPart,
           updatedAt: serverTimestamp()
         };
         if(status==='pickedUp'){
-          patch.status = 'pickedUp';
-          patch.pickedUpAt = when;
-          patch.pickedUpBy = who;
+          patch.status='pickedUp';
+          patch.pickedUpAt=when;
+          patch.pickedUpBy=who;
         }
         await updateDoc(doc(db,'grain_bag_events', src.id), patch);
       }
@@ -613,7 +628,6 @@
         $("cropRow").hidden=true; $("summary").textContent="—";
         $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
         $("bulkActions").hidden = true;
-        fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
       }else{
         const crops = cropsForField(CHOSEN_FIELD.id).map(c=>({id:c,label:c,value:c}));
         cropCombo.setItems(crops);
@@ -627,75 +641,23 @@
 
     /* ===== Boot ===== */
     let db, auth;
-    // Employee combo instance
-    let empCombo;
     (async()=>{
       await ready;
       db = getFirestore(); auth = getAuth();
 
-      // Default year and render year items
+      // Seed year choices + default
       YEAR = new Date().getFullYear();
       $("yearBtn").textContent = String(YEAR);
-      const yl = $("yearList"); yl.innerHTML = [YEAR-1, YEAR, YEAR+1].map(v=>`<div class="combo-item" data-id="${v}">${v}</div>`).join('');
+      yearCombo.setItems([YEAR-1, YEAR, YEAR+1].map(v=>({id:String(v), value:v, label:String(v)})));
 
       await Promise.all([ loadEmployees(db, auth), loadFields(db) ]);
-      await buildOpenIndexForYear(db);
+      await buildOpenIndexForYear(db);           // builds OPEN_INDEX and fills fieldCombo items
+      $("listHelp").textContent = "Choose Field.";
 
-      // Seed field list from OPEN_INDEX
-      const startFields = getFieldsWithOpen().map(f=>({id:f.id, name:f.name}));
-      const fl = $("fieldList");
-      fl.innerHTML = startFields.map(it=>`<div class="combo-item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
-
-      // Field search filter
-      $("fieldSearch").addEventListener('input', (e)=>{
-        const q=(e.target.value||"").toLowerCase();
-        const base = getFieldsWithOpen().map(f=>({id:f.id, name:f.name}));
-        const list = base.filter(f=>!q || f.name.toLowerCase().includes(q));
-        $("fieldList").innerHTML =
-          list.map(it=>`<div class="combo-item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
-      });
-
-      // Delegate clicks in field list (works with our combo helper)
-      $("fieldList").addEventListener('click', async (e)=>{
-        const el = e.target.closest('.combo-item');
-        if(!el) return;
-        const id = el.dataset.id;
-        const match = getFieldsWithOpen().find(f=>f.id===id);
-        if(!match) return;
-        CHOSEN_FIELD = {id:match.id, name:match.name};
-        $("fieldBtn").textContent = match.name;
-
-        const crops = cropsForField(match.id).map(c=>({id:c,label=c,value=c}));
-        $("cropList").innerHTML =
-          crops.map(c=>`<div class="combo-item" data-id="${esc(c.id)}">${esc(c.label)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
-        if(crops.length){
-          CHOSEN_CROP = crops[0].value;
-          $("cropBtn").textContent = crops[0].label;
-          $("cropRow").hidden = false;
-        }else{
-          CHOSEN_CROP = null;
-          $("cropRow").hidden = true;
-        }
-        await renderOpenBags();
-      });
-
-      // Bulk button + sheet wiring
+      // Wire bulk sheet controls
       $("openPickup").addEventListener('click', openPickupSheet);
       $("cancelPickup").addEventListener('click', ()=> $("pickupSheet").classList.remove('show'));
       $("confirmPickup").addEventListener('click', ()=> savePickup(db, auth));
-
-      // Employee combo in sheet
-      empCombo = makeCombo({
-        btn:$("empBtn"),
-        panel:$("empBtn").nextElementSibling,
-        list:$("empList"),
-        items:EMPLOYEES, searchable:false, formatter:x=>x.name,
-        onPick: it => { $("empBtn").textContent = it.name; $("empBtn").dataset.value = it.id; }
-      });
-      // default employee
-      const me = (auth.currentUser?.email||"").toLowerCase();
-      const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
-      if(mine){ $("empBtn").textContent=mine.name; $("empBtn").dataset.value=mine.id; }
 
       // Close combos on Escape
       document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
