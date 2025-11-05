@@ -93,6 +93,18 @@
     @media (max-width:880px){ .partial-row{ grid-template-columns:1fr } }
     .partial-help{ margin-top:4px }
 
+    /* Make native <select> look like our inputs (rounded + custom chevron) */
+    select.input{
+      -webkit-appearance:none; appearance:none; /* suppress iOS default look */
+      border:1px solid var(--border); border-radius:10px;
+      background:var(--card-surface,var(--surface));
+      padding:12px 44px 12px 12px; line-height:1.25;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%2367706B' d='M1.41 0L6 4.59 10.59 0 12 1.41 6 7.41 0 1.41z'/></svg>");
+      background-repeat:no-repeat; background-position:right 14px center; background-size:12px 8px;
+    }
+    select.input:focus{ outline:none; box-shadow:0 0 0 3px rgba(59,126,70,.18) }
+    select.input::-ms-expand{ display:none; } /* old Edge */
+
     .toast{ position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); transform:translateX(-50%);
       background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.25);
       z-index:99999; display:none }
@@ -241,7 +253,6 @@
     let chosen = { field:null, year:null, sub:null, crop:null, prio:5, bag:null };
     let debounceTimer=null;
 
-    /* ---------- combos ---------- */
     function makeCombo(btnId, panelId, listId, {items=[], searchable=false, formatter=(x)=>String(x.label||x), onPick}){
       const btn=$(btnId), panel=$(panelId), list=$(listId);
       function render(q=""){
@@ -264,7 +275,6 @@
       return { setItems(arr){ items=arr||[]; render(""); } };
     }
 
-    /* ---------- partials ---------- */
     function updatePartialRangeHelp(){
       const L = Number(chosen.bag?.sizeFeet||0);
       const min=50, max=Math.max(0,L-50);
@@ -321,7 +331,6 @@
         const inp=r.querySelector('input');
         const help=r.querySelector('.partial-help');
         const v=Number(inp.value||0);
-        // If no bag chosen yet, enforce only >= 50; once a bag is chosen, enforce both min & max
         const bad = L ? !(v>=min && v<=max) : !(v>=min);
         const showInvalid = bad && inp.value!=="";
         inp.classList.toggle('invalid', showInvalid);
@@ -331,13 +340,11 @@
       return ok;
     }
 
-    /* ---------- formatting ---------- */
     function bagLabel(b){
       const parts=[`${b.brand} — ${b.sizeFeet} ft`, b.diameterFt?`Ø${b.diameterFt}'`:null, b.location||null, (b.onHand!=null)?`on hand: ${b.onHand}`:null].filter(Boolean);
       return parts.join(' • ');
     }
 
-    /* ---------- save ---------- */
     async function handleSave(db,auth){
       $("err").hidden=true;
       if(!chosen.field){ alert("Please choose a Field."); return; }
@@ -379,7 +386,6 @@
 
       const ref=await addDoc(collection(db,'grain_bag_events'), record);
 
-      // Optional photos
       const files=Array.from(($("files").files||[]));
       if(files.length){
         try{
@@ -396,7 +402,6 @@
         }catch(err){ $("err").hidden=false; $("err").textContent=`Saved, but photo upload failed: ${err.message}`; }
       }
 
-      // Inventory decrement: +1 if ANY partial is "new"
       const anyNew = partialUsage.includes('new');
       const debit = fullBags + (anyNew ? 1 : 0);
       if(chosen.bag && chosen.bag.onHand!=null && debit>0){
@@ -408,7 +413,6 @@
 
       toast("Bag Entry Saved.");
 
-      // Reset (keep field/year)
       chosen.bag=null; $("bagBtn").textContent="— Select —";
       chosen.crop=null; $("cropBtn").textContent="— Select —";
       $("datePlaced").value=todayISO();
@@ -418,7 +422,6 @@
       $("partialsRangeHelp").textContent="";
     }
 
-    /* ---------- boot ---------- */
     (async()=>{
       await ready;
       const db=getFirestore(); const auth=getAuth();
@@ -429,39 +432,26 @@
       const PRIO=[1,2,3,4,5,6,7,8,9,10].map(n=>({id:String(n), value:n, label:(n===1?"1 — Low":n===10?"10 — High":String(n))}));
       const CROPS=[{id:"Corn",value:"Corn",label:"Corn"},{id:"Soybeans",value:"Soybeans",label:"Soybeans"}];
 
-      const fieldCombo = makeCombo("fieldBtn","fieldPanel","fieldList",{
-        items:[], searchable:true, formatter:(x)=>x.name,
-        onPick:(it)=>{ chosen.field=it; $("fieldBtn").textContent=it.name; }
-      });
+      const fieldCombo = makeCombo("fieldBtn","fieldPanel","fieldList",{ items:[], searchable:true, formatter:(x)=>x.name,
+        onPick:(it)=>{ chosen.field=it; $("fieldBtn").textContent=it.name; } });
 
-      const yearCombo = makeCombo("yearBtn","yearPanel","yearList",{
-        items:YEARS, searchable:false, formatter:(x)=>x.label,
-        onPick:(it)=>{ chosen.year=Number(it.value); $("yearBtn").textContent=it.label; }
-      });
+      const yearCombo = makeCombo("yearBtn","yearPanel","yearList",{ items:YEARS, searchable:false, formatter:(x)=>x.label,
+        onPick:(it)=>{ chosen.year=Number(it.value); $("yearBtn").textContent=it.label; } });
       chosen.year = y; $("yearBtn").textContent=String(y);
 
-      const subCombo = makeCombo("subBtn","subPanel","subList",{
-        items:[], searchable:false, formatter:(x)=>x.name,
-        onPick:(it)=>{ chosen.sub=it; $("subBtn").textContent=it.name; }
-      });
+      const subCombo = makeCombo("subBtn","subPanel","subList",{ items:[], searchable:false, formatter:(x)=>x.name,
+        onPick:(it)=>{ chosen.sub=it; $("subBtn").textContent=it.name; } });
 
-      const cropCombo = makeCombo("cropBtn","cropPanel","cropList",{
-        items:CROPS, searchable:false, formatter:(x)=>x.label,
-        onPick:(it)=>{ chosen.crop=it.value; $("cropBtn").textContent=it.label; }
-      });
+      const cropCombo = makeCombo("cropBtn","cropPanel","cropList",{ items:CROPS, searchable:false, formatter:(x)=>x.label,
+        onPick:(it)=>{ chosen.crop=it.value; $("cropBtn").textContent=it.label; } });
 
-      const prioCombo = makeCombo("prioBtn","prioPanel","prioList",{
-        items:PRIO, searchable:false, formatter:(x)=>x.label,
-        onPick:(it)=>{ chosen.prio=Number(it.value); $("prioBtn").textContent=it.label; }
-      });
+      const prioCombo = makeCombo("prioBtn","prioPanel","prioList",{ items:PRIO, searchable:false, formatter:(x)=>x.label,
+        onPick:(it)=>{ chosen.prio=Number(it.value); $("prioBtn").textContent=it.label; } });
       chosen.prio=5; $("prioBtn").textContent="5";
 
-      const bagCombo = makeCombo("bagBtn","bagPanel","bagList",{
-        items:[], searchable:true, formatter:(x)=>bagLabel(x),
-        onPick:(it)=>{ chosen.bag=it; $("bagBtn").textContent=bagLabel(it); updatePartialRangeHelp(); schedulePartialValidate(); }
-      });
+      const bagCombo = makeCombo("bagBtn","bagPanel","bagList",{ items:[], searchable:true, formatter:(x)=>bagLabel(x),
+        onPick:(it)=>{ chosen.bag=it; $("bagBtn").textContent=bagLabel(it); updatePartialRangeHelp(); schedulePartialValidate(); } });
 
-      // Load Firestore data
       async function loadFields(){
         try{
           const snap=await getDocs(query(collection(db,'fields'),orderBy('name')));
@@ -501,21 +491,17 @@
 
       await Promise.all([loadFields(), loadEmployees(), loadBags()]);
 
-      // Reveal the form
       $("addBag").addEventListener("click", ()=>{
         if(!chosen.field) return alert("Choose a Field first.");
         if(!chosen.year)  return alert("Choose Crop Year.");
         $("bagForm").hidden=false;
-        // Ensure partial rows render immediately if a value is already present
         renderPartialInputs();
         toast("Bag form ready.", 2800);
       });
 
-      // Partials: render on both input & change (iOS-safe)
       $("partialBags").addEventListener("input", renderPartialInputs);
       $("partialBags").addEventListener("change", renderPartialInputs);
 
-      // Actions
       $("btnSave").addEventListener("click", ()=> handleSave(getFirestore(), getAuth()));
       $("btnClear").addEventListener("click", ()=>{
         chosen.bag=null; $("bagBtn").textContent="— Select —";
