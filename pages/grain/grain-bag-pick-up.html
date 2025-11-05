@@ -165,7 +165,7 @@
     import {
       ready, getFirestore, getAuth,
       collection, getDocs, addDoc, doc, updateDoc,
-      serverTimestamp, query, where
+      serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     // Lazy Storage for photos
@@ -179,13 +179,21 @@
     const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const toast = (msg="Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); };
     const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
-    const num = v => (v===undefined||v===null||v==="") ? NaN : Number(v);
+    const toNum = v => (v===undefined||v===null||v==="") ? NaN : Number(v);
+    const yearOf = (row)=>{
+      // prefer explicit cropYear; fallback to YYYY from datePlaced
+      const cy = toNum(row.cropYear);
+      if(!Number.isNaN(cy)) return cy;
+      const dp = row.datePlaced;
+      if(typeof dp==="string" && /^\d{4}-\d{2}-\d{2}$/.test(dp)) return Number(dp.slice(0,4));
+      return null;
+    };
 
     /* ===== State ===== */
     let YEAR = new Date().getFullYear();
     let EMPLOYEES = [];
     let FIELDS_INDEX = []; // [{id,name}]
-    // Map of fieldId -> { id,name, crops: { 'Corn': [rows], 'Soybeans':[rows], ... } }
+    // Map: fieldId -> { id,name, crops: { 'Corn':[rows], 'Soybeans':[rows], ... } }
     let OPEN_INDEX = new Map();
 
     let CHOSEN_FIELD = null; // {id,name}
@@ -227,6 +235,11 @@
     /* ===== Format helpers ===== */
     const skuText = r => `${r.bagSku?.brand||'Bag'} — ${r.bagSku?.sizeFeet||'?'} ft`;
     const countsText = r => `${Number(r.counts?.full||0)} full, ${Number(r.counts?.partial||0)} partial`;
+    const consolidatedSummary = (rows)=>{
+      let full=0, partial=0;
+      rows.forEach(r=>{ full += Number(r.counts?.full||0); partial += Number(r.counts?.partial||0); });
+      return {full, partial, entries:rows.length};
+    };
 
     /* ===== Data loads ===== */
     async function loadEmployees(db, auth){
@@ -237,7 +250,7 @@
           const x=d.data()||{};
           list.push({ id:d.id, name:x.name||x.displayName||x.fullName||x.email||d.id, email:x.email||d.id });
         });
-      }catch(e){ /* ok */ }
+      }catch(e){ console.warn("employees load:", e); }
       list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
       EMPLOYEES = list;
     }
@@ -251,25 +264,25 @@
           const name=String(x.name||"").trim();
           if(name) arr.push({id:d.id, name});
         });
-      }catch(e){ /* ok */ }
+      }catch(e){ console.warn("fields load:", e); }
       arr.sort((a,b)=>a.name.localeCompare(b.name));
       FIELDS_INDEX = arr;
     }
 
-    // Build OPEN_INDEX for the selected YEAR
+    // Build OPEN_INDEX for selected YEAR from *all* events (no query filters)
     async function buildOpenIndexForYear(db){
       OPEN_INDEX.clear();
       $("fieldHelp").textContent = "Loading…";
-
       try{
-        // Fetch just by type to avoid composite indexes; filter everything client-side.
-        const snap = await getDocs(query(collection(db,'grain_bag_events'), where('type','==','putDown')));
+        const snap = await getDocs(collection(db,'grain_bag_events'));
         snap.forEach(d=>{
           const x = d.data()||{};
+          const isPut = (x.type === 'putDown');
           const open = !x.status || x.status!=='pickedUp';
-          const cy = num(x.cropYear);
-          if(!open) return;
-          if(Number.isNaN(cy) ? String(x.cropYear) !== String(YEAR) : cy !== Number(YEAR)) return;
+          if(!isPut || !open) return;
+
+          const yr = yearOf(x);
+          if(yr===null || Number(yr)!==Number(YEAR)) return;
 
           const fid = x.field?.id;
           if(!fid) return;
@@ -280,48 +293,40 @@
 
           if(!OPEN_INDEX.has(fid)) OPEN_INDEX.set(fid, { id:fid, name, crops:{} });
           const bucket = OPEN_INDEX.get(fid).crops;
-          if(!bucket[crop]) bucket[crop] = [];
-          bucket[crop].push(row);
+          (bucket[crop] ||= []).push(row);
         });
 
-        // Remove fields with no crops / empty arrays just in case
+        // toss empties
         for(const [fid, obj] of [...OPEN_INDEX.entries()]){
-          const crops = Object.keys(obj.crops).filter(k=> (obj.crops[k]||[]).length>0 );
-          if(!crops.length) OPEN_INDEX.delete(fid);
+          const hasAny = Object.values(obj.crops).some(arr => (arr||[]).length>0);
+          if(!hasAny) OPEN_INDEX.delete(fid);
         }
 
         $("fieldHelp").textContent = `${OPEN_INDEX.size} field(s) with open bags in ${YEAR}`;
       }catch(err){
-        console.warn("buildOpenIndexForYear:", err);
+        console.error("buildOpenIndexForYear error:", err);
         $("fieldHelp").textContent = `0 field(s) (load error)`;
       }
     }
 
-    function getFieldsWithOpen(){
-      // Map -> array sorted by name
-      return [...OPEN_INDEX.values()].sort((a,b)=> (a.name||"").localeCompare(b.name||""));
-    }
-
-    function cropsForField(fid){
+    const getFieldsWithOpen = ()=> [...OPEN_INDEX.values()].sort((a,b)=> (a.name||"").localeCompare(b.name||""));
+    const cropsForField = fid => {
       const obj = OPEN_INDEX.get(fid);
-      if(!obj) return [];
-      return Object.keys(obj.crops).sort();
-    }
+      return obj ? Object.keys(obj.crops).sort() : [];
+    };
 
-    function consolidatedSummary(rows){
-      // rows = open putDown rows for chosen crop
-      let full=0, partial=0;
-      rows.forEach(r=>{
-        full += Number(r.counts?.full||0);
-        partial += Number(r.counts?.partial||0);
-      });
-      return {full, partial, entries:rows.length};
+    function rowsForCurrent(){
+      if(!CHOSEN_FIELD) return [];
+      const obj = OPEN_INDEX.get(CHOSEN_FIELD.id);
+      if(!obj) return [];
+      if(!CHOSEN_CROP) return Object.values(obj.crops).flat();
+      return obj.crops[CHOSEN_CROP] || [];
     }
 
     /* ===== UI wiring ===== */
-    // Year combo
     const y = new Date().getFullYear();
     const YEARS = [y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
+
     const yearCombo = makeCombo({
       btn:$("yearBtn"), panel:$("yearPanel"), list:$("yearList"),
       items:YEARS, searchable:false, formatter:x=>x.label,
@@ -337,7 +342,6 @@
       }
     });
 
-    // Field combo (searchable)
     const fieldCombo = makeCombo({
       btn:$("fieldBtn"), panel:$("fieldPanel"), list:$("fieldList"),
       items:[], searchable:true, formatter:x=>x.name,
@@ -345,8 +349,7 @@
         CHOSEN_FIELD = it;
         $("fieldBtn").textContent = it.name;
 
-        // Build crop list for this field
-        const crops = cropsForField(it.id).map(c=>({id:c, label:c, value:c}));
+        const crops = cropsForField(it.id).map(c=>({id:c,label:c,value:c}));
         cropCombo.setItems(crops);
         if(crops.length){
           CHOSEN_CROP = crops[0].value;
@@ -360,7 +363,6 @@
       }
     });
 
-    // Crop combo
     const cropCombo = makeCombo({
       btn:$("cropBtn"), panel:$("cropPanel"), list:$("cropList"),
       items:[], searchable:false, formatter:x=>x.label,
@@ -370,17 +372,6 @@
         await renderOpenBags();
       }
     });
-
-    function rowsForCurrent(){
-      if(!CHOSEN_FIELD) return [];
-      const obj = OPEN_INDEX.get(CHOSEN_FIELD.id);
-      if(!obj) return [];
-      if(!CHOSEN_CROP){
-        // flattened of all crops
-        return Object.values(obj.crops).flat();
-      }
-      return obj.crops[CHOSEN_CROP] || [];
-    }
 
     async function renderOpenBags(){
       $("bagList").innerHTML = "";
@@ -394,7 +385,6 @@
         return;
       }
 
-      // sort: higher priority first, then earliest placed
       rows.sort((a,b)=>(Number(b.priority||0)-Number(a.priority||0)) || String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")));
 
       const sum = consolidatedSummary(rows);
@@ -513,7 +503,7 @@
         }
       }
 
-      // Mark source putDown as picked up
+      // Mark source putDown as pickedUp
       try{
         await updateDoc(doc(db,'grain_bag_events',row.id), {
           status:'pickedUp',
@@ -527,16 +517,13 @@
 
       // Refresh indexes + UI so fields drop out when empty
       await buildOpenIndexForYear(db);
-      // If chosen field now has no open rows for current crop, adjust crop/field selections
       if(!OPEN_INDEX.has(CHOSEN_FIELD.id)){
-        // field disappeared
         CHOSEN_FIELD=null; CHOSEN_CROP=null;
         $("fieldBtn").textContent="— Select field —";
         $("cropRow").hidden=true; $("summary").textContent="—";
         $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
         fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
       }else{
-        // rebuild crops & rerender
         const crops = cropsForField(CHOSEN_FIELD.id).map(c=>({id:c,label:c,value:c}));
         cropCombo.setItems(crops);
         if(CHOSEN_CROP && !crops.find(c=>c.value===CHOSEN_CROP)){
@@ -553,27 +540,65 @@
       await ready;
       db = getFirestore(); auth = getAuth();
 
-      // Default year UI
       YEAR = new Date().getFullYear();
-      $("yearBtn").textContent = String(YEAR);
-      yearCombo.setItems?.(YEARS); // ensure items rendered
+      const YEARS = [YEAR-1,YEAR,YEAR+1].map(v=>({id:String(v), value:v, label:String(v)}));
+      // render year choices
+      const yl = document.getElementById('yearList'); yl.innerHTML = YEARS.map(x=>`<div class="combo-item" data-id="${x.id}">${x.label}</div>`).join('');
+      document.getElementById('yearBtn').textContent = String(YEAR);
 
       await Promise.all([ loadEmployees(db, auth), loadFields(db) ]);
       await buildOpenIndexForYear(db);
 
-      // Seed field list
-      fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
+      // Seed field list from OPEN_INDEX
+      const startFields = getFieldsWithOpen().map(f=>({id:f.id, name:f.name}));
+      const fieldComboObj = document.getElementById('fieldList');
+      fieldComboObj.innerHTML = startFields.map(it=>`<div class="combo-item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
 
-      // Search filter for fields
-      $("fieldSearch").addEventListener('input', (e)=>{
+      // Wire combos programmatically (we built them above)
+      // Year combo already wired via makeCombo earlier:
+      // Now reapply items so the helper can click
+      const yearItems = YEARS.map(x=>({id:x.id,label:x.label,value:x.value}));
+      (function ensureYearCombo(){
+        const list = document.getElementById('yearList');
+        list.innerHTML = yearItems.map(x=>`<div class="combo-item" data-id="${esc(x.id)}">${esc(x.label)}</div>`).join('');
+      })();
+
+      // Field search filter
+      document.getElementById('fieldSearch').addEventListener('input', (e)=>{
         const q=(e.target.value||"").toLowerCase();
         const base = getFieldsWithOpen().map(f=>({id:f.id, name:f.name}));
         const list = base.filter(f=>!q || f.name.toLowerCase().includes(q));
-        fieldCombo.setItems(list);
+        document.getElementById('fieldList').innerHTML =
+          list.map(it=>`<div class="combo-item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
+      });
+
+      // Delegate clicks in field list to work with our combo helper
+      document.getElementById('fieldList').addEventListener('click', async (e)=>{
+        const el = e.target.closest('.combo-item');
+        if(!el) return;
+        const id = el.dataset.id;
+        const match = getFieldsWithOpen().find(f=>f.id===id);
+        if(!match) return;
+        CHOSEN_FIELD = {id:match.id, name:match.name};
+        document.getElementById('fieldBtn').textContent = match.name;
+
+        const crops = cropsForField(match.id).map(c=>({id:c,label:c,value:c}));
+        // render crop options
+        document.getElementById('cropList').innerHTML =
+          crops.map(c=>`<div class="combo-item" data-id="${esc(c.id)}">${esc(c.label)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
+        if(crops.length){
+          CHOSEN_CROP = crops[0].value;
+          document.getElementById('cropBtn').textContent = crops[0].label;
+          document.getElementById('cropRow').hidden = false;
+        }else{
+          CHOSEN_CROP = null;
+          document.getElementById('cropRow').hidden = true;
+        }
+        await renderOpenBags();
       });
 
       // Bag list actions
-      $("bagList").addEventListener("click", async (e)=>{
+      document.getElementById('bagList').addEventListener('click', async (e)=>{
         const btn = e.target.closest("button");
         if(!btn) return;
         const id = btn.getAttribute("data-id");
@@ -585,22 +610,26 @@
         if(!row) return;
 
         if(action==="open-pickup"){
-          const form = $("pf-"+id);
+          const form = document.getElementById("pf-"+id);
           if(!form) return;
           form.hidden=false;
 
-          // Default date
           const dateEl = form.querySelector(`[data-emp-date="${CSS.escape(id)}"]`);
           if(dateEl) dateEl.value = todayISO();
 
-          // Employee combo
+          // Build employee combo
           const empBtn = form.querySelector(`[data-emp-btn="${CSS.escape(id)}"]`);
           const empPanel = empBtn?.nextElementSibling;
           const empList = form.querySelector(`[data-emp-list="${CSS.escape(id)}"]`);
-          const empCombo = makeCombo({
-            btn: empBtn, panel: empPanel, list: empList,
-            items: EMPLOYEES, searchable:false, formatter:x=>x.name,
-            onPick: it => { empBtn.textContent=it.name; empBtn.dataset.value=it.id; }
+          // simple list
+          empList.innerHTML = (EMPLOYEES||[]).map(e=>`<div class="combo-item" data-id="${esc(e.id)}">${esc(e.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
+          empBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); closeAllCombos(empPanel); empPanel.classList.toggle('show'); });
+
+          empList.addEventListener('click', (ev)=>{
+            const it = ev.target.closest('.combo-item'); if(!it) return;
+            const picked = EMPLOYEES.find(x=>x.id===it.dataset.id);
+            if(picked){ empBtn.textContent=picked.name; empBtn.dataset.value=picked.id; }
+            empPanel.classList.remove('show');
           });
           const me = (auth.currentUser?.email||"").toLowerCase();
           const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
@@ -608,7 +637,7 @@
         }
 
         if(action==="cancel-pickup"){
-          const form = $("pf-"+id);
+          const form = document.getElementById("pf-"+id);
           if(form) form.hidden = true;
         }
 
