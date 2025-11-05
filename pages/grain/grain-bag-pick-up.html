@@ -95,6 +95,19 @@
       z-index:99999; display:none }
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* Sheet */
+    .sheet{position:fixed;inset:auto 0 0 0;background:var(--surface);border-top:1px solid var(--border);
+      box-shadow:0 -12px 30px rgba(0,0,0,.18);border-radius:16px 16px 0 0;transform:translateY(105%);transition:transform .25s ease;z-index:10000}
+    .sheet.show{transform:translateY(0)}
+    .sheet .cap{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)}
+    .sheet .cap .bar{width:40px;height:4px;border-radius:4px;background:#CBCDCB;margin:0 auto}
+    .sheet .inner{padding:14px;display:grid;gap:12px}
+    .grid-2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    @media (max-width:880px){.grid-2{grid-template-columns:1fr}}
+    .row-mini{display:grid;grid-template-columns:1.6fr .9fr .9fr;gap:10px;align-items:center}
+    @media (max-width:880px){.row-mini{grid-template-columns:1fr 1fr 1fr}}
+    .mini-note{font-size:12px;color:#67706B}
   </style>
 </head>
 
@@ -152,11 +165,59 @@
             <div id="bagList" class="cards"></div>
           </div>
 
+          <!-- Single action button for whole list -->
+          <div class="actions" id="bulkActions" hidden>
+            <button id="openPickup" class="btn btn-primary" type="button">Pick Up</button>
+          </div>
+
           <div id="pageErr" class="help error" hidden></div>
         </div>
       </section>
     </div>
   </fv-shell>
+
+  <!-- Bulk Pickup Sheet -->
+  <div id="pickupSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="pickupTitle">
+    <div class="cap"><div class="bar" aria-hidden="true"></div></div>
+    <div class="inner">
+      <h3 id="pickupTitle" style="margin:0 0 4px">Complete Pickup</h3>
+      <div id="pickupMeta" class="help"></div>
+
+      <div class="grid-2">
+        <div class="field combo" id="empCombo">
+          <label>Employee (required)</label>
+          <button id="empBtn" class="buttonish has-caret" type="button">— Select —</button>
+          <div class="combo-panel"><div class="list" id="empList"></div></div>
+          <div id="empHelp" class="help">Defaults to current user if listed.</div>
+        </div>
+        <div class="field">
+          <label for="sheetDate">Pickup Date</label>
+          <input id="sheetDate" class="input" type="date"/>
+        </div>
+      </div>
+
+      <!-- Per-line inputs -->
+      <div id="lineInputs" class="cards"></div>
+      <div class="mini-note">Enter the number of <b>full</b> and <b>partial</b> bags picked up from each line. Leave 0 if none.</div>
+
+      <div class="field">
+        <label for="sheetNotes">Notes</label>
+        <textarea id="sheetNotes" class="textarea" placeholder="Optional"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="sheetFiles">Optional Photos</label>
+        <input id="sheetFiles" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+      </div>
+
+      <div id="sheetErr" class="help error" hidden></div>
+
+      <div class="actions">
+        <button id="cancelPickup" class="btn" type="button">Cancel</button>
+        <button id="confirmPickup" class="btn btn-primary" type="button">Mark Picked Up</button>
+      </div>
+    </div>
+  </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
@@ -181,13 +242,13 @@
     const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
     const toNum = v => (v===undefined||v===null||v==="") ? NaN : Number(v);
     const yearOf = (row)=>{
-      // prefer explicit cropYear; fallback to YYYY from datePlaced
       const cy = toNum(row.cropYear);
       if(!Number.isNaN(cy)) return cy;
       const dp = row.datePlaced;
       if(typeof dp==="string" && /^\d{4}-\d{2}-\d{2}$/.test(dp)) return Number(dp.slice(0,4));
       return null;
     };
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
 
     /* ===== State ===== */
     let YEAR = new Date().getFullYear();
@@ -337,6 +398,7 @@
         $("fieldBtn").textContent="— Select field —";
         $("summary").textContent="—"; $("cropRow").hidden=true;
         $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
+        $("bulkActions").hidden = true;
         await buildOpenIndexForYear(db);
         fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
       }
@@ -375,6 +437,7 @@
 
     async function renderOpenBags(){
       $("bagList").innerHTML = "";
+      $("bulkActions").hidden = true;
       if(!CHOSEN_FIELD){ $("listHelp").textContent="Choose Field."; return; }
 
       const rows = rowsForCurrent();
@@ -391,10 +454,10 @@
       $("summary").innerHTML = `<b>Total:</b> ${sum.full} full, ${sum.partial} partial • ${sum.entries} open entr${sum.entries===1?'y':'ies'}`;
       $("listHelp").textContent = `${rows.length} open bag entr${rows.length===1?'y':'ies'}`;
 
+      // Render each line with NO per-line button
       $("bagList").innerHTML = rows.map(r=>{
-        const id=esc(r.id);
         return `
-          <div class="card" data-row="${id}">
+          <div class="card" data-row="${esc(r.id)}">
             <div class="kvs">
               <span class="kv"><b>Placed:</b> ${esc(r.datePlaced||'—')}</span>
               <span class="kv"><b>SKU:</b> ${esc(skuText(r))}</span>
@@ -403,55 +466,56 @@
               <span class="kv"><b>Crop:</b> ${esc(r.cropType||r.crop||'—')}</span>
             </div>
             <div class="help">By: ${esc(r.submittedBy?.name || r.submittedBy?.email || 'Unknown')}</div>
-            <div class="actions">
-              <button class="btn btn-primary" data-action="open-pickup" data-id="${id}">Pick Up</button>
-            </div>
+          </div>
+        `;
+      }).join('');
 
-            <!-- Inline pickup form -->
-            <div class="pickup-form" id="pf-${id}" hidden>
-              <div class="row">
-                <div class="field combo">
-                  <label>Employee (required)</label>
-                  <button class="buttonish has-caret" type="button" data-emp-btn="${id}">— Select —</button>
-                  <div class="combo-panel"><div class="list" data-emp-list="${id}"></div></div>
-                  <div class="help">Defaults to current user if listed.</div>
-                </div>
-                <div class="field">
-                  <label>Pickup Date</label>
-                  <input class="input" type="date" data-emp-date="${id}"/>
-                </div>
+      $("bulkActions").hidden = false;
+    }
+
+    /* ===== Bulk pickup sheet (per-line counts) ===== */
+    function openPickupSheet(){
+      const rows = rowsForCurrent();
+      if(!rows.length) return;
+      $("sheetErr").hidden = true;
+      $("sheetNotes").value = "";
+      $("sheetFiles").value = "";
+      $("sheetDate").value = todayISO();
+      $("pickupMeta").innerHTML = `Field: <b>${esc(CHOSEN_FIELD?.name||'')}</b>${CHOSEN_CROP?` • Crop: <b>${esc(CHOSEN_CROP)}</b>`:''} • Year: <b>${esc(String(YEAR))}</b>`;
+
+      // Build per-line inputs
+      const wrap = $("lineInputs");
+      wrap.innerHTML = rows.map(r=>{
+        const fid = esc(r.id);
+        const full = Number(r.counts?.full||0);
+        const part = Number(r.counts?.partial||0);
+        return `
+          <div class="card">
+            <div class="row-mini">
+              <div><b>${esc(r.datePlaced||'—')}</b> • ${esc(skuText(r))}</div>
+              <div>
+                <label class="mini-note">Full picked up (0–${full})</label>
+                <input class="input" type="number" min="0" max="${full}" step="1" value="0" data-pu-full="${fid}"/>
               </div>
-
-              <div class="field">
-                <label>Notes</label>
-                <textarea class="textarea" placeholder="Optional" data-emp-notes="${id}"></textarea>
+              <div>
+                <label class="mini-note">Partial picked up (0–${part})</label>
+                <input class="input" type="number" min="0" max="${part}" step="1" value="0" data-pu-part="${fid}"/>
               </div>
-
-              <div class="field">
-                <label>Optional Photos</label>
-                <input class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple data-emp-files="${id}">
-              </div>
-
-              <div class="actions">
-                <button class="btn" type="button" data-action="cancel-pickup" data-id="${id}">Cancel</button>
-                <button class="btn btn-primary" type="button" data-action="confirm-pickup" data-id="${id}">Mark Picked Up</button>
-              </div>
-
-              <div class="help error" hidden data-emp-err="${id}"></div>
             </div>
           </div>
         `;
       }).join('');
+
+      $("pickupSheet").classList.add('show');
     }
+    function closePickupSheet(){ $("pickupSheet").classList.remove('show'); }
 
-    async function savePickup(db, auth, row, ctxId){
-      const errEl = document.querySelector(`[data-emp-err="${CSS.escape(ctxId)}"]`);
-      errEl.hidden = true;
+    async function savePickup(db, auth){
+      $("sheetErr").hidden = true;
 
-      const empBtn = document.querySelector(`[data-emp-btn="${CSS.escape(ctxId)}"]`);
-      const empId  = empBtn?.dataset.value || "";
-      if(!empId){ errEl.textContent="Please choose an employee."; errEl.hidden=false; return; }
-
+      // Employee
+      const empId = $("empBtn")?.dataset.value || "";
+      if(!empId){ $("sheetErr").textContent="Please choose an employee."; $("sheetErr").hidden=false; return; }
       const me = auth.currentUser;
       const emp = EMPLOYEES.find(e=>e.id===empId) || {};
       const who = {
@@ -459,69 +523,96 @@
         name: emp.name || me?.displayName || me?.email || "Unknown",
         email: emp.email || me?.email || null
       };
+      const when = $("sheetDate").value || todayISO();
+      const note = $("sheetNotes").value.trim();
 
-      const dateEl = document.querySelector(`[data-emp-date="${CSS.escape(ctxId)}"]`);
-      const when = (dateEl?.value || todayISO());
-      const notesEl = document.querySelector(`[data-emp-notes="${CSS.escape(ctxId)}"]`);
-      const filesEl = document.querySelector(`[data-emp-files="${CSS.escape(ctxId)}"]`);
+      const rows = rowsForCurrent();
+      if(!rows.length){ closePickupSheet(); return; }
 
-      // Create pickUp event
-      const pick = {
-        type:'pickUp',
-        field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
-        refPutDownId: row.id,
-        cropYear: YEAR,
-        bagSku: row.bagSku || null,
-        counts: row.counts || null,
-        notes: (notesEl?.value||"").trim(),
-        pickedUpDate: when,
-        pickedUpBy: who,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-      const ref = await addDoc(collection(db,'grain_bag_events'), pick);
+      // Read the user-entered amounts
+      const picks = [];
+      for(const r of rows){
+        const id = r.id;
+        const fullEl = document.querySelector(`[data-pu-full="${CSS.escape(id)}"]`);
+        const partEl = document.querySelector(`[data-pu-part="${CSS.escape(id)}"]`);
+        const wantFull = clamp(Number(fullEl?.value||0), 0, Number(r.counts?.full||0));
+        const wantPart = clamp(Number(partEl?.value||0), 0, Number(r.counts?.partial||0));
+        if(wantFull>0 || wantPart>0){
+          picks.push({ row:r, takeFull:wantFull, takePart:wantPart });
+        }
+      }
+      if(!picks.length){ $("sheetErr").textContent="Enter at least one pickup amount."; $("sheetErr").hidden=false; return; }
 
-      // Photos
-      const files = Array.from((filesEl?.files||[]));
+      // Optional photos (shared across the batch; attach to each pickUp event)
+      let uploaded = [];
+      const files = Array.from(($("sheetFiles").files||[]));
       if(files.length){
         try{
           const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
           const st = getStorage();
-          const uploaded=[];
           for(const f of files){
             const safe=(Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-            const path=`grain_bag_events/${ref.id}/${safe}`;
+            const path=`grain_bag_events/bulkPickup/${safe}`;
             const r = stRef(st,path);
             await uploadBytes(r, f, {contentType:f.type||'application/octet-stream'});
             const url=await getDownloadURL(r);
             uploaded.push({name:f.name, url, path});
           }
-          await updateDoc(doc(db,'grain_bag_events',ref.id), { files:uploaded, updatedAt:serverTimestamp() });
         }catch(stErr){
-          errEl.textContent = `Saved pickup, but photo upload failed: ${stErr.message}`;
-          errEl.hidden=false;
+          $("sheetErr").textContent = `Photos failed to upload: ${stErr.message}`;
+          $("sheetErr").hidden=false;
         }
       }
 
-      // Mark source putDown as pickedUp
-      try{
-        await updateDoc(doc(db,'grain_bag_events',row.id), {
-          status:'pickedUp',
-          pickedUpAt: when,
+      // For each picked line: make a pickUp event and update source counts
+      for(const p of picks){
+        const src = p.row;
+        const leftFull = Math.max(0, Number(src.counts?.full||0) - p.takeFull);
+        const leftPart = Math.max(0, Number(src.counts?.partial||0) - p.takePart);
+        const status = (leftFull===0 && leftPart===0) ? 'pickedUp' : (src.status||null);
+
+        // create event
+        const ev = {
+          type:'pickUp',
+          field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
+          refPutDownId: src.id,
+          cropYear: YEAR,
+          bagSku: src.bagSku || null,
+          countsPicked:{ full:p.takeFull, partial:p.takePart },
+          notes: note,
+          pickedUpDate: when,
           pickedUpBy: who,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          files: uploaded.length ? uploaded : undefined
+        };
+        const evRef = await addDoc(collection(db,'grain_bag_events'), ev);
+
+        // update the source putDown doc
+        const patch = {
+          'counts.full': leftFull,
+          'counts.partial': leftPart,
           updatedAt: serverTimestamp()
-        });
-      }catch(e){ console.warn("mark putDown pickedUp failed:", e); }
+        };
+        if(status==='pickedUp'){
+          patch.status = 'pickedUp';
+          patch.pickedUpAt = when;
+          patch.pickedUpBy = who;
+        }
+        await updateDoc(doc(db,'grain_bag_events', src.id), patch);
+      }
 
-      toast("Bag marked as picked up.");
-
-      // Refresh indexes + UI so fields drop out when empty
+      closePickupSheet();
+      toast("Pickup saved.");
       await buildOpenIndexForYear(db);
+
+      // If chosen field vanished, clear selection; otherwise re-render
       if(!OPEN_INDEX.has(CHOSEN_FIELD.id)){
         CHOSEN_FIELD=null; CHOSEN_CROP=null;
         $("fieldBtn").textContent="— Select field —";
         $("cropRow").hidden=true; $("summary").textContent="—";
         $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
+        $("bulkActions").hidden = true;
         fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
       }else{
         const crops = cropsForField(CHOSEN_FIELD.id).map(c=>({id:c,label:c,value:c}));
@@ -536,115 +627,75 @@
 
     /* ===== Boot ===== */
     let db, auth;
+    // Employee combo instance
+    let empCombo;
     (async()=>{
       await ready;
       db = getFirestore(); auth = getAuth();
 
+      // Default year and render year items
       YEAR = new Date().getFullYear();
-      const YEARS = [YEAR-1,YEAR,YEAR+1].map(v=>({id:String(v), value:v, label:String(v)}));
-      // render year choices
-      const yl = document.getElementById('yearList'); yl.innerHTML = YEARS.map(x=>`<div class="combo-item" data-id="${x.id}">${x.label}</div>`).join('');
-      document.getElementById('yearBtn').textContent = String(YEAR);
+      $("yearBtn").textContent = String(YEAR);
+      const yl = $("yearList"); yl.innerHTML = [YEAR-1, YEAR, YEAR+1].map(v=>`<div class="combo-item" data-id="${v}">${v}</div>`).join('');
 
       await Promise.all([ loadEmployees(db, auth), loadFields(db) ]);
       await buildOpenIndexForYear(db);
 
       // Seed field list from OPEN_INDEX
       const startFields = getFieldsWithOpen().map(f=>({id:f.id, name:f.name}));
-      const fieldComboObj = document.getElementById('fieldList');
-      fieldComboObj.innerHTML = startFields.map(it=>`<div class="combo-item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
-
-      // Wire combos programmatically (we built them above)
-      // Year combo already wired via makeCombo earlier:
-      // Now reapply items so the helper can click
-      const yearItems = YEARS.map(x=>({id:x.id,label:x.label,value:x.value}));
-      (function ensureYearCombo(){
-        const list = document.getElementById('yearList');
-        list.innerHTML = yearItems.map(x=>`<div class="combo-item" data-id="${esc(x.id)}">${esc(x.label)}</div>`).join('');
-      })();
+      const fl = $("fieldList");
+      fl.innerHTML = startFields.map(it=>`<div class="combo-item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
 
       // Field search filter
-      document.getElementById('fieldSearch').addEventListener('input', (e)=>{
+      $("fieldSearch").addEventListener('input', (e)=>{
         const q=(e.target.value||"").toLowerCase();
         const base = getFieldsWithOpen().map(f=>({id:f.id, name:f.name}));
         const list = base.filter(f=>!q || f.name.toLowerCase().includes(q));
-        document.getElementById('fieldList').innerHTML =
+        $("fieldList").innerHTML =
           list.map(it=>`<div class="combo-item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
       });
 
-      // Delegate clicks in field list to work with our combo helper
-      document.getElementById('fieldList').addEventListener('click', async (e)=>{
+      // Delegate clicks in field list (works with our combo helper)
+      $("fieldList").addEventListener('click', async (e)=>{
         const el = e.target.closest('.combo-item');
         if(!el) return;
         const id = el.dataset.id;
         const match = getFieldsWithOpen().find(f=>f.id===id);
         if(!match) return;
         CHOSEN_FIELD = {id:match.id, name:match.name};
-        document.getElementById('fieldBtn').textContent = match.name;
+        $("fieldBtn").textContent = match.name;
 
-        const crops = cropsForField(match.id).map(c=>({id:c,label:c,value:c}));
-        // render crop options
-        document.getElementById('cropList').innerHTML =
+        const crops = cropsForField(match.id).map(c=>({id:c,label=c,value=c}));
+        $("cropList").innerHTML =
           crops.map(c=>`<div class="combo-item" data-id="${esc(c.id)}">${esc(c.label)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
         if(crops.length){
           CHOSEN_CROP = crops[0].value;
-          document.getElementById('cropBtn').textContent = crops[0].label;
-          document.getElementById('cropRow').hidden = false;
+          $("cropBtn").textContent = crops[0].label;
+          $("cropRow").hidden = false;
         }else{
           CHOSEN_CROP = null;
-          document.getElementById('cropRow').hidden = true;
+          $("cropRow").hidden = true;
         }
         await renderOpenBags();
       });
 
-      // Bag list actions
-      document.getElementById('bagList').addEventListener('click', async (e)=>{
-        const btn = e.target.closest("button");
-        if(!btn) return;
-        const id = btn.getAttribute("data-id");
-        const action = btn.getAttribute("data-action");
-        if(!id || !action) return;
+      // Bulk button + sheet wiring
+      $("openPickup").addEventListener('click', openPickupSheet);
+      $("cancelPickup").addEventListener('click', ()=> $("pickupSheet").classList.remove('show'));
+      $("confirmPickup").addEventListener('click', ()=> savePickup(db, auth));
 
-        const rows = rowsForCurrent();
-        const row = rows.find(r=>r.id===id);
-        if(!row) return;
-
-        if(action==="open-pickup"){
-          const form = document.getElementById("pf-"+id);
-          if(!form) return;
-          form.hidden=false;
-
-          const dateEl = form.querySelector(`[data-emp-date="${CSS.escape(id)}"]`);
-          if(dateEl) dateEl.value = todayISO();
-
-          // Build employee combo
-          const empBtn = form.querySelector(`[data-emp-btn="${CSS.escape(id)}"]`);
-          const empPanel = empBtn?.nextElementSibling;
-          const empList = form.querySelector(`[data-emp-list="${CSS.escape(id)}"]`);
-          // simple list
-          empList.innerHTML = (EMPLOYEES||[]).map(e=>`<div class="combo-item" data-id="${esc(e.id)}">${esc(e.name)}</div>`).join('') || `<div class="combo-empty">(no matches)</div>`;
-          empBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); closeAllCombos(empPanel); empPanel.classList.toggle('show'); });
-
-          empList.addEventListener('click', (ev)=>{
-            const it = ev.target.closest('.combo-item'); if(!it) return;
-            const picked = EMPLOYEES.find(x=>x.id===it.dataset.id);
-            if(picked){ empBtn.textContent=picked.name; empBtn.dataset.value=picked.id; }
-            empPanel.classList.remove('show');
-          });
-          const me = (auth.currentUser?.email||"").toLowerCase();
-          const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
-          if(mine){ empBtn.textContent=mine.name; empBtn.dataset.value=mine.id; }
-        }
-
-        if(action==="cancel-pickup"){
-          const form = document.getElementById("pf-"+id);
-          if(form) form.hidden = true;
-        }
-
-        if(action==="confirm-pickup"){
-          await savePickup(db, auth, row, id);
-        }
+      // Employee combo in sheet
+      empCombo = makeCombo({
+        btn:$("empBtn"),
+        panel:$("empBtn").nextElementSibling,
+        list:$("empList"),
+        items:EMPLOYEES, searchable:false, formatter:x=>x.name,
+        onPick: it => { $("empBtn").textContent = it.name; $("empBtn").dataset.value = it.id; }
       });
+      // default employee
+      const me = (auth.currentUser?.email||"").toLowerCase();
+      const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
+      if(mine){ $("empBtn").textContent=mine.name; $("empBtn").dataset.value=mine.id; }
 
       // Close combos on Escape
       document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
