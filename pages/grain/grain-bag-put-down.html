@@ -79,7 +79,7 @@
       background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
 
-    /* Picker sheet */
+    /* Field picker sheet */
     .sheet{position:fixed;inset:auto 0 0 0;background:var(--surface);border-top:1px solid var(--border);
       box-shadow:0 -12px 30px rgba(0,0,0,.18);border-radius:16px 16px 0 0;transform:translateY(105%);transition:transform .25s ease;z-index:10000}
     .sheet.show{transform:translateY(0)}
@@ -134,7 +134,7 @@
             <button id="addBag" class="btn btn-primary" type="button">Add Bag Entry</button>
           </div>
 
-          <!-- Hidden bag form -->
+          <!-- Hidden bag form (shown after Add Bag Entry) -->
           <div id="bagForm" hidden>
             <div class="row">
               <div class="field">
@@ -201,6 +201,7 @@
               </div>
             </div>
 
+            <!-- Partial lengths -->
             <div id="partialsBox" class="field" hidden>
               <label>Partial Bag Lengths (ft)</label>
               <div id="partialsList" class="row"></div>
@@ -215,7 +216,7 @@
             <div class="field">
               <label for="files">Optional Photos</label>
               <input id="files" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
-              <div class="help">You can attach photos of the bag placement/location.</div>
+              <div class="help">Attach photos of placement or location as needed.</div>
             </div>
 
             <div id="err" class="help error" hidden></div>
@@ -248,61 +249,268 @@
       serverTimestamp, query, orderBy
     } from '/Farm-vista/js/firebase-init.js';
 
+    /* ---------- utils ---------- */
     const $ = id => document.getElementById(id);
     const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     function toast(msg="Saved.", ms=4200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); }
     function todayISO(){ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
 
-    let FIELD_INDEX=[], EMPLOYEES=[], BAG_SKUS=[], chosenField=null, chosenBag=null;
+    /* ---------- state ---------- */
+    let FIELD_INDEX=[], EMPLOYEES=[], BAG_SKUS=[];
+    let chosenField=null, chosenBag=null;
 
-    async function populateBags(db){
+    /* ---------- UI helpers ---------- */
+    function fillYears(){
+      const y=new Date().getFullYear();
+      $("cropYear").innerHTML=[y-1,y,y+1].map(v=>`<option value="${v}" ${v===y?'selected':''}>${v}</option>`).join('');
+    }
+    function fillPriority(){
+      $("priority").innerHTML=Array.from({length:10},(_,i)=>i+1).map(v=>`<option value="${v}" ${v===5?'selected':''}>${v}</option>`).join('');
+    }
+    function renderFieldBtn(){
+      $("fieldBtn").textContent = chosenField ? chosenField.name : "— Select field —";
+      $("fieldHelp").textContent = `${FIELD_INDEX.length} fields`;
+    }
+    function setBagChoiceById(id){
+      chosenBag = BAG_SKUS.find(b=>b.id===id)||null;
+      const L = Number(chosenBag?.sizeFeet||0);
+      $("lengthRule").textContent = L ? `Partial per-bag length must be between 50 ft and ${Math.max(0,L-50)} ft (bag ${L} ft).` : "Select a bag SKU to see allowed partial length range.";
+    }
+    function renderPartialInputs(){
+      const n = Math.max(0, Number($("partialBags").value||0));
+      const list = $("partialsList"); const box = $("partialsBox");
+      list.innerHTML=""; if(n<=0){ box.hidden=true; return; } box.hidden=false;
+      for(let i=0;i<n;i++){ const inp=document.createElement('input'); inp.type='number'; inp.inputMode='numeric'; inp.min='50'; inp.step='1'; inp.placeholder=`Partial ${i+1} length (ft)`; inp.className='input'; list.appendChild(inp); }
+      $("partialsHelp").textContent="Enter each partial’s feet (respect the allowed range).";
+    }
+    function validatePartials(){
+      if(!chosenBag) return true;
+      const L = Number(chosenBag.sizeFeet||0); const min=50, max=Math.max(0,L-50);
+      const inputs=[...$("partialsList").querySelectorAll('input')];
+      for(const i of inputs){ const v=Number(i.value||0); if(!(v>=min && v<=max)){ i.focus(); throw new Error(`Partial length must be between ${min} and ${max} ft for a ${L} ft bag.`); } }
+      return true;
+    }
+
+    /* ---------- data loads ---------- */
+    async function loadFields(db){
       try{
-        const snap = await getDocs(collection(db,'inventoryGrainBagMovements'));
+        const snap=await getDocs(query(collection(db,'fields'),orderBy('name')));
+        const arr=[]; snap.forEach(d=>{const x=d.data()||{}; if(x.name) arr.push({id:d.id,name:String(x.name)});});
+        arr.sort((a,b)=>a.name.localeCompare(b.name));
+        FIELD_INDEX=arr;
+        $("fieldList").innerHTML=arr.map(f=>`<div class="item" data-id="${esc(f.id)}">${esc(f.name)}</div>`).join('');
+        $("fieldHelp").textContent=`${arr.length} fields`;
+      }catch(e){ console.warn(e); $("fieldHelp").textContent="0 fields (load error)"; }
+    }
+
+    async function loadEmployees(db,auth){
+      try{
+        const snap=await getDocs(collection(db,'employees'));
+        const list=[]; snap.forEach(d=>{const x=d.data()||{}; list.push({id:d.id,name:x.name||x.displayName||x.fullName||x.email||d.id,email:x.email||d.id});});
+        list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+        EMPLOYEES=list;
+        $("submittedBy").innerHTML=list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}${e.email?' — '+esc(e.email):''}</option>`).join('');
+        const me=(auth.currentUser?.email||"").toLowerCase();
+        const mine=list.find(e=>(e.email||"").toLowerCase()===me);
+        $("submittedBy").value = mine ? mine.id : (list[0]?.id||"");
+        $("subHelp").textContent=`${list.length} employees`;
+      }catch(e){
+        $("submittedBy").innerHTML=`<option value="">(no employees)</option>`;
+        $("subHelp").textContent=`0 employees`;
+      }
+    }
+
+    /* ====== Bags from Firestore: inventoryGrainBagMovements ======
+       Fields expected: brand (string), lengthFt (number),
+       diameterFt (number, opt), location (string, opt), onHand (number, opt)
+    =============================================================== */
+    async function loadBags(db){
+      try{
+        const snap=await getDocs(collection(db,'inventoryGrainBagMovements'));
         const list=[];
         snap.forEach(d=>{
           const x=d.data()||{};
-          const brand = String(x.brand||"Bag");
-          const sizeFeet = Number(x.lengthFt||x.length||0);
+          const brand=String(x.brand||"Bag");
+          const sizeFeet=Number(x.lengthFt||x.length||0);
           if(sizeFeet<=0) return;
           list.push({
             id:d.id,
             brand,
             sizeFeet,
-            diameterFt:Number(x.diameterFt||x.diameter||0)||null,
-            location:x.location||null,
-            onHand:(x.onHand!==undefined?Number(x.onHand):null)
+            diameterFt: Number(x.diameterFt||x.diameter||0) || null,
+            location: x.location || null,
+            onHand: (x.onHand!==undefined ? Number(x.onHand) : null)
           });
         });
         list.sort((a,b)=>(`${a.brand} ${a.sizeFeet}`).localeCompare(`${b.brand} ${b.sizeFeet}`,undefined,{numeric:true}));
         BAG_SKUS=list;
-        $("bagPick").innerHTML=`<option value="">— Select —</option>`+list.map(b=>{
-          const parts=[`${b.brand} — ${b.sizeFeet} ft`,b.diameterFt?`Ø${b.diameterFt}'`:null,b.location?b.location:null,(b.onHand!=null)?`on hand: ${b.onHand}`:null].filter(Boolean).join(' • ');
+        $("bagPick").innerHTML = `<option value="">— Select —</option>` + list.map(b=>{
+          const parts=[`${b.brand} — ${b.sizeFeet} ft`, b.diameterFt?`Ø${b.diameterFt}'`:null, b.location||null, (b.onHand!=null)?`on hand: ${b.onHand}`:null].filter(Boolean).join(' • ');
           return `<option value="${esc(b.id)}">${esc(parts)}</option>`;
         }).join('');
         $("bagHelp").textContent=`${list.length} bag SKUs`;
-      }catch(e){console.error(e);$("bagHelp").textContent="Error loading bags";}
+      }catch(e){
+        console.warn("loadBags:", e);
+        $("bagPick").innerHTML = `<option value="">— Error —</option>`;
+        $("bagHelp").textContent = `0 bag SKUs (load error)`;
+      }
     }
 
-    function setBagChoiceById(id){chosenBag=BAG_SKUS.find(b=>b.id===id)||null;const L=Number(chosenBag?.sizeFeet||0);$("lengthRule").textContent=L?`Partial per-bag length 50–${L-50} ft (bag ${L} ft)`:"Select bag to view range";}
-
-    async function populateFields(db){
-      const snap=await getDocs(query(collection(db,'fields'),orderBy('name')));const arr=[];snap.forEach(d=>{const x=d.data()||{};if(x.name)arr.push({id:d.id,name:x.name})});FIELD_INDEX=arr.sort((a,b)=>a.name.localeCompare(b.name));
-      $("fieldList").innerHTML=arr.map(f=>`<div class="item" data-id="${esc(f.id)}">${esc(f.name)}</div>`).join('');
-      $("fieldHelp").textContent=`${arr.length} fields`;
+    /* ---------- file uploads (lazy Storage) ---------- */
+    async function loadStorageFns(){
+      const m=await import('/Farm-vista/js/firebase-init.js');
+      return { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
     }
 
-    async function populateEmployees(db,auth){
-      const snap=await getDocs(collection(db,'employees'));const list=[];snap.forEach(d=>{const x=d.data()||{};list.push({id:d.id,name:x.name||x.email||d.id,email:x.email||d.id})});
-      list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));EMPLOYEES=list;
-      $("submittedBy").innerHTML=list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
-      const me=(auth.currentUser?.email||"").toLowerCase();const mine=list.find(e=>(e.email||"").toLowerCase()===me);$("submittedBy").value=mine?mine.id:list[0]?.id;
-    }
-
+    /* ---------- save ---------- */
     async function handleSave(db,auth){
-      if(!chosenField)return alert("Choose Field first");
-      if(!$("bagPick").value)return alert("Choose Bag");
-      const carry=$("carryType").value;if(!carry)return alert("Select usage");
-      const full=+($("fullBags").value||0),partial=+($("partialBags").value||0);
-      const rec={type:'putDown',field:{id:chosenField.id,name:chosenField.name},bagSku:{...chosenBag},usage:carry,counts:{full,partial},createdAt:serverTimestamp()};
-      const ref=await addDoc(collection(db,'grain_bag_events'),rec);
-      if(carry==='new'&&chosenBag&&chosenBag.onHand!=null){const next=Math.max(0,chosenBag.onHand-(full+(partial>0?1:0)));await updateDoc(doc(db,'inventoryGrainBagMov
+      $("err").hidden=true;
+
+      if(!chosenField){ alert("Please choose a Field."); return; }
+      const cropYear=Number($("cropYear").value||0); if(!cropYear){ alert("Please choose Crop Year."); return; }
+      const carryType=$("carryType").value; if(!carryType){ alert("Please select Bag Usage (Carryover or New)."); return; }
+      const bagId=$("bagPick").value; if(!bagId){ alert("Please choose Bag Brand & Size."); return; }
+      const cropType=$("cropType").value; if(!cropType){ alert("Please choose Crop Type."); return; }
+      const datePlaced=$("datePlaced").value; if(!datePlaced){ alert("Please set the Date placed."); return; }
+
+      setBagChoiceById(bagId);
+      try{ validatePartials(); }catch(e){ $("err").hidden=false; $("err").textContent=e.message; return; }
+
+      const fullBags = Math.max(0, Number($("fullBags").value||0));
+      const partialCount = Math.max(0, Number($("partialBags").value||0));
+      const partialLens = [...$("partialsList").querySelectorAll('input')].map(i=>Number(i.value||0)).filter(v=>v>0);
+      if(partialCount !== partialLens.length){ alert("Please enter each partial bag length."); return; }
+
+      const subId = $("submittedBy").value || "";
+      const subEmp = EMPLOYEES.find(e=>e.id===subId) || {};
+      const subEmail = subEmp.email || auth.currentUser?.email || "";
+      const subName  = subEmp.name  || auth.currentUser?.displayName || subEmail || "Unknown";
+
+      const record = {
+        type: 'putDown',
+        field: { id: chosenField.id, name: chosenField.name },
+        cropYear, cropType, datePlaced,
+        usage: carryType, // 'carryover' | 'new'
+        bagSku: {
+          id: chosenBag?.id || bagId,
+          brand: chosenBag?.brand || null,
+          sizeFeet: Number(chosenBag?.sizeFeet || 0),
+          diameterFt: chosenBag?.diameterFt || null,
+          location: chosenBag?.location || null
+        },
+        counts: { full: fullBags, partial: partialCount, partialFeet: partialLens },
+        priority: Number($("priority").value||5),
+        notes: $("notes").value.trim(),
+        submittedBy: { employeeId: subId || null, name: subName, email: subEmail },
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      };
+
+      // Save the event
+      const ref = await addDoc(collection(db,'grain_bag_events'), record);
+
+      // Optional photos
+      const files = Array.from(($("files").files||[]));
+      if(files.length){
+        try{
+          const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
+          const st = getStorage();
+          const uploaded=[];
+          for(const f of files){
+            const safe=(Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+            const p=`grain_bag_events/${ref.id}/${safe}`;
+            const r=stRef(st,p);
+            await uploadBytes(r,f,{contentType:f.type||'application/octet-stream'});
+            const url=await getDownloadURL(r);
+            uploaded.push({name:f.name,url,path:p});
+          }
+          await updateDoc(doc(db,'grain_bag_events',ref.id), { files:uploaded, updatedAt:serverTimestamp() });
+        }catch(stErr){
+          $("err").hidden=false; $("err").textContent = `Saved, but photo upload failed: ${stErr.message}`;
+        }
+      }
+
+      // Inventory decrement (NEW only) against inventoryGrainBagMovements
+      if(carryType==='new' && chosenBag){
+        try{
+          const debit = fullBags + (partialLens.length>0 ? 1 : 0);
+          if(debit>0 && chosenBag.onHand!=null){
+            const skuDoc = doc(db,'inventoryGrainBagMovements',chosenBag.id);
+            const next = Math.max(0, Number(chosenBag.onHand) - debit);
+            await updateDoc(skuDoc, { onHand: next, updatedAt: serverTimestamp() });
+          }
+        }catch(invErr){ console.warn("Inventory decrement failed:", invErr); }
+      }
+
+      toast("Put Down recorded.");
+
+      // Reset some UI (keep field/year)
+      $("carryType").value=""; $("bagPick").value=""; $("cropType").value="";
+      $("datePlaced").value=todayISO();
+      $("fullBags").value="0"; $("partialBags").value="0"; $("notes").value=""; $("files").value="";
+      setBagChoiceById(null); renderPartialInputs();
+    }
+
+    /* ---------- boot ---------- */
+    (async()=>{
+      const ctx = await ready;
+      const db = getFirestore();
+      const auth = getAuth();
+
+      fillYears();
+      fillPriority();
+      $("datePlaced").value = todayISO();
+
+      await Promise.all([ loadFields(db), loadEmployees(db,auth), loadBags(db) ]);
+      renderFieldBtn();
+
+      // Field picker wiring
+      $("fieldBtn").addEventListener("click", ()=>{ document.getElementById('fieldSheet').classList.add('show'); $("fieldSearch").value=""; $("fieldSearch").focus(); });
+      $("fieldSearch").addEventListener("input", (e)=>{
+        const q=(e.target.value||"").toLowerCase().trim();
+        const out=FIELD_INDEX.filter(f=>!q || f.name.toLowerCase().includes(q)).map(f=>`<div class="item" data-id="${esc(f.id)}">${esc(f.name)}</div>`).join('');
+        $("fieldList").innerHTML = out || `<div class="item subtle">(no matches)</div>`;
+      });
+      $("fieldList").addEventListener("click",(e)=>{
+        const el=e.target.closest(".item"); if(!el) return;
+        const it=FIELD_INDEX.find(f=>f.id===el.dataset.id); if(!it) return;
+        chosenField=it; renderFieldBtn(); document.getElementById('fieldSheet').classList.remove('show');
+      });
+      document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") document.getElementById('fieldSheet').classList.remove('show'); });
+
+      // Add Bag gate
+      $("addBag").addEventListener("click", ()=>{
+        if(!chosenField) return alert("Choose a Field first.");
+        if(!$("cropYear").value) return alert("Choose Crop Year.");
+        $("bagForm").hidden=false; toast("Bag form ready.");
+      });
+
+      // Bag + partials
+      $("bagPick").addEventListener("change",(e)=> setBagChoiceById(e.target.value));
+      $("partialBags").addEventListener("input", renderPartialInputs);
+
+      // Actions
+      $("btnSave").addEventListener("click", ()=> handleSave(db, getAuth()));
+      $("btnClear").addEventListener("click", ()=>{
+        $("carryType").value=""; $("bagPick").value=""; $("cropType").value="";
+        $("datePlaced").value=todayISO(); $("fullBags").value="0"; $("partialBags").value="0"; $("notes").value=""; $("files").value="";
+        setBagChoiceById(null); renderPartialInputs();
+        // default submittedBy back to current user if available
+        const me=(getAuth().currentUser?.email||"").toLowerCase();
+        const mine=EMPLOYEES.find(e=>(e.email||"").toLowerCase()===me);
+        $("submittedBy").value = mine ? mine.id : (EMPLOYEES[0]?.id||"");
+      });
+
+      // Helpful network toasts
+      window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
+      window.addEventListener('offline',()=> toast("Currently offline — using saved data", 3000));
+    })();
+  </script>
+
+  <!-- Notes:
+       • Reads bag SKUs from /inventoryGrainBagMovements.
+       • Partial-length rule: min 50 ft; max (lengthFt - 50 ft).
+       • On NEW usage, decrements onHand if that field exists on the SKU doc.
+       • Saves events to /grain_bag_events (type: 'putDown').
+  -->
+</body>
+</html>
