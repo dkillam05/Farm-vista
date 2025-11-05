@@ -70,7 +70,7 @@
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* Combo (same as Put Bag Down) */
+    /* Combo (same working helper as Put-Down) */
     .combo{ position:relative }
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + 4px);
@@ -96,18 +96,21 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* Bottom sheet */
-    .sheet{position:fixed;inset:auto 0 0 0;background:var(--surface);border-top:1px solid var(--border);
-      box-shadow:0 -12px 30px rgba(0,0,0,.18);border-radius:16px 16px 0 0;transform:translateY(105%);transition:transform .25s ease;z-index:10000}
-    .sheet.show{transform:translateY(0)}
-    .sheet .cap{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)}
-    .sheet .cap .bar{width:40px;height:4px;border-radius:4px;background:#CBCDCB;margin:0 auto}
-    .sheet .inner{padding:14px;display:grid;gap:12px}
+    /* Centered modal that keeps fv-shell visible */
+    .modal{ position:fixed; inset:0; display:none; place-items:center; z-index:10000; }
+    .modal.show{ display:grid; }
+    .modal::before{ content:""; position:absolute; inset:0; background:rgba(0,0,0,.38); }
+    .modal .panel{
+      position:relative; z-index:1; width:min(860px,92vw); max-height:86vh; overflow:auto;
+      background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 18px 50px rgba(0,0,0,.28);
+      padding:16px;
+    }
+    .modal h3{ margin:0 0 4px }
     .grid-2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
     @media (max-width:880px){.grid-2{grid-template-columns:1fr}}
-    .row-mini{display:grid;grid-template-columns:1.6fr .9fr .9fr;gap:10px;align-items:center}
-    @media (max-width:880px){.row-mini{grid-template-columns:1fr 1fr 1fr}}
-    .mini-note{font-size:12px;color:#67706B}
+    .row-mini{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
+    @media (max-width:640px){.row-mini{grid-template-columns:1fr}}
+    .inline-help{ font-size:13px; color:#67706B; }
   </style>
 </head>
 
@@ -176,14 +179,13 @@
     </div>
   </fv-shell>
 
-  <!-- Bulk Pickup Sheet -->
-  <div id="pickupSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="pickupTitle">
-    <div class="cap"><div class="bar" aria-hidden="true"></div></div>
-    <div class="inner">
-      <h3 id="pickupTitle" style="margin:0 0 4px">Complete Pickup</h3>
-      <div id="pickupMeta" class="help"></div>
+  <!-- Centered MODAL for pickup -->
+  <div id="pickupModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pickupTitle">
+    <div class="panel">
+      <h3 id="pickupTitle">Complete Pickup</h3>
+      <div id="pickupMeta" class="help" style="margin-bottom:6px"></div>
 
-      <div class="grid-2">
+      <div class="grid-2" style="margin-bottom:8px">
         <div class="field combo" id="empCombo">
           <label>Employee (required)</label>
           <button id="empBtn" class="buttonish has-caret" type="button">— Select —</button>
@@ -196,11 +198,20 @@
         </div>
       </div>
 
-      <!-- Per-line inputs -->
-      <div id="lineInputs" class="cards"></div>
-      <div class="mini-note">Enter the number of <b>full</b> and <b>partial</b> bags picked up from each line. Leave 0 if none.</div>
+      <!-- Consolidated totals -->
+      <div class="row-mini" style="margin-bottom:8px">
+        <div class="field">
+          <label id="fullLbl">Full picked up</label>
+          <input id="fullTake" class="input" type="number" min="0" step="1" value="0"/>
+        </div>
+        <div class="field">
+          <label id="partLbl">Partial picked up</label>
+          <input id="partTake" class="input" type="number" min="0" step="1" value="0"/>
+        </div>
+      </div>
+      <div class="inline-help" id="totalsHelp">—</div>
 
-      <div class="field">
+      <div class="field" style="margin-top:10px">
         <label for="sheetNotes">Notes</label>
         <textarea id="sheetNotes" class="textarea" placeholder="Optional"></textarea>
       </div>
@@ -212,7 +223,7 @@
 
       <div id="sheetErr" class="help error" hidden></div>
 
-      <div class="actions">
+      <div class="actions" style="margin-top:8px">
         <button id="cancelPickup" class="btn" type="button">Cancel</button>
         <button id="confirmPickup" class="btn btn-primary" type="button">Mark Picked Up</button>
       </div>
@@ -238,7 +249,7 @@
     /* ===== Utils ===== */
     const $ = id => document.getElementById(id);
     const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const toast = (msg="Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); };
+    const toast = (msg="Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove('show'),ms); };
     const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
     const toNum = v => (v===undefined||v===null||v==="") ? NaN : Number(v);
     const yearOf = (row)=>{
@@ -260,12 +271,11 @@
     let CHOSEN_FIELD = null;
     let CHOSEN_CROP = null;
 
-    /* ===== Single-open combo infra (Put-Down exact) ===== */
+    /* ===== Single-open combo infra ===== */
     function closeAllCombos(except=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
     }
     document.addEventListener('click', ()=> closeAllCombos());
-
     function makeCombo({btn, panel, list, items=[], searchable=false, formatter=x=>String(x.label||x), onPick}){
       function render(q=""){
         const qq=(q||"").toLowerCase();
@@ -277,14 +287,10 @@
       function open(){
         closeAllCombos(panel);
         panel.classList.add('show');
-        if(searchable){
-          const i=panel.querySelector('input'); if(i){ i.value=""; i.focus(); }
-        }
+        if(searchable){ const i=panel.querySelector('input'); if(i){ i.value=""; i.focus(); } }
         render("");
       }
       function close(){ panel.classList.remove('show'); }
-
-      // IMPORTANT: stopPropagation so global click doesn’t immediately close it.
       btn.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.contains('show')?close():open(); });
       list.addEventListener('click', (e)=>{
         const el=e.target.closest('.combo-item'); if(!el) return;
@@ -300,7 +306,7 @@
     /* ===== Format helpers ===== */
     const skuText = r => `${r.bagSku?.brand||'Bag'} — ${r.bagSku?.sizeFeet||'?'} ft`;
     const countsText = r => `${Number(r.counts?.full||0)} full, ${Number(r.counts?.partial||0)} partial`;
-    const consolidatedSummary = (rows)=>{
+    const consolidated = (rows)=>{
       let full=0, partial=0;
       rows.forEach(r=>{ full += Number(r.counts?.full||0); partial += Number(r.counts?.partial||0); });
       return {full, partial, entries:rows.length};
@@ -319,7 +325,6 @@
       list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
       EMPLOYEES = list;
       empCombo.setItems(list);
-      // Default to current user if present
       const me = (getAuth().currentUser?.email||"").toLowerCase();
       const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
       if(mine){ $("empBtn").textContent=mine.name; $("empBtn").dataset.value=mine.id; }
@@ -363,7 +368,6 @@
           (bucket[crop] ||= []).push(row);
         });
 
-        // remove empties
         for(const [fid, obj] of [...OPEN_INDEX.entries()]){
           const hasAny = Object.values(obj.crops).some(arr => (arr||[]).length>0);
           if(!hasAny) OPEN_INDEX.delete(fid);
@@ -373,12 +377,9 @@
         console.error("buildOpenIndexForYear error:", err);
         $("fieldHelp").textContent = `0 field(s) (load error)`;
       }
-
-      // (Re)seed the field combo items from OPEN_INDEX
       fieldCombo.setItems( [...OPEN_INDEX.values()].sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(f=>({id:f.id,name:f.name})) );
     }
 
-    const getFieldsWithOpen = ()=> [...OPEN_INDEX.values()].sort((a,b)=> (a.name||"").localeCompare(b.name||""));
     const cropsForField = fid => {
       const obj = OPEN_INDEX.get(fid);
       return obj ? Object.keys(obj.crops).sort() : [];
@@ -392,7 +393,6 @@
     }
 
     /* ===== Combos ===== */
-    // Year items
     const nowY = new Date().getFullYear();
     const YEAR_ITEMS = [nowY-1, nowY, nowY+1].map(v=>({id:String(v), value:v, label:String(v)}));
 
@@ -442,7 +442,7 @@
       }
     });
 
-    // Employee combo (in sheet)
+    // Employee combo (in modal)
     const empCombo = makeCombo({
       btn:$("empBtn"),
       panel:$("empBtn").nextElementSibling,
@@ -467,13 +467,13 @@
 
       rows.sort((a,b)=>(Number(b.priority||0)-Number(a.priority||0)) || String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")));
 
-      const sum = consolidatedSummary(rows);
+      const sum = consolidated(rows);
       $("summary").innerHTML = `<b>Total:</b> ${sum.full} full, ${sum.partial} partial • ${sum.entries} open entr${sum.entries===1?'y':'ies'}`;
       $("listHelp").textContent = `${rows.length} open bag entr${rows.length===1?'y':'ies'}`;
 
       $("bagList").innerHTML = rows.map(r=>{
         return `
-          <div class="card" data-row="${esc(r.id)}">
+          <div class="card">
             <div class="kvs">
               <span class="kv"><b>Placed:</b> ${esc(r.datePlaced||'—')}</span>
               <span class="kv"><b>SKU:</b> ${esc(skuText(r))}</span>
@@ -489,41 +489,51 @@
       $("bulkActions").hidden = false;
     }
 
-    /* ===== Bulk sheet ===== */
-    function openPickupSheet(){
+    /* ===== Modal (combined totals) ===== */
+    function openPickupModal(){
       const rows = rowsForCurrent();
       if(!rows.length) return;
+
+      const sum = consolidated(rows);
+      const maxFull = Number(sum.full||0);
+      const maxPart = Number(sum.partial||0);
+
       $("sheetErr").hidden = true;
       $("sheetNotes").value = "";
       $("sheetFiles").value = "";
       $("sheetDate").value = todayISO();
+
       $("pickupMeta").innerHTML = `Field: <b>${esc(CHOSEN_FIELD?.name||'')}</b>${CHOSEN_CROP?` • Crop: <b>${esc(CHOSEN_CROP)}</b>`:''} • Year: <b>${esc(String(YEAR))}</b>`;
+      $("fullLbl").textContent = `Full picked up (0–${maxFull})`;
+      $("partLbl").textContent = `Partial picked up (0–${maxPart})`;
+      $("fullTake").value = "0"; $("fullTake").max = String(maxFull);
+      $("partTake").value = "0"; $("partTake").max = String(maxPart);
+      $("totalsHelp").textContent = `${maxFull} full and ${maxPart} partial available across ${rows.length} entr${rows.length===1?'y':'ies'}.`;
 
-      const wrap = $("lineInputs");
-      wrap.innerHTML = rows.map(r=>{
-        const fid = esc(r.id);
-        const full = Number(r.counts?.full||0);
-        const part = Number(r.counts?.partial||0);
-        return `
-          <div class="card">
-            <div class="row-mini">
-              <div><b>${esc(r.datePlaced||'—')}</b> • ${esc(skuText(r))}</div>
-              <div>
-                <label class="mini-note">Full picked up (0–${full})</label>
-                <input class="input" type="number" min="0" max="${full}" step="1" value="0" data-pu-full="${fid}"/>
-              </div>
-              <div>
-                <label class="mini-note">Partial picked up (0–${part})</label>
-                <input class="input" type="number" min="0" max="${part}" step="1" value="0" data-pu-part="${fid}"/>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      $("pickupSheet").classList.add('show');
+      $("pickupModal").classList.add('show');
     }
-    function closePickupSheet(){ $("pickupSheet").classList.remove('show'); }
+    function closePickupModal(){ $("pickupModal").classList.remove('show'); }
+
+    // Distribute totals across rows (oldest placed first)
+    function distribute(rows, takeFull, takePart){
+      // copy and sort by datePlaced asc so oldest first
+      const sorted = [...rows].sort((a,b)=> String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")));
+      const plan = [];
+      let f = takeFull|0, p = takePart|0;
+      for(const r of sorted){
+        const haveF = Number(r.counts?.full||0);
+        const haveP = Number(r.counts?.partial||0);
+        const useF = Math.min(haveF, Math.max(0,f));
+        f -= useF;
+        const useP = Math.min(haveP, Math.max(0,p));
+        p -= useP;
+        if(useF>0 || useP>0){
+          plan.push({ id:r.id, useFull:useF, usePart:useP, leftFull:haveF-useF, leftPart:haveP-useP, row:r });
+        }
+        if(f<=0 && p<=0) break;
+      }
+      return plan;
+    }
 
     async function savePickup(db, auth){
       $("sheetErr").hidden = true;
@@ -542,23 +552,15 @@
       const note = $("sheetNotes").value.trim();
 
       const rows = rowsForCurrent();
-      if(!rows.length){ closePickupSheet(); return; }
+      const sum = consolidated(rows);
+      const wantFull = clamp(Number($("fullTake").value||0), 0, Number(sum.full||0));
+      const wantPart = clamp(Number($("partTake").value||0), 0, Number(sum.partial||0));
+      if(wantFull===0 && wantPart===0){ $("sheetErr").textContent="Enter a pickup amount."; $("sheetErr").hidden=false; return; }
 
-      // Read amounts
-      const picks = [];
-      for(const r of rows){
-        const id = r.id;
-        const fullEl = document.querySelector(`[data-pu-full="${CSS.escape(id)}"]`);
-        const partEl = document.querySelector(`[data-pu-part="${CSS.escape(id)}"]`);
-        const wantFull = clamp(Number(fullEl?.value||0), 0, Number(r.counts?.full||0));
-        const wantPart = clamp(Number(partEl?.value||0), 0, Number(r.counts?.partial||0));
-        if(wantFull>0 || wantPart>0){
-          picks.push({ row:r, takeFull:wantFull, takePart:wantPart });
-        }
-      }
-      if(!picks.length){ $("sheetErr").textContent="Enter at least one pickup amount."; $("sheetErr").hidden=false; return; }
+      const plan = distribute(rows, wantFull, wantPart);
+      if(!plan.length){ $("sheetErr").textContent="Nothing to pick with those amounts."; $("sheetErr").hidden=false; return; }
 
-      // Optional photos (shared set, attached to each event)
+      // Optional photos (attach to the single batch event)
       let uploaded = [];
       const files = Array.from(($("sheetFiles").files||[]));
       if(files.length){
@@ -579,45 +581,40 @@
         }
       }
 
-      // Apply updates
-      for(const p of picks){
-        const src = p.row;
-        const leftFull = Math.max(0, Number(src.counts?.full||0) - p.takeFull);
-        const leftPart = Math.max(0, Number(src.counts?.partial||0) - p.takePart);
-        const status = (leftFull===0 && leftPart===0) ? 'pickedUp' : (src.status||null);
+      // Create a single pickUp event for the batch
+      const ev = {
+        type:'pickUp',
+        field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
+        cropYear: YEAR,
+        crop: CHOSEN_CROP || null,
+        countsPicked:{ full:wantFull, partial:wantPart },
+        appliedTo: plan.map(p=>({refPutDownId:p.id, takeFull:p.useFull, takePartial:p.usePart})),
+        notes: note,
+        pickedUpDate: when,
+        pickedUpBy: who,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        files: uploaded.length ? uploaded : undefined
+      };
+      await addDoc(collection(db,'grain_bag_events'), ev);
 
-        // create event
-        const ev = {
-          type:'pickUp',
-          field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
-          refPutDownId: src.id,
-          cropYear: YEAR,
-          bagSku: src.bagSku || null,
-          countsPicked:{ full:p.takeFull, partial:p.takePart },
-          notes: note,
-          pickedUpDate: when,
-          pickedUpBy: who,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          files: uploaded.length ? uploaded : undefined
-        };
-        await addDoc(collection(db,'grain_bag_events'), ev);
-
-        // update source row
+      // Update each source row
+      for(const p of plan){
+        const statusDone = (p.leftFull===0 && p.leftPart===0) ? 'pickedUp' : null;
         const patch = {
-          'counts.full': leftFull,
-          'counts.partial': leftPart,
+          'counts.full': p.leftFull,
+          'counts.partial': p.leftPart,
           updatedAt: serverTimestamp()
         };
-        if(status==='pickedUp'){
+        if(statusDone){
           patch.status='pickedUp';
           patch.pickedUpAt=when;
           patch.pickedUpBy=who;
         }
-        await updateDoc(doc(db,'grain_bag_events', src.id), patch);
+        await updateDoc(doc(db,'grain_bag_events', p.id), patch);
       }
 
-      closePickupSheet();
+      closePickupModal();
       toast("Pickup saved.");
       await buildOpenIndexForYear(db);
 
@@ -651,16 +648,18 @@
       yearCombo.setItems([YEAR-1, YEAR, YEAR+1].map(v=>({id:String(v), value:v, label:String(v)})));
 
       await Promise.all([ loadEmployees(db, auth), loadFields(db) ]);
-      await buildOpenIndexForYear(db);           // builds OPEN_INDEX and fills fieldCombo items
+      await buildOpenIndexForYear(db);
       $("listHelp").textContent = "Choose Field.";
 
-      // Wire bulk sheet controls
-      $("openPickup").addEventListener('click', openPickupSheet);
-      $("cancelPickup").addEventListener('click', ()=> $("pickupSheet").classList.remove('show'));
+      // Modal controls
+      $("openPickup").addEventListener('click', openPickupModal);
+      $("cancelPickup").addEventListener('click', closePickupModal);
       $("confirmPickup").addEventListener('click', ()=> savePickup(db, auth));
 
       // Close combos on Escape
-      document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+      document.addEventListener('keydown', e=>{
+        if(e.key==='Escape'){ closeAllCombos(); $("pickupModal").classList.remove('show'); }
+      });
 
       // Network hints
       window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
