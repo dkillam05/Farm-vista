@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Equipment Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true; document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{ --card-max:900px; --brand: var(--green,#3B7E46); }
+    body{ background:var(--app-bg,var(--surface)); }
+    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important; }
+
+    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin:8px 0 18px; }
+    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      background: color-mix(in srgb, var(--brand) 12%, transparent); }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); }
+    .body{ padding:16px; display:grid; gap:14px }
+
+    .muted{ color:var(--muted,#67706B) }
+    .error{ color:#b00020; font-weight:700 }
+
+    .card{ border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:14px; display:grid; gap:6px }
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+    @media (max-width:820px){ .row{ grid-template-columns:1fr } }
+
+    .actions{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px }
+    @media (max-width:560px){ .actions{ grid-template-columns:1fr } }
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      padding:12px 14px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer
+    }
+    .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
+
+    .state{ padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+    .state.warn{ background: color-mix(in srgb, var(--brand) 10%, transparent); }
+    .tiny{ font-size:12px; opacity:.9 }
+
+    .meta{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .chip{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:4px 8px; background:var(--surface) }
+    code{ font-size:13px; background:rgba(0,0,0,.06); padding:3px 6px; border-radius:6px; color:var(--text) }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div aria-hidden="true">🔗</div>
+          <div>
+            <h1>Equipment Hub</h1>
+            <p class="muted" id="subtitle">Loading…</p>
+          </div>
+        </header>
+
+        <div class="body" id="content" hidden>
+          <div class="card">
+            <h2 id="eqName" style="margin:0"></h2>
+            <div class="meta">
+              <span id="eqType" class="chip"></span>
+              <span id="eqMakeModel" class="chip"></span>
+              <span id="eqYear" class="chip" hidden></span>
+              <span id="eqSerial" class="chip" hidden></span>
+              <span id="eqHours" class="chip" hidden></span>
+            </div>
+            <p id="eqNotes" class="muted" hidden></p>
+          </div>
+
+          <div class="actions">
+            <a id="linkHours" class="btn btn-primary" href="#">Track Engine Hours</a>
+            <a id="linkMaint" class="btn" href="#">Service Records</a>
+            <a id="linkReq" class="btn" href="#">Submit Service Request</a>
+            <a id="linkPre" class="btn" href="#">Pre-Season Checklist</a>
+          </div>
+
+          <div class="tiny">
+            <div>Link: <code id="deepLink">—</code></div>
+            <div>QR token verified: <span id="tokenOK">—</span></div>
+          </div>
+        </div>
+
+        <div class="body" id="stateBox">
+          <div class="state" id="stateMsg">Checking link…</div>
+          <div style="display:flex; gap:8px; margin-top:10px">
+            <button id="btnRetry" class="btn">Retry</button>
+            <a href="/Farm-vista/index.html" class="btn">Home</a>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, doc, getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const qs = new URLSearchParams(location.search);
+    const id = qs.get('id') || '';
+    const t  = qs.get('t')  || '';
+
+    const $ = id => document.getElementById(id);
+    const setText = (id, val, opts={})=>{
+      const el=$(id); if(!el) return;
+      if(val==null || val===''){ el.hidden = !!opts.hideIfEmpty; return; }
+      el.textContent = String(val);
+      if(opts.unhide) el.hidden=false;
+    };
+
+    async function check(){
+      $("subtitle").textContent = "Resolving equipment…";
+      const ctx = await ready;
+      const db  = getFirestore();
+
+      if(!id || !t){
+        $("stateMsg").innerHTML = "<strong>Invalid link.</strong> Missing id or token.";
+        $("content").hidden = true;
+        return;
+      }
+
+      try{
+        const ref = doc(db,'equipment', id);
+        const snap = await getDoc(ref);
+
+        if(!snap.exists()){
+          $("stateMsg").innerHTML =
+            "<strong>Not saved yet.</strong> This QR was created before the equipment was saved. " +
+            "Once it’s saved, scan again or tap Retry.";
+          $("stateBox").classList.add("warn");
+          $("content").hidden = true;
+          $("subtitle").textContent = "Not saved yet";
+          return;
+        }
+
+        const data = snap.data() || {};
+        const ok = !!data.qr && data.qr.token === t;
+
+        if(!ok){
+          $("stateMsg").innerHTML = "<strong>Invalid link.</strong> Token mismatch.";
+          $("stateBox").classList.remove("warn");
+          $("content").hidden = true;
+          $("subtitle").textContent = "Token mismatch";
+          return;
+        }
+
+        // Render details
+        $("deepLink").textContent = location.href;
+        $("tokenOK").textContent = "yes";
+
+        const type = data.type || "equipment";
+        const makeModel = [data.makeName, data.modelName].filter(Boolean).join(" ");
+        const name = data.name || makeModel || `Unit ${id.slice(0,6)}`;
+
+        setText("eqName", name);
+        setText("eqType", type);
+        setText("eqMakeModel", makeModel);
+        if(data.year)  setText("eqYear",  `Year ${data.year}`, {unhide:true});
+        if(data.serial) setText("eqSerial", `SN ${data.serial}`, {unhide:true});
+        if(data.engineHours!=null) setText("eqHours", `${data.engineHours} hrs`, {unhide:true});
+        if(data.notes) { setText("eqNotes", data.notes, {unhide:true}); }
+
+        // Wire quick links (point at your existing action pages)
+        // You can enhance with the same ?id&t to keep context.
+        const base = "/Farm-vista/pages/equipment/actions";
+        $("linkHours").href = `${base}/engine-hours.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
+        $("linkMaint").href = `${base}/maintenance.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
+        $("linkReq").href   = `${base}/service-request.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
+        $("linkPre").href   = `${base}/pre-check.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
+
+        $("stateBox").classList.remove("warn");
+        $("stateMsg").textContent = "Linked.";
+        $("content").hidden = false;
+        $("subtitle").textContent = "Linked";
+      }catch(err){
+        $("stateMsg").innerHTML = "Error loading record.";
+        console.error(err);
+      }
+    }
+
+    $("btnRetry").addEventListener("click", check);
+    check();
+  </script>
+</body>
+</html>
