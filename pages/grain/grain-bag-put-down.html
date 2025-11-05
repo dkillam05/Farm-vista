@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
-  <!-- Theme + app styles -->
+  <!-- Theme + app CSS -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
@@ -73,6 +73,8 @@
     .textarea{min-height:110px;resize:vertical}
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
     .error{color:#b00020;font-weight:700}
+
+    .invalid{ border-color:#b00020 !important; color:#b00020 !important; }
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:160px;
       padding:12px 16px;border-radius:12px;border:1px solid var(--border);
@@ -160,28 +162,23 @@
               </div>
 
               <div class="field">
-                <label for="carryType">Bag Usage</label>
-                <select id="carryType" class="select">
-                  <option value="">— Select —</option>
-                  <option value="carryover">Carryover (don’t reduce inventory)</option>
-                  <option value="new">New (reduce inventory)</option>
-                </select>
-                <div class="help">If any partial from a <b>new</b> bag is used, inventory will count it as 1 opened bag.</div>
-              </div>
-            </div>
-
-            <div class="row">
-              <div class="field">
                 <label for="bagPick">Bag Brand & Size</label>
                 <select id="bagPick" class="select">
                   <option value="">— Loading… —</option>
                 </select>
                 <div id="bagHelp" class="help">0 bag SKUs</div>
               </div>
+            </div>
 
+            <div class="row">
               <div class="field">
                 <label for="priority">Pickup Priority (1–10)</label>
                 <select id="priority" class="select"></select>
+                <div class="help">1 = low urgency · 10 = high urgency</div>
+              </div>
+              <div class="field">
+                <label class="subtle">Bag Length Constraint</label>
+                <div id="lengthRule" class="help">Select a bag SKU to see allowed partial length range.</div>
               </div>
             </div>
 
@@ -196,16 +193,31 @@
                 <div class="help">We’ll ask for each partial’s estimated length.</div>
               </div>
               <div class="field">
-                <label class="subtle">Bag Length Constraint</label>
-                <div id="lengthRule" class="help">Select a bag SKU to see allowed partial length range.</div>
+                <label>&nbsp;</label>
+                <div class="help">Full bags always count against inventory. Partials can be carryover or new.</div>
               </div>
             </div>
 
-            <!-- Partial lengths -->
-            <div id="partialsBox" class="field" hidden>
-              <label>Partial Bag Lengths (ft)</label>
-              <div id="partialsList" class="row"></div>
-              <div id="partialsHelp" class="help"></div>
+            <!-- Partial lengths + Bag Usage (only if partials used) -->
+            <div id="partialsBlock" hidden>
+              <div class="row">
+                <div class="field" style="grid-column:1/-1">
+                  <label>Partial Bag Lengths (ft)</label>
+                  <div id="partialsList" class="row"></div>
+                  <div id="partialsHelp" class="help">Enter each partial’s feet (respects the allowed range).</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="field">
+                  <label for="carryType">Bag Usage (for partials)</label>
+                  <select id="carryType" class="select">
+                    <option value="carryover">Carryover (don’t reduce inventory)</option>
+                    <option value="new">New (reduce inventory by +1)</option>
+                  </select>
+                  <div class="help">Only applies if any partials are used.</div>
+                </div>
+              </div>
             </div>
 
             <div class="field">
@@ -216,7 +228,6 @@
             <div class="field">
               <label for="files">Optional Photos</label>
               <input id="files" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
-              <div class="help">Attach photos of placement or location as needed.</div>
             </div>
 
             <div id="err" class="help error" hidden></div>
@@ -258,6 +269,7 @@
     /* ---------- state ---------- */
     let FIELD_INDEX=[], EMPLOYEES=[], BAG_SKUS=[];
     let chosenField=null, chosenBag=null;
+    let debounceTimer=null; // 1s partial validation debounce
 
     /* ---------- UI helpers ---------- */
     function fillYears(){
@@ -265,7 +277,10 @@
       $("cropYear").innerHTML=[y-1,y,y+1].map(v=>`<option value="${v}" ${v===y?'selected':''}>${v}</option>`).join('');
     }
     function fillPriority(){
-      $("priority").innerHTML=Array.from({length:10},(_,i)=>i+1).map(v=>`<option value="${v}" ${v===5?'selected':''}>${v}</option>`).join('');
+      const opts=[
+        "1 — Low","2","3","4","5","6","7","8","9","10 — High"
+      ];
+      $("priority").innerHTML=opts.map((t,i)=>`<option value="${i+1}" ${i+1===5?'selected':''}>${t}</option>`).join('');
     }
     function renderFieldBtn(){
       $("fieldBtn").textContent = chosenField ? chosenField.name : "— Select field —";
@@ -275,20 +290,45 @@
       chosenBag = BAG_SKUS.find(b=>b.id===id)||null;
       const L = Number(chosenBag?.sizeFeet||0);
       $("lengthRule").textContent = L ? `Partial per-bag length must be between 50 ft and ${Math.max(0,L-50)} ft (bag ${L} ft).` : "Select a bag SKU to see allowed partial length range.";
+      schedulePartialValidate(); // re-validate with new limits
     }
     function renderPartialInputs(){
       const n = Math.max(0, Number($("partialBags").value||0));
-      const list = $("partialsList"); const box = $("partialsBox");
-      list.innerHTML=""; if(n<=0){ box.hidden=true; return; } box.hidden=false;
-      for(let i=0;i<n;i++){ const inp=document.createElement('input'); inp.type='number'; inp.inputMode='numeric'; inp.min='50'; inp.step='1'; inp.placeholder=`Partial ${i+1} length (ft)`; inp.className='input'; list.appendChild(inp); }
-      $("partialsHelp").textContent="Enter each partial’s feet (respect the allowed range).";
+      const wrap = $("partialsBlock");
+      const list = $("partialsList");
+      list.innerHTML="";
+      wrap.hidden = n<=0;
+      if(n<=0) return;
+      for(let i=0;i<n;i++){
+        const inp=document.createElement('input');
+        inp.type='number'; inp.inputMode='numeric'; inp.min='0'; inp.step='1';
+        inp.placeholder=`Partial ${i+1} length (ft)`;
+        inp.className='input';
+        inp.addEventListener('input', schedulePartialValidate);
+        list.appendChild(inp);
+      }
+      schedulePartialValidate();
     }
+
+    function schedulePartialValidate(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(validatePartials, 1000); // 1s debounce
+    }
+
     function validatePartials(){
-      if(!chosenBag) return true;
-      const L = Number(chosenBag.sizeFeet||0); const min=50, max=Math.max(0,L-50);
       const inputs=[...$("partialsList").querySelectorAll('input')];
-      for(const i of inputs){ const v=Number(i.value||0); if(!(v>=min && v<=max)){ i.focus(); throw new Error(`Partial length must be between ${min} and ${max} ft for a ${L} ft bag.`); } }
-      return true;
+      if(!inputs.length){ $("partialsHelp").textContent=""; return true; }
+      const L = Number(chosenBag?.sizeFeet||0);
+      const min=50, max=Math.max(0,L-50);
+      let ok=true;
+      for(const i of inputs){
+        const v=Number(i.value||0);
+        const bad = !(v>=min && v<=max);
+        i.classList.toggle('invalid', bad && i.value!=="");
+        if(bad && i.value!=="") ok=false;
+      }
+      $("partialsHelp").textContent = L ? `Allowed range: ${min}–${max} ft per partial.` : "Select a bag to set limits.";
+      return ok;
     }
 
     /* ---------- data loads ---------- */
@@ -368,18 +408,27 @@
 
       if(!chosenField){ alert("Please choose a Field."); return; }
       const cropYear=Number($("cropYear").value||0); if(!cropYear){ alert("Please choose Crop Year."); return; }
-      const carryType=$("carryType").value; if(!carryType){ alert("Please select Bag Usage (Carryover or New)."); return; }
       const bagId=$("bagPick").value; if(!bagId){ alert("Please choose Bag Brand & Size."); return; }
       const cropType=$("cropType").value; if(!cropType){ alert("Please choose Crop Type."); return; }
       const datePlaced=$("datePlaced").value; if(!datePlaced){ alert("Please set the Date placed."); return; }
 
       setBagChoiceById(bagId);
-      try{ validatePartials(); }catch(e){ $("err").hidden=false; $("err").textContent=e.message; return; }
+
+      // partials UI present?
+      const partialCount = Math.max(0, Number($("partialBags").value||0));
+      if(partialCount>0 && !validatePartials()){
+        $("err").hidden=false; $("err").textContent="One or more partial lengths are outside the allowed range.";
+        return;
+      }
+
+      const partialLens = [...$("partialsList").querySelectorAll('input')]
+        .map(i=>Number(i.value||0)).filter(v=>v>0);
+      if(partialCount>0 && partialLens.length!==partialCount){
+        alert("Please enter each partial bag length."); return;
+      }
 
       const fullBags = Math.max(0, Number($("fullBags").value||0));
-      const partialCount = Math.max(0, Number($("partialBags").value||0));
-      const partialLens = [...$("partialsList").querySelectorAll('input')].map(i=>Number(i.value||0)).filter(v=>v>0);
-      if(partialCount !== partialLens.length){ alert("Please enter each partial bag length."); return; }
+      const carryType = (partialCount>0) ? $("carryType").value : "new"; // partial-only control
 
       const subId = $("submittedBy").value || "";
       const subEmp = EMPLOYEES.find(e=>e.id===subId) || {};
@@ -390,7 +439,7 @@
         type: 'putDown',
         field: { id: chosenField.id, name: chosenField.name },
         cropYear, cropType, datePlaced,
-        usage: carryType, // 'carryover' | 'new'
+        usage: carryType, // 'carryover' | 'new' (only relevant if partials > 0)
         bagSku: {
           id: chosenBag?.id || bagId,
           brand: chosenBag?.brand || null,
@@ -429,25 +478,28 @@
         }
       }
 
-      // Inventory decrement (NEW only) against inventoryGrainBagMovements
-      if(carryType==='new' && chosenBag){
-        try{
-          const debit = fullBags + (partialLens.length>0 ? 1 : 0);
-          if(debit>0 && chosenBag.onHand!=null){
-            const skuDoc = doc(db,'inventoryGrainBagMovements',chosenBag.id);
+      // Inventory decrement against inventoryGrainBagMovements
+      // - Full bags ALWAYS decrement by 'fullBags'
+      // - Partials decrement by +1 ONLY if carryType === 'new'
+      if(chosenBag && chosenBag.onHand!=null){
+        const debit = fullBags + ((partialCount>0 && carryType==='new') ? 1 : 0);
+        if(debit>0){
+          try{
             const next = Math.max(0, Number(chosenBag.onHand) - debit);
-            await updateDoc(skuDoc, { onHand: next, updatedAt: serverTimestamp() });
-          }
-        }catch(invErr){ console.warn("Inventory decrement failed:", invErr); }
+            await updateDoc(doc(db,'inventoryGrainBagMovements',chosenBag.id), { onHand: next, updatedAt: serverTimestamp() });
+          }catch(invErr){ console.warn("Inventory decrement failed:", invErr); }
+        }
       }
 
       toast("Put Down recorded.");
 
       // Reset some UI (keep field/year)
-      $("carryType").value=""; $("bagPick").value=""; $("cropType").value="";
+      $("bagPick").value=""; $("cropType").value="";
       $("datePlaced").value=todayISO();
-      $("fullBags").value="0"; $("partialBags").value="0"; $("notes").value=""; $("files").value="";
-      setBagChoiceById(null); renderPartialInputs();
+      $("fullBags").value="0"; $("partialBags").value="0";
+      $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
+      $("notes").value=""; $("files").value="";
+      setBagChoiceById(null);
     }
 
     /* ---------- boot ---------- */
@@ -486,14 +538,18 @@
 
       // Bag + partials
       $("bagPick").addEventListener("change",(e)=> setBagChoiceById(e.target.value));
-      $("partialBags").addEventListener("input", renderPartialInputs);
+      $("partialBags").addEventListener("input", ()=>{
+        renderPartialInputs();
+      });
 
       // Actions
       $("btnSave").addEventListener("click", ()=> handleSave(db, getAuth()));
       $("btnClear").addEventListener("click", ()=>{
-        $("carryType").value=""; $("bagPick").value=""; $("cropType").value="";
-        $("datePlaced").value=todayISO(); $("fullBags").value="0"; $("partialBags").value="0"; $("notes").value=""; $("files").value="";
-        setBagChoiceById(null); renderPartialInputs();
+        $("bagPick").value=""; $("cropType").value="";
+        $("datePlaced").value=todayISO(); $("fullBags").value="0"; $("partialBags").value="0";
+        $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
+        $("notes").value=""; $("files").value="";
+        setBagChoiceById(null);
         // default submittedBy back to current user if available
         const me=(getAuth().currentUser?.email||"").toLowerCase();
         const mine=EMPLOYEES.find(e=>(e.email||"").toLowerCase()===me);
@@ -507,10 +563,10 @@
   </script>
 
   <!-- Notes:
-       • Reads bag SKUs from /inventoryGrainBagMovements.
-       • Partial-length rule: min 50 ft; max (lengthFt - 50 ft).
-       • On NEW usage, decrements onHand if that field exists on the SKU doc.
-       • Saves events to /grain_bag_events (type: 'putDown').
+       • Bag Usage now lives with Partial lengths and only shows when partials are present.
+       • 1-second debounce before marking partial inputs invalid (red).
+       • Priority dropdown uses labeled options and helper text.
+       • Inventory: full bags always decrement; partials only if usage = New.
   -->
 </body>
 </html>
