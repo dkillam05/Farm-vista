@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Put Bag Down (Dev Test)</title>
+  <title>FarmVista • Put Bag Down (Dev Test 2)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -71,10 +71,7 @@
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* Unified inline combo dropdowns
-       - small gap (4px)
-       - light outline & rounded corners like control
-    */
+    /* Unified inline combo dropdowns (tight gap, soft outline, rounded) */
     .combo{ position:relative }
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + 4px);
@@ -111,8 +108,8 @@
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🛢️</div>
           <div>
-            <h1>Put Bag Down (Dev)</h1>
-            <p class="muted">Test page. All dropdowns use the same tight inline combo panel.</p>
+            <h1>Put Bag Down (Dev 2)</h1>
+            <p class="muted">Per-partial “Usage” now uses the same inline combo dropdown (tight gap, rounded panel).</p>
           </div>
         </header>
 
@@ -133,9 +130,7 @@
             <div class="field combo" id="yearCombo">
               <label for="yearBtn">Crop Year</label>
               <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
-              <div class="combo-panel" id="yearPanel">
-                <div class="list" id="yearList"></div>
-              </div>
+              <div class="combo-panel" id="yearPanel"><div class="list" id="yearList"></div></div>
             </div>
           </div>
 
@@ -202,7 +197,7 @@
               <div class="field"><!-- spacer --></div>
             </div>
 
-            <!-- Per-partial rows -->
+            <!-- Per-partial rows (each with combo usage) -->
             <div id="partialsBlock" hidden>
               <div id="partialsList" class="body" style="padding:0; gap:12px"></div>
               <div id="partialsRangeHelp" class="help"></div>
@@ -272,16 +267,67 @@
         s.addEventListener('input', e=>render(e.target.value));
       }
       document.addEventListener('click', e=>{ if(panel.classList.contains('show') && !panel.parentElement.contains(e.target)) close(); });
-      return { setItems(arr){ items=arr||[]; render(""); } };
+      return { setItems(arr){ items=arr||[]; render(""); }, getButton:()=>btn };
     }
 
     /* ---------- partials ---------- */
+    const USAGE_ITEMS = [
+      { id:"carryover", value:"carryover", label:"Carryover from previous usage" },
+      { id:"new",       value:"new",       label:"Start of a new bag" }
+    ];
+
     function updatePartialRangeHelp(){
       const L = Number(chosen.bag?.sizeFeet||0);
       const min=50, max=Math.max(0,L-50);
       $("partialsRangeHelp").textContent = L ? `Allowed range: ${min}–${max} ft per partial (bag ${L} ft).` : "";
       return {min, max};
     }
+
+    function createPartialRow(index){
+      // wrapper
+      const row = document.createElement('div');
+      row.className = 'partial-row';
+      row.dataset.index = String(index);
+      row.dataset.usage = "carryover"; // default
+
+      // length
+      const lenWrap = document.createElement('div');
+      lenWrap.className = 'field';
+      const lenLbl = document.createElement('label');
+      lenLbl.textContent = `Partial ${index+1} length (ft)`;
+      const len = document.createElement('input');
+      len.type='number'; len.inputMode='numeric'; len.min='0'; len.step='1'; len.className='input';
+      len.addEventListener('input', schedulePartialValidate);
+      const lenHelp = document.createElement('div');
+      lenHelp.className = 'help partial-help';
+      lenWrap.append(lenLbl,len,lenHelp);
+
+      // usage combo
+      const useWrap = document.createElement('div');
+      useWrap.className = 'field combo';
+      const useLbl = document.createElement('label');
+      useLbl.textContent = `Partial ${index+1} usage`;
+      const useBtn = document.createElement('button');
+      useBtn.type='button'; useBtn.id=`puseBtn_${index}`;
+      useBtn.className='buttonish has-caret'; useBtn.textContent='Carryover from previous usage';
+      const panel = document.createElement('div');
+      panel.className='combo-panel'; panel.id=`pusePanel_${index}`;
+      const list  = document.createElement('div');
+      list.className='list'; list.id=`puseList_${index}`;
+      panel.appendChild(list);
+      useWrap.append(useLbl,useBtn,panel);
+
+      row.append(lenWrap,useWrap);
+
+      // wire combo for this row
+      const combo = makeCombo(useBtn.id, panel.id, list.id, {
+        items: USAGE_ITEMS, searchable:false, formatter:(x)=>x.label,
+        onPick:(it)=>{ row.dataset.usage = it.value; useBtn.textContent = it.label; }
+      });
+
+      return row;
+    }
+
     function renderPartialInputs(){
       const n = Math.max(0, Number($("partialBags").value||0));
       const wrap = $("partialsBlock");
@@ -291,38 +337,14 @@
       if(n<=0) return;
 
       for(let i=0;i<n;i++){
-        const row = document.createElement('div');
-        row.className = 'partial-row';
-
-        const lenWrap = document.createElement('div');
-        lenWrap.className = 'field';
-        const lenLbl = document.createElement('label');
-        lenLbl.textContent = `Partial ${i+1} length (ft)`;
-        const len = document.createElement('input');
-        len.type='number'; len.inputMode='numeric'; len.min='0'; len.step='1'; len.className='input';
-        len.addEventListener('input', schedulePartialValidate);
-        const lenHelp = document.createElement('div');
-        lenHelp.className = 'help partial-help';
-        lenWrap.append(lenLbl,len,lenHelp);
-
-        const useWrap = document.createElement('div');
-        useWrap.className = 'field';
-        const useLbl = document.createElement('label');
-        useLbl.textContent = `Partial ${i+1} usage`;
-        const use = document.createElement('select');
-        use.className = 'input';
-        use.innerHTML = `
-          <option value="carryover">Carryover from previous usage</option>
-          <option value="new">Start of a new bag</option>`;
-        useWrap.append(useLbl,use);
-
-        row.append(lenWrap,useWrap);
-        list.appendChild(row);
+        list.appendChild(createPartialRow(i));
       }
       updatePartialRangeHelp();
       schedulePartialValidate();
     }
-    function schedulePartialValidate(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(validatePartials, 1000); }
+
+    let debounceTimerRef=null;
+    function schedulePartialValidate(){ clearTimeout(debounceTimerRef); debounceTimerRef = setTimeout(validatePartials, 1000); }
     function validatePartials(){
       const L = Number(chosen.bag?.sizeFeet||0);
       const min=50, max=Math.max(0,L-50);
@@ -363,7 +385,7 @@
       const partialFeet=[], partialUsage=[];
       for(const r of rows){
         const len=Number(r.querySelector('input').value||0);
-        const use=r.querySelector('select').value;
+        const use=r.dataset.usage || "carryover";
         if(len>0){ partialFeet.push(len); partialUsage.push(use); }
       }
       if(partialCount>0 && partialFeet.length!==partialCount){ alert("Please complete each partial row."); return; }
@@ -406,7 +428,7 @@
         }catch(err){ $("err").hidden=false; $("err").textContent=`Saved, but photo upload failed: ${err.message}`; }
       }
 
-      // Inventory decrement:
+      // Inventory decrement: +1 only if ANY partials are "new"
       const anyNew = partialUsage.includes('new');
       const debit = fullBags + (anyNew ? 1 : 0);
       if(chosen.bag && chosen.bag.onHand!=null && debit>0){
@@ -434,14 +456,10 @@
       const db=getFirestore(); const auth=getAuth();
       $("datePlaced").value = todayISO();
 
-      /* Year items */
+      /* Year, Priority, Crop items */
       const y=new Date().getFullYear();
       const YEARS=[y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
-
-      /* Priority items */
       const PRIO=[1,2,3,4,5,6,7,8,9,10].map(n=>({id:String(n), value:n, label:(n===1?"1 — Low":n===10?"10 — High":String(n))}));
-
-      /* Crop items */
       const CROPS=[{id:"Corn",value:"Corn",label:"Corn"},{id:"Soybeans",value:"Soybeans",label:"Soybeans"}];
 
       /* Combos */
@@ -454,7 +472,6 @@
         items:YEARS, searchable:false, formatter:(x)=>x.label,
         onPick:(it)=>{ chosen.year=Number(it.value); $("yearBtn").textContent=it.label; }
       });
-      // Default year
       chosen.year = y; $("yearBtn").textContent=String(y);
 
       const subCombo = makeCombo("subBtn","subPanel","subList",{
@@ -471,7 +488,6 @@
         items:PRIO, searchable:false, formatter:(x)=>x.label,
         onPick:(it)=>{ chosen.prio=Number(it.value); $("prioBtn").textContent=it.label; }
       });
-      // Default priority 5
       chosen.prio=5; $("prioBtn").textContent="5";
 
       const bagCombo = makeCombo("bagBtn","bagPanel","bagList",{
@@ -494,7 +510,6 @@
           const list=[]; snap.forEach(d=>{const x=d.data()||{}; list.push({id:d.id,name:x.name||x.displayName||x.fullName||x.email||d.id,email:x.email||d.id})});
           list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
           EMPLOYEES=list; subCombo.setItems(list);
-          // default to current user if match
           const me=(auth.currentUser?.email||"").toLowerCase();
           const mine=list.find(e=>(e.email||"").toLowerCase()===me) || list[0];
           if(mine){ chosen.sub=mine; $("subBtn").textContent=mine.name; }
@@ -545,7 +560,6 @@
         if(mine){ chosen.sub=mine; $("subBtn").textContent=mine.name; }
       });
 
-      // Network toasts
       window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
       window.addEventListener('offline',()=> toast("Currently offline — using saved data", 3000));
     })();
