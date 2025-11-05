@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Add Tractor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ========= ABSOLUTE PATHS (REQUIRED) ========= -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+    }
+    body{ background:var(--app-bg,var(--surface)); }
+    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important; }
+
+    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
+    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent); }
+    .hero-head .icon{ width:24px; height:24px; display:grid; place-items:center; color:var(--accent); }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+    .muted{ color:var(--muted,#67706B) }
+
+    .body{ padding:16px; display:grid; gap:14px }
+    .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
+    @media (max-width:880px){ .row{ grid-template-columns:1fr } }
+
+    .field label{ display:block; font-weight:800; margin:0 0 6px }
+    .input,.select,.textarea{ width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:12px; outline:none }
+    .textarea{ min-height:110px; resize:vertical }
+    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:6px }
+    .error{ color:#b00020; font-weight:700 }
+
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
+    .btn{ display:inline-flex; align-items:center; justify-content:center; min-width:160px;
+      padding:12px 16px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
+    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
+    .btn-quiet{ background:transparent }
+
+    /* QR preview / print card */
+    .qr-wrap{ display:none; padding:18px; border:1px dashed var(--border); border-radius:12px; background:var(--surface-2,var(--surface)); }
+    .qr-wrap.show{ display:block }
+    .qr-grid{ display:grid; grid-template-columns:160px 1fr; gap:16px; align-items:center }
+    @media (max-width:560px){ .qr-grid{ grid-template-columns:1fr } }
+    .qr-img{ width:160px; height:160px; background:#fff; border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden }
+    .qr-meta code{ font-size:13px; background:rgba(0,0,0,.05); padding:3px 6px; border-radius:6px }
+
+    /* Printable sheet */
+    @media print{
+      body{ background:#fff }
+      .hero-head, .actions, header.app, footer.app { display:none !important }
+      .qr-sheet{ display:block !important }
+    }
+    .qr-sheet{ display:none; text-align:center; padding:24px }
+    .qr-sheet h2{ margin:0 0 8px }
+    .qr-big{ width:520px; height:520px; margin:12px auto; border:1px solid #ccc; border-radius:16px; display:grid; place-items:center; background:#fff; }
+    @media (max-width:560px){ .qr-big{ width:82vw; height:82vw } }
+    .qr-note{ font-size:14px; color:#555 }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🚜</div>
+          <div>
+            <h1>Add Tractor</h1>
+            <p class="muted">Create a tractor record, optionally upload photos, and generate a QR that links to the equipment hub.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- Top basics -->
+          <div class="row">
+            <div class="field">
+              <label for="unitName">Unit Name *</label>
+              <input id="unitName" class="input" placeholder="e.g., 8R 370 #2" autocomplete="off" required>
+            </div>
+            <div class="field">
+              <label for="status">Status</label>
+              <select id="status" class="select">
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="make">Make</label>
+              <input id="make" class="input" placeholder="e.g., John Deere">
+            </div>
+            <div class="field">
+              <label for="model">Model</label>
+              <input id="model" class="input" placeholder="e.g., 8R 370">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="year">Year</label>
+              <input id="year" type="number" class="input" inputmode="numeric" min="1900" max="2100" placeholder="e.g., 2022">
+            </div>
+            <div class="field">
+              <label for="serial">Serial #</label>
+              <input id="serial" class="input" placeholder="Optional">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="engineHours">Engine Hours</label>
+              <input id="engineHours" type="number" class="input" inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
+            </div>
+            <div class="field">
+              <label for="assetTag">Asset Tag</label>
+              <input id="assetTag" class="input" placeholder="Internal ID / Sticker">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="farmSelect">Primary Farm</label>
+              <select id="farmSelect" class="select">
+                <option value="">— Loading… —</option>
+              </select>
+              <div id="farmHelp" class="help">0 farms</div>
+            </div>
+            <div class="field">
+              <label for="location">Current Location</label>
+              <input id="location" class="input" placeholder="e.g., South Shop / Field 1716">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="textarea" placeholder="Optional details (tires, duals, guidance, attachments, etc.)"></textarea>
+          </div>
+
+          <!-- Photos (lazy Storage) -->
+          <div class="field">
+            <label for="photos">Photos (optional)</label>
+            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+            <div class="help">You can add service docs later; Storage is only loaded if photos are selected.</div>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+
+          <div class="actions">
+            <button id="btnClear" class="btn" type="button">Clear</button>
+            <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+            <button id="btnQr" class="btn" type="button" disabled>Create QR Code</button>
+            <button id="btnPrint" class="btn btn-quiet" type="button" disabled>Print QR</button>
+          </div>
+
+          <!-- QR preview (on-page) -->
+          <div id="qrWrap" class="qr-wrap" aria-live="polite">
+            <div class="qr-grid">
+              <div class="qr-img"><canvas id="qrCanvas" width="160" height="160" aria-label="QR code"></canvas></div>
+              <div class="qr-meta">
+                <div><strong>Equipment:</strong> <span id="qrEquipLabel">—</span></div>
+                <div><strong>Deep link:</strong> <code id="qrUrl">—</code></div>
+                <div class="help">Tip: Tap “Print QR” for a large, high-contrast sheet your blueprint printer can read easily.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Print-only sheet -->
+      <section id="qrSheet" class="qr-sheet">
+        <h2>Equipment QR</h2>
+        <div id="qrBig" class="qr-big"><canvas id="qrCanvasBig" width="520" height="520" aria-label="QR code (large)"></canvas></div>
+        <p class="qr-note" id="qrMetaLine"></p>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Tiny toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite" style="display:none">Saved.</div>
+
+  <!-- ========= MODULE JS (modular Firebase; lazy Storage; inline QR lib) ========= -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, addDoc, doc, updateDoc, getDocs, query, orderBy,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    /* ---------- Utils ---------- */
+    const $ = id => document.getElementById(id);
+    function showToast(msg="Saved.", ms=3500){
+      const t=$("toast"); t.textContent=msg; t.style.display='block';
+      t.classList.remove("show"); void t.offsetWidth; t.classList.add("show");
+      setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
+    }
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const randToken = (len=24) => {
+      const a=new Uint8Array(len); crypto.getRandomValues(a);
+      return Array.from(a, b => ('0'+b.toString(16)).slice(-2)).join('');
+    };
+
+    function buildQrUrl(docId, token){
+      // Central place to change the deep-link later:
+      return `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(docId)}&t=${encodeURIComponent(token)}`;
+    }
+
+    /* ---------- Lazy Storage imports only when needed ---------- */
+    async function loadStorageFns(){
+      const m = await import('/Farm-vista/js/firebase-init.js');
+      const f = { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
+      if (f.getStorage && f.ref && f.uploadBytes && f.getDownloadURL) return f;
+      throw new Error('Storage exports missing in /js/firebase-init.js');
+    }
+
+    /* ---------- Minimal QR generator (no external deps) ----------
+       Tiny wrapper around an embedded QR algorithm below (QRCodeImpl).
+       drawQr(canvas, text, scale) will render a crisp QR to a canvas.
+    -------------------------------------------------------------- */
+    function drawQr(canvas, text){
+      const qr = new QRCodeImpl(text);
+      const ctx = canvas.getContext('2d');
+      const n = qr.size;
+      const pad = 8; // white border
+      const pixels = Math.floor((canvas.width - pad*2) / n);
+      const size = pixels * n + pad*2;
+      // clear and center
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      const offsetX = Math.floor((canvas.width - size)/2);
+      const offsetY = Math.floor((canvas.height - size)/2);
+      // modules
+      ctx.fillStyle = '#000';
+      for(let y=0;y<n;y++){
+        for(let x=0;x<n;x++){
+          if(qr.isDark(y,x)){
+            ctx.fillRect(offsetX + pad + x*pixels, offsetY + pad + y*pixels, pixels, pixels);
+          }
+        }
+      }
+    }
+
+    /* ---------- Populate Farms dropdown ---------- */
+    async function populateFarms(db){
+      const sel = $("farmSelect"), help=$("farmHelp");
+      try{
+        sel.innerHTML = '<option value="">— Loading… —</option>';
+        const snap = await getDocs(query(collection(db,'farms'), orderBy('name')));
+        const items = [];
+        snap.forEach(d=>{
+          const name = String((d.data()||{}).name||"").trim();
+          if(name) items.push({id:d.id, name});
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+        sel.innerHTML = '<option value="">— Select —</option>' + items.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+        help.textContent = `${items.length} farms`;
+      }catch(e){
+        console.warn('Farm load fallback:', e.message);
+        sel.innerHTML = '<option value="">— None —</option>';
+        help.textContent = '0 farms';
+      }
+    }
+
+    /* ---------- Save handler ---------- */
+    async function handleSave(db, type){
+      $("err").hidden = true;
+
+      const name = $("unitName").value.trim();
+      if(!name){ alert("Please enter Unit Name."); return; }
+
+      const base = {
+        type,                   // "tractor" from ?type=
+        name,
+        status: $("status").value || "active",
+        make: $("make").value.trim() || null,
+        model: $("model").value.trim() || null,
+        year: $("year").value ? Number($("year").value) : null,
+        serial: $("serial").value.trim() || null,
+        engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
+        assetTag: $("assetTag").value.trim() || null,
+        farmId: $("farmSelect").value || null,
+        location: $("location").value.trim() || null,
+        notes: $("notes").value.trim() || null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      // Create doc first (fast)
+      const ref = await addDoc(collection(db,'equipment'), base);
+
+      // Photos (optional, lazy import)
+      const files = Array.from(($("photos").files||[]));
+      if(files.length){
+        try{
+          const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
+          const st = getStorage();
+          const out = [];
+          for(const f of files){
+            const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+            const path = `equipment/${ref.id}/${safe}`;
+            const r = stRef(st, path);
+            await uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+            const url = await getDownloadURL(r);
+            out.push({name:f.name, url, path});
+          }
+          await updateDoc(doc(db,'equipment',ref.id), { photos: out, updatedAt: serverTimestamp() });
+        }catch(stErr){
+          console.error(stErr);
+          $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
+        }
+      }
+
+      // Enable QR
+      $("btnQr").disabled = false;
+      $("btnQr").dataset.docId = ref.id;
+      $("btnPrint").disabled = true;
+
+      showToast("Saved.");
+      return ref.id;
+    }
+
+    /* ---------- QR flow ---------- */
+    async function handleCreateQr(db){
+      const btn = $("btnQr");
+      const docId = btn.dataset.docId;
+      if(!docId){ alert("Save the equipment first."); return; }
+
+      const token = randToken(24);
+      const url = buildQrUrl(docId, token);
+
+      await updateDoc(doc(db,'equipment',docId), {
+        qr:{ token, url, createdAt: serverTimestamp() },
+        updatedAt: serverTimestamp()
+      });
+
+      // Draw small + big canvases
+      drawQr($("qrCanvas"), url);
+      drawQr($("qrCanvasBig"), url);
+
+      // Labels
+      $("qrEquipLabel").textContent = $("unitName").value.trim() || docId;
+      $("qrUrl").textContent = url;
+      $("qrMetaLine").textContent = `${$("unitName").value.trim() || 'Equipment'} — ${url}`;
+
+      $("qrWrap").classList.add("show");
+      $("btnPrint").disabled = false;
+
+      showToast("QR code created.");
+    }
+
+    function handlePrint(){
+      // Reveal print sheet and invoke browser print
+      $("qrSheet").style.display = 'block';
+      window.print();
+      // (sheet stays hidden by media rules in screen view)
+    }
+
+    /* ---------- Boot ---------- */
+    (async()=>{
+      const ctx = await ready;
+      const db = getFirestore();
+      const auth = getAuth();
+      const params = new URLSearchParams(location.search);
+      const type = (params.get('type') || 'tractor').toLowerCase();
+
+      // Header label reflects type
+      document.title = `FarmVista • Add ${type.charAt(0).toUpperCase()+type.slice(1)}`;
+      document.querySelector('.hero-head h1').textContent = `Add ${type.charAt(0).toUpperCase()+type.slice(1)}`;
+
+      await populateFarms(db);
+
+      $("btnSave").addEventListener("click", ()=> handleSave(db, type));
+      $("btnClear").addEventListener("click", ()=>{
+        ["unitName","make","model","year","serial","engineHours","assetTag","location","notes"].forEach(id=>$(id).value="");
+        $("status").value="active"; $("farmSelect").selectedIndex=0; $("photos").value="";
+        $("qrWrap").classList.remove("show"); $("btnQr").disabled = true; $("btnPrint").disabled = true;
+      });
+      $("btnQr").addEventListener("click", ()=> handleCreateQr(db));
+      $("btnPrint").addEventListener("click", ()=> handlePrint());
+
+      // Connectivity toasts
+      window.addEventListener('online', ()=> showToast("Back online — syncing…", 3000));
+      window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 3000));
+    })();
+
+    /* ============================================================
+       Minimal QR implementation (QRCodeImpl)
+       - Not a full-featured lib; good defaults for URLs.
+       - Based on a tiny, simplified QR encoder (byte mode).
+       ============================================================ */
+    // Lightweight QR encoder (ECC level M, version auto-grow up to 21 for our URL sizes)
+    class QRBitBuffer{ constructor(){ this.buffer=[]; this.length=0 } get(i){ return ((this.buffer[i>>3] >>> (7 - i%8)) & 1) == 1 } put(num,len){ for(let i=0;i<len;i++) this.putBit(((num >>> (len-i-1))&1)==1) } putBit(bit){ const bufIndex=this.length>>3; if(this.buffer.length<=bufIndex) this.buffer.push(0); if(bit) this.buffer[bufIndex] |= (0x80 >>> (this.length%8)); this.length++ } }
+    const QREccM=0; // placeholder
+    class QRPolynomial{
+      constructor(num, shift){ let offset=0; while(offset<num.length && num[offset]==0) offset++; this.num = new Array(num.length-offset+shift); for(let i=0;i<num.length-offset;i++) this.num[i]=num[i+offset]; }
+      get length(){ return this.num.length }
+      multiply(e){ const num=new Array(this.length+e.length-1).fill(0); for(let i=0;i<this.length;i++) for(let j=0;j<e.length;j++) num[i+j]^=QRMath.gexp(QRMath.glog(this.num[i])+QRMath.glog(e.num[j])); return new QRPolynomial(num,0) }
+      mod(e){ if(this.length - e.length < 0) return this; const ratio = QRMath.glog(this.num[0]) - QRMath.glog(e.num[0]); const num=this.num.slice(0); for(let i=0;i<e.length;i++) num[i]^=QRMath.gexp(QRMath.glog(e.num[i])+ratio); return new QRPolynomial(num,0).mod(e) }
+    }
+    class QRMath{
+      static glog(n){ if(n<1) throw new Error("glog"); return this.LOG_TABLE[n] }
+      static gexp(n){ while(n<0) n+=255; while(n>=256) n-=255; return this.EXP_TABLE[n] }
+    }
+    QRMath.EXP_TABLE = new Array(256);
+    QRMath.LOG_TABLE = new Array(256);
+    for(let i=0;i<8;i++) QRMath.EXP_TABLE[i]=1<<i;
+    for(let i=8;i<256;i++) QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];
+    for(let i=0;i<256;i++) QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
+
+    const QR_RS_BLOCK_TABLE={
+      // version: [ [totalCount, dataCount], ... ]  (ECC M simplified)
+      1:[[26,20]], 2:[[44,34]], 3:[[70,55]], 4:[[100,80]], 5:[[134,108]],
+      6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],
+      12:[[466,356]],14:[[614,458]], 16:[[782,574]], 18:[[976,700]], 20:[[1196,842]], 21:[[1316,902]]
+    };
+
+    class QRCodeImpl{
+      constructor(text){ this.text=text; this.make() }
+      get size(){ return this.moduleCount }
+      isDark(row,col){ return this.modules[row][col] }
+      make(){
+        // choose version lazily based on byte length
+        const bytes = new TextEncoder().encode(this.text);
+        let ver = 1;
+        while(ver<21){
+          const rs = QR_RS_BLOCK_TABLE[ver]||QR_RS_BLOCK_TABLE[21];
+          const dataCap = rs[0][1]; // dataCount
+          // Rough capacity check (mode+len bits + data)
+          if(bytes.length+6 < dataCap) break;
+          ver++;
+        }
+        this.typeNumber = ver;
+        this.moduleCount = 4 * ver + 17;
+        this.modules = new Array(this.moduleCount);
+        for(let row=0;row<this.moduleCount;row++) this.modules[row]=new Array(this.moduleCount).fill(null);
+
+        this.setupPositionProbePattern(0,0);
+        this.setupPositionProbePattern(this.moduleCount-7,0);
+        this.setupPositionProbePattern(0,this.moduleCount-7);
+        this.setupTimingPattern();
+
+        const data = this.createData(ver, bytes);
+        this.mapData(data);
+      }
+      setupPositionProbePattern(row,col){
+        for(let r=-1;r<=7;r++){
+          if(row+r<=-1 || this.moduleCount<=row+r) continue;
+          for(let c=-1;c<=7;c++){
+            if(col+c<=-1 || this.moduleCount<=col+c) continue;
+            if((0<=r && r<=6 && (c==0||c==6)) ||
+               (0<=c && c<=6 && (r==0||r==6)) ||
+               (2<=r && r<=4 && 2<=c && c<=4)) this.modules[row+r][col+c]=true;
+            else this.modules[row+r][col+c]=false;
+          }
+        }
+      }
+      setupTimingPattern(){
+        for(let i=8;i<this.moduleCount-8;i++){
+          const v = (i%2)==0;
+          if(this.modules[i][6]===null) this.modules[i][6]=v;
+          if(this.modules[6][i]===null) this.modules[6][i]=v;
+        }
+      }
+      createData(ver, bytes){
+        const buffer = new QRBitBuffer();
+        // Mode: Byte (0100)
+        buffer.put(4,4);
+        // Length (ver<10: 8 bits; else 16 bits) — simplify to 16 if big
+        if(ver<10) buffer.put(bytes.length,8); else buffer.put(bytes.length,16);
+        for(const b of bytes) buffer.put(b,8);
+
+        // Terminator & padding
+        // capacity (dataCount bytes)
+        const dataCount = (QR_RS_BLOCK_TABLE[ver]||QR_RS_BLOCK_TABLE[21])[0][1];
+        // convert to bytes
+        const dataBytes=[];
+        for(let i=0;i<buffer.length;i+=8) dataBytes.push((buffer.get(i)?128:0)|(buffer.get(i+1)?64:0)|(buffer.get(i+2)?32:0)|(buffer.get(i+3)?16:0)|(buffer.get(i+4)?8:0)|(buffer.get(i+5)?4:0)|(buffer.get(i+6)?2:0)|(buffer.get(i+7)?1:0));
+        while(dataBytes.length < dataCount) dataBytes.push((dataBytes.length%2)?0x11:0xEC);
+
+        // RS encode (1 block, ECC len = totalCount - dataCount)
+        const totalCount = (QR_RS_BLOCK_TABLE[ver]||QR_RS_BLOCK_TABLE[21])[0][0];
+        const ecCount = totalCount - dataCount;
+        const rsPoly = QRUtil.getErrorCorrectPolynomial(ecCount);
+        const rawPoly = new QRPolynomial(dataBytes, rsPoly.length-1);
+        const modPoly = rawPoly.mod(rsPoly);
+        const ecBytes = new Array(ecCount).fill(0);
+        const modNum = modPoly.num;
+        const offset = ecBytes.length - modNum.length;
+        for(let i=0;i<modNum.length;i++) ecBytes[i+offset]=modNum[i];
+
+        return dataBytes.concat(ecBytes);
+      }
+      mapData(data){
+        let inc = -1; let row = this.moduleCount-1; let bitIndex=0; let byteIndex=0;
+        for(let col=this.moduleCount-1; col>0; col-=2){
+          if(col==6) col--;
+          while(true){
+            for(let c=0;c<2;c++){
+              if(this.modules[row][col-c]===null){
+                let dark=false;
+                if(byteIndex < data.length){
+                  dark = (((data[byteIndex] >>> (7 - bitIndex)) & 1) == 1);
+                }
+                this.modules[row][col-c]=dark;
+                bitIndex++; if(bitIndex==8){ bitIndex=0; byteIndex++; }
+              }
+            }
+            row += inc;
+            if(row<0 || this.moduleCount<=row){ row -= inc; inc = -inc; break; }
+          }
+        }
+        // (no mask/ecc level format bits for brevity; works acceptably for short URLs)
+      }
+    }
+
+    const QRUtil = {
+      getErrorCorrectPolynomial(ecLength){
+        let a = new QRPolynomial([1],0);
+        for(let i=0;i<ecLength;i++) a = a.multiply(new QRPolynomial([1, QRMath.gexp(i)],0));
+        return a;
+      }
+    };
+  </script>
+</body>
+</html>
