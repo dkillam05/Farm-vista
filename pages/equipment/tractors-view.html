@@ -159,7 +159,7 @@
     </div>
   </dialog>
 
-  <!-- qrcode.js inline (trimmed) -->
+  <!-- qrcode.js trimmed (quiet zone included) -->
   <script>
   /*! qrcode.js trimmed */
   !function(o){function p(a,b){this._oQRCode=null,this._el=a,this._htOption={width:b.width,height:b.height,text:b.text,correctLevel:b.correctLevel||h.M,colorDark:b.colorDark||"#000000",colorLight:b.colorLight||"#ffffff"};this._el&&this.makeCode(this._htOption.text)}function h(){}h.L=1;h.M=0;h.Q=3;h.H=2;p.prototype.makeCode=function(a){this._htOption.text=a;this._oQRCode=new r(this._htOption.text,this._htOption.correctLevel);this._el.innerHTML="";this._el.appendChild(this.createImgTag())};p.prototype.clear=function(){this._el.innerHTML=""};p.prototype.createImgTag=function(){var a=this._oQRCode,b=this._htOption,c=document.createElement("canvas"),d=b.width,e=b.height;c.width=d;c.height=e;for(var f=c.getContext("2d"),g=d/(a.getModuleCount()+8),k=e/(a.getModuleCount()+8),l=4,m=0;m<e;m++)for(var t=0;t<d;t++)f.fillStyle=b.colorLight,f.fillRect(t,m,1,1);for(m=0;m<a.getModuleCount();m++)for(t=0;t<a.getModuleCount();t++)a.isDark(m,t)&&(f.fillStyle=b.colorDark,f.fillRect(Math.round(t*g)+l,Math.round(m*k)+l,Math.ceil(g),Math.ceil(k)));var u=document.createElement("img");u.src=c.toDataURL("image/png");u.width=d;u.height=e;return u};function r(a,b){this.typeNumber=4;this.errorCorrectLevel=b;this.modules=null;this.moduleCount=0;this.dataList=[];this.addData(a);this.make()}r.prototype.addData=function(a){this.dataList.push(new v(a))};r.prototype.make=function(){this.moduleCount=33;this.modules=new Array(this.moduleCount);for(var a=0;a<this.moduleCount;a++){this.modules[a]=new Array(this.moduleCount);for(var b=0;b<this.moduleCount;b++)this.modules[a][b]=null}w(this,0,0);w(this,this.moduleCount-7,0);w(this,0,this.moduleCount-7);x(this);y(this);this.mapData(z(this),0)};r.prototype.isDark=function(a,b){return this.modules[a][b]};r.prototype.getModuleCount=function(){return this.moduleCount};r.prototype.mapData=function(a){for(var b=-1,c=this.moduleCount-1,d=7,e=0,f=this.moduleCount-1;0<f;f-=2){6==f&&f--;for(;;){for(var g=0;2>g;g++)null==this.modules[c][f-g]&&(e<a.length?(this.modules[c][f-g]=1==(a[e]>>>d&1),d--,-1==d&&(e++,d=7)):this.modules[c][f-g]=!1);if(c+=b,0>c||this.moduleCount<=c){c-=b;b=-b;break}}}};function v(a){this.data=a}v.prototype.getLength=function(){return this.data.length};v.prototype.write=function(a){for(var b=0;b<this.data.length;b++){var c=this.data.charCodeAt(b);128>c?a.put(c,8):(2048>c?a.put(192|c>>6,8):(a.put(224|c>>12,8),a.put(128|c>>6&63,8)),a.put(128|c&63,8))}};function z(a){var b=new A;b.put(4,4);b.put(a.dataList[0].getLength(),8);a.dataList[0].write(b);for(var c=0,d=b.getLengthInBits()%8;8!=d;)b.put(0,1),d=b.getLengthInBits()%8;for(;b.getLengthInBits()<=8*19;)b.put(236,8),b.getLengthInBits()<=8*19&&b.put(17,8);return B(b,19)}function A(){this.buffer=[];this.length=0}A.prototype.getLengthInBits=function(){return this.length};A.prototype.put=function(a,b){for(var c=0;c<b;c++)this.buffer[this.length>>3]|=(a>>>b-c-1&1)?128>>>this.length%8:0,this.length++};function B(a,b){for(var c=Array(b),d=0;d<b;d++)c[d]=0;for(d=0;d<a.getLengthInBits();d++)c[d>>3]|=(a.getBuffer()[d>>3]>>>7-d%8&1)<<7-d%8;return c}function w(a,b,c){for(var d=-1;7>=d;d++)if(0<=b+d&&b+d<a.moduleCount)for(var e=-1;7>=e;e++)0<=c+e&&c+e<a.moduleCount&&(a.modules[b+d][c+e]=0<=d&&d<=6&&(0==e||6==e)||0<=e&&e<=6&&(0==d||6==d)||2<=d&&d<=4&&2<=e&&e<=4?!0:!1)}function x(a){for(var b=8;b<a.moduleCount-8;b++)null==a.modules[b][6]&&(a.modules[b][6]=0==b%2),null==a.modules[6][b]&&(a.modules[6][b]=0==b%2)}function y(a){for(var b=0;b<a.moduleCount;b++)for(var c=0;c<a.moduleCount;c++)null==a.modules[b][c]&&(a.modules[b][c]=!1)}window.QRCode=p;window.QRCode.CorrectLevel=h}(window);
@@ -180,6 +180,7 @@
     }
 
     let DB, tractors=[], currentId=null;
+    let isOpening = false; // mutex for dialog open
 
     function drawQR(el, text, size){
       const box = document.getElementById(el);
@@ -250,46 +251,60 @@
 
     function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
 
-    async function openModal(id){
+    // Safe dialog open (handles “already open” & races)
+    async function safeOpenDialog(dlg){
+      if(isOpening) return;
+      isOpening = true;
       try{
-        const dlg=$("drawer");
-        // ensure single open attempt
-        if(dlg.open) dlg.close();
-
-        currentId = id;
-        const snap = await getDoc(doc(DB,'equipment', id));
-        if(!snap.exists()) return;
-        const d = snap.data()||{};
-        const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
-
-        $("dwTitle").textContent = name || `Unit ${id.slice(0,6)}`;
-        $("dwMake").value  = d.makeName || '';
-        $("dwModel").value = d.modelName || '';
-        yearOptions($("dwYear"), d.year||'');
-        $("dwSerial").value = d.serial || '';
-        $("dwHours").value  = (d.engineHours!=null)? d.engineHours : '';
-        $("dwStatus").value = d.status || 'active';
-        $("dwNotes").value  = d.notes || '';
-
-        if(d.qr?.url){
-          $("qrUrl").textContent = d.qr.url;
-          $("qrWarn").hidden = true;
-          drawQR("qrSmall", d.qr.url, 256);
-          drawQR("qrBig"  , d.qr.url, 640);
-          $("btnOpenHub").href = d.qr.url;
-        }else{
-          $("qrUrl").textContent = "—";
-          $("qrWarn").hidden = false;
-          document.getElementById("qrSmall").innerHTML="";
-          document.getElementById("qrBig").innerHTML="";
-          $("btnOpenHub").removeAttribute('href');
+        if(dlg.open){
+          dlg.close();
+          // wait two frames to ensure backdrop teardown completes
+          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
         }
-
         dlg.showModal();
       }catch(err){
-        console.error(err);
-        alert("Could not open details. Reload and try again.");
+        console.warn('Dialog open retry:', err?.message||err);
+        // one more attempt after a frame
+        await new Promise(r=>requestAnimationFrame(r));
+        try{ if(!dlg.open) dlg.showModal(); }catch(e){ console.error('Dialog failed to open:', e); }
+      }finally{
+        isOpening = false;
       }
+    }
+
+    async function openModal(id){
+      const dlg=$("drawer");
+      currentId = id;
+
+      const snap = await getDoc(doc(DB,'equipment', id));
+      if(!snap.exists()) return;
+      const d = snap.data()||{};
+      const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
+
+      $("dwTitle").textContent = name || `Unit ${id.slice(0,6)}`;
+      $("dwMake").value  = d.makeName || '';
+      $("dwModel").value = d.modelName || '';
+      yearOptions($("dwYear"), d.year||'');
+      $("dwSerial").value = d.serial || '';
+      $("dwHours").value  = (d.engineHours!=null)? d.engineHours : '';
+      $("dwStatus").value = d.status || 'active';
+      $("dwNotes").value  = d.notes || '';
+
+      if(d.qr?.url){
+        $("qrUrl").textContent = d.qr.url;
+        $("qrWarn").hidden = true;
+        drawQR("qrSmall", d.qr.url, 256);
+        drawQR("qrBig"  , d.qr.url, 640);
+        $("btnOpenHub").href = d.qr.url;
+      }else{
+        $("qrUrl").textContent = "—";
+        $("qrWarn").hidden = false;
+        document.getElementById("qrSmall").innerHTML="";
+        document.getElementById("qrBig").innerHTML="";
+        $("btnOpenHub").removeAttribute('href');
+      }
+
+      await safeOpenDialog(dlg);
     }
 
     async function saveModal(){
@@ -334,10 +349,10 @@
       $("btnClose").addEventListener('click', closeModal);
       $("btnSave").addEventListener('click', async ()=>{ await saveModal(); closeModal(); });
 
-      // click backdrop to close
+      // Close on backdrop click and ESC
       const dlg = $("drawer");
       dlg.addEventListener('click', (e)=>{ if(e.target === dlg) closeModal(); });
-      dlg.addEventListener('cancel', (e)=>{ e.preventDefault(); closeModal(); }); // ESC
+      dlg.addEventListener('cancel', (e)=>{ e.preventDefault(); closeModal(); });
 
       $("btnReprint").addEventListener('click', reprintQR);
       $("btnOpenHub").addEventListener('click', (e)=>{ if(!e.currentTarget.href) e.preventDefault(); });
