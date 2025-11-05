@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Put Bag Down (Dev Test)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Absolute paths (required) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + app CSS -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{ --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C; }
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important; }
+
+    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:visible; margin-bottom:var(--page-bottom-gap); }
+    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent); }
+    .hero-head .icon{ width:24px; height:24px; color:var(--accent); display:grid; place-items:center }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2 }
+    .muted{ color:var(--muted,#67706B) }
+    .body{ padding:16px; display:grid; gap:14px }
+    .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
+    @media (max-width:880px){ .row{ grid-template-columns:1fr } }
+
+    .field{ position:relative }
+    .field label{ display:block; font-weight:800; margin:0 0 6px }
+    .input,.textarea,.buttonish{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:12px; outline:none;
+    }
+    .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:42px }
+    .buttonish.has-caret::after{
+      content:""; position:absolute; right:14px; top:50%; width:0; height:0;
+      border-left:6px solid transparent; border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
+    }
+    .textarea{ min-height:110px; resize:vertical }
+    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:6px }
+    .error{ color:#b00020; font-weight:700 }
+    .invalid{ border-color:#b00020 !important; color:#b00020 !important; }
+
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
+    .btn{ display:inline-flex; align-items:center; justify-content:center; min-width:160px;
+      padding:12px 16px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
+    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
+
+    /* Unified inline combo dropdowns
+       - small gap (4px)
+       - light outline & rounded corners like control
+    */
+    .combo{ position:relative }
+    .combo-panel{
+      position:absolute; left:0; right:0; top:calc(100% + 4px);
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      box-shadow:0 12px 26px rgba(0,0,0,.18); z-index:9999; padding:8px; display:none;
+    }
+    .combo-panel.show{ display:block }
+    .combo-panel .search{ padding:4px 2px 8px }
+    .combo-panel .search input{ width:100%; padding:10px; border:1px solid var(--border); border-radius:10px }
+    .combo-panel .list{ max-height:50vh; overflow:auto; border-top:1px solid var(--border) }
+    .combo-item{ padding:10px 8px; border-bottom:1px solid var(--border); cursor:pointer }
+    .combo-item:hover{ background:rgba(0,0,0,.04) }
+    .combo-empty{ padding:10px 8px; color:#67706B }
+
+    .grid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px }
+    @media (max-width:880px){ .grid-3{ grid-template-columns:1fr } }
+
+    .partial-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:end }
+    @media (max-width:880px){ .partial-row{ grid-template-columns:1fr } }
+    .partial-help{ margin-top:4px }
+
+    .toast{ position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); transform:translateX(-50%);
+      background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999; display:none }
+    .toast.show{ display:block; animation:fadeout 5s forwards }
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🛢️</div>
+          <div>
+            <h1>Put Bag Down (Dev)</h1>
+            <p class="muted">Test page. All dropdowns use the same tight inline combo panel.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- FIELD + CROP YEAR + ADD BAG -->
+          <div class="row">
+            <!-- Field (searchable) -->
+            <div class="field combo" id="fieldCombo">
+              <label for="fieldBtn">Field</label>
+              <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
+              <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"/></div>
+                <div class="list" id="fieldList"></div>
+              </div>
+            </div>
+
+            <!-- Crop Year (non-search) -->
+            <div class="field combo" id="yearCombo">
+              <label for="yearBtn">Crop Year</label>
+              <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
+              <div class="combo-panel" id="yearPanel">
+                <div class="list" id="yearList"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="addBag" class="btn btn-primary" type="button">Add Bag Entry</button>
+          </div>
+
+          <!-- Hidden bag form -->
+          <div id="bagForm" hidden>
+            <div class="row">
+              <!-- Submitted By (non-search) -->
+              <div class="field combo" id="subCombo">
+                <label for="subBtn">Submitted By</label>
+                <button id="subBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="subPanel"><div class="list" id="subList"></div></div>
+              </div>
+
+              <!-- Crop Type (non-search) -->
+              <div class="field combo" id="cropCombo">
+                <label for="cropBtn">Crop Type</label>
+                <button id="cropBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="cropPanel"><div class="list" id="cropList"></div></div>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field">
+                <label for="datePlaced">Date Bag Was Put Down</label>
+                <input id="datePlaced" class="input" type="date"/>
+              </div>
+
+              <!-- Bag Brand & Size (searchable) -->
+              <div class="field combo" id="bagComboField">
+                <label for="bagBtn">Bag Brand & Size</label>
+                <button id="bagBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="bagPanel" role="listbox" aria-label="Bag list">
+                  <div class="search"><input id="bagSearch" type="search" placeholder="Search bags…"/></div>
+                  <div class="list" id="bagList"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row">
+              <!-- Priority (non-search) -->
+              <div class="field combo" id="prioCombo">
+                <label for="prioBtn">Pickup Priority (1–10)</label>
+                <button id="prioBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="prioPanel"><div class="list" id="prioList"></div></div>
+                <div class="help">1 = low urgency · 10 = high urgency</div>
+              </div>
+              <div class="field"><!-- spacer --></div>
+            </div>
+
+            <div class="grid-3">
+              <div class="field">
+                <label for="fullBags">Number of Full Bags</label>
+                <input id="fullBags" class="input" type="number" inputmode="numeric" min="0" step="1" value="0"/>
+              </div>
+              <div class="field">
+                <label for="partialBags">Number of Partial Bags</label>
+                <input id="partialBags" class="input" type="number" inputmode="numeric" min="0" step="1" value="0"/>
+                <div class="help">Each partial must be at least 50 ft. Max shows after choosing a bag.</div>
+              </div>
+              <div class="field"><!-- spacer --></div>
+            </div>
+
+            <!-- Per-partial rows -->
+            <div id="partialsBlock" hidden>
+              <div id="partialsList" class="body" style="padding:0; gap:12px"></div>
+              <div id="partialsRangeHelp" class="help"></div>
+            </div>
+
+            <div class="field">
+              <label for="notes">Notes</label>
+              <textarea id="notes" class="textarea" placeholder="Optional details"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="files">Optional Photos</label>
+              <input id="files" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+            </div>
+
+            <div id="err" class="help error" hidden></div>
+
+            <div class="actions">
+              <button id="btnClear" class="btn" type="button">Clear</button>
+              <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Bag Entry Saved.</div>
+
+  <!-- Firebase (modular) -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, getDocs, addDoc, doc, updateDoc,
+      serverTimestamp, query, orderBy
+    } from '/Farm-vista/js/firebase-init.js';
+
+    /* ---------- utils ---------- */
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const toast = (msg="Bag Entry Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); };
+    const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
+
+    /* ---------- state ---------- */
+    let FIELD_INDEX=[], EMPLOYEES=[], BAG_SKUS=[];
+    let chosen = { field:null, year:null, sub:null, crop:null, prio:5, bag:null };
+    let debounceTimer=null;
+
+    /* ---------- generic combo helpers ---------- */
+    function makeCombo(btnId, panelId, listId, {items=[], searchable=false, formatter=(x)=>String(x.label||x), onPick}){
+      const btn=$(btnId), panel=$(panelId), list=$(listId);
+      function render(q=""){
+        const qq=q.toLowerCase();
+        const rows = items
+          .filter(x=>!qq || formatter(x).toLowerCase().includes(qq))
+          .map(x=>`<div class="combo-item" data-id="${esc(x.id)}">${esc(formatter(x))}</div>`)
+          .join('');
+        list.innerHTML = rows || `<div class="combo-empty">(no matches)</div>`;
+      }
+      function open(){ panel.classList.add('show'); if(searchable){ const i=panel.querySelector('input'); i.value=""; i.focus(); render(""); } else { render(""); } }
+      function close(){ panel.classList.remove('show'); }
+      btn.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.contains('show')?close():open(); });
+      list.addEventListener('click', (e)=>{ const el=e.target.closest('.combo-item'); if(!el) return; const it=items.find(i=>i.id===el.dataset.id); if(!it) return; onPick?.(it); close(); });
+      if(searchable){
+        const s = panel.querySelector('input');
+        s.addEventListener('input', e=>render(e.target.value));
+      }
+      document.addEventListener('click', e=>{ if(panel.classList.contains('show') && !panel.parentElement.contains(e.target)) close(); });
+      return { setItems(arr){ items=arr||[]; render(""); } };
+    }
+
+    /* ---------- partials ---------- */
+    function updatePartialRangeHelp(){
+      const L = Number(chosen.bag?.sizeFeet||0);
+      const min=50, max=Math.max(0,L-50);
+      $("partialsRangeHelp").textContent = L ? `Allowed range: ${min}–${max} ft per partial (bag ${L} ft).` : "";
+      return {min, max};
+    }
+    function renderPartialInputs(){
+      const n = Math.max(0, Number($("partialBags").value||0));
+      const wrap = $("partialsBlock");
+      const list = $("partialsList");
+      list.innerHTML="";
+      wrap.hidden = n<=0;
+      if(n<=0) return;
+
+      for(let i=0;i<n;i++){
+        const row = document.createElement('div');
+        row.className = 'partial-row';
+
+        const lenWrap = document.createElement('div');
+        lenWrap.className = 'field';
+        const lenLbl = document.createElement('label');
+        lenLbl.textContent = `Partial ${i+1} length (ft)`;
+        const len = document.createElement('input');
+        len.type='number'; len.inputMode='numeric'; len.min='0'; len.step='1'; len.className='input';
+        len.addEventListener('input', schedulePartialValidate);
+        const lenHelp = document.createElement('div');
+        lenHelp.className = 'help partial-help';
+        lenWrap.append(lenLbl,len,lenHelp);
+
+        const useWrap = document.createElement('div');
+        useWrap.className = 'field';
+        const useLbl = document.createElement('label');
+        useLbl.textContent = `Partial ${i+1} usage`;
+        const use = document.createElement('select');
+        use.className = 'input';
+        use.innerHTML = `
+          <option value="carryover">Carryover from previous usage</option>
+          <option value="new">Start of a new bag</option>`;
+        useWrap.append(useLbl,use);
+
+        row.append(lenWrap,useWrap);
+        list.appendChild(row);
+      }
+      updatePartialRangeHelp();
+      schedulePartialValidate();
+    }
+    function schedulePartialValidate(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(validatePartials, 1000); }
+    function validatePartials(){
+      const L = Number(chosen.bag?.sizeFeet||0);
+      const min=50, max=Math.max(0,L-50);
+      let ok=true;
+      const rows=[...$("partialsList").querySelectorAll('.partial-row')];
+      for(const r of rows){
+        const inp=r.querySelector('input');
+        const help=r.querySelector('.partial-help');
+        const v=Number(inp.value||0);
+        const bad = !(v>=min && v<=max);
+        const showInvalid = bad && inp.value!=="";
+        inp.classList.toggle('invalid', showInvalid);
+        help.textContent = (inp.value==="") ? "" : (showInvalid ? `Enter ${min}–${max} ft.` : "");
+        if(bad && inp.value!=="") ok=false;
+      }
+      return ok;
+    }
+
+    /* ---------- formatting ---------- */
+    function bagLabel(b){
+      const parts=[`${b.brand} — ${b.sizeFeet} ft`, b.diameterFt?`Ø${b.diameterFt}'`:null, b.location||null, (b.onHand!=null)?`on hand: ${b.onHand}`:null].filter(Boolean);
+      return parts.join(' • ');
+    }
+
+    /* ---------- save ---------- */
+    async function handleSave(db,auth){
+      $("err").hidden=true;
+      if(!chosen.field){ alert("Please choose a Field."); return; }
+      if(!chosen.year){ alert("Please choose Crop Year."); return; }
+      if(!chosen.bag){ alert("Please choose Bag Brand & Size."); return; }
+      if(!chosen.crop){ alert("Please choose Crop Type."); return; }
+      const datePlaced=$("datePlaced").value; if(!datePlaced){ alert("Please set the Date placed."); return; }
+
+      const partialCount=Math.max(0,Number($("partialBags").value||0));
+      if(partialCount>0 && !validatePartials()){ $("err").hidden=false; $("err").textContent="One or more partial lengths are outside the allowed range."; return; }
+
+      const rows=[...$("partialsList").querySelectorAll('.partial-row')];
+      const partialFeet=[], partialUsage=[];
+      for(const r of rows){
+        const len=Number(r.querySelector('input').value||0);
+        const use=r.querySelector('select').value;
+        if(len>0){ partialFeet.push(len); partialUsage.push(use); }
+      }
+      if(partialCount>0 && partialFeet.length!==partialCount){ alert("Please complete each partial row."); return; }
+
+      const fullBags=Math.max(0,Number($("fullBags").value||0));
+
+      const sub = chosen.sub;
+      const subEmail=sub?.email||getAuth().currentUser?.email||"";
+      const subName =sub?.name ||getAuth().currentUser?.displayName|| subEmail ||"Unknown";
+
+      const record={
+        type:'putDown',
+        field:{id:chosen.field.id,name:chosen.field.name},
+        cropYear:chosen.year, cropType:chosen.crop, datePlaced,
+        bagSku:{ id:chosen.bag.id, brand:chosen.bag.brand, sizeFeet:Number(chosen.bag.sizeFeet||0),
+                 diameterFt:chosen.bag.diameterFt||null, location:chosen.bag.location||null },
+        counts:{ full:fullBags, partial:partialCount, partialFeet, partialUsage },
+        priority:Number(chosen.prio||5),
+        notes:$("notes").value.trim(),
+        submittedBy:{ employeeId:sub?.id||null, name:subName, email:subEmail },
+        createdAt:serverTimestamp(), updatedAt:serverTimestamp()
+      };
+
+      const ref=await addDoc(collection(db,'grain_bag_events'), record);
+
+      // Optional photos
+      const files=Array.from(($("files").files||[]));
+      if(files.length){
+        try{
+          const m=await import('/Farm-vista/js/firebase-init.js');
+          const st=m.getStorage(); const stRef=m.ref; const upload=m.uploadBytes; const url=m.getDownloadURL;
+          const uploaded=[];
+          for(const f of files){
+            const safe=(Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+            const path=`grain_bag_events/${ref.id}/${safe}`;
+            await upload(stRef(st,path), f, {contentType:f.type||'application/octet-stream'});
+            uploaded.push({name:f.name, url:await url(stRef(st,path)), path});
+          }
+          await updateDoc(doc(db,'grain_bag_events',ref.id), { files:uploaded, updatedAt:serverTimestamp() });
+        }catch(err){ $("err").hidden=false; $("err").textContent=`Saved, but photo upload failed: ${err.message}`; }
+      }
+
+      // Inventory decrement:
+      const anyNew = partialUsage.includes('new');
+      const debit = fullBags + (anyNew ? 1 : 0);
+      if(chosen.bag && chosen.bag.onHand!=null && debit>0){
+        try{
+          const next=Math.max(0,Number(chosen.bag.onHand)-debit);
+          await updateDoc(doc(db,'inventoryGrainBagMovements',chosen.bag.id), { onHand:next, updatedAt:serverTimestamp() });
+        }catch(err){ console.warn("Inventory decrement failed:", err); }
+      }
+
+      toast("Bag Entry Saved.");
+
+      // Reset (keep field/year)
+      chosen.bag=null; $("bagBtn").textContent="— Select —";
+      chosen.crop=null; $("cropBtn").textContent="— Select —";
+      $("datePlaced").value=todayISO();
+      $("fullBags").value="0"; $("partialBags").value="0";
+      $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
+      $("notes").value=""; $("files").value="";
+      $("partialsRangeHelp").textContent="";
+    }
+
+    /* ---------- boot ---------- */
+    (async()=>{
+      await ready;
+      const db=getFirestore(); const auth=getAuth();
+      $("datePlaced").value = todayISO();
+
+      /* Year items */
+      const y=new Date().getFullYear();
+      const YEARS=[y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
+
+      /* Priority items */
+      const PRIO=[1,2,3,4,5,6,7,8,9,10].map(n=>({id:String(n), value:n, label:(n===1?"1 — Low":n===10?"10 — High":String(n))}));
+
+      /* Crop items */
+      const CROPS=[{id:"Corn",value:"Corn",label:"Corn"},{id:"Soybeans",value:"Soybeans",label:"Soybeans"}];
+
+      /* Combos */
+      const fieldCombo = makeCombo("fieldBtn","fieldPanel","fieldList",{
+        items:[], searchable:true, formatter:(x)=>x.name,
+        onPick:(it)=>{ chosen.field=it; $("fieldBtn").textContent=it.name; }
+      });
+
+      const yearCombo = makeCombo("yearBtn","yearPanel","yearList",{
+        items:YEARS, searchable:false, formatter:(x)=>x.label,
+        onPick:(it)=>{ chosen.year=Number(it.value); $("yearBtn").textContent=it.label; }
+      });
+      // Default year
+      chosen.year = y; $("yearBtn").textContent=String(y);
+
+      const subCombo = makeCombo("subBtn","subPanel","subList",{
+        items:[], searchable:false, formatter:(x)=>x.name,
+        onPick:(it)=>{ chosen.sub=it; $("subBtn").textContent=it.name; }
+      });
+
+      const cropCombo = makeCombo("cropBtn","cropPanel","cropList",{
+        items:CROPS, searchable:false, formatter:(x)=>x.label,
+        onPick:(it)=>{ chosen.crop=it.value; $("cropBtn").textContent=it.label; }
+      });
+
+      const prioCombo = makeCombo("prioBtn","prioPanel","prioList",{
+        items:PRIO, searchable:false, formatter:(x)=>x.label,
+        onPick:(it)=>{ chosen.prio=Number(it.value); $("prioBtn").textContent=it.label; }
+      });
+      // Default priority 5
+      chosen.prio=5; $("prioBtn").textContent="5";
+
+      const bagCombo = makeCombo("bagBtn","bagPanel","bagList",{
+        items:[], searchable:true, formatter:(x)=>bagLabel(x),
+        onPick:(it)=>{ chosen.bag=it; $("bagBtn").textContent=bagLabel(it); updatePartialRangeHelp(); schedulePartialValidate(); }
+      });
+
+      /* Load Firestore data */
+      async function loadFields(){
+        try{
+          const snap=await getDocs(query(collection(db,'fields'),orderBy('name')));
+          const arr=[]; snap.forEach(d=>{const x=d.data()||{}; if(x.name) arr.push({id:d.id,name:String(x.name)})});
+          arr.sort((a,b)=>a.name.localeCompare(b.name));
+          FIELD_INDEX=arr; fieldCombo.setItems(arr);
+        }catch(e){ console.warn("Fields load error:", e); fieldCombo.setItems([]); }
+      }
+      async function loadEmployees(){
+        try{
+          const snap=await getDocs(collection(db,'employees'));
+          const list=[]; snap.forEach(d=>{const x=d.data()||{}; list.push({id:d.id,name:x.name||x.displayName||x.fullName||x.email||d.id,email:x.email||d.id})});
+          list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+          EMPLOYEES=list; subCombo.setItems(list);
+          // default to current user if match
+          const me=(auth.currentUser?.email||"").toLowerCase();
+          const mine=list.find(e=>(e.email||"").toLowerCase()===me) || list[0];
+          if(mine){ chosen.sub=mine; $("subBtn").textContent=mine.name; }
+        }catch(e){ console.warn("Employees load error:", e); subCombo.setItems([]); }
+      }
+      async function loadBags(){
+        try{
+          const snap=await getDocs(collection(db,'inventoryGrainBagMovements'));
+          const list=[];
+          snap.forEach(d=>{
+            const x=d.data()||{};
+            const brand=String(x.brand||"Bag");
+            const sizeFeet=Number(x.lengthFt||x.length||0);
+            if(sizeFeet<=0) return;
+            list.push({ id:d.id, brand, sizeFeet,
+              diameterFt:Number(x.diameterFt||x.diameter||0)||null,
+              location:x.location||null, onHand:(x.onHand!==undefined?Number(x.onHand):null) });
+          });
+          list.sort((a,b)=>(`${a.brand} ${a.sizeFeet}`).localeCompare(`${b.brand} ${b.sizeFeet}`,undefined,{numeric:true}));
+          BAG_SKUS=list; bagCombo.setItems(list);
+        }catch(e){ console.warn("Bags load error:", e); bagCombo.setItems([]); }
+      }
+
+      await Promise.all([loadFields(), loadEmployees(), loadBags()]);
+
+      // Gate to reveal bag form
+      $("addBag").addEventListener("click", ()=>{
+        if(!chosen.field) return alert("Choose a Field first.");
+        if(!chosen.year)  return alert("Choose Crop Year.");
+        $("bagForm").hidden=false; toast("Bag form ready.", 2800);
+      });
+
+      // Partials
+      $("partialBags").addEventListener("input", renderPartialInputs);
+
+      // Actions
+      $("btnSave").addEventListener("click", ()=> handleSave(getFirestore(), getAuth()));
+      $("btnClear").addEventListener("click", ()=>{
+        chosen.bag=null; $("bagBtn").textContent="— Select —";
+        chosen.crop=null; $("cropBtn").textContent="— Select —";
+        $("datePlaced").value=todayISO();
+        $("fullBags").value="0"; $("partialBags").value="0";
+        $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
+        $("notes").value=""; $("files").value="";
+        $("partialsRangeHelp").textContent="";
+        const me=(getAuth().currentUser?.email||"").toLowerCase();
+        const mine=EMPLOYEES.find(e=>(e.email||"").toLowerCase()===me) || EMPLOYEES[0];
+        if(mine){ chosen.sub=mine; $("subBtn").textContent=mine.name; }
+      });
+
+      // Network toasts
+      window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
+      window.addEventListener('offline',()=> toast("Currently offline — using saved data", 3000));
+    })();
+  </script>
+</body>
+</html>
