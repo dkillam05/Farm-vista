@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Put Bag Down (Dev Test 3)</title>
+  <title>FarmVista • Put Bag Down (Dev Test 4)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -88,6 +88,7 @@
     .grid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px }
     @media (max-width:880px){ .grid-3{ grid-template-columns:1fr } }
 
+    .partials{ display:grid; gap:12px; }
     .partial-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:end }
     @media (max-width:880px){ .partial-row{ grid-template-columns:1fr } }
     .partial-help{ margin-top:4px }
@@ -107,8 +108,8 @@
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🛢️</div>
           <div>
-            <h1>Put Bag Down (Dev 3)</h1>
-            <p class="muted">Partial rows (length + usage) render reliably and validate with a 1-sec debounce.</p>
+            <h1>Put Bag Down (Dev 4)</h1>
+            <p class="muted">Partials appear as soon as count &gt; 0. Re-renders after bag pick. 1-sec debounced validation.</p>
           </div>
         </header>
 
@@ -191,8 +192,8 @@
             </div>
 
             <!-- PARTIALS -->
-            <div id="partialsBlock" hidden>
-              <div id="partialsList" class="body" style="padding:0; gap:12px"></div>
+            <div id="partialsBlock" class="partials" hidden>
+              <div id="partialsList"></div>
               <div id="partialsRangeHelp" class="help"></div>
             </div>
 
@@ -236,7 +237,7 @@
 
     let FIELD_INDEX=[], EMPLOYEES=[], BAG_SKUS=[];
     let chosen = { field:null, year:null, sub:null, crop:null, prio:5, bag:null };
-    let debounceTimer=null;
+    let debounceRef=null;
 
     /* ---------- combos (tight inline) ---------- */
     function makeCombo(btnId, panelId, listId, {items=[], searchable=false, formatter=(x)=>String(x.label||x), onPick}){
@@ -270,7 +271,25 @@
 
     function updatePartialRangeHelp(){
       const {min,max,bag} = range();
-      $("partialsRangeHelp").textContent = bag ? `Allowed range: ${min}–${max} ft per partial (bag ${bag} ft).` : "";
+      $("partialsRangeHelp").textContent = bag ? `Allowed range: ${min}–${max} ft per partial (bag ${bag} ft).` : `Enter each partial’s length (min 50 ft). Choose a bag to see the max.`;
+    }
+
+    function schedulePartialValidate(){ clearTimeout(debounceRef); debounceRef=setTimeout(validatePartials, 1000); }
+    function validatePartials(){
+      const {min,max,bag} = range();
+      let ok=true;
+      const rows=[...$("partialsList").querySelectorAll('.partial-row')];
+      for(const r of rows){
+        const inp=r.querySelector('input'); const help=r.querySelector('.partial-help');
+        const v=Number(inp.value||0);
+        // If no bag chosen yet, only enforce min 50; once bag chosen, enforce both
+        const bad = bag ? !(v>=min && v<=max) : !(v>=min);
+        const showInvalid = bad && inp.value!=="";
+        inp.classList.toggle('invalid', showInvalid);
+        help.textContent = (inp.value==="") ? "" : (showInvalid ? (bag?`Enter ${min}–${max} ft.`:`Must be ≥ ${min} ft.`) : "");
+        if(showInvalid) ok=false;
+      }
+      return ok;
     }
 
     function makeUsageCombo(button, panel, list, row){
@@ -286,7 +305,6 @@
       row.dataset.index = String(index);
       row.dataset.usage = "carryover";
 
-      // length input
       const lenWrap = document.createElement('div');
       lenWrap.className = 'field';
       const lenLbl = document.createElement('label'); lenLbl.textContent = `Partial ${index+1} length (ft)`;
@@ -296,7 +314,6 @@
       const lenHelp = document.createElement('div'); lenHelp.className='help partial-help';
       lenWrap.append(lenLbl,len,lenHelp);
 
-      // usage combo
       const useWrap = document.createElement('div');
       useWrap.className = 'field combo';
       const useLbl = document.createElement('label'); useLbl.textContent = `Partial ${index+1} usage`;
@@ -307,39 +324,23 @@
       panel.appendChild(list); useWrap.append(useLbl,useBtn,panel);
 
       row.append(lenWrap,useWrap);
-
-      // wire usage combo for this row
       makeUsageCombo(useBtn, panel, list, row);
       return row;
     }
 
     function renderPartialInputs(){
-      const n = Math.max(0, Number($("partialBags").value||0));
+      const nRaw = $("partialBags").value;
+      const n = Math.max(0, Number(nRaw||0));
       const block = $("partialsBlock");
       const list = $("partialsList");
       list.innerHTML="";
-      if(n<=0){ block.hidden=true; $("partialsRangeHelp").textContent=""; return; }
-      block.hidden=false;
+      // SHOW the block whenever n > 0 (regardless of bag pick)
+      block.hidden = !(n > 0);
+      if(n<=0){ $("partialsRangeHelp").textContent=""; return; }
+
       for(let i=0;i<n;i++) list.appendChild(createPartialRow(i));
       updatePartialRangeHelp();
       schedulePartialValidate();
-    }
-
-    let debounceRef=null;
-    function schedulePartialValidate(){ clearTimeout(debounceRef); debounceRef=setTimeout(validatePartials, 1000); }
-    function validatePartials(){
-      const {min,max} = range();
-      let ok=true;
-      const rows=[...$("partialsList").querySelectorAll('.partial-row')];
-      for(const r of rows){
-        const inp=r.querySelector('input'); const help=r.querySelector('.partial-help');
-        const v=Number(inp.value||0); const bad = !(v>=min && v<=max);
-        const showInvalid = bad && inp.value!=="";
-        inp.classList.toggle('invalid', showInvalid);
-        help.textContent = (inp.value==="") ? "" : (showInvalid ? `Enter ${min}–${max} ft.` : "");
-        if(showInvalid) ok=false;
-      }
-      return ok;
     }
 
     /* ---------- labels ---------- */
@@ -504,14 +505,16 @@
         if(!chosen.field) return alert("Choose a Field first.");
         if(!chosen.year)  return alert("Choose Crop Year.");
         $("bagForm").hidden=false;
-        // ensure partial block reflects current count on first open
-        renderPartialInputs();
+        renderPartialInputs();                // ensure current count shows rows immediately
         toast("Bag form ready.", 2800);
       });
 
-      // Partials: render on both input and change, and also re-render after bag chosen
+      // Partials: render on input, change, and on first paint
       $("partialBags").addEventListener("input", renderPartialInputs);
       $("partialBags").addEventListener("change", renderPartialInputs);
+
+      // Also re-validate when bag is picked (updates max)
+      // (This already happens via bagCombo onPick -> updatePartialRangeHelp + schedulePartialValidate)
 
       // Actions
       $("btnSave").addEventListener("click", ()=> handleSave(getFirestore(), getAuth()));
