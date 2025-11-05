@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Pick Up Bag</title>
+  <title>FarmVista • Put Bag Down</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Absolute paths -->
+  <!-- Absolute paths (required) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Ensure fv-shell is present -->
+  <!-- Ensure fv-shell (global header/footer/menu) -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -57,7 +57,7 @@
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
     .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
-    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px)}
+    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
     .muted{color:var(--muted,#67706B)}
     .body{padding:16px;display:grid;gap:14px}
     .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
@@ -69,36 +69,34 @@
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none
     }
-    .textarea{min-height:110px;resize:vertical}
     .buttonish{cursor:pointer;text-align:left}
+    .textarea{min-height:110px;resize:vertical}
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
     .error{color:#b00020;font-weight:700}
 
-    .cards{display:grid;grid-template-columns:1fr;gap:10px}
-    .card{
-      border:1px solid var(--border);border-radius:12px;background:var(--surface);
-      padding:12px;display:grid;gap:10px
-    }
-    .badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:4px 10px}
-    .kvs{display:flex;flex-wrap:wrap;gap:10px}
-    .kv{background:var(--card-surface,var(--surface));border:1px dashed var(--border);border-radius:10px;padding:8px 10px}
-
-    .actions{display:flex;gap:10px;flex-wrap:wrap}
-    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:140px;
-      padding:10px 14px;border-radius:12px;border:1px solid var(--border);
+    .invalid{ border-color:#b00020 !important; color:#b00020 !important; }
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:160px;
+      padding:12px 16px;border-radius:12px;border:1px solid var(--border);
       background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
 
-    /* Bottom sheet for pickup */
+    /* Field picker sheet */
     .sheet{position:fixed;inset:auto 0 0 0;background:var(--surface);border-top:1px solid var(--border);
       box-shadow:0 -12px 30px rgba(0,0,0,.18);border-radius:16px 16px 0 0;transform:translateY(105%);transition:transform .25s ease;z-index:10000}
     .sheet.show{transform:translateY(0)}
     .sheet .cap{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)}
     .sheet .cap .bar{width:40px;height:4px;border-radius:4px;background:#CBCDCB;margin:0 auto}
-    .sheet .inner{padding:14px;display:grid;gap:12px}
-    .grid-2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
-    @media (max-width:880px){.grid-2{grid-template-columns:1fr}}
+    .sheet .search{padding:10px 14px;border-bottom:1px solid var(--border)}
+    .sheet .search input{width:100%;padding:10px;border:1px solid var(--border);border-radius:10px}
+    .sheet .list{max-height:50vh;overflow:auto}
+    .sheet .item{padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+    .sheet .item:hover{background:rgba(0,0,0,.03)}
 
+    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+    @media (max-width:880px){ .grid-3{grid-template-columns:1fr} }
+
+    .subtle{opacity:.8}
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none}
     .toast.show{display:block;animation:fadeout 5s forwards}
@@ -111,15 +109,15 @@
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon" aria-hidden="true">🧲</div>
+          <div class="icon" aria-hidden="true">🛢️</div>
           <div>
-            <h1>Pick Up Bag</h1>
-            <p class="muted">Choose a field, then select which bag(s) to mark as picked up.</p>
+            <h1>Put Bag Down</h1>
+            <p class="muted">Record bags placed in the field. Inventory auto-adjusts when using <strong>New</strong> bags.</p>
           </div>
         </header>
 
         <div class="body">
-          <!-- Field picker -->
+          <!-- FIELD (searchable picker) + CROP YEAR + ADD BAG -->
           <div class="row">
             <div class="field">
               <label for="fieldBtn">Field</label>
@@ -128,296 +126,380 @@
             </div>
 
             <div class="field">
-              <label for="pickedUpDate">Pickup Date</label>
-              <input id="pickedUpDate" class="input" type="date"/>
-              <div class="help">Defaults to today; you can change if needed.</div>
+              <label for="cropYear">Crop Year</label>
+              <select id="cropYear" class="select"></select>
+              <div class="help">Defaults to current year.</div>
             </div>
           </div>
 
-          <!-- Open bags list -->
-          <div class="field">
-            <label>Open Bags in Field</label>
-            <div id="listHelp" class="help">Select a field to load open bags.</div>
-            <div id="bagList" class="cards"></div>
+          <div class="actions">
+            <button id="addBag" class="btn btn-primary" type="button">Add Bag Entry</button>
           </div>
 
-          <div id="pageErr" class="help error" hidden></div>
+          <!-- Hidden bag form (shown after Add Bag Entry) -->
+          <div id="bagForm" hidden>
+            <div class="row">
+              <div class="field">
+                <label for="submittedBy">Submitted By</label>
+                <select id="submittedBy" class="select"></select>
+                <div id="subHelp" class="help">Defaults to current user.</div>
+              </div>
+
+              <div class="field">
+                <label for="cropType">Crop Type</label>
+                <select id="cropType" class="select">
+                  <option value="">— Select —</option>
+                  <option value="Corn">Corn</option>
+                  <option value="Soybeans">Soybeans</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field">
+                <label for="datePlaced">Date Bag Was Put Down</label>
+                <input id="datePlaced" class="input" type="date"/>
+              </div>
+
+              <div class="field">
+                <label for="bagPick">Bag Brand & Size</label>
+                <select id="bagPick" class="select">
+                  <option value="">— Loading… —</option>
+                </select>
+                <div id="bagHelp" class="help">0 bag SKUs</div>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field">
+                <label for="priority">Pickup Priority (1–10)</label>
+                <select id="priority" class="select"></select>
+                <div class="help">1 = low urgency · 10 = high urgency</div>
+              </div>
+              <div class="field">
+                <label class="subtle">Bag Length Constraint</label>
+                <div id="lengthRule" class="help">Select a bag SKU to see allowed partial length range.</div>
+              </div>
+            </div>
+
+            <div class="grid-3">
+              <div class="field">
+                <label for="fullBags">Number of Full Bags</label>
+                <input id="fullBags" class="input" type="number" inputmode="numeric" min="0" step="1" value="0"/>
+              </div>
+              <div class="field">
+                <label for="partialBags">Number of Partial Bags</label>
+                <input id="partialBags" class="input" type="number" inputmode="numeric" min="0" step="1" value="0"/>
+                <div class="help">We’ll ask for each partial’s estimated length.</div>
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <div class="help">Full bags always count against inventory. Partials can be carryover or new.</div>
+              </div>
+            </div>
+
+            <!-- Partial lengths + Bag Usage (only if partials used) -->
+            <div id="partialsBlock" hidden>
+              <div class="row">
+                <div class="field" style="grid-column:1/-1">
+                  <label>Partial Bag Lengths (ft)</label>
+                  <div id="partialsList" class="row"></div>
+                  <div id="partialsHelp" class="help">Enter each partial’s feet (respects the allowed range).</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="field">
+                  <label for="carryType">Bag Usage (for partials)</label>
+                  <select id="carryType" class="select">
+                    <option value="carryover">Carryover (don’t reduce inventory)</option>
+                    <option value="new">New (reduce inventory by +1)</option>
+                  </select>
+                  <div class="help">Only applies if any partials are used.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="notes">Notes</label>
+              <textarea id="notes" class="textarea" placeholder="Optional details"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="files">Optional Photos</label>
+              <input id="files" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+            </div>
+
+            <div id="err" class="help error" hidden></div>
+
+            <div class="actions">
+              <button id="btnClear" class="btn" type="button">Clear</button>
+              <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+            </div>
+          </div>
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Field Picker Sheet -->
-  <div id="fieldSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="fieldTitle">
-    <div class="cap"><div class="bar" aria-hidden="true"></div></div>
-    <div class="inner">
-      <input id="fieldSearch" class="input" type="search" placeholder="Search fields…" autocomplete="off"/>
-      <div id="fieldList" style="max-height:50vh;overflow:auto"></div>
-    </div>
-  </div>
-
-  <!-- Pickup Sheet -->
-  <div id="pickupSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="pickupTitle">
-    <div class="cap"><div class="bar" aria-hidden="true"></div></div>
-    <div class="inner">
-      <h3 id="pickupTitle" style="margin:0 0 4px">Complete Pickup</h3>
-      <div id="pickupMeta" class="help"></div>
-
-      <div class="grid-2">
-        <div class="field">
-          <label for="employee">Employee (required)</label>
-          <select id="employee" class="select"></select>
-          <div id="empHelp" class="help">Defaults to current user if listed.</div>
-        </div>
-        <div class="field">
-          <label for="sheetDate">Pickup Date</label>
-          <input id="sheetDate" class="input" type="date"/>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="sheetNotes">Notes</label>
-        <textarea id="sheetNotes" class="textarea" placeholder="Optional"></textarea>
-      </div>
-
-      <div class="field">
-        <label for="sheetFiles">Optional Photos</label>
-        <input id="sheetFiles" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
-      </div>
-
-      <div id="sheetErr" class="help error" hidden></div>
-
-      <div class="actions">
-        <button id="cancelPickup" class="btn" type="button">Cancel</button>
-        <button id="confirmPickup" class="btn btn-primary" type="button">Mark Picked Up</button>
-      </div>
-    </div>
-  </div>
-
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- FIELD PICKER SHEET -->
+  <div id="fieldSheet" class="sheet" role="dialog" aria-modal="true">
+    <div class="cap"><div class="bar" aria-hidden="true"></div></div>
+    <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…" autocomplete="off"/></div>
+    <div class="list" id="fieldList"></div>
+  </div>
 
   <!-- Firebase (modular) -->
   <script type="module">
     import {
-      ready, getFirestore, getAuth,
+      ready,
+      getFirestore, getAuth,
       collection, getDocs, addDoc, doc, updateDoc,
-      serverTimestamp, query, orderBy, where
+      serverTimestamp, query, orderBy
     } from '/Farm-vista/js/firebase-init.js';
-
-    // Lazy Storage
-    async function loadStorageFns(){
-      const m = await import('/Farm-vista/js/firebase-init.js');
-      return { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
-    }
 
     /* ---------- utils ---------- */
     const $ = id => document.getElementById(id);
     const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    function todayISO(){ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
     function toast(msg="Saved.", ms=4200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); }
+    function todayISO(){ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
 
     /* ---------- state ---------- */
-    let FIELD_INDEX = [];         // [{id,name}]
-    let EMPLOYEES   = [];         // [{id,name,email}]
-    let chosenField = null;       // {id,name}
-    let OPEN_PUTDOWNS = [];       // array of putDown docs for field
-    let PICK_TARGET = null;       // current selected putDown doc for pickup
+    let FIELD_INDEX=[], EMPLOYEES=[], BAG_SKUS=[];
+    let chosenField=null, chosenBag=null;
+    let debounceTimer=null; // 1s partial validation debounce
 
-    /* ---------- field list ---------- */
+    /* ---------- UI helpers ---------- */
+    function fillYears(){
+      const y=new Date().getFullYear();
+      $("cropYear").innerHTML=[y-1,y,y+1].map(v=>`<option value="${v}" ${v===y?'selected':''}>${v}</option>`).join('');
+    }
+    function fillPriority(){
+      const opts=[
+        "1 — Low","2","3","4","5","6","7","8","9","10 — High"
+      ];
+      $("priority").innerHTML=opts.map((t,i)=>`<option value="${i+1}" ${i+1===5?'selected':''}>${t}</option>`).join('');
+    }
+    function renderFieldBtn(){
+      $("fieldBtn").textContent = chosenField ? chosenField.name : "— Select field —";
+      $("fieldHelp").textContent = `${FIELD_INDEX.length} fields`;
+    }
+    function setBagChoiceById(id){
+      chosenBag = BAG_SKUS.find(b=>b.id===id)||null;
+      const L = Number(chosenBag?.sizeFeet||0);
+      $("lengthRule").textContent = L ? `Partial per-bag length must be between 50 ft and ${Math.max(0,L-50)} ft (bag ${L} ft).` : "Select a bag SKU to see allowed partial length range.";
+      schedulePartialValidate(); // re-validate with new limits
+    }
+    function renderPartialInputs(){
+      const n = Math.max(0, Number($("partialBags").value||0));
+      const wrap = $("partialsBlock");
+      const list = $("partialsList");
+      list.innerHTML="";
+      wrap.hidden = n<=0;
+      if(n<=0) return;
+      for(let i=0;i<n;i++){
+        const inp=document.createElement('input');
+        inp.type='number'; inp.inputMode='numeric'; inp.min='0'; inp.step='1';
+        inp.placeholder=`Partial ${i+1} length (ft)`;
+        inp.className='input';
+        inp.addEventListener('input', schedulePartialValidate);
+        list.appendChild(inp);
+      }
+      schedulePartialValidate();
+    }
+
+    function schedulePartialValidate(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(validatePartials, 1000); // 1s debounce
+    }
+
+    function validatePartials(){
+      const inputs=[...$("partialsList").querySelectorAll('input')];
+      if(!inputs.length){ $("partialsHelp").textContent=""; return true; }
+      const L = Number(chosenBag?.sizeFeet||0);
+      const min=50, max=Math.max(0,L-50);
+      let ok=true;
+      for(const i of inputs){
+        const v=Number(i.value||0);
+        const bad = !(v>=min && v<=max);
+        i.classList.toggle('invalid', bad && i.value!=="");
+        if(bad && i.value!=="") ok=false;
+      }
+      $("partialsHelp").textContent = L ? `Allowed range: ${min}–${max} ft per partial.` : "Select a bag to set limits.";
+      return ok;
+    }
+
+    /* ---------- data loads ---------- */
     async function loadFields(db){
       try{
-        const snap = await getDocs(query(collection(db,'fields'), orderBy('name')));
-        const items = [];
-        snap.forEach(d=>{
-          const x=d.data()||{};
-          const name=String(x.name||"").trim();
-          if(name) items.push({id:d.id, name});
-        });
-        items.sort((a,b)=>a.name.localeCompare(b.name));
-        FIELD_INDEX = items;
-        $("fieldList").innerHTML = items.map(it=>`<div class="card item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('');
-        $("fieldHelp").textContent = `${items.length} fields`;
-      }catch(err){
-        console.warn("loadFields:", err);
-        $("fieldHelp").textContent = "0 fields (load error)";
+        const snap=await getDocs(query(collection(db,'fields'),orderBy('name')));
+        const arr=[]; snap.forEach(d=>{const x=d.data()||{}; if(x.name) arr.push({id:d.id,name:String(x.name)});});
+        arr.sort((a,b)=>a.name.localeCompare(b.name));
+        FIELD_INDEX=arr;
+        $("fieldList").innerHTML=arr.map(f=>`<div class="item" data-id="${esc(f.id)}">${esc(f.name)}</div>`).join('');
+        $("fieldHelp").textContent=`${arr.length} fields`;
+      }catch(e){ console.warn(e); $("fieldHelp").textContent="0 fields (load error)"; }
+    }
+
+    async function loadEmployees(db,auth){
+      try{
+        const snap=await getDocs(collection(db,'employees'));
+        const list=[]; snap.forEach(d=>{const x=d.data()||{}; list.push({id:d.id,name:x.name||x.displayName||x.fullName||x.email||d.id,email:x.email||d.id});});
+        list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+        EMPLOYEES=list;
+        $("submittedBy").innerHTML=list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}${e.email?' — '+esc(e.email):''}</option>`).join('');
+        const me=(auth.currentUser?.email||"").toLowerCase();
+        const mine=list.find(e=>(e.email||"").toLowerCase()===me);
+        $("submittedBy").value = mine ? mine.id : (list[0]?.id||"");
+        $("subHelp").textContent=`${list.length} employees`;
+      }catch(e){
+        $("submittedBy").innerHTML=`<option value="">(no employees)</option>`;
+        $("subHelp").textContent=`0 employees`;
       }
     }
-    function openFieldSheet(){ $("fieldSheet").classList.add('show'); $("fieldSearch").value=""; $("fieldSearch").focus(); filterFields(""); }
-    function closeFieldSheet(){ $("fieldSheet").classList.remove('show'); }
-    function filterFields(q){
-      q=(q||"").toLowerCase().trim();
-      const out = FIELD_INDEX.filter(f=>!q || f.name.toLowerCase().includes(q))
-        .map(it=>`<div class="card item" data-id="${esc(it.id)}">${esc(it.name)}</div>`).join('');
-      $("fieldList").innerHTML = out || `<div class="card">(no matches)</div>`;
-    }
 
-    /* ---------- employees ---------- */
-    async function loadEmployees(db, auth){
-      const list=[];
+    /* ====== Bags from Firestore: inventoryGrainBagMovements ======
+       Fields expected: brand (string), lengthFt (number),
+       diameterFt (number, opt), location (string, opt), onHand (number, opt)
+    =============================================================== */
+    async function loadBags(db){
       try{
-        const snap = await getDocs(collection(db,'employees'));
+        const snap=await getDocs(collection(db,'inventoryGrainBagMovements'));
+        const list=[];
         snap.forEach(d=>{
           const x=d.data()||{};
-          const name = String(x.name || x.displayName || x.fullName || x.email || d.id);
-          const email = x.email || d.id;
-          list.push({id:d.id, name, email});
+          const brand=String(x.brand||"Bag");
+          const sizeFeet=Number(x.lengthFt||x.length||0);
+          if(sizeFeet<=0) return;
+          list.push({
+            id:d.id,
+            brand,
+            sizeFeet,
+            diameterFt: Number(x.diameterFt||x.diameter||0) || null,
+            location: x.location || null,
+            onHand: (x.onHand!==undefined ? Number(x.onHand) : null)
+          });
         });
-      }catch(e){ /* ignore, fall back to current user only */ }
-      list.sort((a,b)=> (a.name||"").localeCompare(b.name||""));
-      EMPLOYEES = list;
-
-      const sel = $("employee");
-      if(list.length){
-        sel.innerHTML = list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}${e.email?' — '+esc(e.email):''}</option>`).join('');
-        // default to current user if present
-        const me = ( (await getAuth().currentUser)?.email || "" ).toLowerCase();
-        const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me );
-        if(mine) sel.value = mine.id;
-      }else{
-        const me = getAuth().currentUser;
-        const name = me?.displayName || me?.email || "Unknown";
-        sel.innerHTML = `<option value="${esc(me?.uid||'self')}">${esc(name)}</option>`;
-      }
-      $("empHelp").textContent = `${EMPLOYEES.length || 1} employee option(s)`;
-    }
-
-    /* ---------- list open putDowns ---------- */
-    async function loadOpenBags(db){
-      $("bagList").innerHTML = "";
-      $("listHelp").textContent = chosenField ? "Loading…" : "Select a field to load open bags.";
-      OPEN_PUTDOWNS = [];
-      if(!chosenField) return;
-
-      try{
-        // Grab all putDowns; filter client-side by field & status
-        const snap = await getDocs(query(collection(db,'grain_bag_events'), where('type','==','putDown'), orderBy('priority')));
-        const rows = [];
-        snap.forEach(d=>{
-          const x=d.data()||{};
-          const isField = x.field?.id === chosenField.id;
-          const open = !x.status || x.status !== 'pickedUp';
-          if(isField && open){
-            rows.push({id:d.id, ...x});
-          }
-        });
-        // sort: higher priority first, then datePlaced asc
-        rows.sort((a,b)=> (Number(b.priority||0) - Number(a.priority||0)) || String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")) );
-        OPEN_PUTDOWNS = rows;
-
-        if(!rows.length){
-          $("bagList").innerHTML = `<div class="card">No open bags for this field.</div>`;
-          $("listHelp").textContent = "—";
-          return;
-        }
-
-        $("listHelp").textContent = `${rows.length} open bag(s)`;
-        $("bagList").innerHTML = rows.map(r=>{
-          const sku = `${esc(r.bagSku?.brand||'Bag')} — ${esc(r.bagSku?.sizeFeet||'?')} ft`;
-          const counts = `${Number(r.counts?.full||0)} full, ${Number(r.counts?.partial||0)} partial`;
-          const pr = Number(r.priority||0);
-          return `
-          <div class="card">
-            <div class="kvs">
-              <span class="kv"><b>Placed:</b> ${esc(r.datePlaced||'—')}</span>
-              <span class="kv"><b>SKU:</b> ${sku}</span>
-              <span class="kv"><b>Count:</b> ${esc(counts)}</span>
-              <span class="kv"><b>Priority:</b> <span class="badge">${pr}</span></span>
-            </div>
-            <div class="help">By: ${esc(r.submittedBy?.name || r.submittedBy?.email || 'Unknown')}</div>
-            <div class="actions">
-              <button class="btn btn-primary" data-pick="${esc(r.id)}">Pick Up</button>
-            </div>
-          </div>`;
+        list.sort((a,b)=>(`${a.brand} ${a.sizeFeet}`).localeCompare(`${b.brand} ${b.sizeFeet}`,undefined,{numeric:true}));
+        BAG_SKUS=list;
+        $("bagPick").innerHTML = `<option value="">— Select —</option>` + list.map(b=>{
+          const parts=[`${b.brand} — ${b.sizeFeet} ft`, b.diameterFt?`Ø${b.diameterFt}'`:null, b.location||null, (b.onHand!=null)?`on hand: ${b.onHand}`:null].filter(Boolean).join(' • ');
+          return `<option value="${esc(b.id)}">${esc(parts)}</option>`;
         }).join('');
-      }catch(err){
-        $("pageErr").hidden = false;
-        $("pageErr").textContent = `Failed to load open bags: ${err.message}`;
+        $("bagHelp").textContent=`${list.length} bag SKUs`;
+      }catch(e){
+        console.warn("loadBags:", e);
+        $("bagPick").innerHTML = `<option value="">— Error —</option>`;
+        $("bagHelp").textContent = `0 bag SKUs (load error)`;
       }
     }
 
-    /* ---------- pickup flow ---------- */
-    function openPickupSheet(row){
-      PICK_TARGET = row;
-      $("sheetErr").hidden = true;
-      $("sheetNotes").value = "";
-      $("sheetFiles").value = "";
-      $("sheetDate").value = $("pickedUpDate").value || todayISO();
-
-      const sku = `${esc(row.bagSku?.brand||'Bag')} — ${esc(row.bagSku?.sizeFeet||'?')} ft`;
-      const counts = `${Number(row.counts?.full||0)} full, ${Number(row.counts?.partial||0)} partial`;
-      $("pickupMeta").innerHTML = `
-        Field: <b>${esc(chosenField?.name||'')}</b> • Placed: <b>${esc(row.datePlaced||'—')}</b><br/>
-        SKU: <b>${sku}</b> • Count: <b>${esc(counts)}</b> • Priority: <b>${Number(row.priority||0)}</b>
-      `;
-      $("pickupSheet").classList.add('show');
+    /* ---------- file uploads (lazy Storage) ---------- */
+    async function loadStorageFns(){
+      const m=await import('/Farm-vista/js/firebase-init.js');
+      return { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
     }
-    function closePickupSheet(){ $("pickupSheet").classList.remove('show'); PICK_TARGET = null; }
 
-    async function savePickup(db, auth){
-      $("sheetErr").hidden = true;
-      if(!PICK_TARGET) return;
-      const empId = $("employee").value;
-      if(!empId){ $("sheetErr").hidden=false; $("sheetErr").textContent="Please choose an employee."; return; }
-      const emp = EMPLOYEES.find(e=>e.id===empId) || {};
-      const who = {
-        employeeId: empId,
-        name: emp.name || auth.currentUser?.displayName || auth.currentUser?.email || "Unknown",
-        email: emp.email || auth.currentUser?.email || null
-      };
-      const when = $("sheetDate").value || todayISO();
+    /* ---------- save ---------- */
+    async function handleSave(db,auth){
+      $("err").hidden=true;
 
-      // Create a pickUp event
-      const pick = {
-        type: 'pickUp',
+      if(!chosenField){ alert("Please choose a Field."); return; }
+      const cropYear=Number($("cropYear").value||0); if(!cropYear){ alert("Please choose Crop Year."); return; }
+      const bagId=$("bagPick").value; if(!bagId){ alert("Please choose Bag Brand & Size."); return; }
+      const cropType=$("cropType").value; if(!cropType){ alert("Please choose Crop Type."); return; }
+      const datePlaced=$("datePlaced").value; if(!datePlaced){ alert("Please set the Date placed."); return; }
+
+      setBagChoiceById(bagId);
+
+      // partials UI present?
+      const partialCount = Math.max(0, Number($("partialBags").value||0));
+      if(partialCount>0 && !validatePartials()){
+        $("err").hidden=false; $("err").textContent="One or more partial lengths are outside the allowed range.";
+        return;
+      }
+
+      const partialLens = [...$("partialsList").querySelectorAll('input')]
+        .map(i=>Number(i.value||0)).filter(v=>v>0);
+      if(partialCount>0 && partialLens.length!==partialCount){
+        alert("Please enter each partial bag length."); return;
+      }
+
+      const fullBags = Math.max(0, Number($("fullBags").value||0));
+      const carryType = (partialCount>0) ? $("carryType").value : "new"; // partial-only control
+
+      const subId = $("submittedBy").value || "";
+      const subEmp = EMPLOYEES.find(e=>e.id===subId) || {};
+      const subEmail = subEmp.email || auth.currentUser?.email || "";
+      const subName  = subEmp.name  || auth.currentUser?.displayName || subEmail || "Unknown";
+
+      const record = {
+        type: 'putDown',
         field: { id: chosenField.id, name: chosenField.name },
-        refPutDownId: PICK_TARGET.id,
-        bagSku: PICK_TARGET.bagSku || null,
-        counts: PICK_TARGET.counts || null,
-        notes: $("sheetNotes").value.trim(),
-        pickedUpDate: when,
-        pickedUpBy: who,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        cropYear, cropType, datePlaced,
+        usage: carryType, // 'carryover' | 'new' (only relevant if partials > 0)
+        bagSku: {
+          id: chosenBag?.id || bagId,
+          brand: chosenBag?.brand || null,
+          sizeFeet: Number(chosenBag?.sizeFeet || 0),
+          diameterFt: chosenBag?.diameterFt || null,
+          location: chosenBag?.location || null
+        },
+        counts: { full: fullBags, partial: partialCount, partialFeet: partialLens },
+        priority: Number($("priority").value||5),
+        notes: $("notes").value.trim(),
+        submittedBy: { employeeId: subId || null, name: subName, email: subEmail },
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       };
-      const ref = await addDoc(collection(db,'grain_bag_events'), pick);
+
+      // Save the event
+      const ref = await addDoc(collection(db,'grain_bag_events'), record);
 
       // Optional photos
-      const files = Array.from(($("sheetFiles").files||[]));
+      const files = Array.from(($("files").files||[]));
       if(files.length){
         try{
           const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
           const st = getStorage();
-          const uploaded = [];
+          const uploaded=[];
           for(const f of files){
-            const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-            const path = `grain_bag_events/${ref.id}/${safe}`;
-            const r = stRef(st, path);
-            await uploadBytes(r, f, { contentType:f.type || 'application/octet-stream' });
-            const url = await getDownloadURL(r);
-            uploaded.push({name:f.name, url, path});
+            const safe=(Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+            const p=`grain_bag_events/${ref.id}/${safe}`;
+            const r=stRef(st,p);
+            await uploadBytes(r,f,{contentType:f.type||'application/octet-stream'});
+            const url=await getDownloadURL(r);
+            uploaded.push({name:f.name,url,path:p});
           }
-          await updateDoc(doc(db,'grain_bag_events',ref.id), { files: uploaded, updatedAt: serverTimestamp() });
+          await updateDoc(doc(db,'grain_bag_events',ref.id), { files:uploaded, updatedAt:serverTimestamp() });
         }catch(stErr){
-          $("sheetErr").hidden=false;
-          $("sheetErr").textContent = `Saved pickup, but photo upload failed: ${stErr.message}`;
+          $("err").hidden=false; $("err").textContent = `Saved, but photo upload failed: ${stErr.message}`;
         }
       }
 
-      // Update source putDown as picked up
-      try{
-        await updateDoc(doc(db,'grain_bag_events',PICK_TARGET.id), {
-          status: 'pickedUp',
-          pickedUpAt: when,
-          pickedUpBy: who,
-          updatedAt: serverTimestamp()
-        });
-      }catch(e){
-        console.warn("mark putDown pickedUp failed:", e);
+      // Inventory decrement against inventoryGrainBagMovements
+      // - Full bags ALWAYS decrement by 'fullBags'
+      // - Partials decrement by +1 ONLY if carryType === 'new'
+      if(chosenBag && chosenBag.onHand!=null){
+        const debit = fullBags + ((partialCount>0 && carryType==='new') ? 1 : 0);
+        if(debit>0){
+          try{
+            const next = Math.max(0, Number(chosenBag.onHand) - debit);
+            await updateDoc(doc(db,'inventoryGrainBagMovements',chosenBag.id), { onHand: next, updatedAt: serverTimestamp() });
+          }catch(invErr){ console.warn("Inventory decrement failed:", invErr); }
+        }
       }
 
-      closePickupSheet();
-      toast("Bag marked as picked up.");
-      await loadOpenBags(db); // refresh list
+      toast("Put Down recorded.");
+
+      // Reset some UI (keep field/year)
+      $("bagPick").value=""; $("cropType").value="";
+      $("datePlaced").value=todayISO();
+      $("fullBags").value="0"; $("partialBags").value="0";
+      $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
+      $("notes").value=""; $("files").value="";
+      setBagChoiceById(null);
     }
 
     /* ---------- boot ---------- */
@@ -426,36 +508,53 @@
       const db = getFirestore();
       const auth = getAuth();
 
-      // Defaults
-      $("pickedUpDate").value = todayISO();
+      fillYears();
+      fillPriority();
+      $("datePlaced").value = todayISO();
 
-      // Load lists
-      await Promise.all([ loadFields(db), loadEmployees(db, auth) ]);
+      await Promise.all([ loadFields(db), loadEmployees(db,auth), loadBags(db) ]);
+      renderFieldBtn();
 
       // Field picker wiring
-      $("fieldBtn").addEventListener("click", openFieldSheet);
-      $("fieldSearch").addEventListener("input", (e)=> filterFields(e.target.value));
-      $("fieldList").addEventListener("click", (e)=>{
-        const el = e.target.closest(".item");
-        if(!el) return;
-        const id = el.dataset.id;
-        const it = FIELD_INDEX.find(f=>f.id===id);
-        if(it){ chosenField = it; $("fieldBtn").textContent = it.name; closeFieldSheet(); loadOpenBags(db); }
+      $("fieldBtn").addEventListener("click", ()=>{ document.getElementById('fieldSheet').classList.add('show'); $("fieldSearch").value=""; $("fieldSearch").focus(); });
+      $("fieldSearch").addEventListener("input", (e)=>{
+        const q=(e.target.value||"").toLowerCase().trim();
+        const out=FIELD_INDEX.filter(f=>!q || f.name.toLowerCase().includes(q)).map(f=>`<div class="item" data-id="${esc(f.id)}">${esc(f.name)}</div>`).join('');
+        $("fieldList").innerHTML = out || `<div class="item subtle">(no matches)</div>`;
       });
-      document.addEventListener("keydown", (e)=>{ if(e.key==="Escape"){ closeFieldSheet(); closePickupSheet(); } });
+      $("fieldList").addEventListener("click",(e)=>{
+        const el=e.target.closest(".item"); if(!el) return;
+        const it=FIELD_INDEX.find(f=>f.id===el.dataset.id); if(!it) return;
+        chosenField=it; renderFieldBtn(); document.getElementById('fieldSheet').classList.remove('show');
+      });
+      document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") document.getElementById('fieldSheet').classList.remove('show'); });
 
-      // List item buttons → open pickup sheet
-      $("bagList").addEventListener("click", (e)=>{
-        const b = e.target.closest("button[data-pick]");
-        if(!b) return;
-        const id = b.getAttribute("data-pick");
-        const row = OPEN_PUTDOWNS.find(r=>r.id===id);
-        if(row) openPickupSheet(row);
+      // Add Bag gate
+      $("addBag").addEventListener("click", ()=>{
+        if(!chosenField) return alert("Choose a Field first.");
+        if(!$("cropYear").value) return alert("Choose Crop Year.");
+        $("bagForm").hidden=false; toast("Bag form ready.");
       });
 
-      // Pickup sheet controls
-      $("cancelPickup").addEventListener("click", closePickupSheet);
-      $("confirmPickup").addEventListener("click", ()=> savePickup(db, auth));
+      // Bag + partials
+      $("bagPick").addEventListener("change",(e)=> setBagChoiceById(e.target.value));
+      $("partialBags").addEventListener("input", ()=>{
+        renderPartialInputs();
+      });
+
+      // Actions
+      $("btnSave").addEventListener("click", ()=> handleSave(db, getAuth()));
+      $("btnClear").addEventListener("click", ()=>{
+        $("bagPick").value=""; $("cropType").value="";
+        $("datePlaced").value=todayISO(); $("fullBags").value="0"; $("partialBags").value="0";
+        $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
+        $("notes").value=""; $("files").value="";
+        setBagChoiceById(null);
+        // default submittedBy back to current user if available
+        const me=(getAuth().currentUser?.email||"").toLowerCase();
+        const mine=EMPLOYEES.find(e=>(e.email||"").toLowerCase()===me);
+        $("submittedBy").value = mine ? mine.id : (EMPLOYEES[0]?.id||"");
+      });
 
       // Helpful network toasts
       window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
@@ -464,10 +563,10 @@
   </script>
 
   <!-- Notes:
-       • Reads open putDowns from /grain_bag_events where type=='putDown' (client-filter by field & !pickedUp).
-       • Saves a new 'pickUp' event + marks the source putDown status to 'pickedUp'.
-       • Requires Employee selection to confirm pickup.
-       • Photos are optional and use lazy Storage load.
+       • Bag Usage now lives with Partial lengths and only shows when partials are present.
+       • 1-second debounce before marking partial inputs invalid (red).
+       • Priority dropdown uses labeled options and helper text.
+       • Inventory: full bags always decrement; partials only if usage = New.
   -->
 </body>
 </html>
