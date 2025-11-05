@@ -70,7 +70,7 @@
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* Inline combo dropdown (tight, rounded) */
+    /* Combo */
     .combo{ position:relative }
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + 4px);
@@ -113,14 +113,14 @@
         <div class="body">
           <!-- YEAR + FIELD -->
           <div class="row">
-            <!-- Crop Year (non-search) -->
+            <!-- Crop Year -->
             <div class="field combo" id="yearCombo">
               <label for="yearBtn">Crop Year</label>
               <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
               <div class="combo-panel" id="yearPanel"><div class="list" id="yearList"></div></div>
             </div>
 
-            <!-- Field (searchable) — ONLY fields that have open putDowns this year -->
+            <!-- Field (searchable, filtered to open) -->
             <div class="field combo" id="fieldCombo">
               <label for="fieldBtn">Field</label>
               <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
@@ -132,7 +132,20 @@
             </div>
           </div>
 
-          <!-- Open bags list (cards) -->
+          <!-- Crop filter appears after field chosen -->
+          <div class="row" id="cropRow" hidden>
+            <div class="field combo" id="cropCombo">
+              <label for="cropBtn">Crop Type</label>
+              <button id="cropBtn" class="buttonish has-caret" type="button">— Select —</button>
+              <div class="combo-panel" id="cropPanel"><div class="list" id="cropList"></div></div>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <div id="summary" class="kv">—</div>
+            </div>
+          </div>
+
+          <!-- Open bags list -->
           <div class="field">
             <label>Open Bags in Field</label>
             <div id="listHelp" class="help">Choose Year, then Field.</div>
@@ -152,37 +165,37 @@
     import {
       ready, getFirestore, getAuth,
       collection, getDocs, addDoc, doc, updateDoc,
-      serverTimestamp, query, orderBy, where
+      serverTimestamp, query, where
     } from '/Farm-vista/js/firebase-init.js';
 
-    // Lazy Storage (for optional photos)
+    // Lazy Storage for photos
     async function loadStorageFns(){
       const m = await import('/Farm-vista/js/firebase-init.js');
       return { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
     }
 
-    /* ---------- utils ---------- */
+    /* ===== Utils ===== */
     const $ = id => document.getElementById(id);
     const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const toast = (msg="Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); };
     const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
+    const num = v => (v===undefined||v===null||v==="") ? NaN : Number(v);
 
-    /* ---------- state ---------- */
-    let EMPLOYEES=[];            // [{id,name,email}]
+    /* ===== State ===== */
     let YEAR = new Date().getFullYear();
-    let FIELD_INDEX=[];          // all fields [{id,name}]
-    let FIELDS_WITH_OPEN_BY_YEAR = []; // subset for YEAR
-    let CHOSEN_FIELD=null;       // {id,name}
+    let EMPLOYEES = [];
+    let FIELDS_INDEX = []; // [{id,name}]
+    // Map of fieldId -> { id,name, crops: { 'Corn': [rows], 'Soybeans':[rows], ... } }
+    let OPEN_INDEX = new Map();
 
-    let OPEN_PUTDOWNS=[];        // open putDown docs for chosen field & year
+    let CHOSEN_FIELD = null; // {id,name}
+    let CHOSEN_CROP = null;  // 'Corn' | 'Soybeans' | ...
 
-    /* ---------- global combo manager ---------- */
+    /* ===== Combo infra (single open at a time) ===== */
     function closeAllCombos(except=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
     }
     document.addEventListener('click', ()=> closeAllCombos());
-
-    /* ---------- generic combo helper ---------- */
     function makeCombo({btn, panel, list, items=[], searchable=false, formatter=x=>String(x.label||x), onPick}){
       function render(q=""){
         const qq=(q||"").toLowerCase();
@@ -208,222 +221,247 @@
       if(searchable){
         const s=panel.querySelector('input'); if(s) s.addEventListener('input', e=>render(e.target.value));
       }
-      return { setItems(arr){ items=arr||[]; render(""); }, close, open };
+      return { setItems(arr){ items=arr||[]; render(""); }, open, close };
     }
 
-    /* ---------- formatting ---------- */
-    function skuText(r){
-      return `${r.bagSku?.brand||'Bag'} — ${r.bagSku?.sizeFeet||'?'} ft`;
-    }
-    function countsText(r){
-      return `${Number(r.counts?.full||0)} full, ${Number(r.counts?.partial||0)} partial`;
-    }
+    /* ===== Format helpers ===== */
+    const skuText = r => `${r.bagSku?.brand||'Bag'} — ${r.bagSku?.sizeFeet||'?'} ft`;
+    const countsText = r => `${Number(r.counts?.full||0)} full, ${Number(r.counts?.partial||0)} partial`;
 
-    /* ---------- employees ---------- */
+    /* ===== Data loads ===== */
     async function loadEmployees(db, auth){
       const list=[];
       try{
         const snap = await getDocs(collection(db,'employees'));
         snap.forEach(d=>{
           const x=d.data()||{};
-          list.push({
-            id:d.id,
-            name: x.name||x.displayName||x.fullName||x.email||d.id,
-            email:x.email||d.id
-          });
+          list.push({ id:d.id, name:x.name||x.displayName||x.fullName||x.email||d.id, email:x.email||d.id });
         });
-      }catch(e){ /* ignore */ }
+      }catch(e){ /* ok */ }
       list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-      EMPLOYEES=list;
-      return list;
+      EMPLOYEES = list;
     }
 
-    /* ---------- fields (all) ---------- */
-    async function loadAllFields(db){
+    async function loadFields(db){
+      const arr=[];
       try{
-        const snap=await getDocs(query(collection(db,'fields'), orderBy('name')));
-        const arr=[];
+        const snap = await getDocs(collection(db,'fields'));
         snap.forEach(d=>{
           const x=d.data()||{};
           const name=String(x.name||"").trim();
           if(name) arr.push({id:d.id, name});
         });
-        arr.sort((a,b)=>a.name.localeCompare(b.name));
-        FIELD_INDEX=arr;
-        return arr;
-      }catch(e){
-        console.warn("Fields load error:", e);
-        FIELD_INDEX=[];
-        return [];
-      }
+      }catch(e){ /* ok */ }
+      arr.sort((a,b)=>a.name.localeCompare(b.name));
+      FIELDS_INDEX = arr;
     }
 
-    /* ---------- fields that have open putDowns for YEAR ---------- */
-    async function buildFieldsWithOpenForYear(db){
-      FIELDS_WITH_OPEN_BY_YEAR = [];
+    // Build OPEN_INDEX for the selected YEAR
+    async function buildOpenIndexForYear(db){
+      OPEN_INDEX.clear();
+      $("fieldHelp").textContent = "Loading…";
+
       try{
-        // Try server-side filter by type + cropYear
-        let rows=[];
-        try{
-          const snap=await getDocs(query(
-            collection(db,'grain_bag_events'),
-            where('type','==','putDown'),
-            where('cropYear','==',YEAR),
-            orderBy('priority')
-          ));
-          snap.forEach(d=>{
-            const x=d.data()||{};
-            const open = !x.status || x.status!=='pickedUp';
-            if(open) rows.push({id:d.id,...x});
-          });
-        }catch(qErr){
-          // index not available? fall back to client-side filter
-          console.warn("Compound query fallback:", qErr?.message||qErr);
-          const snap=await getDocs(query(collection(db,'grain_bag_events'), where('type','==','putDown'), orderBy('priority')));
-          const tmp=[];
-          snap.forEach(d=>{
-            const x=d.data()||{};
-            const open = (!x.status || x.status!=='pickedUp') && Number(x.cropYear)===Number(YEAR);
-            if(open) tmp.push({id:d.id,...x});
-          });
-          rows=tmp;
+        // Fetch just by type to avoid composite indexes; filter everything client-side.
+        const snap = await getDocs(query(collection(db,'grain_bag_events'), where('type','==','putDown')));
+        snap.forEach(d=>{
+          const x = d.data()||{};
+          const open = !x.status || x.status!=='pickedUp';
+          const cy = num(x.cropYear);
+          if(!open) return;
+          if(Number.isNaN(cy) ? String(x.cropYear) !== String(YEAR) : cy !== Number(YEAR)) return;
+
+          const fid = x.field?.id;
+          if(!fid) return;
+
+          const name = (FIELDS_INDEX.find(f=>f.id===fid)?.name) || x.field?.name || fid;
+          const crop = x.cropType || x.crop || 'Unknown';
+          const row = { id:d.id, ...x };
+
+          if(!OPEN_INDEX.has(fid)) OPEN_INDEX.set(fid, { id:fid, name, crops:{} });
+          const bucket = OPEN_INDEX.get(fid).crops;
+          if(!bucket[crop]) bucket[crop] = [];
+          bucket[crop].push(row);
+        });
+
+        // Remove fields with no crops / empty arrays just in case
+        for(const [fid, obj] of [...OPEN_INDEX.entries()]){
+          const crops = Object.keys(obj.crops).filter(k=> (obj.crops[k]||[]).length>0 );
+          if(!crops.length) OPEN_INDEX.delete(fid);
         }
 
-        const fieldIds = new Set();
-        rows.forEach(r=>{ if(r.field?.id) fieldIds.add(r.field.id); });
-
-        const dict = new Map(FIELD_INDEX.map(f=>[f.id,f.name]));
-        FIELDS_WITH_OPEN_BY_YEAR = [...fieldIds].map(id=>({id, name:dict.get(id)||id}))
-          .sort((a,b)=>a.name.localeCompare(b.name));
-
-        $("fieldHelp").textContent = `${FIELDS_WITH_OPEN_BY_YEAR.length} field(s) with open bags in ${YEAR}`;
-        return FIELDS_WITH_OPEN_BY_YEAR;
+        $("fieldHelp").textContent = `${OPEN_INDEX.size} field(s) with open bags in ${YEAR}`;
       }catch(err){
-        console.warn("buildFieldsWithOpenForYear:", err);
+        console.warn("buildOpenIndexForYear:", err);
         $("fieldHelp").textContent = `0 field(s) (load error)`;
-        return [];
       }
     }
 
-    /* ---------- open putDowns for chosen field & year ---------- */
-    async function loadOpenBagsForField(db){
-      $("bagList").innerHTML="";
-      $("listHelp").textContent = CHOSEN_FIELD ? "Loading…" : "Choose Year, then Field.";
-      OPEN_PUTDOWNS=[];
-      if(!CHOSEN_FIELD) return;
+    function getFieldsWithOpen(){
+      // Map -> array sorted by name
+      return [...OPEN_INDEX.values()].sort((a,b)=> (a.name||"").localeCompare(b.name||""));
+    }
 
-      try{
-        let rows=[];
-        try{
-          const snap=await getDocs(query(
-            collection(db,'grain_bag_events'),
-            where('type','==','putDown'),
-            where('cropYear','==',YEAR),
-            orderBy('priority')
-          ));
-          snap.forEach(d=>{
-            const x=d.data()||{};
-            const open = !x.status || x.status!=='pickedUp';
-            const isField = x.field?.id===CHOSEN_FIELD.id;
-            if(open && isField) rows.push({id:d.id,...x});
-          });
-        }catch(qErr){
-          // fallback if needed
-          const snap=await getDocs(query(collection(db,'grain_bag_events'), where('type','==','putDown'), orderBy('priority')));
-          const tmp=[];
-          snap.forEach(d=>{
-            const x=d.data()||{};
-            const open = (!x.status || x.status!=='pickedUp')
-              && Number(x.cropYear)===Number(YEAR)
-              && x.field?.id===CHOSEN_FIELD.id;
-            if(open) tmp.push({id:d.id,...x});
-          });
-          rows=tmp;
+    function cropsForField(fid){
+      const obj = OPEN_INDEX.get(fid);
+      if(!obj) return [];
+      return Object.keys(obj.crops).sort();
+    }
+
+    function consolidatedSummary(rows){
+      // rows = open putDown rows for chosen crop
+      let full=0, partial=0;
+      rows.forEach(r=>{
+        full += Number(r.counts?.full||0);
+        partial += Number(r.counts?.partial||0);
+      });
+      return {full, partial, entries:rows.length};
+    }
+
+    /* ===== UI wiring ===== */
+    // Year combo
+    const y = new Date().getFullYear();
+    const YEARS = [y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
+    const yearCombo = makeCombo({
+      btn:$("yearBtn"), panel:$("yearPanel"), list:$("yearList"),
+      items:YEARS, searchable:false, formatter:x=>x.label,
+      onPick: async (it)=>{
+        YEAR = Number(it.value);
+        $("yearBtn").textContent = it.label;
+        CHOSEN_FIELD = null; CHOSEN_CROP=null;
+        $("fieldBtn").textContent="— Select field —";
+        $("summary").textContent="—"; $("cropRow").hidden=true;
+        $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
+        await buildOpenIndexForYear(db);
+        fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
+      }
+    });
+
+    // Field combo (searchable)
+    const fieldCombo = makeCombo({
+      btn:$("fieldBtn"), panel:$("fieldPanel"), list:$("fieldList"),
+      items:[], searchable:true, formatter:x=>x.name,
+      onPick: async (it)=>{
+        CHOSEN_FIELD = it;
+        $("fieldBtn").textContent = it.name;
+
+        // Build crop list for this field
+        const crops = cropsForField(it.id).map(c=>({id:c, label:c, value:c}));
+        cropCombo.setItems(crops);
+        if(crops.length){
+          CHOSEN_CROP = crops[0].value;
+          $("cropBtn").textContent = crops[0].label;
+          $("cropRow").hidden = false;
+        }else{
+          CHOSEN_CROP = null;
+          $("cropRow").hidden = true;
         }
+        await renderOpenBags();
+      }
+    });
 
-        // sort: higher priority first, then datePlaced asc
-        rows.sort((a,b)=> (Number(b.priority||0) - Number(a.priority||0)) || String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")) );
-        OPEN_PUTDOWNS=rows;
+    // Crop combo
+    const cropCombo = makeCombo({
+      btn:$("cropBtn"), panel:$("cropPanel"), list:$("cropList"),
+      items:[], searchable:false, formatter:x=>x.label,
+      onPick: async (it)=>{
+        CHOSEN_CROP = it.value;
+        $("cropBtn").textContent = it.label;
+        await renderOpenBags();
+      }
+    });
 
-        if(!rows.length){
-          $("bagList").innerHTML = `<div class="card">No open bags for <b>${esc(CHOSEN_FIELD.name)}</b> in ${esc(String(YEAR))}.</div>`;
-          $("listHelp").textContent = "—";
-          return;
-        }
+    function rowsForCurrent(){
+      if(!CHOSEN_FIELD) return [];
+      const obj = OPEN_INDEX.get(CHOSEN_FIELD.id);
+      if(!obj) return [];
+      if(!CHOSEN_CROP){
+        // flattened of all crops
+        return Object.values(obj.crops).flat();
+      }
+      return obj.crops[CHOSEN_CROP] || [];
+    }
 
-        $("listHelp").textContent = `${rows.length} open bag(s)`;
-        $("bagList").innerHTML = rows.map(r=>{
-          const id=esc(r.id);
-          const sku=esc(skuText(r)); const cnt=esc(countsText(r));
-          const pr = Number(r.priority||0);
-          const placed = esc(r.datePlaced||'—');
-          return `
-            <div class="card" data-row="${id}">
-              <div class="kvs">
-                <span class="kv"><b>Placed:</b> ${placed}</span>
-                <span class="kv"><b>SKU:</b> ${sku}</span>
-                <span class="kv"><b>Count:</b> ${cnt}</span>
-                <span class="kv"><b>Priority:</b> ${pr}</span>
-              </div>
-              <div class="help">By: ${esc(r.submittedBy?.name || r.submittedBy?.email || 'Unknown')}</div>
-              <div class="actions">
-                <button class="btn btn-primary" data-action="open-pickup" data-id="${id}">Pick Up</button>
-              </div>
+    async function renderOpenBags(){
+      $("bagList").innerHTML = "";
+      if(!CHOSEN_FIELD){ $("listHelp").textContent="Choose Field."; return; }
 
-              <!-- Inline pickup form (hidden until opened) -->
-              <div class="pickup-form" id="pf-${id}" hidden>
-                <div class="row">
-                  <div class="field combo">
-                    <label>Employee (required)</label>
-                    <button class="buttonish has-caret" type="button" data-emp-btn="${id}">— Select —</button>
-                    <div class="combo-panel"><div class="list" data-emp-list="${id}"></div></div>
-                    <div class="help">Defaults to current user if listed.</div>
-                  </div>
-                  <div class="field">
-                    <label>Pickup Date</label>
-                    <input class="input" type="date" data-emp-date="${id}"/>
-                  </div>
-                </div>
+      const rows = rowsForCurrent();
+      if(!rows.length){
+        $("listHelp").textContent = "No open bags.";
+        $("summary").textContent = "—";
+        $("bagList").innerHTML = `<div class="card">No open bags for <b>${esc(CHOSEN_FIELD.name)}</b>${CHOSEN_CROP?` • ${esc(CHOSEN_CROP)}`:''} in ${esc(String(YEAR))}.</div>`;
+        return;
+      }
 
-                <div class="field">
-                  <label>Notes</label>
-                  <textarea class="textarea" placeholder="Optional" data-emp-notes="${id}"></textarea>
-                </div>
+      // sort: higher priority first, then earliest placed
+      rows.sort((a,b)=>(Number(b.priority||0)-Number(a.priority||0)) || String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")));
 
-                <div class="field">
-                  <label>Optional Photos</label>
-                  <input class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple data-emp-files="${id}">
-                </div>
+      const sum = consolidatedSummary(rows);
+      $("summary").innerHTML = `<b>Total:</b> ${sum.full} full, ${sum.partial} partial • ${sum.entries} open entr${sum.entries===1?'y':'ies'}`;
+      $("listHelp").textContent = `${rows.length} open bag entr${rows.length===1?'y':'ies'}`;
 
-                <div class="actions">
-                  <button class="btn" type="button" data-action="cancel-pickup" data-id="${id}">Cancel</button>
-                  <button class="btn btn-primary" type="button" data-action="confirm-pickup" data-id="${id}">Mark Picked Up</button>
-                </div>
-
-                <div class="help error" hidden data-emp-err="${id}"></div>
-              </div>
+      $("bagList").innerHTML = rows.map(r=>{
+        const id=esc(r.id);
+        return `
+          <div class="card" data-row="${id}">
+            <div class="kvs">
+              <span class="kv"><b>Placed:</b> ${esc(r.datePlaced||'—')}</span>
+              <span class="kv"><b>SKU:</b> ${esc(skuText(r))}</span>
+              <span class="kv"><b>Count:</b> ${esc(countsText(r))}</span>
+              <span class="kv"><b>Priority:</b> ${Number(r.priority||0)}</span>
+              <span class="kv"><b>Crop:</b> ${esc(r.cropType||r.crop||'—')}</span>
             </div>
-          `;
-        }).join('');
-      }catch(err){
-        $("pageErr").hidden=false;
-        $("pageErr").textContent = `Failed to load open bags: ${err.message}`;
-      }
+            <div class="help">By: ${esc(r.submittedBy?.name || r.submittedBy?.email || 'Unknown')}</div>
+            <div class="actions">
+              <button class="btn btn-primary" data-action="open-pickup" data-id="${id}">Pick Up</button>
+            </div>
+
+            <!-- Inline pickup form -->
+            <div class="pickup-form" id="pf-${id}" hidden>
+              <div class="row">
+                <div class="field combo">
+                  <label>Employee (required)</label>
+                  <button class="buttonish has-caret" type="button" data-emp-btn="${id}">— Select —</button>
+                  <div class="combo-panel"><div class="list" data-emp-list="${id}"></div></div>
+                  <div class="help">Defaults to current user if listed.</div>
+                </div>
+                <div class="field">
+                  <label>Pickup Date</label>
+                  <input class="input" type="date" data-emp-date="${id}"/>
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Notes</label>
+                <textarea class="textarea" placeholder="Optional" data-emp-notes="${id}"></textarea>
+              </div>
+
+              <div class="field">
+                <label>Optional Photos</label>
+                <input class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple data-emp-files="${id}">
+              </div>
+
+              <div class="actions">
+                <button class="btn" type="button" data-action="cancel-pickup" data-id="${id}">Cancel</button>
+                <button class="btn btn-primary" type="button" data-action="confirm-pickup" data-id="${id}">Mark Picked Up</button>
+              </div>
+
+              <div class="help error" hidden data-emp-err="${id}"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
     }
 
-    /* ---------- save pickup ---------- */
     async function savePickup(db, auth, row, ctxId){
       const errEl = document.querySelector(`[data-emp-err="${CSS.escape(ctxId)}"]`);
       errEl.hidden = true;
 
-      // find picked employee
       const empBtn = document.querySelector(`[data-emp-btn="${CSS.escape(ctxId)}"]`);
       const empId  = empBtn?.dataset.value || "";
-      if(!empId){
-        errEl.textContent = "Please choose an employee.";
-        errEl.hidden = false;
-        return;
-      }
+      if(!empId){ errEl.textContent="Please choose an employee."; errEl.hidden=false; return; }
+
       const me = auth.currentUser;
       const emp = EMPLOYEES.find(e=>e.id===empId) || {};
       const who = {
@@ -434,11 +472,10 @@
 
       const dateEl = document.querySelector(`[data-emp-date="${CSS.escape(ctxId)}"]`);
       const when = (dateEl?.value || todayISO());
-
       const notesEl = document.querySelector(`[data-emp-notes="${CSS.escape(ctxId)}"]`);
       const filesEl = document.querySelector(`[data-emp-files="${CSS.escape(ctxId)}"]`);
 
-      // Create a pickUp event
+      // Create pickUp event
       const pick = {
         type:'pickUp',
         field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
@@ -454,28 +491,29 @@
       };
       const ref = await addDoc(collection(db,'grain_bag_events'), pick);
 
-      // Optional photos
+      // Photos
       const files = Array.from((filesEl?.files||[]));
       if(files.length){
         try{
           const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
           const st = getStorage();
-          const uploaded = [];
+          const uploaded=[];
           for(const f of files){
             const safe=(Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
             const path=`grain_bag_events/${ref.id}/${safe}`;
-            await uploadBytes(stRef(st,path), f, {contentType:f.type||'application/octet-stream'});
-            const url=await getDownloadURL(stRef(st,path));
+            const r = stRef(st,path);
+            await uploadBytes(r, f, {contentType:f.type||'application/octet-stream'});
+            const url=await getDownloadURL(r);
             uploaded.push({name:f.name, url, path});
           }
           await updateDoc(doc(db,'grain_bag_events',ref.id), { files:uploaded, updatedAt:serverTimestamp() });
         }catch(stErr){
           errEl.textContent = `Saved pickup, but photo upload failed: ${stErr.message}`;
-          errEl.hidden = false;
+          errEl.hidden=false;
         }
       }
 
-      // Mark source putDown as pickedUp
+      // Mark source putDown as picked up
       try{
         await updateDoc(doc(db,'grain_bag_events',row.id), {
           status:'pickedUp',
@@ -486,44 +524,55 @@
       }catch(e){ console.warn("mark putDown pickedUp failed:", e); }
 
       toast("Bag marked as picked up.");
-      await loadOpenBagsForField(db); // refresh list for field/year
+
+      // Refresh indexes + UI so fields drop out when empty
+      await buildOpenIndexForYear(db);
+      // If chosen field now has no open rows for current crop, adjust crop/field selections
+      if(!OPEN_INDEX.has(CHOSEN_FIELD.id)){
+        // field disappeared
+        CHOSEN_FIELD=null; CHOSEN_CROP=null;
+        $("fieldBtn").textContent="— Select field —";
+        $("cropRow").hidden=true; $("summary").textContent="—";
+        $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
+        fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
+      }else{
+        // rebuild crops & rerender
+        const crops = cropsForField(CHOSEN_FIELD.id).map(c=>({id:c,label:c,value:c}));
+        cropCombo.setItems(crops);
+        if(CHOSEN_CROP && !crops.find(c=>c.value===CHOSEN_CROP)){
+          CHOSEN_CROP = crops[0]?.value || null;
+          $("cropBtn").textContent = CHOSEN_CROP || "— Select —";
+        }
+        await renderOpenBags();
+      }
     }
 
-    /* ---------- boot ---------- */
+    /* ===== Boot ===== */
+    let db, auth;
     (async()=>{
       await ready;
-      const db=getFirestore(); const auth=getAuth();
+      db = getFirestore(); auth = getAuth();
 
-      /* Year combo */
-      const y=new Date().getFullYear();
-      const YEARS=[y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
-      const yearCombo = makeCombo({
-        btn:$("yearBtn"), panel:$("yearPanel"), list:$("yearList"),
-        items:YEARS, searchable:false, formatter:x=>x.label,
-        onPick: async (it)=>{ YEAR=Number(it.value); $("yearBtn").textContent=it.label; CHOSEN_FIELD=null; $("fieldBtn").textContent="— Select field —"; $("fieldHelp").textContent="—"; $("bagList").innerHTML=""; $("listHelp").textContent="Choose Year, then Field."; await buildFieldsWithOpenForYear(db); fieldCombo.setItems(FIELDS_WITH_OPEN_BY_YEAR); }
-      });
-      YEAR = y; $("yearBtn").textContent=String(y);
+      // Default year UI
+      YEAR = new Date().getFullYear();
+      $("yearBtn").textContent = String(YEAR);
+      yearCombo.setItems?.(YEARS); // ensure items rendered
 
-      /* Field combo (searchable, but items filtered to open-for-year) */
-      const fieldCombo = makeCombo({
-        btn:$("fieldBtn"), panel:$("fieldPanel"), list:$("fieldList"),
-        items:[], searchable:true, formatter:(x)=>x.name,
-        onPick: async (it)=>{ CHOSEN_FIELD=it; $("fieldBtn").textContent=it.name; await loadOpenBagsForField(db); }
-      });
+      await Promise.all([ loadEmployees(db, auth), loadFields(db) ]);
+      await buildOpenIndexForYear(db);
 
-      /* Load employees + fields, then build open-by-year */
-      await Promise.all([ loadEmployees(db, auth), loadAllFields(db) ]);
-      await buildFieldsWithOpenForYear(db);
-      fieldCombo.setItems(FIELDS_WITH_OPEN_BY_YEAR);
+      // Seed field list
+      fieldCombo.setItems( getFieldsWithOpen().map(f=>({id:f.id, name:f.name})) );
 
-      /* Field search box live filter */
+      // Search filter for fields
       $("fieldSearch").addEventListener('input', (e)=>{
         const q=(e.target.value||"").toLowerCase();
-        const list = FIELDS_WITH_OPEN_BY_YEAR.filter(f=>!q || f.name.toLowerCase().includes(q));
+        const base = getFieldsWithOpen().map(f=>({id:f.id, name:f.name}));
+        const list = base.filter(f=>!q || f.name.toLowerCase().includes(q));
         fieldCombo.setItems(list);
       });
 
-      /* Bag list actions */
+      // Bag list actions
       $("bagList").addEventListener("click", async (e)=>{
         const btn = e.target.closest("button");
         if(!btn) return;
@@ -531,20 +580,20 @@
         const action = btn.getAttribute("data-action");
         if(!id || !action) return;
 
-        const row = OPEN_PUTDOWNS.find(r=>r.id===id);
+        const rows = rowsForCurrent();
+        const row = rows.find(r=>r.id===id);
         if(!row) return;
 
         if(action==="open-pickup"){
-          // reveal inline form and wire employee combo
           const form = $("pf-"+id);
           if(!form) return;
-          form.hidden = false;
+          form.hidden=false;
 
-          // default date to today
+          // Default date
           const dateEl = form.querySelector(`[data-emp-date="${CSS.escape(id)}"]`);
           if(dateEl) dateEl.value = todayISO();
 
-          // build employee combo for this row
+          // Employee combo
           const empBtn = form.querySelector(`[data-emp-btn="${CSS.escape(id)}"]`);
           const empPanel = empBtn?.nextElementSibling;
           const empList = form.querySelector(`[data-emp-list="${CSS.escape(id)}"]`);
@@ -553,7 +602,6 @@
             items: EMPLOYEES, searchable:false, formatter:x=>x.name,
             onPick: it => { empBtn.textContent=it.name; empBtn.dataset.value=it.id; }
           });
-          // default to current user if present
           const me = (auth.currentUser?.email||"").toLowerCase();
           const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
           if(mine){ empBtn.textContent=mine.name; empBtn.dataset.value=mine.id; }
@@ -569,10 +617,10 @@
         }
       });
 
-      // Close all combos on Escape
+      // Close combos on Escape
       document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
-      // Network toasts
+      // Network hints
       window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
       window.addEventListener('offline',()=> toast("Currently offline — using saved data", 3000));
     })();
