@@ -41,7 +41,6 @@
     .btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent }
-    .btn-mini{ padding:6px 10px; border-radius:999px; font-weight:700; font-size:13px }
     .muted{ color:var(--muted,#67706B); font-size:14px }
 
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
@@ -54,8 +53,35 @@
     }
     .textarea{ min-height:90px }
 
-    .select.addable option.add-opt{ font-weight:800; }
+    /* Combobox (custom dropdown) */
+    .combo{ position:relative; }
+    .combo .display{
+      width:100%; text-align:left; cursor:pointer;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .combo .display span.value{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .combo .display .caret{ margin-left:10px; font-weight:900 }
+    .combo .panel{
+      position:absolute; left:0; right:0; top:calc(100% + 6px);
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      box-shadow:0 16px 50px rgba(0,0,0,.35);
+      display:none; z-index:9100;
+    }
+    .combo.open .panel{ display:block }
+    .panel .search{ border:none; border-bottom:1px solid var(--border); border-radius:12px 12px 0 0; padding:10px 12px; width:100%; }
+    .panel .list{ max-height:280px; overflow:auto; }
+    .panel .opt{
+      padding:10px 12px; border-top:1px solid var(--border); cursor:pointer;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .panel .opt:first-child{ border-top:none }
+    .panel .opt:hover{ background:color-mix(in srgb, var(--brand) 8%, transparent); }
+    .opt .pill{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; margin-left:8px }
+    .panel .add { font-weight:800; }
+    .opt.sel { background:color-mix(in srgb, var(--brand) 14%, transparent); }
+    .hint{ font-size:12px; color:var(--muted); margin-top:4px }
 
+    /* QR preview */
     .qr-preview{
       display:grid; grid-template-columns:196px 1fr; gap:16px; align-items:center;
       border:1px dashed var(--border); border-radius:12px; padding:12px; background:color-mix(in srgb, var(--brand) 4%, transparent);
@@ -63,22 +89,17 @@
     .qr-img{ width:196px; height:196px; display:grid; place-items:center; background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px; overflow:hidden }
     #qrImg{ max-width:180px; max-height:180px; display:block }
 
-    /* Centered modals */
+    /* Manage Modal (archive/unarchive) */
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:9000; }
     .modal.show{ display:flex; }
     .modal-card{ width:min(620px,95vw); max-height:90vh; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.35); display:flex; flex-direction:column; }
     .md-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand) 10%, transparent) }
     .md-body{ padding:16px; display:grid; gap:12px }
     .list{ border:1px solid var(--border); border-radius:12px; overflow:hidden }
-    .row{ display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; padding:10px 12px; border-top:1px solid var(--border) }
+    .row{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:10px 12px; border-top:1px solid var(--border) }
     .row:first-child{ border-top:none }
     .pill{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
-    .hint{ font-size:12px; color:var(--muted); margin-top:4px }
     label.clickable{ cursor:pointer; text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; }
-
-    /* tiny add modal */
-    .tiny-card{ width:min(420px,94vw); }
-    .tiny-body{ padding:16px; display:grid; gap:10px }
   </style>
 </head>
 <body>
@@ -89,22 +110,17 @@
         <p class="muted">Fill the basics, create the QR to preview, then save.</p>
       </header>
 
-      <!-- HERO / ACTIONS -->
       <section class="hero">
         <div class="hero-actions">
           <button id="btnCreateQR" class="btn" type="button">Create QR Code</button>
           <button id="btnSave" class="btn btn-primary" type="button">Save</button>
-          <a id="btnCancel" class="btn btn-quiet" href="/Farm-vista/pages/equipment/tractors-view.html">Cancel</a>
+          <a class="btn btn-quiet" href="/Farm-vista/pages/equipment/tractors-view.html">Cancel</a>
         </div>
 
-        <!-- QR shows here immediately after "Create QR Code" -->
         <div id="qrPreview" class="qr-preview" hidden>
           <div class="qr-img"><img id="qrImg" alt="QR preview"/></div>
           <div>
-            <div class="muted">
-              QR preview. This code deep-links to the equipment hub for this unit.
-              You can print labels after saving from the view screen.
-            </div>
+            <div class="muted">QR preview. This code deep-links to the equipment hub for this unit. Print labels from the view screen after saving.</div>
             <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
               <a id="openHub" class="btn btn-quiet" target="_blank" rel="noopener">Open Hub</a>
               <a id="downloadPng" class="btn" download="equipment-qr.png">Download PNG</a>
@@ -118,13 +134,34 @@
         <div class="grid2">
           <div>
             <label id="lblMake" class="clickable" title="Tap to manage Makes">Make</label>
-            <select id="make" class="select addable"></select>
-            <div class="hint">Tap “Make” to manage (edit/archive). Choose “+ Add new…” from the list to create.</div>
+            <div class="combo" id="combo-make">
+              <button class="input display" type="button" aria-haspopup="listbox">
+                <span class="value" id="makeValue">Select…</span>
+                <span class="caret">▾</span>
+              </button>
+              <div class="panel" role="listbox" aria-label="Select Make">
+                <input class="search" id="makeSearch" placeholder="Search makes…">
+                <div class="list" id="makeListBox"></div>
+                <div class="opt add" id="makeAddRow" style="display:none">+ Add “<span id="makeAddText"></span>”</div>
+              </div>
+            </div>
+            <div class="hint">Tip: tap “Make” to archive/activate items.</div>
           </div>
+
           <div>
             <label id="lblModel" class="clickable" title="Tap to manage Models">Model</label>
-            <select id="model" class="select addable"></select>
-            <div class="hint">Tap “Model” to manage (edit/archive). Choose “+ Add new…” from the list to create.</div>
+            <div class="combo" id="combo-model">
+              <button class="input display" type="button" aria-haspopup="listbox">
+                <span class="value" id="modelValue">Select…</span>
+                <span class="caret">▾</span>
+              </button>
+              <div class="panel" role="listbox" aria-label="Select Model">
+                <input class="search" id="modelSearch" placeholder="Search models…">
+                <div class="list" id="modelListBox"></div>
+                <div class="opt add" id="modelAddRow" style="display:none">+ Add “<span id="modelAddText"></span>”</div>
+              </div>
+            </div>
+            <div class="hint">Add row appears inside the dropdown.</div>
           </div>
         </div>
 
@@ -172,7 +209,7 @@
   G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(d){var x=d<<10;while(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)>=0)x^=(QRUtil.G15<<(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)));return(x|d<<10)^QRUtil.G15_MASK;},
   getBCHDigit:function(d){var n=0;while(d!=0){n++;d>>>=1}return n},getMask:function(m,i,j){switch(m){case 0:return(i+j)%2==0;case 1:return i%2==0;case 2:return j%3==0;case 3:return(i+j)%3==0;case 4:return((i/2|0)+(j/3|0))%2==0;case 5:return(i*j)%2+(i*j)%3==0;case 6:return((i*j)%2+(i*j)%3)%2==0;case 7:return((i*j)%3+i+j)%2==0;default:throw new Error("bad mask")}}};
   var QRMath={EXP_TABLE:new Array(256),LOG_TABLE:new Array(256),glog:function(n){if(n<1)throw new Error("glog("+n+")");return this.LOG_TABLE[n]},gexp:function(n){while(n<0)n+=255;while(n>=256)n-=255;return this.EXP_TABLE[n]}};
-  for(var i=0;i<8;i++)QRMath.EXP_TABLE[i]=1<<i;for(i=8;i<256;i++)QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];for(i=0;i<255;i++)QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
+  for(var i=0;i<8;i++)QRMath.EXP_TABLE[i]=1<<i;for(i=8;i<256;i++)QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];for(i=0;i<255)i++)QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
   function QRPolynomial(num,shift){var o=0;while(o<num.length&&num[o]==0)o++;this.num=new Array(num.length-o+shift);for(var i=0;i<num.length-o;i++)this.num[i]=num[i+o]}
   QRPolynomial.prototype={get:function(i){return this.num[i]},getLength:function(){return this.num.length},multiply:function(e){var n=new Array(this.getLength()+e.getLength()-1);for(var i=0;i<this.getLength();i++)for(var j=0;j<e.getLength();j++)n[i+j]^=QRMath.gexp(QRMath.glog(this.get(i))+QRMath.glog(e.get(j)));return new QRPolynomial(n,0)},mod:function(e){if(this.getLength()-e.getLength()<0)return this;var r=QRMath.glog(this.get(0))-QRMath.glog(e.get(0));var n=this.num.slice(0);for(var i=0;i<e.getLength();i++)n[i]^=QRMath.gexp(QRMath.glog(e.get(i))+r);return new QRPolynomial(n,0).mod(e)}};
   var RS_BLOCK_TABLE={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]]};
@@ -193,8 +230,7 @@
   var rsPoly=(function(ec){var a=new QRPolynomial([1],0);for(var i=0;i<ec;i++)a=a.multiply(new QRPolynomial([1,QRMath.gexp(i)],0));return a})(ec);var raw=new QRPolynomial(data,rsPoly.getLength()-1);var mod=raw.mod(rsPoly);
   var ecBytes=new Array(ec).fill(0),m=mod.num,off=ecBytes.length-m.length;for(i=0;i<m.length;i++)ecBytes[i+off]=m[i];return data.concat(ecBytes)},
   toDataURL:function(scale){scale=scale||8;var m=this.getModuleCount(),q=4;var size=(m+q*2)*scale;var c=document.createElement('canvas');c.width=c.height=size;var x=c.getContext('2d');
-  x.fillStyle='#fff';x.fillRect(0,0,size,size);x.fillStyle='#000';for(var r=0;r<m;r++)for(var col=0;col<m;col++)if(this.isDark(r,col))x.fillRect((col+q)*scale,(r+q)*scale,scale,scale);return c.toDataURL('image/png')}};
-  window.QRGen=function(text){var qr=new QRCode(null,2);qr.addData(text);qr.make();return qr.toDataURL(10)};})(window);
+  x.fillStyle='#fff';x.fillRect(0,0,size,size);x.fillStyle='#000';for(var r=0;r<m;r++)for(var col=0;col<m;col++)if(this.isDark(r,col))x.fillRect((col+q)*scale,(r+q)*scale,scale,scale);return c.toDataURL(10)});window.QRGen=function(text){var qr=new QRCode(null,2);qr.addData(text);qr.make();return qr.toDataURL(10)};})(window);
   </script>
 
   <script type="module">
@@ -214,162 +250,155 @@
         const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
       }
     }
-    function ensureHttps(u){
-      try{ const url = new URL(u, location.origin); if(url.protocol!=='https:') url.protocol='https:'; return url.toString(); }
-      catch{ return u; }
-    }
-    function computeName(make, model, year){
-      const nm = [make, model].filter(Boolean).join(' ');
-      return nm ? (year ? `${nm} (${year})` : nm) : null;
-    }
+    const ensureHttps = (u)=>{ try{ const url = new URL(u, location.origin); if(url.protocol!=='https:') url.protocol='https:'; return url.toString(); }catch{ return u; } };
+    const computeName = (make,model,year)=>{ const nm=[make,model].filter(Boolean).join(' '); return nm ? (year?`${nm} (${year})`:nm) : null; };
 
     const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
     const COLLS = { make:'equipment-makes', model:'equipment-models' };
-    const ADD_VALUE = '__add__';
 
-    let DB;
-    let pendingRef = null;  // client-reserved doc ref
-    let deepLink = null;
+    let DB, pendingRef=null, deepLink=null;
+    let MAKES=[], MODELS=[];
 
-    /* ---------- Catalog ops ---------- */
-    async function loadCatalogSelect(kind){
-      const sel = (kind==='make') ? $("make") : $("model");
-      sel.innerHTML = '';
-      // placeholder
-      sel.append(new Option('—', ''));
-      // active options
-      try{
-        const snap = await getDocs(query(collection(DB, COLLS[kind]), where('status','==','active'), orderBy('name')));
-        const opts = [];
-        snap.forEach(d=>{ const x=d.data(); if(x?.name) opts.push(x.name); });
-        opts.sort().forEach(name=> sel.append(new Option(name, name)));
-      }catch(_){}
-      // divider (disabled) + add
-      const divider = new Option('──────────', ''); divider.disabled = true;
-      sel.append(divider);
-      const addOpt = new Option('+ Add new…', ADD_VALUE); addOpt.className='add-opt';
-      sel.append(addOpt);
+    /* ---------- catalog ops ---------- */
+    async function loadCatalog(kind){
+      const snap = await getDocs(query(collection(DB, COLLS[kind]), where('status','==','active'), orderBy('name')));
+      const items = []; snap.forEach(d=>{ const x=d.data(); if(x?.name) items.push(x.name) });
+      items.sort((a,b)=>a.localeCompare(b));
+      if(kind==='make') MAKES = items; else MODELS = items;
     }
-
     async function upsertCatalog(kind, name){
-      name = (name||"").trim();
-      if(!name) return false;
+      name=(name||'').trim(); if(!name) return false;
       const base = collection(DB, COLLS[kind]);
-      // find by lowercase name
-      let existing = null;
+      let existing=null;
       try{
         const snap = await getDocs(query(base, where('nameLower','==', name.toLowerCase())));
         if(snap.size>0) existing = snap.docs[0];
       }catch(_){}
       if(existing){
-        const data = existing.data();
-        if(data.status === 'archived'){
+        const data=existing.data();
+        if(data.status==='archived'){
           await updateDoc(existing.ref, { status:'active', updatedAt:serverTimestamp() });
         }
       }else{
-        const ref = doc(base);
-        await setDoc(ref, {
-          name, nameLower:name.toLowerCase(),
-          status:'active', createdAt:serverTimestamp(), updatedAt:serverTimestamp()
+        await setDoc(doc(base), {
+          name, nameLower:name.toLowerCase(), status:'active',
+          createdAt:serverTimestamp(), updatedAt:serverTimestamp()
         });
       }
-      await loadCatalogSelect(kind);
-      // select the newly added value
-      const sel = (kind==='make') ? $("make") : $("model");
-      sel.value = name;
+      await loadCatalog(kind); // refresh in-memory list
       return true;
     }
 
-    /* tiny add prompt */
-    function openAddPrompt(kind){
-      $("tinyTitle").textContent = kind==='make' ? "Add Make" : "Add Model";
-      $("tinyKind").value = kind;
-      $("tinyInput").value = '';
-      $("addModal").classList.add("show");
-      setTimeout(()=> $("tinyInput").focus(), 0);
+    /* ---------- custom combobox ---------- */
+    function setupCombo(kind){
+      const root = $("#combo-"+kind);
+      const valueEl = $("#"+kind+"Value");
+      const searchEl = $("#"+kind+"Search");
+      const listBox  = $("#"+kind+"ListBox");
+      const addRow   = $("#"+kind+"AddRow");
+      const addText  = $("#"+kind+"AddText");
+
+      function items(){ return (kind==='make'?MAKES:MODELS); }
+      function open(){ root.classList.add('open'); searchEl.value=''; render(''); setTimeout(()=>searchEl.focus(), 10); }
+      function close(){ root.classList.remove('open'); }
+      root.querySelector('.display').addEventListener('click', ()=> (root.classList.contains('open')?close():open()));
+
+      // close when clicking outside
+      document.addEventListener('click', (e)=>{ if(!root.contains(e.target)) close(); });
+
+      function render(term, highlight){
+        const t = term.trim().toLowerCase();
+        listBox.innerHTML='';
+        const pool = items().filter(v => v.toLowerCase().includes(t));
+        let selectedEl=null;
+        for(const v of pool){
+          const row=document.createElement('div');
+          row.className='opt';
+          if(v===highlight) row.classList.add('sel');
+          row.textContent=v;
+          row.addEventListener('click', ()=>{ valueEl.textContent=v; valueEl.dataset.val=v; close(); });
+          listBox.appendChild(row);
+          if(v===highlight) selectedEl=row;
+        }
+        // show Add row if typed term not present
+        if(term && !items().some(v=>v.toLowerCase()===t)){
+          addText.textContent = term;
+          addRow.style.display='';
+        }else{
+          addRow.style.display='none';
+        }
+        // scroll selected into view if we highlighted it
+        if(selectedEl){ selectedEl.scrollIntoView({block:'nearest'}); }
+      }
+
+      searchEl.addEventListener('input', (e)=> render(e.target.value));
+
+      // ADD: persist, refresh list, re-render menu, highlight and select new value
+      addRow.addEventListener('click', async ()=>{
+        const term = searchEl.value.trim();
+        if(!term) return;
+        const ok = await upsertCatalog(kind, term);
+        if(ok){
+          // re-render with new list and highlight the new item
+          render('', term);
+          // also set as selected (keeps menu visible so user sees it appear)
+          valueEl.textContent = term;
+          valueEl.dataset.val = term;
+        }
+      });
+
+      // expose getter
+      return ()=> (valueEl.dataset.val||'').trim();
     }
-    function closeAddPrompt(){ $("addModal").classList.remove("show"); }
 
     /* ---------- Manage modal ---------- */
     function openManage(kind){
-      $("manageTitle").textContent = kind==='make' ? "Manage Makes" : "Manage Models";
-      $("modalKind").value = kind;
-      $("manageList").innerHTML = "";
-      $("manageModal").classList.add("show");
+      $("#manageTitle").textContent = kind==='make' ? "Manage Makes" : "Manage Models";
+      $("#manageModal").classList.add("show");
       renderManage(kind);
     }
-    function closeManage(){ $("manageModal").classList.remove("show"); }
-
+    function closeManage(){ $("#manageModal").classList.remove("show"); }
     async function renderManage(kind){
-      const list = $("manageList");
+      const list = $("#manageList");
       list.innerHTML = "";
       const snap = await getDocs(query(collection(DB, COLLS[kind]), orderBy('name')));
       snap.forEach(d=>{
         const x=d.data();
-        const row = document.createElement('div');
+        const row=document.createElement('div');
         row.className='row';
-        const nameId = `nm_${d.id}`;
-        row.innerHTML = `
-          <div>
-            <input id="${nameId}" class="input" value="${x.name||''}"/>
-          </div>
-          <button class="btn btn-mini" data-act="save">Save</button>
-          <button class="btn btn-mini" data-act="toggle">${x.status==='archived'?'Activate':'Archive'}</button>
-        `;
-        row.querySelector('[data-act="save"]').addEventListener('click', async()=>{
-          const newName = (document.getElementById(nameId).value||'').trim();
-          if(!newName) return;
-          await updateDoc(d.ref, {
-            name: newName,
-            nameLower: newName.toLowerCase(),
-            updatedAt: serverTimestamp()
-          });
+        row.innerHTML = `<div><strong>${x.name||'—'}</strong> <span class="pill">${x.status||'active'}</span></div>
+                         <div><button class="btn" data-id="${d.id}" data-status="${x.status||'active'}">${x.status==='archived'?'Activate':'Archive'}</button></div>`;
+        row.querySelector('button').addEventListener('click', async (e)=>{
+          const id=e.currentTarget.dataset.id;
+          const status=e.currentTarget.dataset.status==='archived'?'active':'archived';
+          await updateDoc(doc(DB, COLLS[kind], id), { status, updatedAt:serverTimestamp() });
+          await loadCatalog(kind);
           renderManage(kind);
-          await loadCatalogSelect(kind);
-        });
-        row.querySelector('[data-act="toggle"]').addEventListener('click', async()=>{
-          await updateDoc(d.ref, {
-            status: (x.status==='archived'?'active':'archived'),
-            updatedAt: serverTimestamp()
-          });
-          renderManage(kind);
-          await loadCatalogSelect(kind);
         });
         list.appendChild(row);
       });
     }
 
-    /* ---------- QR creation flow ---------- */
-    function buildDeepLink(id){
-      return ensureHttps(`${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
-    }
+    /* ---------- QR + Save ---------- */
+    const buildDeepLink = (id)=> ensureHttps(`${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
     async function createQrFlow(){
-      if(!pendingRef){
-        pendingRef = doc(collection(DB, 'equipment')); // local ID only
-      }
-      const id = pendingRef.id;
-      deepLink = buildDeepLink(id);
-
+      if(!pendingRef) pendingRef = doc(collection(DB,'equipment'));
+      deepLink = buildDeepLink(pendingRef.id);
       const dataUrl = window.QRGen(deepLink);
-      $("qrImg").src = dataUrl;
-      $("openHub").href = deepLink;
-      $("downloadPng").href = dataUrl;
-      $("qrPreview").hidden = false;
+      $("#qrImg").src = dataUrl;
+      $("#openHub").href = deepLink;
+      $("#downloadPng").href = dataUrl;
+      $("#qrPreview").hidden = false;
     }
-
-    /* ---------- Save ---------- */
-    async function saveEquipment(){
-      if(!pendingRef){
-        pendingRef = doc(collection(DB,'equipment'));
-        deepLink = buildDeepLink(pendingRef.id);
-      }
-      const make = $("make").value || '';
-      const model = $("model").value || '';
-      const year  = $("year").value ? Number($("year").value) : null;
-      const serial= $("serial").value.trim() || null;
-      const hours = $("hours").value ? Number($("hours").value) : null;
-      const status= $("status").value || 'active';
-      const notes = $("notes").value.trim() || null;
+    async function saveEquipment(getMake, getModel){
+      if(!pendingRef){ pendingRef = doc(collection(DB,'equipment')); deepLink = buildDeepLink(pendingRef.id); }
+      const make  = getMake();
+      const model = getModel();
+      const year  = $("#year").value ? Number($("#year").value) : null;
+      const serial= $("#serial").value.trim() || null;
+      const hours = $("#hours").value ? Number($("#hours").value) : null;
+      const status= $("#status").value || 'active';
+      const notes = $("#notes").value.trim() || null;
 
       const payload = {
         type: TYPE,
@@ -383,78 +412,42 @@
         updatedAt: serverTimestamp()
       };
       await setDoc(pendingRef, payload);
-
-      // guarantee catalog contains what was chosen
-      if(make) await upsertCatalog('make', make);
+      if(make)  await upsertCatalog('make', make);
       if(model) await upsertCatalog('model', model);
-
       location.href = `/Farm-vista/pages/equipment/${TYPE}s-view.html`;
     }
 
-    /* ---------- wire-up ---------- */
+    /* ---------- boot ---------- */
     (async()=>{
-      await ready;
-      DB = getFirestore();
-      yearOptions($("year"));
+      await ready; DB = getFirestore();
+      yearOptions($("#year"));
 
-      await loadCatalogSelect('make');
-      await loadCatalogSelect('model');
+      await loadCatalog('make');
+      await loadCatalog('model');
 
-      $("btnCreateQR").addEventListener('click', createQrFlow);
-      $("btnSave").addEventListener('click', saveEquipment);
+      const getMake  = setupCombo('make');
+      const getModel = setupCombo('model');
 
-      // Selecting "+ Add new…" opens tiny prompt
-      $("make").addEventListener('change', (e)=>{
-        if(e.target.value === ADD_VALUE){ e.target.value=''; openAddPrompt('make'); }
-      });
-      $("model").addEventListener('change', (e)=>{
-        if(e.target.value === ADD_VALUE){ e.target.value=''; openAddPrompt('model'); }
-      });
+      // labels open manage
+      $("#lblMake").addEventListener('click', ()=> openManage('make'));
+      $("#lblModel").addEventListener('click', ()=> openManage('model'));
+      $("#manageCloseBtn").addEventListener('click', closeManage);
+      $("#manageModal").addEventListener('click', (e)=>{ if(e.target.id==='manageModal') closeManage(); });
 
-      // Labels open manage modal (not buttons)
-      $("lblMake").addEventListener('click', ()=> openManage('make'));
-      $("lblModel").addEventListener('click', ()=> openManage('model'));
+      $("#btnCreateQR").addEventListener('click', createQrFlow);
+      $("#btnSave").addEventListener('click', ()=> saveEquipment(getMake,getModel));
     })();
-
-    // tiny add modal buttons
-    window._addSave = async function(){
-      const kind = $("tinyKind").value;
-      const name = $("tinyInput").value.trim();
-      if(!name) return;
-      await upsertCatalog(kind, name);
-      closeAddPrompt();
-    }
-    window._addCancel = function(){ closeAddPrompt(); }
   </script>
 
-  <!-- ===== Manage Modal (Make/Model) ===== -->
+  <!-- Manage Modal -->
   <div id="manageModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
       <div class="md-head">
         <strong id="manageTitle">Manage</strong>
-        <button class="btn" onclick="document.getElementById('manageModal').classList.remove('show')">Close</button>
+        <button id="manageCloseBtn" class="btn">Close</button>
       </div>
       <div class="md-body">
-        <input type="hidden" id="modalKind" value="make"/>
         <div class="list" id="manageList"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== Tiny “Add new …” Modal ===== -->
-  <div id="addModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal-card tiny-card">
-      <div class="md-head">
-        <strong id="tinyTitle">Add</strong>
-        <button class="btn" onclick="_addCancel()">Close</button>
-      </div>
-      <div class="tiny-body">
-        <input type="hidden" id="tinyKind" value="make"/>
-        <input id="tinyInput" class="input" placeholder="Type name..."/>
-        <div style="display:flex; gap:8px; justify-content:flex-end">
-          <button class="btn" onclick="_addCancel()">Cancel</button>
-          <button class="btn btn-primary" onclick="_addSave()">Save</button>
-        </div>
       </div>
     </div>
   </div>
