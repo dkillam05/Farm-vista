@@ -43,6 +43,12 @@
        Combo core styles
        ====================== */
     .combo{ position:relative }
+
+    /* NEW: anchor so panel hugs the button, not the stretched grid cell */
+    .combo .combo-anchor{
+      position:relative; display:inline-block; width:100%;
+    }
+
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
       background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
@@ -56,6 +62,7 @@
     .combo-panel .list{ max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border) }
     .combo-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
     .combo-item:hover{ background:rgba(0,0,0,.04) }
+    .combo-item:last-child{ border-bottom:none }
     .combo-empty{ padding:var(--combo-item-pad); color:#67706B }
   </style>
 </head>
@@ -66,10 +73,12 @@
        ====================== -->
   <div class="field combo" id="exampleCombo">
     <label for="exampleBtn">Field</label>
-    <button id="exampleBtn" class="buttonish has-caret" type="button">— Select field —</button>
-    <div class="combo-panel" id="examplePanel" role="listbox" aria-label="Field list">
-      <div class="search"><input id="exampleSearch" type="search" placeholder="Search fields…"/></div>
-      <div class="list" id="exampleList"></div>
+    <div class="combo-anchor">
+      <button id="exampleBtn" class="buttonish has-caret" type="button">— Select field —</button>
+      <div class="combo-panel" id="examplePanel" role="listbox" aria-label="Field list">
+        <div class="search"><input id="exampleSearch" type="search" placeholder="Search fields…"/></div>
+        <div class="list" id="exampleList"></div>
+      </div>
     </div>
   </div>
 
@@ -78,9 +87,11 @@
        ====================== -->
   <div class="field combo" id="yearCombo" style="margin-top:16px">
     <label for="yearBtn">Crop Year</label>
-    <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
-    <div class="combo-panel" id="yearPanel">
-      <div class="list" id="yearList"></div>
+    <div class="combo-anchor">
+      <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
+      <div class="combo-panel" id="yearPanel" role="listbox" aria-label="Year list">
+        <div class="list" id="yearList"></div>
+      </div>
     </div>
   </div>
 
@@ -88,14 +99,16 @@
     /* ================
        Minimal utilities
        ================ */
-    const $ = sel => document.querySelector(sel);
+    const $  = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
 
     /* =========================================
        One-open-at-a-time combo panel management
        ========================================= */
     function closeAllCombos(except=null){
-      document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
+      $$('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
     }
+    // Close on outside click / Esc
     document.addEventListener('click', ()=> closeAllCombos());
     document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
@@ -103,6 +116,10 @@
        Reusable combo constructor
        ========================= */
     function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      // Prevent outside-click closer when interacting in the panel
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation()); // extra safety
+
       function render(q=""){
         const qq=(q||"").toLowerCase();
         list.innerHTML = (items||[])
@@ -126,10 +143,11 @@
         panel.classList.contains('show') ? close() : open();
       });
 
-      list.addEventListener('click', e=>{
+      // Use mousedown so selection fires before any bubbling document click
+      list.addEventListener('mousedown', e=>{
         const row = e.target.closest('.combo-item'); if(!row) return;
-        const id = row.dataset.id;
-        const it = (items||[]).find(x=>String(x.id)===id);
+        const id  = row.dataset.id;
+        const it  = (items||[]).find(x=>String(x.id)===id);
         if(!it) return;
         onPick?.(it);
         close();
