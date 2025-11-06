@@ -109,7 +109,7 @@
           <div class="icon" aria-hidden="true">🛢️</div>
           <div>
             <h1>Put Bag Down (Dev)</h1>
-            <p class="muted">Test page. All dropdowns use the same tight inline combo panel.</p>
+            <p class="muted">Date → Submitted By → Crop Moisture → Pickup Priority → Bag Brand, then the rest.</p>
           </div>
         </header>
 
@@ -142,12 +142,47 @@
 
           <!-- Hidden bag form -->
           <div id="bagForm" hidden>
+            <!-- Row 1: Date + Submitted By -->
             <div class="row">
+              <div class="field">
+                <label for="datePlaced">Date Bag Was Put Down</label>
+                <input id="datePlaced" class="input" type="date"/>
+              </div>
+
               <!-- Submitted By (non-search) -->
               <div class="field combo" id="subCombo">
                 <label for="subBtn">Submitted By</label>
                 <button id="subBtn" class="buttonish has-caret" type="button">— Select —</button>
                 <div class="combo-panel" id="subPanel"><div class="list" id="subList"></div></div>
+              </div>
+            </div>
+
+            <!-- Row 2: Crop Moisture + Pickup Priority -->
+            <div class="row">
+              <div class="field">
+                <label for="moisture">Crop Moisture (%)</label>
+                <input id="moisture" class="input" type="number" inputmode="decimal" min="0" max="50" step="0.1" placeholder="e.g., 17.5"/>
+                <div class="help">Enter percent moisture at bagging (0–50%).</div>
+              </div>
+
+              <div class="field combo" id="prioCombo">
+                <label for="prioBtn">Pickup Priority (1–10)</label>
+                <button id="prioBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="prioPanel"><div class="list" id="prioList"></div></div>
+                <div class="help">1 = low urgency · 10 = high urgency</div>
+              </div>
+            </div>
+
+            <!-- Row 3: Bag Brand & Size + Crop Type -->
+            <div class="row">
+              <!-- Bag Brand & Size (searchable) -->
+              <div class="field combo" id="bagComboField">
+                <label for="bagBtn">Bag Brand & Size</label>
+                <button id="bagBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="bagPanel" role="listbox" aria-label="Bag list">
+                  <div class="search"><input id="bagSearch" type="search" placeholder="Search bags…"/></div>
+                  <div class="list" id="bagList"></div>
+                </div>
               </div>
 
               <!-- Crop Type (non-search) -->
@@ -158,34 +193,7 @@
               </div>
             </div>
 
-            <div class="row">
-              <div class="field">
-                <label for="datePlaced">Date Bag Was Put Down</label>
-                <input id="datePlaced" class="input" type="date"/>
-              </div>
-
-              <!-- Bag Brand & Size (searchable) -->
-              <div class="field combo" id="bagComboField">
-                <label for="bagBtn">Bag Brand & Size</label>
-                <button id="bagBtn" class="buttonish has-caret" type="button">— Select —</button>
-                <div class="combo-panel" id="bagPanel" role="listbox" aria-label="Bag list">
-                  <div class="search"><input id="bagSearch" type="search" placeholder="Search bags…"/></div>
-                  <div class="list" id="bagList"></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="row">
-              <!-- Priority (non-search) -->
-              <div class="field combo" id="prioCombo">
-                <label for="prioBtn">Pickup Priority (1–10)</label>
-                <button id="prioBtn" class="buttonish has-caret" type="button">— Select —</button>
-                <div class="combo-panel" id="prioPanel"><div class="list" id="prioList"></div></div>
-                <div class="help">1 = low urgency · 10 = high urgency</div>
-              </div>
-              <div class="field"><!-- spacer --></div>
-            </div>
-
+            <!-- Counts -->
             <div class="grid-3">
               <div class="field">
                 <label for="fullBags">Number of Full Bags</label>
@@ -292,11 +300,10 @@
       return {min, max};
     }
 
-    // Build a single partial row with combo-styled "usage"
     function buildPartialRow(idx){
       const row=document.createElement('div'); row.className='partial-row';
 
-      // length column
+      // length
       const lenWrap=document.createElement('div'); lenWrap.className='field';
       const lenLbl=document.createElement('label'); lenLbl.textContent=`Partial ${idx+1} length (ft)`;
       const len=document.createElement('input'); len.type='number'; len.inputMode='numeric'; len.min='0'; len.step='1'; len.className='input';
@@ -304,7 +311,7 @@
       len.addEventListener('input', schedulePartialValidate);
       lenWrap.append(lenLbl,len,lenHelp);
 
-      // usage column (combo)
+      // usage (combo)
       const useWrap=document.createElement('div'); useWrap.className='field combo';
       const useLbl=document.createElement('label'); useLbl.textContent=`Partial ${idx+1} usage`;
       const useBtn=document.createElement('button'); useBtn.type='button'; useBtn.className='buttonish has-caret'; useBtn.textContent='— Select —';
@@ -313,12 +320,11 @@
       usePanel.appendChild(useList);
       useWrap.append(useLbl,useBtn,usePanel);
 
-      // combo items for usage
       const USAGE_ITEMS=[
         {id:'carryover', label:'Carryover from previous usage', value:'carryover'},
         {id:'new',       label:'Start of a new bag',            value:'new'}
       ];
-      const combo = makeCombo({
+      makeCombo({
         btn: useBtn, panel: usePanel, list: useList, items: USAGE_ITEMS, searchable:false,
         formatter: x=>x.label,
         onPick: it => { useBtn.textContent = it.label; useBtn.dataset.value = it.value; }
@@ -366,9 +372,18 @@
       $("err").hidden=true;
       if(!chosen.field){ alert("Please choose a Field."); return; }
       if(!chosen.year){ alert("Please choose Crop Year."); return; }
+      const datePlaced=$("datePlaced").value; if(!datePlaced){ alert("Please set the Date placed."); return; }
+
+      // crop moisture
+      const moistureRaw = $("moisture").value;
+      const moisture = Number(moistureRaw);
+      if(!(moistureRaw !== "" && moisture >= 0 && moisture <= 50)){
+        alert("Enter Crop Moisture between 0 and 50%."); $("moisture").focus(); return;
+      }
+
+      if(!chosen.prio){ alert("Please choose Pickup Priority."); return; }
       if(!chosen.bag){ alert("Please choose Bag Brand & Size."); return; }
       if(!chosen.crop){ alert("Please choose Crop Type."); return; }
-      const datePlaced=$("datePlaced").value; if(!datePlaced){ alert("Please set the Date placed."); return; }
 
       const partialCount=Math.max(0,Number($("partialBags").value||0));
       if(partialCount>0 && !validatePartials()){ $("err").hidden=false; $("err").textContent="One or more partial lengths are outside the allowed range."; return; }
@@ -392,6 +407,7 @@
         type:'putDown',
         field:{id:chosen.field.id,name:chosen.field.name},
         cropYear:chosen.year, cropType:chosen.crop, datePlaced,
+        moisturePct: moisture,
         bagSku:{ id:chosen.bag.id, brand:chosen.bag.brand, sizeFeet:Number(chosen.bag.sizeFeet||0),
                  diameterFt:chosen.bag.diameterFt||null, location:chosen.bag.location||null },
         counts:{ full:fullBags, partial:partialCount, partialFeet, partialUsage },
@@ -436,6 +452,7 @@
       chosen.bag=null; $("bagBtn").textContent="— Select —";
       chosen.crop=null; $("cropBtn").textContent="— Select —";
       $("datePlaced").value=todayISO();
+      $("moisture").value="";
       $("fullBags").value="0"; $("partialBags").value="0";
       $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
       $("notes").value=""; $("files").value="";
@@ -516,7 +533,7 @@
       async function loadBags(){
         try{
           const snap=await getDocs(collection(db,'inventoryGrainBagMovements'));
-          const list=[];
+        const list=[];
           snap.forEach(d=>{
             const x=d.data()||{};
             const brand=String(x.brand||"Bag");
@@ -549,6 +566,7 @@
         chosen.bag=null; $("bagBtn").textContent="— Select —";
         chosen.crop=null; $("cropBtn").textContent="— Select —";
         $("datePlaced").value=todayISO();
+        $("moisture").value="";
         $("fullBags").value="0"; $("partialBags").value="0";
         $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
         $("notes").value=""; $("files").value="";
@@ -558,10 +576,7 @@
         if(mine){ chosen.sub=mine; $("subBtn").textContent=mine.name; }
       });
 
-      // Close all combos when pressing Escape
       document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
-
-      // Network toasts
       window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
       window.addEventListener('offline',()=> toast("Currently offline — using saved data", 3000));
     })();
