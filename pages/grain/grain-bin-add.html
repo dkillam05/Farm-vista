@@ -148,10 +148,10 @@
 
           <div id="err" class="help error" hidden></div>
 
+          <!-- Primary action FIRST; no Clear button -->
           <div class="actions">
-            <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Add to Inventory</button>
-            <button id="btnClear" class="btn" type="button">Clear</button>
+            <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
           </div>
         </div>
       </section>
@@ -186,8 +186,11 @@
     }
 
     function updateCapacityHelp(){
-      const capEl=$("capHelp"), buEl=$("bushels");
-      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){ capEl.textContent="Capacity: — • On hand: — • After add: —"; buEl.classList.remove('invalid'); $("btnSave").disabled=true; return; }
+      const capEl=$("capHelp"), buEl=$("bushels"), save=$("btnSave");
+      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){
+        capEl.textContent="Capacity: — • On hand: — • After add: —";
+        buEl.classList.remove('invalid'); save.disabled=true; return;
+      }
       const bin = CURRENT_SITE.bins[CURRENT_BIN_INDEX]||{};
       const cap = Number(bin.bushels||0);
       const on  = Number(bin.onHand||0);
@@ -196,7 +199,7 @@
       const over = after > cap && cap>0;
       capEl.textContent = `Capacity: ${cap.toLocaleString()} • On hand: ${on.toLocaleString()} • After add: ${after.toLocaleString()}`;
       buEl.classList.toggle('invalid', over);
-      $("btnSave").disabled = over || !(add>0) || !$("site").value || !(CURRENT_BIN_INDEX>=0);
+      save.disabled = over || !(add>0) || !$("site").value || !(CURRENT_BIN_INDEX>=0);
     }
 
     async function loadSites(db){
@@ -228,6 +231,8 @@
       }).join('');
       sel.disabled = false;
       help.textContent = `${items.length} bins`;
+      // If there’s only one bin, auto-select it so Save can enable
+      if(items.length===1){ sel.value="0"; CURRENT_BIN_INDEX=0; }
       updateCapacityHelp();
     }
 
@@ -275,7 +280,7 @@
       await setDoc(siteRef, { bins }, { merge:true });
 
       // movement log
-      const movement = {
+      await setDoc(doc(collection(db,'binMovements')), {
         siteId, siteName: CURRENT_SITE?.name || null,
         binIndex: binIdx, binNum: bins[binIdx]?.num ?? (binIdx+1),
         direction: 'in',
@@ -285,12 +290,11 @@
         submittedBy,
         date: dateVal ? new Date(`${dateVal}T00:00:00`) : null,
         createdAt: serverTimestamp()
-      };
-      await setDoc(doc(collection(db,'binMovements')), movement);
+      });
 
       showToast("Added to inventory");
 
-      // Clear form for next entry, keep site/bin for speed
+      // Reset entry fields (keep site/bin for next entry)
       $("bushels").value = "";
       $("cropType").selectedIndex = 0;
       $("cropMoisture").value = "";
@@ -302,7 +306,7 @@
     }
 
     (async()=>{
-      const ctx = await ready;
+      await ready;
       const db = getFirestore(); const auth = getAuth();
 
       // Prefill submitted by + date
@@ -312,20 +316,8 @@
       await loadSites(db);
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
       $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateCapacityHelp(); });
-
       $("bushels").addEventListener("input", updateCapacityHelp);
-
       $("btnSave").addEventListener("click", ()=> saveAdd(db, auth));
-      $("btnClear").addEventListener("click", ()=>{
-        $("cropType").selectedIndex=0;
-        $("cropMoisture").value="";
-        $("submittedBy").value = auth.currentUser?.displayName || "Dane Killam";
-        $("date").value = todayISO();
-        $("bushels").value="";
-        $("note").value="";
-        $("err").hidden=true;
-        updateCapacityHelp();
-      });
     })();
   </script>
 </body>
