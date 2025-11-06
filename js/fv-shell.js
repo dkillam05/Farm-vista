@@ -1,9 +1,8 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-c (camera float)
-   - Moves QR/camera launcher to a floating button at lower-right (above footer).
-   - Uses a green SVG camera icon.
-   - Icon still hidden on desktop; shows on mobile.
-   - All other behavior unchanged from v5.10.19-b.
+   FarmVista Shell — v5.10.19-d (PWA footer tweak + safe camera)
+   - Footer thinner only in PWA (standalone) while keeping web unchanged.
+   - Floating camera always inside safe area and we reserve layout space so it never overlaps tiles.
+   - Camera hidden on desktop; shows on phones.
 */
 (function () {
   // ====== TUNABLES ======
@@ -13,10 +12,22 @@
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
-    :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:52px; --ftr-h:16px;
+    :host{
+      --green:#3B7E46; --gold:#D0C542;
+      --hdr-h:56px;       /* header height */
+      --ftr-h:14px;       /* base footer height (web) */
+      --qr-size:48px;     /* floating camera size */
+      --qr-gap:14px;      /* gap above footer/safe-area */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
       --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
-      display:block; color:var(--text); background:#fff; min-height:100vh; position:relative; }
+      display:block; color:var(--text); background:#fff; min-height:100vh; position:relative;
+    }
+
+    /* PWA-only: make footer thinner so total (footer + safe area) looks right */
+    @supports (display-mode: standalone) {
+      :host{ --ftr-h:6px; } /* adjust as needed; safe-area is added below */
+    }
+
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
@@ -43,32 +54,38 @@
     .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
     .ptr .txt{ font-weight:800; }
 
-    .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
-      padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
+    .ftr{ position:fixed; inset:auto 0 0 0;
+      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
+      padding-bottom:env(safe-area-inset-bottom,0px);
+      background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    /* --- QR camera: FLOATING at lower-right above footer --- */
+    /* Floating camera — ALWAYS sits in safe area, never overlaps content because we reserve space below */
     .qr-float{
       position:fixed;
       right:12px;
-      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 26px);
-      width:44px; height:44px;
+      bottom: calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-gap));
+      width: var(--qr-size);
+      height: var(--qr-size);
       display:grid; place-items:center;
       background:transparent;
-      color:var(--green);
+      color: var(--green);         /* green icon */
       text-decoration:none; -webkit-tap-highlight-color:transparent;
-      z-index:1300;
+      z-index:1400;
       border-radius:12px;
       touch-action: manipulation;
     }
     .qr-float svg{ width:26px; height:26px; display:block; }
     .qr-float:active{ transform:translateY(1px); }
 
-    .main{ position:relative; padding:
+    /* Reserve vertical space so nothing sits behind the floating camera */
+    .main{ position:relative;
+      padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
-        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
-      min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
+        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-size) + var(--qr-gap) + 12px);
+      min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text);
+    }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
