@@ -25,7 +25,7 @@
 
     /* PWA-only: make footer thinner so total (footer + safe area) looks right */
     @supports (display-mode: standalone) {
-      :host{ --ftr-h:6px; } /* adjust as needed; safe-area is added below */
+      :host{ --ftr-h:2px; } /* adjust as needed; safe-area is added below */
     }
 
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
