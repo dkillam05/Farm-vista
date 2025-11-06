@@ -52,7 +52,7 @@
     .qr-float{
       position:fixed;
       right:12px;
-      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 26px);
       width:44px; height:44px;
       display:grid; place-items:center;
       background:transparent;
