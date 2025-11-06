@@ -1,7 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-b
-   - Adds a footer QR camera icon that shows on mobile, hides on desktop.
-   - All other behavior unchanged from your v5.10.19.
+   FarmVista Shell — v5.10.19-c (camera float)
+   - Moves QR/camera launcher to a floating button at lower-right (above footer).
+   - Uses a green SVG camera icon.
+   - Icon still hidden on desktop; shows on mobile.
+   - All other behavior unchanged from v5.10.19-b.
 */
 (function () {
   // ====== TUNABLES ======
@@ -12,7 +14,9 @@
   tpl.innerHTML = `
   <style>
     :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
-      display:block; color:#141514; background:#fff; min-height:100vh; position:relative; }
+      --shadow: 0 10px 24px rgba(0,0,0,.16);
+      --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
+      display:block; color:var(--text); background:#fff; min-height:100vh; position:relative; }
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
@@ -44,14 +48,22 @@
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    /* --- QR camera icon (white) pinned at far-left of footer --- */
-    .qr-mini{
-      position:absolute; left:10px; bottom:calc(env(safe-area-inset-bottom,0px) + 7px);
-      width:28px; height:28px; display:grid; place-items:center; color:#fff; opacity:.98;
+    /* --- QR camera: FLOATING at lower-right above footer --- */
+    .qr-float{
+      position:fixed;
+      right:12px;
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
+      width:44px; height:44px;
+      display:grid; place-items:center;
+      background:transparent;
+      color:var(--green);
       text-decoration:none; -webkit-tap-highlight-color:transparent;
+      z-index:1300;
+      border-radius:12px;
+      touch-action: manipulation;
     }
-    .qr-mini svg{ width:22px; height:22px; display:block; }
-    .qr-mini:active{ transform:translateY(1px); }
+    .qr-float svg{ width:26px; height:26px; display:block; }
+    .qr-float:active{ transform:translateY(1px); }
 
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
@@ -183,14 +195,15 @@
 
   <main class="main" part="main"><slot></slot></main>
 
+  <!-- Floating QR/camera launcher (green icon) -->
+  <a class="qr-float js-qr" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    </svg>
+  </a>
+
   <footer class="ftr" part="footer">
-    <!-- QR camera icon (white) — will be hidden on desktop by JS -->
-    <a class="qr-mini" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-        <circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      </svg>
-    </a>
     <div class="text js-footer"></div>
   </footer>
 
@@ -234,10 +247,10 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
-      // Hide QR icon on desktop; show on phones
-      const qrMini = r.querySelector('.qr-mini');
+      // Hide floating QR icon on desktop; show on phones
+      const qrFloat = r.querySelector('.js-qr');
       const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
-      if (qrMini && !isMobile) qrMini.style.display = 'none';
+      if (qrFloat && !isMobile) qrFloat.style.display = 'none';
 
       // Boot overlay visible until _authAndMenuGate() finishes.
       if (this._boot) this._boot.hidden = false;
