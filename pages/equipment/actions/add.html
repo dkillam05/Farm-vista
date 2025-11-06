@@ -198,39 +198,72 @@
     </div>
   </fv-shell>
 
-  <!-- ===== QR ENGINE (PNG with quiet zone) ===== -->
+  <!-- ===== QR ENGINE (PNG with quiet zone) — FIXED SYNTAX ===== -->
   <script>
   /*! qrcode-generator mini → returns PNG dataURL with quiet zone */
-  (function(global){function QR8bitByte(data){this.mode=1;this.data=data}
-  QR8bitByte.prototype={getLength:function(){return unescape(encodeURIComponent(this.data)).length},write:function(buffer){var s=unescape(encodeURIComponent(this.data));for(var i=0;i<s.length;i++)buffer.put(s.charCodeAt(i),8)}};
-  function QRBitBuffer(){this.buffer=[],this.length=0}
-  QRBitBuffer.prototype={get:function(i){return((this.buffer[i>>3]>>>(7-i%8))&1)==1},put:function(num,len){for(var i=0;i<len;i++)this.putBit(((num>>>(len-i-1))&1)==1)},putBit:function(bit){var b=this.length>>3;if(this.buffer.length<=b)this.buffer.push(0);if(bit)this.buffer[b]|=(0x80>>>(this.length%8));this.length++}};
-  var QRUtil={PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62]],
-  G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(d){var x=d<<10;while(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)>=0)x^=(QRUtil.G15<<(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)));return(x|d<<10)^QRUtil.G15_MASK;},
-  getBCHDigit:function(d){var n=0;while(d!=0){n++;d>>>=1}return n},getMask:function(m,i,j){switch(m){case 0:return(i+j)%2==0;case 1:return i%2==0;case 2:return j%3==0;case 3:return(i+j)%3==0;case 4:return((i/2|0)+(j/3|0))%2==0;case 5:return(i*j)%2+(i*j)%3==0;case 6:return((i*j)%2+(i*j)%3)%2==0;case 7:return((i*j)%3+i+j)%2==0;default:throw new Error("bad mask")}}};
-  var QRMath={EXP_TABLE:new Array(256),LOG_TABLE:new Array(256),glog:function(n){if(n<1)throw new Error("glog("+n+")");return this.LOG_TABLE[n]},gexp:function(n){while(n<0)n+=255;while(n>=256)n-=255;return this.EXP_TABLE[n]}};
-  for(var i=0;i<8;i++)QRMath.EXP_TABLE[i]=1<<i;for(i=8;i<256;i++)QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];for(i=0;i<255)i++)QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
-  function QRPolynomial(num,shift){var o=0;while(o<num.length&&num[o]==0)o++;this.num=new Array(num.length-o+shift);for(var i=0;i<num.length-o;i++)this.num[i]=num[i+o]}
-  QRPolynomial.prototype={get:function(i){return this.num[i]},getLength:function(){return this.num.length},multiply:function(e){var n=new Array(this.getLength()+e.getLength()-1);for(var i=0;i<this.getLength();i++)for(var j=0;j<e.getLength();j++)n[i+j]^=QRMath.gexp(QRMath.glog(this.get(i))+QRMath.glog(e.get(j)));return new QRPolynomial(n,0)},mod:function(e){if(this.getLength()-e.getLength()<0)return this;var r=QRMath.glog(this.get(0))-QRMath.glog(e.get(0));var n=this.num.slice(0);for(var i=0;i<e.getLength();i++)n[i]^=QRMath.gexp(QRMath.glog(e.get(i))+r);return new QRPolynomial(n,0).mod(e)}};
-  var RS_BLOCK_TABLE={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]]};
-  function QRCode(typeNumber,ec){this.typeNumber=typeNumber;this.errorCorrectLevel=ec;this.modules=null;this.moduleCount=0;this.dataList=[]}
-  QRCode.prototype={addData:function(d){this.dataList.push(new QR8bitByte(d))},isDark:function(r,c){return this.modules[r][c]},getModuleCount:function(){return this.moduleCount},
-  make:function(){this.typeNumber=this.typeNumber||1;for(;;){this.makeImpl(false,this.getBestMaskPattern());if(this.getCapacity()>=this.dataLength())break;this.typeNumber++;if(this.typeNumber>12)break}},
-  makeImpl:function(test,mask){this.moduleCount=this.typeNumber*4+17;this.modules=new Array(this.moduleCount);for(var r=0;r<this.moduleCount;r++){this.modules[r]=new Array(this.moduleCount);for(var c=0;c<this.moduleCount;c++)this.modules[r][c]=null}
-  this.pp(0,0);this.pp(this.moduleCount-7,0);this.pp(0,this.moduleCount-7);this.timing();this.typeInfo(test,mask);var data=this.dataBytes();this.map(data,mask)},
-  pp:function(row,col){for(var r=-1;r<=7;r++){if(row+r<=-1||this.moduleCount<=row+r)continue;for(var c=-1;c<=7;c++){if(col+c<=-1||this.moduleCount<=col+c)continue;this.modules[row+r][col+c]=(0<=r&&r<=6&&(c==0||c==6))||(0<=c&&c<=6&&(r==0||r==6))||(2<=r&&r<=4&&2<=c&&c<=4)}}},
-  timing:function(){for(var i=8;i<this.moduleCount-8;i++){if(this.modules[i][6]===null)this.modules[i][6]=(i%2==0);if(this.modules[6][i]===null)this.modules[6][i]=(i%2==0)}},
-  typeInfo:function(test,mask){var data=(1<<3)|mask;var bits=QRUtil.getBCHTypeInfo(data);for(var i=0;i<15;i++){var v=!test&&((bits>>i)&1)==1;this.modules[i<6?i:i<8?i+1:this.moduleCount-15+i][8]=v}
-  for(i=0;i<15;i++){var v2=!test&&((bits>>i)&1)==1;this.modules[8][i<8?this.moduleCount-1-i:i==8?15-i:this.moduleCount-15+i]=v2}this.modules[this.moduleCount-8][8]=!test},
-  map:function(data,mask){var inc=-1,row=this.moduleCount-1,bit=0,byte=0;for(var col=this.moduleCount-1;col>0;col-=2){if(col==6)col--;for(;;){for(var c=0;c<2;c++){if(this.modules[row][col-c]===null){var dark=false;if(byte<data.length)dark=((data[byte]>>>(7-bit))&1)==1;if(QRUtil.getMask(mask,row,col-c))dark=!dark;this.modules[row][col-c]=dark;bit++;if(bit==8){bit=0;byte++}}}row+=inc;if(row<0||this.moduleCount<=row){row-=inc;inc=-inc;break}}}},
-  getBestMaskPattern:function(){var min=0,pat=0;for(var i=0;i<8;i++){this.makeImpl(true,i);var lost=0;if(i==0||min>lost){min=lost;pat=i}}return pat},
-  getCapacity:function(){var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];return rs[1]},
-  dataLength:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}return bb.length/8|0},
-  dataBytes:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];var dc=rs[1],ec=(rs[0]-dc),data=[];for(i=0;i<bb.length;i+=8)data.push((bb.get(i)?128:0)|(bb.get(i+1)?64:0)|(bb.get(i+2)?32:0)|(bb.get(i+3)?16:0)|(bb.get(i+4)?8:0)|(bb.get(i+5)?4:0)|(bb.get(i+6)?2:0)|(bb.get(i+7)?1:0));while(data.length<dc)data.push(data.length%2?0x11:0xEC);
-  var rsPoly=(function(ec){var a=new QRPolynomial([1],0);for(var i=0;i<ec;i++)a=a.multiply(new QRPolynomial([1,QRMath.gexp(i)],0));return a})(ec);var raw=new QRPolynomial(data,rsPoly.getLength()-1);var mod=raw.mod(rsPoly);
-  var ecBytes=new Array(ec).fill(0),m=mod.num,off=ecBytes.length-m.length;for(i=0;i<m.length;i++)ecBytes[i+off]=m[i];return data.concat(ecBytes)},
-  toDataURL:function(scale){scale=scale||8;var m=this.getModuleCount(),q=4;var size=(m+q*2)*scale;var c=document.createElement('canvas');c.width=c.height=size;var x=c.getContext('2d');
-  x.fillStyle='#fff';x.fillRect(0,0,size,size);x.fillStyle='#000';for(var r=0;r<m;r++)for(var col=0;col<m;col++)if(this.isDark(r,col))x.fillRect((col+q)*scale,(r+q)*scale,scale,scale);return c.toDataURL(10)});window.QRGen=function(text){var qr=new QRCode(null,2);qr.addData(text);qr.make();return qr.toDataURL(10)};})(window);
+  (function(global){
+    function QR8bitByte(data){this.mode=1;this.data=data}
+    QR8bitByte.prototype={
+      getLength:function(){return unescape(encodeURIComponent(this.data)).length},
+      write:function(buffer){var s=unescape(encodeURIComponent(this.data));for(var i=0;i<s.length;i++)buffer.put(s.charCodeAt(i),8)}
+    };
+    function QRBitBuffer(){this.buffer=[];this.length=0}
+    QRBitBuffer.prototype={
+      get:function(i){return((this.buffer[i>>3]>>>(7-i%8))&1)==1},
+      put:function(num,len){for(var i=0;i<len;i++)this.putBit(((num>>>(len-i-1))&1)==1)},
+      putBit:function(bit){var b=this.length>>3;if(this.buffer.length<=b)this.buffer.push(0);if(bit)this.buffer[b]|=(0x80>>>(this.length%8));this.length++}
+    };
+    var QRUtil={
+      PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62]],
+      G15:1335,G18:7973,G15_MASK:21522,
+      getBCHTypeInfo:function(d){var x=d<<10;while(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)>=0)x^=(QRUtil.G15<<(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)));return(x|d<<10)^QRUtil.G15_MASK;},
+      getBCHDigit:function(d){var n=0;while(d!=0){n++;d>>>=1}return n},
+      getMask:function(m,i,j){switch(m){case 0:return(i+j)%2==0;case 1:return i%2==0;case 2:return j%3==0;case 3:return(i+j)%3==0;case 4:return((i/2|0)+(j/3|0))%2==0;case 5:return(i*j)%2+(i*j)%3==0;case 6:return((i*j)%2+(i*j)%3)%2==0;case 7:return((i*j)%3+i+j)%2==0;default:throw new Error("bad mask")}}
+    };
+    var QRMath={EXP_TABLE:new Array(256),LOG_TABLE:new Array(256),
+      glog:function(n){if(n<1)throw new Error("glog("+n+")");return this.LOG_TABLE[n]},
+      gexp:function(n){while(n<0)n+=255;while(n>=256)n-=255;return this.EXP_TABLE[n]}
+    };
+    for(var i=0;i<8;i++)QRMath.EXP_TABLE[i]=1<<i;
+    for(i=8;i<256;i++)QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];
+    for(i=0;i<255;i++) QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i; /* ← fixed loop */
+
+    function QRPolynomial(num,shift){var o=0;while(o<num.length&&num[o]==0)o++;this.num=new Array(num.length-o+shift);for(var i=0;i<num.length-o;i++)this.num[i]=num[i+o]}
+    QRPolynomial.prototype={
+      get:function(i){return this.num[i]},
+      getLength:function(){return this.num.length},
+      multiply:function(e){var n=new Array(this.getLength()+e.getLength()-1).fill(0);for(var i=0;i<this.getLength();i++)for(var j=0;j<e.getLength();j++)n[i+j]^=QRMath.gexp(QRMath.glog(this.get(i))+QRMath.glog(e.get(j)));return new QRPolynomial(n,0)},
+      mod:function(e){if(this.getLength()-e.getLength()<0)return this;var r=QRMath.glog(this.get(0))-QRMath.glog(e.get(0));var n=this.num.slice(0);for(var i=0;i<e.getLength();i++)n[i]^=QRMath.gexp(QRMath.glog(e.get(i))+r);return new QRPolynomial(n,0).mod(e)}
+    };
+
+    var RS_BLOCK_TABLE={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]]};
+
+    function QRCode(typeNumber,ec){this.typeNumber=typeNumber;this.errorCorrectLevel=ec;this.modules=null;this.moduleCount=0;this.dataList=[]}
+    QRCode.prototype={
+      addData:function(d){this.dataList.push(new QR8bitByte(d))},
+      isDark:function(r,c){return this.modules[r][c]},
+      getModuleCount:function(){return this.moduleCount},
+      make:function(){this.typeNumber=this.typeNumber||1;for(;;){this.makeImpl(false,this.getBestMaskPattern());if(this.getCapacity()>=this.dataLength())break;this.typeNumber++;if(this.typeNumber>12)break}},
+      makeImpl:function(test,mask){this.moduleCount=this.typeNumber*4+17;this.modules=new Array(this.moduleCount);for(var r=0;r<this.moduleCount;r++){this.modules[r]=new Array(this.moduleCount);for(var c=0;c<this.moduleCount;c++)this.modules[r][c]=null}
+        this.pp(0,0);this.pp(this.moduleCount-7,0);this.pp(0,this.moduleCount-7);this.timing();this.typeInfo(test,mask);var data=this.dataBytes();this.map(data,mask)},
+      pp:function(row,col){for(var r=-1;r<=7;r++){if(row+r<=-1||this.moduleCount<=row+r)continue;for(var c=-1;c<=7;c++){if(col+c<=-1||this.moduleCount<=col+c)continue;this.modules[row+r][col+c]=(0<=r&&r<=6&&(c==0||c==6))||(0<=c&&c<=6&&(r==0||r==6))||(2<=r&&r<=4&&2<=c&&c<=4)}}},
+      timing:function(){for(var i=8;i<this.moduleCount-8;i++){if(this.modules[i][6]===null)this.modules[i][6]=(i%2==0);if(this.modules[6][i]===null)this.modules[6][i]=(i%2==0)}},
+      typeInfo:function(test,mask){var data=(1<<3)|mask;var bits=QRUtil.getBCHTypeInfo(data);for(var i=0;i<15;i++){var v=!test&&((bits>>i)&1)==1;this.modules[i<6?i:i<8?i+1:this.moduleCount-15+i][8]=v}
+        for(i=0;i<15;i++){var v2=!test&&((bits>>i)&1)==1;this.modules[8][i<8?this.moduleCount-1-i:i==8?15-i:this.moduleCount-15+i]=v2}this.modules[this.moduleCount-8][8]=!test},
+      map:function(data,mask){var inc=-1,row=this.moduleCount-1,bit=0,byte=0;for(var col=this.moduleCount-1;col>0;col-=2){if(col==6)col--;for(;;){for(var c=0;c<2;c++){if(this.modules[row][col-c]===null){var dark=false;if(byte<data.length)dark=((data[byte]>>>(7-bit))&1)==1;if(QRUtil.getMask(mask,row,col-c))dark=!dark;this.modules[row][col-c]=dark;bit++;if(bit==8){bit=0;byte++}}}row+=inc;if(row<0||this.moduleCount<=row){row-=inc;inc=-inc;break}}}},
+      getBestMaskPattern:function(){var min=0,pat=0;for(var i=0;i<8;i++){this.makeImpl(true,i);var lost=0;if(i==0||min>lost){min=lost;pat=i}}return pat},
+      getCapacity:function(){var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];return rs[1]},
+      dataLength:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}return bb.length/8|0},
+      dataBytes:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];var dc=rs[1],ec=(rs[0]-dc),data=[];for(i=0;i<bb.length;i+=8)data.push((bb.get(i)?128:0)|(bb.get(i+1)?64:0)|(bb.get(i+2)?32:0)|(bb.get(i+3)?16:0)|(bb.get(i+4)?8:0)|(bb.get(i+5)?4:0)|(bb.get(i+6)?2:0)|(bb.get(i+7)?1:0));while(data.length<dc)data.push(data.length%2?0x11:0xEC);
+        var rsPoly=(function(ec){var a=new QRPolynomial([1],0);for(var i=0;i<ec;i++)a=a.multiply(new QRPolynomial([1,QRMath.gexp(i)],0));return a})(ec);
+        var raw=new QRPolynomial(data,rsPoly.getLength()-1);var mod=raw.mod(rsPoly);
+        var ecBytes=new Array(ec).fill(0),m=mod.num,off=ecBytes.length-m.length;for(i=0;i<m.length;i++)ecBytes[i+off]=m[i];return data.concat(ecBytes)},
+      toDataURL:function(scale){scale=scale||8;var m=this.getModuleCount(),q=4;var size=(m+q*2)*scale;var c=document.createElement('canvas');c.width=c.height=size;var x=c.getContext('2d');
+        x.fillStyle='#fff';x.fillRect(0,0,size,size);x.fillStyle='#000';for(var r=0;r<m;r++)for(var col=0;col<m;col++)if(this.isDark(r,col))x.fillRect((col+q)*scale,(r+q)*scale,scale,scale);
+        return c.toDataURL('image/png');}
+    };
+    window.QRGen=function(text){var qr=new QRCode(null,2);qr.addData(text);qr.make();return qr.toDataURL(10)};
+  })(window);
   </script>
 
   <script type="module">
@@ -302,8 +335,6 @@
       function open(){ root.classList.add('open'); searchEl.value=''; render(''); setTimeout(()=>searchEl.focus(), 10); }
       function close(){ root.classList.remove('open'); }
       root.querySelector('.display').addEventListener('click', ()=> (root.classList.contains('open')?close():open()));
-
-      // close when clicking outside
       document.addEventListener('click', (e)=>{ if(!root.contains(e.target)) close(); });
 
       function render(term, highlight){
@@ -320,34 +351,27 @@
           listBox.appendChild(row);
           if(v===highlight) selectedEl=row;
         }
-        // show Add row if typed term not present
         if(term && !items().some(v=>v.toLowerCase()===t)){
-          addText.textContent = term;
-          addRow.style.display='';
+          addText.textContent = term; addRow.style.display='';
         }else{
           addRow.style.display='none';
         }
-        // scroll selected into view if we highlighted it
         if(selectedEl){ selectedEl.scrollIntoView({block:'nearest'}); }
       }
 
       searchEl.addEventListener('input', (e)=> render(e.target.value));
 
-      // ADD: persist, refresh list, re-render menu, highlight and select new value
       addRow.addEventListener('click', async ()=>{
         const term = searchEl.value.trim();
         if(!term) return;
         const ok = await upsertCatalog(kind, term);
         if(ok){
-          // re-render with new list and highlight the new item
-          render('', term);
-          // also set as selected (keeps menu visible so user sees it appear)
-          valueEl.textContent = term;
+          render('', term);               // re-render list with new item highlighted
+          valueEl.textContent = term;     // set as current selection
           valueEl.dataset.val = term;
         }
       });
 
-      // expose getter
       return ()=> (valueEl.dataset.val||'').trim();
     }
 
@@ -428,7 +452,6 @@
       const getMake  = setupCombo('make');
       const getModel = setupCombo('model');
 
-      // labels open manage
       $("#lblMake").addEventListener('click', ()=> openManage('make'));
       $("#lblModel").addEventListener('click', ()=> openManage('model'));
       $("#manageCloseBtn").addEventListener('click', closeManage);
