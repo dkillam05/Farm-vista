@@ -18,7 +18,7 @@
       --hdr-h:56px;           /* header height */
       --ftr-h:14px;           /* base footer height (web) — green strip only */
       --qr-size:48px;         /* camera button size */
-      --qr-gap:23px;          /* gap above footer/safe-area */
+      --qr-gap:26px;          /* gap above footer/safe-area */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
       --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
       display:block; color:var(--text); background:#fff; min-height:100vh; position:relative;
