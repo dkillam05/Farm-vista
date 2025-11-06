@@ -1,10 +1,10 @@
-/* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-e (PWA footer ultra-slim + safe camera)
-   - Web: footer unchanged.
-   - PWA (standalone): green footer strip looks ~3px tall while preserving the safe-area padding.
-   - Floating camera sits above footer inside safe area; layout reserves space so it never overlaps content.
-   - Camera hidden on desktop; visible on phones.
-*/
+<!-- /Farm-vista/js/fv-shell.js
+     FarmVista Shell — v5.10.19-f (theme-safe + dark-aware camera)
+     - Uses theme tokens (no hard-coded light colors)
+     - Camera icon: green in light, white in dark
+     - Camera hidden on desktop; visible on phones
+-->
+<script>
 (function () {
   // ====== TUNABLES ======
   const AUTH_MAX_MS = 5000;  // wait up to 5s for real auth + user-context
@@ -20,8 +20,7 @@
       --qr-size:48px;         /* camera button size */
       --qr-gap:26px;          /* gap above footer/safe-area */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
-      --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
-      display:block; color:var(--text); background:#fff; min-height:100vh; position:relative;
+      display:block; color:var(--text); background:var(--bg); min-height:100vh; position:relative;
     }
 
     /* =======================
@@ -58,16 +57,16 @@
     .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
-    .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
-      color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
+    .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface);
+      color:var(--text); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change: transform, opacity; pointer-events:none; }
     .ptr.show{ transform:translateY(0); }
-    .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46); animation:spin 800ms linear infinite; }
-    .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
+    .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green); animation:spin 800ms linear infinite; }
+    .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green); }
     .ptr .txt{ font-weight:800; }
 
     .ftr{ position:fixed; inset:auto 0 0 0;
-      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px)); /* web uses 14px + 0, PWA uses 3px + safe-area */
+      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px)); /* web uses 14px + 0, PWA uses 0px + safe-area */
       padding-bottom:env(safe-area-inset-bottom,0px);
       background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
@@ -82,12 +81,15 @@
       height: var(--qr-size);
       display:grid; place-items:center;
       background:transparent;
-      color: var(--green);         /* green icon */
+      color: var(--green);         /* default (light/system): green icon */
       text-decoration:none; -webkit-tap-highlight-color:transparent;
       z-index:1400;
       border-radius:12px;
       touch-action: manipulation;
     }
+    /* Inherit app theme: when <html> has .dark (set by theme-boot), flip to white */
+    :host-context(.dark) .qr-float{ color:#fff; }
+
     .qr-float svg{ width:26px; height:26px; display:block; }
     .qr-float:active{ transform:translateY(1px); }
 
@@ -224,7 +226,7 @@
 
   <main class="main" part="main"><slot></slot></main>
 
-  <!-- Floating QR/camera launcher (green icon) -->
+  <!-- Floating QR/camera launcher -->
   <a class="qr-float js-qr" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
@@ -1012,3 +1014,4 @@
 
   if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
 })();
+</script>
