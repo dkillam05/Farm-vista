@@ -52,24 +52,19 @@
   <!-- Firebase SDK (modular) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
-    import { getFirestore, collection, query, where, orderBy, getDocs, doc, getDoc, addDoc, serverTimestamp, runTransaction, increment } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
+    import { getFirestore, collection, query, where, orderBy, getDocs, doc, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
     import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
 
-    // --- tiny helpers ---
+    // --- helpers ---
     const $ = s => document.querySelector(s);
-    const toast = (msg) => {
-      const t = document.createElement('div');
-      t.className = 'toast'; t.textContent = msg;
-      document.body.appendChild(t);
-      setTimeout(()=>t.remove(), 1800);
-    };
+    const toast = (msg) => { const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),1800); };
 
     // Init
     const app = initializeApp(window.firebaseConfig);
     const db  = getFirestore(app);
     const auth = getAuth(app);
 
-    // DOM refs
+    // DOM
     const siteSel = () => $('#site');
     const binSel  = () => $('#bin');
     const cropSel = () => $('#crop');
@@ -79,7 +74,6 @@
     const noteInp = () => $('#note');
     const saveBtn = () => $('#saveBtn');
 
-    // Load Bin Sites
     async function loadSites(){
       const qSites = query(collection(db,'grainBinSites'), where('archived','!=',true), orderBy('archived'), orderBy('name'));
       const snap = await getDocs(qSites);
@@ -88,7 +82,6 @@
       siteSel().disabled = false;
     }
 
-    // Load Bins for site
     async function loadBins(siteId){
       binSel().innerHTML = `<option value="" disabled selected>Select a bin…</option>`;
       binSel().disabled = true;
@@ -102,12 +95,11 @@
       binSel().disabled = false;
     }
 
-    // Save movement (IN) and increment bin currentBushels
     async function save(){
       const siteId = siteSel().value;
       const binId  = binSel().value;
       const crop   = cropSel().value.trim();
-      const cropYear = parseInt(yearInp().value,10);
+      const cropYear = yearInp().value ? parseInt(yearInp().value,10) : null;
       const bushels  = parseFloat(buInp().value);
       const moisture = moistInp().value ? parseFloat(moistInp().value) : null;
       const note = noteInp().value.trim();
@@ -117,31 +109,26 @@
       }
 
       const user = auth.currentUser;
-      const submittedBy = user?.displayName || 'Dane Killam'; // fallback to your preferred display
+      const submittedBy = user?.displayName || 'Dane Killam';
+
       const binRef = doc(db,'grainBins',binId);
 
       await runTransaction(db, async (tx)=>{
-        const binSnap = await tx.get(binRef);
-        if(!binSnap.exists()) throw new Error('Bin not found');
-        const current = Number(binSnap.data().currentBushels||0);
-        const next = current + bushels;
-
         // movement
-        const moveRef = collection(db,'binMovements');
-        tx.set(doc(moveRef), {
-          direction:'in', siteId, binId, crop: crop||null, cropYear: isNaN(cropYear)?null:cropYear,
+        const mv = doc(collection(db,'binMovements'));
+        tx.set(mv, {
+          direction:'in', siteId, binId, crop: crop||null, cropYear,
           bushels, moisture, note: note||null, timestamp: serverTimestamp(), submittedBy
         });
 
-        // update bin tally
-        tx.update(binRef, { currentBushels: next });
+        // tally
+        tx.update(binRef, { currentBushels: ( (await tx.get(binRef)).data()?.currentBushels || 0 ) + bushels });
       });
 
       toast('Added to inventory');
-      setTimeout(()=>location.href='/Farm-vista/pages/grain-tracking/grain-bins.html', 800);
+      setTimeout(()=>location.href='/Farm-vista/pages/grain/grain-bins.html', 800);
     }
 
-    // Events
     document.addEventListener('DOMContentLoaded', async ()=>{
       await loadSites();
       siteSel().addEventListener('change', e=> loadBins(e.target.value));
@@ -206,7 +193,7 @@
 
           <div class="actions">
             <button id="saveBtn" class="btn btn-primary">Add to Inventory</button>
-            <a class="btn btn-ghost" href="/Farm-vista/pages/grain-tracking/grain-bins.html">Cancel</a>
+            <a class="btn btn-ghost" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
           </div>
         </div>
       </div>
