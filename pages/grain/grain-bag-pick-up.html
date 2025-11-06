@@ -71,7 +71,7 @@
     .btn[disabled]{ opacity:.6; cursor:not-allowed }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* Combo (same working helper as Put-Down) */
+    /* Combo (tight inline panel) */
     .combo{ position:relative }
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + 4px);
@@ -97,7 +97,7 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* Centered modal that keeps fv-shell visible */
+    /* Centered modal keeps fv-shell visible */
     .modal{ position:fixed; inset:0; display:none; place-items:center; z-index:10000; }
     .modal.show{ display:grid; }
     .modal::before{ content:""; position:absolute; inset:0; background:rgba(0,0,0,.38); }
@@ -580,7 +580,7 @@
           }
         }
 
-        // Create a single pickUp event for the batch
+        // Create a single pickUp event for the batch (omit files if none)
         const ev = {
           type:'pickUp',
           field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
@@ -592,9 +592,10 @@
           pickedUpDate: when,
           pickedUpBy: who,
           createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          files: uploaded.length ? uploaded : undefined
+          updatedAt: serverTimestamp()
         };
+        if(uploaded.length){ ev.files = uploaded; }  // << Option 1 fix
+
         await addDoc(collection(db,'grain_bag_events'), ev);
 
         // Update each source row
@@ -617,7 +618,6 @@
         closePickupModal();
         await buildOpenIndexForYear(db);
 
-        // Clear the field/crop so user chooses a new field next
         CHOSEN_FIELD=null; CHOSEN_CROP=null;
         $("fieldBtn").textContent="— Select field —";
         $("cropRow").hidden=true; $("summary").textContent="—";
