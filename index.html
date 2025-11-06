@@ -41,18 +41,6 @@
     .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
     .chip{font-size:12px;border:1px solid var(--border);border-radius:999px;padding:4px 8px;color:var(--muted,#67706B);background:var(--surface)}
     .empty{color:var(--muted,#67706B)}
-
-    /* === QR Scanner FAB (no blue UI) === */
-    .qr-fab{
-      position:fixed; right:16px; bottom:calc(env(safe-area-inset-bottom,0px) + 20px);
-      z-index:1000; width:56px; height:56px; border-radius:999px;
-      display:inline-flex; align-items:center; justify-content:center;
-      background:#3B7E46; color:#fff; text-decoration:none; font-size:22px; line-height:1;
-      box-shadow:0 10px 24px rgba(0,0,0,.18);
-      border:1px solid rgba(0,0,0,.06);
-    }
-    .qr-fab:active{transform:translateY(1px)}
-    .qr-fab .sr{position:absolute;left:-9999px}
   </style>
 </head>
 <body>
@@ -72,31 +60,49 @@
     </div>
   </fv-shell>
 
-  <!-- Floating camera button → in-app QR scanner -->
-  <a class="qr-fab" href="pages/qr-scan.html" aria-label="Open QR Scanner">
-    📷<span class="sr">Open QR Scanner</span>
-  </a>
-
   <script>
   (function(){
     "use strict";
 
-    const COL = "messageBoard";
-    const FALLBACK_KEYS = ["df_message_board_fallback","df_message_board","fv_message_board_v1"];
+    const COL = "messageBoard";                 // Firestore collection used by mb-admin.js
+    const FALLBACK_KEYS = [                     // legacy/local fallback keys (just in case)
+      "df_message_board_fallback",
+      "df_message_board",
+      "fv_message_board_v1"
+    ];
     const box = document.getElementById("board");
 
-    const toMs = (v)=>{ if (v==null||v==="") return null; if (typeof v==="number") return v; const t=Date.parse(v); return Number.isFinite(t)?t:null; };
-    const tsToMs = (t)=>{ if (t && typeof t==="object" && typeof t.seconds==="number") return t.seconds*1000; if (typeof t==="number") return t; return null; };
-    const fmtDate = (ms)=>{ try{ return new Date(ms).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}); }catch{ return ""; } };
+    const toMs = (v)=>{
+      if (v == null || v === "") return null;
+      if (typeof v === "number") return v;
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : null;
+    };
+    const tsToMs = (t)=>{
+      // Firestore Timestamp -> ms
+      if (t && typeof t === "object" && typeof t.seconds === "number") return t.seconds*1000;
+      if (typeof t === "number") return t;
+      return null;
+    };
+    const fmtDate = (ms)=>{
+      try{
+        return new Date(ms).toLocaleString(undefined, { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+      }catch{ return ""; }
+    };
 
     async function loadFromFirestore(){
       if (!window.FVData || typeof FVData.list !== "function") return null;
       try{
         await FVData.ready();
+        // show all messages (rules control access); mobile-friendly cap
         const arr = await FVData.list(COL, { limit: 200, mine: false });
         return Array.isArray(arr) ? arr.map(d => ({
-          id: d.id, title: (d.title||"").toString(), body: (d.body||"").toString(), pinned: !!d.pinned,
-          authorName: (d.authorName||"").toString(), createdAt: tsToMs(d.createdAt) || Date.now(),
+          id: d.id,
+          title: (d.title||"").toString(),
+          body: (d.body||"").toString(),
+          pinned: !!d.pinned,
+          authorName: (d.authorName||"").toString(),
+          createdAt: tsToMs(d.createdAt) || Date.now(),
           expiresAt: toMs(d.expiresAt)
         })) : [];
       }catch(e){
@@ -112,6 +118,7 @@
           if (!raw) continue;
           const arr = JSON.parse(raw);
           if (Array.isArray(arr) && arr.length){
+            // normalize legacy shapes
             return arr.map(m => ({
               id: m.id || String(Math.random()),
               title: (m.title||"").toString(),
@@ -130,6 +137,8 @@
     function render(list){
       const now = Date.now();
       const active = (list||[]).filter(m => !m.expiresAt || m.expiresAt > now);
+
+      // sort: pinned first, then newest
       active.sort((a,b)=> (b.pinned - a.pinned) || ((b.createdAt||0) - (a.createdAt||0)));
 
       if (!active.length){
@@ -156,11 +165,13 @@
     }
 
     async function refresh(){
+      // Try Firestore first, then fall back
       const fs = await loadFromFirestore();
       if (fs) { render(fs); return; }
       render(loadFromLocal());
     }
 
+    // Initial load + refresh when returning to tab
     refresh();
     document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") refresh(); });
 
