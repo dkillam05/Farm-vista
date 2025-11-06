@@ -28,11 +28,10 @@
       transform:translate(-50%,-50%);
       border:3px solid rgba(255,255,255,.95); border-radius:18px; box-shadow:0 0 0 200vmax rgba(0,0,0,.36) inset;
     }
-    .btn{
-      width:100%; margin-top:12px; border-radius:12px; padding:14px; font-weight:800; font-size:16px;
-      border:1px solid var(--border,#e5e7eb); background:#3B7E46; color:#fff; cursor:pointer;
-    }
-    .note{margin-top:10px;color:#6b7280;font-size:12px}
+    .row{display:flex; gap:10px; margin-top:12px}
+    .btn{flex:1 1 auto; border-radius:12px; padding:14px; font-weight:800; font-size:16px;
+      border:1px solid var(--border,#e5e7eb); cursor:pointer;}
+    .btn-cancel{background:#fff;color:#111}
     .status{margin-top:8px;font-size:13px}
     .ok{color:#3B7E46}.bad{color:#b91c1c}
   </style>
@@ -50,9 +49,10 @@
             <div class="reticle" aria-hidden="true"></div>
             <canvas id="canvas"></canvas>
           </div>
-          <button id="btnScan" class="btn">Start Scan</button>
+          <div class="row">
+            <button id="btnCancel" class="btn btn-cancel">Cancel</button>
+          </div>
           <div id="status" class="status"></div>
-          <div class="note">Point at a code. We’ll open it immediately.</div>
         </div>
       </div>
     </div>
@@ -64,7 +64,8 @@
   const LAUNCH = (to) => `${location.origin}${APP_SCOPE}launch.html?to=${encodeURIComponent(to)}`;
 
   const $ = (id)=> document.getElementById(id);
-  const video = $('video'), canvas = $('canvas'), btn = $('btnScan'), status = $('status');
+  const video = $('video'), canvas = $('canvas'), status = $('status');
+  const btnCancel = $('btnCancel');
 
   let stream = null, raf = null, running = false;
 
@@ -82,17 +83,18 @@
     else location.href = LAUNCH(targetAbs);
   }
 
-  function stop(){
+  function cleanup(){
     running = false;
     if (raf) cancelAnimationFrame(raf), raf=null;
     if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-    setStatus('Camera stopped.');
-    btn.textContent = 'Start Scan';
   }
 
   async function start(){
     try{
-      stop();
+      cleanup();
+      // If already granted, this won’t prompt. First time, browser will show one prompt (unavoidable).
+      const st = await (navigator.permissions && navigator.permissions.query ? navigator.permissions.query({ name:'camera' }) : Promise.resolve({state:'prompt'}));
+      // Try to use rear camera
       stream = await navigator.mediaDevices.getUserMedia({
         video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }, audio:false
       });
@@ -100,7 +102,6 @@
       await video.play();
       running = true;
       setStatus('Camera running…');
-      btn.textContent = 'Stop';
 
       const ctx = canvas.getContext('2d', { willReadFrequently:true });
 
@@ -112,7 +113,7 @@
         const img = ctx.getImageData(0,0,canvas.width,canvas.height);
         const code = jsQR(img.data, img.width, img.height, { inversionAttempts:'dontInvert' });
         if (code && code.data){
-          stop();
+          cleanup();
           setStatus('QR detected. Opening…');
           const abs = normalize(code.data.trim());
           go(abs);
@@ -123,19 +124,19 @@
     }catch(e){
       console.error(e);
       setStatus('Camera access failed. Check permissions.', false);
-      btn.textContent = 'Start Scan';
     }
   }
 
-  btn.addEventListener('click', ()=> (running ? stop() : start()));
+  // Cancel goes back to the previous page if there is one, otherwise home.
+  btnCancel.addEventListener('click', ()=>{
+    cleanup();
+    if (window.history.length > 1) history.back();
+    else location.replace(APP_SCOPE);
+  });
 
-  // Auto-start if permission already granted
-  (async ()=>{
-    try{
-      const st = await navigator.permissions.query({ name:'camera' });
-      if (st.state === 'granted') start();
-    }catch{}
-  })();
+  // Auto-start as soon as page is ready
+  document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && !running && !stream) start(); });
+  start(); // kick immediately
 })();
 </script>
 </body>
