@@ -19,7 +19,6 @@
   <!-- Ensure fv-shell -->
   <script>(function(){if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);}})();</script>
 
-  <!-- Page CSS -->
   <style>
     :root{ --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C; }
     body{ background:var(--app-bg,var(--surface)); }
@@ -42,8 +41,7 @@
     .input,.select{
       width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
-      border-radius:10px; /* rounded dropdowns */
-      padding:12px;outline:none
+      border-radius:10px; padding:12px; outline:none;      /* rounded */
     }
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
 
@@ -81,18 +79,25 @@
           <div class="row">
             <div class="field">
               <label for="site">Grain Bin Site</label>
-              <select id="site" class="select">
-                <option value="">— Loading… —</option>
-              </select>
+              <select id="site" class="select"><option value="">— Loading… —</option></select>
               <div id="siteHelp" class="help">0 sites</div>
             </div>
 
             <div class="field">
               <label for="bin">Bin</label>
-              <select id="bin" class="select" disabled>
-                <option value="">Select a site first…</option>
-              </select>
+              <select id="bin" class="select" disabled><option value="">Select a site first…</option></select>
               <div id="binHelp" class="help">—</div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="submittedBy">Submitted By</label>
+              <input id="submittedBy" class="input" placeholder="Auto: signed-in user"/>
+            </div>
+            <div class="field">
+              <label for="date">Date</label>
+              <input id="date" class="input" type="date"/>
             </div>
           </div>
 
@@ -121,7 +126,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Firebase (lazy method) -->
   <script type="module">
     import {
       ready, getFirestore, getAuth,
@@ -129,20 +133,15 @@
       serverTimestamp, query, orderBy
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $ = id => document.getElementById(id);
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&gt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const $=id=>document.getElementById(id);
+    const esc=s=>String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
     function toast(msg="Saved.", ms=2200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
-    let SITES=[];      // {id,name,bins[]}
-    let CURRENT_SITE=null;
-    let CURRENT_BIN_INDEX=-1;
+    let SITES=[]; let CURRENT_SITE=null; let CURRENT_BIN_INDEX=-1;
+    const todayISO=()=>new Date().toISOString().slice(0,10);
 
     function updateOnHandHelp(){
-      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){
-        $("capHelp").textContent="On hand: —";
-        $("btnSave").disabled=true;
-        return;
-      }
+      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){ $("capHelp").textContent="On hand: —"; $("btnSave").disabled=true; return; }
       const on = Number(CURRENT_SITE.bins[CURRENT_BIN_INDEX]?.onHand||0);
       const remove = parseFloat($("bushels").value||"0");
       const over = remove > on;
@@ -152,45 +151,28 @@
     }
 
     async function loadSites(db){
-      // Load all sites, then filter to those where any bin has onHand > 0
-      const snap = await getDocs(query(collection(db,'binSites'), orderBy('name')));
-      const all=[];
+      const snap=await getDocs(query(collection(db,'binSites'), orderBy('name')));
+      const withGrain=[];
       snap.forEach(d=>{
-        const v=d.data()||{};
-        const bins = Array.isArray(v.bins)?v.bins:[];
-        const hasGrain = bins.some(b=>Number(b?.onHand||0) > 0);
-        if(hasGrain){
-          all.push({ id:d.id, name:String(v.name||'Unnamed'), bins });
-        }
+        const v=d.data()||{}; const bins=Array.isArray(v.bins)?v.bins:[];
+        if(bins.some(b=>Number(b?.onHand||0)>0)) withGrain.push({ id:d.id, name:String(v.name||'Unnamed'), bins });
       });
-      all.sort((a,b)=>a.name.localeCompare(b.name));
-      SITES = all;
-
-      $("site").innerHTML = '<option value="">— Select —</option>'+
-        SITES.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
-      $("site").disabled = false;
-      $("siteHelp").textContent = `${SITES.length} site${SITES.length===1?'':'s'} with grain`;
+      withGrain.sort((a,b)=>a.name.localeCompare(b.name));
+      SITES=withGrain;
+      $("site").innerHTML='<option value="">— Select —</option>'+SITES.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+      $("site").disabled=false; $("siteHelp").textContent=`${SITES.length} site${SITES.length===1?'':'s'} with grain`;
     }
 
     function loadBinsFor(siteId){
-      CURRENT_SITE = SITES.find(s=>s.id===siteId) || null;
-      const sel = $("bin"), help=$("binHelp");
-      CURRENT_BIN_INDEX=-1;
-
-      if(!CURRENT_SITE){
-        sel.innerHTML = '<option value="">Select a site first…</option>';
-        sel.disabled=true; help.textContent='—'; updateOnHandHelp(); return;
-      }
-
-      // Only bins with grain
-      const items = (CURRENT_SITE.bins||[]).map((b,i)=>({b,i})).filter(x=>Number(x.b.onHand||0)>0);
-      sel.innerHTML = '<option value="">— Select —</option>' + items.map(({b,i})=>{
-        const on=Number(b.onHand||0), num=b.num ?? (i+1);
-        return `<option value="${i}">Bin #${esc(num)} — On hand: ${on.toLocaleString()}</option>`;
+      CURRENT_SITE=SITES.find(s=>s.id===siteId)||null;
+      const sel=$("bin"), help=$("binHelp"); CURRENT_BIN_INDEX=-1;
+      if(!CURRENT_SITE){ sel.innerHTML='<option value="">Select a site first…</option>'; sel.disabled=true; help.textContent='—'; updateOnHandHelp(); return; }
+      const items=(CURRENT_SITE.bins||[]).map((b,i)=>({b,i})).filter(x=>Number(x.b.onHand||0)>0);
+      sel.innerHTML='<option value="">— Select —</option>'+items.map(({b,i})=>{
+        const on=+b.onHand||0, num=b.num ?? (i+1);
+        return `<option value="${i}">Bin #${num} — On hand: ${on.toLocaleString()}</option>`;
       }).join('');
-      sel.disabled=false;
-      help.textContent = `${items.length} bin${items.length===1?'':'s'} with grain`;
-
+      sel.disabled=false; help.textContent=`${items.length} bin${items.length===1?'':'s'} with grain`;
       if(items.length===1){ sel.value=String(items[0].i); CURRENT_BIN_INDEX=items[0].i; }
       updateOnHandHelp();
     }
@@ -198,18 +180,14 @@
     async function saveRemove(db, auth){
       $("err").hidden=true;
 
-      const siteId = $("site").value;
-      const binIdx = parseInt($("bin").value,10);
-      const bushels = parseFloat($("bushels").value);
-      const note = ($("note").value||"").trim() || null;
-
-      if(!siteId){ alert("Select a site."); return; }
-      if(!(binIdx>=0)){ alert("Select a bin."); return; }
-      if(!(bushels>0)){ alert("Enter bushels > 0."); return; }
+      const siteId=$("site").value;
+      const binIdx=parseInt($("bin").value,10);
+      const bushels=parseFloat($("bushels").value);
+      if(!siteId || !(binIdx>=0) || !(bushels>0)){ alert("Complete all fields."); return; }
 
       try{
-        const siteRef = doc(db,'binSites',siteId);
-        const snap = await getDoc(siteRef);
+        const siteRef=doc(db,'binSites',siteId);
+        const snap=await getDoc(siteRef);
         if(!snap.exists()) throw new Error("Site not found.");
 
         const data=snap.data()||{};
@@ -222,7 +200,7 @@
         bins[binIdx] = {
           ...bin,
           onHand: after,
-          lastUpdatedBy:(getAuth().currentUser?.displayName||'Dane Killam'),
+          lastUpdatedBy: $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam'),
           lastUpdatedMs: Date.now()
         };
 
@@ -233,8 +211,9 @@
           binIndex: binIdx, binNum: bin.num ?? (binIdx+1),
           direction:'out',
           bushels,
-          note,
-          submittedBy:(auth.currentUser?.displayName||'Dane Killam'),
+          note: ($("note").value||"").trim() || null,
+          submittedBy: $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam'),
+          dateISO: $("date").value || null,
           createdAt: serverTimestamp()
         });
 
@@ -252,11 +231,13 @@
       await ready;
       const db=getFirestore(); const auth=getAuth();
 
-      await loadSites(db);                            // Sites filtered to those with grain
+      $("submittedBy").value = auth.currentUser?.displayName || "Dane Killam";
+      $("date").value = todayISO();
+
+      await loadSites(db);
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
       $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateOnHandHelp(); });
       $("bushels").addEventListener("input", updateOnHandHelp);
-
       $("btnSave").addEventListener("click", ()=> saveRemove(db, auth));
     })();
   </script>
