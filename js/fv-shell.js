@@ -1,9 +1,8 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.20
-   - Fix: iOS Safari bottom toolbar clipping footer.
-     * In iOS browser (not standalone), footer becomes sticky (bottom:0) instead of fixed.
-     * In standalone/Android/desktop, footer remains fixed.
-   - QR mini icon stays inside footer (left), hidden on desktop.
+   FarmVista Shell — v5.10.21
+   - Fix: parse error from place-items (now placeItems).
+   - iOS Safari (browser): footer uses sticky to avoid bottom toolbar overlap.
+   - QR mini icon: visible on phones, hidden on desktop.
 */
 (function () {
   const AUTH_MAX_MS = 5000;
@@ -15,7 +14,6 @@
     :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
       display:block; color:#141514; background:#fff; min-height:100vh; position:relative; }
 
-    /* ===== Header ===== */
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
@@ -24,7 +22,6 @@
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
-    /* ===== Boot Overlay ===== */
     .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
       background:color-mix(in srgb, #000 25%, transparent);
       backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
@@ -35,7 +32,6 @@
     .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
-    /* ===== Pull To Refresh ===== */
     .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
       color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change: transform, opacity; pointer-events:none; }
@@ -44,7 +40,7 @@
     .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
     .ptr .txt{ font-weight:800; }
 
-    /* ===== Footer (default = fixed) ===== */
+    /* Footer: default fixed */
     .ftr{
       position:fixed; inset:auto 0 0 0;
       height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
@@ -54,12 +50,12 @@
     }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; justify-self:center; }
 
-    /* iOS Safari (browser, not standalone): footer becomes sticky so it never sits under the toolbar */
+    /* iOS Safari (browser mode) -> sticky so it doesn't sit under the bottom bar */
     :host(.ios-browser) .ftr{
       position:sticky; bottom:0; inset:auto 0 auto 0; z-index:900;
     }
 
-    /* QR camera icon in footer (white) */
+    /* QR mini icon (white) */
     .qr-mini{
       place-self:center start;
       width:28px; height:28px; display:grid; place-items:center; color:#fff; opacity:.98;
@@ -68,22 +64,19 @@
     .qr-mini svg{ width:22px; height:22px; display:block; }
     .qr-mini:active{ transform:translateY(1px); }
 
-    /* ===== Main ===== */
     .main{
       position:relative;
       padding: calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
                calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text);
     }
-    /* In ios-browser mode footer is in flow; reduce bottom padding */
     :host(.ios-browser) .main{
-      padding-bottom: 16px;
-      min-height: calc(100dvh - var(--hdr-h) - 3px); /* dynamic viewport prevents jump under Safari bars */
+      padding-bottom:16px;
+      min-height: calc(100dvh - var(--hdr-h) - 3px);
     }
 
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
-    /* ===== Overlay + Drawers ===== */
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
 
@@ -259,10 +252,10 @@
         (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
       const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
 
-      // In iOS browser (not standalone), use sticky footer to dodge the toolbar
+      // iOS browser mode -> sticky footer
       if (isIOS && !isStandalone) this.classList.add('ios-browser');
 
-      // Hide QR icon on desktop; show on phones
+      // QR icon: hide on desktop
       const qrMini = r.querySelector('.qr-mini');
       if (qrMini && !isMobile) qrMini.style.display = 'none';
 
@@ -627,7 +620,7 @@
         btn.style.width = '44px';
         btn.style.height = '44px';
         btn.style.display = 'grid';
-        btn.style.place-items = 'center';
+        btn.style.placeItems = 'center';
         btn.style.background = 'transparent';
         btn.style.border = '0';
         btn.style.cursor = 'pointer';
@@ -688,12 +681,13 @@
       try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
-    /* ===== Scroll lock helpers ===== */
     _applyBodyFixedStyles(){
       document.body.style.position = 'fixed';
       document.body.style.top = `-${this._scrollY}px`;
-      document.body.style.left = '0'; document.body.style.right = '0';
-      document.body.style.width = '100%'; document.body.style.overflow = 'hidden';
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
     }
     _setScrollLock(on){
       const iosStandalone = this._isIOSStandalone();
@@ -702,7 +696,8 @@
         this._scrollY = window.scrollY || html.scrollTop || 0;
         if (iosStandalone){
           this._applyBodyFixedStyles();
-          html.style.overflow = 'hidden'; html.style.height = '100%';
+          html.style.overflow = 'hidden';
+          html.style.height = '100%';
           if (this._scrim) {
             this._scrim.addEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
             this._scrim.addEventListener('wheel', this._scrimTouchBlocker, { passive:false });
@@ -714,10 +709,14 @@
         this._scrollLocked = true;
         this._ptrDisabled = true;
       } else if (!on && this._scrollLocked){
-        document.body.style.position = ''; document.body.style.top = '';
-        document.body.style.left = ''; document.body.style.right = '';
-        document.body.style.width = ''; document.body.style.overflow = '';
-        html.style.overflow = ''; html.style.height = '';
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        html.style.overflow = '';
+        html.style.height = '';
         if (this._scrim) {
           this._scrim.removeEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
           this._scrim.removeEventListener('wheel', this._scrimTouchBlocker, { passive:false });
@@ -759,7 +758,6 @@
       this._syncThemeChips(mode);
     }
 
-    /* ===== PTR ===== */
     _initPTR(){
       const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
       const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
@@ -836,7 +834,7 @@
         try { cloudReady = !!(window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()); } catch {}
         const ok = !!(net && cloudReady);
         if (this._connTxt) this._connTxt.textContent = ok ? 'Online' : 'Offline';
-        if (this._connRow) { this._connRow.style.opacity = '1'; this._connRow.title = `Network: ${net ? 'online' : 'offline'} • Cloud: ${cloudReady ? 'ready' : 'not ready'}`; }
+        if (this._connRow) { this._connRow.style.opacity = '1'; this._connRow.title = \`Network: \${net ? 'online' : 'offline'} • Cloud: \${cloudReady ? 'ready' : 'not ready'}\`; }
       };
       update();
       window.addEventListener('online', update);
