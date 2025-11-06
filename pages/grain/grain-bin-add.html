@@ -29,36 +29,18 @@
   </script>
 
   <!-- ===========================
-       PAGE CSS (keep tiny; use theme tokens)
+       PAGE CSS (tiny; theme tokens)
        =========================== -->
   <style>
-    :root{
-      --card-max:1100px;
-      --page-bottom-gap:96px;
-      --accent:#2F6C3C;
-    }
+    :root{ --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C; }
     body{ background:var(--app-bg,var(--surface)); }
-
-    .wrap{
-      max-width:var(--card-max);
-      margin:0 auto;
-      padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
-    }
-
-    .hero{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
-      margin-bottom:var(--page-bottom-gap);
-    }
-    .hero-head{
-      display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important; }
+    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
+    .hero-head{ display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
       padding:14px 16px;border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
-    }
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent); }
     .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
     .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
     .muted{color:var(--muted,#67706B)}
@@ -73,16 +55,21 @@
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:12px;outline:none
     }
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:160px;
       padding:12px 16px;border-radius:12px;border:1px solid var(--border);
       background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
+    .btn[disabled]{opacity:.5;cursor:not-allowed}
 
+    /* Invalid state for capacity/validation */
+    .invalid{ color:#b00020 !important; border-color:#b00020 !important; }
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none}
-    .toast.show{display:block;animation:fadeout 5s forwards}
-    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+    .toast.show{display:block;animation:fadeout 3.5s forwards}
+    @keyframes fadeout{0%{opacity:1}80%{opacity:1}100%{opacity:0}}
     .error{color:#b00020;font-weight:700}
   </style>
 </head>
@@ -92,10 +79,10 @@
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon" aria-hidden="true">🏷️</div>
+          <div class="icon" aria-hidden="true">➕</div>
           <div>
             <h1>Add to Grain Bin Inventory</h1>
-            <p class="muted">Select a Bin Site, pick a Bin, and enter bushels to add.</p>
+            <p class="muted">Choose a bin site and bin, enter details, and add bushels.</p>
           </div>
         </header>
 
@@ -118,10 +105,40 @@
             </div>
           </div>
 
+          <!-- Under Bin fields -->
+          <div class="row">
+            <div class="field">
+              <label for="cropType">Crop Type</label>
+              <select id="cropType" class="select">
+                <option value="">— Select —</option>
+                <option value="Corn">Corn</option>
+                <option value="Soybeans">Soybeans</option>
+                <option value="Wheat">Wheat</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="cropMoisture">Crop Moisture (%)</label>
+              <input id="cropMoisture" class="input" type="number" step="0.1" inputmode="decimal" placeholder="e.g. 15.3"/>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="submittedBy">Submitted By</label>
+              <input id="submittedBy" class="input" placeholder="Auto: signed-in user"/>
+            </div>
+            <div class="field">
+              <label for="date">Date</label>
+              <input id="date" class="input" type="date"/>
+            </div>
+          </div>
+
           <div class="row">
             <div class="field">
               <label for="bushels">Bushels</label>
               <input id="bushels" class="input" type="number" inputmode="decimal" placeholder="e.g. 1,200"/>
+              <div id="capHelp" class="help">Capacity: — • On hand: — • After add: —</div>
             </div>
             <div class="field">
               <label for="note">Note (optional)</label>
@@ -133,7 +150,8 @@
 
           <div class="actions">
             <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
-            <button id="btnSave" class="btn btn-primary" type="button">Add to Inventory</button>
+            <button id="btnSave" class="btn btn-primary" type="button" disabled>Add to Inventory</button>
+            <button id="btnClear" class="btn" type="button">Clear</button>
           </div>
         </div>
       </section>
@@ -148,17 +166,38 @@
   <script type="module">
     import {
       ready, getFirestore, getAuth,
-      collection, getDocs, doc, getDoc, setDoc, updateDoc,
+      collection, getDocs, doc, getDoc, setDoc,
       serverTimestamp, query, orderBy
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    function showToast(msg="Saved.", ms=2000){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
+    function showToast(msg="Saved.", ms=2500){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
-    let SITES = [];         // [{id, name, bins:[{num,bushels,onHand?}], ...}]
+    let SITES = [];
     let CURRENT_SITE = null;
     let CURRENT_BIN_INDEX = -1;
+
+    function todayISO(){
+      const d=new Date();
+      const m=String(d.getMonth()+1).padStart(2,'0');
+      const day=String(d.getDate()).padStart(2,'0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    }
+
+    function updateCapacityHelp(){
+      const capEl=$("capHelp"), buEl=$("bushels");
+      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){ capEl.textContent="Capacity: — • On hand: — • After add: —"; buEl.classList.remove('invalid'); $("btnSave").disabled=true; return; }
+      const bin = CURRENT_SITE.bins[CURRENT_BIN_INDEX]||{};
+      const cap = Number(bin.bushels||0);
+      const on  = Number(bin.onHand||0);
+      const add = parseFloat(buEl.value||"0");
+      const after = on + (isNaN(add)?0:add);
+      const over = after > cap && cap>0;
+      capEl.textContent = `Capacity: ${cap.toLocaleString()} • On hand: ${on.toLocaleString()} • After add: ${after.toLocaleString()}`;
+      buEl.classList.toggle('invalid', over);
+      $("btnSave").disabled = over || !(add>0) || !$("site").value || !(CURRENT_BIN_INDEX>=0);
+    }
 
     async function loadSites(db){
       const snap = await getDocs(query(collection(db,'binSites'), orderBy('name')));
@@ -176,68 +215,117 @@
 
     function loadBinsFor(siteId){
       CURRENT_SITE = SITES.find(s=>s.id===siteId) || null;
-      const sel = $("bin");
-      const help = $("binHelp");
+      const sel = $("bin"), help=$("binHelp");
+      CURRENT_BIN_INDEX=-1;
       if(!CURRENT_SITE){
         sel.innerHTML = '<option value="">Select a site first…</option>';
-        sel.disabled = true; help.textContent='—'; return;
+        sel.disabled = true; help.textContent='—'; updateCapacityHelp(); return;
       }
       const items = CURRENT_SITE.bins || [];
       sel.innerHTML = '<option value="">— Select —</option>' + items.map((b,i)=>{
-        const cap = Number(b.bushels||0);
-        const on  = Number(b.onHand||0);
-        const num = b.num ?? (i+1);
-        return `<option value="${i}">Bin #${esc(num)} — Cap: ${cap.toLocaleString()} bu — On hand: ${on.toLocaleString()} bu</option>`;
+        const cap=Number(b.bushels||0), on=Number(b.onHand||0), num=b.num ?? (i+1);
+        return `<option value="${i}">Bin #${esc(num)} — Cap: ${cap.toLocaleString()} • On hand: ${on.toLocaleString()}</option>`;
       }).join('');
       sel.disabled = false;
       help.textContent = `${items.length} bins`;
+      updateCapacityHelp();
     }
 
     async function saveAdd(db, auth){
       $("err").hidden = true;
+
       const siteId = $("site").value;
       const binIdx = parseInt($("bin").value,10);
       const bushels = parseFloat($("bushels").value);
-      const note = $("note").value.trim();
+      const cropType = $("cropType").value || null;
+      const cropMoisture = $("cropMoisture").value ? parseFloat($("cropMoisture").value) : null;
+      const submittedBy = $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam');
+      const dateVal = $("date").value; // yyyy-mm-dd
 
       if(!siteId){ alert("Select a site."); return; }
       if(!(binIdx>=0)){ alert("Select a bin."); return; }
       if(!(bushels>0)){ alert("Enter bushels > 0."); return; }
 
+      // capacity guard
+      const bin = (CURRENT_SITE?.bins||[])[binIdx] || {};
+      const cap = Number(bin.bushels||0);
+      const on  = Number(bin.onHand||0);
+      if(cap>0 && on + bushels > cap){
+        $("bushels").classList.add('invalid');
+        $("err").hidden=false; $("err").textContent="Bushels exceed bin capacity."; return;
+      }
+
       const siteRef = doc(db,'binSites',siteId);
       const siteSnap = await getDoc(siteRef);
       if(!siteSnap.exists()){ alert("Site not found."); return; }
 
+      // update bins array
       const data = siteSnap.data()||{};
       const bins = Array.isArray(data.bins)?[...data.bins]:[];
-      const bin  = bins[binIdx] || {};
-      const prev = Number(bin.onHand||0);
-      const next = prev + bushels;
-
-      bins[binIdx] = { ...bin, onHand: next, lastUpdated: serverTimestamp() };
-
-      // Write bins array back
+      const before = Number(bins[binIdx]?.onHand||0);
+      const after  = before + bushels;
+      bins[binIdx] = {
+        ...(bins[binIdx]||{}),
+        onHand: after,
+        lastUpdated: serverTimestamp(),
+        lastCropType: cropType,
+        lastCropMoisture: cropMoisture,
+        lastUpdatedBy: submittedBy
+      };
       await setDoc(siteRef, { bins }, { merge:true });
 
-      // Movement log
-      await setDoc(doc(collection(db,'binMovements')), {
+      // movement log
+      const movement = {
         siteId, siteName: CURRENT_SITE?.name || null,
-        binIndex: binIdx, binNum: bin.num ?? (binIdx+1),
-        direction: 'in', bushels, note: note||null,
-        timestamp: serverTimestamp(),
-        submittedBy: (getAuth().currentUser?.displayName || 'Dane Killam')
-      });
+        binIndex: binIdx, binNum: bins[binIdx]?.num ?? (binIdx+1),
+        direction: 'in',
+        bushels,
+        cropType, cropMoisture,
+        note: ($("note").value||"").trim() || null,
+        submittedBy,
+        date: dateVal ? new Date(`${dateVal}T00:00:00`) : null,
+        createdAt: serverTimestamp()
+      };
+      await setDoc(doc(collection(db,'binMovements')), movement);
 
       showToast("Added to inventory");
-      setTimeout(()=>location.href='/Farm-vista/pages/grain/grain-bins.html', 600);
+
+      // Clear form for next entry, keep site/bin for speed
+      $("bushels").value = "";
+      $("cropType").selectedIndex = 0;
+      $("cropMoisture").value = "";
+      $("submittedBy").value = submittedBy; // keep same
+      $("date").value = todayISO();
+      $("note").value = "";
+      updateCapacityHelp();
+      $("bushels").focus();
     }
 
     (async()=>{
-      await ready;
+      const ctx = await ready;
       const db = getFirestore(); const auth = getAuth();
+
+      // Prefill submitted by + date
+      $("submittedBy").value = auth.currentUser?.displayName || "Dane Killam";
+      $("date").value = todayISO();
+
       await loadSites(db);
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
+      $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateCapacityHelp(); });
+
+      $("bushels").addEventListener("input", updateCapacityHelp);
+
       $("btnSave").addEventListener("click", ()=> saveAdd(db, auth));
+      $("btnClear").addEventListener("click", ()=>{
+        $("cropType").selectedIndex=0;
+        $("cropMoisture").value="";
+        $("submittedBy").value = auth.currentUser?.displayName || "Dane Killam";
+        $("date").value = todayISO();
+        $("bushels").value="";
+        $("note").value="";
+        $("err").hidden=true;
+        updateCapacityHelp();
+      });
     })();
   </script>
 </body>
