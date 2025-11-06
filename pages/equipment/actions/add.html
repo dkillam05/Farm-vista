@@ -28,19 +28,25 @@
   </script>
 
   <style>
-    :root{ --brand:var(--green,#3B7E46); --accent:#2F6C3C; --card-max:1100px; }
+    :root{ --brand:var(--green,#3B7E46); --card-max:1100px; }
     body{ background:var(--app-bg,var(--surface)); }
     .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px); }
-
     header.page{margin:8px 0 14px;}
     header.page h1{margin:0 0 6px 0; font-size:clamp(22px,3.5vw,28px)}
     header.page p{margin:0; color:var(--muted,#67706B)}
 
-    .card{ border:1px solid var(--border); border-radius:16px; background:var(--surface); padding:16px; display:grid; gap:14px }
+    .hero{ border:1px solid var(--border); border-radius:16px; background:var(--surface);
+      padding:16px; display:grid; gap:12px; }
+    .hero-actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center }
+    .btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
+    .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
+    .btn-quiet{ background:transparent }
+    .btn-mini{ padding:6px 10px; border-radius:999px; font-weight:700; font-size:13px }
+    .muted{ color:var(--muted,#67706B); font-size:14px }
+
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
     @media (max-width:720px){ .grid2{ grid-template-columns:1fr } }
 
-    .field label{ display:block; font-weight:800; margin:0 0 6px }
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface)); border:1px solid var(--border);
@@ -48,31 +54,31 @@
     }
     .textarea{ min-height:90px }
 
-    .row-inline{ display:flex; gap:10px; align-items:center; flex-wrap:wrap }
-    .btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
-    .btn-primary{ border-color:transparent; background:var(--accent); color:#fff!important }
-    .btn-blue{ border-color:transparent; background:#2B6CB0; color:#fff!important } /* blue add buttons */
-    .btn-quiet{ background:transparent }
+    .select.addable option.add-opt{ font-weight:800; }
 
-    /* QR preview */
-    .qr-wrap{
+    .qr-preview{
       display:grid; grid-template-columns:196px 1fr; gap:16px; align-items:center;
       border:1px dashed var(--border); border-radius:12px; padding:12px; background:color-mix(in srgb, var(--brand) 4%, transparent);
     }
     .qr-img{ width:196px; height:196px; display:grid; place-items:center; background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px; overflow:hidden }
     #qrImg{ max-width:180px; max-height:180px; display:block }
-    .muted{ color:var(--muted,#67706B) }
 
-    /* Centered modal (for Manage lists + Add dialog) */
-    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:9000 }
-    .modal.show{ display:flex }
+    /* Centered modals */
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:9000; }
+    .modal.show{ display:flex; }
     .modal-card{ width:min(620px,95vw); max-height:90vh; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.35); display:flex; flex-direction:column; }
     .md-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand) 10%, transparent) }
     .md-body{ padding:16px; display:grid; gap:12px }
     .list{ border:1px solid var(--border); border-radius:12px; overflow:hidden }
-    .row{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:10px 12px; border-top:1px solid var(--border) }
+    .row{ display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; padding:10px 12px; border-top:1px solid var(--border) }
     .row:first-child{ border-top:none }
     .pill{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
+    .hint{ font-size:12px; color:var(--muted); margin-top:4px }
+    label.clickable{ cursor:pointer; text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; }
+
+    /* tiny add modal */
+    .tiny-card{ width:min(420px,94vw); }
+    .tiny-body{ padding:16px; display:grid; gap:10px }
   </style>
 </head>
 <body>
@@ -80,21 +86,25 @@
     <div class="wrap">
       <header class="page">
         <h1>Add Equipment</h1>
-        <p class="muted">Pick a Make/Model (or add new), generate the QR, and save.</p>
+        <p class="muted">Fill the basics, create the QR to preview, then save.</p>
       </header>
 
-      <!-- Actions + QR -->
-      <section class="card">
-        <div class="row-inline">
+      <!-- HERO / ACTIONS -->
+      <section class="hero">
+        <div class="hero-actions">
           <button id="btnCreateQR" class="btn" type="button">Create QR Code</button>
           <button id="btnSave" class="btn btn-primary" type="button">Save</button>
-          <a class="btn btn-quiet" href="/Farm-vista/pages/equipment/tractors-view.html">Cancel</a>
+          <a id="btnCancel" class="btn btn-quiet" href="/Farm-vista/pages/equipment/tractors-view.html">Cancel</a>
         </div>
 
-        <div id="qrBox" class="qr-wrap" hidden>
+        <!-- QR shows here immediately after "Create QR Code" -->
+        <div id="qrPreview" class="qr-preview" hidden>
           <div class="qr-img"><img id="qrImg" alt="QR preview"/></div>
           <div>
-            <div class="muted">Scannable QR for the unit hub. Print labels from the View screen after saving.</div>
+            <div class="muted">
+              QR preview. This code deep-links to the equipment hub for this unit.
+              You can print labels after saving from the view screen.
+            </div>
             <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
               <a id="openHub" class="btn btn-quiet" target="_blank" rel="noopener">Open Hub</a>
               <a id="downloadPng" class="btn" download="equipment-qr.png">Download PNG</a>
@@ -103,49 +113,38 @@
         </div>
       </section>
 
-      <!-- Form -->
-      <section class="card">
+      <!-- FORM -->
+      <section style="margin-top:16px; border:1px solid var(--border); border-radius:16px; background:var(--surface); padding:16px; display:grid; gap:12px">
         <div class="grid2">
-          <div class="field">
-            <label>Make</label>
-            <div class="row-inline">
-              <select id="make" class="select" style="min-width:240px">
-                <option value="">— Loading makes… —</option>
-              </select>
-              <button id="btnAddMake" class="btn btn-blue" type="button">+ Add Make</button>
-              <button id="btnManageMake" class="btn" type="button">Manage</button>
-            </div>
+          <div>
+            <label id="lblMake" class="clickable" title="Tap to manage Makes">Make</label>
+            <select id="make" class="select addable"></select>
+            <div class="hint">Tap “Make” to manage (edit/archive). Choose “+ Add new…” from the list to create.</div>
           </div>
-
-          <div class="field">
-            <label>Model</label>
-            <div class="row-inline">
-              <select id="model" class="select" style="min-width:240px">
-                <option value="">— Loading models… —</option>
-              </select>
-              <button id="btnAddModel" class="btn btn-blue" type="button">+ Add Model</button>
-              <button id="btnManageModel" class="btn" type="button">Manage</button>
-            </div>
+          <div>
+            <label id="lblModel" class="clickable" title="Tap to manage Models">Model</label>
+            <select id="model" class="select addable"></select>
+            <div class="hint">Tap “Model” to manage (edit/archive). Choose “+ Add new…” from the list to create.</div>
           </div>
         </div>
 
         <div class="grid2">
-          <div class="field">
+          <div>
             <label>Year</label>
             <select id="year" class="select"></select>
           </div>
-          <div class="field">
+          <div>
             <label>Serial #</label>
             <input id="serial" class="input" placeholder="Optional">
           </div>
         </div>
 
         <div class="grid2">
-          <div class="field">
+          <div>
             <label>Engine Hours</label>
             <input id="hours" type="number" step="0.1" class="input" placeholder="e.g., 1250.5">
           </div>
-          <div class="field">
+          <div>
             <label>Status</label>
             <select id="status" class="select">
               <option value="active" selected>Active</option>
@@ -154,7 +153,7 @@
           </div>
         </div>
 
-        <div class="field">
+        <div>
           <label>Notes</label>
           <textarea id="notes" class="textarea" placeholder="Optional details"></textarea>
         </div>
@@ -162,206 +161,302 @@
     </div>
   </fv-shell>
 
-  <!-- Manage Modal (centered) -->
-  <div id="manageModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal-card">
-      <div class="md-head">
-        <strong id="manageTitle">Manage</strong>
-        <button id="manageClose" class="btn">Close</button>
-      </div>
-      <div class="md-body">
-        <div class="row-inline">
-          <input id="manageNewName" class="input" placeholder="New name">
-          <button id="manageAddBtn" class="btn btn-blue" type="button">+ Add</button>
-        </div>
-        <div class="list" id="manageList"></div>
-      </div>
-    </div>
-  </div>
+  <!-- ===== QR ENGINE (PNG with quiet zone) ===== -->
+  <script>
+  /*! qrcode-generator mini → returns PNG dataURL with quiet zone */
+  (function(global){function QR8bitByte(data){this.mode=1;this.data=data}
+  QR8bitByte.prototype={getLength:function(){return unescape(encodeURIComponent(this.data)).length},write:function(buffer){var s=unescape(encodeURIComponent(this.data));for(var i=0;i<s.length;i++)buffer.put(s.charCodeAt(i),8)}};
+  function QRBitBuffer(){this.buffer=[],this.length=0}
+  QRBitBuffer.prototype={get:function(i){return((this.buffer[i>>3]>>>(7-i%8))&1)==1},put:function(num,len){for(var i=0;i<len;i++)this.putBit(((num>>>(len-i-1))&1)==1)},putBit:function(bit){var b=this.length>>3;if(this.buffer.length<=b)this.buffer.push(0);if(bit)this.buffer[b]|=(0x80>>>(this.length%8));this.length++}};
+  var QRUtil={PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62]],
+  G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(d){var x=d<<10;while(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)>=0)x^=(QRUtil.G15<<(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)));return(x|d<<10)^QRUtil.G15_MASK;},
+  getBCHDigit:function(d){var n=0;while(d!=0){n++;d>>>=1}return n},getMask:function(m,i,j){switch(m){case 0:return(i+j)%2==0;case 1:return i%2==0;case 2:return j%3==0;case 3:return(i+j)%3==0;case 4:return((i/2|0)+(j/3|0))%2==0;case 5:return(i*j)%2+(i*j)%3==0;case 6:return((i*j)%2+(i*j)%3)%2==0;case 7:return((i*j)%3+i+j)%2==0;default:throw new Error("bad mask")}}};
+  var QRMath={EXP_TABLE:new Array(256),LOG_TABLE:new Array(256),glog:function(n){if(n<1)throw new Error("glog("+n+")");return this.LOG_TABLE[n]},gexp:function(n){while(n<0)n+=255;while(n>=256)n-=255;return this.EXP_TABLE[n]}};
+  for(var i=0;i<8;i++)QRMath.EXP_TABLE[i]=1<<i;for(i=8;i<256;i++)QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];for(i=0;i<255;i++)QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
+  function QRPolynomial(num,shift){var o=0;while(o<num.length&&num[o]==0)o++;this.num=new Array(num.length-o+shift);for(var i=0;i<num.length-o;i++)this.num[i]=num[i+o]}
+  QRPolynomial.prototype={get:function(i){return this.num[i]},getLength:function(){return this.num.length},multiply:function(e){var n=new Array(this.getLength()+e.getLength()-1);for(var i=0;i<this.getLength();i++)for(var j=0;j<e.getLength();j++)n[i+j]^=QRMath.gexp(QRMath.glog(this.get(i))+QRMath.glog(e.get(j)));return new QRPolynomial(n,0)},mod:function(e){if(this.getLength()-e.getLength()<0)return this;var r=QRMath.glog(this.get(0))-QRMath.glog(e.get(0));var n=this.num.slice(0);for(var i=0;i<e.getLength();i++)n[i]^=QRMath.gexp(QRMath.glog(e.get(i))+r);return new QRPolynomial(n,0).mod(e)}};
+  var RS_BLOCK_TABLE={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]]};
+  function QRCode(typeNumber,ec){this.typeNumber=typeNumber;this.errorCorrectLevel=ec;this.modules=null;this.moduleCount=0;this.dataList=[]}
+  QRCode.prototype={addData:function(d){this.dataList.push(new QR8bitByte(d))},isDark:function(r,c){return this.modules[r][c]},getModuleCount:function(){return this.moduleCount},
+  make:function(){this.typeNumber=this.typeNumber||1;for(;;){this.makeImpl(false,this.getBestMaskPattern());if(this.getCapacity()>=this.dataLength())break;this.typeNumber++;if(this.typeNumber>12)break}},
+  makeImpl:function(test,mask){this.moduleCount=this.typeNumber*4+17;this.modules=new Array(this.moduleCount);for(var r=0;r<this.moduleCount;r++){this.modules[r]=new Array(this.moduleCount);for(var c=0;c<this.moduleCount;c++)this.modules[r][c]=null}
+  this.pp(0,0);this.pp(this.moduleCount-7,0);this.pp(0,this.moduleCount-7);this.timing();this.typeInfo(test,mask);var data=this.dataBytes();this.map(data,mask)},
+  pp:function(row,col){for(var r=-1;r<=7;r++){if(row+r<=-1||this.moduleCount<=row+r)continue;for(var c=-1;c<=7;c++){if(col+c<=-1||this.moduleCount<=col+c)continue;this.modules[row+r][col+c]=(0<=r&&r<=6&&(c==0||c==6))||(0<=c&&c<=6&&(r==0||r==6))||(2<=r&&r<=4&&2<=c&&c<=4)}}},
+  timing:function(){for(var i=8;i<this.moduleCount-8;i++){if(this.modules[i][6]===null)this.modules[i][6]=(i%2==0);if(this.modules[6][i]===null)this.modules[6][i]=(i%2==0)}},
+  typeInfo:function(test,mask){var data=(1<<3)|mask;var bits=QRUtil.getBCHTypeInfo(data);for(var i=0;i<15;i++){var v=!test&&((bits>>i)&1)==1;this.modules[i<6?i:i<8?i+1:this.moduleCount-15+i][8]=v}
+  for(i=0;i<15;i++){var v2=!test&&((bits>>i)&1)==1;this.modules[8][i<8?this.moduleCount-1-i:i==8?15-i:this.moduleCount-15+i]=v2}this.modules[this.moduleCount-8][8]=!test},
+  map:function(data,mask){var inc=-1,row=this.moduleCount-1,bit=0,byte=0;for(var col=this.moduleCount-1;col>0;col-=2){if(col==6)col--;for(;;){for(var c=0;c<2;c++){if(this.modules[row][col-c]===null){var dark=false;if(byte<data.length)dark=((data[byte]>>>(7-bit))&1)==1;if(QRUtil.getMask(mask,row,col-c))dark=!dark;this.modules[row][col-c]=dark;bit++;if(bit==8){bit=0;byte++}}}row+=inc;if(row<0||this.moduleCount<=row){row-=inc;inc=-inc;break}}}},
+  getBestMaskPattern:function(){var min=0,pat=0;for(var i=0;i<8;i++){this.makeImpl(true,i);var lost=0;if(i==0||min>lost){min=lost;pat=i}}return pat},
+  getCapacity:function(){var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];return rs[1]},
+  dataLength:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}return bb.length/8|0},
+  dataBytes:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];var dc=rs[1],ec=(rs[0]-dc),data=[];for(i=0;i<bb.length;i+=8)data.push((bb.get(i)?128:0)|(bb.get(i+1)?64:0)|(bb.get(i+2)?32:0)|(bb.get(i+3)?16:0)|(bb.get(i+4)?8:0)|(bb.get(i+5)?4:0)|(bb.get(i+6)?2:0)|(bb.get(i+7)?1:0));while(data.length<dc)data.push(data.length%2?0x11:0xEC);
+  var rsPoly=(function(ec){var a=new QRPolynomial([1],0);for(var i=0;i<ec;i++)a=a.multiply(new QRPolynomial([1,QRMath.gexp(i)],0));return a})(ec);var raw=new QRPolynomial(data,rsPoly.getLength()-1);var mod=raw.mod(rsPoly);
+  var ecBytes=new Array(ec).fill(0),m=mod.num,off=ecBytes.length-m.length;for(i=0;i<m.length;i++)ecBytes[i+off]=m[i];return data.concat(ecBytes)},
+  toDataURL:function(scale){scale=scale||8;var m=this.getModuleCount(),q=4;var size=(m+q*2)*scale;var c=document.createElement('canvas');c.width=c.height=size;var x=c.getContext('2d');
+  x.fillStyle='#fff';x.fillRect(0,0,size,size);x.fillStyle='#000';for(var r=0;r<m;r++)for(var col=0;col<m;col++)if(this.isDark(r,col))x.fillRect((col+q)*scale,(r+q)*scale,scale,scale);return c.toDataURL('image/png')}};
+  window.QRGen=function(text){var qr=new QRCode(null,2);qr.addData(text);qr.make();return qr.toDataURL(10)};})(window);
+  </script>
 
   <script type="module">
     import {
       ready,
       getFirestore,
-      collection, doc, setDoc, getDocs, query, where, orderBy, updateDoc, serverTimestamp
+      collection, doc, setDoc, getDocs, query, where, orderBy, updateDoc,
+      serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* -------------------- utils -------------------- */
+    /* ---------- helpers ---------- */
     const $ = id => document.getElementById(id);
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    function fillYears(sel){
+    function yearOptions(sel){
       sel.innerHTML = '<option value="">—</option>';
       const now = new Date().getFullYear();
-      for(let y=now;y>=1980;y--){ const o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o); }
+      for(let y=now;y>=1980;y--){
+        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
+      }
     }
-    const ensureHttps = (u) => { try{ const url = new URL(u, location.origin); url.protocol='https:'; return url.toString(); }catch{ return u; } };
-    const nameFrom = (mk,md,yr)=>{ const nm=[mk,md].filter(Boolean).join(' '); return nm ? (yr?`${nm} (${yr})`:nm) : null; };
+    function ensureHttps(u){
+      try{ const url = new URL(u, location.origin); if(url.protocol!=='https:') url.protocol='https:'; return url.toString(); }
+      catch{ return u; }
+    }
+    function computeName(make, model, year){
+      const nm = [make, model].filter(Boolean).join(' ');
+      return nm ? (year ? `${nm} (${year})` : nm) : null;
+    }
 
+    const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
     const COLLS = { make:'equipment-makes', model:'equipment-models' };
-    let DB, MAKES=[], MODELS=[];
-    let pendingRef=null, deepLink=null;
-    let manageKind='make'; // current modal context
+    const ADD_VALUE = '__add__';
 
-    /* -------------------- Firestore: read/write catalog -------------------- */
-    async function loadCatalog(kind){
-      const list=[];
-      const snap = await getDocs(query(collection(DB, COLLS[kind]), where('status','==','active'), orderBy('name')));
-      snap.forEach(d=>{ const x=d.data(); if(x?.name) list.push(x.name); });
-      list.sort((a,b)=>a.localeCompare(b));
-      if(kind==='make') MAKES=list; else MODELS=list;
+    let DB;
+    let pendingRef = null;  // client-reserved doc ref
+    let deepLink = null;
+
+    /* ---------- Catalog ops ---------- */
+    async function loadCatalogSelect(kind){
+      const sel = (kind==='make') ? $("make") : $("model");
+      sel.innerHTML = '';
+      // placeholder
+      sel.append(new Option('—', ''));
+      // active options
+      try{
+        const snap = await getDocs(query(collection(DB, COLLS[kind]), where('status','==','active'), orderBy('name')));
+        const opts = [];
+        snap.forEach(d=>{ const x=d.data(); if(x?.name) opts.push(x.name); });
+        opts.sort().forEach(name=> sel.append(new Option(name, name)));
+      }catch(_){}
+      // divider (disabled) + add
+      const divider = new Option('──────────', ''); divider.disabled = true;
+      sel.append(divider);
+      const addOpt = new Option('+ Add new…', ADD_VALUE); addOpt.className='add-opt';
+      sel.append(addOpt);
     }
+
     async function upsertCatalog(kind, name){
-      name=(name||'').trim(); if(!name) return false;
+      name = (name||"").trim();
+      if(!name) return false;
       const base = collection(DB, COLLS[kind]);
-      let existing=null;
+      // find by lowercase name
+      let existing = null;
       try{
         const snap = await getDocs(query(base, where('nameLower','==', name.toLowerCase())));
         if(snap.size>0) existing = snap.docs[0];
       }catch(_){}
       if(existing){
-        const data=existing.data();
-        if(data.status==='archived'){
+        const data = existing.data();
+        if(data.status === 'archived'){
           await updateDoc(existing.ref, { status:'active', updatedAt:serverTimestamp() });
         }
       }else{
-        await setDoc(doc(base), {
-          name, nameLower:name.toLowerCase(), status:'active',
-          createdAt:serverTimestamp(), updatedAt:serverTimestamp()
+        const ref = doc(base);
+        await setDoc(ref, {
+          name, nameLower:name.toLowerCase(),
+          status:'active', createdAt:serverTimestamp(), updatedAt:serverTimestamp()
         });
       }
-      await loadCatalog(kind);
+      await loadCatalogSelect(kind);
+      // select the newly added value
+      const sel = (kind==='make') ? $("make") : $("model");
+      sel.value = name;
       return true;
     }
-    async function setArchived(kind, id, toStatus){
-      await updateDoc(doc(DB, COLLS[kind], id), { status:toStatus, updatedAt:serverTimestamp() });
-    }
 
-    /* -------------------- UI binders -------------------- */
-    function renderSelect(sel, items, label){
-      sel.innerHTML = `<option value="">— Select ${label} —</option>` +
-        items.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    /* tiny add prompt */
+    function openAddPrompt(kind){
+      $("tinyTitle").textContent = kind==='make' ? "Add Make" : "Add Model";
+      $("tinyKind").value = kind;
+      $("tinyInput").value = '';
+      $("addModal").classList.add("show");
+      setTimeout(()=> $("tinyInput").focus(), 0);
     }
+    function closeAddPrompt(){ $("addModal").classList.remove("show"); }
 
+    /* ---------- Manage modal ---------- */
     function openManage(kind){
-      manageKind = kind;
-      $("#manageTitle").textContent = kind==='make' ? "Manage Makes" : "Manage Models";
-      $("#manageNewName").value = "";
-      $("#manageModal").classList.add("show");
-      renderManageList(kind);
+      $("manageTitle").textContent = kind==='make' ? "Manage Makes" : "Manage Models";
+      $("modalKind").value = kind;
+      $("manageList").innerHTML = "";
+      $("manageModal").classList.add("show");
+      renderManage(kind);
     }
-    function closeManage(){ $("#manageModal").classList.remove("show"); }
+    function closeManage(){ $("manageModal").classList.remove("show"); }
 
-    async function renderManageList(kind){
-      const box = $("#manageList");
-      box.innerHTML = "";
+    async function renderManage(kind){
+      const list = $("manageList");
+      list.innerHTML = "";
       const snap = await getDocs(query(collection(DB, COLLS[kind]), orderBy('name')));
       snap.forEach(d=>{
-        const x=d.data(); const row=document.createElement('div'); row.className='row';
-        row.innerHTML = `<div><strong>${esc(x.name||'—')}</strong> <span class="pill">${esc(x.status||'active')}</span></div>
-                         <div>
-                           <button class="btn" data-id="${d.id}" data-next="${x.status==='archived'?'active':'archived'}">
-                             ${x.status==='archived'?'Activate':'Archive'}
-                           </button>
-                         </div>`;
-        row.querySelector('button').addEventListener('click', async (e)=>{
-          await setArchived(kind, e.currentTarget.dataset.id, e.currentTarget.dataset.next);
-          await loadCatalog(kind);
-          renderManageList(kind);
-          // refresh dropdowns after manage changes
-          if(kind==='make') renderSelect($("#make"), MAKES, 'Make');
-          else renderSelect($("#model"), MODELS, 'Model');
+        const x=d.data();
+        const row = document.createElement('div');
+        row.className='row';
+        const nameId = `nm_${d.id}`;
+        row.innerHTML = `
+          <div>
+            <input id="${nameId}" class="input" value="${x.name||''}"/>
+          </div>
+          <button class="btn btn-mini" data-act="save">Save</button>
+          <button class="btn btn-mini" data-act="toggle">${x.status==='archived'?'Activate':'Archive'}</button>
+        `;
+        row.querySelector('[data-act="save"]').addEventListener('click', async()=>{
+          const newName = (document.getElementById(nameId).value||'').trim();
+          if(!newName) return;
+          await updateDoc(d.ref, {
+            name: newName,
+            nameLower: newName.toLowerCase(),
+            updatedAt: serverTimestamp()
+          });
+          renderManage(kind);
+          await loadCatalogSelect(kind);
         });
-        box.appendChild(row);
+        row.querySelector('[data-act="toggle"]').addEventListener('click', async()=>{
+          await updateDoc(d.ref, {
+            status: (x.status==='archived'?'active':'archived'),
+            updatedAt: serverTimestamp()
+          });
+          renderManage(kind);
+          await loadCatalogSelect(kind);
+        });
+        list.appendChild(row);
       });
     }
 
-    /* -------------------- QR helpers (reliable PNG) -------------------- */
-    const buildLink = (id)=>{
-      const url = new URL('/Farm-vista/pages/equipment/actions/hub.html', location.origin);
-      url.searchParams.set('id', id);
-      return ensureHttps(url.toString());
-    };
-    function showQr(link){
-      // External encoder for bulletproof scannability (quiet zone + PNG)
-      const src = `https://api.qrserver.com/v1/create-qr-code/?size=520x520&margin=10&data=${encodeURIComponent(link)}`;
-      $("#qrImg").src = src;
-      $("#openHub").href = link;
-      $("#downloadPng").href = src;
-      $("#qrBox").hidden = false;
+    /* ---------- QR creation flow ---------- */
+    function buildDeepLink(id){
+      return ensureHttps(`${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
+    }
+    async function createQrFlow(){
+      if(!pendingRef){
+        pendingRef = doc(collection(DB, 'equipment')); // local ID only
+      }
+      const id = pendingRef.id;
+      deepLink = buildDeepLink(id);
+
+      const dataUrl = window.QRGen(deepLink);
+      $("qrImg").src = dataUrl;
+      $("openHub").href = deepLink;
+      $("downloadPng").href = dataUrl;
+      $("qrPreview").hidden = false;
     }
 
-    /* -------------------- Save flow -------------------- */
-    async function createQr(){
-      if(!pendingRef) pendingRef = doc(collection(DB,'equipment'));
-      deepLink = buildLink(pendingRef.id);
-      showQr(deepLink);
-    }
+    /* ---------- Save ---------- */
     async function saveEquipment(){
-      if(!pendingRef) pendingRef = doc(collection(DB,'equipment'));
-      if(!deepLink) deepLink = buildLink(pendingRef.id);
-
-      const mk = $("#make").value.trim() || null;
-      const md = $("#model").value.trim() || null;
-      const yr = $("#year").value ? Number($("#year").value) : null;
+      if(!pendingRef){
+        pendingRef = doc(collection(DB,'equipment'));
+        deepLink = buildDeepLink(pendingRef.id);
+      }
+      const make = $("make").value || '';
+      const model = $("model").value || '';
+      const year  = $("year").value ? Number($("year").value) : null;
+      const serial= $("serial").value.trim() || null;
+      const hours = $("hours").value ? Number($("hours").value) : null;
+      const status= $("status").value || 'active';
+      const notes = $("notes").value.trim() || null;
 
       const payload = {
-        type: (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase(),
-        name: nameFrom(mk, md, yr),
-        makeName: mk, modelName: md, year: yr,
-        serial: $("#serial").value.trim() || null,
-        engineHours: $("#hours").value ? Number($("#hours").value) : null,
-        status: $("#status").value || 'active',
-        notes: $("#notes").value.trim() || null,
+        type: TYPE,
+        name: computeName(make, model, year),
+        makeName: make || null,
+        modelName: model || null,
+        year, serial, engineHours: hours,
+        status, notes,
         qr: deepLink ? { url: deepLink } : null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
       await setDoc(pendingRef, payload);
-      if(mk) await upsertCatalog('make', mk);
-      if(md) await upsertCatalog('model', md);
-      location.href = `/Farm-vista/pages/equipment/${payload.type}s-view.html`;
+
+      // guarantee catalog contains what was chosen
+      if(make) await upsertCatalog('make', make);
+      if(model) await upsertCatalog('model', model);
+
+      location.href = `/Farm-vista/pages/equipment/${TYPE}s-view.html`;
     }
 
-    /* -------------------- boot -------------------- */
+    /* ---------- wire-up ---------- */
     (async()=>{
-      await ready; DB = getFirestore();
-      fillYears($("#year"));
+      await ready;
+      DB = getFirestore();
+      yearOptions($("year"));
 
-      await loadCatalog('make');  renderSelect($("#make"), MAKES, 'Make');
-      await loadCatalog('model'); renderSelect($("#model"), MODELS, 'Model');
+      await loadCatalogSelect('make');
+      await loadCatalogSelect('model');
 
-      // blue add buttons
-      $("#btnAddMake").addEventListener('click', ()=> openManage('make'));
-      $("#btnAddModel").addEventListener('click', ()=> openManage('model'));
+      $("btnCreateQR").addEventListener('click', createQrFlow);
+      $("btnSave").addEventListener('click', saveEquipment);
 
-      // manage buttons
-      $("#btnManageMake").addEventListener('click', ()=> openManage('make'));
-      $("#btnManageModel").addEventListener('click', ()=> openManage('model'));
-      $("#manageClose").addEventListener('click', closeManage);
-
-      // modal add
-      $("#manageAddBtn").addEventListener('click', async ()=>{
-        const name = $("#manageNewName").value.trim();
-        if(!name) return;
-        const ok = await upsertCatalog(manageKind, name);
-        if(ok){
-          $("#manageNewName").value="";
-          await renderManageList(manageKind);
-          // refresh dropdowns immediately and select the newly added value
-          if(manageKind==='make'){
-            renderSelect($("#make"), MAKES, 'Make');
-            $("#make").value = name;
-          }else{
-            renderSelect($("#model"), MODELS, 'Model');
-            $("#model").value = name;
-          }
-        }
+      // Selecting "+ Add new…" opens tiny prompt
+      $("make").addEventListener('change', (e)=>{
+        if(e.target.value === ADD_VALUE){ e.target.value=''; openAddPrompt('make'); }
+      });
+      $("model").addEventListener('change', (e)=>{
+        if(e.target.value === ADD_VALUE){ e.target.value=''; openAddPrompt('model'); }
       });
 
-      // actions
-      $("#btnCreateQR").addEventListener('click', createQr);
-      $("#btnSave").addEventListener('click', saveEquipment);
+      // Labels open manage modal (not buttons)
+      $("lblMake").addEventListener('click', ()=> openManage('make'));
+      $("lblModel").addEventListener('click', ()=> openManage('model'));
     })();
+
+    // tiny add modal buttons
+    window._addSave = async function(){
+      const kind = $("tinyKind").value;
+      const name = $("tinyInput").value.trim();
+      if(!name) return;
+      await upsertCatalog(kind, name);
+      closeAddPrompt();
+    }
+    window._addCancel = function(){ closeAddPrompt(); }
   </script>
+
+  <!-- ===== Manage Modal (Make/Model) ===== -->
+  <div id="manageModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card">
+      <div class="md-head">
+        <strong id="manageTitle">Manage</strong>
+        <button class="btn" onclick="document.getElementById('manageModal').classList.remove('show')">Close</button>
+      </div>
+      <div class="md-body">
+        <input type="hidden" id="modalKind" value="make"/>
+        <div class="list" id="manageList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Tiny “Add new …” Modal ===== -->
+  <div id="addModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card tiny-card">
+      <div class="md-head">
+        <strong id="tinyTitle">Add</strong>
+        <button class="btn" onclick="_addCancel()">Close</button>
+      </div>
+      <div class="tiny-body">
+        <input type="hidden" id="tinyKind" value="make"/>
+        <input id="tinyInput" class="input" placeholder="Type name..."/>
+        <div style="display:flex; gap:8px; justify-content:flex-end">
+          <button class="btn" onclick="_addCancel()">Cancel</button>
+          <button class="btn btn-primary" onclick="_addSave()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
