@@ -5,6 +5,7 @@
    - Safe-area aware side paddings
    - Flex shell so the footer sits flush at the bottom
    - Guardrails for accidental 100vw usage
+   - Global rounded form controls (inputs/selects) ✅
    ========================================================== */
 
 /* ---------- Safe-area variables ---------- */
@@ -70,15 +71,17 @@ body.drawer-open{ overflow: hidden; }
 :root{
   --fv-field-h:       44px;
   --fv-field-pad-x:   12px;
-  --fv-field-radius:  10px;
+  --fv-field-radius:  10px; /* matches your combo template */
   --fv-field-font:    500 16px/1.25 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-  --fv-field-bg:      var(--bg);
+  --fv-field-bg:      var(--card-surface, var(--surface));
   --fv-field-fg:      var(--text);
   --fv-field-border:  1px solid var(--border);
+  --fv-caret:         url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="8" viewBox="0 0 14 8"><path d="M1 1l6 6 6-6" fill="none" stroke="%2367706B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
 }
 
-/* Reusable inputs */
-.fv-input{
+/* Reusable inputs (text/number/search/password/etc.) */
+.fv-input,
+fv-shell input:not([type="checkbox"]):not([type="radio"]){
   display:block;
   width:100%;
   box-sizing:border-box;
@@ -89,12 +92,15 @@ body.drawer-open{ overflow: hidden; }
   background:var(--fv-field-bg);
   color:var(--fv-field-fg);
   font:var(--fv-field-font);
-  line-height:var(--fv-field-h);           /* center text vertically */
+  line-height:var(--fv-field-h);           /* vertical centering */
   -webkit-appearance:none;
   appearance:none;
+  background-clip:padding-box;
 }
 
-.fv-textarea{
+/* Textarea */
+.fv-textarea,
+fv-shell textarea{
   display:block;
   width:100%;
   box-sizing:border-box;
@@ -106,9 +112,10 @@ body.drawer-open{ overflow: hidden; }
   color:var(--fv-field-fg);
   font:var(--fv-field-font);
   resize:vertical;
+  background-clip:padding-box;
 }
 
-/* Native date/time pickers automatically get the same baseline */
+/* Native date/time pickers get same baseline */
 input[type="date"],
 input[type="datetime-local"],
 input[type="time"]{
@@ -122,9 +129,10 @@ input[type="time"]{
   background:var(--fv-field-bg);
   color:var(--fv-field-fg);
   font:var(--fv-field-font);
-  line-height:var(--fv-field-h);           /* ✅ keeps value vertically centered */
+  line-height:var(--fv-field-h);
   -webkit-appearance:none;
   appearance:none;
+  background-clip:padding-box;
 }
 
 /* Normalize editable area on WebKit so text sits centered */
@@ -150,19 +158,68 @@ input[type="datetime-local"]::-webkit-inner-spin-button{
   display:none;
 }
 
-/* Focus ring */
+/* ---------- SELECTS (GLOBAL) ---------- */
+/* Applies to every page automatically */
+.fv-select,
+fv-shell select{
+  display:block;
+  width:100%;
+  box-sizing:border-box;
+  height:var(--fv-field-h);
+  padding:0 var(--fv-field-pad-x);
+  border:var(--fv-field-border);
+  border-radius:var(--fv-field-radius);
+  background:var(--fv-field-bg);
+  color:var(--fv-field-fg);
+  font:var(--fv-field-font);
+  line-height:var(--fv-field-h);
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  appearance:none;
+  background-clip:padding-box;
+  /* custom caret */
+  background-image: var(--fv-caret);
+  background-repeat:no-repeat;
+  background-position:right 12px center;
+  background-size:14px 8px;
+  padding-right: calc(var(--fv-field-pad-x) + 28px); /* room for caret */
+}
+fv-shell select::-ms-expand{ display:none; } /* legacy IE */
+
+/* Opt-out: remove caret if needed (e.g., custom combos) */
+.no-caret{ background-image:none !important; }
+
+/* Hover/Focus (brand-friendly, no blue) */
+.fv-input:hover,
+.fv-textarea:hover,
+.fv-select:hover,
+fv-shell select:hover,
+input[type="date"]:hover,
+input[type="datetime-local"]:hover,
+input[type="time"]:hover{
+  border-color: color-mix(in srgb, var(--border), #000 20%);
+}
 .fv-input:focus,
 .fv-textarea:focus,
+.fv-select:focus,
+fv-shell select:focus,
 input[type="date"]:focus,
 input[type="datetime-local"]:focus,
 input[type="time"]:focus{
-  outline:2px solid color-mix(in srgb, var(--brand-gold, #D0C542) 65%, transparent);
-  outline-offset:2px;
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent, #2F6C3C), #000 15%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2F6C3C), transparent 70%);
 }
+
+/* Invalid helper (shared) */
+.is-invalid{ border-color:#b00020 !important; }
+.is-invalid + .help{ color:#b00020; }
 
 /* Dark theme bridge */
 :root.dark .fv-input,
 :root.dark .fv-textarea,
+:root.dark .fv-select,
+:root.dark fv-shell select,
 :root.dark input[type="date"],
 :root.dark input[type="datetime-local"],
 :root.dark input[type="time"]{
@@ -171,21 +228,23 @@ input[type="time"]:focus{
   --fv-field-border: 1px solid var(--border);
 }
 
+/* Opt-out any container if you ever want square fields */
+.fv-no-round .fv-input,
+.fv-no-round .fv-textarea,
+.fv-no-round .fv-select,
+.fv-no-round select{
+  border-radius:4px !important;
+  background-image:none !important;
+}
+
 /* ==========================================================
    FarmVista — Global page header pattern (shared title + summary)
-   Use on every page:
-     <div class="page container">
-       <h1 class="page-title">Page Title</h1>
-       <p class="page-sub">Short summary of what’s here…</p>
-     </div>
    ========================================================== */
-
 .page{ padding-block:10px 24px; }
 .page-title{
   margin:12px 0 4px;
   line-height:1.15;
   color:var(--text);
-  /* No font-size here so h1/h2 sizes keep coming from theme.css */
 }
 .page-sub{
   margin:0 0 16px;
@@ -203,7 +262,6 @@ input[type="time"]:focus{
 /* ==========================================================
    FarmVista — Fix link color inheritance (dark + light)
    ========================================================== */
-
 .section a,
 .card a,
 .tile a,
@@ -216,10 +274,9 @@ input[type="time"]:focus{
 .card a:visited,
 .tile a:visited,
 .panel a:visited {
-  color: inherit !important;      /* use surrounding text color (respects dark theme) */
-  text-decoration: none;          /* remove underline */
+  color: inherit !important;
+  text-decoration: none;
 }
-
 .section a .label,
 .card a .label,
 .tile a .label,
