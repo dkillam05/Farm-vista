@@ -244,4 +244,21 @@ const __fvBoot = (function(){
   } else {
     run();
   }
+  /* ===========================  Global Combo Loader  =========================== */
+/* Loads once so every page gets the same rounded dropdown UI (fv-combo.js). */
+(function(){
+  try{
+    __fvBoot.once('__FV_COMBO_LOADED__', async () => {
+      try {
+        await __fvBoot.loadScript('/Farm-vista/js/fv-combo.js', { type:'module', defer:true });
+        console.log('[FV] combo component loaded globally');
+      } catch(e) {
+        console.warn('[FV] combo component failed to load:', e);
+      }
+    });
+  }catch(e){
+    console.warn('[FV] combo loader init failed:', e);
+  }
+})();
+
 })();
