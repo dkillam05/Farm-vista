@@ -1,7 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-b
-   - Adds a footer QR camera icon that shows on mobile, hides on desktop.
-   - All other behavior unchanged from your v5.10.19.
+   FarmVista Shell — v5.10.20
+   - Replaces the old white footer QR icon with a small GREEN floating camera icon.
+   - Floating icon sits bottom-right above the footer, stays visible while scrolling.
+   - Hidden automatically on desktop; visible on mobile/tablet.
+   - All other behavior identical to v5.10.19-b.
 */
 (function () {
   // ====== TUNABLES ======
@@ -44,14 +46,24 @@
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    /* --- QR camera icon (white) pinned at far-left of footer --- */
-    .qr-mini{
-      position:absolute; left:10px; bottom:calc(env(safe-area-inset-bottom,0px) + 7px);
-      width:28px; height:28px; display:grid; place-items:center; color:#fff; opacity:.98;
+    /* --- Floating camera icon (GREEN), bottom-right above footer --- */
+    .cam-float{
+      position:fixed;
+      right:18px;
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
+      width:28px; height:28px;
+      display:grid; place-items:center;
+      color:var(--green); /* green line icon */
       text-decoration:none; -webkit-tap-highlight-color:transparent;
+      opacity:.9; z-index:950;
+      transition:transform .1s ease, opacity .1s ease;
     }
-    .qr-mini svg{ width:22px; height:22px; display:block; }
-    .qr-mini:active{ transform:translateY(1px); }
+    .cam-float svg{ width:22px; height:22px; display:block; }
+    .cam-float:active{ transform:scale(.96); opacity:1; }
+    /* Hide floating icon on desktop */
+    @media (min-width: 900px){
+      .cam-float{ display:none !important; }
+    }
 
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
@@ -184,15 +196,17 @@
   <main class="main" part="main"><slot></slot></main>
 
   <footer class="ftr" part="footer">
-    <!-- QR camera icon (white) — will be hidden on desktop by JS -->
-    <a class="qr-mini" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-        <circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      </svg>
-    </a>
+    <!-- (Old white QR icon removed) -->
     <div class="text js-footer"></div>
   </footer>
+
+  <!-- New floating green camera icon (mobile-only) -->
+  <a class="cam-float js-cam" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    </svg>
+  </a>
 
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
@@ -234,10 +248,10 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
-      // Hide QR icon on desktop; show on phones
-      const qrMini = r.querySelector('.qr-mini');
+      // Hide floating camera icon on desktop; show on phones
+      const cam = r.querySelector('.js-cam');
       const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
-      if (qrMini && !isMobile) qrMini.style.display = 'none';
+      if (cam && !isMobile) cam.style.display = 'none';
 
       // Boot overlay visible until _authAndMenuGate() finishes.
       if (this._boot) this._boot.hidden = false;
@@ -365,7 +379,8 @@
       try{
         const mod = await import('/Farm-vista/js/firebase-init.js');
         const ctx = await mod.ready;
-        const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
+        some_auth = (ctx && ctx.auth) || window.firebaseAuth || null;
+        const auth = some_auth;
         return !!(auth && auth.currentUser);
       }catch{ return false; }
     }
