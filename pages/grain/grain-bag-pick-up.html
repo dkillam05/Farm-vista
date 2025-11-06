@@ -29,21 +29,20 @@
   </script>
 
   <style>
-    /* ============================
-       Tight + Rounded Combo v2
-       ============================ */
+    /* ======================
+       FV Combo — Global Vars (from your template)
+       ====================== */
     :root{
+      --combo-gap: 4px;             /* tight vertical gap under trigger */
+      --combo-radius: 12px;         /* panel rounding */
+      --combo-btn-radius: 10px;     /* trigger/search rounding */
+      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad: 10px 8px;
+      --combo-max-h: 50vh;
+
       --card-max:1100px;
       --page-bottom-gap:96px;
       --accent:#2F6C3C;
-
-      /* Combo tokens (tighter) */
-      --combo-gap:4px;
-      --combo-radius:12px;
-      --combo-btn-radius:12px;
-      --combo-item-pad:6px 10px;    /* tighter row padding */
-      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
-      --combo-max-h:50vh;
     }
 
     body{ background:var(--app-bg,var(--surface)); }
@@ -72,92 +71,83 @@
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2 }
     .muted{ color:var(--muted,#67706B) }
 
-    .body{ padding:14px; display:grid; gap:12px }
-    .row{ display:grid; gap:8px; grid-template-columns:1fr 1fr }
+    .body{ padding:16px; display:grid; gap:14px }
+    .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
+    /* Match FV look-and-feel (from template) */
     .field{ position:relative }
-    .field label{ display:block; font-weight:800; margin:0 0 4px } /* tighter label spacing */
+    .field label{ display:block; font-weight:800; margin:0 0 6px }
 
-    /* Inputs: rounded + tight */
     .input,.textarea,.buttonish{
-      width:100%;
-      font:inherit; font-size:16px; color:var(--text);
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:8px 10px;   /* tighter trigger/input padding */
-      outline:none;
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius); padding:12px; outline:none;
     }
-    .input:focus,.textarea:focus,.buttonish:focus{ box-shadow:0 0 0 2px rgba(47,108,60,.18) }
     .textarea{ min-height:110px; resize:vertical }
-
-    /* Button-like triggers with caret */
-    .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:36px }
+    .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:42px }
     .buttonish.has-caret::after{
-      content:""; position:absolute; right:10px; top:50%; width:0; height:0;
+      content:""; position:absolute; right:14px; top:50%; width:0; height:0;
       border-left:6px solid transparent; border-right:6px solid transparent;
       border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
     }
 
-    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:4px }
+    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:6px }
     .error{ color:#b00020; font-weight:700 }
 
-    .actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:4px }
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
-      display:inline-flex; align-items:center; justify-content:center; min-width:148px;
-      padding:8px 12px; border-radius:12px; border:1px solid var(--border);
+      display:inline-flex; align-items:center; justify-content:center; min-width:160px;
+      padding:12px 16px; border-radius:12px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer;
     }
     .btn[disabled]{ opacity:.6; cursor:not-allowed }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* ===== Standardized Combo ===== */
+    /* ======================
+       Combo core styles (from template)
+       ====================== */
     .combo{ position:relative }
+
+    /* anchor so panel hugs the button width */
+    .combo .combo-anchor{
+      position:relative; display:inline-block; width:100%;
+    }
+
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
-      background:var(--surface);
-      border:1px solid var(--border);
-      border-radius:var(--combo-radius);
-      box-shadow:var(--combo-shadow);
-      z-index:9999; display:none; overflow:hidden;
+      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
     }
     .combo-panel.show{ display:block }
-    .combo-panel .search{ padding:8px; }
+    .combo-panel .search{ padding:4px 2px 8px }
     .combo-panel .search input{
-      width:100%; padding:8px 10px;
-      border:1px solid var(--border); border-radius:var(--combo-btn-radius);
-      font:inherit; font-size:16px;
+      width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--combo-btn-radius)
     }
-    .combo-panel .list{
-      max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border)
-    }
-    .combo-item{
-      padding:var(--combo-item-pad);
-      cursor:pointer;
-    }
-    .combo-item + .combo-item{ border-top:1px solid var(--border) }
+    .combo-panel .list{ max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border) }
+    .combo-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
     .combo-item:hover{ background:rgba(0,0,0,.04) }
+    .combo-item:last-child{ border-bottom:none }
     .combo-empty{ padding:var(--combo-item-pad); color:#67706B }
 
-    .cards{ display:grid; grid-template-columns:1fr; gap:10px }
+    .cards{ display:grid; grid-template-columns:1fr; gap:12px }
     .card{
       border:1px solid var(--border); border-radius:12px; background:var(--surface);
-      padding:10px; display:grid; gap:8px
+      padding:12px; display:grid; gap:10px
     }
-    .kvs{ display:flex; flex-wrap:wrap; gap:8px }
-    .kv{ background:var(--card-surface,var(--surface)); border:1px dashed var(--border); border-radius:10px; padding:6px 8px }
+    .kvs{ display:flex; flex-wrap:wrap; gap:10px }
+    .kv{ background:var(--card-surface,var(--surface)); border:1px dashed var(--border); border-radius:10px; padding:8px 10px }
 
     .toast{
-      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 64px);
+      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
       transform:translateX(-50%);
-      background:#2F6C3C; color:#fff; padding:8px 12px; border-radius:10px;
+      background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px;
       box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none
     }
-    .toast.show{ display:block; animation:fadeout 4.5s forwards }
+    .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* Modal keeps fv-shell visible */
+    /* Centered modal keeps fv-shell visible */
     .modal{ position:fixed; inset:0; display:none; place-items:center; z-index:10000; }
     .modal.show{ display:grid; }
     .modal::before{ content:""; position:absolute; inset:0; background:rgba(0,0,0,.38); }
@@ -188,24 +178,30 @@
         </header>
 
         <div class="body">
-          <!-- FIELD (left) + YEAR (right) for consistency with "Put Bag Down" -->
+          <!-- Match Put Bag Down: FIELD (left) • YEAR (right) -->
           <div class="row">
             <!-- Field (searchable, filtered to open) -->
             <div class="field combo" id="fieldCombo">
               <label for="fieldBtn">Field</label>
-              <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
-              <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
-                <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"/></div>
-                <div class="list" id="fieldList"></div>
+              <div class="combo-anchor">
+                <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
+                <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                  <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"/></div>
+                  <div class="list" id="fieldList"></div>
+                </div>
               </div>
               <div id="fieldHelp" class="help">—</div>
             </div>
 
-            <!-- Crop Year -->
+            <!-- Crop Year (non-search) -->
             <div class="field combo" id="yearCombo">
               <label for="yearBtn">Crop Year</label>
-              <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
-              <div class="combo-panel" id="yearPanel"><div class="list" id="yearList"></div></div>
+              <div class="combo-anchor">
+                <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="yearPanel" role="listbox" aria-label="Year list">
+                  <div class="list" id="yearList"></div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -213,8 +209,12 @@
           <div class="row" id="cropRow" hidden>
             <div class="field combo" id="cropCombo">
               <label for="cropBtn">Crop Type</label>
-              <button id="cropBtn" class="buttonish has-caret" type="button">— Select —</button>
-              <div class="combo-panel" id="cropPanel"><div class="list" id="cropList"></div></div>
+              <div class="combo-anchor">
+                <button id="cropBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="cropPanel" role="listbox" aria-label="Crop list">
+                  <div class="list" id="cropList"></div>
+                </div>
+              </div>
             </div>
             <div class="field">
               <label>&nbsp;</label>
@@ -249,8 +249,12 @@
       <div class="grid-2" style="margin-bottom:8px">
         <div class="field combo" id="empCombo">
           <label>Employee (required)</label>
-          <button id="empBtn" class="buttonish has-caret" type="button">— Select —</button>
-          <div class="combo-panel"><div class="list" id="empList"></div></div>
+          <div class="combo-anchor">
+            <button id="empBtn" class="buttonish has-caret" type="button">— Select —</button>
+            <div class="combo-panel" role="listbox" aria-label="Employee list">
+              <div class="list" id="empList"></div>
+            </div>
+          </div>
           <div id="empHelp" class="help">Defaults to current user if listed.</div>
         </div>
         <div class="field">
@@ -307,7 +311,7 @@
       return { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
     }
 
-    /* ===== Utils ===== */
+    /* Utils */
     const $ = id => document.getElementById(id);
     const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const toast = (msg="Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove('show'),ms); };
@@ -323,49 +327,70 @@
     const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
     const scrollTop = ()=> window.scrollTo({top:0, behavior:'smooth'});
 
-    /* ===== State ===== */
+    /* State */
     let YEAR = new Date().getFullYear();
     let EMPLOYEES = [];
     let FIELDS_INDEX = [];
     // Map: fieldId -> { id,name, crops: { 'Corn':[rows], 'Soybeans':[rows], ... } }
     let OPEN_INDEX = new Map();
-
     let CHOSEN_FIELD = null;
     let CHOSEN_CROP = null;
 
-    /* ===== Single-open combo infra ===== */
+    /* One-open-at-a-time management (from template behavior) */
     function closeAllCombos(except=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
     }
     document.addEventListener('click', ()=> closeAllCombos());
-    function makeCombo({btn, panel, list, items=[], searchable=false, formatter=x=>String(x.label||x), onPick}){
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeAllCombos(); $("pickupModal").classList.remove('show'); } });
+
+    /* Reusable combo */
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      // prevent outside-close while clicking inside the panel
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
       function render(q=""){
         const qq=(q||"").toLowerCase();
         list.innerHTML = (items||[])
           .filter(x=>!qq || formatter(x).toLowerCase().includes(qq))
-          .map(x=>`<div class="combo-item" data-id="${esc(x.id)}">${esc(formatter(x))}</div>`)
+          .map(x=>`<div class="combo-item" data-id="${String(x.id)}">${esc(formatter(x))}</div>`)
           .join('') || `<div class="combo-empty">(no matches)</div>`;
       }
       function open(){
         closeAllCombos(panel);
         panel.classList.add('show');
-        if(searchable){ const i=panel.querySelector('input'); if(i){ i.value=""; i.focus(); } }
         render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
       }
       function close(){ panel.classList.remove('show'); }
-      btn.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.contains('show')?close():open(); });
-      list.addEventListener('click', (e)=>{
-        const el=e.target.closest('.combo-item'); if(!el) return;
-        const it=(items||[]).find(i=>i.id===el.dataset.id); if(!it) return;
-        onPick?.(it); close();
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
       });
+
+      // mousedown so it fires before document click
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id  = row.dataset.id;
+        const it  = (items||[]).find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
       if(searchable){
-        const s=panel.querySelector('input'); if(s) s.addEventListener('input', e=>render(e.target.value));
+        const s = panel.querySelector('input');
+        if(s){ s.addEventListener('input', e=> render(e.target.value)); }
       }
-      return { setItems(arr){ items=arr||[]; render(""); }, open, close };
+
+      return { setItems(arr){ items = Array.isArray(arr)?arr:[]; render(""); }, open, close };
     }
 
-    /* ===== Format helpers ===== */
+    /* Format helpers */
     const skuText = r => `${r.bagSku?.brand||'Bag'} — ${r.bagSku?.sizeFeet||'?'} ft`;
     const countsText = r => `${Number(r.counts?.full||0)} full, ${Number(r.counts?.partial||0)} partial`;
     const consolidated = (rows)=>{
@@ -374,7 +399,7 @@
       return {full, partial, entries:rows.length};
     };
 
-    /* ===== Data loads ===== */
+    /* Data loads */
     async function loadEmployees(db, auth){
       const list=[];
       try{
@@ -387,6 +412,7 @@
       list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
       EMPLOYEES = list;
       empCombo.setItems(list);
+
       const me = (getAuth().currentUser?.email||"").toLowerCase();
       const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
       if(mine){ $("empBtn").textContent=mine.name; $("empBtn").dataset.value=mine.id; }
@@ -456,17 +482,20 @@
       return obj.crops[CHOSEN_CROP] || [];
     }
 
-    /* ===== Combos ===== */
+    /* Combos */
     const nowY = new Date().getFullYear();
     const YEAR_ITEMS = [nowY-1, nowY, nowY+1].map(v=>({id:String(v), value:v, label:String(v)}));
 
     const yearCombo = makeCombo({
-      btn:$("yearBtn"), panel:$("yearPanel"), list:$("yearList"),
-      items:YEAR_ITEMS, searchable:false, formatter:x=>x.label,
+      btn:  $("yearBtn"),
+      panel:$("yearPanel"),
+      list: $("yearList"),
+      items: YEAR_ITEMS,
+      searchable: false,
+      formatter: x => x.label,
       onPick: async (it)=>{
         YEAR = Number(it.value);
         $("yearBtn").textContent = it.label;
-        // Reset field/crop picks because index changed by year
         CHOSEN_FIELD = null; CHOSEN_CROP=null;
         $("fieldBtn").textContent="— Select field —";
         $("summary").textContent="—"; $("cropRow").hidden=true;
@@ -477,8 +506,12 @@
     });
 
     const fieldCombo = makeCombo({
-      btn:$("fieldBtn"), panel:$("fieldPanel"), list:$("fieldList"),
-      items:[], searchable:true, formatter:x=>x.name,
+      btn:  $("fieldBtn"),
+      panel:$("fieldPanel"),
+      list: $("fieldList"),
+      items: [],
+      searchable: true,
+      formatter: x => x.name,
       onPick: async (it)=>{
         CHOSEN_FIELD = it;
         $("fieldBtn").textContent = it.name;
@@ -498,8 +531,12 @@
     });
 
     const cropCombo = makeCombo({
-      btn:$("cropBtn"), panel:$("cropPanel"), list:$("cropList"),
-      items:[], searchable:false, formatter:x=>x.label,
+      btn:  $("cropBtn"),
+      panel:$("cropPanel"),
+      list: $("cropList"),
+      items: [],
+      searchable: false,
+      formatter: x => x.label,
       onPick: async (it)=>{
         CHOSEN_CROP = it.value;
         $("cropBtn").textContent = it.label;
@@ -507,16 +544,18 @@
       }
     });
 
-    // Employee combo (in modal)
+    // Employee combo (modal)
     const empCombo = makeCombo({
-      btn:$("empBtn"),
-      panel:$("empBtn").nextElementSibling,
-      list:$("empList"),
-      items:[], searchable:false, formatter:x=>x.name,
+      btn:  $("empBtn"),
+      panel:$("empBtn").nextElementSibling, // panel is the next sibling inside combo-anchor
+      list: $("empList"),
+      items: [],
+      searchable: false,
+      formatter: x => x.name,
       onPick: it => { $("empBtn").textContent = it.name; $("empBtn").dataset.value = it.id; }
     });
 
-    /* ===== Render list ===== */
+    /* Render list */
     async function renderOpenBags(){
       $("bagList").innerHTML = "";
       $("bulkActions").hidden = true;
@@ -554,7 +593,7 @@
       $("bulkActions").hidden = false;
     }
 
-    /* ===== Modal (combined totals) ===== */
+    /* Modal */
     function openPickupModal(){
       const rows = rowsForCurrent();
       if(!rows.length) return;
@@ -605,7 +644,6 @@
       $("sheetErr").hidden = true;
 
       try{
-        // Employee
         const empId = $("empBtn")?.dataset.value || "";
         if(!empId) throw new Error("Please choose an employee.");
         const me = auth.currentUser;
@@ -643,7 +681,7 @@
           }
         }
 
-        // Create a single pickUp event for the batch
+        // Create batch pickUp event
         const ev = {
           type:'pickUp',
           field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
@@ -696,13 +734,13 @@
       }
     }
 
-    /* ===== Boot ===== */
+    /* Boot */
     let db, auth;
     (async()=>{
       await ready;
       db = getFirestore(); auth = getAuth();
 
-      // Default year + items
+      // Default year and items
       YEAR = new Date().getFullYear();
       $("yearBtn").textContent = String(YEAR);
       yearCombo.setItems([YEAR-1, YEAR, YEAR+1].map(v=>({id:String(v), value:v, label:String(v)})));
@@ -711,15 +749,10 @@
       await buildOpenIndexForYear(db);
       $("listHelp").textContent = "Choose Field.";
 
-      // Modal controls
+      // Actions
       $("openPickup").addEventListener('click', openPickupModal);
       $("cancelPickup").addEventListener('click', closePickupModal);
       $("confirmPickup").addEventListener('click', ()=> savePickup(db, auth));
-
-      // Close combos on Escape
-      document.addEventListener('keydown', e=>{
-        if(e.key==='Escape'){ closeAllCombos(); $("pickupModal").classList.remove('show'); }
-      });
 
       // Network hints
       window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
