@@ -29,7 +29,17 @@
   </script>
 
   <style>
-    :root{ --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C; }
+    :root{
+      --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C;
+      /* 🔒 Standardized combo vars: SAME on all pages */
+      --combo-gap:4px;                 /* tight space from trigger to panel */
+      --combo-radius:12px;             /* panel rounding */
+      --combo-btn-radius:10px;         /* trigger + search box rounding */
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
+    }
+
     body{ background:var(--app-bg,var(--surface)); }
 
     .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
@@ -49,10 +59,11 @@
 
     .field{ position:relative }
     .field label{ display:block; font-weight:800; margin:0 0 6px }
+
     .input,.textarea,.buttonish{
       width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:10px; padding:12px; outline:none;
+      border-radius:var(--combo-btn-radius); padding:12px; outline:none;
     }
     .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:42px }
     .buttonish.has-caret::after{
@@ -71,20 +82,23 @@
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* Inline combo dropdown (tight, rounded) */
+    /* 🔒 Standardized Inline Combo Dropdown (tight + rounded) */
     .combo{ position:relative }
     .combo-panel{
-      position:absolute; left:0; right:0; top:calc(100% + 4px);
-      background:var(--surface); border:1px solid var(--border); border-radius:12px;
-      box-shadow:0 12px 26px rgba(0,0,0,.18); z-index:9999; padding:8px; display:none;
+      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
+      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
     }
     .combo-panel.show{ display:block }
     .combo-panel .search{ padding:4px 2px 8px }
-    .combo-panel .search input{ width:100%; padding:10px; border:1px solid var(--border); border-radius:10px }
-    .combo-panel .list{ max-height:50vh; overflow:auto; border-top:1px solid var(--border) }
-    .combo-item{ padding:10px 8px; border-bottom:1px solid var(--border); cursor:pointer }
+    .combo-panel .search input{
+      width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--combo-btn-radius)
+    }
+    .combo-panel .list{ max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border) }
+    .combo-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
     .combo-item:hover{ background:rgba(0,0,0,.04) }
-    .combo-empty{ padding:10px 8px; color:#67706B }
+    .combo-item:last-child{ border-bottom:none }
+    .combo-empty{ padding:var(--combo-item-pad); color:#67706B }
 
     .grid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px }
     @media (max-width:880px){ .grid-3{ grid-template-columns:1fr } }
@@ -130,7 +144,7 @@
             <div class="field combo" id="yearCombo">
               <label for="yearBtn">Crop Year</label>
               <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
-              <div class="combo-panel" id="yearPanel">
+              <div class="combo-panel" id="yearPanel" role="listbox" aria-label="Year list">
                 <div class="list" id="yearList"></div>
               </div>
             </div>
@@ -153,7 +167,9 @@
               <div class="field combo" id="subCombo">
                 <label for="subBtn">Submitted By</label>
                 <button id="subBtn" class="buttonish has-caret" type="button">— Select —</button>
-                <div class="combo-panel" id="subPanel"><div class="list" id="subList"></div></div>
+                <div class="combo-panel" id="subPanel" role="listbox" aria-label="Employee list">
+                  <div class="list" id="subList"></div>
+                </div>
               </div>
             </div>
 
@@ -162,7 +178,9 @@
               <div class="field combo" id="cropCombo">
                 <label for="cropBtn">Crop Type</label>
                 <button id="cropBtn" class="buttonish has-caret" type="button">— Select —</button>
-                <div class="combo-panel" id="cropPanel"><div class="list" id="cropList"></div></div>
+                <div class="combo-panel" id="cropPanel" role="listbox" aria-label="Crop list">
+                  <div class="list" id="cropList"></div>
+                </div>
               </div>
 
               <div class="field">
@@ -176,7 +194,9 @@
               <div class="field combo" id="prioCombo">
                 <label for="prioBtn">Pickup Priority (1–10)</label>
                 <button id="prioBtn" class="buttonish has-caret" type="button">— Select —</button>
-                <div class="combo-panel" id="prioPanel"><div class="list" id="prioList"></div></div>
+                <div class="combo-panel" id="prioPanel" role="listbox" aria-label="Priority list">
+                  <div class="list" id="prioList"></div>
+                </div>
                 <div class="help">1 = low urgency · 10 = high urgency</div>
               </div>
 
@@ -261,8 +281,9 @@
       document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==exceptPanel) p.classList.remove('show'); });
     }
     document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
-    /* ---------- generic combo helper ---------- */
+    /* ---------- generic combo helper (standardized) ---------- */
     function makeCombo({btn, panel, list, items=[], searchable=false, formatter=x=>String(x.label||x), onPick}){
       function render(q=""){
         const qq=(q||"").toLowerCase();
@@ -281,7 +302,7 @@
       btn.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.contains('show') ? close() : open(); });
       list.addEventListener('click', (e)=>{
         const el=e.target.closest('.combo-item'); if(!el) return;
-        const it=(items||[]).find(i=>i.id===el.dataset.id); if(!it) return;
+        const it=(items||[]).find(i=>String(i.id)===String(el.dataset.id)); if(!it) return;
         onPick?.(it); close();
       });
       if(searchable){
@@ -290,7 +311,7 @@
       return { setItems(arr){ items=arr||[]; render(""); }, close };
     }
 
-    /* ---------- partial rows ---------- */
+    /* ---------- partial rows (usage combo uses same standard) ---------- */
     function updatePartialRangeHelp(){
       const L = Number(chosen.bag?.sizeFeet||0);
       const min=50, max=Math.max(0,L-50);
@@ -308,11 +329,11 @@
       len.addEventListener('input', schedulePartialValidate);
       lenWrap.append(lenLbl,len,lenHelp);
 
-      // usage col (combo)
+      // usage col (standard combo)
       const useWrap=document.createElement('div'); useWrap.className='field combo';
       const useLbl=document.createElement('label'); useLbl.textContent=`Partial ${idx+1} usage`;
       const useBtn=document.createElement('button'); useBtn.type='button'; useBtn.className='buttonish has-caret'; useBtn.textContent='— Select —';
-      const usePanel=document.createElement('div'); usePanel.className='combo-panel';
+      const usePanel=document.createElement('div'); usePanel.className='combo-panel'; usePanel.setAttribute('role','listbox'); usePanel.setAttribute('aria-label','Partial usage list');
       const useList=document.createElement('div'); useList.className='list';
       usePanel.appendChild(useList);
       useWrap.append(useLbl,useBtn,usePanel);
@@ -434,7 +455,7 @@
         }catch(err){ console.warn("Inventory decrement failed:", err); }
       }
 
-      // ✅ Success UX: toast -> scroll top -> hide form -> reset (keep YEAR; RESET FIELD)
+      // ✅ Success UX
       toast("Bag Entry Saved.");
       window.scrollTo({ top: 0, behavior: 'smooth' });
       closeAllCombos();
@@ -464,7 +485,7 @@
       const db=getFirestore(); const auth=getAuth();
       $("datePlaced").value = todayISO();
 
-      /* Years / Priority / Crops */
+      /* Years / Priority / Crops (use standardized combos) */
       const y=new Date().getFullYear();
       const YEARS=[y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
       const PRIO=[1,2,3,4,5,6,7,8,9,10].map(n=>({id:String(n), value:n, label:(n===1?"1 — Low":n===10?"10 — High":String(n))}));
@@ -568,7 +589,7 @@
       // Actions
       $("btnSave").addEventListener("click", ()=> handleSave(getFirestore(), getAuth()));
       $("btnClear").addEventListener("click", ()=>{
-        // Clear only form internals; do not reset Year (and do not force Field here)
+        // Clear only form internals; keep Year; keep Field selection
         chosen.bag=null; $("bagBtn").textContent="— Select —";
         chosen.crop=null; $("cropBtn").textContent="— Select —";
         $("cropMoisture").value="";
@@ -581,13 +602,6 @@
         const mine=EMPLOYEES.find(e=>(e.email||"").toLowerCase()===me) || EMPLOYEES[0];
         if(mine){ chosen.sub=mine; $("subBtn").textContent=mine.name; }
       });
-
-      // Esc closes any open panels
-      document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
-
-      // Network toasts
-      window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
-      window.addEventListener('offline',()=> toast("Currently offline — using saved data", 3000));
     })();
   </script>
 </body>
