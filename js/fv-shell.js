@@ -18,7 +18,7 @@
       --hdr-h:56px;           /* header height */
       --ftr-h:14px;           /* base footer height (web) — green strip only */
       --qr-size:48px;         /* camera button size */
-      --qr-gap:14px;          /* gap above footer/safe-area */
+      --qr-gap:18px;          /* gap above footer/safe-area */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
       --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
       display:block; color:var(--text); background:#fff; min-height:100vh; position:relative;
@@ -29,7 +29,7 @@
        ======================= */
     @supports (display-mode: standalone) {
       /* Make the visible green strip ultra thin while keeping iOS safe area */
-      :host{ --ftr-h:3px; }                /* green band thickness in PWA */
+      :host{ --ftr-h:0px; }                /* green band thickness in PWA */
 
       .ftr{
         /* total footer height = thin green + safe-area */
