@@ -6,31 +6,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- ===========================
-       ABSOLUTE PATHS (REQUIRED)
-       =========================== -->
+  <!-- Absolute paths -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
-  <!-- Theme + base app styles -->
+  <!-- Theme + base -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
   <!-- Ensure fv-shell -->
-  <script>
-    (function(){
-      if(!customElements.get('fv-shell')){
-        const s=document.createElement('script');
-        s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
-      }
-    })();
-  </script>
+  <script>(function(){if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);}})();</script>
 
-  <!-- ===========================
-       PAGE CSS
-       =========================== -->
+  <!-- Page CSS -->
   <style>
     :root{ --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C; }
     body{ background:var(--app-bg,var(--surface)); }
@@ -43,24 +32,35 @@
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent); }
     .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
     .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
-    .muted{color:var(--muted,#67706B)} .body{padding:16px;display:grid;gap:14px}
+    .muted{color:var(--muted,#67706B)}
+    .body{padding:16px;display:grid;gap:14px}
 
-    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr} @media (max-width:880px){.row{grid-template-columns:1fr}}
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    @media (max-width:880px){.row{grid-template-columns:1fr}}
+
     .field label{display:block;font-weight:800;margin:0 0 6px}
     .input,.select{
       width:100%;font:inherit;font-size:16px;color:var(--text);
-      background:var(--card-surface,var(--surface));border:1px solid var(--border); border-radius:10px; padding:12px; outline:none}
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px; /* rounded dropdowns */
+      padding:12px;outline:none
+    }
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:160px;
       padding:12px 16px;border-radius:12px;border:1px solid var(--border);
       background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
     .btn[disabled]{opacity:.5;cursor:not-allowed}
+
     .invalid{ color:#b00020 !important; border-color:#b00020 !important; }
+
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none}
-    .toast.show{display:block;animation:fadeout 3.5s forwards} @keyframes fadeout{0%{opacity:1}80%{opacity:1}100%{opacity:0}}
+    .toast.show{display:block;animation:fadeout 2.2s forwards}
+    @keyframes fadeout{0%{opacity:1}70%{opacity:1}100%{opacity:0}}
+
     .error{color:#b00020;font-weight:700}
   </style>
 </head>
@@ -73,7 +73,7 @@
           <div class="icon" aria-hidden="true">➖</div>
           <div>
             <h1>Remove from Grain Bin Inventory</h1>
-            <p class="muted">Only bins with grain appear. You can’t remove more than on-hand.</p>
+            <p class="muted">Sites & bins are filtered to only those with grain on hand.</p>
           </div>
         </header>
 
@@ -111,9 +111,8 @@
           <div id="err" class="help error" hidden></div>
 
           <div class="actions">
-            <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Mark Picked Up</button>
-            <button id="btnClear" class="btn" type="button">Clear</button>
+            <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
           </div>
         </div>
       </section>
@@ -122,26 +121,28 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- ===========================
-       MODULAR FIREBASE (LAZY METHOD)
-       =========================== -->
+  <!-- Firebase (lazy method) -->
   <script type="module">
     import {
       ready, getFirestore, getAuth,
-      collection, getDocs, doc, getDoc, setDoc,
+      collection, getDocs, doc, getDoc, setDoc, addDoc,
       serverTimestamp, query, orderBy
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    function showToast(msg="Saved.", ms=2500){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&gt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    function toast(msg="Saved.", ms=2200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
-    let SITES = [];
-    let CURRENT_SITE = null;
-    let CURRENT_BIN_INDEX = -1;
+    let SITES=[];      // {id,name,bins[]}
+    let CURRENT_SITE=null;
+    let CURRENT_BIN_INDEX=-1;
 
     function updateOnHandHelp(){
-      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){ $("capHelp").textContent="On hand: —"; $("btnSave").disabled=true; return; }
+      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){
+        $("capHelp").textContent="On hand: —";
+        $("btnSave").disabled=true;
+        return;
+      }
       const on = Number(CURRENT_SITE.bins[CURRENT_BIN_INDEX]?.onHand||0);
       const remove = parseFloat($("bushels").value||"0");
       const over = remove > on;
@@ -151,102 +152,112 @@
     }
 
     async function loadSites(db){
+      // Load all sites, then filter to those where any bin has onHand > 0
       const snap = await getDocs(query(collection(db,'binSites'), orderBy('name')));
-      SITES = [];
+      const all=[];
       snap.forEach(d=>{
-        const v = d.data()||{};
-        SITES.push({ id:d.id, name:String(v.name||'Unnamed'), bins:Array.isArray(v.bins)?v.bins:[] });
+        const v=d.data()||{};
+        const bins = Array.isArray(v.bins)?v.bins:[];
+        const hasGrain = bins.some(b=>Number(b?.onHand||0) > 0);
+        if(hasGrain){
+          all.push({ id:d.id, name:String(v.name||'Unnamed'), bins });
+        }
       });
-      SITES.sort((a,b)=>a.name.localeCompare(b.name));
+      all.sort((a,b)=>a.name.localeCompare(b.name));
+      SITES = all;
+
       $("site").innerHTML = '<option value="">— Select —</option>'+
         SITES.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
       $("site").disabled = false;
-      $("siteHelp").textContent = `${SITES.length} sites`;
+      $("siteHelp").textContent = `${SITES.length} site${SITES.length===1?'':'s'} with grain`;
     }
 
     function loadBinsFor(siteId){
       CURRENT_SITE = SITES.find(s=>s.id===siteId) || null;
       const sel = $("bin"), help=$("binHelp");
       CURRENT_BIN_INDEX=-1;
+
       if(!CURRENT_SITE){
         sel.innerHTML = '<option value="">Select a site first…</option>';
-        sel.disabled = true; help.textContent='—'; updateOnHandHelp(); return;
+        sel.disabled=true; help.textContent='—'; updateOnHandHelp(); return;
       }
-      // Only bins with grain appear
+
+      // Only bins with grain
       const items = (CURRENT_SITE.bins||[]).map((b,i)=>({b,i})).filter(x=>Number(x.b.onHand||0)>0);
       sel.innerHTML = '<option value="">— Select —</option>' + items.map(({b,i})=>{
         const on=Number(b.onHand||0), num=b.num ?? (i+1);
         return `<option value="${i}">Bin #${esc(num)} — On hand: ${on.toLocaleString()}</option>`;
       }).join('');
-      sel.disabled = false;
-      help.textContent = `${items.length} bins with grain`;
+      sel.disabled=false;
+      help.textContent = `${items.length} bin${items.length===1?'':'s'} with grain`;
+
+      if(items.length===1){ sel.value=String(items[0].i); CURRENT_BIN_INDEX=items[0].i; }
       updateOnHandHelp();
     }
 
     async function saveRemove(db, auth){
-      $("err").hidden = true;
+      $("err").hidden=true;
 
       const siteId = $("site").value;
       const binIdx = parseInt($("bin").value,10);
       const bushels = parseFloat($("bushels").value);
+      const note = ($("note").value||"").trim() || null;
 
       if(!siteId){ alert("Select a site."); return; }
       if(!(binIdx>=0)){ alert("Select a bin."); return; }
       if(!(bushels>0)){ alert("Enter bushels > 0."); return; }
 
-      const siteRef = doc(db,'binSites',siteId);
-      const siteSnap = await getDoc(siteRef);
-      if(!siteSnap.exists()){ alert("Site not found."); return; }
+      try{
+        const siteRef = doc(db,'binSites',siteId);
+        const snap = await getDoc(siteRef);
+        if(!snap.exists()) throw new Error("Site not found.");
 
-      const data = siteSnap.data()||{};
-      const bins = Array.isArray(data.bins)?[...data.bins]:[];
-      const bin  = bins[binIdx] || {};
-      const on   = Number(bin.onHand||0);
-      if(bushels > on){ $("bushels").classList.add('invalid'); $("err").hidden=false; $("err").textContent="Cannot remove more than on-hand."; return; }
+        const data=snap.data()||{};
+        const bins=Array.isArray(data.bins)?[...data.bins]:[];
+        const bin=bins[binIdx]||{};
+        const on=Number(bin.onHand||0);
+        if(bushels>on){ $("bushels").classList.add('invalid'); $("err").hidden=false; $("err").textContent="Cannot remove more than on-hand."; return; }
 
-      const after = on - bushels;
-      bins[binIdx] = { ...bin, onHand: after, lastUpdated: serverTimestamp(), lastUpdatedBy: (getAuth().currentUser?.displayName || 'Dane Killam') };
+        const after = on - bushels;
+        bins[binIdx] = {
+          ...bin,
+          onHand: after,
+          lastUpdatedBy:(getAuth().currentUser?.displayName||'Dane Killam'),
+          lastUpdatedMs: Date.now()
+        };
 
-      await setDoc(siteRef, { bins }, { merge:true });
+        await setDoc(siteRef, { bins }, { merge:true });
 
-      await setDoc(doc(collection(db,'binMovements')), {
-        siteId, siteName: CURRENT_SITE?.name || null,
-        binIndex: binIdx, binNum: bin.num ?? (binIdx+1),
-        direction: 'out',
-        bushels,
-        note: ($("note").value||"").trim() || null,
-        submittedBy: (getAuth().currentUser?.displayName || 'Dane Killam'),
-        createdAt: serverTimestamp()
-      });
+        await addDoc(collection(db,'binMovements'), {
+          siteId, siteName: CURRENT_SITE?.name || null,
+          binIndex: binIdx, binNum: bin.num ?? (binIdx+1),
+          direction:'out',
+          bushels,
+          note,
+          submittedBy:(auth.currentUser?.displayName||'Dane Killam'),
+          createdAt: serverTimestamp()
+        });
 
-      showToast("Removed from inventory");
+        toast("Removed from inventory");
+        setTimeout(()=>location.reload(),700);
 
-      // Clear for next
-      $("bushels").value="";
-      $("note").value="";
-      $("err").hidden=true;
-
-      // Refresh site data & bin list so the “with grain” filter updates
-      const db2 = getFirestore();
-      await loadSites(db2);
-      if($("site").value === siteId){ // reselect same site
-        $("site").value = siteId;
-        loadBinsFor(siteId);
+      }catch(err){
+        console.error(err);
+        $("err").hidden=false; $("err").textContent=err.message||"Save failed.";
+        toast("Save failed",2200);
       }
-      $("bushels").focus();
     }
 
     (async()=>{
       await ready;
-      const db = getFirestore(); const auth = getAuth();
-      await loadSites(db);
+      const db=getFirestore(); const auth=getAuth();
+
+      await loadSites(db);                            // Sites filtered to those with grain
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
       $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateOnHandHelp(); });
       $("bushels").addEventListener("input", updateOnHandHelp);
+
       $("btnSave").addEventListener("click", ()=> saveRemove(db, auth));
-      $("btnClear").addEventListener("click", ()=>{
-        $("bushels").value=""; $("note").value=""; $("err").hidden=true; updateOnHandHelp();
-      });
     })();
   </script>
 </body>
