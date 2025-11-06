@@ -18,15 +18,19 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Ensure fv-shell -->
+  <!-- Ensure fv-shell (global header/footer/menu) -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
-        const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
       }
     })();
   </script>
 
+  <!-- ===========================
+       PAGE CSS (tiny; theme tokens)
+       =========================== -->
   <style>
     :root{ --card-max:1100px; --page-bottom-gap:96px; --accent:#2F6C3C; }
     body{ background:var(--app-bg,var(--surface)); }
@@ -41,19 +45,29 @@
     .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
     .muted{color:var(--muted,#67706B)}
     .body{padding:16px;display:grid;gap:14px}
+
     .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
     @media (max-width:880px){.row{grid-template-columns:1fr}}
+
     .field label{display:block;font-weight:800;margin:0 0 6px}
-    .input,.select{width:100%;font:inherit;font-size:16px;color:var(--text);
-      background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none}
+    .input,.select{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px; /* ✅ rounded dropdowns */
+      padding:12px;outline:none
+    }
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:160px;
       padding:12px 16px;border-radius:12px;border:1px solid var(--border);
       background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
     .btn[disabled]{opacity:.5;cursor:not-allowed}
+
     .invalid{ color:#b00020 !important; border-color:#b00020 !important; }
+
+    /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none}
     .toast.show{display:block;animation:fadeout 2.2s forwards}
@@ -70,7 +84,7 @@
           <div class="icon" aria-hidden="true">➕</div>
           <div>
             <h1>Add to Grain Bin Inventory</h1>
-            <p class="muted">Choose a bin site and bin, enter details, and add bushels.</p>
+            <p class="muted">Sites & bins filtered to only those with remaining capacity.</p>
           </div>
         </header>
 
@@ -78,17 +92,22 @@
           <div class="row">
             <div class="field">
               <label for="site">Grain Bin Site</label>
-              <select id="site" class="select"><option value="">— Loading… —</option></select>
+              <select id="site" class="select">
+                <option value="">— Loading… —</option>
+              </select>
               <div id="siteHelp" class="help">0 sites</div>
             </div>
 
             <div class="field">
               <label for="bin">Bin</label>
-              <select id="bin" class="select" disabled><option value="">Select a site first…</option></select>
+              <select id="bin" class="select" disabled>
+                <option value="">Select a site first…</option>
+              </select>
               <div id="binHelp" class="help">—</div>
             </div>
           </div>
 
+          <!-- Under Bin fields -->
           <div class="row">
             <div class="field">
               <label for="cropType">Crop Type</label>
@@ -131,6 +150,7 @@
 
           <div id="err" class="help error" hidden></div>
 
+          <!-- Primary action FIRST; no Clear button -->
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Add to Inventory</button>
             <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
@@ -142,6 +162,9 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- ===========================
+       MODULAR FIREBASE (LAZY METHOD)
+       =========================== -->
   <script type="module">
     import {
       ready, getFirestore, getAuth,
@@ -153,13 +176,19 @@
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&gt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     function toast(msg="Saved.", ms=2200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
-    let SITES = [];
-    let CURRENT_SITE = null;
+    let SITES = [];            // [{id,name,bins:[]}] — filtered to sites with remaining capacity
+    let CURRENT_SITE = null;   // selected site object
     let CURRENT_BIN_INDEX = -1;
 
     function todayISO(){
       const d=new Date(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0');
       return `${d.getFullYear()}-${m}-${day}`;
+    }
+
+    function hasRemainingCapacity(b){             // helper: bin has room
+      const cap = Number(b?.bushels||0);          // capacity key from your screenshot
+      const on  = Number(b?.onHand||0);
+      return cap>0 ? on < cap : true;             // if cap==0 (unknown), allow it
     }
 
     function updateCapacityHelp(){
@@ -173,74 +202,93 @@
       const on  = Number(bin.onHand||0);
       const add = parseFloat(buEl.value||"0");
       const after = on + (isNaN(add)?0:add);
-      const over = after > cap && cap>0;
+      const over = cap>0 && after > cap;
       capEl.textContent = `Capacity: ${cap.toLocaleString()} • On hand: ${on.toLocaleString()} • After add: ${after.toLocaleString()}`;
       buEl.classList.toggle('invalid', over);
       save.disabled = over || !(add>0) || !$("site").value || !(CURRENT_BIN_INDEX>=0);
     }
 
     async function loadSites(db){
+      // Load all sites and filter to those with at least one bin with remaining capacity
       const snap = await getDocs(query(collection(db,'binSites'), orderBy('name')));
-      SITES = [];
+      const filtered=[];
       snap.forEach(d=>{
-        const v = d.data()||{};
-        SITES.push({ id:d.id, name:String(v.name||'Unnamed'), bins:Array.isArray(v.bins)?v.bins:[] });
+        const v=d.data()||{};
+        const bins = Array.isArray(v.bins)?v.bins:[];
+        const anyRoom = bins.some(hasRemainingCapacity);
+        if(anyRoom) filtered.push({ id:d.id, name:String(v.name||'Unnamed'), bins });
       });
-      SITES.sort((a,b)=>a.name.localeCompare(b.name));
+      filtered.sort((a,b)=>a.name.localeCompare(b.name));
+      SITES = filtered;
+
       $("site").innerHTML = '<option value="">— Select —</option>'+
         SITES.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
       $("site").disabled = false;
-      $("siteHelp").textContent = `${SITES.length} sites`;
+      $("siteHelp").textContent = `${SITES.length} site${SITES.length===1?'':'s'} with capacity`;
     }
 
     function loadBinsFor(siteId){
       CURRENT_SITE = SITES.find(s=>s.id===siteId) || null;
       const sel = $("bin"), help=$("binHelp");
       CURRENT_BIN_INDEX=-1;
+
       if(!CURRENT_SITE){
         sel.innerHTML = '<option value="">Select a site first…</option>';
         sel.disabled = true; help.textContent='—'; updateCapacityHelp(); return;
       }
-      const items = CURRENT_SITE.bins || [];
-      sel.innerHTML = '<option value="">— Select —</option>' + items.map((b,i)=>{
+
+      // Only bins with remaining capacity
+      const items = (CURRENT_SITE.bins||[]).map((b,i)=>({b,i})).filter(x=>hasRemainingCapacity(x.b));
+      if(items.length===0){
+        sel.innerHTML = '<option value="">No bins with remaining capacity</option>';
+        sel.disabled = true; help.textContent = '0 bins with capacity';
+        updateCapacityHelp();
+        return;
+      }
+
+      sel.innerHTML = '<option value="">— Select —</option>' + items.map(({b,i})=>{
         const cap=Number(b.bushels||0), on=Number(b.onHand||0), num=b.num ?? (i+1);
-        return `<option value="${i}">Bin #${esc(num)} — Cap: ${cap.toLocaleString()} • On hand: ${on.toLocaleString()}</option>`;
+        const room = cap>0 ? (cap-on) : null;
+        return `<option value="${i}">Bin #${esc(num)} — On hand: ${on.toLocaleString()}${cap?` / Cap: ${cap.toLocaleString()} (Room: ${room.toLocaleString()})`:''}</option>`;
       }).join('');
       sel.disabled = false;
-      help.textContent = `${items.length} bins`;
-      if(items.length===1){ sel.value="0"; CURRENT_BIN_INDEX=0; }
+      help.textContent = `${items.length} bin${items.length===1?'':'s'} with capacity`;
+
+      if(items.length===1){ sel.value = String(items[0].i); CURRENT_BIN_INDEX = items[0].i; }
       updateCapacityHelp();
     }
 
     async function saveAdd(db, auth){
       $("err").hidden = true;
+
       const siteId = $("site").value;
       const binIdx = parseInt($("bin").value,10);
       const bushels = parseFloat($("bushels").value);
       const cropType = $("cropType").value || null;
       const cropMoisture = $("cropMoisture").value ? parseFloat($("cropMoisture").value) : null;
       const submittedBy = $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam');
-      const dateVal = $("date").value;
+      const dateVal = $("date").value; // yyyy-mm-dd
       const note = ($("note").value||"").trim() || null;
 
       if(!siteId){ alert("Select a site."); return; }
       if(!(binIdx>=0)){ alert("Select a bin."); return; }
       if(!(bushels>0)){ alert("Enter bushels > 0."); return; }
 
-      // Capacity guard (from CURRENT_SITE cache)
+      // capacity guard from cached site
       const bin = (CURRENT_SITE?.bins||[])[binIdx] || {};
       const cap = Number(bin.bushels||0);
       const on  = Number(bin.onHand||0);
       if(cap>0 && on + bushels > cap){
-        $("bushels").classList.add('invalid'); $("err").hidden=false; $("err").textContent="Bushels exceed bin capacity."; return;
+        $("bushels").classList.add('invalid');
+        $("err").hidden=false; $("err").textContent="Bushels exceed bin capacity.";
+        return;
       }
 
       try{
-        // Read latest site, mutate array, write back (NO serverTimestamp inside the array)
+        // Pull latest site → mutate bins array → write back (no serverTimestamp in arrays)
         const siteRef = doc(db,'binSites',siteId);
         const siteSnap = await getDoc(siteRef);
         if(!siteSnap.exists()) throw new Error("Site not found.");
-
         const data = siteSnap.data()||{};
         const bins = Array.isArray(data.bins)?[...data.bins]:[];
         const before = Number(bins[binIdx]?.onHand||0);
@@ -252,12 +300,12 @@
           lastCropType: cropType,
           lastCropMoisture: cropMoisture,
           lastUpdatedBy: submittedBy,
-          lastUpdatedMs: Date.now()          /* ✅ client timestamp allowed in arrays */
+          lastUpdatedMs: Date.now()
         };
 
         await setDoc(siteRef, { bins }, { merge:true });
 
-        // Movement log (serverTimestamp OK here)
+        // Movement log
         await addDoc(collection(db,'binMovements'), {
           siteId, siteName: CURRENT_SITE?.name || null,
           binIndex: binIdx, binNum: bins[binIdx]?.num ?? (binIdx+1),
@@ -271,7 +319,7 @@
         });
 
         toast("Added to inventory");
-        setTimeout(()=>location.reload(), 700);
+        setTimeout(()=>location.reload(),700);
 
       }catch(err){
         console.error(err);
@@ -283,12 +331,15 @@
     (async()=>{
       await ready;
       const db = getFirestore(); const auth = getAuth();
+
       $("submittedBy").value = auth.currentUser?.displayName || "Dane Killam";
       $("date").value = todayISO();
-      await loadSites(db);
+
+      await loadSites(db);                                // Sites filtered to those with capacity
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
       $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateCapacityHelp(); });
       $("bushels").addEventListener("input", updateCapacityHelp);
+
       $("btnSave").addEventListener("click", ()=> saveAdd(db, auth));
     })();
   </script>
