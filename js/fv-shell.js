@@ -1,18 +1,21 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-c
-   - QR camera icon lives inside footer (left), safe from browser toolbars.
-   - Icon auto-hides on desktop, shows on phones.
+   FarmVista Shell — v5.10.20
+   - Fix: iOS Safari bottom toolbar clipping footer.
+     * In iOS browser (not standalone), footer becomes sticky (bottom:0) instead of fixed.
+     * In standalone/Android/desktop, footer remains fixed.
+   - QR mini icon stays inside footer (left), hidden on desktop.
 */
 (function () {
-  // ====== TUNABLES ======
-  const AUTH_MAX_MS = 5000;  // wait up to 5s for real auth + user-context
-  const MENU_MAX_MS = 3000;  // wait up to 3s for a non-empty menu
+  const AUTH_MAX_MS = 5000;
+  const MENU_MAX_MS = 3000;
 
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
     :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
       display:block; color:#141514; background:#fff; min-height:100vh; position:relative; }
+
+    /* ===== Header ===== */
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
@@ -21,6 +24,7 @@
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
+    /* ===== Boot Overlay ===== */
     .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
       background:color-mix(in srgb, #000 25%, transparent);
       backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
@@ -31,6 +35,7 @@
     .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
+    /* ===== Pull To Refresh ===== */
     .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
       color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change: transform, opacity; pointer-events:none; }
@@ -39,19 +44,22 @@
     .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
     .ptr .txt{ font-weight:800; }
 
-    /* ===== Footer ===== */
+    /* ===== Footer (default = fixed) ===== */
     .ftr{
       position:fixed; inset:auto 0 0 0;
       height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px);
       background:var(--green); color:#fff; border-top:2px solid var(--gold); z-index:900;
-
-      /* grid → left: camera, center: text, right: spacer */
       display:grid; grid-template-columns:44px 1fr 12px; align-items:center;
     }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; justify-self:center; }
 
-    /* QR camera icon (inline in footer, safe from toolbars) */
+    /* iOS Safari (browser, not standalone): footer becomes sticky so it never sits under the toolbar */
+    :host(.ios-browser) .ftr{
+      position:sticky; bottom:0; inset:auto 0 auto 0; z-index:900;
+    }
+
+    /* QR camera icon in footer (white) */
     .qr-mini{
       place-self:center start;
       width:28px; height:28px; display:grid; place-items:center; color:#fff; opacity:.98;
@@ -60,12 +68,22 @@
     .qr-mini svg{ width:22px; height:22px; display:block; }
     .qr-mini:active{ transform:translateY(1px); }
 
-    .main{ position:relative; padding:
-        calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
-        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
-      min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
+    /* ===== Main ===== */
+    .main{
+      position:relative;
+      padding: calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
+               calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
+      min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text);
+    }
+    /* In ios-browser mode footer is in flow; reduce bottom padding */
+    :host(.ios-browser) .main{
+      padding-bottom: 16px;
+      min-height: calc(100dvh - var(--hdr-h) - 3px); /* dynamic viewport prevents jump under Safari bars */
+    }
+
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
+    /* ===== Overlay + Drawers ===== */
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
 
@@ -81,12 +99,10 @@
     .org .org-text{ display:flex; flex-direction:column; }
     .org .org-name{ font-weight:800; line-height:1.15; }
     .org .org-loc{ font-size:13px; color:#666; }
-
     .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
     .drawer nav .skeleton{ padding:16px; color:#777; }
     .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color: var(--text); border-bottom:1px solid var(--border); }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
-
     .drawer-footer{ flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; padding:12px 16px;
       padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border);
       background: var(--surface); color: var(--text); }
@@ -121,7 +137,6 @@
       white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* While UI is locked (drawer/topdrawer open), suppress scroll gestures on content */
     :host(.ui-locked) .main { touch-action: none; }
   </style>
 
@@ -138,7 +153,6 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- Boot overlay stays visible until we're sure -->
   <div class="boot js-boot"><div class="boot-card"><div class="spin" aria-hidden="true"></div><div>Loading. Please wait.</div></div></div>
 
   <div class="ptr js-ptr" aria-hidden="true">
@@ -191,7 +205,6 @@
   <main class="main" part="main"><slot></slot></main>
 
   <footer class="ftr" part="footer">
-    <!-- QR camera icon (white) — hidden on desktop by JS -->
     <a class="qr-mini" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
@@ -211,17 +224,14 @@
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
       this._menuPainted = false;
       this._lastLogoutName = '';
-      this._lastUID = '';         // tracks current auth user id for swap detection
-      this._lastRoleHash = '';    // tracks allowedIds hash
+      this._lastUID = '';
+      this._lastRoleHash = '';
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      // Scroll-lock state
       this._scrollLocked = false;
       this._scrollY = 0;
       this._isIOSStandaloneFlag = null;
       this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
-
-      // PTR state (shared)
       this._ptrDisabled = false;
     }
 
@@ -242,14 +252,26 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
+      // Platform flags
+      const ua = (navigator.userAgent||'').toLowerCase();
+      const isIOS = /iphone|ipad|ipod/.test(ua);
+      const isStandalone = (window.navigator.standalone === true) ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
+
+      // In iOS browser (not standalone), use sticky footer to dodge the toolbar
+      if (isIOS && !isStandalone) this.classList.add('ios-browser');
+
       // Hide QR icon on desktop; show on phones
       const qrMini = r.querySelector('.qr-mini');
-      const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
       if (qrMini && !isMobile) qrMini.style.display = 'none';
 
-      // Boot overlay visible until _authAndMenuGate() finishes.
-      if (this._boot) this._boot.hidden = false;
+      // Footer text
+      const now = new Date();
+      const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
 
+      // Wire header buttons
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
@@ -259,18 +281,13 @@
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
       this._syncThemeChips((window.App && App.getTheme && App.getTheme()) || 'system');
 
-      const now = new Date();
-      const dateStr = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-      this._footerText.textContent = `© ${now.getFullYear()} FarmVista • ${dateStr}`;
-
+      if (this._boot) this._boot.hidden = false;
       this._bootSequence();
 
-      // Safety for odd WebView reflows
       window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
       window.addEventListener('resize', ()=>{ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
     }
 
-    // --- Platform detector: iOS Home Screen (standalone) ---
     _isIOSStandalone(){
       if (this._isIOSStandaloneFlag != null) return this._isIOSStandaloneFlag;
       const ua = (navigator.userAgent || '').toLowerCase();
@@ -291,14 +308,10 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // HARD GATE: require real auth + context + menu
       await this._authAndMenuGate();
 
-      // Wire after menu is present
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
-
-      // Listen for UID/role changes to flush menu & repaint
       this._watchUserContextForSwaps();
 
       if (this._boot) this._boot.hidden = true;
@@ -312,29 +325,20 @@
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initPTR();
-
-      // Post-paint sanity: if name missing or menu empty, kick
       setTimeout(()=> this._postPaintSanity(), 300);
     }
 
     async _authAndMenuGate(){
       const deadline = Date.now() + AUTH_MAX_MS;
-
-      // Wait for Firebase auth + user-context
       while (Date.now() < deadline) {
         if (await this._isAuthed() && this._hasUserCtx()) break;
         await this._sleep(120);
       }
       if (!(await this._isAuthed()) || !this._hasUserCtx()) {
-        this._kickToLogin('auth-timeout');
-        return Promise.reject('auth-timeout');
+        this._kickToLogin('auth-timeout'); return Promise.reject('auth-timeout');
       }
-
-      // Track current UID and role hash for later swap detection
       const { uid, roleHash } = this._currentUIDAndRoleHash();
       this._lastUID = uid; this._lastRoleHash = roleHash;
-
-      // Paint the menu (filtered) and confirm we have links
       await this._initMenuFiltered();
 
       const menuDeadline = Date.now() + MENU_MAX_MS;
@@ -343,11 +347,8 @@
         await this._sleep(120);
       }
       if (!this._hasMenuLinks()) {
-        this._kickToLogin('menu-timeout');
-        return Promise.reject('menu-timeout');
+        this._kickToLogin('menu-timeout'); return Promise.reject('menu-timeout');
       }
-
-      // Once we know who the user is, update logout label immediately
       this._setLogoutLabelNow();
     }
 
@@ -406,7 +407,6 @@
     }
 
     _sleep(ms){ return new Promise(r=> setTimeout(r, ms)); }
-
     _applyVersionToUI(){
       const v = (window && window.FV_VERSION) || {};
       const num = (v.number || '').toString().replace(/^\s*v/i,'').trim() || '0.0.0';
@@ -414,7 +414,6 @@
       if (this._verEl) this._verEl.textContent = `v${num}`;
       if (this._sloganEl) this._sloganEl.textContent = tag;
     }
-
     _loadScriptOnce(src, opts){
       return new Promise((resolve, reject)=>{
         const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'') === src);
@@ -429,40 +428,32 @@
       });
     }
 
-    // ====== UID/role swap detection + skeleton paint ======
     _watchUserContextForSwaps(){
       const update = async ()=>{
         const { uid, roleHash } = this._currentUIDAndRoleHash();
         const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
         if (!changed) return;
 
-        // Reset boot flag and show overlay/skeleton
         sessionStorage.removeItem('fv:boot:hydrated');
         if (this._boot) this._boot.hidden = false;
 
-        // Clear menu state + blank drawer immediately (skeleton)
         this._clearMenuStateFor(this._lastUID, this._lastRoleHash);
         this._paintSkeleton();
 
-        // Update trackers
         this._lastUID = uid;
         this._lastRoleHash = roleHash;
         this._menuPainted = false;
 
-        // Repaint with new permissions
         await this._initMenuFiltered();
 
-        // If no links yet, wait briefly (MENU_MAX_MS) and then sanity-kick if still empty
         const menuDeadline = Date.now() + MENU_MAX_MS;
         while (Date.now() < menuDeadline) {
           if (this._hasMenuLinks()) break;
           await this._sleep(120);
         }
         if (!this._hasMenuLinks()) {
-          this._kickToLogin('menu-timeout');
-          return;
+          this._kickToLogin('menu-timeout'); return;
         }
-
         this._setLogoutLabelNow();
         if (this._boot) this._boot.hidden = true;
         sessionStorage.setItem('fv:boot:hydrated', '1');
@@ -478,16 +469,14 @@
     _paintSkeleton(){
       if (!this._navEl) return;
       this._navEl.innerHTML = `<div class="skeleton">Loading menu…</div>`;
-      this._collapseAllNavGroups(); // ensure any previously-open groups are shut
+      this._collapseAllNavGroups();
     }
-
     _clearMenuStateFor(uid, roleHash){
       try {
         const key = this._navStateKeyFor(uid, roleHash);
         if (key) localStorage.removeItem(key);
       } catch {}
     }
-
     _currentUIDAndRoleHash(){
       let uid = '';
       try {
@@ -502,21 +491,16 @@
       } catch {}
       return { uid, roleHash };
     }
-
     _hashIDs(arr){
-      // stable small hash (djb2)
       const s = (arr||[]).slice().sort().join('|');
-      let h = 5381;
-      for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
+      let h = 5381; for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
       return ('h' + (h>>>0).toString(36));
     }
-
     _navStateKeyFor(uid, roleHash){
       if (!uid) return null;
       return `fv:nav:groups:${uid}:${roleHash||'no-role'}`;
     }
 
-    // ====== Menu load/render (role-scoped state) ======
     async _loadMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
       try{
@@ -536,25 +520,8 @@
         }
       }
     }
-
-    _countLinks(cfg){
-      let n = 0;
-      const walk = (nodes)=> (nodes||[]).forEach(it=>{
-        if (it.type === 'link') n++;
-        if (it.children) walk(it.children);
-      });
-      walk(cfg && cfg.items);
-      return n;
-    }
-    _collectAllLinks(cfg){
-      const out = [];
-      const walk = (nodes)=> (nodes||[]).forEach(it=>{
-        if (it.type === 'link') out.push(it);
-        if (it.children) walk(it.children);
-      });
-      walk(cfg && cfg.items);
-      return out;
-    }
+    _countLinks(cfg){ let n=0; (function walk(nodes){ (nodes||[]).forEach(it=>{ if (it.type==='link') n++; if (it.children) walk(it.children); }); })(cfg&&cfg.items); return n; }
+    _collectAllLinks(cfg){ const out=[]; (function walk(nodes){ (nodes||[]).forEach(it=>{ if (it.type==='link') out.push(it); if (it.children) walk(it.children); }); })(cfg&&cfg.items); return out; }
     _looksLikeHome(link){
       const id = (link.id||'').toLowerCase();
       const lbl = (link.label||'').toLowerCase();
@@ -572,18 +539,10 @@
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      // First paint: if we have no allowedIds yet, keep skeleton (avoid wrong menu).
-      if (!this._menuPainted && allowedIds.length === 0) {
-        this._paintSkeleton();
-        return;
-      }
-
-      // If menu already painted and ctx temporarily lacks allowedIds, don't clobber.
+      if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
       if (this._menuPainted && allowedIds.length === 0) return;
 
-      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
-        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
-        : NAV_MENU;
+      const filtered = (window.FVMenuACL && window.FVMenuACL.filter) ? window.FVMenuACL.filter(NAV_MENU, allowedIds) : NAV_MENU;
 
       let cfgToRender = filtered;
       let linkCount = this._countLinks(filtered);
@@ -595,7 +554,6 @@
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
-        linkCount = rescued.length;
       } else {
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
@@ -612,7 +570,6 @@
           }
         }
       }
-
       this._renderMenu(cfgToRender);
       this._menuPainted = true;
     }
@@ -625,8 +582,7 @@
       const { uid, roleHash } = this._currentUIDAndRoleHash();
       const stateKey = (cfg.options && cfg.options.stateKey) || this._navStateKeyFor(uid, roleHash) || 'fv:nav:groups';
       this._navStateKey = stateKey;
-      let groupState = {};
-      try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
+      let groupState = {}; try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
 
       const pad = (depth)=> `${16 + (depth * 18)}px`;
 
@@ -671,7 +627,7 @@
         btn.style.width = '44px';
         btn.style.height = '44px';
         btn.style.display = 'grid';
-        btn.style.placeItems = 'center';
+        btn.style.place-items = 'center';
         btn.style.background = 'transparent';
         btn.style.border = '0';
         btn.style.cursor = 'pointer';
@@ -721,8 +677,7 @@
     }
 
     _collapseAllNavGroups(){
-      const nav = this._navEl;
-      if (!nav) return;
+      const nav = this._navEl; if (!nav) return;
       nav.querySelectorAll('div[role="group"]').forEach(kids=>{
         kids.style.display = 'none';
         const row = kids.previousElementSibling;
@@ -733,14 +688,12 @@
       try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
-    // ===== Scroll lock helpers (iOS standalone robust) =====
+    /* ===== Scroll lock helpers ===== */
     _applyBodyFixedStyles(){
       document.body.style.position = 'fixed';
       document.body.style.top = `-${this._scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
+      document.body.style.left = '0'; document.body.style.right = '0';
+      document.body.style.width = '100%'; document.body.style.overflow = 'hidden';
     }
     _setScrollLock(on){
       const iosStandalone = this._isIOSStandalone();
@@ -748,31 +701,23 @@
       if (on && !this._scrollLocked){
         this._scrollY = window.scrollY || html.scrollTop || 0;
         if (iosStandalone){
-          // Strongest lock for iOS PWA
           this._applyBodyFixedStyles();
-          html.style.overflow = 'hidden';
-          html.style.height = '100%';
+          html.style.overflow = 'hidden'; html.style.height = '100%';
           if (this._scrim) {
             this._scrim.addEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
             this._scrim.addEventListener('wheel', this._scrimTouchBlocker, { passive:false });
           }
         } else {
-          // Normal browsers usually fine with overflow hidden on html
           html.style.overflow = 'hidden';
         }
         this.classList.add('ui-locked');
         this._scrollLocked = true;
-        this._ptrDisabled = true; // disable PTR while menus are open
+        this._ptrDisabled = true;
       } else if (!on && this._scrollLocked){
-        // Restore
-        document.body.style.position = '';
-        document.body.style.top = '';
-        document.body.style.left = '';
-        document.body.style.right = '';
-        document.body.style.width = '';
-        document.body.style.overflow = '';
-        html.style.overflow = '';
-        html.style.height = '';
+        document.body.style.position = ''; document.body.style.top = '';
+        document.body.style.left = ''; document.body.style.right = '';
+        document.body.style.width = ''; document.body.style.overflow = '';
+        html.style.overflow = ''; html.style.height = '';
         if (this._scrim) {
           this._scrim.removeEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
           this._scrim.removeEventListener('wheel', this._scrimTouchBlocker, { passive:false });
@@ -780,7 +725,6 @@
         window.scrollTo(0, this._scrollY || 0);
         this.classList.remove('ui-locked');
         this._scrollLocked = false;
-        // small delay before re-enabling PTR to avoid bounce re-trigger
         setTimeout(()=> { this._ptrDisabled = false; }, 150);
       }
     }
@@ -815,111 +759,51 @@
       this._syncThemeChips(mode);
     }
 
-    /* ====== PULL-TO-REFRESH (robust; iOS standalone safe) ====== */
+    /* ===== PTR ===== */
     _initPTR(){
       const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
       const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
       const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      const THRESHOLD = 72;     // px pull distance
-      const MAX_ANGLE = 18;     // degrees allowed away from vertical
-      const COOLDOWN  = 600;    // ms between triggers
-      const TOP_TOL   = 2;      // px tolerance for scrollY
-
+      const THRESHOLD = 72, MAX_ANGLE = 18, COOLDOWN = 600, TOP_TOL = 2;
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
       const atTop  = ()=> (window.scrollY || 0) <= TOP_TOL;
       const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open') && !this._ptrDisabled;
 
-      const showBar = ()=>{
-        bar.classList.add('show');
-        spin.hidden = true; dot.hidden = false;
-        txt.textContent = 'Pull to refresh';
-      };
-      const hideBar = ()=>{
-        bar.classList.remove('show');
-        spin.hidden = true; dot.hidden = true;
-        txt.textContent = 'Pull to refresh';
-      };
+      const showBar = ()=>{ bar.classList.add('show'); spin.hidden = true; dot.hidden = false; txt.textContent='Pull to refresh'; };
+      const hideBar = ()=>{ bar.classList.remove('show'); spin.hidden = true; dot.hidden = true; txt.textContent='Pull to refresh'; };
 
-      const onStart = (clientX, clientY)=>{
-        if (!canUse()) { armed=false; pulling=false; return; }
-        if (!atTop()) { armed=false; pulling=false; return; }
-        if (Date.now() - lastEnd < COOLDOWN) { armed=false; pulling=false; return; }
-        armed   = true;
-        pulling = false;
-        startY  = clientY;
-        startX  = clientX;
-        deltaY  = 0;
-      };
-
+      const onStart = (clientX, clientY)=>{ if (!canUse() || !atTop() || (Date.now()-lastEnd<COOLDOWN)) return; armed=true; pulling=false; startY=clientY; startX=clientX; deltaY=0; };
       const onMoveInternal = (clientX, clientY, prevent)=>{
         if (!armed) return;
-        const dy = clientY - startY;
-        const dx = clientX - startX;
-        const angle = Math.abs(Math.atan2(dx, dy) * (180/Math.PI));
+        const dy = clientY-startY, dx = clientX-startX, angle = Math.abs(Math.atan2(dx, dy)*(180/Math.PI));
         if (angle > MAX_ANGLE) { armed=false; pulling=false; hideBar(); return; }
-        if (dy > 0) {
-          deltaY = dy;
-          if (!pulling) { pulling = true; showBar(); }
-          txt.textContent = (deltaY >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
-          prevent(); // stop rubber-band
-        } else {
-          armed=false; pulling=false; hideBar();
-        }
+        if (dy > 0) { deltaY=dy; if (!pulling){ pulling=true; showBar(); } txt.textContent = (deltaY>=THRESHOLD)?'Release to refresh':'Pull to refresh'; prevent(); }
+        else { armed=false; pulling=false; hideBar(); }
       };
-
       const onEnd = ()=>{
         if (!armed) return;
-        const shouldRefresh = pulling && deltaY >= THRESHOLD;
-        armed=false; pulling=false; deltaY=0; startY=0; startX=0;
-        if (shouldRefresh) {
-          lastEnd = Date.now();
-          (async ()=>{
-            dot.hidden  = true;
-            spin.hidden = false;
-            txt.textContent = 'Refreshing…';
-
+        const ok = pulling && deltaY>=THRESHOLD; armed=false; pulling=false; deltaY=0; startY=0; startX=0;
+        if (ok) {
+          lastEnd = Date.now(); (async ()=>{
+            dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
             document.dispatchEvent(new CustomEvent('fv:refresh'));
             try { await this._initMenuFiltered(); } catch {}
             if (typeof window.FVRefresh === 'function') { try { await window.FVRefresh(); } catch {} }
-
-            await new Promise(res=> setTimeout(res, 900));
-            hideBar();
+            await new Promise(res=> setTimeout(res, 900)); hideBar();
           })();
-        } else {
-          hideBar();
-        }
+        } else { hideBar(); }
       };
 
-      // Touch events (best reliability on iOS PWA)
-      window.addEventListener('touchstart', (e)=>{
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        onStart(t.clientX, t.clientY);
-      }, { passive:true });
-
-      window.addEventListener('touchmove', (e)=>{
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        onMoveInternal(t.clientX, t.clientY, ()=> e.preventDefault());
-      }, { passive:false });
-
+      window.addEventListener('touchstart', (e)=>{ if (!e.touches || e.touches.length!==1) return; const t=e.touches[0]; onStart(t.clientX,t.clientY); }, { passive:true });
+      window.addEventListener('touchmove',  (e)=>{ if (!e.touches || e.touches.length!==1) return; const t=e.touches[0]; onMoveInternal(t.clientX,t.clientY, ()=>e.preventDefault()); }, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
 
-      // Pointer fallback (non-iOS browsers)
-      window.addEventListener('pointerdown', (e)=>{
-        if (e.pointerType === 'mouse') return;
-        onStart(e.clientX, e.clientY);
-      }, { passive:true });
-
-      window.addEventListener('pointermove', (e)=>{
-        if (e.pointerType === 'mouse') return;
-        onMoveInternal(e.clientX, e.clientY, ()=> e.preventDefault());
-      }, { passive:false });
-
+      window.addEventListener('pointerdown', (e)=>{ if (e.pointerType==='mouse') return; onStart(e.clientX,e.clientY); }, { passive:true });
+      window.addEventListener('pointermove',  (e)=>{ if (e.pointerType==='mouse') return; onMoveInternal(e.clientX,e.clientY, ()=>e.preventDefault()); }, { passive:false });
       window.addEventListener('pointerup', onEnd, { passive:true });
       window.addEventListener('pointercancel', onEnd, { passive:true });
 
@@ -928,15 +812,9 @@
 
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
-      const logoutLabel = r.getElementById('logoutLabel');
-
       const setLabel = ()=> this._setLogoutLabelNow();
       setLabel();
-      try {
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(() => setLabel());
-        }
-      } catch {}
+      try { if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') window.FVUserContext.onChange(() => setLabel()); } catch {}
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
@@ -958,10 +836,7 @@
         try { cloudReady = !!(window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()); } catch {}
         const ok = !!(net && cloudReady);
         if (this._connTxt) this._connTxt.textContent = ok ? 'Online' : 'Offline';
-        if (this._connRow) {
-          this._connRow.style.opacity = '1';
-          this._connRow.title = `Network: ${net ? 'online' : 'offline'} • Cloud: ${cloudReady ? 'ready' : 'not ready'}`;
-        }
+        if (this._connRow) { this._connRow.style.opacity = '1'; this._connRow.title = `Network: ${net ? 'online' : 'offline'} • Cloud: ${cloudReady ? 'ready' : 'not ready'}`; }
       };
       update();
       window.addEventListener('online', update);
@@ -976,14 +851,14 @@
         try{
           const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          const m = txt.match(/number\\s*:\\s*["']([\\d.]+)["']/) || txt.match(/FV_NUMBER\\s*=\\s*["']([\\d.]+)["']/);
           return (m && m[1]) || '';
         }catch{ return ''; }
       }
       try{
         const targetVer = await readTargetVersion();
         const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Up To Date (v${cur})`, 2200); return; }
+        if (targetVer && cur && targetVer === cur) { this._toastMsg(\`Up To Date (v\${cur})\`, 2200); return; }
         this._toastMsg('Clearing cache…', 900);
         if (navigator.serviceWorker) { try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {} }
         if ('caches' in window) { try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {} }
