@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Remove from Grain Bin Inventory</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes (ABSOLUTE paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Shell + Core -->
+  <script src="/Farm-vista/js/version.js" defer></script>
+  <script src="/Farm-vista/js/core.js" defer></script>
+  <script src="/Farm-vista/js/fv-shell.js" defer></script>
+
+  <!-- Firebase config (expects window.firebaseConfig) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <style>
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px)}
+    .card{border-radius:16px}
+    .grid{display:grid;gap:12px}
+    @media(min-width:800px){.grid{grid-template-columns:1fr 1fr}}
+    label{font-weight:600}
+    input, select, textarea{
+      width:100%;padding:10px 12px;border:1px solid var(--surface-3,#d6d6d6);
+      border-radius:12px;outline:none;background:var(--surface-1,#fff)
+    }
+    select{appearance:none;background-image:linear-gradient(45deg, transparent 50%, #777 50%),
+                                    linear-gradient(135deg, #777 50%, transparent 50%),
+                                    linear-gradient(to right, transparent, transparent);
+           background-position:calc(100% - 18px) 50%, calc(100% - 12px) 50%, 100% 0;
+           background-size:6px 6px, 6px 6px, 2.5em 2.5em;background-repeat:no-repeat}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    .btn{border:0;border-radius:999px;padding:10px 16px;font-weight:700;cursor:pointer}
+    .btn-primary{background:#3B7E46;color:#fff}
+    .btn-ghost{background:transparent}
+    .muted{opacity:.7}
+    .hint{font-size:.9em;opacity:.75}
+    .toast{
+      position:fixed;left:50%;transform:translateX(-50%);bottom:16px;background:#222;color:#fff;
+      padding:10px 14px;border-radius:10px;z-index:9999
+    }
+  </style>
+
+  <!-- Firebase SDK (modular) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
+    import { getFirestore, collection, query, where, orderBy, getDocs, doc, getDoc, addDoc, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
+    import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
+
+    const $ = s => document.querySelector(s);
+    const toast = (msg) => {
+      const t = document.createElement('div');
+      t.className = 'toast'; t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(()=>t.remove(), 1800);
+    };
+
+    const app = initializeApp(window.firebaseConfig);
+    const db  = getFirestore(app);
+    const auth = getAuth(app);
+
+    const siteSel = () => $('#site');
+    const binSel  = () => $('#bin');
+    const buInp   = () => $('#bushels');
+    const noteInp = () => $('#note');
+    const currOut = () => $('#currentBushels');
+    const saveBtn = () => $('#saveBtn');
+
+    async function loadSites(){
+      const qSites = query(collection(db,'grainBinSites'), where('archived','!=',true), orderBy('archived'), orderBy('name'));
+      const snap = await getDocs(qSites);
+      siteSel().innerHTML = `<option value="" disabled selected>Select a bin site…</option>` +
+        snap.docs.map(d => `<option value="${d.id}">${(d.data().name||'Unnamed')}</option>`).join('');
+      siteSel().disabled = false;
+    }
+
+    async function loadBins(siteId){
+      binSel().innerHTML = `<option value="" disabled selected>Select a bin…</option>`;
+      binSel().disabled = true; currOut().textContent = '—';
+      if(!siteId) return;
+      const qBins = query(collection(db,'grainBins'),
+                          where('archived','!=',true),
+                          where('siteId','==',siteId),
+                          orderBy('name'));
+      const snap = await getDocs(qBins);
+      binSel().innerHTML += snap.docs.map(d => `<option value="${d.id}">${(d.data().name||d.data().binNumber||'Bin')}</option>`).join('');
+      binSel().disabled = false;
+    }
+
+    async function showCurrent(binId){
+      currOut().textContent = '—';
+      if(!binId) return;
+      const b = await getDoc(doc(db,'grainBins',binId));
+      if(b.exists()){
+        const v = Number(b.data().currentBushels||0);
+        currOut().textContent = v.toLocaleString()+' bu';
+      }
+    }
+
+    async function save(){
+      const siteId = siteSel().value;
+      const binId  = binSel().value;
+      const bushels  = parseFloat(buInp().value);
+      const note = noteInp().value.trim();
+
+      if(!siteId || !binId || !bushels || isNaN(bushels)){
+        toast('Please complete Site, Bin, and Bushels.'); return;
+      }
+
+      const user = auth.currentUser;
+      const submittedBy = user?.displayName || 'Dane Killam';
+
+      const binRef = doc(db,'grainBins',binId);
+
+      await runTransaction(db, async (tx)=>{
+        const binSnap = await tx.get(binRef);
+        if(!binSnap.exists()) throw new Error('Bin not found');
+        const current = Number(binSnap.data().currentBushels||0);
+        if(bushels > current) throw new Error('Cannot remove more than current total.');
+        const next = current - bushels;
+
+        // movement
+        const mvRef = collection(db,'binMovements');
+        tx.set(doc(mvRef), {
+          direction:'out', siteId, binId, bushels,
+          moisture: null, crop: binSnap.data().crop||null, cropYear: binSnap.data().cropYear||null,
+          note: note||null, timestamp: serverTimestamp(), submittedBy
+        });
+
+        // tally
+        tx.update(binRef, { currentBushels: next });
+      });
+
+      toast('Removed from inventory');
+      setTimeout(()=>location.href='/Farm-vista/pages/grain-tracking/grain-bins.html', 800);
+    }
+
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      await loadSites();
+      siteSel().addEventListener('change', e=> loadBins(e.target.value));
+      binSel().addEventListener('change', e=> showCurrent(e.target.value));
+      saveBtn().addEventListener('click', save);
+    });
+  </script>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Remove from Inventory</h1>
+      <p class="page-sub muted">Load out of a bin. Select site and bin; we’ll show the current total for safety.</p>
+
+      <div class="card">
+        <div class="card-body grid">
+          <div>
+            <label for="site">Grain Bin Site</label>
+            <select id="site" disabled>
+              <option>Loading sites…</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="bin">Bin</label>
+            <select id="bin" disabled>
+              <option>Select a site first…</option>
+            </select>
+            <div class="hint">Current total: <strong id="currentBushels">—</strong></div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="bushels">Bushels to remove</label>
+              <input id="bushels" type="number" inputmode="decimal" placeholder="e.g. 980"/>
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <div class="hint">Can’t exceed current total.</div>
+            </div>
+          </div>
+
+          <div>
+            <label for="note">Note (optional)</label>
+            <textarea id="note" rows="3" placeholder="Ticket #, destination, hauler, etc."></textarea>
+          </div>
+
+          <div class="actions">
+            <button id="saveBtn" class="btn btn-primary">Mark Picked Up</button>
+            <a class="btn btn-ghost" href="/Farm-vista/pages/grain-tracking/grain-bins.html">Cancel</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </fv-shell>
+
+  <noscript>
+    <div class="container"><div class="card">JavaScript is required.</div></div>
+  </noscript>
+</body>
+</html>
