@@ -28,9 +28,9 @@
     })();
   </script>
 
+  <!-- Page CSS (lean; uses theme tokens only) -->
   <style>
     :root{ --card-max:1100px; --page-bottom-gap:96px; --brand: var(--green, #3B7E46); }
-    body{ background:var(--app-bg,var(--surface)); }
     .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important; }
 
@@ -38,7 +38,7 @@
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
     .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
       padding:14px 16px; border-bottom:1px solid var(--border);
-      background: color-mix(in srgb, var(--brand) 12%, transparent); }
+      background: var(--surface); }
     .hero-head .icon{ width:24px; height:24px; display:grid; place-items:center; color:var(--brand); }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B) }
@@ -50,9 +50,11 @@
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .view-link{ font-weight:800; font-size:12px; text-decoration:underline; cursor:pointer }
 
-    .input,.select,.textarea{ width:100%; font:inherit; font-size:16px; color:var(--text);
+    .input,.select,.textarea{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:10px; padding:12px; outline:none }
+      border-radius:10px; padding:12px; outline:none
+    }
     .textarea{ min-height:110px; resize:vertical }
 
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
@@ -74,29 +76,9 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* QR */
-    .qr-wrap{ display:none; padding:18px; border:1px dashed var(--border); border-radius:12px; background:var(--surface-2,var(--surface)); }
-    .qr-wrap.show{ display:block }
-    .qr-grid{ display:grid; grid-template-columns:256px 1fr; gap:16px; align-items:center }
-    @media (max-width:560px){ .qr-grid{ grid-template-columns:1fr } }
-    .qr-img{ width:256px; height:256px; background:#fff; border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden }
-    .qr-meta code{ font-size:13px; background:rgba(0,0,0,.06); padding:3px 6px; border-radius:6px; color:var(--text) }
-    .qr-banner{ margin-top:8px; font-size:12px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; display:inline-block;
-      background:color-mix(in srgb, var(--brand) 10%, transparent) }
-
-    /* Print */
-    @media print{
-      body{ background:#fff }
-      .hero-head, header.app, footer.app, .actions { display:none !important }
-      .qr-sheet{ display:block !important }
-    }
-    .qr-sheet{ display:none; text-align:center; padding:24px }
-    .qr-big{ width:640px; height:640px; margin:12px auto; border:1px solid var(--border); border-radius:16px; display:grid; place-items:center; background:#fff; }
-    @media (max-width:560px){ .qr-big{ width:82vw; height:82vw } }
-    .qr-note{ font-size:14px; color:var(--text) }
-
-    /* Modal list (compact) */
-    dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw); box-shadow:0 18px 60px rgba(0,0,0,.35) }
+    /* Centered modal (View → edit/archive/delete) */
+    dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw);
+            box-shadow:0 18px 60px rgba(0,0,0,.35); }
     dialog::backdrop{ background:rgba(0,0,0,.35) }
     .modal{ padding:16px; background:var(--surface); border:1px solid var(--border); border-radius:14px; display:grid; gap:12px }
     .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px }
@@ -114,7 +96,7 @@
           <div class="icon" aria-hidden="true">🚜</div>
           <div>
             <h1>Add Tractor</h1>
-            <p class="muted">Pick Make/Model, set year, optionally add photos, then create a QR for the equipment hub.</p>
+            <p class="muted">Pick Make/Model, set year, optionally add photos. (QR will be added later.)</p>
           </div>
         </header>
 
@@ -161,40 +143,13 @@
           <div class="actions">
             <button id="btnClear" class="btn" type="button">Clear</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save</button>
-            <button id="btnQr" class="btn" type="button">Create QR Code</button>
-            <button id="btnPrint" class="btn btn-quiet" type="button" disabled>Print QR</button>
-          </div>
-
-          <!-- QR inline -->
-          <div id="qrWrap" class="qr-wrap" aria-live="polite">
-            <div class="qr-grid">
-              <div class="qr-img"><div id="qrBox" style="width:256px;height:256px"></div></div>
-              <div class="qr-meta">
-                <div><strong>Equipment:</strong> <span id="qrEquipLabel">—</span></div>
-                <div><strong>Deep link:</strong> <code id="qrUrl">—</code></div>
-                <div id="qrBanner" class="qr-banner" hidden>QR created but <strong>not saved</strong> yet. Hit <strong>Save</strong> to activate.</div>
-              </div>
-            </div>
           </div>
         </div>
-      </section>
-
-      <!-- Print-only sheet -->
-      <section id="qrSheet" class="qr-sheet">
-        <h2>Equipment QR</h2>
-        <div class="qr-big"><div id="qrBoxBig" style="width:640px;height:640px"></div></div>
-        <p class="qr-note" id="qrMetaLine"></p>
       </section>
     </div>
   </fv-shell>
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
-
-  <!-- qrcode.js (inlined, ECC M) -->
-  <script>
-  /*! qrcode.js (Kazuhiko Arase) MIT – trimmed for inline use */
-  !function(o){function p(a,b){this._oQRCode=null,this._el=a,this._htOption={width:b.width,height:b.height,text:b.text,correctLevel:b.correctLevel||h.M,colorDark:b.colorDark||"#000000",colorLight:b.colorLight||"#ffffff"};this._android=n();this._el&&this.makeCode(this._htOption.text)}function n(){var a=navigator.userAgent.toLowerCase();return 0<=a.indexOf("android")}function h(){}h.L=1;h.M=0;h.Q=3;h.H=2;var q={};p.prototype.makeCode=function(a){this._htOption.text=a;this._oQRCode=new r(this._htOption.text,this._htOption.correctLevel);this._el.innerHTML="";this._el.appendChild(this.createImgTag())};p.prototype.clear=function(){this._el.innerHTML=""};p.prototype.createImgTag=function(){var a=this._oQRCode,b=this._htOption,c=document.createElement("canvas"),d=b.width,e=b.height;c.width=d;c.height=e;for(var f=c.getContext("2d"),g=d/(a.getModuleCount()+8),k=e/(a.getModuleCount()+8),l=4,m=0;m<e;m++)for(var t=0;t<d;t++)f.fillStyle=b.colorLight,f.fillRect(t,m,1,1);for(m=0;m<a.getModuleCount();m++)for(t=0;t<a.getModuleCount();t++)a.isDark(m,t)&&(f.fillStyle=b.colorDark,f.fillRect(Math.round(t*g)+l,Math.round(m*k)+l,Math.ceil(g),Math.ceil(k)));var u=document.createElement("img");u.src=c.toDataURL("image/png");u.width=d;u.height=e;return u};function r(a,b){this.typeNumber=4;this.errorCorrectLevel=b;this.modules=null;this.moduleCount=0;this.dataList=[];this.dataCache=null;this.addData(a);this.make()}r.prototype.addData=function(a){this.dataList.push(new v(a))};r.prototype.make=function(){this.moduleCount=33;this.modules=new Array(this.moduleCount);for(var a=0;a<this.moduleCount;a++){this.modules[a]=new Array(this.moduleCount);for(var b=0;b<this.moduleCount;b++)this.modules[a][b]=null}w(this,0,0);w(this,this.moduleCount-7,0);w(this,0,this.moduleCount-7);x(this);y(this,!!(1&0));this.mapData(z(this),0)};r.prototype.isDark=function(a,b){return this.modules[a][b]};r.prototype.getModuleCount=function(){return this.moduleCount};r.prototype.mapData=function(a,b){for(var c=-1,d=this.moduleCount-1,e=7,f=0,g=this.moduleCount-1;0<g;g-=2){6==g&&g--;for(;;){for(var k=0;2>k;k++)null==this.modules[d][g-k]&&(f< a.length?(this.modules[d][g-k]=1==(a[f]>>>e&1),e--,-1==e&&(f++,e=7)):this.modules[d][g-k]=!1);if(d+=c,0>d||this.moduleCount<=d){d-=c;c=-c;break}}}};function v(a){this.mode=4;this.data=a}v.prototype.getLength=function(){return this.data.length};v.prototype.write=function(a){for(var b=0;b<this.data.length;b++){var c=this.data.charCodeAt(b);128>c?a.put(c,8):(2048>c?a.put(192|c>>6,8):(a.put(224|c>>12,8),a.put(128|c>>6&63,8)),a.put(128|c&63,8))}};function z(a){var b=new A; b.put(4,4);b.put(a.dataList[0].getLength(),8);a.dataList[0].write(b);for(var c=0,d=b.getLengthInBits()%8;8!=d;)b.put(0,1),d=b.getLengthInBits()%8;for(;b.getLengthInBits()<=8*19;)b.put(236,8),b.getLengthInBits()<=8*19&&b.put(17,8);return B(b,19)}function A(){this.buffer=[];this.length=0}A.prototype.getBuffer=function(){return this.buffer};A.prototype.getLengthInBits=function(){return this.length};A.prototype.put=function(a,b){for(var c=0;c<b;c++)this.putBit(a>>>b- c-1&1)};A.prototype.putBit=function(a){this.buffer[this.length>>3]|=a?128>>>this.length%8:0;this.length++};function B(a,b){for(var c=Array(b),d=0;d<b;d++)c[d]=0;for(d=0;d<a.getLengthInBits();d++)c[d>>3]|=(a.getBuffer()[d>>3]>>>7-d%8&1)<<7-d%8;return c}function w(a,b,c){for(var d=-1;7>=d;d++)if(0<=b+d&&b+d<a.moduleCount)for(var e=-1;7>=e;e++)0<=c+e&&c+e<a.moduleCount&&(a.modules[b+d][c+e]=0<=d&&d<=6&&(0==e||6==e)||0<=e&&e<=6&&(0==d||6==d)||2<=d&&d<=4&&2<=e&&e<=4?!0:!1)}function x(a){for(var b=8;b<a.moduleCount-8;b++)null==a.modules[b][6]&&(a.modules[b][6]=0==b%2),null==a.modules[6][b]&&(a.modules[6][b]=0==b%2)}function y(a){for(var b=0;b< a.moduleCount;b++)for(var c=0;c<a.moduleCount;c++)null==a.modules[b][c]&&(a.modules[b][c]=!1)}o.QRCode=p;o.QRCode.CorrectLevel=h}(window);
-  </script>
 
   <script type="module">
     import {
@@ -212,17 +167,6 @@
       void t.offsetWidth; t.classList.add("show");
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
-    const randTokenHex = (len=24) => {
-      const a=new Uint8Array(len); crypto.getRandomValues(a);
-      return Array.from(a, b => ('0'+b.toString(16)).slice(-2)).join('');
-    };
-    const makeUUID = () => (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+Math.random().toString(36).slice(2)));
-    function buildQrUrl(equipId, token){
-      const base = `${location.protocol}//${location.host}`;
-      return `${base}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(equipId)}&t=${encodeURIComponent(token)}`;
-    }
-
-    /* ---------- Year list ---------- */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -266,7 +210,7 @@
              list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
     }
 
-    /* ---------- Small modal helpers ---------- */
+    /* ---------- Modal helpers (centered) ---------- */
     function openListModal({title, rows}){
       const dlg=document.createElement('dialog');
       dlg.innerHTML=`
@@ -323,23 +267,6 @@
         document.body.appendChild(dlg);
         dlg.addEventListener('close', ()=>{ res(dlg.returnValue==='yes'); dlg.remove(); });
         dlg.showModal();
-      });
-    }
-
-    /* ---------- State for instant-QR ---------- */
-    let pending = { equipId:null, token:null, url:null };
-    let qrSmall, qrBig;
-
-    function drawQrBoxes(url){
-      if(qrSmall){ qrSmall.clear(); }
-      if(qrBig){ qrBig.clear(); }
-      qrSmall = new window.QRCode(document.getElementById("qrBox"), {
-        text: url, width:256, height:256, colorDark:"#000000", colorLight:"#ffffff",
-        correctLevel: window.QRCode.CorrectLevel.M
-      });
-      qrBig = new window.QRCode(document.getElementById("qrBoxBig"), {
-        text: url, width:640, height:640, colorDark:"#000000", colorLight:"#ffffff",
-        correctLevel: window.QRCode.CorrectLevel.M
       });
     }
 
@@ -407,7 +334,7 @@
         }
       });
 
-      // “View” lists
+      // “View” lists (edit/archive/delete)
       $("viewMakes").addEventListener("click", async ()=>{
         const rows = (await getMakes(db)).map(x=>({id:x.id, name:x.name}));
         const dlg = openListModal({ title:"Makes", rows });
@@ -450,36 +377,7 @@
         }, { once:false });
       });
 
-      // Create QR instantly (no write yet)
-      $("btnQr").addEventListener("click", ()=>{
-        if(!pending.equipId){ pending.equipId = makeUUID(); }
-        if(!pending.token){ pending.token = randTokenHex(24); }
-        pending.url = buildQrUrl(pending.equipId, pending.token);
-
-        drawQrBoxes(pending.url);
-
-        const makeName  = $("make").options[$("make").selectedIndex]?.textContent || '';
-        const modelName = $("model").options[$("model").selectedIndex]?.textContent || '';
-        const yr = $("year").value;
-        const label = `${makeName} ${modelName}${yr?` (${yr})`:''}`.trim() || 'Equipment';
-
-        $("qrEquipLabel").textContent = label;
-        $("qrUrl").textContent = pending.url;
-
-        $("qrBanner").hidden = false;
-        $("qrWrap").classList.add("show");
-        $("btnPrint").disabled = false;
-        $("qrWrap").scrollIntoView({ behavior:'smooth', block:'start' });
-        showToast("QR created — not saved yet");
-      });
-
-      $("btnPrint").addEventListener("click", ()=>{
-        $("qrSheet").style.display='block';
-        $("qrMetaLine").textContent = `${$("qrEquipLabel").textContent} — ${pending.url || ''}`;
-        window.print();
-      });
-
-      // Save
+      // Save (no QR fields saved now)
       $("btnSave").addEventListener("click", async ()=>{
         $("err").hidden=true;
 
@@ -487,18 +385,15 @@
         if(!makeId){ alert("Please choose a Make."); return; }
         if(!modelId){ alert("Please choose a Model."); return; }
 
-        const db = getFirestore();
-        const type = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
         const makeName  = $("make").options[$("make").selectedIndex].textContent.trim();
         const modelName = $("model").options[$("model").selectedIndex].textContent.trim();
         const yr = $("year").value ? Number($("year").value) : null;
         const name = `${makeName} ${modelName}${yr?` (${yr})`:''}`;
 
-        if(!pending.equipId){ pending.equipId = makeUUID(); }
-        if(!pending.token){ pending.token = randTokenHex(24); }
-        pending.url = buildQrUrl(pending.equipId, pending.token);
+        const db = getFirestore();
+        const type = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
+        const ref = doc(collection(db,'equipment'));
 
-        const ref = doc(db,'equipment', pending.equipId);
         const base = {
           type, name, makeId, modelId, makeName, modelName,
           year: yr,
@@ -506,10 +401,10 @@
           engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
           notes: $("notes").value.trim() || null,
           status: "active",
-          qr: { token: pending.token, url: pending.url, createdAt: serverTimestamp() },
+          // No QR field while we disable generator
           createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         };
-        await setDoc(ref, base, { merge:true });
+        await setDoc(ref, base);
 
         // optional photos
         const files = Array.from(($("photos").files||[]));
@@ -519,10 +414,10 @@
             const st = m.getStorage(); const out=[];
             for(const f of files){
               const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-              const r = m.ref(st, `equipment/${pending.equipId}/${safe}`);
+              const r = m.ref(st, `equipment/${ref.id}/${safe}`);
               await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
               const url = await m.getDownloadURL(r);
-              out.push({name:f.name, url, path:`equipment/${pending.equipId}/${safe}`});
+              out.push({name:f.name, url, path:`equipment/${ref.id}/${safe}`});
             }
             await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
           }catch(stErr){
@@ -530,14 +425,11 @@
           }
         }
 
-        $("qrBanner").hidden = true;
         showToast("Saved — Ready for next unit");
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
         $("photos").value=""; $("year").selectedIndex=0;
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0; window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
-
-        pending = { equipId:null, token:null, url:null };
       });
 
       $("btnClear").addEventListener("click", ()=>{
@@ -545,9 +437,6 @@
         $("photos").value=""; $("year").selectedIndex=0;
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0;
-        $("qrWrap").classList.remove("show");
-        $("btnPrint").disabled=true;
-        pending = { equipId:null, token:null, url:null };
         window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
       });
 
