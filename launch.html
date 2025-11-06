@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Launch</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS (match your app) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    :root{--ink:#111;--muted:#6b7280;--border:#e5e7eb}
+    body{margin:0;background:var(--page-bg,#f6f7f6);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+    .wrap{min-height:100dvh;display:grid;place-items:center;padding:24px}
+    .card{background:#fff;border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 0 rgba(0,0,0,.04);padding:22px;max-width:560px;width:100%;text-align:center}
+    .title{font-weight:800;margin:0 0 6px 0}
+    .sub{color:var(--muted);font-size:14px;margin-bottom:14px}
+    .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:#3B7E46;border-radius:50%;margin:14px auto;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:999px;border:1px solid var(--border);background:#3B7E46;color:#fff;font-weight:700;text-decoration:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 class="title">Opening FarmVista…</h1>
+      <div class="sub">If the app is installed, we’ll open this inside the home-screen app. Otherwise we’ll use the web version.</div>
+      <div class="spinner" aria-hidden="true"></div>
+      <div id="fallback" style="margin-top:10px;display:none">
+        <a class="btn" id="fallbackBtn" href="#">Open Now</a>
+      </div>
+      <noscript>
+        <div class="sub" style="margin-top:12px">JavaScript is required. Tap the button below.</div>
+        <a class="btn" href="/Farm-vista/index.html">Open FarmVista</a>
+      </noscript>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    // ---- Config -----------------------------------------------------------
+    const APP_SCOPE = '/Farm-vista/'; // must match manifest "scope"
+    const DEFAULT_TARGET = '/Farm-vista/index.html';
+
+    // Allow QR links like: /Farm-vista/launch.html?to=/Farm-vista/pages/dev/grain-bag-put-down-test.html
+    const params = new URLSearchParams(location.search);
+    let target = params.get('to') || DEFAULT_TARGET;
+
+    // Normalize: ensure target is either absolute https URL or an app-scoped path
+    function toAbsoluteWebUrl(pathOrUrl){
+      try{
+        // If already an absolute URL, return as-is
+        const u = new URL(pathOrUrl);
+        return u.href;
+      }catch{
+        // Treat as path; ensure it begins with /Farm-vista/
+        const path = pathOrUrl.startsWith('/') ? pathOrUrl : ('/' + pathOrUrl);
+        return location.origin + path;
+      }
+    }
+
+    // True if running inside installed PWA
+    function isStandalone(){
+      return window.matchMedia && window.matchMedia('(display-mode: standalone)').matches
+             || window.navigator.standalone === true; // iOS legacy flag
+    }
+
+    // If target is off-scope, force web (don’t try to open in PWA)
+    const inScope = target.startsWith(APP_SCOPE) || target.startsWith(location.origin + APP_SCOPE);
+    const webUrl  = toAbsoluteWebUrl(target);
+    const appPath = inScope ? (target.startsWith('/') ? target : '/' + target) : null;
+
+    const fallback = document.getElementById('fallback');
+    const fallbackBtn = document.getElementById('fallbackBtn');
+    fallbackBtn.href = webUrl;
+
+    // Strategy:
+    // - If installed AND in-scope → open inside app via location.replace(appPath)
+    // - Else → open web via full absolute URL
+    function go(){
+      if (isStandalone() && appPath){
+        location.replace(appPath);
+      } else {
+        location.href = webUrl;
+      }
+    }
+
+    // Kick it off quickly; show manual button if navigation is blocked
+    let navigated = false;
+    const timer = setTimeout(()=>{
+      if (!navigated){
+        fallback.style.display = 'block';
+      }
+    }, 1200);
+
+    try {
+      go();
+      // If navigation succeeds, the page unloads; if it doesn’t, we show fallback
+      // Mark navigated true on visibility change to avoid showing the button after success
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') { navigated = true; clearTimeout(timer); }
+      });
+    } catch(e){
+      // Last resort
+      fallback.style.display = 'block';
+    }
+  })();
+  </script>
+</body>
+</html>
