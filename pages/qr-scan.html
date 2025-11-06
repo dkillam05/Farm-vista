@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • QR Scanner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    :root{--muted:#6b7280;--border:#e5e7eb}
+    body{margin:0;background:var(--page-bg,#f6f7f6);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+    .page{max-width:860px;margin:0 auto;padding:clamp(14px,2.5vw,20px)}
+    .hero{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .hero .emoji{font-size:28px}
+    .hero h1{font-size:20px;margin:0}
+    .hero .sub{color:var(--muted);font-size:14px}
+    .card{background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 1px 0 rgba(0,0,0,.04);overflow:hidden}
+    .card h3{margin:0;padding:14px 16px;border-bottom:1px solid var(--border);font-size:16px}
+    .card .body{padding:16px}
+    .scanWrap{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(12px,2.5vw,18px)}
+    @media (max-width:900px){.scanWrap{grid-template-columns:1fr}}
+    .viewport{position:relative;background:#000;border-radius:12px;overflow:hidden;min-height:420px;display:grid;place-items:center}
+    video{width:100%;height:100%;object-fit:cover}
+    canvas{display:none}
+    .reticle{position:absolute;inset:0;pointer-events:none}
+    .reticle::before{
+      content:""; position:absolute; left:50%; top:50%; width:min(70vmin,380px); height:min(70vmin,380px);
+      transform:translate(-50%,-50%);
+      border:3px solid rgba(255,255,255,.9); border-radius:18px; box-shadow:0 0 0 200vmax rgba(0,0,0,.35) inset;
+    }
+    .side{display:grid;gap:10px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .row-1{grid-template-columns:1fr}
+    label{font-size:13px;font-weight:600;margin-bottom:6px;display:block}
+    input[type=text],select,button{
+      border:1px solid var(--border);border-radius:10px;padding:12px;font-size:15px;background:#fff;outline:none
+    }
+    .btn{background:#3B7E46;color:#fff;font-weight:700;cursor:pointer}
+    .btn.secondary{background:#fff;color:#111}
+    .note{font-size:12px;color:var(--muted)}
+    .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#fafafa;border:1px solid var(--border);border-radius:8px;padding:10px;max-height:120px;overflow:auto}
+    .status{font-size:13px;margin-top:8px}
+    .ok{color:#3B7E46}.bad{color:#b91c1c}
+  </style>
+  <!-- QR decode lib (battle-tested) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div class="emoji">📷</div>
+      <div>
+        <h1>QR Scanner</h1>
+        <div class="sub">Scans codes and navigates inside FarmVista. Stays in the home-screen app.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Scanner</h3>
+      <div class="body">
+        <div class="scanWrap">
+          <div class="viewport">
+            <video id="video" playsinline muted></video>
+            <div class="reticle" aria-hidden="true"></div>
+            <canvas id="canvas"></canvas>
+          </div>
+
+          <div class="side">
+            <div class="row row-1">
+              <div>
+                <label for="behavior">On scan</label>
+                <select id="behavior">
+                  <option value="smart" selected>Smart (launch.html if off-scope)</option>
+                  <option value="direct">Direct navigate</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row">
+              <button id="btnStart" class="btn">Start Camera</button>
+              <button id="btnStop" class="btn secondary">Stop</button>
+            </div>
+
+            <div class="status" id="status"></div>
+            <div class="note">Tip: hold ~6–12 inches from code. Good lighting helps.</div>
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const APP_SCOPE = '/Farm-vista/';
+  const LAUNCH = (to) => `${location.origin}${APP_SCOPE}launch.html?to=${encodeURIComponent(to)}`;
+
+  const el = id => document.getElementById(id);
+  const video = el('video'), canvas = el('canvas'), behavior = el('behavior');
+  const btnStart = el('btnStart'), btnStop = el('btnStop');
+  const status = el('status'), log = el('log');
+
+  let stream = null, raf = null;
+
+  function setStatus(msg, ok=true){ status.innerHTML = (ok?'<span class="ok">✓</span> ':'<span class="bad">⚠</span> ') + msg; }
+  function logLine(s){ const t = document.createTextNode(s + '\n'); log.appendChild(t); log.scrollTop = log.scrollHeight; }
+
+  function normalizeUrl(u){
+    try { return new URL(u).href; } catch {
+      // treat as path
+      const path = u.startsWith('/') ? u : '/' + u;
+      return location.origin + path;
+    }
+  }
+
+  function inScope(href){
+    return href.startsWith(location.origin + APP_SCOPE);
+  }
+
+  function handleDecoded(text){
+    try{
+      const abs = normalizeUrl(text.trim());
+      logLine('Decoded: ' + abs);
+
+      if (behavior.value === 'direct') {
+        // Navigate directly (stays in-app if in-scope)
+        if (inScope(abs)) {
+          location.href = abs.replace(location.origin,''); // use app path
+        } else {
+          location.href = abs; // external
+        }
+      } else {
+        // Smart: use launcher if off-scope; otherwise path navigate
+        if (inScope(abs)) {
+          location.href = abs.replace(location.origin,'');
+        } else {
+          location.href = LAUNCH(abs);
+        }
+      }
+    }catch(e){
+      setStatus('Bad URL in QR.', false);
+    }
+  }
+
+  function stop(){
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    if (stream){
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    setStatus('Camera stopped.', true);
+  }
+
+  async function start(){
+    try{
+      stop();
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 }, height: { ideal: 720 }
+        },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      setStatus('Camera running…');
+
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      (function tick(){
+        if (!video.videoWidth){ raf = requestAnimationFrame(tick); return; }
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+        if (code && code.data){
+          setStatus('QR detected. Opening…');
+          stop();
+          handleDecoded(code.data);
+          return;
+        }
+        raf = requestAnimationFrame(tick);
+      })();
+    }catch(err){
+      console.error(err);
+      setStatus('Camera access failed. Check permissions.', false);
+      logLine(err.message || String(err));
+    }
+  }
+
+  btnStart.addEventListener('click', start);
+  btnStop.addEventListener('click', stop);
+
+  // Auto-start if permissions already granted
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.visibilityState === 'visible' && !stream){
+      // no auto-start to avoid surprise; user can tap Start
+    }
+  });
+})();
+</script>
+</body>
+</html>
