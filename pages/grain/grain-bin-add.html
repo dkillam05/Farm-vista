@@ -32,21 +32,14 @@
       width:100%;padding:10px 12px;border:1px solid var(--surface-3,#d6d6d6);
       border-radius:12px;outline:none;background:var(--surface-1,#fff)
     }
-    select{appearance:none;background-image:linear-gradient(45deg, transparent 50%, #777 50%),
-                                    linear-gradient(135deg, #777 50%, transparent 50%),
-                                    linear-gradient(to right, transparent, transparent);
-           background-position:calc(100% - 18px) 50%, calc(100% - 12px) 50%, 100% 0;
-           background-size:6px 6px, 6px 6px, 2.5em 2.5em;background-repeat:no-repeat}
+    /* Rounded corners only; let theme handle the rest */
+    select{appearance:auto}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
     .btn{border:0;border-radius:999px;padding:10px 16px;font-weight:700;cursor:pointer}
-    .btn-primary{background:#3B7E46;color:#fff}
-    .btn-ghost{background:transparent}
-    .muted{opacity:.7}
-    .toast{
-      position:fixed;left:50%;transform:translateX(-50%);bottom:16px;background:#222;color:#fff;
-      padding:10px 14px;border-radius:10px;z-index:9999
-    }
+    .btn-primary{} /* use themed colors */
+    .btn-ghost{}
+    .muted{opacity:.8}
   </style>
 
   <!-- Firebase SDK (modular) -->
@@ -55,9 +48,11 @@
     import { getFirestore, collection, query, where, orderBy, getDocs, doc, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
     import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
 
-    // --- helpers ---
     const $ = s => document.querySelector(s);
-    const toast = (msg) => { const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),1800); };
+    const notify = (msg)=>{
+      if(window.FV && typeof window.FV.toast === 'function'){ window.FV.toast(msg); }
+      else { alert(msg); }
+    };
 
     // Init
     const app = initializeApp(window.firebaseConfig);
@@ -98,14 +93,14 @@
     async function save(){
       const siteId = siteSel().value;
       const binId  = binSel().value;
-      const crop   = cropSel().value.trim();
+      const crop   = (cropSel().value||'').trim();
       const cropYear = yearInp().value ? parseInt(yearInp().value,10) : null;
       const bushels  = parseFloat(buInp().value);
       const moisture = moistInp().value ? parseFloat(moistInp().value) : null;
-      const note = noteInp().value.trim();
+      const note = (noteInp().value||'').trim();
 
       if(!siteId || !binId || !bushels || isNaN(bushels)){
-        toast('Please complete Site, Bin, and Bushels.'); return;
+        notify('Please complete Site, Bin, and Bushels.'); return;
       }
 
       const user = auth.currentUser;
@@ -122,11 +117,13 @@
         });
 
         // tally
-        tx.update(binRef, { currentBushels: ( (await tx.get(binRef)).data()?.currentBushels || 0 ) + bushels });
+        const snap = await tx.get(binRef);
+        const curr = Number(snap.data()?.currentBushels||0);
+        tx.update(binRef, { currentBushels: curr + bushels });
       });
 
-      toast('Added to inventory');
-      setTimeout(()=>location.href='/Farm-vista/pages/grain/grain-bins.html', 800);
+      notify('Added to inventory');
+      setTimeout(()=>location.href='/Farm-vista/pages/grain/grain-bins.html', 600);
     }
 
     document.addEventListener('DOMContentLoaded', async ()=>{
