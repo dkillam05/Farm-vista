@@ -26,55 +26,37 @@
     }
     body{background:var(--page-bg, #f6f7f6);}
     .page{max-width:980px;margin:0 auto;padding:var(--pv);}
-
-    .hero{
-      display:flex;align-items:center;gap:14px;margin-bottom:18px;
-    }
+    .hero{display:flex;align-items:center;gap:14px;margin-bottom:18px}
     .hero .emoji{font-size:28px}
     .hero .title{font-size:20px;font-weight:700;line-height:1.2}
     .hero .sub{color:var(--muted);font-size:14px}
-
     .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(14px,2.5vw,22px)}
     @media (max-width:900px){ .grid{grid-template-columns:1fr} }
-
-    .card{
-      background:var(--card);border:1px solid var(--border);border-radius:12px;
-      box-shadow:0 1px 0 rgba(0,0,0,.04);overflow:hidden;
-    }
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 0 rgba(0,0,0,.04);overflow:hidden}
     .card h3{margin:0;padding:14px 16px;border-bottom:1px solid var(--border);font-size:16px}
     .card .body{padding:16px}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .row + .row{margin-top:12px}
-    .row-1{grid-template-columns:1fr;}
-
+    .row-1{grid-template-columns:1fr}
     label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
     input[type=text], select, input[type=number]{
       width:100%;border:1px solid var(--border);border-radius:10px;background:#fff;
       padding:12px 12px;font-size:15px;outline:none;
     }
     .help{font-size:12px;color:var(--muted);margin-top:6px}
-
-    .btn{
-      display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
       padding:12px 14px;border-radius:999px;border:1px solid var(--border);
-      background:#3B7E46;color:#fff;font-weight:700;cursor:pointer;text-decoration:none;
-    }
+      background:#3B7E46;color:#fff;font-weight:700;cursor:pointer;text-decoration:none}
     .btn.secondary{background:#fff;color:#111}
     .btnbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-
     .previewWrap{display:flex;align-items:center;justify-content:center;min-height:420px;background:#fff;border:1px dashed var(--border);border-radius:12px}
     #qrTarget{display:flex;align-items:center;justify-content:center}
     #qrTarget canvas, #qrTarget img{max-width:100%;height:auto}
-
     .note{font-size:12px;color:var(--muted);margin-top:10px}
     .ok{color:#3B7E46}
     .bad{color:#b91c1c}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
   </style>
-
-  <!-- QRCode generator (well-known tiny lib) -->
-  <!-- We’ll vendor this locally later; using a reliable CDN for dev speed. -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" defer></script>
 </head>
 <body>
   <div class="page">
@@ -96,7 +78,7 @@
               <label for="qrUrl">Destination URL</label>
               <input id="qrUrl" type="text" spellcheck="false" class="mono"
                 value="https://dkillam05.github.io/Farm-vista/pages/dev/grain-bag-put-down-test.html"/>
-              <div class="help">Use a full <span class="mono">https://</span> URL for the best iPhone camera scan behavior.</div>
+              <div class="help">Use a full <span class="mono">https://</span> URL for best iPhone camera behavior.</div>
             </div>
           </div>
 
@@ -168,186 +150,213 @@
     </div>
   </div>
 
-<script>
-(function(){
-  // Safe DOM refs
-  const el = id => document.getElementById(id);
-  const qrUrl      = el('qrUrl');
-  const qrLabel    = el('qrLabel');
-  const qrSize     = el('qrSize');
-  const qrEcc      = el('qrEcc');
-  const qrMargin   = el('qrMargin');
-  const btnMake    = el('btnMake');
-  const btnDownload= el('btnDownload');
-  const btnPrint   = el('btnPrint');
-  const status     = el('status');
-  const qrTarget   = el('qrTarget');
-  const qrCaption  = el('qrCaption');
+  <!-- Load the QR library AFTER the DOM, WITHOUT defer, then run our app. -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
-  let currentCanvas = null;   // canvas we export (with baked margin)
-  let lastPadded    = null;   // padded canvas (quiet-zone baked in)
-  let lastLabel     = '';
-
-  // ECC map
-  const ECC = {
-    'L': QRCode.CorrectLevel.L,
-    'M': QRCode.CorrectLevel.M,
-    'Q': QRCode.CorrectLevel.Q,
-    'H': QRCode.CorrectLevel.H
-  };
-
-  function validUrl(u){
-    try{
-      const x = new URL(u);
-      return (x.protocol === 'https:' || x.protocol === 'http:');
-    }catch(e){ return false; }
-  }
-
-  function clearPreview(){
-    qrTarget.innerHTML = '';
-    qrCaption.textContent = '';
-    currentCanvas = null;
-    lastPadded = null;
-    btnDownload.disabled = true;
-    btnPrint.disabled = true;
-  }
-
-  function setStatus(msg, ok=true){
-    status.innerHTML = (ok ? '<span class="ok">✓</span> ' : '<span class="bad">⚠</span> ') + msg;
-  }
-
-  // Bake quiet-zone by redrawing onto a larger canvas with white background
-  function padCanvasWithMargin(srcCanvas, modulesMargin){
-    const s = parseInt(qrSize.value, 10);
-    // Estimate module size by dividing canvas dimension by version modules; QRCode.js
-    // fills canvas exactly with code area (no margin). We don't have version here,
-    // but padding in pixels is fine:  (margin modules) * (s / 41)   (41 ~= max modules for version 10+)
-    // To be safer, compute 1/40 of size as a module approximation:
-    const modulePx = s / 40;
-    const pxMargin = Math.max(1, Math.round(modulesMargin * modulePx));
-
-    const padded = document.createElement('canvas');
-    padded.width  = srcCanvas.width  + pxMargin*2;
-    padded.height = srcCanvas.height + pxMargin*2;
-
-    const ctx = padded.getContext('2d');
-    // White bg for strong contrast
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0,0,padded.width,padded.height);
-    ctx.drawImage(srcCanvas, pxMargin, pxMargin);
-
-    return padded;
-  }
-
-  function makeQR(){
-    clearPreview();
-    const url = qrUrl.value.trim();
-    if(!validUrl(url)){
-      setStatus('Enter a full https:// URL (required for reliable camera behavior).', false);
-      return;
+  <script>
+  (function(){
+    // Robustly wait for the QR library to exist
+    function whenQRCodeReady(cb){
+      let tries = 0;
+      (function tick(){
+        if (window.__qrReady && window.QRCode && window.QRCode.CorrectLevel){
+          cb();
+        } else if (tries++ < 200){ // ~10s max
+          setTimeout(tick, 50);
+        } else {
+          // Surface a clear error in the UI
+          const s = document.getElementById('status');
+          s.innerHTML = '<span class="bad">⚠</span> QR library failed to load. If you are offline or the CDN is blocked, ping me and I will inline the library.';
+        }
+      })();
     }
 
-    const size = parseInt(qrSize.value, 10) || 512;
-    const ecc  = ECC[qrEcc.value] ?? QRCode.CorrectLevel.H;
-    const marginModules = parseInt(qrMargin.value, 10) || 4;
+    function app(){
+      const el = id => document.getElementById(id);
+      const qrUrl      = el('qrUrl');
+      const qrLabel    = el('qrLabel');
+      const qrSize     = el('qrSize');
+      const qrEcc      = el('qrEcc');
+      const qrMargin   = el('qrMargin');
+      const btnMake    = el('btnMake');
+      const btnDownload= el('btnDownload');
+      const btnPrint   = el('btnPrint');
+      const status     = el('status');
+      const qrTarget   = el('qrTarget');
+      const qrCaption  = el('qrCaption');
 
-    // Build bare QR (no CSS padding — we will bake margin into image)
-    const holder = document.createElement('div');
-    qrTarget.appendChild(holder);
+      let currentCanvas = null;
+      let lastPadded = null;
+      let lastLabel  = '';
 
-    const qr = new QRCode(holder, {
-      text: url,
-      width: size,
-      height: size,
-      colorDark: "#000000",
-      colorLight: "#ffffff",
-      correctLevel: ecc
-    });
+      const ECC = {
+        'L': QRCode.CorrectLevel.L,
+        'M': QRCode.CorrectLevel.M,
+        'Q': QRCode.CorrectLevel.Q,
+        'H': QRCode.CorrectLevel.H
+      };
 
-    // Grab the canvas the lib creates (or image fallback)
-    let rawCanvas = holder.querySelector('canvas');
-    if(!rawCanvas){
-      // Some implementations create <img>. Convert it onto a canvas.
-      const img = holder.querySelector('img');
-      rawCanvas = document.createElement('canvas');
-      rawCanvas.width = size; rawCanvas.height = size;
-      const ctx = rawCanvas.getContext('2d');
-      const tmp = new Image(); tmp.crossOrigin = 'anonymous';
-      tmp.onload = () => { ctx.drawImage(tmp,0,0,size,size); };
-      tmp.src = img.src;
+      function validUrl(u){
+        try{
+          const x = new URL(u);
+          return (x.protocol === 'https:' || x.protocol === 'http:');
+        }catch(e){ return false; }
+      }
+
+      function clearPreview(){
+        qrTarget.innerHTML = '';
+        qrCaption.textContent = '';
+        currentCanvas = null;
+        lastPadded = null;
+        btnDownload.disabled = true;
+        btnPrint.disabled = true;
+      }
+
+      function setStatus(msg, ok=true){
+        status.innerHTML = (ok ? '<span class="ok">✓</span> ' : '<span class="bad">⚠</span> ') + msg;
+      }
+
+      // Wait until qrcodejs actually renders its <canvas> (it’s async)
+      function waitForQRCodeCanvas(holder, timeoutMs=3000){
+        return new Promise((resolve, reject)=>{
+          const start = Date.now();
+          const check = () => {
+            const c = holder.querySelector('canvas') || holder.querySelector('img');
+            if (c) return resolve(c);
+            if (Date.now() - start > timeoutMs) return reject(new Error('QR render timeout'));
+            requestAnimationFrame(check);
+          };
+          check();
+        });
+      }
+
+      function padCanvasWithMargin(srcCanvas, modulesMargin){
+        const s = parseInt(qrSize.value, 10);
+        const modulePx = s / 40; // approximation works fine for padding
+        const pxMargin = Math.max(1, Math.round(modulesMargin * modulePx));
+
+        const padded = document.createElement('canvas');
+        padded.width  = srcCanvas.width  + pxMargin*2;
+        padded.height = srcCanvas.height + pxMargin*2;
+
+        const ctx = padded.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,padded.width,padded.height);
+        ctx.drawImage(srcCanvas, pxMargin, pxMargin);
+        return padded;
+      }
+
+      async function makeQR(){
+        clearPreview();
+        const url = qrUrl.value.trim();
+        if(!validUrl(url)){
+          setStatus('Enter a full https:// URL (required for reliable camera behavior).', false);
+          return;
+        }
+
+        const size = parseInt(qrSize.value, 10) || 512;
+        const ecc  = ECC[qrEcc.value] ?? QRCode.CorrectLevel.H;
+        const marginModules = parseInt(qrMargin.value, 10) || 4;
+
+        const holder = document.createElement('div');
+        qrTarget.appendChild(holder);
+
+        // Build bare QR (library draws asynchronously)
+        new QRCode(holder, {
+          text: url, width: size, height: size,
+          colorDark: "#000000", colorLight: "#ffffff", correctLevel: ecc
+        });
+
+        try{
+          const node = await waitForQRCodeCanvas(holder, 4000); // wait up to 4s
+          let rawCanvas;
+
+          if (node.tagName === 'CANVAS'){
+            rawCanvas = node;
+          } else {
+            // Fallback <img> → paint onto canvas
+            rawCanvas = document.createElement('canvas');
+            rawCanvas.width = size; rawCanvas.height = size;
+            const ctx = rawCanvas.getContext('2d');
+            await new Promise((res, rej)=>{
+              const tmp = new Image(); tmp.crossOrigin = 'anonymous';
+              tmp.onload = ()=>{ ctx.drawImage(tmp,0,0,size,size); res(); };
+              tmp.onerror = rej;
+              tmp.src = node.src;
+            });
+          }
+
+          const padded = padCanvasWithMargin(rawCanvas, marginModules);
+          lastPadded = padded;
+          currentCanvas = padded;
+
+          const previewImg = new Image();
+          previewImg.alt = 'QR code preview';
+          previewImg.src = padded.toDataURL('image/png');
+          qrTarget.innerHTML = '';
+          qrTarget.appendChild(previewImg);
+
+          lastLabel = qrLabel.value.trim();
+          qrCaption.textContent = lastLabel || '';
+
+          btnDownload.disabled = false;
+          btnPrint.disabled = false;
+          setStatus('QR generated. Try your iPhone camera — it should offer to open the link.');
+        }catch(err){
+          setStatus('Failed to render QR. Refresh and try again.', false);
+          console.error(err);
+        }
+      }
+
+      function downloadPNG(){
+        if(!currentCanvas) return;
+        const a = document.createElement('a');
+        const url = new URL(qrUrl.value.trim());
+        const slugBase = (lastLabel || url.hostname).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+        a.download = `${slugBase || 'qr'}.png`;
+        a.href = currentCanvas.toDataURL('image/png');
+        document.body.appendChild(a);
+        a.click();
+        requestAnimationFrame(()=>a.remove());
+      }
+
+      function printQR(){
+        if(!currentCanvas) return;
+        const data = currentCanvas.toDataURL('image/png');
+        const label = lastLabel || '';
+        const w = window.open('', '_blank', 'width=900,height=900');
+        w.document.write(`
+          <!doctype html><html><head><meta charset="utf-8">
+          <title>Print QR</title>
+          <style>
+            body{margin:0;padding:24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;display:flex;align-items:center;justify-content:center}
+            .wrap{text-align:center}
+            img{max-width:90vw;max-height:75vh;display:block;margin:0 auto}
+            h1{font-size:18px;margin:14px 0 0 0}
+            .muted{color:#555;font-size:12px;margin-top:6px}
+          </style></head><body>
+            <div class="wrap">
+              <img src="${data}" alt="QR code">
+              ${label ? `<h1>${label.replace(/</g,'&lt;')}</h1>` : ``}
+              <div class="muted">${new Date().toLocaleString()}</div>
+            </div>
+            <script>window.onload = () => setTimeout(()=>window.print(), 150);</script>
+          </body></html>
+        `);
+        w.document.close();
+      }
+
+      document.getElementById('btnMake').addEventListener('click', makeQR);
+      document.getElementById('btnDownload').addEventListener('click', downloadPNG);
+      document.getElementById('btnPrint').addEventListener('click', printQR);
+
+      // Generate once on load for a fast sanity check
+      makeQR();
     }
 
-    // Bake quiet-zone into export canvas
-    // NOTE: this uses a cautious module size approximation (see function).
-    const padded = padCanvasWithMargin(rawCanvas, marginModules);
-    lastPadded = padded;
-    currentCanvas = padded;
-
-    // Replace visual with a crisp <img> sourced from the padded canvas (so preview matches export)
-    const previewImg = new Image();
-    previewImg.alt = 'QR code preview';
-    previewImg.src = padded.toDataURL('image/png');
-    qrTarget.innerHTML = '';
-    qrTarget.appendChild(previewImg);
-
-    // Optional caption/label for printing
-    lastLabel = qrLabel.value.trim();
-    qrCaption.textContent = lastLabel || '';
-
-    btnDownload.disabled = false;
-    btnPrint.disabled = false;
-    setStatus('QR generated. Try your iPhone camera — it should offer to open the link.');
-  }
-
-  function downloadPNG(){
-    if(!currentCanvas) return;
-    const a = document.createElement('a');
-    // Slug from label or hostname
-    const url = new URL(qrUrl.value.trim());
-    const slugBase = (lastLabel || url.hostname).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-    a.download = `${slugBase || 'qr'}.png`;
-    a.href = currentCanvas.toDataURL('image/png');
-    document.body.appendChild(a);
-    a.click();
-    requestAnimationFrame(()=>a.remove());
-  }
-
-  function printQR(){
-    if(!currentCanvas) return;
-    const data = currentCanvas.toDataURL('image/png');
-    const label = lastLabel || '';
-    const w = window.open('', '_blank', 'width=900,height=900');
-    w.document.write(`
-      <!doctype html><html><head><meta charset="utf-8">
-      <title>Print QR</title>
-      <style>
-        body{margin:0;padding:24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;display:flex;align-items:center;justify-content:center}
-        .wrap{text-align:center}
-        img{max-width:90vw;max-height:75vh;display:block;margin:0 auto}
-        h1{font-size:18px;margin:14px 0 0 0}
-        .muted{color:#555;font-size:12px;margin-top:6px}
-      </style></head><body>
-        <div class="wrap">
-          <img src="${data}" alt="QR code">
-          ${label ? `<h1>${label.replace(/</g,'&lt;')}</h1>` : ``}
-          <div class="muted">${new Date().toLocaleString()}</div>
-        </div>
-        <script>window.onload = () => setTimeout(()=>window.print(), 150);</script>
-      </body></html>
-    `);
-    w.document.close();
-  }
-
-  btnMake.addEventListener('click', makeQR);
-  btnDownload.addEventListener('click', downloadPNG);
-  btnPrint.addEventListener('click', printQR);
-
-  // Autogenerate once on load for speed
-  window.addEventListener('load', () => {
-    // Pre-fill with working test URL; generate immediately
-    makeQR();
-  });
-})();
-</script>
+    // Boot once the library is present
+    whenQRCodeReady(app);
+  })();
+  </script>
 </body>
 </html>
