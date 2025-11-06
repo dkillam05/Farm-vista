@@ -1,8 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-d (PWA footer tweak + safe camera)
-   - Footer thinner only in PWA (standalone) while keeping web unchanged.
-   - Floating camera always inside safe area and we reserve layout space so it never overlaps tiles.
-   - Camera hidden on desktop; shows on phones.
+   FarmVista Shell — v5.10.19-e (PWA footer ultra-slim + safe camera)
+   - Web: footer unchanged.
+   - PWA (standalone): green footer strip looks ~3px tall while preserving the safe-area padding.
+   - Floating camera sits above footer inside safe area; layout reserves space so it never overlaps content.
+   - Camera hidden on desktop; visible on phones.
 */
 (function () {
   // ====== TUNABLES ======
@@ -14,18 +15,29 @@
   <style>
     :host{
       --green:#3B7E46; --gold:#D0C542;
-      --hdr-h:56px;       /* header height */
-      --ftr-h:14px;       /* base footer height (web) */
-      --qr-size:48px;     /* floating camera size */
-      --qr-gap:14px;      /* gap above footer/safe-area */
+      --hdr-h:56px;           /* header height */
+      --ftr-h:14px;           /* base footer height (web) — green strip only */
+      --qr-size:48px;         /* camera button size */
+      --qr-gap:14px;          /* gap above footer/safe-area */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
       --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
       display:block; color:var(--text); background:#fff; min-height:100vh; position:relative;
     }
 
-    /* PWA-only: make footer thinner so total (footer + safe area) looks right */
+    /* =======================
+       PWA-only visual tweaks
+       ======================= */
     @supports (display-mode: standalone) {
-      :host{ --ftr-h:2px; } /* adjust as needed; safe-area is added below */
+      /* Make the visible green strip ultra thin while keeping iOS safe area */
+      :host{ --ftr-h:3px; }                /* green band thickness in PWA */
+
+      .ftr{
+        /* total footer height = thin green + safe-area */
+        height: calc(var(--ftr-h) + env(safe-area-inset-bottom, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        border-top-width: 1px;             /* lighter divider in PWA */
+      }
+      .ftr .text{ font-size:12px; }        /* slightly smaller footer text in PWA */
     }
 
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
@@ -55,13 +67,13 @@
     .ptr .txt{ font-weight:800; }
 
     .ftr{ position:fixed; inset:auto 0 0 0;
-      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
+      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px)); /* web uses 14px + 0, PWA uses 3px + safe-area */
       padding-bottom:env(safe-area-inset-bottom,0px);
       background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    /* Floating camera — ALWAYS sits in safe area, never overlaps content because we reserve space below */
+    /* Floating camera — inside safe area and never overlaps content */
     .qr-float{
       position:fixed;
       right:12px;
@@ -342,7 +354,6 @@
     async _authAndMenuGate(){
       const deadline = Date.now() + AUTH_MAX_MS;
 
-      // Wait for Firebase auth + user-context
       while (Date.now() < deadline) {
         if (await this._isAuthed() && this._hasUserCtx()) break;
         await this._sleep(120);
@@ -352,11 +363,9 @@
         return Promise.reject('auth-timeout');
       }
 
-      // Track current UID and role hash for later swap detection
       const { uid, roleHash } = this._currentUIDAndRoleHash();
       this._lastUID = uid; this._lastRoleHash = roleHash;
 
-      // Paint the menu (filtered) and confirm we have links
       await this._initMenuFiltered();
 
       const menuDeadline = Date.now() + MENU_MAX_MS;
@@ -369,7 +378,6 @@
         return Promise.reject('menu-timeout');
       }
 
-      // Once we know who the user is, update logout label immediately
       this._setLogoutLabelNow();
     }
 
@@ -458,23 +466,18 @@
         const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
         if (!changed) return;
 
-        // Reset boot flag and show overlay/skeleton
         sessionStorage.removeItem('fv:boot:hydrated');
         if (this._boot) this._boot.hidden = false;
 
-        // Clear menu state + blank drawer immediately (skeleton)
         this._clearMenuStateFor(this._lastUID, this._lastRoleHash);
         this._paintSkeleton();
 
-        // Update trackers
         this._lastUID = uid;
         this._lastRoleHash = roleHash;
         this._menuPainted = false;
 
-        // Repaint with new permissions
         await this._initMenuFiltered();
 
-        // If no links yet, wait briefly (MENU_MAX_MS) and then sanity-kick if still empty
         const menuDeadline = Date.now() + MENU_MAX_MS;
         while (Date.now() < menuDeadline) {
           if (this._hasMenuLinks()) break;
@@ -500,7 +503,7 @@
     _paintSkeleton(){
       if (!this._navEl) return;
       this._navEl.innerHTML = `<div class="skeleton">Loading menu…</div>`;
-      this._collapseAllNavGroups(); // ensure any previously-open groups are shut
+      this._collapseAllNavGroups();
     }
 
     _clearMenuStateFor(uid, roleHash){
@@ -526,7 +529,6 @@
     }
 
     _hashIDs(arr){
-      // stable small hash (djb2)
       const s = (arr||[]).slice().sort().join('|');
       let h = 5381;
       for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
@@ -538,7 +540,6 @@
       return `fv:nav:groups:${uid}:${roleHash||'no-role'}`;
     }
 
-    // ====== Menu load/render (role-scoped state) ======
     async _loadMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
       try{
@@ -594,13 +595,7 @@
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      // First paint: if we have no allowedIds yet, keep skeleton (avoid wrong menu).
-      if (!this._menuPainted && allowedIds.length === 0) {
-        this._paintSkeleton();
-        return;
-      }
-
-      // If menu already painted and ctx temporarily lacks allowedIds, don't clobber.
+      if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
       if (this._menuPainted && allowedIds.length === 0) return;
 
       const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
@@ -770,7 +765,6 @@
       if (on && !this._scrollLocked){
         this._scrollY = window.scrollY || html.scrollTop || 0;
         if (iosStandalone){
-          // Strongest lock for iOS PWA
           this._applyBodyFixedStyles();
           html.style.overflow = 'hidden';
           html.style.height = '100%';
@@ -779,14 +773,12 @@
             this._scrim.addEventListener('wheel', this._scrimTouchBlocker, { passive:false });
           }
         } else {
-          // Normal browsers usually fine with overflow hidden on html
           html.style.overflow = 'hidden';
         }
         this.classList.add('ui-locked');
         this._scrollLocked = true;
-        this._ptrDisabled = true; // disable PTR while menus are open
+        this._ptrDisabled = true;
       } else if (!on && this._scrollLocked){
-        // Restore
         document.body.style.position = '';
         document.body.style.top = '';
         document.body.style.left = '';
@@ -802,7 +794,6 @@
         window.scrollTo(0, this._scrollY || 0);
         this.classList.remove('ui-locked');
         this._scrollLocked = false;
-        // small delay before re-enabling PTR to avoid bounce re-trigger
         setTimeout(()=> { this._ptrDisabled = false; }, 150);
       }
     }
@@ -837,17 +828,17 @@
       this._syncThemeChips(mode);
     }
 
-    /* ====== PULL-TO-REFRESH (robust; iOS standalone safe) ====== */
+    /* ====== PULL-TO-REFRESH ====== */
     _initPTR(){
       const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
       const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
       const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      const THRESHOLD = 72;     // px pull distance
-      const MAX_ANGLE = 18;     // degrees allowed away from vertical
-      const COOLDOWN  = 600;    // ms between triggers
-      const TOP_TOL   = 2;      // px tolerance for scrollY
+      const THRESHOLD = 72;
+      const MAX_ANGLE = 18;
+      const COOLDOWN  = 600;
+      const TOP_TOL   = 2;
 
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
@@ -886,7 +877,7 @@
           deltaY = dy;
           if (!pulling) { pulling = true; showBar(); }
           txt.textContent = (deltaY >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
-          prevent(); // stop rubber-band
+          prevent();
         } else {
           armed=false; pulling=false; hideBar();
         }
@@ -915,7 +906,6 @@
         }
       };
 
-      // Touch events (best reliability on iOS PWA)
       window.addEventListener('touchstart', (e)=>{
         if (!e.touches || e.touches.length !== 1) return;
         const t = e.touches[0];
@@ -931,17 +921,8 @@
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
 
-      // Pointer fallback (non-iOS browsers)
-      window.addEventListener('pointerdown', (e)=>{
-        if (e.pointerType === 'mouse') return;
-        onStart(e.clientX, e.clientY);
-      }, { passive:true });
-
-      window.addEventListener('pointermove', (e)=>{
-        if (e.pointerType === 'mouse') return;
-        onMoveInternal(e.clientX, e.clientY, ()=> e.preventDefault());
-      }, { passive:false });
-
+      window.addEventListener('pointerdown', (e)=>{ if (e.pointerType !== 'mouse') onStart(e.clientX, e.clientY); }, { passive:true });
+      window.addEventListener('pointermove', (e)=>{ if (e.pointerType !== 'mouse') onMoveInternal(e.clientX, e.clientY, ()=> e.preventDefault()); }, { passive:false });
       window.addEventListener('pointerup', onEnd, { passive:true });
       window.addEventListener('pointercancel', onEnd, { passive:true });
 
