@@ -50,53 +50,55 @@
     .status{font-size:13px;margin-top:8px}
     .ok{color:#3B7E46}.bad{color:#b91c1c}
   </style>
-  <!-- QR decode lib (battle-tested) -->
+  <!-- QR decode lib -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 </head>
 <body>
-  <div class="page">
-    <div class="hero">
-      <div class="emoji">📷</div>
-      <div>
-        <h1>QR Scanner</h1>
-        <div class="sub">Scans codes and navigates inside FarmVista. Stays in the home-screen app.</div>
+  <fv-shell>
+    <div class="page">
+      <div class="hero">
+        <div class="emoji">📷</div>
+        <div>
+          <h1>QR Scanner</h1>
+          <div class="sub">Scans codes and navigates inside FarmVista. Stays in the home-screen app.</div>
+        </div>
       </div>
-    </div>
 
-    <div class="card">
-      <h3>Scanner</h3>
-      <div class="body">
-        <div class="scanWrap">
-          <div class="viewport">
-            <video id="video" playsinline muted></video>
-            <div class="reticle" aria-hidden="true"></div>
-            <canvas id="canvas"></canvas>
-          </div>
+      <div class="card">
+        <h3>Scanner</h3>
+        <div class="body">
+          <div class="scanWrap">
+            <div class="viewport">
+              <video id="video" playsinline muted></video>
+              <div class="reticle" aria-hidden="true"></div>
+              <canvas id="canvas"></canvas>
+            </div>
 
-          <div class="side">
-            <div class="row row-1">
-              <div>
-                <label for="behavior">On scan</label>
-                <select id="behavior">
-                  <option value="smart" selected>Smart (launch.html if off-scope)</option>
-                  <option value="direct">Direct navigate</option>
-                </select>
+            <div class="side">
+              <div class="row row-1">
+                <div>
+                  <label for="behavior">On scan</label>
+                  <select id="behavior">
+                    <option value="smart" selected>Smart (launch.html if off-scope)</option>
+                    <option value="direct">Direct navigate</option>
+                  </select>
+                </div>
               </div>
-            </div>
 
-            <div class="row">
-              <button id="btnStart" class="btn">Start Camera</button>
-              <button id="btnStop" class="btn secondary">Stop</button>
-            </div>
+              <div class="row">
+                <button id="btnStart" class="btn">Start Camera</button>
+                <button id="btnStop" class="btn secondary">Stop</button>
+              </div>
 
-            <div class="status" id="status"></div>
-            <div class="note">Tip: hold ~6–12 inches from code. Good lighting helps.</div>
-            <div class="log" id="log"></div>
+              <div class="status" id="status"></div>
+              <div class="note">Tip: hold ~6–12 inches from code. Good lighting helps.</div>
+              <div class="log" id="log"></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
+  </fv-shell>
 
 <script>
 (function(){
@@ -111,19 +113,16 @@
   let stream = null, raf = null;
 
   function setStatus(msg, ok=true){ status.innerHTML = (ok?'<span class="ok">✓</span> ':'<span class="bad">⚠</span> ') + msg; }
-  function logLine(s){ const t = document.createTextNode(s + '\n'); log.appendChild(t); log.scrollTop = log.scrollHeight; }
+  function logLine(s){ const t = document.createTextNode(s + '\\n'); log.appendChild(t); log.scrollTop = log.scrollHeight; }
 
   function normalizeUrl(u){
     try { return new URL(u).href; } catch {
-      // treat as path
       const path = u.startsWith('/') ? u : '/' + u;
       return location.origin + path;
     }
   }
 
-  function inScope(href){
-    return href.startsWith(location.origin + APP_SCOPE);
-  }
+  function inScope(href){ return href.startsWith(location.origin + APP_SCOPE); }
 
   function handleDecoded(text){
     try{
@@ -131,19 +130,11 @@
       logLine('Decoded: ' + abs);
 
       if (behavior.value === 'direct') {
-        // Navigate directly (stays in-app if in-scope)
-        if (inScope(abs)) {
-          location.href = abs.replace(location.origin,''); // use app path
-        } else {
-          location.href = abs; // external
-        }
+        if (inScope(abs)) location.href = abs.replace(location.origin,'');
+        else location.href = abs;
       } else {
-        // Smart: use launcher if off-scope; otherwise path navigate
-        if (inScope(abs)) {
-          location.href = abs.replace(location.origin,'');
-        } else {
-          location.href = LAUNCH(abs);
-        }
+        if (inScope(abs)) location.href = abs.replace(location.origin,'');
+        else location.href = LAUNCH(abs);
       }
     }catch(e){
       setStatus('Bad URL in QR.', false);
@@ -164,10 +155,7 @@
     try{
       stop();
       stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1280 }, height: { ideal: 720 }
-        },
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       });
       video.srcObject = stream;
@@ -199,13 +187,6 @@
 
   btnStart.addEventListener('click', start);
   btnStop.addEventListener('click', stop);
-
-  // Auto-start if permissions already granted
-  document.addEventListener('visibilitychange', ()=>{
-    if (document.visibilityState === 'visible' && !stream){
-      // no auto-start to avoid surprise; user can tap Start
-    }
-  });
 })();
 </script>
 </body>
