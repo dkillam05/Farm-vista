@@ -245,7 +245,9 @@
 
     /* ---------- utils ---------- */
     const $ = id => document.getElementById(id);
-    const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, m => (
+      {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]
+    ));
     const toast = (msg="Bag Entry Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); };
     const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
 
@@ -410,7 +412,7 @@
       if(files.length){
         try{
           const m=await import('/Farm-vista/js/firebase-init.js');
-          const st=m.getStorage(); const stRef=m.ref; const upload=m.uploadBytes; const url=m.getDownloadURL;
+        const st=m.getStorage(); const stRef=m.ref; const upload=m.uploadBytes; const url=m.getDownloadURL;
           const uploaded=[];
           for(const f of files){
             const safe=(Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
@@ -432,9 +434,18 @@
         }catch(err){ console.warn("Inventory decrement failed:", err); }
       }
 
+      // ✅ Success UX: toast -> scroll top -> hide form -> reset fields
       toast("Bag Entry Saved.");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      closeAllCombos();
+      $("bagForm").hidden = true;
 
-      // Reset (keep field/year)
+      // Reset (keep YEAR; RESET FIELD for next entry)
+      chosen.field = null;
+      $("fieldBtn").textContent = "— Select field —";
+
+      // Keep chosen.year as-is (defaults to current year on load)
+      // Reset form internals
       chosen.bag=null; $("bagBtn").textContent="— Select —";
       chosen.crop=null; $("cropBtn").textContent="— Select —";
       $("cropMoisture").value="";
@@ -443,6 +454,9 @@
       $("partialsList").innerHTML=""; $("partialsBlock").hidden=true;
       $("notes").value=""; $("files").value="";
       $("partialsRangeHelp").textContent="";
+
+      // Focus the Field picker for quick re-entry
+      setTimeout(()=>{ const fb = document.getElementById('fieldBtn'); if(fb) fb.focus(); }, 350);
     }
 
     /* ---------- boot ---------- */
@@ -546,7 +560,7 @@
       $("addBag").addEventListener("click", ()=>{
         if(!chosen.field) return alert("Choose a Field first.");
         if(!chosen.year)  return alert("Choose Crop Year.");
-        $("bagForm").hidden=false; toast("Bag form ready.", 2800);
+        $("bagForm").hidden=false; toast("Bag form ready.", 2200);
       });
 
       // Partials
@@ -555,6 +569,7 @@
       // Actions
       $("btnSave").addEventListener("click", ()=> handleSave(getFirestore(), getAuth()));
       $("btnClear").addEventListener("click", ()=>{
+        // Clear only form internals; do not reset Field/Year here
         chosen.bag=null; $("bagBtn").textContent="— Select —";
         chosen.crop=null; $("cropBtn").textContent="— Select —";
         $("cropMoisture").value="";
