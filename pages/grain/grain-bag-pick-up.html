@@ -68,6 +68,7 @@
     .btn{ display:inline-flex; align-items:center; justify-content:center; min-width:160px;
       padding:12px 16px; border-radius:12px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
     /* Combo (same working helper as Put-Down) */
@@ -260,6 +261,7 @@
       return null;
     };
     const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const scrollTop = ()=> window.scrollTo({top:0, behavior:'smooth'});
 
     /* ===== State ===== */
     let YEAR = new Date().getFullYear();
@@ -516,7 +518,6 @@
 
     // Distribute totals across rows (oldest placed first)
     function distribute(rows, takeFull, takePart){
-      // copy and sort by datePlaced asc so oldest first
       const sorted = [...rows].sort((a,b)=> String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")));
       const plan = [];
       let f = takeFull|0, p = takePart|0;
@@ -536,35 +537,37 @@
     }
 
     async function savePickup(db, auth){
+      const btn = $("confirmPickup");
+      btn.disabled = true;
       $("sheetErr").hidden = true;
 
-      // Employee
-      const empId = $("empBtn")?.dataset.value || "";
-      if(!empId){ $("sheetErr").textContent="Please choose an employee."; $("sheetErr").hidden=false; return; }
-      const me = auth.currentUser;
-      const emp = EMPLOYEES.find(e=>e.id===empId) || {};
-      const who = {
-        employeeId: empId,
-        name: emp.name || me?.displayName || me?.email || "Unknown",
-        email: emp.email || me?.email || null
-      };
-      const when = $("sheetDate").value || todayISO();
-      const note = $("sheetNotes").value.trim();
+      try{
+        // Employee
+        const empId = $("empBtn")?.dataset.value || "";
+        if(!empId) throw new Error("Please choose an employee.");
+        const me = auth.currentUser;
+        const emp = EMPLOYEES.find(e=>e.id===empId) || {};
+        const who = {
+          employeeId: empId,
+          name: emp.name || me?.displayName || me?.email || "Unknown",
+          email: emp.email || me?.email || null
+        };
+        const when = $("sheetDate").value || todayISO();
+        const note = $("sheetNotes").value.trim();
 
-      const rows = rowsForCurrent();
-      const sum = consolidated(rows);
-      const wantFull = clamp(Number($("fullTake").value||0), 0, Number(sum.full||0));
-      const wantPart = clamp(Number($("partTake").value||0), 0, Number(sum.partial||0));
-      if(wantFull===0 && wantPart===0){ $("sheetErr").textContent="Enter a pickup amount."; $("sheetErr").hidden=false; return; }
+        const rows = rowsForCurrent();
+        const sum = consolidated(rows);
+        const wantFull = clamp(Number($("fullTake").value||0), 0, Number(sum.full||0));
+        const wantPart = clamp(Number($("partTake").value||0), 0, Number(sum.partial||0));
+        if(wantFull===0 && wantPart===0) throw new Error("Enter a pickup amount.");
 
-      const plan = distribute(rows, wantFull, wantPart);
-      if(!plan.length){ $("sheetErr").textContent="Nothing to pick with those amounts."; $("sheetErr").hidden=false; return; }
+        const plan = distribute(rows, wantFull, wantPart);
+        if(!plan.length) throw new Error("Nothing to pick with those amounts.");
 
-      // Optional photos (attach to the single batch event)
-      let uploaded = [];
-      const files = Array.from(($("sheetFiles").files||[]));
-      if(files.length){
-        try{
+        // Optional photos (attach to the single batch event)
+        let uploaded = [];
+        const files = Array.from(($("sheetFiles").files||[]));
+        if(files.length){
           const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
           const st = getStorage();
           for(const f of files){
@@ -575,64 +578,58 @@
             const url=await getDownloadURL(r);
             uploaded.push({name:f.name, url, path});
           }
-        }catch(stErr){
-          $("sheetErr").textContent = `Photos failed to upload: ${stErr.message}`;
-          $("sheetErr").hidden=false;
         }
-      }
 
-      // Create a single pickUp event for the batch
-      const ev = {
-        type:'pickUp',
-        field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
-        cropYear: YEAR,
-        crop: CHOSEN_CROP || null,
-        countsPicked:{ full:wantFull, partial:wantPart },
-        appliedTo: plan.map(p=>({refPutDownId:p.id, takeFull:p.useFull, takePartial:p.usePart})),
-        notes: note,
-        pickedUpDate: when,
-        pickedUpBy: who,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        files: uploaded.length ? uploaded : undefined
-      };
-      await addDoc(collection(db,'grain_bag_events'), ev);
-
-      // Update each source row
-      for(const p of plan){
-        const statusDone = (p.leftFull===0 && p.leftPart===0) ? 'pickedUp' : null;
-        const patch = {
-          'counts.full': p.leftFull,
-          'counts.partial': p.leftPart,
-          updatedAt: serverTimestamp()
+        // Create a single pickUp event for the batch
+        const ev = {
+          type:'pickUp',
+          field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
+          cropYear: YEAR,
+          crop: CHOSEN_CROP || null,
+          countsPicked:{ full:wantFull, partial:wantPart },
+          appliedTo: plan.map(p=>({refPutDownId:p.id, takeFull:p.useFull, takePartial:p.usePart})),
+          notes: note,
+          pickedUpDate: when,
+          pickedUpBy: who,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          files: uploaded.length ? uploaded : undefined
         };
-        if(statusDone){
-          patch.status='pickedUp';
-          patch.pickedUpAt=when;
-          patch.pickedUpBy=who;
+        await addDoc(collection(db,'grain_bag_events'), ev);
+
+        // Update each source row
+        for(const p of plan){
+          const statusDone = (p.leftFull===0 && p.leftPart===0) ? 'pickedUp' : null;
+          const patch = {
+            'counts.full': p.leftFull,
+            'counts.partial': p.leftPart,
+            updatedAt: serverTimestamp()
+          };
+          if(statusDone){
+            patch.status='pickedUp';
+            patch.pickedUpAt=when;
+            patch.pickedUpBy=who;
+          }
+          await updateDoc(doc(db,'grain_bag_events', p.id), patch);
         }
-        await updateDoc(doc(db,'grain_bag_events', p.id), patch);
-      }
 
-      closePickupModal();
-      toast("Pickup saved.");
-      await buildOpenIndexForYear(db);
+        // Success UX: close modal, rebuild index, clear the selection, show toast, scroll top
+        closePickupModal();
+        await buildOpenIndexForYear(db);
 
-      // If chosen field vanished, clear selection; otherwise re-render
-      if(!OPEN_INDEX.has(CHOSEN_FIELD.id)){
+        // Clear the field/crop so user chooses a new field next
         CHOSEN_FIELD=null; CHOSEN_CROP=null;
         $("fieldBtn").textContent="— Select field —";
         $("cropRow").hidden=true; $("summary").textContent="—";
         $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
         $("bulkActions").hidden = true;
-      }else{
-        const crops = cropsForField(CHOSEN_FIELD.id).map(c=>({id:c,label:c,value:c}));
-        cropCombo.setItems(crops);
-        if(CHOSEN_CROP && !crops.find(c=>c.value===CHOSEN_CROP)){
-          CHOSEN_CROP = crops[0]?.value || null;
-          $("cropBtn").textContent = CHOSEN_CROP || "— Select —";
-        }
-        await renderOpenBags();
+        scrollTop();
+        toast("Pickup saved.");
+      }catch(err){
+        $("sheetErr").textContent = err.message || String(err);
+        $("sheetErr").hidden = false;
+      }finally{
+        btn.disabled = false;
       }
     }
 
