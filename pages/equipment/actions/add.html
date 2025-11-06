@@ -54,20 +54,7 @@
     }
     .textarea{ min-height:90px }
 
-    /* Inline add button INSIDE the input */
-    .combo{
-      position:relative;
-    }
-    .combo input{
-      padding-right:42px; /* room for + button */
-    }
-    .combo .inline-add{
-      position:absolute; right:6px; top:50%; transform:translateY(-50%);
-      border:1px solid var(--border); background:var(--surface);
-      border-radius:999px; padding:2px 9px; font-weight:800; line-height:1.2;
-      cursor:pointer; user-select:none;
-    }
-    .combo .inline-add:active{ transform:translateY(-50%) scale(.98) }
+    .select.addable option.add-opt{ font-weight:800; }
 
     .qr-preview{
       display:grid; grid-template-columns:196px 1fr; gap:16px; align-items:center;
@@ -76,18 +63,22 @@
     .qr-img{ width:196px; height:196px; display:grid; place-items:center; background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px; overflow:hidden }
     #qrImg{ max-width:180px; max-height:180px; display:block }
 
-    /* Centered Manage Modal */
+    /* Centered modals */
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:9000; }
     .modal.show{ display:flex; }
     .modal-card{ width:min(620px,95vw); max-height:90vh; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.35); display:flex; flex-direction:column; }
     .md-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand) 10%, transparent) }
     .md-body{ padding:16px; display:grid; gap:12px }
     .list{ border:1px solid var(--border); border-radius:12px; overflow:hidden }
-    .row{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:10px 12px; border-top:1px solid var(--border) }
+    .row{ display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; padding:10px 12px; border-top:1px solid var(--border) }
     .row:first-child{ border-top:none }
     .pill{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
     .hint{ font-size:12px; color:var(--muted); margin-top:4px }
     label.clickable{ cursor:pointer; text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; }
+
+    /* tiny add modal */
+    .tiny-card{ width:min(420px,94vw); }
+    .tiny-body{ padding:16px; display:grid; gap:10px }
   </style>
 </head>
 <body>
@@ -127,21 +118,13 @@
         <div class="grid2">
           <div>
             <label id="lblMake" class="clickable" title="Tap to manage Makes">Make</label>
-            <div class="combo">
-              <input id="make" class="input" placeholder="John Deere" list="makeList" autocomplete="off">
-              <button id="addMake" class="inline-add" type="button" aria-label="Add make">+</button>
-              <datalist id="makeList"></datalist>
-            </div>
-            <div id="makeHint" class="hint" hidden>Added to catalog</div>
+            <select id="make" class="select addable"></select>
+            <div class="hint">Tap “Make” to manage (edit/archive). Choose “+ Add new…” from the list to create.</div>
           </div>
           <div>
             <label id="lblModel" class="clickable" title="Tap to manage Models">Model</label>
-            <div class="combo">
-              <input id="model" class="input" placeholder="8R370" list="modelList" autocomplete="off">
-              <button id="addModel" class="inline-add" type="button" aria-label="Add model">+</button>
-              <datalist id="modelList"></datalist>
-            </div>
-            <div id="modelHint" class="hint" hidden>Added to catalog</div>
+            <select id="model" class="select addable"></select>
+            <div class="hint">Tap “Model” to manage (edit/archive). Choose “+ Add new…” from the list to create.</div>
           </div>
         </div>
 
@@ -242,21 +225,30 @@
 
     const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
     const COLLS = { make:'equipment-makes', model:'equipment-models' };
+    const ADD_VALUE = '__add__';
 
     let DB;
     let pendingRef = null;  // client-reserved doc ref
     let deepLink = null;
 
     /* ---------- Catalog ops ---------- */
-    async function loadCatalog(kind){
-      const listEl = kind==='make' ? $("makeList") : $("modelList");
-      listEl.innerHTML = "";
+    async function loadCatalogSelect(kind){
+      const sel = (kind==='make') ? $("make") : $("model");
+      sel.innerHTML = '';
+      // placeholder
+      sel.append(new Option('—', ''));
+      // active options
       try{
         const snap = await getDocs(query(collection(DB, COLLS[kind]), where('status','==','active'), orderBy('name')));
         const opts = [];
-        snap.forEach(d=>{ const x=d.data(); if(x?.name) opts.push(x.name) });
-        opts.sort().forEach(v=>{ const o=document.createElement('option'); o.value=v; listEl.appendChild(o); });
-      }catch(_){ /* ignore */ }
+        snap.forEach(d=>{ const x=d.data(); if(x?.name) opts.push(x.name); });
+        opts.sort().forEach(name=> sel.append(new Option(name, name)));
+      }catch(_){}
+      // divider (disabled) + add
+      const divider = new Option('──────────', ''); divider.disabled = true;
+      sel.append(divider);
+      const addOpt = new Option('+ Add new…', ADD_VALUE); addOpt.className='add-opt';
+      sel.append(addOpt);
     }
 
     async function upsertCatalog(kind, name){
@@ -268,7 +260,7 @@
       try{
         const snap = await getDocs(query(base, where('nameLower','==', name.toLowerCase())));
         if(snap.size>0) existing = snap.docs[0];
-      }catch(_){ /* ignore */ }
+      }catch(_){}
       if(existing){
         const data = existing.data();
         if(data.status === 'archived'){
@@ -281,9 +273,22 @@
           status:'active', createdAt:serverTimestamp(), updatedAt:serverTimestamp()
         });
       }
-      await loadCatalog(kind);
+      await loadCatalogSelect(kind);
+      // select the newly added value
+      const sel = (kind==='make') ? $("make") : $("model");
+      sel.value = name;
       return true;
     }
+
+    /* tiny add prompt */
+    function openAddPrompt(kind){
+      $("tinyTitle").textContent = kind==='make' ? "Add Make" : "Add Model";
+      $("tinyKind").value = kind;
+      $("tinyInput").value = '';
+      $("addModal").classList.add("show");
+      setTimeout(()=> $("tinyInput").focus(), 0);
+    }
+    function closeAddPrompt(){ $("addModal").classList.remove("show"); }
 
     /* ---------- Manage modal ---------- */
     function openManage(kind){
@@ -303,19 +308,32 @@
         const x=d.data();
         const row = document.createElement('div');
         row.className='row';
+        const nameId = `nm_${d.id}`;
         row.innerHTML = `
-          <div><strong>${x.name||'—'}</strong> <span class="pill">${x.status||'active'}</span></div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-mini" data-act="toggle">${x.status==='archived'?'Activate':'Archive'}</button>
+          <div>
+            <input id="${nameId}" class="input" value="${x.name||''}"/>
           </div>
+          <button class="btn btn-mini" data-act="save">Save</button>
+          <button class="btn btn-mini" data-act="toggle">${x.status==='archived'?'Activate':'Archive'}</button>
         `;
+        row.querySelector('[data-act="save"]').addEventListener('click', async()=>{
+          const newName = (document.getElementById(nameId).value||'').trim();
+          if(!newName) return;
+          await updateDoc(d.ref, {
+            name: newName,
+            nameLower: newName.toLowerCase(),
+            updatedAt: serverTimestamp()
+          });
+          renderManage(kind);
+          await loadCatalogSelect(kind);
+        });
         row.querySelector('[data-act="toggle"]').addEventListener('click', async()=>{
           await updateDoc(d.ref, {
             status: (x.status==='archived'?'active':'archived'),
             updatedAt: serverTimestamp()
           });
           renderManage(kind);
-          await loadCatalog(kind);
+          await loadCatalogSelect(kind);
         });
         list.appendChild(row);
       });
@@ -345,8 +363,8 @@
         pendingRef = doc(collection(DB,'equipment'));
         deepLink = buildDeepLink(pendingRef.id);
       }
-      const make = $("make").value.trim();
-      const model = $("model").value.trim();
+      const make = $("make").value || '';
+      const model = $("model").value || '';
       const year  = $("year").value ? Number($("year").value) : null;
       const serial= $("serial").value.trim() || null;
       const hours = $("hours").value ? Number($("hours").value) : null;
@@ -366,9 +384,9 @@
       };
       await setDoc(pendingRef, payload);
 
-      // make sure catalog contains what was typed
-      await upsertCatalog('make', make);
-      await upsertCatalog('model', model);
+      // guarantee catalog contains what was chosen
+      if(make) await upsertCatalog('make', make);
+      if(model) await upsertCatalog('model', model);
 
       location.href = `/Farm-vista/pages/equipment/${TYPE}s-view.html`;
     }
@@ -378,30 +396,35 @@
       await ready;
       DB = getFirestore();
       yearOptions($("year"));
-      await loadCatalog('make');
-      await loadCatalog('model');
+
+      await loadCatalogSelect('make');
+      await loadCatalogSelect('model');
 
       $("btnCreateQR").addEventListener('click', createQrFlow);
       $("btnSave").addEventListener('click', saveEquipment);
 
-      // inline "+" inside inputs
-      $("addMake").addEventListener('click', async ()=>{
-        const ok = await upsertCatalog('make', $("make").value);
-        $("makeHint").hidden = !ok; setTimeout(()=>$("makeHint").hidden = true, 1500);
+      // Selecting "+ Add new…" opens tiny prompt
+      $("make").addEventListener('change', (e)=>{
+        if(e.target.value === ADD_VALUE){ e.target.value=''; openAddPrompt('make'); }
       });
-      $("addModel").addEventListener('click', async ()=>{
-        const ok = await upsertCatalog('model', $("model").value);
-        $("modelHint").hidden = !ok; setTimeout(()=>$("modelHint").hidden = true, 1500);
+      $("model").addEventListener('change', (e)=>{
+        if(e.target.value === ADD_VALUE){ e.target.value=''; openAddPrompt('model'); }
       });
 
-      // press Enter inside input → add to catalog
-      $("make").addEventListener('keydown', async (e)=>{ if(e.key==='Enter'){ e.preventDefault(); $("addMake").click(); }});
-      $("model").addEventListener('keydown', async (e)=>{ if(e.key==='Enter'){ e.preventDefault(); $("addModel").click(); }});
-
-      // clicking labels opens manage modal (doesn’t look like a button)
+      // Labels open manage modal (not buttons)
       $("lblMake").addEventListener('click', ()=> openManage('make'));
       $("lblModel").addEventListener('click', ()=> openManage('model'));
     })();
+
+    // tiny add modal buttons
+    window._addSave = async function(){
+      const kind = $("tinyKind").value;
+      const name = $("tinyInput").value.trim();
+      if(!name) return;
+      await upsertCatalog(kind, name);
+      closeAddPrompt();
+    }
+    window._addCancel = function(){ closeAddPrompt(); }
   </script>
 
   <!-- ===== Manage Modal (Make/Model) ===== -->
@@ -409,11 +432,29 @@
     <div class="modal-card">
       <div class="md-head">
         <strong id="manageTitle">Manage</strong>
-        <button id="manageCloseBtn" class="btn" onclick="document.getElementById('manageModal').classList.remove('show')">Close</button>
+        <button class="btn" onclick="document.getElementById('manageModal').classList.remove('show')">Close</button>
       </div>
       <div class="md-body">
         <input type="hidden" id="modalKind" value="make"/>
         <div class="list" id="manageList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Tiny “Add new …” Modal ===== -->
+  <div id="addModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card tiny-card">
+      <div class="md-head">
+        <strong id="tinyTitle">Add</strong>
+        <button class="btn" onclick="_addCancel()">Close</button>
+      </div>
+      <div class="tiny-body">
+        <input type="hidden" id="tinyKind" value="make"/>
+        <input id="tinyInput" class="input" placeholder="Type name..."/>
+        <div style="display:flex; gap:8px; justify-content:flex-end">
+          <button class="btn" onclick="_addCancel()">Cancel</button>
+          <button class="btn btn-primary" onclick="_addSave()">Save</button>
+        </div>
       </div>
     </div>
   </div>
