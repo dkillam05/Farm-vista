@@ -13,7 +13,7 @@
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
-    :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
+    :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:52px; --ftr-h:8px;
       --shadow: 0 10px 24px rgba(0,0,0,.16);
       --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
       display:block; color:var(--text); background:#fff; min-height:100vh; position:relative; }
