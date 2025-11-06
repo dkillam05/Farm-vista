@@ -28,7 +28,6 @@
     })();
   </script>
 
-  <!-- Page CSS (lean; uses theme tokens only) -->
   <style>
     :root{ --card-max:1100px; --page-bottom-gap:96px; --brand: var(--green, #3B7E46); }
     .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
@@ -37,8 +36,7 @@
     .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
     .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
-      padding:14px 16px; border-bottom:1px solid var(--border);
-      background: var(--surface); }
+      padding:14px 16px; border-bottom:1px solid var(--border); background:var(--surface); }
     .hero-head .icon{ width:24px; height:24px; display:grid; place-items:center; color:var(--brand); }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B) }
@@ -48,7 +46,7 @@
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
-    .view-link{ font-weight:800; font-size:12px; text-decoration:underline; cursor:pointer }
+    .view-link{ font-weight:800; font-size:12px; text-decoration:underline; cursor:pointer; color:var(--text)!important; }
 
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
@@ -58,15 +56,17 @@
     .textarea{ min-height:110px; resize:vertical }
 
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
-    .btn{ display:inline-flex; align-items:center; justify-content:center; min-width:148px;
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center; min-width:148px;
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
+      background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer;
+      -webkit-appearance:none; appearance:none; color:var(--text)!important;
+    }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
-    .btn-quiet{ background:transparent }
+    .btn-quiet{ background:transparent; color:var(--text)!important }
 
     .error{ color:#b00020; font-weight:700 }
 
-    /* Toast */
     .toast{
       position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
       transform:translateX(-50%);
@@ -80,11 +80,18 @@
     dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw);
             box-shadow:0 18px 60px rgba(0,0,0,.35); }
     dialog::backdrop{ background:rgba(0,0,0,.35) }
-    .modal{ padding:16px; background:var(--surface); border:1px solid var(--border); border-radius:14px; display:grid; gap:12px }
-    .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px }
-    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border) }
+    .modal{
+      padding:16px; background:var(--surface); color:var(--text);
+      border:1px solid var(--border); border-radius:14px; display:grid; gap:12px
+    }
+    .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border); color:var(--text); }
     .rowlist:last-child{ border-bottom:none }
-    .btn-mini{ padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800; border:1px solid var(--border); background:var(--surface); }
+    .btn-mini{
+      padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800;
+      border:1px solid var(--border); background:var(--surface);
+      -webkit-appearance:none; appearance:none; color:var(--text)!important;
+    }
   </style>
 </head>
 
@@ -154,26 +161,26 @@
   <script type="module">
     import {
       ready,
-      getFirestore, getAuth,
+      getFirestore,
       collection, setDoc, doc, updateDoc, deleteDoc, getDocs,
       query, orderBy, where,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* ---------- Utils ---------- */
     const $ = id => document.getElementById(id);
+
     function showToast(msg="Saved.", ms=3500){
       const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
       void t.offsetWidth; t.classList.add("show");
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
+
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
     }
 
-    /* ---------- Make/Model helpers ---------- */
     async function getMakes(db){
       const items=[];
       try{
@@ -186,6 +193,7 @@
       }
       return items;
     }
+
     async function getModels(db, makeId){
       if(!makeId) return [];
       const items=[];
@@ -199,6 +207,7 @@
       }
       return items;
     }
+
     function renderMakeOptions(list){
       const addOpt = `<option value="__add_make__">➕ Add new make…</option>`;
       return '<option value="">— Select —</option>' + addOpt +
@@ -210,7 +219,6 @@
              list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
     }
 
-    /* ---------- Modal helpers (centered) ---------- */
     function openListModal({title, rows}){
       const dlg=document.createElement('dialog');
       dlg.innerHTML=`
@@ -235,6 +243,7 @@
       dlg.showModal();
       return dlg;
     }
+
     async function promptText(label, value=""){
       return new Promise(res=>{
         const dlg=document.createElement('dialog');
@@ -252,6 +261,7 @@
         dlg.showModal();
       });
     }
+
     async function confirmBox(msg){
       return new Promise(res=>{
         const dlg=document.createElement('dialog');
@@ -270,7 +280,6 @@
       });
     }
 
-    /* ---------- Boot ---------- */
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -282,7 +291,6 @@
 
       buildYearOptions();
 
-      // Load makes
       let makes = await getMakes(db);
       $("make").innerHTML = renderMakeOptions(makes);
 
@@ -334,7 +342,6 @@
         }
       });
 
-      // “View” lists (edit/archive/delete)
       $("viewMakes").addEventListener("click", async ()=>{
         const rows = (await getMakes(db)).map(x=>({id:x.id, name:x.name}));
         const dlg = openListModal({ title:"Makes", rows });
@@ -377,7 +384,6 @@
         }, { once:false });
       });
 
-      // Save (no QR fields saved now)
       $("btnSave").addEventListener("click", async ()=>{
         $("err").hidden=true;
 
@@ -401,7 +407,6 @@
           engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
           notes: $("notes").value.trim() || null,
           status: "active",
-          // No QR field while we disable generator
           createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         };
         await setDoc(ref, base);
