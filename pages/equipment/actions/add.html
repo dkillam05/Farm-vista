@@ -1,8 +1,3 @@
-<!-- =========================================================
-FILE 1 of 2
-/Farm-vista/pages/equipment/actions/add.html
-Add Equipment with reliable QR preview + datalist pickers
-========================================================= -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -40,18 +35,20 @@ Add Equipment with reliable QR preview + datalist pickers
     header.page h1{margin:0 0 6px 0; font-size:clamp(22px,3.5vw,28px)}
     header.page p{margin:0; color:var(--muted,#67706B)}
 
-    .hero{
-      border:1px solid var(--border); border-radius:16px; background:var(--surface);
-      padding:16px; display:grid; gap:12px;
-    }
+    .hero{ border:1px solid var(--border); border-radius:16px; background:var(--surface);
+      padding:16px; display:grid; gap:12px; }
     .hero-actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center }
     .btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent }
+    .btn-mini{ padding:6px 10px; border-radius:999px; font-weight:700; font-size:13px }
     .muted{ color:var(--muted,#67706B); font-size:14px }
 
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
     @media (max-width:720px){ .grid2{ grid-template-columns:1fr } }
+
+    .field-row{ display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center }
+    @media (max-width:520px){ .field-row{ grid-template-columns:1fr auto } .field-row .manage{ grid-column:1 / -1; justify-self:start } }
 
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
@@ -66,6 +63,17 @@ Add Equipment with reliable QR preview + datalist pickers
     }
     .qr-img{ width:196px; height:196px; display:grid; place-items:center; background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px; overflow:hidden }
     #qrImg{ max-width:180px; max-height:180px; display:block }
+
+    /* Centered Manage Modal */
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:9000; }
+    .modal.show{ display:flex; }
+    .modal-card{ width:min(620px,95vw); max-height:90vh; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.35); display:flex; flex-direction:column; }
+    .md-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand) 10%, transparent) }
+    .md-body{ padding:16px; display:grid; gap:12px }
+    .list{ border:1px solid var(--border); border-radius:12px; overflow:hidden }
+    .row{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:10px 12px; border-top:1px solid var(--border) }
+    .row:first-child{ border-top:none }
+    .pill{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
   </style>
 </head>
 <body>
@@ -86,9 +94,7 @@ Add Equipment with reliable QR preview + datalist pickers
 
         <!-- QR shows here immediately after "Create QR Code" -->
         <div id="qrPreview" class="qr-preview" hidden>
-          <div class="qr-img">
-            <img id="qrImg" alt="QR preview"/>
-          </div>
+          <div class="qr-img"><img id="qrImg" alt="QR preview"/></div>
           <div>
             <div class="muted">
               QR preview. This code deep-links to the equipment hub for this unit.
@@ -107,13 +113,21 @@ Add Equipment with reliable QR preview + datalist pickers
         <div class="grid2">
           <div>
             <label>Make</label>
-            <input id="make" class="input" placeholder="John Deere" list="makeList" autocomplete="off">
-            <datalist id="makeList"></datalist>
+            <div class="field-row">
+              <input id="make" class="input" placeholder="John Deere" list="makeList" autocomplete="off">
+              <button id="addMake" class="btn btn-mini" type="button">+ Add</button>
+              <button id="manageMake" class="btn btn-mini manage" type="button">Manage</button>
+              <datalist id="makeList"></datalist>
+            </div>
           </div>
           <div>
             <label>Model</label>
-            <input id="model" class="input" placeholder="8R370" list="modelList" autocomplete="off">
-            <datalist id="modelList"></datalist>
+            <div class="field-row">
+              <input id="model" class="input" placeholder="8R370" list="modelList" autocomplete="off">
+              <button id="addModel" class="btn btn-mini" type="button">+ Add</button>
+              <button id="manageModel" class="btn btn-mini manage" type="button">Manage</button>
+              <datalist id="modelList"></datalist>
+            </div>
           </div>
         </div>
 
@@ -150,53 +164,48 @@ Add Equipment with reliable QR preview + datalist pickers
     </div>
   </fv-shell>
 
-  <!-- ===== QR ENGINE (Arase qrcode-generator) MINI, BEFORE MODULE ===== -->
+  <!-- ===== QR ENGINE (PNG with quiet zone) ===== -->
   <script>
-  /*! qrcode-generator (minimal) – MIT – https://github.com/kazuhikoarase/qrcode-generator */
-  // Very small build: typeNumber auto, error-correct Q, PNG data URL output.
+  /*! qrcode-generator mini → returns PNG dataURL with quiet zone */
   (function(global){function QR8bitByte(data){this.mode=1;this.data=data}
-  QR8bitByte.prototype={getLength:function(){return unescape(encodeURIComponent(this.data)).length},write:function(buffer){var bytes=unescape(encodeURIComponent(this.data));for(var i=0;i<bytes.length;i++){buffer.put(bytes.charCodeAt(i),8)}}};
+  QR8bitByte.prototype={getLength:function(){return unescape(encodeURIComponent(this.data)).length},write:function(buffer){var s=unescape(encodeURIComponent(this.data));for(var i=0;i<s.length;i++)buffer.put(s.charCodeAt(i),8)}};
   function QRBitBuffer(){this.buffer=[],this.length=0}
-  QRBitBuffer.prototype={get:function(i){return((this.buffer[i>>3]>>>(7-i%8))&1)==1},put:function(num,length){for(var i=0;i<length;i++)this.putBit(((num>>>(length-i-1))&1)==1)},putBit:function(bit){var bufIndex=this.length>>3;if(this.buffer.length<=bufIndex)this.buffer.push(0);if(bit)this.buffer[bufIndex]|=(0x80>>>(this.length%8));this.length++}};
+  QRBitBuffer.prototype={get:function(i){return((this.buffer[i>>3]>>>(7-i%8))&1)==1},put:function(num,len){for(var i=0;i<len;i++)this.putBit(((num>>>(len-i-1))&1)==1)},putBit:function(bit){var b=this.length>>3;if(this.buffer.length<=b)this.buffer.push(0);if(bit)this.buffer[b]|=(0x80>>>(this.length%8));this.length++}};
   var QRUtil={PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62]],
-  G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(data){var d=data<<10;while(QRUtil.getBCHDigit(d)-QRUtil.getBCHDigit(QRUtil.G15)>=0)d^=(QRUtil.G15<<(QRUtil.getBCHDigit(d)-QRUtil.getBCHDigit(QRUtil.G15)));return(d|data<<10)^QRUtil.G15_MASK;},
-  getBCHDigit:function(data){var digit=0;while(data!=0){digit++;data>>>=1}return digit},
-  getPatternPosition:function(typeNumber){return QRUtil.PATTERN_POSITION_TABLE[typeNumber-1]},
-  getMask:function(maskPattern,i,j){switch(maskPattern){case 0:return(i+j)%2==0;case 1:return i%2==0;case 2:return j%3==0;case 3:return(i+j)%3==0;case 4:return((i/2|0)+(j/3|0))%2==0;case 5:return(i*j)%2+(i*j)%3==0;case 6:return((i*j)%2+(i*j)%3)%2==0;case 7:return((i*j)%3+i+j)%2==0;default:throw new Error("bad maskPattern: "+maskPattern)}}};
-  var QRMath={EXP_TABLE:new Array(256),LOG_TABLE:new Array(256),glog:function(n){if(n<1)throw new Error("glog("+n+")");return QRMath.LOG_TABLE[n]},gexp:function(n){while(n<0)n+=255;while(n>=256)n-=255;return QRMath.EXP_TABLE[n]}};
+  G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(d){var x=d<<10;while(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)>=0)x^=(QRUtil.G15<<(QRUtil.getBCHDigit(x)-QRUtil.getBCHDigit(QRUtil.G15)));return(x|d<<10)^QRUtil.G15_MASK;},
+  getBCHDigit:function(d){var n=0;while(d!=0){n++;d>>>=1}return n},getMask:function(m,i,j){switch(m){case 0:return(i+j)%2==0;case 1:return i%2==0;case 2:return j%3==0;case 3:return(i+j)%3==0;case 4:return((i/2|0)+(j/3|0))%2==0;case 5:return(i*j)%2+(i*j)%3==0;case 6:return((i*j)%2+(i*j)%3)%2==0;case 7:return((i*j)%3+i+j)%2==0;default:throw new Error("bad mask")}}};
+  var QRMath={EXP_TABLE:new Array(256),LOG_TABLE:new Array(256),glog:function(n){if(n<1)throw new Error("glog("+n+")");return this.LOG_TABLE[n]},gexp:function(n){while(n<0)n+=255;while(n>=256)n-=255;return this.EXP_TABLE[n]}};
   for(var i=0;i<8;i++)QRMath.EXP_TABLE[i]=1<<i;for(i=8;i<256;i++)QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];for(i=0;i<255;i++)QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
-  function QRPolynomial(num,shift){var offset=0;while(offset<num.length&&num[offset]==0)offset++;this.num=new Array(num.length-offset+shift);for(var i=0;i<num.length-offset;i++)this.num[i]=num[i+offset]}
-  QRPolynomial.prototype={get:function(index){return this.num[index]},getLength:function(){return this.num.length},multiply:function(e){var num=new Array(this.getLength()+e.getLength()-1);for(var i=0;i<this.getLength();i++)for(var j=0;j<e.getLength();j++)num[i+j]^=QRMath.gexp(QRMath.glog(this.get(i))+QRMath.glog(e.get(j)));return new QRPolynomial(num,0)},mod:function(e){if(this.getLength()-e.getLength()<0)return this;var ratio=QRMath.glog(this.get(0))-QRMath.glog(e.get(0));var num=this.num.slice(0);for(var i=0;i<e.getLength();i++)num[i]^=QRMath.gexp(QRMath.glog(e.get(i))+ratio);return new QRPolynomial(num,0).mod(e)}};
+  function QRPolynomial(num,shift){var o=0;while(o<num.length&&num[o]==0)o++;this.num=new Array(num.length-o+shift);for(var i=0;i<num.length-o;i++)this.num[i]=num[i+o]}
+  QRPolynomial.prototype={get:function(i){return this.num[i]},getLength:function(){return this.num.length},multiply:function(e){var n=new Array(this.getLength()+e.getLength()-1);for(var i=0;i<this.getLength();i++)for(var j=0;j<e.getLength();j++)n[i+j]^=QRMath.gexp(QRMath.glog(this.get(i))+QRMath.glog(e.get(j)));return new QRPolynomial(n,0)},mod:function(e){if(this.getLength()-e.getLength()<0)return this;var r=QRMath.glog(this.get(0))-QRMath.glog(e.get(0));var n=this.num.slice(0);for(var i=0;i<e.getLength();i++)n[i]^=QRMath.gexp(QRMath.glog(e.get(i))+r);return new QRPolynomial(n,0).mod(e)}};
   var RS_BLOCK_TABLE={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]]};
-  function QRCode(typeNumber,ecLevel){this.typeNumber=typeNumber;this.errorCorrectLevel=ecLevel;this.modules=null;this.moduleCount=0;this.dataList=[]}
-  QRCode.prototype={addData:function(data){this.dataList.push(new QR8bitByte(data))},isDark:function(row,col){return this.modules[row][col]},getModuleCount:function(){return this.moduleCount},
-  make:function(){this.typeNumber=this.typeNumber||1;for(;;){this.makeImpl(false,this.getBestMaskPattern());if(this.getDataCapacity()>=this.getDataLength())break;this.typeNumber++;if(this.typeNumber>12)break}},
-  makeImpl:function(test,maskPattern){this.moduleCount=this.typeNumber*4+17;this.modules=new Array(this.moduleCount);for(var r=0;r<this.moduleCount;r++){this.modules[r]=new Array(this.moduleCount);for(var c=0;c<this.moduleCount;c++)this.modules[r][c]=null}
-  ;this.setupPositionProbePattern(0,0);this.setupPositionProbePattern(this.moduleCount-7,0);this.setupPositionProbePattern(0,this.moduleCount-7);this.setupTimingPattern();this.setupTypeInfo(test,maskPattern);
-  var data=this.createData();this.mapData(data,maskPattern)},
-  setupPositionProbePattern:function(row,col){for(var r=-1;r<=7;r++){if(row+r<=-1||this.moduleCount<=row+r)continue;for(var c=-1;c<=7;c++){if(col+c<=-1||this.moduleCount<=col+c)continue;
-  this.modules[row+r][col+c]=(0<=r&&r<=6&&(c==0||c==6))||(0<=c&&c<=6&&(r==0||r==6))||(2<=r&&r<=4&&2<=c&&c<=4)}}},
-  setupTimingPattern:function(){for(var r=8;r<this.moduleCount-8;r++){if(this.modules[r][6]===null)this.modules[r][6]=(r%2==0);if(this.modules[6][r]===null)this.modules[6][r]=(r%2==0)}},
-  setupTypeInfo:function(test,maskPattern){var data=(1<<3)|maskPattern;var bits=QRUtil.getBCHTypeInfo(data);for(var i=0;i<15;i++){var mod=!test&&((bits>>i)&1)==1;this.modules[i<6?i:i<8?i+1:this.moduleCount-15+i][8]=mod}
-  for(i=0;i<15;i++){var mod2=!test&&((bits>>i)&1)==1;this.modules[8][i<8?this.moduleCount-1-i:i==8?15-i:this.moduleCount-15+i]=mod2}this.modules[this.moduleCount-8][8]=!test},
-  mapData:function(data,maskPattern){var inc=-1,row=this.moduleCount-1,bit=0,byte=0;for(var col=this.moduleCount-1;col>0;col-=2){if(col==6)col--;for(;;){for(var c=0;c<2;c++){if(this.modules[row][col-c]===null){var dark=false;if(byte<data.length)dark=(((data[byte]>>>(7-bit))&1)==1);if(QRUtil.getMask(maskPattern,row,col-c))dark=!dark;this.modules[row][col-c]=dark;bit++;if(bit==8){bit=0;byte++}}}
-  row+=inc;if(row<0||this.moduleCount<=row){row-=inc;inc=-inc;break}}}},
-  getBestMaskPattern:function(){var min=0,pattern=0;for(var i=0;i<8;i++){this.makeImpl(true,i);var lost=this.getLostPoint();if(i==0||min>lost){min=lost;pattern=i}}return pattern},
-  getLostPoint:function(){let t=this.moduleCount,l=0;for(let r=0;r<t;r++)for(let c=0;c<t;c++){let same=0,d=this.modules[r][c];for(let r2=-1;r2<=1;r2++){if(r+r2<0||r+r2>=t)continue;for(let c2=-1;c2<=1;c2++){if(r2==0&&c2==0)continue;if(c+c2<0||c+c2>=t)continue;if(d==this.modules[r+r2][c+c2])same++}}if(same>5)l+=3}
-  return l},
-  getDataCapacity:function(){var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];return rs[1]},getDataLength:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}return bb.length/8|0},
-  createData:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];var dc=rs[1],ec=(rs[0]-dc),data=[];for(i=0;i<bb.length;i+=8)data.push((bb.get(i)?128:0)|(bb.get(i+1)?64:0)|(bb.get(i+2)?32:0)|(bb.get(i+3)?16:0)|(bb.get(i+4)?8:0)|(bb.get(i+5)?4:0)|(bb.get(i+6)?2:0)|(bb.get(i+7)?1:0));while(data.length<dc)data.push(data.length%2?0x11:0xEC);
+  function QRCode(typeNumber,ec){this.typeNumber=typeNumber;this.errorCorrectLevel=ec;this.modules=null;this.moduleCount=0;this.dataList=[]}
+  QRCode.prototype={addData:function(d){this.dataList.push(new QR8bitByte(d))},isDark:function(r,c){return this.modules[r][c]},getModuleCount:function(){return this.moduleCount},
+  make:function(){this.typeNumber=this.typeNumber||1;for(;;){this.makeImpl(false,this.getBestMaskPattern());if(this.getCapacity()>=this.dataLength())break;this.typeNumber++;if(this.typeNumber>12)break}},
+  makeImpl:function(test,mask){this.moduleCount=this.typeNumber*4+17;this.modules=new Array(this.moduleCount);for(var r=0;r<this.moduleCount;r++){this.modules[r]=new Array(this.moduleCount);for(var c=0;c<this.moduleCount;c++)this.modules[r][c]=null}
+  this.pp(0,0);this.pp(this.moduleCount-7,0);this.pp(0,this.moduleCount-7);this.timing();this.typeInfo(test,mask);var data=this.dataBytes();this.map(data,mask)},
+  pp:function(row,col){for(var r=-1;r<=7;r++){if(row+r<=-1||this.moduleCount<=row+r)continue;for(var c=-1;c<=7;c++){if(col+c<=-1||this.moduleCount<=col+c)continue;this.modules[row+r][col+c]=(0<=r&&r<=6&&(c==0||c==6))||(0<=c&&c<=6&&(r==0||r==6))||(2<=r&&r<=4&&2<=c&&c<=4)}}},
+  timing:function(){for(var i=8;i<this.moduleCount-8;i++){if(this.modules[i][6]===null)this.modules[i][6]=(i%2==0);if(this.modules[6][i]===null)this.modules[6][i]=(i%2==0)}},
+  typeInfo:function(test,mask){var data=(1<<3)|mask;var bits=QRUtil.getBCHTypeInfo(data);for(var i=0;i<15;i++){var v=!test&&((bits>>i)&1)==1;this.modules[i<6?i:i<8?i+1:this.moduleCount-15+i][8]=v}
+  for(i=0;i<15;i++){var v2=!test&&((bits>>i)&1)==1;this.modules[8][i<8?this.moduleCount-1-i:i==8?15-i:this.moduleCount-15+i]=v2}this.modules[this.moduleCount-8][8]=!test},
+  map:function(data,mask){var inc=-1,row=this.moduleCount-1,bit=0,byte=0;for(var col=this.moduleCount-1;col>0;col-=2){if(col==6)col--;for(;;){for(var c=0;c<2;c++){if(this.modules[row][col-c]===null){var dark=false;if(byte<data.length)dark=((data[byte]>>>(7-bit))&1)==1;if(QRUtil.getMask(mask,row,col-c))dark=!dark;this.modules[row][col-c]=dark;bit++;if(bit==8){bit=0;byte++}}}row+=inc;if(row<0||this.moduleCount<=row){row-=inc;inc=-inc;break}}}},
+  getBestMaskPattern:function(){var min=0,pat=0;for(var i=0;i<8;i++){this.makeImpl(true,i);var lost=0;if(i==0||min>lost){min=lost;pat=i}}return pat},
+  getCapacity:function(){var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];return rs[1]},
+  dataLength:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}return bb.length/8|0},
+  dataBytes:function(){var bb=new QRBitBuffer();for(var i=0;i<this.dataList.length;i++){bb.put(4,4);bb.put(this.dataList[i].getLength(),8);this.dataList[i].write(bb)}var rs=(RS_BLOCK_TABLE[this.typeNumber]||RS_BLOCK_TABLE[12])[0];var dc=rs[1],ec=(rs[0]-dc),data=[];for(i=0;i<bb.length;i+=8)data.push((bb.get(i)?128:0)|(bb.get(i+1)?64:0)|(bb.get(i+2)?32:0)|(bb.get(i+3)?16:0)|(bb.get(i+4)?8:0)|(bb.get(i+5)?4:0)|(bb.get(i+6)?2:0)|(bb.get(i+7)?1:0));while(data.length<dc)data.push(data.length%2?0x11:0xEC);
   var rsPoly=(function(ec){var a=new QRPolynomial([1],0);for(var i=0;i<ec;i++)a=a.multiply(new QRPolynomial([1,QRMath.gexp(i)],0));return a})(ec);var raw=new QRPolynomial(data,rsPoly.getLength()-1);var mod=raw.mod(rsPoly);
   var ecBytes=new Array(ec).fill(0),m=mod.num,off=ecBytes.length-m.length;for(i=0;i<m.length;i++)ecBytes[i+off]=m[i];return data.concat(ecBytes)},
-  toDataURL:function(scale){scale=scale||8;var m=this.getModuleCount(),q=4/*quiet zone*/;var size=(m+q*2)*scale;var canvas=document.createElement('canvas');canvas.width=canvas.height=size;var ctx=canvas.getContext('2d');
-  ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);ctx.fillStyle='#000';for(var r=0;r<m;r++)for(var c=0;c<m;c++){if(this.isDark(r,c)){ctx.fillRect((c+q)*scale,(r+q)*scale,scale,scale)}}return canvas.toDataURL('image/png')}};
-  global.QRGen=function(text){var qr=new QRCode(null,2/*Q*/);qr.addData(text);qr.make();return qr.toDataURL(10)};})(window);
+  toDataURL:function(scale){scale=scale||8;var m=this.getModuleCount(),q=4;var size=(m+q*2)*scale;var c=document.createElement('canvas');c.width=c.height=size;var x=c.getContext('2d');
+  x.fillStyle='#fff';x.fillRect(0,0,size,size);x.fillStyle='#000';for(var r=0;r<m;r++)for(var col=0;col<m;col++)if(this.isDark(r,col))x.fillRect((col+q)*scale,(r+q)*scale,scale,scale);return c.toDataURL('image/png')}};
+  global.QRGen=function(text){var qr=new QRCode(null,2);qr.addData(text);qr.make();return qr.toDataURL(10)};})(window);
   </script>
 
   <script type="module">
     import {
       ready,
-      getFirestore, collection, doc, setDoc, getDocs, query, where, serverTimestamp
+      getFirestore,
+      collection, doc, setDoc, addDoc, getDocs, query, where, orderBy, updateDoc,
+      serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     /* ---------- helpers ---------- */
@@ -217,31 +226,90 @@ Add Equipment with reliable QR preview + datalist pickers
       return nm ? (year ? `${nm} (${year})` : nm) : null;
     }
 
-    const qp = new URLSearchParams(location.search);
-    const TYPE = (qp.get('type') || 'tractor').toLowerCase();
+    const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
 
     let DB;
     let pendingRef = null;  // client-reserved doc ref
     let deepLink = null;
 
-    /* ---------- datalist population from existing equipment ---------- */
-    async function populateLists(){
-      const makes = new Set(), models = new Set();
+    /* ---------- Catalog (Make/Model) ---------- */
+    const COLLS = {
+      make:  'equipment-makes',
+      model: 'equipment-models'
+    };
+
+    async function loadCatalog(kind){
+      const listEl  = kind==='make' ? $("makeList")  : $("modelList");
+      listEl.innerHTML = "";
       try{
-        // Pull all equipment (or just current type) and extract makes/models
-        const base = collection(DB,'equipment');
-        const snap = await getDocs(query(base, where('type','==', TYPE)));
-        snap.forEach(d=>{
-          const x=d.data();
-          if(x.makeName) makes.add(String(x.makeName));
-          if(x.modelName) models.add(String(x.modelName));
-        });
-      }catch(_){ /* fall through with what we have */ }
-      const makeList = $("makeList"); const modelList = $("modelList");
-      makeList.innerHTML = ""; modelList.innerHTML = "";
-      [...makes].sort().forEach(v=>{ const o=document.createElement('option'); o.value=v; makeList.appendChild(o); });
-      [...models].sort().forEach(v=>{ const o=document.createElement('option'); o.value=v; modelList.appendChild(o); });
+        const snap = await getDocs(query(collection(DB, COLLS[kind]), where('status','==','active'), orderBy('name')));
+        const opts = [];
+        snap.forEach(doc => { const x=doc.data(); if(x?.name) opts.push(x.name); });
+        opts.sort().forEach(v=>{ const o=document.createElement('option'); o.value=v; listEl.appendChild(o); });
+      }catch(_){ /* ignore */ }
     }
+
+    async function addToCatalog(kind, name){
+      name = (name||"").trim();
+      if(!name) return;
+      // Does a doc with same lowercase name exist?
+      const base = collection(DB, COLLS[kind]);
+      const existing = await getDocs(query(base, where('nameLower','==', name.toLowerCase())));
+      if(existing.size>0){
+        // If archived, flip to active
+        const docRef = existing.docs[0].ref;
+        const data = existing.docs[0].data();
+        if(data.status === 'archived'){
+          await updateDoc(docRef, { status:'active', updatedAt:serverTimestamp() });
+        }
+      }else{
+        const ref = doc(base);
+        await setDoc(ref, {
+          name, nameLower:name.toLowerCase(),
+          status:'active',
+          createdAt:serverTimestamp(), updatedAt:serverTimestamp()
+        });
+      }
+      await loadCatalog(kind);
+    }
+
+    /* Manage modal */
+    function openManage(kind){
+      $("manageTitle").textContent = kind==='make' ? "Manage Makes" : "Manage Models";
+      $("modalKind").value = kind;
+      $("manageList").innerHTML = "";
+      $("manageModal").classList.add("show");
+      renderManage(kind);
+    }
+    function closeManage(){ $("manageModal").classList.remove("show"); }
+
+    async function renderManage(kind){
+      const list = $("manageList");
+      list.innerHTML = "";
+      const snap = await getDocs(query(collection(DB, COLLS[kind]), orderBy('name')));
+      snap.forEach(d=>{
+        const x=d.data();
+        const row = document.createElement('div');
+        row.className='row';
+        row.innerHTML = `
+          <div><strong>${x.name||'—'}</strong> <span class="pill">${x.status||'active'}</span></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-mini" data-act="toggle">${x.status==='archived'?'Activate':'Archive'}</button>
+          </div>
+        `;
+        row.querySelector('[data-act="toggle"]').addEventListener('click', async()=>{
+          await updateDoc(d.ref, {
+            status: (x.status==='archived'?'active':'archived'),
+            updatedAt: serverTimestamp()
+          });
+          renderManage(kind);
+          await loadCatalog(kind);
+        });
+        list.appendChild(row);
+      });
+    }
+
+    $("manageCloseBtn")?.addEventListener?.('click', closeManage);
 
     /* ---------- QR creation flow ---------- */
     function buildDeepLink(id){
@@ -249,8 +317,7 @@ Add Equipment with reliable QR preview + datalist pickers
     }
     async function createQrFlow(){
       if(!pendingRef){
-        const c = collection(DB, 'equipment');
-        pendingRef = doc(c); // local ID only
+        pendingRef = doc(collection(DB, 'equipment')); // local ID only
       }
       const id = pendingRef.id;
       deepLink = buildDeepLink(id);
@@ -266,9 +333,7 @@ Add Equipment with reliable QR preview + datalist pickers
     /* ---------- Save ---------- */
     async function saveEquipment(){
       if(!pendingRef){
-        // If user never tapped Create QR, still generate an ID + link
-        const c = collection(DB,'equipment');
-        pendingRef = doc(c);
+        pendingRef = doc(collection(DB,'equipment'));
         deepLink = buildDeepLink(pendingRef.id);
       }
       const make = $("make").value.trim();
@@ -292,7 +357,10 @@ Add Equipment with reliable QR preview + datalist pickers
       };
       await setDoc(pendingRef, payload);
 
-      // Back to view page for this type
+      // keep catalogs fresh with what was typed
+      await addToCatalog('make', make);
+      await addToCatalog('model', model);
+
       location.href = `/Farm-vista/pages/equipment/${TYPE}s-view.html`;
     }
 
@@ -301,12 +369,32 @@ Add Equipment with reliable QR preview + datalist pickers
       await ready;
       DB = getFirestore();
       yearOptions($("year"));
-      await populateLists();
+
+      await loadCatalog('make');
+      await loadCatalog('model');
 
       $("btnCreateQR").addEventListener('click', createQrFlow);
       $("btnSave").addEventListener('click', saveEquipment);
+
+      $("addMake").addEventListener('click', ()=> addToCatalog('make', $("make").value));
+      $("addModel").addEventListener('click', ()=> addToCatalog('model', $("model").value));
+      $("manageMake").addEventListener('click', ()=> openManage('make'));
+      $("manageModel").addEventListener('click', ()=> openManage('model'));
     })();
   </script>
+
+  <!-- ===== Manage Modal (Make/Model) ===== -->
+  <div id="manageModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card">
+      <div class="md-head">
+        <strong id="manageTitle">Manage</strong>
+        <button id="manageCloseBtn" class="btn">Close</button>
+      </div>
+      <div class="md-body">
+        <input type="hidden" id="modalKind" value="make"/>
+        <div class="list" id="manageList"></div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
-
