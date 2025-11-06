@@ -44,9 +44,11 @@
     .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
     .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
     .muted{color:var(--muted,#67706B)} .body{padding:16px;display:grid;gap:14px}
+
     .row{display:grid;gap:10px;grid-template-columns:1fr 1fr} @media (max-width:880px){.row{grid-template-columns:1fr}}
     .field label{display:block;font-weight:800;margin:0 0 6px}
-    .input,.select{width:100%;font:inherit;font-size:16px;color:var(--text);
+    .input,.select{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border); border-radius:10px; padding:12px; outline:none}
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
@@ -54,9 +56,11 @@
       padding:12px 16px;border-radius:12px;border:1px solid var(--border);
       background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
+    .btn[disabled]{opacity:.5;cursor:not-allowed}
+    .invalid{ color:#b00020 !important; border-color:#b00020 !important; }
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none}
-    .toast.show{display:block;animation:fadeout 5s forwards} @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+    .toast.show{display:block;animation:fadeout 3.5s forwards} @keyframes fadeout{0%{opacity:1}80%{opacity:1}100%{opacity:0}}
     .error{color:#b00020;font-weight:700}
   </style>
 </head>
@@ -66,10 +70,10 @@
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon" aria-hidden="true">📦</div>
+          <div class="icon" aria-hidden="true">➖</div>
           <div>
             <h1>Remove from Grain Bin Inventory</h1>
-            <p class="muted">Select a Bin Site and Bin; current on-hand will be shown for safety.</p>
+            <p class="muted">Only bins with grain appear. You can’t remove more than on-hand.</p>
           </div>
         </header>
 
@@ -96,6 +100,7 @@
             <div class="field">
               <label for="bushels">Bushels to remove</label>
               <input id="bushels" class="input" type="number" inputmode="decimal" placeholder="e.g. 980"/>
+              <div id="capHelp" class="help">On hand: —</div>
             </div>
             <div class="field">
               <label for="note">Note (optional)</label>
@@ -107,7 +112,8 @@
 
           <div class="actions">
             <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
-            <button id="btnSave" class="btn btn-primary" type="button">Mark Picked Up</button>
+            <button id="btnSave" class="btn btn-primary" type="button" disabled>Mark Picked Up</button>
+            <button id="btnClear" class="btn" type="button">Clear</button>
           </div>
         </div>
       </section>
@@ -128,10 +134,21 @@
 
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    function showToast(msg="Saved.", ms=2000){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
+    function showToast(msg="Saved.", ms=2500){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
     let SITES = [];
     let CURRENT_SITE = null;
+    let CURRENT_BIN_INDEX = -1;
+
+    function updateOnHandHelp(){
+      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){ $("capHelp").textContent="On hand: —"; $("btnSave").disabled=true; return; }
+      const on = Number(CURRENT_SITE.bins[CURRENT_BIN_INDEX]?.onHand||0);
+      const remove = parseFloat($("bushels").value||"0");
+      const over = remove > on;
+      $("capHelp").textContent = `On hand: ${on.toLocaleString()}`;
+      $("bushels").classList.toggle('invalid', over);
+      $("btnSave").disabled = over || !(remove>0) || !$("site").value || !(CURRENT_BIN_INDEX>=0);
+    }
 
     async function loadSites(db){
       const snap = await getDocs(query(collection(db,'binSites'), orderBy('name')));
@@ -149,29 +166,29 @@
 
     function loadBinsFor(siteId){
       CURRENT_SITE = SITES.find(s=>s.id===siteId) || null;
-      const sel = $("bin");
-      const help = $("binHelp");
+      const sel = $("bin"), help=$("binHelp");
+      CURRENT_BIN_INDEX=-1;
       if(!CURRENT_SITE){
         sel.innerHTML = '<option value="">Select a site first…</option>';
-        sel.disabled = true; help.textContent='—'; return;
+        sel.disabled = true; help.textContent='—'; updateOnHandHelp(); return;
       }
-      const items = CURRENT_SITE.bins || [];
-      sel.innerHTML = '<option value="">— Select —</option>' + items.map((b,i)=>{
-        const cap = Number(b.bushels||0);
-        const on  = Number(b.onHand||0);
-        const num = b.num ?? (i+1);
-        return `<option value="${i}">Bin #${esc(num)} — Cap: ${cap.toLocaleString()} bu — On hand: ${on.toLocaleString()} bu</option>`;
+      // Only bins with grain appear
+      const items = (CURRENT_SITE.bins||[]).map((b,i)=>({b,i})).filter(x=>Number(x.b.onHand||0)>0);
+      sel.innerHTML = '<option value="">— Select —</option>' + items.map(({b,i})=>{
+        const on=Number(b.onHand||0), num=b.num ?? (i+1);
+        return `<option value="${i}">Bin #${esc(num)} — On hand: ${on.toLocaleString()}</option>`;
       }).join('');
       sel.disabled = false;
-      help.textContent = `${items.length} bins`;
+      help.textContent = `${items.length} bins with grain`;
+      updateOnHandHelp();
     }
 
     async function saveRemove(db, auth){
       $("err").hidden = true;
+
       const siteId = $("site").value;
       const binIdx = parseInt($("bin").value,10);
       const bushels = parseFloat($("bushels").value);
-      const note = $("note").value.trim();
 
       if(!siteId){ alert("Select a site."); return; }
       if(!(binIdx>=0)){ alert("Select a bin."); return; }
@@ -184,26 +201,39 @@
       const data = siteSnap.data()||{};
       const bins = Array.isArray(data.bins)?[...data.bins]:[];
       const bin  = bins[binIdx] || {};
-      const prev = Number(bin.onHand||0);
-      if(bushels > prev){ $("err").hidden=false; $("err").textContent="Cannot remove more than on-hand."; return; }
-      const next = prev - bushels;
+      const on   = Number(bin.onHand||0);
+      if(bushels > on){ $("bushels").classList.add('invalid'); $("err").hidden=false; $("err").textContent="Cannot remove more than on-hand."; return; }
 
-      bins[binIdx] = { ...bin, onHand: next, lastUpdated: serverTimestamp() };
+      const after = on - bushels;
+      bins[binIdx] = { ...bin, onHand: after, lastUpdated: serverTimestamp(), lastUpdatedBy: (getAuth().currentUser?.displayName || 'Dane Killam') };
 
-      // Write bins array back
       await setDoc(siteRef, { bins }, { merge:true });
 
-      // Movement log
       await setDoc(doc(collection(db,'binMovements')), {
         siteId, siteName: CURRENT_SITE?.name || null,
         binIndex: binIdx, binNum: bin.num ?? (binIdx+1),
-        direction: 'out', bushels, note: note||null,
-        timestamp: serverTimestamp(),
-        submittedBy: (getAuth().currentUser?.displayName || 'Dane Killam')
+        direction: 'out',
+        bushels,
+        note: ($("note").value||"").trim() || null,
+        submittedBy: (getAuth().currentUser?.displayName || 'Dane Killam'),
+        createdAt: serverTimestamp()
       });
 
       showToast("Removed from inventory");
-      setTimeout(()=>location.href='/Farm-vista/pages/grain/grain-bins.html', 600);
+
+      // Clear for next
+      $("bushels").value="";
+      $("note").value="";
+      $("err").hidden=true;
+
+      // Refresh site data & bin list so the “with grain” filter updates
+      const db2 = getFirestore();
+      await loadSites(db2);
+      if($("site").value === siteId){ // reselect same site
+        $("site").value = siteId;
+        loadBinsFor(siteId);
+      }
+      $("bushels").focus();
     }
 
     (async()=>{
@@ -211,7 +241,12 @@
       const db = getFirestore(); const auth = getAuth();
       await loadSites(db);
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
+      $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateOnHandHelp(); });
+      $("bushels").addEventListener("input", updateOnHandHelp);
       $("btnSave").addEventListener("click", ()=> saveRemove(db, auth));
+      $("btnClear").addEventListener("click", ()=>{
+        $("bushels").value=""; $("note").value=""; $("err").hidden=true; updateOnHandHelp();
+      });
     })();
   </script>
 </body>
