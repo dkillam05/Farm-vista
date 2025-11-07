@@ -233,46 +233,65 @@
     }
 
     async function loadEmployees(db, auth){
-      // Pull employees (ordered) and default to current user
-      EMPLOYEES = [];
-      try{
-        const snap = await getDocs(query(collection(db,'employees'), orderBy('displayName')));
-        snap.forEach(d=>{
-          const v = d.data()||{};
-          const name = String(v.displayName || v.name || '').trim();
-          if(name) EMPLOYEES.push({ id:d.id, name });
-        });
-      }catch(e){
-        console.warn('Employees load failed', e);
-      }
+  const sel = $("submittedBy");
+  const help = $("submittedByHelp");
+  sel.disabled = true;
+  if (help) help.textContent = "Loading…";
 
-      // Build options
-      const sel = $("submittedBy");
-      const cu = auth.currentUser;
-      const cuUid = cu?.uid || '';
-      const cuName = (cu?.displayName || 'Dane Killam').trim();
+  const cu = auth.currentUser;
+  const cuUid = cu?.uid || "";                          // may not match your doc IDs (emails)
+  const cuName = (cu?.displayName || "Dane Killam").trim();
 
-      // See if current user exists in employees
-      const idxInList = EMPLOYEES.findIndex(e=>e.id===cuUid || e.name===cuName);
-      // Options HTML
-      let opts = '';
-      if(EMPLOYEES.length){
-        opts = EMPLOYEES.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
-      }
+  let EMPLOYEES = [];
 
-      // If current user not in list, prepend them explicitly so default still works
-      if(idxInList===-1 && cuUid){
-        opts = `<option value="${esc(cuUid)}">${esc(cuName)}</option>` + (opts?('<option disabled>──────────</option>'+opts):'');
+  try {
+    // Your docs have: id = email, and fields include fullName
+    const snap = await getDocs(query(collection(db, "employees"), orderBy("fullName")));
+    snap.forEach(d=>{
+      const v = d.data() || {};
+      const name = String(v.fullName || v.name || "").trim();
+      if (name) {
+        // Keep document ID as the value (email), show fullName
+        EMPLOYEES.push({ id: d.id, name });
       }
+    });
+  } catch (e) {
+    console.warn("Employees load failed", e);
+  }
 
-      // Write options
-      sel.innerHTML = opts || `<option value="${esc(cuUid)}">${esc(cuName)}</option>`;
-      // Default selection
-      if(cuUid){
-        sel.value = cuUid;
-      }else if(sel.options.length){
-        sel.selectedIndex = 0;
-      }
+  // If list is empty (rules/path?), at least show the current user
+  if (!EMPLOYEES.length && (cuUid || cuName)) {
+    EMPLOYEES = [{ id: cuUid || cu?.email || "unknown", name: cuName }];
+  }
+
+  // Build options
+  let opts = EMPLOYEES
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`)
+    .join("");
+
+  // Ensure current user appears first if they aren't already in the collection
+  const hasCurrent = EMPLOYEES.some(e => e.id === cuUid || e.name === cuName || e.id === (cu?.email||""));
+  if (!hasCurrent && (cuUid || cuName)) {
+    const injected = `<option value="${esc(cuUid || cu?.email || "unknown")}">${esc(cuName)}</option>`;
+    opts = injected + (opts ? `<option disabled>──────────</option>${opts}` : "");
+  }
+
+  sel.innerHTML = opts || `<option value="${esc(cuUid || cu?.email || "unknown")}">${esc(cuName)}</option>`;
+
+  // Default selection → try UID first, then email, then first option
+  if (cuUid && sel.querySelector(`option[value="${cuUid}"]`)) {
+    sel.value = cuUid;
+  } else if (cu?.email && sel.querySelector(`option[value="${cu.email}"]`)) {
+    sel.value = cu.email;
+  } else if (sel.options.length) {
+    sel.selectedIndex = 0;
+  }
+
+  sel.disabled = false;
+  if (help) help.textContent = `${sel.options.length} option${sel.options.length===1?"":"s"}`;
+}
+
 
       // Help line
       const countShown = sel.querySelectorAll('option:not([disabled])').length;
