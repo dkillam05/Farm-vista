@@ -1,3 +1,8 @@
+<!-- =====================================================================
+/Farm-vista/pages/equipment/tractors-view.html  (FULL FILE)
+Uses saved QR image if present (d.qr.image.url), else falls back to generate.
+Reprint keeps your label maker layout (2in square + caption).
+===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -219,7 +224,7 @@
     </div>
   </div>
 
-  <!-- QR library (same as your dev maker) -->
+  <!-- QR library (fallback when image missing) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script type="module">
@@ -252,6 +257,7 @@
     let DB, tractors = [];
     let currentId = null;
     let currentSmartLink = null; // for reprint
+    let currentQRImageUrl = null; // saved image (if present)
 
     async function loadList(){
       const rows = $("rows"); rows.innerHTML = "";
@@ -331,6 +337,7 @@
     async function openModal(id){
       currentId = id;
       currentSmartLink = null;
+      currentQRImageUrl = null;
 
       const ref = doc(DB,'equipment', id);
       const snap = await getDoc(ref); if(!snap.exists()) return;
@@ -347,10 +354,11 @@
       $("dwNotes").value  = d.notes || '';
 
       const token = d.qr?.token || null;
+      const savedImg = d.qr?.image?.url || null;
       const img = $("qrSmall");
       const msg = $("qrMsg");
 
-      // Link to hub
+      // Build links
       const hub = token ? hubUrl(id, token) : null;
       $("btnOpenHub").href = hub || '#';
 
@@ -358,15 +366,27 @@
       $("modal").classList.add("show");
       $("modal").setAttribute('aria-hidden','false');
 
-      // Render QR (smart launcher) or message
+      // Prefer the SAVED image
+      if (savedImg){
+        currentQRImageUrl = savedImg;
+        img.src = savedImg;
+        img.alt = "Saved QR for Equipment Hub";
+        img.hidden = false; msg.hidden = true;
+
+        // Keep smart link for "Open Hub" + reprint captioning
+        currentSmartLink = token ? smartLaunch(hub) : null;
+        return;
+      }
+
+      // Fallback: no saved image → generate on the fly if token exists
       if (!token){
         img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
         currentSmartLink = null;
         return;
       }
+
       const smart = smartLaunch(hub);
       currentSmartLink = smart;
-
       img.hidden = true; msg.hidden = false; msg.textContent = "Generating…";
 
       waitQRReady(()=>{
@@ -417,19 +437,45 @@
       $("modal").setAttribute('aria-hidden','true');
       currentId = null;
       currentSmartLink = null;
+      currentQRImageUrl = null;
     }
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
 
     function reprintQR(){
-      if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
-
-      // Build caption: MODEL - #LAST6
+      // Prefer saved image path for print (sharper & matches stored)
       const model = $("dwModel").value.trim() || "";
       const serial = $("dwSerial").value.trim() || "";
       const caption = `${model || "Unit"} - #${last6(serial)}`;
 
       const w = window.open('', '_blank', 'width=600,height=600');
+
+      // If we have the saved PNG, print it directly; else generate via library in the print window
+      if (currentQRImageUrl){
+        w.document.write(`
+          <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+          <style>
+            @page { size: 2in 2in; margin: 4mm; }
+            html,body{height:100%}
+            body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+            .wrap{text-align:center}
+            img{display:block; width:100%; max-width:380px; height:auto; margin:0 auto 6px}
+            h1{font-size:12px; margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
+            @media screen{ body{padding:16px} .wrap{max-width:420px} }
+          </style></head><body>
+            <div class="wrap">
+              <img src="${currentQRImageUrl}" alt="QR">
+              <h1>${caption.replace(/</g,'&lt;')}</h1>
+            </div>
+            <script>setTimeout(function(){ window.print(); }, 200);<\/script>
+          </body></html>
+        `);
+        w.document.close();
+        return;
+      }
+
+      // Fallback to on-the-fly generation if no saved image
+      if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
       w.document.write(`
         <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
         <style>
