@@ -77,48 +77,7 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* ===== Modals (View lists) ===== */
-    dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw);
-            box-shadow:0 18px 60px rgba(0,0,0,.35); }
-    dialog::backdrop{ background:rgba(0,0,0,.35) }
-    .modal{ padding:16px; background:var(--surface); color:var(--text);
-            border:1px solid var(--border); border-radius:14px; display:grid; gap:12px }
-    .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
-    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border); color:var(--text); }
-    .rowlist:last-child{ border-bottom:none }
-    .btn-mini{ padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800;
-               border:1px solid var(--border); background:var(--surface); color:var(--text)!important; }
-
-    /* ===== Compact Year — looks exactly like .select ===== */
-    .combo{ position:relative; }
-    .combo-trigger{ position:relative; display:block; width:100%;
-      /* reuse .select visuals via class chaining (no hard-coded theme) */
-    }
-    .combo-trigger.select{ font:inherit; font-size:16px; padding:12px; border-radius:10px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); color:var(--text); cursor:pointer; }
-    /* add the same chevron affordance as selects */
-    .combo-trigger.select::after{
-      content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
-      border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
-    }
-
-    .combo-panel{
-      position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
-      background:var(--surface); border:1px solid var(--border); border-radius:12px;
-      box-shadow:0 12px 26px rgba(0,0,0,.18);
-      --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
-    }
-    .combo-item{
-      display:block; width:100%; text-align:left; font:inherit; color:var(--text);
-      background:transparent; border:none; border-radius:10px;
-      padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer;
-      /* no bold selection */
-      font-weight:400;
-    }
-    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
-    .combo-hidden{ display:none !important; }
-
-    /* ===== QR Preview (tiny square) ===== */
+    /* Tiny QR preview */
     .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
@@ -152,14 +111,8 @@
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
-              <!-- Compact custom (5 rows), visually identical to .select; native <select> kept hidden for compatibility -->
-              <div class="combo" id="yearCombo">
-                <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">
-                  — Select —
-                </button>
-                <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
-                <select id="year" class="select" aria-hidden="true" style="display:none"></select>
-              </div>
+              <!-- Native select: themed by app.css/theme.css; no custom combo -->
+              <select id="year" class="select"></select>
             </div>
 
             <div class="field">
@@ -203,7 +156,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- QR library -->
+  <!-- QR library (same as your dev maker) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script type="module">
@@ -223,45 +176,14 @@
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* ===== Year options + compact combo (no bold, same look) ===== */
+    /* ===== Year options (native select) ===== */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
-      const panel=$("yearPanel"), trigger=$("yearTrigger");
-      panel.innerHTML="";
-      [...sel.options].forEach((opt, idx)=>{
-        const btn=document.createElement('button');
-        btn.type='button'; btn.className='combo-item'; btn.role='option';
-        btn.dataset.val=opt.value; btn.textContent=opt.textContent;
-        btn.addEventListener('click', ()=>{
-          sel.value = opt.value;
-          trigger.textContent = opt.value ? opt.textContent : "— Select —";
-          closeYearPanel();
-        });
-        panel.appendChild(btn);
-      });
     }
-    function openYearPanel(){
-      const trigger=$("yearTrigger"), panel=$("yearPanel");
-      panel.classList.remove('combo-hidden');
-      trigger.setAttribute('aria-expanded','true');
-      document.addEventListener('click', onDocClickClose, { once:true });
-      document.addEventListener('keydown', onEscClose);
-    }
-    function closeYearPanel(){
-      const trigger=$("yearTrigger"), panel=$("yearPanel");
-      panel.classList.add('combo-hidden');
-      trigger.setAttribute('aria-expanded','false');
-      document.removeEventListener('keydown', onEscClose);
-    }
-    function onDocClickClose(e){
-      if(!$("yearCombo").contains(e.target)) closeYearPanel();
-      else document.addEventListener('click', onDocClickClose, { once:true });
-    }
-    function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    /* ===== Data helpers ===== */
+    /* ===== Helpers ===== */
     function currentType(){ const p=new URLSearchParams(location.search); return (p.get('type')||'tractor').toLowerCase(); }
     function readForm(){
       const makeSel=$("make"), modelSel=$("model");
@@ -281,79 +203,34 @@
       };
     }
 
-    async function ensureSaved(db, existingId){
-      if(existingId){ return existingId; }
-      const makeId = $("make").value, modelId=$("model").value;
-      if(!makeId){ alert("Please choose a Make."); throw new Error("no-make"); }
-      if(!modelId){ alert("Please choose a Model."); throw new Error("no-model"); }
-
-      const ref = doc(collection(db,'equipment'));
-      const base = readForm();
-      await setDoc(ref, {
-        ...base,
-        status:"active",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-
-      // optional photos
-      const files = Array.from(($("photos").files||[]));
-      if(files.length){
-        try{
-          const m = await import('/Farm-vista/js/firebase-init.js');
-          const st = m.getStorage(); const out=[];
-          for(const f of files){
-            const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-            const r = m.ref(st, `equipment/${ref.id}/${safe}`);
-            await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
-            const url = await m.getDownloadURL(r);
-            out.push({name:f.name, url, path:`equipment/${ref.id}/${safe}`});
-          }
-          await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
-        }catch(stErr){
-          $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
-        }
-      }
-
-      showToast("Saved");
-      return ref.id;
-    }
-
     function randTokenHex(len=24){
       const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes);
       return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
     }
 
-    function equipmentHubUrlAbs(id, token){
-      const hub = `/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(token)}`;
-      const launch = location.origin + '/Farm-vista/launch.html';
-      const url = new URL(launch);
-      url.searchParams.set('to', location.origin + hub);
+    function smartLaunch(absUrl){
+      const url = new URL(location.origin + '/Farm-vista/launch.html');
+      url.searchParams.set('to', absUrl);
       return url.href;
     }
 
-    async function generateAndStoreQR(db, id){
-      // confirm doc exists
-      const ref = doc(db,'equipment', id);
-      const snap = await getDoc(ref);
-      if(!snap.exists()) throw new Error('not-found');
+    function hubUrlAbs(id, token){
+      const hub = `/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(token)}`;
+      return location.origin + hub;
+    }
 
-      // write token
-      const token = randTokenHex(24);
-      await updateDoc(ref, { qr:{ token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, updatedAt: serverTimestamp() });
-
-      // ensure QR lib is present
+    /* ===== Dev-style QR maker (no saving here) ===== */
+    async function waitQRReady(){
       let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){
         await new Promise(r=>setTimeout(r,50));
       }
       if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib');
-
-      const smartLink = equipmentHubUrlAbs(id, token);
-      const size = 256, ecc = window.QRCode.CorrectLevel.H;
-
+    }
+    async function makeQRForUrl(finalUrlAbs){
+      await waitQRReady();
+      const size=256, ecc=window.QRCode.CorrectLevel.H;
       const holder=document.createElement('div');
-      new QRCode(holder,{ text:smartLink, width:size, height:size, colorDark:"#000000", colorLight:"#ffffff", correctLevel:ecc });
-
+      new QRCode(holder,{text:smartLaunch(finalUrlAbs),width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
       const node = await new Promise((res,rej)=>{
         const start=Date.now();
         (function check(){
@@ -363,7 +240,6 @@
           else requestAnimationFrame(check);
         })();
       });
-
       let canvas;
       if(node.tagName==='CANVAS'){ canvas=node; }
       else{
@@ -375,13 +251,10 @@
           img.onerror=rej; img.src=node.src;
         });
       }
-
       const dataURL = canvas.toDataURL('image/png');
-      const thumb = $("qrThumb");
-      thumb.src = dataURL;
-      thumb.onload = ()=>{ $("qrArea").hidden=false; thumb.style.display='block'; };
-
-      return { smartLink, token, dataURL };
+      const img=$("qrThumb");
+      img.src=dataURL;
+      img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
     }
 
     (async()=>{
@@ -393,12 +266,7 @@
       document.title = `FarmVista • Add ${type[0].toUpperCase()+type.slice(1)}`;
       document.querySelector('.hero-head h1').textContent = `Add ${type[0].toUpperCase()+type.slice(1)}`;
 
-      // year
       buildYearOptions();
-      $("yearTrigger").addEventListener('click', ()=>{
-        const open = $("yearTrigger").getAttribute('aria-expanded') === 'true';
-        if(open) closeYearPanel(); else openYearPanel();
-      });
 
       // ===== Makes / Models =====
       async function getMakes(db){
@@ -490,18 +358,61 @@
 
       // ===== Save / QR / Cancel =====
       let currentId = null;
+      let currentToken = null;
 
       async function handleSave(){
-        try{ currentId = await ensureSaved(db, currentId); showToast("Saved"); }
-        catch(e){ /* alerts already shown for missing fields */ }
+        try{
+          const ref = doc(collection(db,'equipment'));
+          const base = readForm();
+          await setDoc(ref, {
+            ...base,
+            status:"active",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            // create token at save time (no QR generation here)
+            qr: { token: randTokenHex(24), createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
+          });
+          currentId = ref.id;
+          const snap = await getDoc(ref);
+          currentToken = (snap.data()?.qr?.token) || null;
+
+          // optional photos
+          const files = Array.from(($("photos").files||[]));
+          if(files.length){
+            try{
+              const m = await import('/Farm-vista/js/firebase-init.js');
+              const st = m.getStorage(); const out=[];
+              for(const f of files){
+                const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+                const r = m.ref(st, `equipment/${ref.id}/${safe}`);
+                await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+                const url = await m.getDownloadURL(r);
+                out.push({name:f.name, url, path:`equipment/${ref.id}/${safe}`});
+              }
+              await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
+            }catch(stErr){
+              $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
+            }
+          }
+
+          showToast("Saved");
+        }catch(e){
+          console.error(e);
+          alert("Save failed.");
+        }
       }
 
       async function handleCreateQR(){
         try{
-          // If not saved yet, save first (quietly). User can press any time.
-          currentId = await ensureSaved(db, currentId);
-          await generateAndStoreQR(db, currentId);
-          showToast("QR code ready");
+          // Build URL depending on saved state — no saving here
+          let abs;
+          if(currentId && currentToken){
+            abs = hubUrlAbs(currentId, currentToken);
+          }else{
+            // “Does nothing until saved”: point to generic hub
+            abs = location.origin + '/Farm-vista/pages/equipment/equipment-hub.html';
+          }
+          await makeQRForUrl(abs);
         }catch(err){
           console.error(err);
           alert("Could not create QR code.");
@@ -512,23 +423,16 @@
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
         $("photos").value="";
         $("year").value="";
-        $("yearTrigger").textContent="— Select —";
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0;
         $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
-        currentId=null;
+        currentId=null; currentToken=null;
         window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
       }
 
       $("btnSave").addEventListener("click", handleSave);
       $("btnQR").addEventListener("click", handleCreateQR);
       $("btnClear").addEventListener("click", handleClear);
-
-      // wire year trigger
-      $("yearTrigger").addEventListener('click', ()=>{
-        const isOpen = $("yearTrigger").getAttribute('aria-expanded') === 'true';
-        if(isOpen) closeYearPanel(); else openYearPanel();
-      });
 
       $("make").focus();
     })();
