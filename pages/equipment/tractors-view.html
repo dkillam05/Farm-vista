@@ -1,8 +1,3 @@
-<!-- =====================================================================
-/Farm-vista/pages/equipment/tractors-view.html  (FULL FILE)
-Uses saved QR image if present (d.qr.image.url), else falls back to generate.
-Reprint keeps your label maker layout (2in square + caption).
-===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -95,6 +90,7 @@ Reprint keeps your label maker layout (2in square + caption).
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
 
     .list{ border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--surface); }
     .thead,.row{ display:grid; grid-template-columns: 0.6fr 1.2fr 0.6fr 0.6fr; gap:10px; align-items:center; }
@@ -214,7 +210,7 @@ Reprint keeps your label maker layout (2in square + caption).
           <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap">
             <div class="qr-img"><img id="qrSmall" alt="QR" hidden></div>
             <div class="qr-actions">
-              <button id="btnReprint" class="btn" type="button">Reprint QR</button>
+              <button id="btnReprint" class="btn" type="button" disabled>Reprint QR</button>
               <a id="btnOpenHub" class="btn btn-quiet" target="_blank" rel="noopener">Open Hub</a>
             </div>
           </div>
@@ -256,7 +252,7 @@ Reprint keeps your label maker layout (2in square + caption).
 
     let DB, tractors = [];
     let currentId = null;
-    let currentSmartLink = null; // for reprint
+    let currentSmartLink = null; // for reprint (fallback)
     let currentQRImageUrl = null; // saved image (if present)
 
     async function loadList(){
@@ -338,6 +334,7 @@ Reprint keeps your label maker layout (2in square + caption).
       currentId = id;
       currentSmartLink = null;
       currentQRImageUrl = null;
+      $("btnReprint").disabled = true; // guard until QR is ready
 
       const ref = doc(DB,'equipment', id);
       const snap = await getDoc(ref); if(!snap.exists()) return;
@@ -358,7 +355,7 @@ Reprint keeps your label maker layout (2in square + caption).
       const img = $("qrSmall");
       const msg = $("qrMsg");
 
-      // Build links
+      // Link to hub
       const hub = token ? hubUrl(id, token) : null;
       $("btnOpenHub").href = hub || '#';
 
@@ -372,9 +369,7 @@ Reprint keeps your label maker layout (2in square + caption).
         img.src = savedImg;
         img.alt = "Saved QR for Equipment Hub";
         img.hidden = false; msg.hidden = true;
-
-        // Keep smart link for "Open Hub" + reprint captioning
-        currentSmartLink = token ? smartLaunch(hub) : null;
+        $("btnReprint").disabled = false;
         return;
       }
 
@@ -382,11 +377,13 @@ Reprint keeps your label maker layout (2in square + caption).
       if (!token){
         img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
         currentSmartLink = null;
+        $("btnReprint").disabled = true;
         return;
       }
 
       const smart = smartLaunch(hub);
       currentSmartLink = smart;
+
       img.hidden = true; msg.hidden = false; msg.textContent = "Generating…";
 
       waitQRReady(()=>{
@@ -403,9 +400,11 @@ Reprint keeps your label maker layout (2in square + caption).
           }
           img.alt = "QR for Equipment Hub";
           img.hidden = false; msg.hidden = true;
+          $("btnReprint").disabled = false;
         }catch(e){
           console.warn('QR render failed:', e);
           img.hidden = true; msg.hidden = false; msg.textContent = "QR render failed.";
+          $("btnReprint").disabled = true;
         }
       });
     }
@@ -438,53 +437,70 @@ Reprint keeps your label maker layout (2in square + caption).
       currentId = null;
       currentSmartLink = null;
       currentQRImageUrl = null;
+      $("btnReprint").disabled = true;
     }
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
 
     function reprintQR(){
-      // Prefer saved image path for print (sharper & matches stored)
+      // Build caption: MODEL - #LAST6
       const model = $("dwModel").value.trim() || "";
       const serial = $("dwSerial").value.trim() || "";
       const caption = `${model || "Unit"} - #${last6(serial)}`;
 
-      const w = window.open('', '_blank', 'width=600,height=600');
-
-      // If we have the saved PNG, print it directly; else generate via library in the print window
+      // Preferred: saved PNG in Storage
       if (currentQRImageUrl){
+        const url = currentQRImageUrl + (currentQRImageUrl.includes('?') ? '&' : '?') + 'v=' + Date.now(); // cache-bust
+        const w = window.open('', '_blank', 'width=600,height=700');
+
+        // Robust print after image load
         w.document.write(`
           <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
           <style>
-            @page { size: 2in 2in; margin: 4mm; }
+            @page { size: 2in 2.25in; margin: 3mm; }
             html,body{height:100%}
             body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
             .wrap{text-align:center}
-            img{display:block; width:100%; max-width:380px; height:auto; margin:0 auto 6px}
-            h1{font-size:12px; margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
+            img{display:block; width:100%; max-width:380px; height:auto; margin:0 auto 4px}
+            h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
             @media screen{ body{padding:16px} .wrap{max-width:420px} }
           </style></head><body>
             <div class="wrap">
-              <img src="${currentQRImageUrl}" alt="QR">
+              <img id="qr" src="${url}" alt="QR">
               <h1>${caption.replace(/</g,'&lt;')}</h1>
             </div>
-            <script>setTimeout(function(){ window.print(); }, 200);<\/script>
+            <script>
+              (function(){
+                var img = document.getElementById('qr');
+                function safePrint(){ try{ window.print(); }catch(e){} }
+                if (img.complete) { setTimeout(safePrint, 50); }
+                else {
+                  img.addEventListener('load', function(){ setTimeout(safePrint, 50); });
+                  img.addEventListener('error', function(){
+                    // If the image fails, at least show the caption
+                    setTimeout(safePrint, 200);
+                  });
+                }
+              })();
+            <\/script>
           </body></html>
         `);
         w.document.close();
         return;
       }
 
-      // Fallback to on-the-fly generation if no saved image
+      // Fallback: no saved image → generate QR inside popup, then print
       if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
+      const w = window.open('', '_blank', 'width=600,height=700');
       w.document.write(`
         <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
         <style>
-          @page { size: 2in 2in; margin: 4mm; }
+          @page { size: 2in 2.25in; margin: 3mm; }
           html,body{height:100%}
           body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
           .wrap{text-align:center}
-          img{display:block; width:100%; max-width:380px; height:auto; margin:0 auto 6px}
-          h1{font-size:12px; margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
+          #qr{width:100%; max-width:380px; margin:0 auto 4px}
+          h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
           @media screen{ body{padding:16px} .wrap{max-width:420px} }
         </style></head><body>
           <div class="wrap">
@@ -496,7 +512,7 @@ Reprint keeps your label maker layout (2in square + caption).
             (function(){
               function go(){
                 new QRCode(document.getElementById('qr'), { text: ${JSON.stringify(currentSmartLink)}, width: 380, height: 380, correctLevel: QRCode.CorrectLevel.H, colorDark:'#000000', colorLight:'#ffffff' });
-                setTimeout(function(){ window.print(); }, 200);
+                setTimeout(function(){ window.print(); }, 250);
               }
               if(window.QRCode) go(); else window.addEventListener('load', go);
             })();
