@@ -115,7 +115,7 @@
     /* ======================================= */
     .qc-rail{ position:fixed; right:0;
       /* Bumped up so it sits a little higher above the footer */
-      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 48px);
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 75px);
       height:auto; z-index:1350; display:none; }
     @media (pointer:coarse) { .qc-rail{ display:block; } } /* mobile only */
 
@@ -1012,4 +1012,24 @@
   }
 
   if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
+// --- Built-in QR & Camera handlers ---
+document.addEventListener('fv:open:qr', () => {
+  location.href = '/Farm-vista/pages/qr-scan.html';
+});
+
+document.addEventListener('fv:open:camera', async () => {
+  try {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment'; // opens rear camera
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', () => input.remove(), { once: true });
+    input.click();
+  } catch (err) {
+    console.error('Camera launch failed:', err);
+  }
+});
+   
 })();
