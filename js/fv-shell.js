@@ -1,11 +1,9 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19  (with Mobile Quick Camera – Side Rail)
+   FarmVista Shell — v5.10.19  (with Mobile Quick Camera – Side Rail • tweak A)
    - Original behavior preserved.
-   - NEW (mobile only): a tiny right-edge handle that slides out a slim rail
-     with “QR Scanner” and “Camera”. Hidden on desktop. Theme-aware.
-   - Actions:
-       1) If <html> has data-scan-url / data-camera-url → navigates there.
-       2) Else fires events:  'fv:open:qr'   and   'fv:open:camera'.
+   - Mobile-only right-edge handle opens a slim rail with “QR Scanner” and “Camera”.
+   - QR Scanner defaults to /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
+   - Camera opens native camera via hidden input capture (override via <html data-camera-url>).
 */
 (function () {
   // ====== TUNABLES ======
@@ -115,7 +113,9 @@
     /* ======================================= */
     /* QC: Quick Camera — Right Edge Side Rail */
     /* ======================================= */
-    .qc-rail{ position:fixed; right:0; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 8px);
+    .qc-rail{ position:fixed; right:0;
+      /* Bumped up so it sits a little higher above the footer */
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 24px);
       height:auto; z-index:1350; display:none; }
     @media (pointer:coarse) { .qc-rail{ display:block; } } /* mobile only */
 
@@ -952,9 +952,9 @@
         if (!inside) this._qcToggle(false);
       });
 
-      // Open actions
+      // Open actions (with sensible defaults)
       const html = document.documentElement;
-      const scanURL   = html.getAttribute('data-scan-url')   || '';
+      const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
       const cameraURL = html.getAttribute('data-camera-url') || '';
 
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
@@ -967,14 +967,47 @@
       if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
         e.preventDefault();
         this._qcToggle(false);
-        if (cameraURL) location.href = cameraURL;
-        else this.dispatchEvent(new CustomEvent('fv:open:camera', { bubbles:true }));
+        if (cameraURL) {
+          location.href = cameraURL;            // dev can point to a custom camera page
+        } else {
+          this._openNativeCamera();             // default: invoke device camera immediately
+        }
       });
     }
 
     _qcToggle(on){
       if (!this._qcRail) return;
       this._qcRail.setAttribute('aria-expanded', String(!!on));
+    }
+
+    // Open device camera using a throwaway hidden input (no UI change required)
+    _openNativeCamera(){
+      try{
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.capture = 'environment'; // prefer rear camera
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        input.style.pointerEvents = 'none';
+        document.body.appendChild(input);
+
+        input.addEventListener('change', ()=>{
+          // If needed later, we can dispatch the image back out:
+          const file = input.files && input.files[0];
+          if (file) {
+            this.dispatchEvent(new CustomEvent('fv:camera:file', { bubbles:true, detail:{ file } }));
+            this._toastMsg('Photo captured.', 1400);
+          } else {
+            this._toastMsg('Camera closed.', 1200);
+          }
+          setTimeout(()=> input.remove(), 0);
+        }, { once:true });
+
+        input.click();
+      }catch{
+        this._toastMsg('Unable to open camera.', 1800);
+      }
     }
   }
 
