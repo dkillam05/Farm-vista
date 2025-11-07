@@ -76,49 +76,32 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* Centered modal (View → edit/archive/delete) */
-    dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw);
-            box-shadow:0 18px 60px rgba(0,0,0,.35); }
-    dialog::backdrop{ background:rgba(0,0,0,.35) }
-    .modal{
-      padding:16px; background:var(--surface); color:var(--text);
-      border:1px solid var(--border); border-radius:14px; display:grid; gap:12px
-    }
-    .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
-    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border); color:var(--text); }
-    .rowlist:last-child{ border-bottom:none }
-    .btn-mini{
-      padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800;
-      border:1px solid var(--border); background:var(--surface);
-      -webkit-appearance:none; appearance:none; color:var(--text)!important;
-    }
-
-    /* ===== Compact Year Combo (5 visible rows) ===== */
+    /* ===== Compact Year Combo (identical look, just shorter list) ===== */
     .combo{ position:relative; }
-    .combo-trigger{
-      width:100%; font:inherit; font-size:16px; color:var(--text);
-      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:10px; padding:12px; cursor:pointer; text-align:left;
-    }
+    /* Make trigger look exactly like your selects by reusing .select styles */
+    .combo-trigger{ all:unset; display:block; }
+    .combo-trigger.select{ display:block; width:100%; padding:12px; border-radius:10px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); color:var(--text); font:inherit; font-size:16px; cursor:pointer; }
+
     .combo-panel{
-      position:absolute; left:0; right:0; z-index:1000; margin-top:6px;
+      position:absolute; left:0; right:0; z-index:1000;
+      margin-top:6px; padding:6px;
       background:var(--surface); border:1px solid var(--border); border-radius:12px;
-      box-shadow:0 12px 26px rgba(0,0,0,.18); overflow:auto;
-      /* exactly 5 rows visible without scrolling */
+      box-shadow:var(--combo-shadow, 0 12px 26px rgba(0,0,0,.18));
+      /* Exactly 5 rows visible; no tall dropdown */
       --row-h: 36px;
-      max-height: calc(var(--row-h) * 5);
+      max-height: calc(var(--row-h) * 5 + 12px);
+      overflow:auto;
     }
     .combo-item{
-      display:flex; align-items:center; height:var(--row-h);
-      padding:0 10px; border-bottom:1px solid var(--border);
-      background:var(--surface); color:var(--text); width:100%;
-      cursor:pointer; text-align:left; font:inherit;
+      display:block; width:100%; text-align:left; font:inherit; color:var(--text);
+      background:transparent; border:none; border-radius:10px;
+      padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer;
     }
-    .combo-item:last-child{ border-bottom:none; }
+    /* No gridlines between items; just a soft hover */
+    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
     .combo-item[aria-selected="true"]{ font-weight:800; }
-    .combo-item:focus{ outline:2px solid var(--brand); outline-offset:-2px; }
     .combo-hidden{ display:none !important; }
-
   </style>
 </head>
 
@@ -149,10 +132,9 @@
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
-
               <!-- Compact 5-row custom combo; native select kept hidden + synced -->
               <div class="combo" id="yearCombo">
-                <button type="button" id="yearTrigger" class="combo-trigger" aria-haspopup="listbox" aria-expanded="false">
+                <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">
                   — Select —
                 </button>
                 <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
@@ -211,7 +193,7 @@
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    // ===== Year options + compact combo =====
+    // ===== Year options + compact combo (no gridlines) =====
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -231,10 +213,8 @@
         btn.textContent=opt.textContent;
         if(idx===0) btn.setAttribute('aria-selected','true'); // default "— Select —"
         btn.addEventListener('click', ()=>{
-          // update selection + trigger text
           sel.value = opt.value;
           trigger.textContent = opt.value ? opt.textContent : "— Select —";
-          // set selected style
           panel.querySelectorAll('.combo-item').forEach(el=>el.removeAttribute('aria-selected'));
           btn.setAttribute('aria-selected','true');
           closeYearPanel();
@@ -247,7 +227,6 @@
       const trigger=$("yearTrigger"), panel=$("yearPanel");
       panel.classList.remove('combo-hidden');
       trigger.setAttribute('aria-expanded','true');
-      // Focus current selection for better keyboard nav
       const val=$("year").value;
       const current = [...panel.children].find(el=>el.dataset.val===val) || panel.firstElementChild;
       current?.focus();
@@ -262,7 +241,7 @@
     }
     function onDocClickClose(e){
       if(!$("yearCombo").contains(e.target)) closeYearPanel();
-      else document.addEventListener('click', onDocClickClose, { once:true }); // re-arm if click was inside
+      else document.addEventListener('click', onDocClickClose, { once:true });
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
@@ -277,7 +256,6 @@
 
       buildYearOptions();
 
-      // wire combo trigger
       $("yearTrigger").addEventListener('click', ()=>{
         const isOpen = $("yearTrigger").getAttribute('aria-expanded') === 'true';
         if(isOpen) closeYearPanel(); else openYearPanel();
@@ -525,12 +503,9 @@
         showToast("Saved — Ready for next unit");
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
         $("photos").value="";
-        // reset year (both controls)
         $("year").selectedIndex=0;
         $("yearTrigger").textContent="— Select —";
-        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>{
-          el.toggleAttribute('aria-selected', i===0);
-        });
+        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>el.toggleAttribute('aria-selected', i===0));
 
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0; window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
@@ -539,12 +514,9 @@
       $("btnClear").addEventListener("click", ()=>{
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
         $("photos").value="";
-        // reset year (both controls)
         $("year").selectedIndex=0;
         $("yearTrigger").textContent="— Select —";
-        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>{
-          el.toggleAttribute('aria-selected', i===0);
-        });
+        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>el.toggleAttribute('aria-selected', i===0));
 
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0;
