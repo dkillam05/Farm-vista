@@ -1,49 +1,81 @@
 /* /Farm-vista/js/fv-combo.js
-   FarmVista Combo Upgrader — v1.1.0
-   Rounded "buttonish + combo panel", portaled to <body> so it won't be clipped.
-   Panels auto-position under the trigger but will NOT overlap the green footer.
-   Opt in with:  <select data-fv-combo ...>
+   FarmVista Combo Upgrader — v1.2.0
+   - Rounded, tight “buttonish + combo panel”.
+   - Portals to <body> so parents can’t clip it.
+   - Panels prefer to open below; flip up if needed.
+   - Lists STOP above the green footer AND render UNDER it (footer overlays).
+   - Opt in with: <select data-fv-combo ...>  (optional: data-fv-search="true")
 */
-
 (function () {
   /* ---------- Styles (token-friendly) ---------- */
   const style = document.createElement('style');
   style.textContent = `
   :root{
-    --combo-gap:4px; --combo-radius:12px; --combo-btn-radius:10px;
+    --combo-gap:4px;
+    --combo-radius:12px;
+    --combo-btn-radius:10px;
     --combo-shadow:0 12px 26px rgba(0,0,0,.18);
-    --combo-item-pad:10px 8px; --combo-max-h:50vh;
+    --combo-item-pad:10px 8px;
+    --combo-max-h:50vh;          /* hard ceiling; script will choose lower */
+    --combo-z: 900;              /* kept BELOW footer z-index at runtime */
   }
+
   .fv-field{ position:relative }
+
   .fv-buttonish{
-    width:100%; font:inherit; font-size:16px; color:var(--text);
-    background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-    border-radius:var(--combo-btn-radius); padding:12px; outline:none;
-    cursor:pointer; text-align:left; position:relative; padding-right:42px;
+    width:100%;
+    font:inherit; font-size:16px; color:var(--text);
+    background:var(--card-surface,var(--surface));
+    border:1px solid var(--border);
+    border-radius:var(--combo-btn-radius);
+    padding:12px; padding-right:42px;
+    outline:none; cursor:pointer; text-align:left;
+    transition:box-shadow .12s ease;
   }
+  .fv-buttonish:focus-visible{ box-shadow:0 0 0 3px rgba(59,126,70,.25) }
+
   .fv-buttonish.has-caret::after{
     content:""; position:absolute; right:14px; top:50%; width:0; height:0;
     border-left:6px solid transparent; border-right:6px solid transparent;
-    border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
+    border-top:7px solid var(--muted,#67706B); transform:translateY(-50%);
+    pointer-events:none;
   }
+
   .fv-combo .fv-anchor{ position:relative; display:inline-block; width:100%; }
 
   /* Portaled panel: fixed to viewport so parents can't clip it. */
   .fv-panel{
     position:fixed; left:0; top:0; width:auto;
-    background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
-    box-shadow:var(--combo-shadow); z-index:2147483000; padding:8px; display:none;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--combo-radius);
+    box-shadow:var(--combo-shadow);
+    z-index:var(--combo-z);
+    padding:8px; display:none;
+    overflow:hidden;              /* ensures list scrollbar/arrow never “bleeds” */
   }
   .fv-panel.show{ display:block }
+
   .fv-panel .fv-search{ padding:4px 2px 8px }
   .fv-panel .fv-search input{
-    width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--combo-btn-radius);
-    background:var(--card-surface,var(--surface)); color:var(--text);
+    width:100%; padding:10px;
+    border:1px solid var(--border);
+    border-radius:var(--combo-btn-radius);
+    background:var(--card-surface,var(--surface));
+    color:var(--text);
   }
-  .fv-panel .fv-list{ max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border) }
+
+  .fv-panel .fv-list{
+    max-height:var(--combo-max-h);
+    overflow:auto;
+    border-top:1px solid var(--border);
+    padding-bottom:10px;          /* prevents the last item/scroll arrow from clipping */
+  }
+
   .fv-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
   .fv-item:hover{ background:rgba(0,0,0,.04) }
   .fv-item:last-child{ border-bottom:none }
+
   .fv-empty{ padding:var(--combo-item-pad); color:#67706B }
   `;
   document.head.appendChild(style);
@@ -59,7 +91,7 @@
       n.style.top = '0';
       n.style.width = '0';
       n.style.height = '0';
-      n.style.zIndex = '2147483000';
+      // z-index is handled per-panel so footer can stay above us
       document.body.appendChild(n);
     }
     return n;
@@ -71,7 +103,32 @@
   document.addEventListener('click', () => closeAll());
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
 
-  /* ---- Helpers ---- */
+  /* ---- Footer helpers ---- */
+  function getFooterEl() {
+    return (
+      document.querySelector('[data-fv-footer]') ||
+      document.querySelector('.ftr') ||
+      document.querySelector('footer.fv-footer')
+    );
+  }
+  function getFooterHeight() {
+    const el = getFooterEl();
+    if (el) return Math.max(0, el.getBoundingClientRect().height);
+    const root = getComputedStyle(document.documentElement);
+    const varFtr = parseFloat(root.getPropertyValue('--ftr-h')) || 0;
+    return varFtr || 44;
+  }
+  function computePanelZBelowFooter(panel) {
+    const f = getFooterEl();
+    let z = 900; // sensible default
+    if (f) {
+      const zi = parseInt(getComputedStyle(f).zIndex || '0', 10);
+      if (!Number.isNaN(zi) && zi !== 0) z = Math.max(1, zi - 1); // always just under footer
+    }
+    panel.style.zIndex = String(z);
+  }
+
+  /* ---- Scrolling context helper ---- */
   const isScrollable = (el) => {
     const cs = getComputedStyle(el);
     return /(auto|scroll|overlay)/.test(cs.overflow + cs.overflowY + cs.overflowX);
@@ -83,21 +140,10 @@
     return window;
   };
 
-  // Try to learn footer height (favor real element; fall back to CSS var or default 44)
-  function getFooterHeight() {
-    const el =
-      document.querySelector('[data-fv-footer]') ||
-      document.querySelector('.ftr') ||
-      document.querySelector('footer.fv-footer');
-    if (el) return Math.max(0, el.getBoundingClientRect().height);
-    const root = getComputedStyle(document.documentElement);
-    const varFtr = parseFloat(root.getPropertyValue('--ftr-h')) || 0;
-    return varFtr || 44;
-  }
-
   function upgradeSelect(sel) {
     if (sel._fvUpgraded || !sel.matches('[data-fv-combo]')) return;
-    // Skip invisible nodes to avoid bad rects
+
+    // Skip invisible nodes (prevents bad rects)
     const cs = getComputedStyle(sel);
     if (cs.display === 'none' || cs.visibility === 'hidden') return;
 
@@ -106,7 +152,7 @@
     const searchable  = String(sel.dataset.fvSearch || '').toLowerCase() === 'true';
     const placeholder = sel.getAttribute('placeholder') || (sel.options[0]?.text ?? '— Select —');
 
-    // Hide native select but keep it in DOM for form semantics
+    // Hide native select but keep semantics
     sel.style.position = 'absolute';
     sel.style.opacity = '0';
     sel.style.pointerEvents = 'none';
@@ -118,7 +164,11 @@
     const field  = document.createElement('div'); field.className = 'fv-field fv-combo';
     const anchor = document.createElement('div'); anchor.className = 'fv-anchor';
     const btn    = document.createElement('button'); btn.type = 'button'; btn.className = 'fv-buttonish has-caret'; btn.textContent = placeholder;
-    const panel  = document.createElement('div'); panel.className = 'fv-panel'; panel.setAttribute('role','listbox'); panel.setAttribute('aria-label', sel.getAttribute('aria-label') || sel.name || 'List');
+
+    const panel  = document.createElement('div'); panel.className = 'fv-panel';
+    panel.setAttribute('role','listbox');
+    panel.setAttribute('aria-label', sel.getAttribute('aria-label') || sel.name || 'List');
+
     const list   = document.createElement('div'); list.className = 'fv-list';
 
     if (searchable) {
@@ -143,55 +193,71 @@
     }
     function render(q='') {
       const qq = (q||'').toLowerCase();
-      const vis = items.filter(x => !qq || x.label.toLowerCase().includes(qq) || x.value.toLowerCase().includes(qq))
-                       .filter(x => !x.disabled);
+      const vis = items
+        .filter(x => !qq || x.label.toLowerCase().includes(qq) || x.value.toLowerCase().includes(qq))
+        .filter(x => !x.disabled);
       list.innerHTML = vis.length
         ? vis.map(x => `<div class="fv-item" data-id="${x.id}">${x.label}</div>`).join('')
         : `<div class="fv-empty">(no matches)</div>`;
     }
 
-    // ----- Smart placement (no footer overlap) -----
+    /* ----- Smart placement (no footer overlap, respect hero box bottom) ----- */
     let scrollUnsub = null;
 
     function placePanel() {
       const gap = Math.max(4, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-gap')) || 4);
       const r = anchor.getBoundingClientRect();
+      const vwW = window.innerWidth;
       const vwH = window.innerHeight;
+
+      // Footer handling
       const footerH = getFooterHeight();
       const bottomLimit = vwH - footerH - 6; // hard cap just above footer
-      const width = Math.max(180, r.width);
+
+      // Panel chrome sizes
+      const padV = 16; // panel padding top+bottom (8+8)
+      const borderV = 2;
+
+      // Ensure panel sits UNDER the footer visually
+      computePanelZBelowFooter(panel);
 
       // Temporarily show to measure content height
       panel.style.visibility = 'hidden';
       panel.style.display = 'block';
-      panel.style.width = width + 'px';
-      const panelH = panel.offsetHeight || 0;
+      panel.style.width = Math.max(180, r.width) + 'px';
 
-      // Prefer below
-      let top = r.bottom + gap;
+      // Width & horizontal clamp (avoid off-screen on narrow view)
+      let left = Math.round(Math.min(Math.max(8, r.left), vwW - panel.offsetWidth - 8));
+
+      // Choose top
+      let desiredTop = r.bottom + gap;
       let flipUp = false;
 
-      // If below would cross the footer line, try flipping up
-      if ((top + panelH) > bottomLimit) {
-        const tryUp = r.top - gap - panelH;
+      // If below crosses the footer, try flipping up
+      const fullH = panel.offsetHeight;
+      if ((desiredTop + fullH) > bottomLimit) {
+        const tryUp = r.top - gap - fullH;
         if (tryUp >= 8) {
-          top = tryUp;
-          flipUp = true;
+          desiredTop = tryUp; flipUp = true;
         } else {
-          // Not enough space either way: clamp between 8 and bottomLimit - minHeight
-          top = Math.max(8, Math.min(top, bottomLimit - 120)); // 120 = minimum comfortable menu height
+          // Not enough space either way: we’ll clamp and make the list scroll
+          desiredTop = Math.max(8, desiredTop);
         }
       }
 
-      // Final clamp so bottom never dips into footer
+      // Final clamp: bottom may not pass the footer line
       const maxBottom = bottomLimit;
-      const maxListHeight = Math.max(120, maxBottom - top - 12); // leave a small margin
+      const chrome = padV + borderV + (panel.querySelector('.fv-search') ? (4+8+0) + 42 : 0); // approximate search height
+      const maxListHeight = Math.max(120, Math.min(
+        parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-max-h')) || 600,
+        maxBottom - desiredTop - 12 - chrome
+      ));
+
       const listEl = panel.querySelector('.fv-list');
       if (listEl) listEl.style.maxHeight = maxListHeight + 'px';
 
-      panel.style.left = Math.round(r.left) + 'px';
-      panel.style.top  = Math.round(top) + 'px';
-      panel.style.width = Math.round(width) + 'px';
+      panel.style.left = left + 'px';
+      panel.style.top  = Math.round(desiredTop) + 'px';
       panel.style.visibility = '';
     }
 
@@ -250,7 +316,10 @@
     mo.observe(sel, { childList: true, subtree: true, attributes: true });
 
     // Programmatic changes & disabled reflection
-    sel.addEventListener('change', () => { const opt = sel.options[sel.selectedIndex]; btn.textContent = opt?.text || placeholder; });
+    sel.addEventListener('change', () => {
+      const opt = sel.options[sel.selectedIndex];
+      btn.textContent = opt?.text || placeholder;
+    });
     const syncDisabled = () => { btn.disabled = sel.disabled; btn.classList.toggle('is-disabled', !!sel.disabled); };
     syncDisabled();
     new MutationObserver(syncDisabled).observe(sel, { attributes: true, attributeFilter: ['disabled'] });
