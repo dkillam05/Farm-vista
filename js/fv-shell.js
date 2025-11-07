@@ -4,7 +4,6 @@
      - Camera icon: green in light, white in dark
      - Camera hidden on desktop; visible on phones
 -->
-<script>
 (function () {
   // ====== TUNABLES ======
   const AUTH_MAX_MS = 5000;  // wait up to 5s for real auth + user-context
@@ -1014,4 +1013,3 @@
 
   if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
 })();
-</script>
