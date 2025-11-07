@@ -1,3 +1,7 @@
+<!-- =====================================================================
+/Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
+Adds: persist QR preview to Storage and save its URL under equipment.qr.image
+===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -79,9 +83,7 @@
 
     /* ===== Year popover (~5 rows), visually matches .select ===== */
     .combo{ position:relative; }
-    .combo-trigger{
-      width:100%; text-align:left;
-    }
+    .combo-trigger{ width:100%; text-align:left; }
     .combo-trigger.select{ position:relative; }
     .combo-trigger.select::after{
       content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
@@ -273,7 +275,8 @@
     }
 
     /* ===== QR (client-only until Save) ===== */
-    let pendingToken = null;   // token created by "Create QR Code" (not yet saved)
+    let pendingToken = null;     // token created by "Create QR Code" (not yet saved)
+    let pendingQRBlob = null;    // PNG blob of the PREVIEW we showed
     async function waitQRReady(){
       let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){
         await new Promise(r=>setTimeout(r,50));
@@ -288,6 +291,9 @@
     function randTokenHex(len=24){
       const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes);
       return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+    }
+    async function canvasToBlob(canvas){
+      return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png'));
     }
     async function makeQRForUrl(absUrl){
       await waitQRReady();
@@ -314,10 +320,16 @@
           img.onerror=rej; img.src=node.src;
         });
       }
+      const blob = await canvasToBlob(canvas);
       const dataURL = canvas.toDataURL('image/png');
+
+      // Preview
       const img=$("qrThumb");
       img.src=dataURL;
       img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
+
+      // retain the EXACT preview we showed so we can upload this on Save
+      pendingQRBlob = blob;
     }
 
     /* ===== Data ===== */
@@ -367,6 +379,12 @@
       if(!form.modelId){ alert("Please choose a Model."); return; }
       if(!form.serial){ alert("Serial # is required."); return; }
 
+      // We require a QR preview to persist (so it exists on View forever).
+      if(!pendingQRBlob){
+        const ok = confirm("No QR preview yet. Create it first? (Click Cancel to save without a QR image.)");
+        if(ok) return; // let them click Create QR, then Save again
+      }
+
       saving = true; $("btnSave").disabled = true;
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
@@ -406,7 +424,7 @@
             tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
           });
         } else {
-          // Fallback: pre-checks (prevents crash; small race window)
+          // Fallback: pre-checks
           const [uSnap, tSnap] = await Promise.all([getDoc(uniqRef), getDoc(tokenRef)]);
           if(uSnap.exists() && uSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_UNIQ");
           if(tSnap.exists() && tSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_TOKEN");
@@ -419,6 +437,30 @@
           });
           await setDoc(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
           await setDoc(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+        }
+
+        // Upload the EXACT QR preview if present
+        if(pendingQRBlob){
+          try{
+            const m = await import('/Farm-vista/js/firebase-init.js');
+            const st = m.getStorage();
+            const qrPath = `equipment/${eqRef.id}/qr.png`;
+            const r = m.ref(st, qrPath);
+            await m.uploadBytes(r, pendingQRBlob, { contentType: 'image/png' });
+            const url = await m.getDownloadURL(r);
+            await updateDoc(eqRef, {
+              qr: {
+                token,
+                image: { path: qrPath, url },
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              },
+              updatedAt: serverTimestamp()
+            });
+          }catch(qe){
+            console.warn('QR upload failed:', qe);
+            $("err").hidden=false; $("err").textContent = `Saved but QR image upload failed: ${qe.message}`;
+          }
         }
 
         // Optional photos
@@ -467,6 +509,7 @@
       $("make").selectedIndex=0;
       $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
       pendingToken=null;
+      pendingQRBlob=null;
     }
 
     (async()=>{
