@@ -60,7 +60,7 @@
 
     .field label{display:block;font-weight:800;margin:0 0 6px}
 
-    /* ===== Inputs + Selects (tight + rounded like combo template) ===== */
+    /* Inputs + Selects (tight + rounded) */
     .input,
     .select{
       width:100%;
@@ -70,13 +70,12 @@
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
       border-radius:var(--combo-btn-radius);
-      padding:10px 12px;           /* tighter padding */
+      padding:10px 12px;
       outline:none;
       line-height:1.2;
-      min-height:40px;             /* compact, still tappable */
+      min-height:40px;
     }
 
-    /* Custom caret for selects; hide native arrow */
     .select{
       -webkit-appearance:none;
       -moz-appearance:none;
@@ -87,12 +86,11 @@
       background-repeat:no-repeat;
       background-position:right 12px center;
       background-size:14px 8px;
-      padding-right:40px;          /* space for caret */
+      padding-right:40px;
       cursor:pointer;
     }
     .select::-ms-expand{display:none;}
 
-    /* Focus + hover */
     .input:focus, .select:focus{
       border-color: color-mix(in srgb, var(--accent), #000 15%);
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 70%);
@@ -154,7 +152,11 @@
           <div class="row">
             <div class="field">
               <label for="submittedBy">Submitted By</label>
-              <input id="submittedBy" class="input" placeholder="Auto: signed-in user"/>
+              <!-- changed to a select; defaults to signed-in user -->
+              <select id="submittedBy" class="select">
+                <option value="">— Loading employees… —</option>
+              </select>
+              <div id="submittedByHelp" class="help">—</div>
             </div>
             <div class="field">
               <label for="date">Date</label>
@@ -199,7 +201,53 @@
     function toast(msg="Saved.", ms=2200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
     let SITES=[]; let CURRENT_SITE=null; let CURRENT_BIN_INDEX=-1;
+    let EMPLOYEES=[];
     const todayISO=()=>new Date().toISOString().slice(0,10);
+
+    function getSelectedEmployee(){
+      const sel = $("submittedBy");
+      const uid = sel.value || null;
+      const name = sel.options[sel.selectedIndex]?.textContent || null;
+      return { uid, name };
+    }
+
+    async function loadEmployees(db, auth){
+      EMPLOYEES = [];
+      try{
+        const snap = await getDocs(query(collection(db,'employees'), orderBy('displayName')));
+        snap.forEach(d=>{
+          const v = d.data()||{};
+          const name = String(v.displayName || v.name || '').trim();
+          if(name) EMPLOYEES.push({ id:d.id, name });
+        });
+      }catch(e){
+        console.warn('Employees load failed', e);
+      }
+
+      const sel = $("submittedBy");
+      const cu = auth.currentUser;
+      const cuUid = cu?.uid || '';
+      const cuName = (cu?.displayName || 'Dane Killam').trim();
+
+      const idxInList = EMPLOYEES.findIndex(e=>e.id===cuUid || e.name===cuName);
+      let opts = '';
+      if(EMPLOYEES.length){
+        opts = EMPLOYEES.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+      }
+      if(idxInList===-1 && cuUid){
+        opts = `<option value="${esc(cuUid)}">${esc(cuName)}</option>` + (opts?('<option disabled>──────────</option>'+opts):'');
+      }
+      sel.innerHTML = opts || `<option value="${esc(cuUid)}">${esc(cuName)}</option>`;
+
+      if(cuUid){
+        sel.value = cuUid;
+      }else if(sel.options.length){
+        sel.selectedIndex = 0;
+      }
+
+      const countShown = sel.querySelectorAll('option:not([disabled])').length;
+      $("submittedByHelp").textContent = `${countShown} option${countShown===1?'':'s'}`;
+    }
 
     function updateOnHandHelp(){
       const capEl=$("capHelp"), save=$("btnSave");
@@ -252,6 +300,8 @@
       const bushels=parseFloat($("bushels").value);
       if(!siteId || !(binIdx>=0) || !(bushels>0)){ alert("Complete all fields."); return; }
 
+      const { uid:submittedByUid, name:submittedByName } = getSelectedEmployee();
+
       try{
         const siteRef=doc(db,'binSites',siteId);
         const snap=await getDoc(siteRef);
@@ -267,7 +317,8 @@
         bins[binIdx] = {
           ...bin,
           onHand: after,
-          lastUpdatedBy: $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam'),
+          lastUpdatedBy: submittedByName || (auth.currentUser?.displayName || 'Dane Killam'),
+          lastUpdatedUid: submittedByUid || (auth.currentUser?.uid || null),
           lastUpdatedMs: Date.now()
         };
 
@@ -279,7 +330,8 @@
           direction:'out',
           bushels,
           note: ($("note").value||"").trim() || null,
-          submittedBy: $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam'),
+          submittedBy: submittedByName || (auth.currentUser?.displayName || 'Dane Killam'),
+          submittedByUid: submittedByUid || (auth.currentUser?.uid || null),
           dateISO: $("date").value || null,
           createdAt: serverTimestamp()
         });
@@ -298,10 +350,13 @@
       await ready;
       const db=getFirestore(); const auth=getAuth();
 
-      $("submittedBy").value = auth.currentUser?.displayName || "Dane Killam";
       $("date").value = todayISO();
 
-      await loadSites(db);
+      await Promise.all([
+        loadSites(db),
+        loadEmployees(db, auth)
+      ]);
+
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
       $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateOnHandHelp(); });
       $("bushels").addEventListener("input", updateOnHandHelp);
