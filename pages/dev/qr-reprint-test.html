@@ -1,124 +1,56 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>FarmVista • Dev QR Reprint Test</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <meta name="theme-color" content="#3B7E46"/>
+<!-- QR lib -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
-  <!-- Absolute paths (FarmVista) -->
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  <script src="/Farm-vista/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+<!-- Firebase (absolute import) -->
+<script type="module">
+  import {
+    ready,
+    getFirestore, doc, getDoc
+  } from '/Farm-vista/js/firebase-init.js';
 
-  <style>
-    :root{ --card-max:780px; }
-    body{ background:var(--app-bg,var(--surface)); }
-    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px); }
-    .card{ border:1px solid var(--border); border-radius:14px; background:var(--surface); padding:16px; display:grid; gap:12px }
-    .row{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:end }
-    .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
-    .input,.btn{ font:inherit }
-    .input{
-      width:100%; padding:10px 12px; border:1px solid var(--border);
-      border-radius:10px; background:var(--card-surface,var(--surface)); min-height:40px;
-    }
-    .btn{
-      padding:10px 14px; border-radius:12px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer;
-    }
-    .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff }
-    .help{ color:var(--muted,#67706B); font-size:13px }
-    .preview{ display:grid; place-items:center; min-height:360px; border:1px dashed var(--border); border-radius:12px; background:#fff }
-    #qrHolder canvas, #qrHolder img { max-width:100%; height:auto }
-    code{ word-break:break-all; display:block; background:rgba(0,0,0,.06); padding:6px 8px; border-radius:8px }
-  </style>
-</head>
-<body>
-  <fv-shell>
-    <div class="wrap">
-      <h1 style="margin:0 0 10px 0">Dev • QR Reprint Test</h1>
-      <p class="help" style="margin-top:-6px">Fetch token from Firestore (by Equipment ID) and render the exact smart-link QR used in production.</p>
+  const $ = id => document.getElementById(id);
+  const APP_ROOT = '/Farm-vista/';
 
-      <div class="card">
-        <div class="row2">
-          <div>
-            <label for="eqId" class="help" style="font-weight:800;color:var(--text)">Equipment ID</label>
-            <input id="eqId" class="input" placeholder="Firestore doc ID (e.g., LHF...JofVQ)">
-          </div>
-          <div>
-            <label for="eqTok" class="help" style="font-weight:800;color:var(--text)">QR Token</label>
-            <input id="eqTok" class="input" placeholder="Will fill from Firestore">
-          </div>
-        </div>
+  const buildHub = (id, tok) =>
+    location.origin + APP_ROOT + 'pages/equipment/actions/hub.html'
+    + `?id=${encodeURIComponent(id)}&t=${encodeURIComponent(tok)}`;
 
-        <div class="row">
-          <div style="display:flex; gap:10px; flex-wrap:wrap">
-            <button id="btnFetch" class="btn">Fetch token</button>
-            <button id="btnRender" class="btn btn-primary">Render QR</button>
-          </div>
-          <div class="help" id="status" aria-live="polite"></div>
-        </div>
+  const buildSmart = (absTo) => {
+    const u = new URL(location.origin + APP_ROOT + 'launch.html');
+    u.searchParams.set('to', absTo);
+    return u.href;
+  };
 
-        <div>
-          <div class="help" style="font-weight:800;color:var(--text); margin-bottom:6px">Encoded smart link</div>
-          <code id="smartLink">—</code>
-        </div>
+  function setStatus(msg, ok=true){
+    const s = $('status');
+    s.textContent = (ok ? '✓ ' : '⚠ ') + msg;
+    s.style.color = ok ? 'var(--text)' : '#b00020';
+  }
 
-        <div class="preview">
-          <div id="qrHolder" aria-live="polite"></div>
-        </div>
-      </div>
-    </div>
-  </fv-shell>
+  function clearQR(){
+    $('qrHolder').innerHTML = '';
+    $('smartLink').textContent = '—';
+  }
 
-  <!-- QR lib -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
+  function waitQRReady(cb){
+    let tries=0;
+    (function tick(){
+      if(window.__qrReady && window.QRCode){ cb(); }
+      else if(tries++<200) setTimeout(tick,50);
+      else setStatus('QR library never loaded.', false);
+    })();
+  }
 
-  <!-- Firebase (absolute import) -->
-  <script type="module">
-    import {
-      ready,
-      getFirestore, doc, getDoc
-    } from '/Farm-vista/js/firebase-init.js';
+  function renderQR(id, token){
+    clearQR();
+    if(!id || !token){ setStatus('ID and token required.', false); return; }
+    const smart = buildSmart(buildHub(id, token));
+    $('smartLink').textContent = smart;
 
-    const $ = id => document.getElementById(id);
-    const APP_ROOT = '/Farm-vista/';
-
-    const buildHub = (id, tok) =>
-      location.origin + APP_ROOT + 'pages/equipment/actions/hub.html'
-      + `?id=${encodeURIComponent(id)}&t=${encodeURIComponent(tok)}`;
-
-    const buildSmart = (absTo) => {
-      const u = new URL(location.origin + APP_ROOT + 'launch.html');
-      u.searchParams.set('to', absTo);
-      return u.href;
-    };
-
-    function setStatus(msg, ok=true){
-      const s = $('status');
-      s.textContent = (ok ? '✓ ' : '⚠ ') + msg;
-      s.style.color = ok ? 'var(--text)' : '#b00020';
-    }
-
-    function clearQR(){
-      $('qrHolder').innerHTML = '';
-      $('smartLink').textContent = '—';
-    }
-
-    function renderQR(id, token){
-      clearQR();
-      if(!id || !token){ setStatus('ID and token required.', false); return; }
-      const smart = buildSmart(buildHub(id, token));
-      $('smartLink').textContent = smart;
-
-      const holder = document.createElement('div');
-      $('qrHolder').appendChild(holder);
-
+    waitQRReady(()=>{
       try{
+        const holder = document.createElement('div');
+        $('qrHolder').appendChild(holder);
         new window.QRCode(holder, {
           text: smart,
           width: 320, height: 320,
@@ -130,37 +62,35 @@
         setStatus('QR render failed.', false);
         console.error(err);
       }
-    }
-
-    async function fetchToken(id){
-      try{
-        await ready;
-        const db = getFirestore();
-        const snap = await getDoc(doc(db, 'equipment', id));
-        if(!snap.exists()){ setStatus('No equipment found for that ID.', false); return null; }
-        const tok = snap.data()?.qr?.token || null;
-        if(!tok){ setStatus('This unit has no QR token yet.', false); return null; }
-        setStatus('Token fetched.');
-        return tok;
-      }catch(e){
-        console.error(e); setStatus('Fetch failed.', false); return null;
-      }
-    }
-
-    // Wire UI
-    $('btnFetch').addEventListener('click', async ()=>{
-      clearQR();
-      const id = $('eqId').value.trim();
-      if(!id){ setStatus('Enter an Equipment ID.', false); return; }
-      const tok = await fetchToken(id);
-      if(tok){ $('eqTok').value = tok; }
     });
+  }
 
-    $('btnRender').addEventListener('click', ()=>{
-      const id = $('eqId').value.trim();
-      const tok = $('eqTok').value.trim();
-      renderQR(id, tok);
-    });
-  </script>
-</body>
-</html>
+  async function fetchToken(id){
+    try{
+      await ready;
+      const db = getFirestore();
+      const snap = await getDoc(doc(db, 'equipment', id));
+      if(!snap.exists()){ setStatus('No equipment found for that ID.', false); return null; }
+      const tok = snap.data()?.qr?.token || null;
+      if(!tok){ setStatus('This unit has no QR token yet.', false); return null; }
+      setStatus('Token fetched.');
+      return tok;
+    }catch(e){
+      console.error(e); setStatus('Fetch failed.', false); return null;
+    }
+  }
+
+  $('btnFetch').addEventListener('click', async ()=>{
+    clearQR();
+    const id = $('eqId').value.trim();
+    if(!id){ setStatus('Enter an Equipment ID.', false); return; }
+    const tok = await fetchToken(id);
+    if(tok){ $('eqTok').value = tok; }
+  });
+
+  $('btnRender').addEventListener('click', ()=>{
+    const id = $('eqId').value.trim();
+    const tok = $('eqTok').value.trim();
+    renderQR(id, tok);
+  });
+</script>
