@@ -1,3 +1,4 @@
+<!-- /Farm-vista/pages/equipment/equipment-hub.html (FULL FILE) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -64,6 +65,15 @@
     .meta{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
     .chip{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:4px 8px; background:var(--surface) }
     code{ font-size:13px; background:rgba(0,0,0,.06); padding:3px 6px; border-radius:6px; color:var(--text) }
+
+    /* QR card */
+    .qr-card{ border:1px dashed var(--border); border-radius:12px; background:color-mix(in srgb, var(--brand) 6%, transparent);
+      padding:12px; display:grid; gap:10px }
+    .qr-row{ display:flex; gap:14px; align-items:center; flex-wrap:wrap }
+    .qr-img{ width:220px; height:220px; background:#fff; border:1px solid var(--border); border-radius:10px;
+      display:grid; place-items:center; overflow:hidden; padding:10px }
+    .qr-img img{ max-width:100%; max-height:100%; display:block }
+    .qr-msg{ font-size:13px; color:var(--muted) }
   </style>
 </head>
 
@@ -99,6 +109,18 @@
             <a id="linkPre" class="btn" href="#">Pre-Season Checklist</a>
           </div>
 
+          <!-- QR block: saved image preferred; fallback to generated -->
+          <div class="qr-card">
+            <div class="qr-row">
+              <div class="qr-img"><img id="qrImg" alt="QR" hidden></div>
+              <div style="display:flex; gap:10px; flex-wrap:wrap">
+                <button id="btnReprint" class="btn">Reprint QR</button>
+                <a id="btnOpenList" class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Open Tractors</a>
+              </div>
+            </div>
+            <div id="qrMsg" class="qr-msg">Finding QR…</div>
+          </div>
+
           <div class="tiny">
             <div>Link: <code id="deepLink">—</code></div>
             <div>QR token verified: <span id="tokenOK">—</span></div>
@@ -116,10 +138,13 @@
     </div>
   </fv-shell>
 
+  <!-- QR lib only needed if we must generate a fallback image -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
+
   <script type="module">
     import {
       ready,
-      getFirestore, doc, getDoc, runTransaction
+      getFirestore, doc, getDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -134,6 +159,16 @@
       if(opts.unhide) el.hidden=false;
     };
 
+    function last6(v){ v=String(v||''); return v.slice(-6); }
+
+    function smartLaunch(absTo){
+      const u = new URL(location.origin + '/Farm-vista/launch.html');
+      u.searchParams.set('to', absTo);
+      return u.href;
+    }
+    const hubLinkFor = (id, tok) =>
+      `${location.origin}/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}${tok?`&t=${encodeURIComponent(tok)}`:''}`;
+
     async function resolveIdByToken(db, token){
       // token doc is qr-tokens/{token} => { equipmentId }
       const ref = doc(db, 'qr-tokens', token);
@@ -142,15 +177,69 @@
       return snap.data()?.equipmentId || null;
     }
 
+    function printLabelWithImage(imageURL, caption){
+      const w = window.open('', '_blank', 'width=620,height=720');
+      w.document.write(`
+        <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+        <style>
+          @page { size: 2in 2.25in; margin: 3mm; } /* 2" label, slightly taller for text */
+          html,body{height:100%}
+          body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+          .wrap{text-align:center}
+          img{display:block; width:100%; max-width:380px; height:auto; margin:0 auto 4px}
+          h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
+          @media screen{ body{padding:16px} .wrap{max-width:420px} }
+        </style></head><body>
+          <div class="wrap">
+            <img src="${imageURL}" alt="QR">
+            <h1>${caption.replace(/</g,'&lt;')}</h1>
+          </div>
+          <script>setTimeout(function(){ window.print(); }, 200);<\/script>
+        </body></html>
+      `);
+      w.document.close();
+    }
+
+    function printLabelGenerated(text, caption){
+      const w = window.open('', '_blank', 'width=620,height=720');
+      w.document.write(`
+        <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+        <style>
+          @page { size: 2in 2.25in; margin: 3mm; }
+          html,body{height:100%}
+          body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+          .wrap{text-align:center}
+          #qr{width:100%; max-width:380px; margin:0 auto 4px}
+          h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
+          @media screen{ body{padding:16px} .wrap{max-width:420px} }
+        </style></head><body>
+          <div class="wrap">
+            <div id="qr"></div>
+            <h1>${caption.replace(/</g,'&lt;')}</h1>
+          </div>
+          <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+          <script>
+            (function(){
+              function go(){
+                new QRCode(document.getElementById('qr'), { text: ${JSON.stringify(text)}, width: 380, height: 380, correctLevel: QRCode.CorrectLevel.H, colorDark:'#000000', colorLight:'#ffffff' });
+                setTimeout(function(){ window.print(); }, 250);
+              }
+              if(window.QRCode) go(); else window.addEventListener('load', go);
+            })();
+          <\/script>
+        </body></html>
+      `);
+      w.document.close();
+    }
+
     async function check(){
       $("subtitle").textContent = "Resolving equipment…";
-      const ctx = await ready;
+      await ready;
       const db  = getFirestore();
 
       let eqId = id;
-
       if(!eqId && t){
-        // Allow token-only links from pre-printed stickers
+        // Support token-only scans
         eqId = await resolveIdByToken(db, t);
       }
 
@@ -184,7 +273,7 @@
           return;
         }
 
-        // Render
+        // Render identity / meta
         $("deepLink").textContent = location.href;
         $("tokenOK").textContent = ok ? "yes" : "no";
 
@@ -202,15 +291,49 @@
 
         // Quick links (keep context)
         const base = "/Farm-vista/pages/equipment/actions";
-        $("linkHours").href = `${base}/engine-hours.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
-        $("linkMaint").href = `${base}/maintenance.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
-        $("linkReq").href   = `${base}/service-request.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
-        $("linkPre").href   = `${base}/pre-check.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
+        const tok  = data.qr?.token || '';
+        $("linkHours").href = `${base}/engine-hours.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
+        $("linkMaint").href = `${base}/maintenance.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
+        $("linkReq").href   = `${base}/service-request.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
+        $("linkPre").href   = `${base}/pre-check.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
 
         $("stateBox").classList.remove("warn");
         $("stateMsg").textContent = "Linked.";
         $("content").hidden = false;
         $("subtitle").textContent = "Linked";
+
+        // ===== QR image handling =====
+        const img = $("qrImg");
+        const msg = $("qrMsg");
+        const saved = data.qr?.image?.url || null;
+        const smart = smartLaunch(hubLinkFor(eqId, tok));
+        const caption = `${data.modelName || 'Unit'} - #${last6(data.serial)}`;
+
+        if(saved){
+          img.src = saved; img.hidden = false; msg.textContent = "";
+          $("btnReprint").onclick = ()=> printLabelWithImage(saved, caption);
+        }else if(tok){
+          msg.textContent = "Generating QR…";
+          // Generate QR on the fly (fallback view)
+          const holder = document.createElement('div');
+          new window.QRCode(holder, {
+            text: smart,
+            width: 220, height: 220,
+            correctLevel: window.QRCode.CorrectLevel.H,
+            colorDark:"#000000", colorLight:"#ffffff"
+          });
+          const node = holder.querySelector('canvas') || holder.querySelector('img');
+          if(node){
+            img.src = node.tagName === 'CANVAS' ? node.toDataURL('image/png') : node.src;
+            img.hidden = false; msg.textContent = "";
+            $("btnReprint").onclick = ()=> printLabelGenerated(smart, caption);
+          }else{
+            msg.textContent = "QR render failed.";
+          }
+        }else{
+          msg.textContent = "No QR bound to this unit yet.";
+        }
+
       }catch(err){
         $("stateMsg").innerHTML = "Error loading record.";
         console.error(err);
