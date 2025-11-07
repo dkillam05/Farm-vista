@@ -961,18 +961,22 @@
         e.preventDefault();
         this._qcToggle(false);
         if (scanURL) location.href = scanURL;
-        else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true }));
+        else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
       });
 
       if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
-        e.preventDefault();
-        this._qcToggle(false);
-        if (cameraURL) {
-          location.href = cameraURL;            // dev can point to a custom camera page
-        } else {
-          this._openNativeCamera();             // default: invoke device camera immediately
-        }
-      });
+  e.preventDefault();
+  e.stopPropagation();           // keep it in the same gesture context
+  this._qcToggle(false);         // close the little rail
+  const html = document.documentElement;
+  const cameraURL = html.getAttribute('data-camera-url') || '';
+  if (cameraURL) {
+    location.href = cameraURL;   // custom camera page (if you ever add one)
+  } else {
+    this._openNativeCamera();    // native camera right now
+  }
+});
+
     }
 
     _qcToggle(on){
@@ -981,35 +985,47 @@
     }
 
     // Open device camera using a throwaway hidden input (no UI change required)
-    _openNativeCamera(){
-      try{
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.capture = 'environment'; // prefer rear camera
-        input.style.position = 'fixed';
-        input.style.opacity = '0';
-        input.style.pointerEvents = 'none';
-        document.body.appendChild(input);
+_openNativeCamera(){
+  try{
+    const input = document.createElement('input');
+    input.type = 'file';
 
-        input.addEventListener('change', ()=>{
-          // If needed later, we can dispatch the image back out:
-          const file = input.files && input.files[0];
-          if (file) {
-            this.dispatchEvent(new CustomEvent('fv:camera:file', { bubbles:true, detail:{ file } }));
-            this._toastMsg('Photo captured.', 1400);
-          } else {
-            this._toastMsg('Camera closed.', 1200);
-          }
-          setTimeout(()=> input.remove(), 0);
-        }, { once:true });
+    // Hints that improve mobile behavior:
+    // - Some Androids like the 'capture=camera' hint inside accept.
+    // - iOS looks for the separate capture attribute to prefer rear camera.
+    input.setAttribute('accept', 'image/*;capture=camera');
+    input.setAttribute('capture', 'environment');
 
-        input.click();
-      }catch{
-        this._toastMsg('Unable to open camera.', 1800);
+    // Keep it in the DOM and "visible" to the browser, but off-screen.
+    // Avoid display:none before the click on Safari.
+    input.style.position = 'fixed';
+    input.style.left = '-9999px';
+    input.style.top = '0';
+    input.style.opacity = '0';
+    input.style.width = '1px';
+    input.style.height = '1px';
+
+    document.body.appendChild(input);
+
+    input.addEventListener('change', ()=>{
+      const file = input.files && input.files[0];
+      if (file) {
+        this.dispatchEvent(new CustomEvent('fv:camera:file', { bubbles:true, composed:true, detail:{ file } }));
+        this._toastMsg('Photo captured.', 1400);
+      } else {
+        this._toastMsg('Camera closed.', 1200);
       }
-    }
+      // Remove immediately after result
+      setTimeout(()=> input.remove(), 0);
+    }, { once:true });
+
+    // Must be synchronous in the original tap handler call stack
+    input.click();
+  }catch{
+    this._toastMsg('Unable to open camera.', 1800);
   }
+}
+
 
   if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
 
