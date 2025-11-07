@@ -1,15 +1,14 @@
 // /Farm-vista/js/theme-boot.js  — viewport + theme + firebase boot + AUTH GUARD + USER CONTEXT WARM
 // All internal paths are ABSOLUTE under /Farm-vista/ to avoid 404s on deep pages.
 
-/* =========================  Viewport & tap behavior  ========================= */
-(function(){
-  try{
-    var HARD_NO_ZOOM = true;
-    var desired = HARD_NO_ZOOM
+(() => {
+  try {
+    const HARD_NO_ZOOM = true;
+    const desired = HARD_NO_ZOOM
       ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
       : 'width=device-width, initial-scale=1, viewport-fit=cover';
 
-    var m = document.querySelector('meta[name="viewport"]');
+    let m = document.querySelector('meta[name="viewport"]');
     if (m) m.setAttribute('content', desired);
     else {
       m = document.createElement('meta');
@@ -18,20 +17,20 @@
       else if (document.head) document.head.appendChild(m);
     }
 
-    var style = document.createElement('style');
+    const style = document.createElement('style');
     style.textContent = `
       input, select, textarea, button { font-size: 16px !important; }
       a, button, .btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { touch-action: pan-x pan-y; }
     `;
     document.head.appendChild(style);
-  }catch(e){}
+  } catch(e) {}
 })();
 
 /* ==============================  Theme boot  ================================ */
-(function(){
+(() => {
   try{
-    var t = localStorage.getItem('fv-theme');        // 'light' | 'dark' | 'system'
+    const t = localStorage.getItem('fv-theme');        // 'light' | 'dark' | 'system'
     if(!t) return;
     document.documentElement.setAttribute('data-theme', t === 'system' ? 'auto' : t);
     document.documentElement.classList.toggle('dark',
@@ -42,12 +41,8 @@
 })();
 
 /* =====================  Helpers for ordered script loads  ==================== */
-const __fvBoot = (function(){
-  const once = (key, fn) => {
-    if (window[key]) return window[key];
-    window[key] = fn();
-    return window[key];
-  };
+const __fvBoot = (() => {
+  const once = (key, fn) => { if (window[key]) return window[key]; window[key] = fn(); return window[key]; };
   const loadScript = (src, {type, defer=true, async=false}) => new Promise((res, rej)=>{
     const s = document.createElement('script');
     if (type) s.type = type;
@@ -57,86 +52,50 @@ const __fvBoot = (function(){
     s.onerror = (e) => rej(e);
     document.head.appendChild(s);
   });
-  const fire = (name, detail)=> {
-    try{ document.dispatchEvent(new CustomEvent(name, { detail })); }catch{}
-  };
+  const fire = (name, detail)=> { try{ document.dispatchEvent(new CustomEvent(name, { detail })); }catch{} };
   return { once, loadScript, fire };
 })();
 
 /* ==============  Firebase CONFIG -> INIT -> USER CONTEXT WARM  ============== */
-(function(){
+(() => {
   __fvBoot.once('__FV_FIREBASE_CHAIN__', async () => {
     try{
-      // 1) Ensure global config is present BEFORE loading firebase-init.js
       if (!window.FV_FIREBASE_CONFIG) {
-        try {
-          await __fvBoot.loadScript('/Farm-vista/js/firebase-config.js', { defer:false, async:false });
-        } catch(e) {
-          console.warn('[FV] firebase-config.js failed to load (continuing):', e);
-        }
+        try { await __fvBoot.loadScript('/Farm-vista/js/firebase-config.js', { defer:false, async:false }); }
+        catch(e) { console.warn('[FV] firebase-config.js failed to load (continuing):', e); }
       }
-
-      // 2) Load firebase-init.js as a module (once)
       if (!window.__FV_FIREBASE_INIT_LOADED__) {
         window.__FV_FIREBASE_INIT_LOADED__ = true;
-        try {
-          await __fvBoot.loadScript('/Farm-vista/js/firebase-init.js', { type:'module', defer:true });
-          console.log('[FV] firebase-init loaded');
-        } catch (e) {
-          console.warn('[FV] firebase-init failed to load — check path /Farm-vista/js/firebase-init.js', e);
-        }
+        try { await __fvBoot.loadScript('/Farm-vista/js/firebase-init.js', { type:'module', defer:true }); }
+        catch (e) { console.warn('[FV] firebase-init failed — check path /Farm-vista/js/firebase-init.js', e); }
       }
-
-      // 3) App startup module (optional, safe if missing)
       if (!window.__FV_APP_STARTUP_LOADED__) {
         window.__FV_APP_STARTUP_LOADED__ = true;
-        try {
-          await __fvBoot.loadScript('/Farm-vista/js/app/startup.js', { type:'module', defer:true });
-        } catch (e) {
-          console.warn('[FV] startup module failed — check /Farm-vista/js/app/startup.js', e);
-        }
+        try { await __fvBoot.loadScript('/Farm-vista/js/app/startup.js', { type:'module', defer:true }); }
+        catch (e) { console.warn('[FV] startup module failed — check /Farm-vista/js/app/startup.js', e); }
       }
 
-      // 4) USER CONTEXT: load and warm cached user/role/perms once per session.
-      //    - Emits 'fv:user-ready' quickly (from cache), then re-emits after refresh.
-      //    - Lets pages react immediately without waiting on Firestore every time.
       try{
-        // Load the module once
         if (!window.__FV_USER_CONTEXT_LOADED__) {
           window.__FV_USER_CONTEXT_LOADED__ = true;
           await __fvBoot.loadScript('/Farm-vista/js/app/user-context.js', { type:'module', defer:true });
         }
-
-        // If the module exposes a "get" method, fire a quick event with whatever is cached.
         if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
           const cached = window.FVUserContext.get();
           if (cached) __fvBoot.fire('fv:user-ready', { source:'cache', data: cached });
         }
-
-        // Kick a warm refresh; when done, notify again so UIs can update.
         if (window.FVUserContext && typeof window.FVUserContext.refresh === 'function') {
-          const data = await window.FVUserContext.refresh({ warm:true }); // warm: use cache first, then fetch
+          const data = await window.FVUserContext.refresh({ warm:true });
           __fvBoot.fire('fv:user-ready', { source:'refresh', data });
         }
-      }catch(e){
-        console.warn('[FV] user-context warm failed (non-fatal):', e);
-      }
+      }catch(e){ console.warn('[FV] user-context warm failed (non-fatal):', e); }
 
-    }catch(e){
-      console.warn('[FV] Firebase boot chain error:', e);
-    }
+    }catch(e){ console.warn('[FV] Firebase boot chain error:', e); }
   });
 })();
 
 /* ===============================  Auth Guard  =============================== */
-/*
- RULES:
-  - Login page is PUBLIC.
-  - Other pages require Auth. We wait briefly for hydration before redirect.
-  - Optional Firestore-gating toggles below.
-  - In stub/dev, we allow by default to prevent bounce-loops.
-*/
-(function(){
+(() => {
   const REQUIRE_FIRESTORE_USER_DOC = false;
   const TREAT_MISSING_DOC_AS_DENY  = false;
   const ALLOW_STUB_MODE            = true;
@@ -166,37 +125,31 @@ const __fvBoot = (function(){
     if (!samePath(location.href, dest)) location.replace(dest);
   };
 
-  const waitForAuthHydration = async (mod, auth, ms=1600) => {
-    return new Promise((resolve) => {
-      let settled = false;
-      const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
-      try {
-        if (auth && auth.currentUser) return done(auth.currentUser);
-        const off = mod.onAuthStateChanged(auth, u => { done(u); off && off(); });
-        setTimeout(()=> done(auth && auth.currentUser || null), ms);
-      } catch {
-        resolve(auth && auth.currentUser || null);
-      }
-    });
-  };
+  const waitForAuthHydration = async (mod, auth, ms=1600) => new Promise((resolve) => {
+    let settled = false;
+    const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
+    try {
+      if (auth && auth.currentUser) return done(auth.currentUser);
+      const off = mod.onAuthStateChanged(auth, u => { done(u); off && off(); });
+      setTimeout(()=> done(auth && auth.currentUser || null), ms);
+    } catch { resolve(auth && auth.currentUser || null); }
+  });
 
   const run = async () => {
     try {
       if (isLoginPath()) return;
 
-      const mod = await import('/Farm-vista/js/firebase-init.js');
-      const ctx = await mod.ready;
+      const mod  = await import('/Farm-vista/js/firebase-init.js');
+      const ctx  = await mod.ready;
       const isStub = (mod.isStub && mod.isStub()) || false;
       const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
 
       if (isStub && ALLOW_STUB_MODE) return;
       if (!auth) { gotoLogin('no-auth'); return; }
 
-      try {
-        if (mod.setPersistence && mod.browserLocalPersistence) {
-          await mod.setPersistence(auth, mod.browserLocalPersistence());
-        }
-      } catch (e) { console.warn('[FV] setPersistence failed:', e); }
+      try { if (mod.setPersistence && mod.browserLocalPersistence) {
+        await mod.setPersistence(auth, mod.browserLocalPersistence());
+      }} catch (e) { console.warn('[FV] setPersistence failed:', e); }
 
       const user = await waitForAuthHydration(mod, auth, 1600);
       if (!user) { gotoLogin('unauthorized'); return; }
@@ -246,12 +199,12 @@ const __fvBoot = (function(){
   }
 })();
 
-/* =======================  GLOBAL COMBO UPGRADER (INLINE)  ======================= */
-/* Converts EVERY <select> (except data-fv-native="true") into the same
-   "buttonish + floating panel" combo used on your working page. No page edits. */
-(function(){
+/* =======================  GLOBAL COMBO UPGRADER (PORTALED)  ======================= */
+/* Converts EVERY <select> (except data-fv-native="true") into the “button + floating panel”
+   and portals the panel to <body> so it never gets clipped by hero cards, grids, etc. */
+(() => {
   try{
-    // Minimal styles to mimic the good page
+    // ------- Shared styles (light/dark token-friendly) -------
     const style = document.createElement('style');
     style.textContent = `
     :root{
@@ -269,15 +222,15 @@ const __fvBoot = (function(){
     .fv-buttonish.has-caret::after{
       content:""; position:absolute; right:14px; top:50%; width:0; height:0;
       border-left:6px solid transparent; border-right:6px solid transparent;
-      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%);
-      pointer-events:none;
+      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
     }
-    .fv-combo{ position:relative }
     .fv-combo .fv-anchor{ position:relative; display:inline-block; width:100%; }
+
+    /* Portaled panel: fixed to viewport so parents can't clip it */
     .fv-panel{
-      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
+      position:fixed; left:0; top:0; width:auto;
       background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
-      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
+      box-shadow:var(--combo-shadow); z-index:2147483000; padding:8px; display:none;
     }
     .fv-panel.show{ display:block }
     .fv-panel .fv-search{ padding:4px 2px 8px }
@@ -293,37 +246,64 @@ const __fvBoot = (function(){
     `;
     document.head.appendChild(style);
 
+    // Single portal root
+    const portalRoot = (() => {
+      let n = document.getElementById('fv-portal-root');
+      if (!n) {
+        n = document.createElement('div');
+        n.id = 'fv-portal-root';
+        n.style.position = 'fixed';
+        n.style.left = '0';
+        n.style.top = '0';
+        n.style.width = '0';
+        n.style.height = '0';
+        n.style.zIndex = '2147483000';
+        document.body.appendChild(n);
+      }
+      return n;
+    })();
+
     function closeAll(except=null){
       document.querySelectorAll('.fv-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
     }
     document.addEventListener('click', ()=> closeAll());
     document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAll(); });
 
+    // Helper: find the nearest scrollable ancestor to reposition on its scroll
+    const isScrollable = (el) => {
+      const cs = getComputedStyle(el);
+      return /(auto|scroll|overlay)/.test(cs.overflow + cs.overflowY + cs.overflowX);
+    };
+    const nearestScrollParent = (el) => {
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (isScrollable(p)) return p;
+      }
+      return window; // fallback
+    };
+
     function upgradeSelect(sel){
       if (sel._fvUpgraded || sel.matches('[data-fv-native="true"]')) return;
-      // Skip hidden or display:none containers to avoid layout jumps
       const cs = window.getComputedStyle(sel);
-      if (cs.display === 'none' || cs.visibility === 'hidden') { return; }
+      if (cs.display === 'none' || cs.visibility === 'hidden') return;
 
       sel._fvUpgraded = true;
       const searchable = String(sel.dataset.fvSearch||'').toLowerCase()==='true';
       const placeholder = sel.getAttribute('placeholder') || (sel.options[0]?.text ?? '— Select —');
 
-      // Hide the real select but keep it in the DOM for forms and change events
+      // Hide native select but keep it in flow for forms
       sel.style.position='absolute'; sel.style.opacity='0';
       sel.style.pointerEvents='none'; sel.style.width='0'; sel.style.height='0';
       sel.tabIndex = -1;
 
-      const field = document.createElement('div'); field.className='fv-field fv-combo';
+      const field  = document.createElement('div'); field.className='fv-field fv-combo';
       const anchor = document.createElement('div'); anchor.className='fv-anchor';
-
-      const btn = document.createElement('button'); btn.type='button';
+      const btn    = document.createElement('button'); btn.type='button';
       btn.className='fv-buttonish has-caret'; btn.textContent=placeholder;
 
-      const panel = document.createElement('div'); panel.className='fv-panel';
+      const panel  = document.createElement('div'); panel.className='fv-panel';
       panel.setAttribute('role','listbox'); panel.setAttribute('aria-label', sel.getAttribute('aria-label') || sel.name || 'List');
 
-      const list = document.createElement('div'); list.className='fv-list';
+      const list   = document.createElement('div'); list.className='fv-list';
 
       if (searchable) {
         const sWrap=document.createElement('div'); sWrap.className='fv-search';
@@ -331,14 +311,12 @@ const __fvBoot = (function(){
         sWrap.appendChild(sInput); panel.appendChild(sWrap);
         sInput.addEventListener('input', ()=> render(sInput.value));
       }
-
       panel.appendChild(list);
-      anchor.append(btn,panel);
 
-      // Insert combo before select; keep select inside for semantics
+      // Insert UI
       sel.parentNode.insertBefore(field, sel);
-      field.appendChild(anchor);
-      field.appendChild(sel);
+      anchor.appendChild(btn);
+      field.append(anchor, sel);
 
       let items=[];
       function readItems(){
@@ -354,18 +332,64 @@ const __fvBoot = (function(){
           ? vis.map(x=>`<div class="fv-item" data-id="${x.id}">${x.label}</div>`).join('')
           : `<div class="fv-empty">(no matches)</div>`;
       }
+
+      // ---- smart positioning (portal to body) ----
+      let scrollSub = null;
+      const placePanel = () => {
+        const gap = Math.max(4, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-gap')) || 4);
+        const r = anchor.getBoundingClientRect();
+        // Temporarily show to measure height
+        panel.style.visibility = 'hidden';
+        panel.style.display = 'block';
+        panel.style.maxWidth = Math.max(180, r.width) + 'px';
+        const panelH = panel.offsetHeight || 0;
+        const vwH = window.innerHeight;
+        // Flip up if not enough space below
+        const wantBelow = (r.bottom + gap + panelH) <= (vwH - 8 - Number(getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)') || 0));
+        const top = wantBelow ? (r.bottom + gap) : Math.max(8, r.top - gap - panelH);
+        panel.style.left = Math.round(r.left) + 'px';
+        panel.style.top  = Math.round(top) + 'px';
+        panel.style.width = Math.round(r.width) + 'px';
+        panel.style.visibility = '';
+      };
+
       function open(){
         closeAll(panel);
-        panel.classList.add('show');
+        if (!panel.isConnected) portalRoot.appendChild(panel);
         render('');
+        panel.classList.add('show');
+        placePanel();
+
+        // Reposition on scroll/resize
+        const sp = nearestScrollParent(anchor);
+        const onScroll = () => { if (panel.classList.contains('show')) placePanel(); };
+        if (sp === window) {
+          window.addEventListener('scroll', onScroll, { passive:true });
+        } else {
+          sp.addEventListener('scroll', onScroll, { passive:true });
+          window.addEventListener('scroll', onScroll, { passive:true });
+        }
+        window.addEventListener('resize', onScroll, { passive:true });
+
+        scrollSub = () => {
+          if (sp === window) {
+            window.removeEventListener('scroll', onScroll);
+          } else {
+            sp.removeEventListener('scroll', onScroll);
+            window.removeEventListener('scroll', onScroll);
+          }
+          window.removeEventListener('resize', onScroll);
+        };
+
         const s = panel.querySelector('.fv-search input'); if (s){ s.value=''; s.focus(); }
       }
-      function close(){ panel.classList.remove('show'); }
+      function close(){
+        panel.classList.remove('show');
+        if (typeof scrollSub === 'function') scrollSub();
+      }
 
-      btn.addEventListener('click', e=>{
-        e.stopPropagation();
-        panel.classList.contains('show') ? close() : open();
-      });
+      btn.addEventListener('click', e=>{ e.stopPropagation(); panel.classList.contains('show') ? close() : open(); });
+
       list.addEventListener('mousedown', e=>{
         const row=e.target.closest('.fv-item'); if(!row) return;
         const it=items[Number(row.dataset.id)]; if(!it) return;
@@ -400,19 +424,13 @@ const __fvBoot = (function(){
     }
 
     function upgradeAll(root=document){
-      // Upgrade all selects except explicit opt-outs
       root.querySelectorAll('select:not([data-fv-native="true"])').forEach(upgradeSelect);
     }
 
-    // Run after DOM is ready (and again after microtask in case pages inject late)
     const run = ()=>{ try{ upgradeAll(); setTimeout(upgradeAll, 0); }catch(e){ console.warn('[FV] combo upgrade error:', e); } };
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', run, { once:true });
-    } else {
-      run();
-    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once:true });
+    else run();
 
-    // Expose for manual re-upgrade if a page inserts selects later
     window.FVCombo = { upgradeAll, upgradeSelect };
   }catch(e){
     console.warn('[FV] inline combo upgrader failed:', e);
