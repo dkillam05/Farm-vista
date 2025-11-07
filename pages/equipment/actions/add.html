@@ -77,28 +77,31 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* Centered modal (View → edit/archive/delete) */
+    /* ===== Modals (View lists) ===== */
     dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw);
             box-shadow:0 18px 60px rgba(0,0,0,.35); }
     dialog::backdrop{ background:rgba(0,0,0,.35) }
-    .modal{
-      padding:16px; background:var(--surface); color:var(--text);
-      border:1px solid var(--border); border-radius:14px; display:grid; gap:12px
-    }
+    .modal{ padding:16px; background:var(--surface); color:var(--text);
+            border:1px solid var(--border); border-radius:14px; display:grid; gap:12px }
     .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
     .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border); color:var(--text); }
     .rowlist:last-child{ border-bottom:none }
-    .btn-mini{
-      padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800;
-      border:1px solid var(--border); background:var(--surface);
-      -webkit-appearance:none; appearance:none; color:var(--text)!important;
+    .btn-mini{ padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800;
+               border:1px solid var(--border); background:var(--surface); color:var(--text)!important; }
+
+    /* ===== Compact Year — looks exactly like .select ===== */
+    .combo{ position:relative; }
+    .combo-trigger{ position:relative; display:block; width:100%;
+      /* reuse .select visuals via class chaining (no hard-coded theme) */
+    }
+    .combo-trigger.select{ font:inherit; font-size:16px; padding:12px; border-radius:10px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); color:var(--text); cursor:pointer; }
+    /* add the same chevron affordance as selects */
+    .combo-trigger.select::after{
+      content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
+      border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
     }
 
-    /* ===== Compact Year Combo (5 visible rows; identical look) ===== */
-    .combo{ position:relative; }
-    .combo-trigger{ all:unset; display:block; }
-    .combo-trigger.select{ display:block; width:100%; padding:12px; border-radius:10px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); color:var(--text); font:inherit; font-size:16px; cursor:pointer; }
     .combo-panel{
       position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
       background:var(--surface); border:1px solid var(--border); border-radius:12px;
@@ -109,15 +112,16 @@
       display:block; width:100%; text-align:left; font:inherit; color:var(--text);
       background:transparent; border:none; border-radius:10px;
       padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer;
+      /* no bold selection */
+      font-weight:400;
     }
     .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
-    .combo-item[aria-selected="true"]{ font-weight:800; }
     .combo-hidden{ display:none !important; }
 
-    /* ===== QR Preview ===== */
+    /* ===== QR Preview (tiny square) ===== */
     .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
-      display:flex; align-items:center; justify-content:center; padding:16px; }
-    .qr-area img{ max-width:100%; height:auto; display:block }
+      display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
+    #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
   </style>
 </head>
 
@@ -148,12 +152,13 @@
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
+              <!-- Compact custom (5 rows), visually identical to .select; native <select> kept hidden for compatibility -->
               <div class="combo" id="yearCombo">
                 <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">
                   — Select —
                 </button>
                 <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
-                <select id="year" class="select combo-hidden" aria-hidden="true"></select>
+                <select id="year" class="select" aria-hidden="true" style="display:none"></select>
               </div>
             </div>
 
@@ -178,17 +183,17 @@
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- QR PREVIEW (appears after generation) -->
+          <!-- Tiny QR preview (hidden until generated) -->
           <div id="qrArea" class="qr-area" hidden>
-            <img id="qrImg" alt="QR code"/>
+            <img id="qrThumb" alt="QR code">
           </div>
 
           <div id="err" class="error" hidden></div>
 
-          <!-- Button order: Save (left), Create QR Code (middle), Cancel (right) -->
+          <!-- Button order: Save • Create QR Code • Cancel -->
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button">Save</button>
-            <button id="btnQR" class="btn" type="button" disabled>Create QR Code</button>
+            <button id="btnQR" class="btn" type="button">Create QR Code</button>
             <button id="btnClear" class="btn btn-quiet" type="button">Cancel</button>
           </div>
         </div>
@@ -205,8 +210,8 @@
     import {
       ready,
       getFirestore,
-      collection, setDoc, doc, updateDoc, deleteDoc, getDocs,
-      query, orderBy, where, getDoc,
+      collection, setDoc, doc, updateDoc, deleteDoc, getDocs, getDoc,
+      query, orderBy, where,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -218,26 +223,20 @@
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* ===== Year options + compact combo (no gridlines) ===== */
+    /* ===== Year options + compact combo (no bold, same look) ===== */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
-      buildYearPanelFromSelect();
-    }
-    function buildYearPanelFromSelect(){
-      const sel=$("year"); const panel=$("yearPanel"); const trigger=$("yearTrigger");
+      const panel=$("yearPanel"), trigger=$("yearTrigger");
       panel.innerHTML="";
       [...sel.options].forEach((opt, idx)=>{
         const btn=document.createElement('button');
         btn.type='button'; btn.className='combo-item'; btn.role='option';
         btn.dataset.val=opt.value; btn.textContent=opt.textContent;
-        if(idx===0) btn.setAttribute('aria-selected','true');
         btn.addEventListener('click', ()=>{
           sel.value = opt.value;
           trigger.textContent = opt.value ? opt.textContent : "— Select —";
-          panel.querySelectorAll('.combo-item').forEach(el=>el.removeAttribute('aria-selected'));
-          btn.setAttribute('aria-selected','true');
           closeYearPanel();
         });
         panel.appendChild(btn);
@@ -247,9 +246,6 @@
       const trigger=$("yearTrigger"), panel=$("yearPanel");
       panel.classList.remove('combo-hidden');
       trigger.setAttribute('aria-expanded','true');
-      const val=$("year").value;
-      const current = [...panel.children].find(el=>el.dataset.val===val) || panel.firstElementChild;
-      current?.focus();
       document.addEventListener('click', onDocClickClose, { once:true });
       document.addEventListener('keydown', onEscClose);
     }
@@ -265,9 +261,8 @@
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    // ===== Data helpers =====
-    function currentType(){ const params=new URLSearchParams(location.search); return (params.get('type')||'tractor').toLowerCase(); }
-
+    /* ===== Data helpers ===== */
+    function currentType(){ const p=new URLSearchParams(location.search); return (p.get('type')||'tractor').toLowerCase(); }
     function readForm(){
       const makeSel=$("make"), modelSel=$("model");
       const makeId=makeSel.value||null, modelId=modelSel.value||null;
@@ -287,24 +282,19 @@
     }
 
     async function ensureSaved(db, existingId){
-      // If already saved, return id.
       if(existingId){ return existingId; }
-
-      // Require make/model before saving
       const makeId = $("make").value, modelId=$("model").value;
       if(!makeId){ alert("Please choose a Make."); throw new Error("no-make"); }
       if(!modelId){ alert("Please choose a Model."); throw new Error("no-model"); }
 
-      // Create new doc id and save
       const ref = doc(collection(db,'equipment'));
       const base = readForm();
-      const payload = {
+      await setDoc(ref, {
         ...base,
         status:"active",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      };
-      await setDoc(ref, payload);
+      });
 
       // optional photos
       const files = Array.from(($("photos").files||[]));
@@ -326,7 +316,6 @@
       }
 
       showToast("Saved");
-      $("btnQR").disabled=false;
       return ref.id;
     }
 
@@ -337,30 +326,34 @@
 
     function equipmentHubUrlAbs(id, token){
       const hub = `/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(token)}`;
-      const abs = location.origin + hub;
       const launch = location.origin + '/Farm-vista/launch.html';
       const url = new URL(launch);
-      url.searchParams.set('to', abs);
+      url.searchParams.set('to', location.origin + hub);
       return url.href;
     }
 
     async function generateAndStoreQR(db, id){
-      // Load/confirm record exists
+      // confirm doc exists
       const ref = doc(db,'equipment', id);
       const snap = await getDoc(ref);
       if(!snap.exists()) throw new Error('not-found');
 
+      // write token
       const token = randTokenHex(24);
       await updateDoc(ref, { qr:{ token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, updatedAt: serverTimestamp() });
 
-      const smartLink = equipmentHubUrlAbs(id, token);
-      const size = 512, ecc = window.QRCode?.CorrectLevel?.H || 2;
+      // ensure QR lib is present
+      let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){
+        await new Promise(r=>setTimeout(r,50));
+      }
+      if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib');
 
-      // Render QR to canvas then image (no captions/help text)
-      const holder = document.createElement('div');
+      const smartLink = equipmentHubUrlAbs(id, token);
+      const size = 256, ecc = window.QRCode.CorrectLevel.H;
+
+      const holder=document.createElement('div');
       new QRCode(holder,{ text:smartLink, width:size, height:size, colorDark:"#000000", colorLight:"#ffffff", correctLevel:ecc });
 
-      // Wait for canvas
       const node = await new Promise((res,rej)=>{
         const start=Date.now();
         (function check(){
@@ -383,27 +376,28 @@
         });
       }
 
-      // Show preview
       const dataURL = canvas.toDataURL('image/png');
-      $("qrImg").src = dataURL;
-      $("qrArea").hidden = false;
+      const thumb = $("qrThumb");
+      thumb.src = dataURL;
+      thumb.onload = ()=>{ $("qrArea").hidden=false; thumb.style.display='block'; };
 
       return { smartLink, token, dataURL };
     }
 
     (async()=>{
       await ready;
-      const db = getFirestore();
+      const db  = getFirestore();
 
       const params = new URLSearchParams(location.search);
       const type = (params.get('type') || 'tractor').toLowerCase();
       document.title = `FarmVista • Add ${type[0].toUpperCase()+type.slice(1)}`;
       document.querySelector('.hero-head h1').textContent = `Add ${type[0].toUpperCase()+type.slice(1)}`;
 
+      // year
       buildYearOptions();
       $("yearTrigger").addEventListener('click', ()=>{
-        const isOpen = $("yearTrigger").getAttribute('aria-expanded') === 'true';
-        if(isOpen) closeYearPanel(); else openYearPanel();
+        const open = $("yearTrigger").getAttribute('aria-expanded') === 'true';
+        if(open) closeYearPanel(); else openYearPanel();
       });
 
       // ===== Makes / Models =====
@@ -449,7 +443,7 @@
       $("make").addEventListener("change", async (e)=>{
         const val = e.target.value;
         if(val==="__add_make__"){
-          const name = prompt("Add Make"); // keep simple
+          const name = prompt("Add Make");
           if(name){
             const ref = doc(collection(db,'equipment-makes'));
             await setDoc(ref, { name, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
@@ -495,23 +489,18 @@
       });
 
       // ===== Save / QR / Cancel =====
-      let currentId = null; // set after first save
+      let currentId = null;
 
       async function handleSave(){
-        try{
-          currentId = await ensureSaved(db, currentId);
-          $("btnQR").disabled = false;
-        }catch{}
+        try{ currentId = await ensureSaved(db, currentId); showToast("Saved"); }
+        catch(e){ /* alerts already shown for missing fields */ }
       }
 
       async function handleCreateQR(){
         try{
-          // Save first if needed
+          // If not saved yet, save first (quietly). User can press any time.
           currentId = await ensureSaved(db, currentId);
-          // Wait for QR lib if needed
-          let tries=0; while(!(window.__qrReady && window.QRCode) && tries++<200){ await new Promise(r=>setTimeout(r,50)); }
-          const { dataURL } = await generateAndStoreQR(db, currentId);
-          // show preview already handled; toast for feedback
+          await generateAndStoreQR(db, currentId);
           showToast("QR code ready");
         }catch(err){
           console.error(err);
@@ -522,13 +511,12 @@
       function handleClear(){
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
         $("photos").value="";
-        $("year").selectedIndex=0;
+        $("year").value="";
         $("yearTrigger").textContent="— Select —";
-        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>el.toggleAttribute('aria-selected', i===0));
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0;
-        $("qrArea").hidden=true; $("qrImg").src="";
-        currentId=null; $("btnQR").disabled=true;
+        $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
+        currentId=null;
         window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
       }
 
@@ -536,8 +524,11 @@
       $("btnQR").addEventListener("click", handleCreateQR);
       $("btnClear").addEventListener("click", handleClear);
 
-      // Enable QR if we came in editing an existing id (optional future)
-      // (left simple for now)
+      // wire year trigger
+      $("yearTrigger").addEventListener('click', ()=>{
+        const isOpen = $("yearTrigger").getAttribute('aria-expanded') === 'true';
+        if(isOpen) closeYearPanel(); else openYearPanel();
+      });
 
       $("make").focus();
     })();
