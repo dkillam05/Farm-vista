@@ -1,4 +1,3 @@
-<script>
 /* /Farm-vista/js/fv-shell.js
    FarmVista Shell — v5.10.19-g2 (Camera Safe Zone + Solid Drawer + Dark-Safe)
    - Camera hidden on desktop; visible on phones/tablets (pointer:coarse).
@@ -1506,4 +1505,3 @@ const __fvBoot = (function(){
     console.warn('[FV] inline combo upgrader failed:', e);
   }
 })();
-</script>
