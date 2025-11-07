@@ -4,8 +4,6 @@
      * Switch to touch events (with passive:false) and use window.scrollY for "at top" checks.
      * Disable PTR automatically while UI is scroll-locked (drawer/topdrawer open).
      * Slight tolerance to ignore 1–2px bounce offsets.
-
-   + v5.10.19-a: Footer camera icon (left) that links to /Farm-vista/pages/qr-scan.html
 */
 (function () {
   // ====== TUNABLES ======
@@ -47,15 +45,6 @@
       padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-    /* Footer camera icon (white) pinned to far-left */
-    .qr-mini{
-      position:absolute; left:10px; bottom:calc(env(safe-area-inset-bottom,0px) + 7px);
-      width:28px; height:28px; display:grid; place-items:center; color:#fff; opacity:.98;
-      text-decoration:none; -webkit-tap-highlight-color:transparent;
-    }
-    .qr-mini svg{ width:22px; height:22px; display:block; }
-    .qr-mini:active{ transform:translateY(1px); }
 
     .main{ position:relative; padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
@@ -186,18 +175,7 @@
   </section>
 
   <main class="main" part="main"><slot></slot></main>
-
-  <footer class="ftr" part="footer">
-    <!-- Small white camera icon on the far-left -->
-    <a class="qr-mini" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-        <circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      </svg>
-    </a>
-    <div class="text js-footer"></div>
-  </footer>
-
+  <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
