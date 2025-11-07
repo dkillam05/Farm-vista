@@ -1,9 +1,11 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19
+   FarmVista Shell — v5.10.19  (with Mobile Quick Camera)
    - PTR fixed on iOS Home-Screen (standalone) while retaining scroll-lock behavior from v5.10.18.
      * Switch to touch events (with passive:false) and use window.scrollY for "at top" checks.
      * Disable PTR automatically while UI is scroll-locked (drawer/topdrawer open).
      * Slight tolerance to ignore 1–2px bounce offsets.
+   - NEW (mobile only): tiny camera button above footer opens a small upward/sideways drawer
+     with “QR Scanner” and “Camera”. Hidden on desktop. Theme-aware.
 */
 (function () {
   // ====== TUNABLES ======
@@ -109,6 +111,34 @@
 
     /* While UI is locked (drawer/topdrawer open), suppress scroll gestures on content */
     :host(.ui-locked) .main { touch-action: none; }
+
+    /* ========================== */
+    /* QC: Quick Camera (mobile)  */
+    /* ========================== */
+    .qc-wrap{ position:fixed; right:12px; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 10px);
+      z-index:1350; display:none; }
+    /* Show on touch-centric devices only */
+    @media (pointer:coarse) {
+      .qc-wrap{ display:block; }
+    }
+    /* tiny button */
+    .qc-btn{ width:42px; height:42px; border-radius:12px; display:grid; place-items:center;
+      background:color-mix(in srgb, var(--green) 92%, #000 0%); color:#fff; border:1px solid color-mix(in srgb,#000 12%, transparent);
+      box-shadow:0 8px 22px rgba(0,0,0,.28); -webkit-tap-highlight-color:transparent; }
+    :host-context(.dark) .qc-btn,
+    :host(.dark) .qc-btn{ background:color-mix(in srgb, var(--green) 85%, #000 15%); color:#fff; }
+    .qc-btn svg{ width:22px; height:22px; display:block; }
+
+    /* the mini drawer that opens upward & left */
+    .qc-menu{ position:absolute; right:46px; bottom:46px; background:var(--surface,#fff); color:var(--text,#111);
+      border:1px solid var(--border,#e6e9e6); border-radius:12px; box-shadow:0 16px 36px rgba(0,0,0,.28);
+      padding:6px; width:176px; transform-origin: bottom right;
+      transform: translate(8px,8px) scale(.92); opacity:0; pointer-events:none; transition:.18s ease; }
+    .qc-wrap[aria-expanded="true"] .qc-menu{ transform: translate(0,0) scale(1); opacity:1; pointer-events:auto; }
+    .qc-item{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:10px; text-decoration:none; color:inherit; }
+    .qc-item:hover{ background:color-mix(in srgb, var(--green) 10%, transparent); }
+    .qc-ico{ width:20px; height:20px; display:grid; place-items:center; opacity:.95; }
+    .qc-sep{ height:1px; background:var(--border,#e6e9e6); margin:4px 6px; border-radius:1px; }
   </style>
 
   <header class="hdr" part="header">
@@ -176,6 +206,28 @@
 
   <main class="main" part="main"><slot></slot></main>
   <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
+
+  <!-- QC: Mobile tiny camera trigger + upward/left mini drawer -->
+  <div class="qc-wrap js-qc" aria-expanded="false">
+    <button class="qc-btn js-qc-btn" aria-label="Open camera options" title="Scan / Camera">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3.5" y="6.5" width="17" height="11" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M8.5 8.5l2-2h3l2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      </svg>
+    </button>
+    <div class="qc-menu js-qc-menu" role="menu" aria-label="Camera options">
+      <a href="#" class="qc-item js-qc-scan" role="menuitem">
+        <span class="qc-ico">▣</span><span>QR Scanner</span>
+      </a>
+      <div class="qc-sep" aria-hidden="true"></div>
+      <a href="#" class="qc-item js-qc-camera" role="menuitem">
+        <span class="qc-ico">📷</span><span>Camera</span>
+      </a>
+    </div>
+  </div>
+  <!-- /QC -->
+
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
@@ -216,13 +268,20 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
+      /* QC: quick camera refs */
+      this._qcWrap = r.querySelector('.js-qc');
+      this._qcBtn = r.querySelector('.js-qc-btn');
+      this._qcMenu = r.querySelector('.js-qc-menu');
+      this._qcScan = r.querySelector('.js-qc-scan');
+      this._qcCamera = r.querySelector('.js-qc-camera');
+
       // Boot overlay visible until _authAndMenuGate() finishes.
       if (this._boot) this._boot.hidden = false;
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
       this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
       this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
-      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); } });
+      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); this._qcToggle(false); } });
 
       r.querySelectorAll('.js-theme').forEach(btn=> btn.addEventListener('click', ()=> this.setTheme(btn.dataset.mode)));
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
@@ -237,6 +296,9 @@
       // Safety for odd WebView reflows
       window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
       window.addEventListener('resize', ()=>{ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
+
+      /* QC: init quick camera (hide on desktop) */
+      this._initQuickCamera();
     }
 
     // --- Platform detector: iOS Home Screen (standalone) ---
@@ -973,6 +1035,51 @@
       const t = this._toast; if (!t) return;
       t.textContent = msg; t.classList.add('show');
       clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
+    }
+
+    /* ============================== */
+    /* QC: Quick Camera interactions  */
+    /* ============================== */
+    _initQuickCamera(){
+      if (!this._qcWrap || !this._qcBtn) return;
+
+      // Extra guard: hide on desktop even if CSS shows
+      const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+      if (!isCoarse) this._qcWrap.style.display = 'none';
+
+      this._qcBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        this._qcToggle(this._qcWrap.getAttribute('aria-expanded') !== 'true');
+      });
+
+      // Close when tapping outside
+      document.addEventListener('pointerdown', (e)=>{
+        if (!this.shadowRoot) return;
+        const w = this._qcWrap;
+        if (!w) return;
+        if (w.getAttribute('aria-expanded') !== 'true') return;
+        const inside = w.contains(e.target);
+        if (!inside) this._qcToggle(false);
+      });
+
+      // Actions
+      if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
+        e.preventDefault();
+        this._qcToggle(false);
+        // Fire an event the app can hook, or fallback to a known route if provided later.
+        this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true }));
+      });
+
+      if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
+        e.preventDefault();
+        this._qcToggle(false);
+        this.dispatchEvent(new CustomEvent('fv:open:camera', { bubbles:true }));
+      });
+    }
+
+    _qcToggle(on){
+      if (!this._qcWrap) return;
+      this._qcWrap.setAttribute('aria-expanded', String(!!on));
     }
   }
 
