@@ -64,6 +64,7 @@
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent; color:var(--text)!important }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
 
     .error{ color:#b00020; font-weight:700 }
 
@@ -76,32 +77,47 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* ===== Compact Year Combo (identical look, just shorter list) ===== */
+    /* Centered modal (View → edit/archive/delete) */
+    dialog{ border:none; border-radius:14px; padding:0; max-width:min(600px, 92vw);
+            box-shadow:0 18px 60px rgba(0,0,0,.35); }
+    dialog::backdrop{ background:rgba(0,0,0,.35) }
+    .modal{
+      padding:16px; background:var(--surface); color:var(--text);
+      border:1px solid var(--border); border-radius:14px; display:grid; gap:12px
+    }
+    .list{ max-height:52vh; overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+    .rowlist{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border); color:var(--text); }
+    .rowlist:last-child{ border-bottom:none }
+    .btn-mini{
+      padding:6px 10px; min-width:auto; border-radius:999px; font-weight:800;
+      border:1px solid var(--border); background:var(--surface);
+      -webkit-appearance:none; appearance:none; color:var(--text)!important;
+    }
+
+    /* ===== Compact Year Combo (5 visible rows; identical look) ===== */
     .combo{ position:relative; }
-    /* Make trigger look exactly like your selects by reusing .select styles */
     .combo-trigger{ all:unset; display:block; }
     .combo-trigger.select{ display:block; width:100%; padding:12px; border-radius:10px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); color:var(--text); font:inherit; font-size:16px; cursor:pointer; }
-
     .combo-panel{
-      position:absolute; left:0; right:0; z-index:1000;
-      margin-top:6px; padding:6px;
+      position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
       background:var(--surface); border:1px solid var(--border); border-radius:12px;
-      box-shadow:var(--combo-shadow, 0 12px 26px rgba(0,0,0,.18));
-      /* Exactly 5 rows visible; no tall dropdown */
-      --row-h: 36px;
-      max-height: calc(var(--row-h) * 5 + 12px);
-      overflow:auto;
+      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
     }
     .combo-item{
       display:block; width:100%; text-align:left; font:inherit; color:var(--text);
       background:transparent; border:none; border-radius:10px;
       padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer;
     }
-    /* No gridlines between items; just a soft hover */
     .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
     .combo-item[aria-selected="true"]{ font-weight:800; }
     .combo-hidden{ display:none !important; }
+
+    /* ===== QR Preview ===== */
+    .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      display:flex; align-items:center; justify-content:center; padding:16px; }
+    .qr-area img{ max-width:100%; height:auto; display:block }
   </style>
 </head>
 
@@ -113,7 +129,7 @@
           <div class="icon" aria-hidden="true">🚜</div>
           <div>
             <h1>Add Tractor</h1>
-            <p class="muted">Pick Make/Model, set year, optionally add photos. (QR will be added later.)</p>
+            <p class="muted">Pick Make/Model, set year, optionally add photos.</p>
           </div>
         </header>
 
@@ -132,7 +148,6 @@
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
-              <!-- Compact 5-row custom combo; native select kept hidden + synced -->
               <div class="combo" id="yearCombo">
                 <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">
                   — Select —
@@ -163,11 +178,18 @@
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
+          <!-- QR PREVIEW (appears after generation) -->
+          <div id="qrArea" class="qr-area" hidden>
+            <img id="qrImg" alt="QR code"/>
+          </div>
+
           <div id="err" class="error" hidden></div>
 
+          <!-- Button order: Save (left), Create QR Code (middle), Cancel (right) -->
           <div class="actions">
-            <button id="btnClear" class="btn" type="button">Clear</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+            <button id="btnQR" class="btn" type="button" disabled>Create QR Code</button>
+            <button id="btnClear" class="btn btn-quiet" type="button">Cancel</button>
           </div>
         </div>
       </section>
@@ -176,12 +198,15 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- QR library -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
+
   <script type="module">
     import {
       ready,
       getFirestore,
       collection, setDoc, doc, updateDoc, deleteDoc, getDocs,
-      query, orderBy, where,
+      query, orderBy, where, getDoc,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -193,25 +218,21 @@
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    // ===== Year options + compact combo (no gridlines) =====
+    /* ===== Year options + compact combo (no gridlines) ===== */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
-      buildYearPanelFromSelect(); // mirror into custom panel
+      buildYearPanelFromSelect();
     }
-
     function buildYearPanelFromSelect(){
       const sel=$("year"); const panel=$("yearPanel"); const trigger=$("yearTrigger");
       panel.innerHTML="";
       [...sel.options].forEach((opt, idx)=>{
         const btn=document.createElement('button');
-        btn.type='button';
-        btn.className='combo-item';
-        btn.role='option';
-        btn.dataset.val=opt.value;
-        btn.textContent=opt.textContent;
-        if(idx===0) btn.setAttribute('aria-selected','true'); // default "— Select —"
+        btn.type='button'; btn.className='combo-item'; btn.role='option';
+        btn.dataset.val=opt.value; btn.textContent=opt.textContent;
+        if(idx===0) btn.setAttribute('aria-selected','true');
         btn.addEventListener('click', ()=>{
           sel.value = opt.value;
           trigger.textContent = opt.value ? opt.textContent : "— Select —";
@@ -222,7 +243,6 @@
         panel.appendChild(btn);
       });
     }
-
     function openYearPanel(){
       const trigger=$("yearTrigger"), panel=$("yearPanel");
       panel.classList.remove('combo-hidden');
@@ -245,9 +265,135 @@
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
+    // ===== Data helpers =====
+    function currentType(){ const params=new URLSearchParams(location.search); return (params.get('type')||'tractor').toLowerCase(); }
+
+    function readForm(){
+      const makeSel=$("make"), modelSel=$("model");
+      const makeId=makeSel.value||null, modelId=modelSel.value||null;
+      const makeName=makeId? makeSel.options[makeSel.selectedIndex].textContent.trim():null;
+      const modelName=modelId? modelSel.options[modelSel.selectedIndex].textContent.trim():null;
+      const yr = $("year").value ? Number($("year").value) : null;
+      const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
+      return {
+        makeId, modelId, makeName, modelName,
+        year: yr,
+        serial: $("serial").value.trim() || null,
+        engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
+        notes: $("notes").value.trim() || null,
+        type: currentType(),
+        name: name.trim()
+      };
+    }
+
+    async function ensureSaved(db, existingId){
+      // If already saved, return id.
+      if(existingId){ return existingId; }
+
+      // Require make/model before saving
+      const makeId = $("make").value, modelId=$("model").value;
+      if(!makeId){ alert("Please choose a Make."); throw new Error("no-make"); }
+      if(!modelId){ alert("Please choose a Model."); throw new Error("no-model"); }
+
+      // Create new doc id and save
+      const ref = doc(collection(db,'equipment'));
+      const base = readForm();
+      const payload = {
+        ...base,
+        status:"active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await setDoc(ref, payload);
+
+      // optional photos
+      const files = Array.from(($("photos").files||[]));
+      if(files.length){
+        try{
+          const m = await import('/Farm-vista/js/firebase-init.js');
+          const st = m.getStorage(); const out=[];
+          for(const f of files){
+            const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+            const r = m.ref(st, `equipment/${ref.id}/${safe}`);
+            await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+            const url = await m.getDownloadURL(r);
+            out.push({name:f.name, url, path:`equipment/${ref.id}/${safe}`});
+          }
+          await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
+        }catch(stErr){
+          $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
+        }
+      }
+
+      showToast("Saved");
+      $("btnQR").disabled=false;
+      return ref.id;
+    }
+
+    function randTokenHex(len=24){
+      const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes);
+      return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+    }
+
+    function equipmentHubUrlAbs(id, token){
+      const hub = `/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(token)}`;
+      const abs = location.origin + hub;
+      const launch = location.origin + '/Farm-vista/launch.html';
+      const url = new URL(launch);
+      url.searchParams.set('to', abs);
+      return url.href;
+    }
+
+    async function generateAndStoreQR(db, id){
+      // Load/confirm record exists
+      const ref = doc(db,'equipment', id);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) throw new Error('not-found');
+
+      const token = randTokenHex(24);
+      await updateDoc(ref, { qr:{ token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, updatedAt: serverTimestamp() });
+
+      const smartLink = equipmentHubUrlAbs(id, token);
+      const size = 512, ecc = window.QRCode?.CorrectLevel?.H || 2;
+
+      // Render QR to canvas then image (no captions/help text)
+      const holder = document.createElement('div');
+      new QRCode(holder,{ text:smartLink, width:size, height:size, colorDark:"#000000", colorLight:"#ffffff", correctLevel:ecc });
+
+      // Wait for canvas
+      const node = await new Promise((res,rej)=>{
+        const start=Date.now();
+        (function check(){
+          const n = holder.querySelector('canvas') || holder.querySelector('img');
+          if(n) res(n);
+          else if(Date.now()-start>4000) rej(new Error('qr-timeout'));
+          else requestAnimationFrame(check);
+        })();
+      });
+
+      let canvas;
+      if(node.tagName==='CANVAS'){ canvas=node; }
+      else{
+        canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
+        const ctx=canvas.getContext('2d');
+        await new Promise((res,rej)=>{
+          const img=new Image(); img.crossOrigin='anonymous';
+          img.onload=()=>{ ctx.drawImage(img,0,0,size,size); res(); };
+          img.onerror=rej; img.src=node.src;
+        });
+      }
+
+      // Show preview
+      const dataURL = canvas.toDataURL('image/png');
+      $("qrImg").src = dataURL;
+      $("qrArea").hidden = false;
+
+      return { smartLink, token, dataURL };
+    }
+
     (async()=>{
       await ready;
-      const db  = getFirestore();
+      const db = getFirestore();
 
       const params = new URLSearchParams(location.search);
       const type = (params.get('type') || 'tractor').toLowerCase();
@@ -255,13 +401,12 @@
       document.querySelector('.hero-head h1').textContent = `Add ${type[0].toUpperCase()+type.slice(1)}`;
 
       buildYearOptions();
-
       $("yearTrigger").addEventListener('click', ()=>{
         const isOpen = $("yearTrigger").getAttribute('aria-expanded') === 'true';
         if(isOpen) closeYearPanel(); else openYearPanel();
       });
 
-      // ===== Makes / Models (unchanged) =====
+      // ===== Makes / Models =====
       async function getMakes(db){
         const items=[];
         try{
@@ -274,7 +419,6 @@
         }
         return items;
       }
-
       async function getModels(db, makeId){
         if(!makeId) return [];
         const items=[];
@@ -288,7 +432,6 @@
         }
         return items;
       }
-
       function renderMakeOptions(list){
         const addOpt = `<option value="__add_make__">Add New…</option>`;
         return '<option value="">— Select —</option>' + addOpt +
@@ -300,74 +443,13 @@
                list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
       }
 
-      function openListModal({title, rows}){
-        const dlg=document.createElement('dialog');
-        dlg.innerHTML=`
-          <form method="dialog" class="modal">
-            <h3>${title}</h3>
-            <div class="list">${rows.map(r=>`
-              <div class="rowlist" data-id="${r.id}">
-                <div><strong>${r.name}</strong></div>
-                <div>
-                  <button class="btn-mini" data-act="edit"  type="button">Edit</button>
-                  <button class="btn-mini" data-act="archive" type="button">Archive</button>
-                  <button class="btn-mini" data-act="delete" type="button">Delete</button>
-                </div>
-              </div>`).join('')}
-            </div>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-              <button class="btn" value="cancel">Close</button>
-            </div>
-          </form>`;
-        document.body.appendChild(dlg);
-        dlg.addEventListener('close', ()=> dlg.remove());
-        dlg.showModal();
-        return dlg;
-      }
-
-      async function promptText(label, value=""){
-        return new Promise(res=>{
-          const dlg=document.createElement('dialog');
-          dlg.innerHTML=`
-            <form method="dialog" class="modal">
-              <h3>${label}</h3>
-              <input id="txt" class="input" value="${value||''}" autofocus>
-              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-                <button class="btn" value="cancel">Cancel</button>
-                <button class="btn btn-primary" value="ok">Save</button>
-              </div>
-            </form>`;
-          document.body.appendChild(dlg);
-          dlg.addEventListener('close', ()=>{ const v=dlg.returnValue==='ok' ? dlg.querySelector('#txt').value.trim() : null; dlg.remove(); res(v); });
-          dlg.showModal();
-        });
-      }
-
-      async function confirmBox(msg){
-        return new Promise(res=>{
-          const dlg=document.createElement('dialog');
-          dlg.innerHTML=`
-            <form method="dialog" class="modal">
-              <h3>Confirm</h3>
-              <div>${msg}</div>
-              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-                <button class="btn" value="no">No</button>
-                <button class="btn btn-primary" value="yes">Yes</button>
-              </div>
-            </form>`;
-          document.body.appendChild(dlg);
-          dlg.addEventListener('close', ()=>{ res(dlg.returnValue==='yes'); dlg.remove(); });
-          dlg.showModal();
-        });
-      }
-
       let makes = await getMakes(db);
       $("make").innerHTML = renderMakeOptions(makes);
 
       $("make").addEventListener("change", async (e)=>{
         const val = e.target.value;
         if(val==="__add_make__"){
-          const name = await promptText("Add Make");
+          const name = prompt("Add Make"); // keep simple
           if(name){
             const ref = doc(collection(db,'equipment-makes'));
             await setDoc(ref, { name, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
@@ -398,7 +480,7 @@
         const val = e.target.value;
         if(val==="__add_model__"){
           if(!makeId){ alert("Choose a Make first."); $("model").selectedIndex=0; return; }
-          const name = await promptText("Add Model");
+          const name = prompt("Add Model");
           if(name){
             const ref = doc(collection(db,'equipment-models'));
             await setDoc(ref, { name, makeId, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
@@ -412,116 +494,50 @@
         }
       });
 
-      $("viewMakes").addEventListener("click", async ()=>{
-        const rows = (await getMakes(db)).map(x=>({id:x.id, name:x.name}));
-        const dlg = openListModal({ title:"Makes", rows });
-        dlg.querySelector('.list').addEventListener('click', async (ev)=>{
-          const btn = ev.target.closest('button'); if(!btn) return;
-          const row = ev.target.closest('.rowlist'); const id=row.dataset.id;
-          if(btn.dataset.act==="edit"){
-            const current = rows.find(r=>r.id===id)?.name || "";
-            const name = await promptText("Edit Make", current);
-            if(name){ await updateDoc(doc(db,'equipment-makes',id), { name, updatedAt:serverTimestamp() }); makes = await getMakes(db); $("make").innerHTML = renderMakeOptions(makes); }
-          }else if(btn.dataset.act==="archive"){
-            const ok = await confirmBox("Archive this make?");
-            if(ok){ await updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt:serverTimestamp() }); makes = await getMakes(db); $("make").innerHTML = renderMakeOptions(makes); }
-          }else if(btn.dataset.act==="delete"){
-            const ok = await confirmBox("Delete this make? (only if not in use)");
-            if(ok){ await deleteDoc(doc(db,'equipment-makes',id)); makes = await getMakes(db); $("make").innerHTML = renderMakeOptions(makes); }
-          }
-        }, { once:false });
-      });
+      // ===== Save / QR / Cancel =====
+      let currentId = null; // set after first save
 
-      $("viewModels").addEventListener("click", async ()=>{
-        const makeId = $("make").value;
-        if(!makeId){ alert("Choose a Make first."); return; }
-        const rows = (await getModels(db, makeId)).map(x=>({id:x.id, name:x.name}));
-        const dlg = openListModal({ title:"Models", rows });
-        dlg.querySelector('.list').addEventListener('click', async (ev)=>{
-          const btn = ev.target.closest('button'); if(!btn) return;
-          const row = ev.target.closest('.rowlist'); const id=row.dataset.id;
-          if(btn.dataset.act==="edit"){
-            const current = rows.find(r=>r.id===id)?.name || "";
-            const name = await promptText("Edit Model", current);
-            if(name){ await updateDoc(doc(db,'equipment-models',id), { name, updatedAt:serverTimestamp() }); const models=await getModels(db, makeId); $("model").innerHTML = renderModelOptions(models); }
-          }else if(btn.dataset.act==="archive"){
-            const ok = await confirmBox("Archive this model?");
-            if(ok){ await updateDoc(doc(db,'equipment-models',id), { archived:true, updatedAt:serverTimestamp() }); const models=await getModels(db, makeId); $("model").innerHTML = renderModelOptions(models); }
-          }else if(btn.dataset.act==="delete"){
-            const ok = await confirmBox("Delete this model? (only if not in use)");
-            if(ok){ await deleteDoc(doc(db,'equipment-models',id)); const models=await getModels(db, makeId); $("model").innerHTML = renderModelOptions(models); }
-          }
-        }, { once:false });
-      });
+      async function handleSave(){
+        try{
+          currentId = await ensureSaved(db, currentId);
+          $("btnQR").disabled = false;
+        }catch{}
+      }
 
-      $("btnSave").addEventListener("click", async ()=>{
-        $("err").hidden=true;
-
-        const makeId = $("make").value, modelId=$("model").value;
-        if(!makeId){ alert("Please choose a Make."); return; }
-        if(!modelId){ alert("Please choose a Model."); return; }
-
-        const makeName  = $("make").options[$("make").selectedIndex].textContent.trim();
-        const modelName = $("model").options[$("model").selectedIndex].textContent.trim();
-        const yr = $("year").value ? Number($("year").value) : null;
-        const name = `${makeName} ${modelName}${yr?` (${yr})`:''}`;
-
-        const db = getFirestore();
-        const type = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
-        const ref = doc(collection(db,'equipment'));
-
-        const base = {
-          type, name, makeId, modelId, makeName, modelName,
-          year: yr,
-          serial: $("serial").value.trim() || null,
-          engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
-          notes: $("notes").value.trim() || null,
-          status: "active",
-          createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-        };
-        await setDoc(ref, base);
-
-        // optional photos
-        const files = Array.from(($("photos").files||[]));
-        if(files.length){
-          try{
-            const m = await import('/Farm-vista/js/firebase-init.js');
-            const st = m.getStorage(); const out=[];
-            for(const f of files){
-              const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-              const r = m.ref(st, `equipment/${ref.id}/${safe}`);
-              await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
-              const url = await m.getDownloadURL(r);
-              out.push({name:f.name, url, path:`equipment/${ref.id}/${safe}`});
-            }
-            await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
-          }catch(stErr){
-            $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
-          }
+      async function handleCreateQR(){
+        try{
+          // Save first if needed
+          currentId = await ensureSaved(db, currentId);
+          // Wait for QR lib if needed
+          let tries=0; while(!(window.__qrReady && window.QRCode) && tries++<200){ await new Promise(r=>setTimeout(r,50)); }
+          const { dataURL } = await generateAndStoreQR(db, currentId);
+          // show preview already handled; toast for feedback
+          showToast("QR code ready");
+        }catch(err){
+          console.error(err);
+          alert("Could not create QR code.");
         }
+      }
 
-        showToast("Saved — Ready for next unit");
+      function handleClear(){
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
         $("photos").value="";
         $("year").selectedIndex=0;
         $("yearTrigger").textContent="— Select —";
         $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>el.toggleAttribute('aria-selected', i===0));
-
-        $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
-        $("make").selectedIndex=0; window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
-      });
-
-      $("btnClear").addEventListener("click", ()=>{
-        ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-        $("photos").value="";
-        $("year").selectedIndex=0;
-        $("yearTrigger").textContent="— Select —";
-        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>el.toggleAttribute('aria-selected', i===0));
-
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0;
+        $("qrArea").hidden=true; $("qrImg").src="";
+        currentId=null; $("btnQR").disabled=true;
         window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
-      });
+      }
+
+      $("btnSave").addEventListener("click", handleSave);
+      $("btnQR").addEventListener("click", handleCreateQR);
+      $("btnClear").addEventListener("click", handleClear);
+
+      // Enable QR if we came in editing an existing id (optional future)
+      // (left simple for now)
 
       $("make").focus();
     })();
