@@ -1,17 +1,10 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-g4 (Auto-Mount + Camera Safe Zone + Solid Drawer + Dark-Safe)
-   - Auto-mounts <fv-shell> on any page that doesn't already have it (skips login).
-   - Camera hidden on desktop; visible on touch devices.
-   - Own safe zone above green footer; invisible but reserves space.
-   - Camera color flips (green light / white dark) automatically.
-   - Drawer/topdrawer are solid. PWA footer stays thin.
-
-   CHANGES (g4):
-   - FIX: Syntax error in _initMenuFiltered (icon property) that prevented JS from executing.
-   - FIX: Combo upgrader template mapping used escaped ${...}; now evaluates correctly.
+   FarmVista Shell — v5.10.19-g5
+   - Footer text sits fully in green footer
+   - QR button sits a touch lower
+   - Auto-mount is resilient and runs on ALL pages (except login), regardless of definition timing
 */
 (function () {
-  // ====== TUNABLES ======
   const AUTH_MAX_MS = 5000;
   const MENU_MAX_MS = 3000;
 
@@ -122,7 +115,11 @@
       background:var(--green); color:#fff;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900;
     }
-    .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ftr .text{
+      font-size:13px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      line-height:1; position:relative; top:2px; /* ↓ push text a bit deeper into the green bar */
+    }
 
     /* CAMERA SAFE ZONE */
     .qr-safe{
@@ -134,7 +131,7 @@
       z-index: 950; display: none; pointer-events: none;
     }
     .qr-safe .qr-float{
-      position:absolute; right:12px; bottom:8px;
+      position:absolute; right:12px; bottom:4px; /* ↓ nudge closer to bottom */
       width: var(--qr-size); height: var(--qr-size);
       display:grid; place-items:center; background:transparent;
       color: var(--qr-fg, var(--green)); text-decoration:none; -webkit-tap-highlight-color:transparent;
@@ -284,7 +281,6 @@
       this._qrSafe = r.querySelector('.qr-safe');
       this._qrFloat = r.querySelector('.js-qr');
 
-      // Mobile/touch detection — drives camera safe-zone reservation
       const isTouch = (window.matchMedia && (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(hover: none)').matches))
                       || (window.innerWidth <= 860);
       if (!isTouch) {
@@ -1150,19 +1146,16 @@ const __fvBoot = (function(){
     if (document.body && document.body.dataset && document.body.dataset.fvNoshell === 'true') return;
     if (document.querySelector('fv-shell')) return;
 
-    // Ensure the custom element exists
-    if (!customElements.get('fv-shell')) return;
-
+    // NOTE: do NOT require the custom element to be registered yet.
+    // Browsers will upgrade <fv-shell> automatically once defined.
     const shell = document.createElement('fv-shell');
 
-    // Move *visual* content into the shell, but keep essential head/manifest/scripts in place
+    // Move visual content into the shell
     const movers = [];
     Array.from(document.body.childNodes).forEach(node=>{
       if (node.nodeType === Node.ELEMENT_NODE) {
         const el = node;
-        // Keep scripts that load this shell or service worker helpers in body
-        if (el.tagName === 'SCRIPT') return;
-        // Move all other elements inside the shell so header/footer/drawer render around them
+        if (el.tagName === 'SCRIPT') return; // leave scripts in place
         movers.push(el);
       } else if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() === '') {
         // ignore whitespace
