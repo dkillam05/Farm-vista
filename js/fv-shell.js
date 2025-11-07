@@ -115,7 +115,7 @@
     /* ======================================= */
     .qc-rail{ position:fixed; right:0;
       /* Bumped up so it sits a little higher above the footer */
-      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 32px);
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 48px);
       height:auto; z-index:1350; display:none; }
     @media (pointer:coarse) { .qc-rail{ display:block; } } /* mobile only */
 
