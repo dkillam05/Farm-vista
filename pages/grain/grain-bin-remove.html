@@ -152,7 +152,6 @@
           <div class="row">
             <div class="field">
               <label for="submittedBy">Submitted By</label>
-              <!-- changed to a select; defaults to signed-in user -->
               <select id="submittedBy" class="select">
                 <option value="">— Loading employees… —</option>
               </select>
@@ -201,52 +200,97 @@
     function toast(msg="Saved.", ms=2200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
     let SITES=[]; let CURRENT_SITE=null; let CURRENT_BIN_INDEX=-1;
-    let EMPLOYEES=[];
     const todayISO=()=>new Date().toISOString().slice(0,10);
 
     function getSelectedEmployee(){
       const sel = $("submittedBy");
-      const uid = sel.value || null;
+      const uid = sel.value || null;               // your employees doc id may be the email
       const name = sel.options[sel.selectedIndex]?.textContent || null;
       return { uid, name };
     }
 
     async function loadEmployees(db, auth){
-      EMPLOYEES = [];
-      try{
-        const snap = await getDocs(query(collection(db,'employees'), orderBy('displayName')));
-        snap.forEach(d=>{
-          const v = d.data()||{};
-          const name = String(v.displayName || v.name || '').trim();
-          if(name) EMPLOYEES.push({ id:d.id, name });
-        });
-      }catch(e){
-        console.warn('Employees load failed', e);
-      }
-
       const sel = $("submittedBy");
-      const cu = auth.currentUser;
-      const cuUid = cu?.uid || '';
-      const cuName = (cu?.displayName || 'Dane Killam').trim();
+      const help = $("submittedByHelp");
+      sel.disabled = true;
+      if (help) help.textContent = "Loading…";
 
-      const idxInList = EMPLOYEES.findIndex(e=>e.id===cuUid || e.name===cuName);
-      let opts = '';
-      if(EMPLOYEES.length){
-        opts = EMPLOYEES.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
-      }
-      if(idxInList===-1 && cuUid){
-        opts = `<option value="${esc(cuUid)}">${esc(cuName)}</option>` + (opts?('<option disabled>──────────</option>'+opts):'');
-      }
-      sel.innerHTML = opts || `<option value="${esc(cuUid)}">${esc(cuName)}</option>`;
+      const cu = auth.currentUser || {};
+      const curUid   = cu.uid || "";
+      const curEmail = (cu.email || "").toLowerCase();
+      const curName  = (cu.displayName || "Dane Killam").trim();
 
-      if(cuUid){
-        sel.value = cuUid;
-      }else if(sel.options.length){
-        sel.selectedIndex = 0;
-      }
+      let list = [];
 
-      const countShown = sel.querySelectorAll('option:not([disabled])').length;
-      $("submittedByHelp").textContent = `${countShown} option${countShown===1?'':'s'}`;
+      try {
+        // 1) Unordered /employees (safest)
+        try{
+          const snap = await getDocs(collection(db, "employees"));
+          snap.forEach(d=>{
+            const v = d.data()||{};
+            const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+            const email = (v.email || d.id || "").toString().toLowerCase();
+            if (name) list.push({ id:d.id, email, name });
+          });
+        }catch(e){ console.warn("employees unordered failed:", e); }
+
+        // 2) If empty, orderBy fullName
+        if(!list.length){
+          try{
+            const snap2 = await getDocs(query(collection(db,"employees"), orderBy("fullName")));
+            snap2.forEach(d=>{
+              const v = d.data()||{};
+              const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+              const email = (v.email || d.id || "").toString().toLowerCase();
+              if (name) list.push({ id:d.id, email, name });
+            });
+          }catch(e){ console.warn("employees orderBy(fullName) failed:", e); }
+        }
+
+        // 3) Fallback: /accountRoles
+        if(!list.length){
+          try{
+            const snap3 = await getDocs(collection(db, "accountRoles"));
+            snap3.forEach(d=>{
+              const v = d.data()||{};
+              const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+              const email = (v.email || d.id || "").toString().toLowerCase();
+              if (name) list.push({ id:d.id, email, name });
+            });
+          }catch(e){ console.warn("accountRoles read failed:", e); }
+        }
+      } finally {
+        // Always ensure current user appears & is defaulted
+        const found = list.find(e =>
+          e.id.toLowerCase() === curEmail ||
+          e.email === curEmail ||
+          e.name === curName
+        );
+        if (!found && (curEmail || curUid || curName)) {
+          list.unshift({ id: curEmail || curUid || "unknown", email: curEmail, name: curName });
+        }
+
+        // Sort + render
+        list.sort((a,b)=>a.name.localeCompare(b.name));
+        sel.innerHTML = list.map(e =>
+          `<option value="${esc(e.id)}">${esc(e.name)}</option>`
+        ).join("") || `<option value="${esc(curEmail || curUid || "unknown")}">${esc(curName)}</option>`;
+
+        // ✅ Auto-select current user (email → name → first)
+        const match = list.find(e =>
+          e.id.toLowerCase() === curEmail ||
+          e.email === curEmail ||
+          e.name === curName
+        );
+        if (match) {
+          sel.value = match.id;
+        } else if (sel.options.length) {
+          sel.selectedIndex = 0;
+        }
+
+        sel.disabled = false;
+        if (help) help.textContent = `${sel.options.length} option${sel.options.length===1?"":"s"}`;
+      }
     }
 
     function updateOnHandHelp(){
