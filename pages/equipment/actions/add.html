@@ -77,14 +77,12 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* ===== Year popover (looks like select, ~5 visible rows) ===== */
+    /* ===== Year popover (~5 rows), visually matches .select ===== */
     .combo{ position:relative; }
     .combo-trigger{
       width:100%; text-align:left;
     }
-    .combo-trigger.select{
-      position:relative;
-    }
+    .combo-trigger.select{ position:relative; }
     .combo-trigger.select::after{
       content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
       border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
@@ -98,8 +96,7 @@
     .combo-item{
       display:block; width:100%; text-align:left; font:inherit; color:var(--text);
       background:transparent; border:none; border-radius:10px;
-      padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer;
-      font-weight:400;
+      padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer; font-weight:400;
     }
     .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
     .combo-hidden{ display:none !important; }
@@ -186,7 +183,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- QR library (same as your dev maker) -->
+  <!-- QR library -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script type="module">
@@ -194,7 +191,7 @@
       ready,
       getFirestore,
       collection, setDoc, doc, updateDoc, deleteDoc, getDocs, getDoc,
-      query, orderBy, where, runTransaction,
+      query, orderBy, where,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -360,8 +357,9 @@
              list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
     }
 
-    /* ===== Save (single atomic write + uniqueness locks) ===== */
+    /* ===== Save (atomic if runTransaction is available) ===== */
     let saving = false;
+
     async function saveAll(db){
       if(saving) return;
       const form = readForm();
@@ -372,44 +370,58 @@
       saving = true; $("btnSave").disabled = true;
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
-      // If user created a QR first, we have a pending token; else we can generate at save time.
-      const token = pendingToken || randTokenHex(24);
-
       const eqRef = doc(collection(db,'equipment'));
+      const token = pendingToken || randTokenHex(24);
       const uniqRef = doc(db, 'equipment-uniq', uniqDocId);
       const tokenRef = doc(db, 'qr-tokens', token);
 
+      // Try to lazy-load runTransaction (may not exist in your init file)
+      let runTransaction;
       try{
-        await runTransaction(db, async (tx)=>{
-          const uSnap = await tx.get(uniqRef);
-          if(uSnap.exists()){
-            // If it already points to another equipment, block.
-            const existingEq = uSnap.data()?.equipmentId;
-            if(existingEq && existingEq !== eqRef.id){
-              throw new Error("DUP_UNIQ");
+        const m = await import('/Farm-vista/js/firebase-init.js');
+        runTransaction = m.runTransaction;
+      }catch{}
+
+      try{
+        if (typeof runTransaction === 'function'){
+          // Preferred: true txn
+          await runTransaction(db, async (tx)=>{
+            const uSnap = await tx.get(uniqRef);
+            if(uSnap.exists()){
+              const existingEq = uSnap.data()?.equipmentId;
+              if(existingEq && existingEq !== eqRef.id) throw new Error("DUP_UNIQ");
             }
-          }
-          const tSnap = await tx.get(tokenRef);
-          if(tSnap.exists()){
-            // token already in use by another unit
-            const boundEq = tSnap.data()?.equipmentId;
-            if(boundEq && boundEq !== eqRef.id){
-              throw new Error("DUP_TOKEN");
+            const tSnap = await tx.get(tokenRef);
+            if(tSnap.exists()){
+              const boundEq = tSnap.data()?.equipmentId;
+              if(boundEq && boundEq !== eqRef.id) throw new Error("DUP_TOKEN");
             }
-          }
-          // Create equipment
-          tx.set(eqRef, {
+            tx.set(eqRef, {
+              ...form,
+              status:"active",
+              qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+              createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+            });
+            tx.set(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
+            tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+          });
+        } else {
+          // Fallback: pre-checks (prevents crash; small race window)
+          const [uSnap, tSnap] = await Promise.all([getDoc(uniqRef), getDoc(tokenRef)]);
+          if(uSnap.exists() && uSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_UNIQ");
+          if(tSnap.exists() && tSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_TOKEN");
+
+          await setDoc(eqRef, {
             ...form,
             status:"active",
             qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
             createdAt: serverTimestamp(), updatedAt: serverTimestamp()
           });
-          // Reserve uniqueness + token
-          tx.set(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
-          tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
-        });
+          await setDoc(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
+          await setDoc(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+        }
 
-        // Optional photos (outside tx)
+        // Optional photos
         const files = Array.from(($("photos").files||[]));
         if(files.length){
           try{
@@ -428,7 +440,6 @@
           }
         }
 
-        // Success → toast + reset
         showToast("Saved");
         resetForm();
         window.scrollTo({ top:0, behavior:'smooth' });
@@ -493,7 +504,6 @@
 
       // Buttons
       $("btnQR").addEventListener("click", async ()=>{
-        // Generate token client-side only; no writes.
         if(!pendingToken) pendingToken = randTokenHex(24);
         const hubAbs = location.origin + `/Farm-vista/pages/equipment/equipment-hub.html?t=${encodeURIComponent(pendingToken)}`;
         try{
