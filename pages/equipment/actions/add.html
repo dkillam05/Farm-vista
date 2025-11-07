@@ -46,7 +46,7 @@
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
-    .view-link{ font-weight:800; font-size:12px; text-decoration:underline; cursor:pointer; color:var(--text)!important; }
+    .req::after{ content:" *"; color:var(--brand); }
 
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
@@ -77,7 +77,34 @@
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* Tiny QR preview */
+    /* ===== Year popover (looks like select, ~5 visible rows) ===== */
+    .combo{ position:relative; }
+    .combo-trigger{
+      width:100%; text-align:left;
+    }
+    .combo-trigger.select{
+      position:relative;
+    }
+    .combo-trigger.select::after{
+      content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
+      border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
+    }
+    .combo-panel{
+      position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
+    }
+    .combo-item{
+      display:block; width:100%; text-align:left; font:inherit; color:var(--text);
+      background:transparent; border:none; border-radius:10px;
+      padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer;
+      font-weight:400;
+    }
+    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
+    .combo-hidden{ display:none !important; }
+
+    /* ===== QR Preview (tiny square) ===== */
     .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
@@ -92,18 +119,18 @@
           <div class="icon" aria-hidden="true">🚜</div>
           <div>
             <h1>Add Tractor</h1>
-            <p class="muted">Pick Make/Model, set year, optionally add photos.</p>
+            <p class="muted">Pick Make/Model, set year, add serial (required), optional notes/photos.</p>
           </div>
         </header>
 
         <div class="body">
           <div class="row">
             <div class="field">
-              <label for="make">Make * <span id="viewMakes" class="view-link">View</span></label>
+              <label for="make" class="req">Make</label>
               <select id="make" class="select"><option value="">— Loading… —</option></select>
             </div>
             <div class="field">
-              <label for="model">Model * <span id="viewModels" class="view-link">View</span></label>
+              <label for="model" class="req">Model</label>
               <select id="model" class="select" disabled><option value="">— Select a Make first —</option></select>
             </div>
           </div>
@@ -111,13 +138,16 @@
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
-              <!-- Native select: themed by app.css/theme.css; no custom combo -->
-              <select id="year" class="select"></select>
+              <div class="combo" id="yearCombo">
+                <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+                <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
+                <select id="year" class="select" aria-hidden="true" style="display:none"></select>
+              </div>
             </div>
 
             <div class="field">
-              <label for="serial">Serial #</label>
-              <input id="serial" class="input" placeholder="Optional">
+              <label for="serial" class="req">Serial #</label>
+              <input id="serial" class="input" placeholder="Required">
             </div>
           </div>
 
@@ -136,7 +166,7 @@
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- Tiny QR preview (hidden until generated) -->
+          <!-- Tiny QR preview (client-only, before save) -->
           <div id="qrArea" class="qr-area" hidden>
             <img id="qrThumb" alt="QR code">
           </div>
@@ -145,7 +175,7 @@
 
           <!-- Button order: Save • Create QR Code • Cancel -->
           <div class="actions">
-            <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+            <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
             <button id="btnQR" class="btn" type="button">Create QR Code</button>
             <button id="btnClear" class="btn btn-quiet" type="button">Cancel</button>
           </div>
@@ -164,11 +194,13 @@
       ready,
       getFirestore,
       collection, setDoc, doc, updateDoc, deleteDoc, getDocs, getDoc,
-      query, orderBy, where,
+      query, orderBy, where, runTransaction,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
+    const qs = new URLSearchParams(location.search);
+    const TYPE = (qs.get('type') || 'tractor').toLowerCase();
 
     function showToast(msg="Saved.", ms=3500){
       const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
@@ -176,61 +208,95 @@
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* ===== Year options (native select) ===== */
+    /* ===== Year options + compact popover (~5 rows) ===== */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
+      const panel=$("yearPanel"), trigger=$("yearTrigger");
+      panel.innerHTML="";
+      [...sel.options].forEach(opt=>{
+        const btn=document.createElement('button');
+        btn.type='button'; btn.className='combo-item'; btn.role='option';
+        btn.dataset.val=opt.value; btn.textContent=opt.textContent;
+        btn.addEventListener('click', ()=>{
+          sel.value = opt.value;
+          trigger.textContent = opt.value ? opt.textContent : "— Select —";
+          closeYearPanel();
+          validateForm();
+        });
+        panel.appendChild(btn);
+      });
     }
+    function openYearPanel(){
+      $("yearPanel").classList.remove('combo-hidden');
+      $("yearTrigger").setAttribute('aria-expanded','true');
+      document.addEventListener('click', onDocClickClose, { once:true });
+      document.addEventListener('keydown', onEscClose);
+    }
+    function closeYearPanel(){
+      $("yearPanel").classList.add('combo-hidden');
+      $("yearTrigger").setAttribute('aria-expanded','false');
+      document.removeEventListener('keydown', onEscClose);
+    }
+    function onDocClickClose(e){
+      if(!$("yearCombo").contains(e.target)) closeYearPanel();
+      else document.addEventListener('click', onDocClickClose, { once:true });
+    }
+    function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    /* ===== Helpers ===== */
-    function currentType(){ const p=new URLSearchParams(location.search); return (p.get('type')||'tractor').toLowerCase(); }
+    /* ===== Form helpers ===== */
+    function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+    function uniqKey(makeId, modelId, serial){
+      return [String(makeId||''), String(modelId||''), normalizeSerial(serial)].join('_');
+    }
     function readForm(){
       const makeSel=$("make"), modelSel=$("model");
       const makeId=makeSel.value||null, modelId=modelSel.value||null;
       const makeName=makeId? makeSel.options[makeSel.selectedIndex].textContent.trim():null;
       const modelName=modelId? modelSel.options[modelSel.selectedIndex].textContent.trim():null;
       const yr = $("year").value ? Number($("year").value) : null;
+      const serialNorm = normalizeSerial($("serial").value);
       const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
       return {
         makeId, modelId, makeName, modelName,
         year: yr,
-        serial: $("serial").value.trim() || null,
+        serial: serialNorm,
         engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
         notes: $("notes").value.trim() || null,
-        type: currentType(),
+        type: TYPE,
         name: name.trim()
       };
     }
-
-    function randTokenHex(len=24){
-      const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes);
-      return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+    function validateForm(){
+      const makeOk = Boolean($("make").value);
+      const modelOk= Boolean($("model").value);
+      const serialOk= Boolean(normalizeSerial($("serial").value));
+      $("btnSave").disabled = !(makeOk && modelOk && serialOk);
     }
 
-    function smartLaunch(absUrl){
-      const url = new URL(location.origin + '/Farm-vista/launch.html');
-      url.searchParams.set('to', absUrl);
-      return url.href;
-    }
-
-    function hubUrlAbs(id, token){
-      const hub = `/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(token)}`;
-      return location.origin + hub;
-    }
-
-    /* ===== Dev-style QR maker (no saving here) ===== */
+    /* ===== QR (client-only until Save) ===== */
+    let pendingToken = null;   // token created by "Create QR Code" (not yet saved)
     async function waitQRReady(){
       let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){
         await new Promise(r=>setTimeout(r,50));
       }
       if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib');
     }
-    async function makeQRForUrl(finalUrlAbs){
+    function smartLaunch(absUrl){
+      const url = new URL(location.origin + '/Farm-vista/launch.html');
+      url.searchParams.set('to', absUrl);
+      return url.href;
+    }
+    function randTokenHex(len=24){
+      const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes);
+      return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+    }
+    async function makeQRForUrl(absUrl){
       await waitQRReady();
       const size=256, ecc=window.QRCode.CorrectLevel.H;
       const holder=document.createElement('div');
-      new QRCode(holder,{text:smartLaunch(finalUrlAbs),width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
+      new QRCode(holder,{text:smartLaunch(absUrl),width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
       const node = await new Promise((res,rej)=>{
         const start=Date.now();
         (function check(){
@@ -257,76 +323,162 @@
       img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
     }
 
+    /* ===== Data ===== */
+    async function getMakes(db){
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
+      }catch{
+        const snap=await getDocs(collection(db,'equipment-makes'));
+        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+    async function getModels(db, makeId){
+      if(!makeId) return [];
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
+      }catch{
+        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
+        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+    function renderMakeOptions(list){
+      const addOpt = `<option value="__add_make__">Add New…</option>`;
+      return '<option value="">— Select —</option>' + addOpt +
+             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+    }
+    function renderModelOptions(list){
+      const addOpt = `<option value="__add_model__">Add New…</option>`;
+      return '<option value="">— Select —</option>' + addOpt +
+             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+    }
+
+    /* ===== Save (single atomic write + uniqueness locks) ===== */
+    let saving = false;
+    async function saveAll(db){
+      if(saving) return;
+      const form = readForm();
+      if(!form.makeId){ alert("Please choose a Make."); return; }
+      if(!form.modelId){ alert("Please choose a Model."); return; }
+      if(!form.serial){ alert("Serial # is required."); return; }
+
+      saving = true; $("btnSave").disabled = true;
+
+      const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
+      // If user created a QR first, we have a pending token; else we can generate at save time.
+      const token = pendingToken || randTokenHex(24);
+
+      const eqRef = doc(collection(db,'equipment'));
+      const uniqRef = doc(db, 'equipment-uniq', uniqDocId);
+      const tokenRef = doc(db, 'qr-tokens', token);
+
+      try{
+        await runTransaction(db, async (tx)=>{
+          const uSnap = await tx.get(uniqRef);
+          if(uSnap.exists()){
+            // If it already points to another equipment, block.
+            const existingEq = uSnap.data()?.equipmentId;
+            if(existingEq && existingEq !== eqRef.id){
+              throw new Error("DUP_UNIQ");
+            }
+          }
+          const tSnap = await tx.get(tokenRef);
+          if(tSnap.exists()){
+            // token already in use by another unit
+            const boundEq = tSnap.data()?.equipmentId;
+            if(boundEq && boundEq !== eqRef.id){
+              throw new Error("DUP_TOKEN");
+            }
+          }
+          // Create equipment
+          tx.set(eqRef, {
+            ...form,
+            status:"active",
+            qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+            createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+          });
+          // Reserve uniqueness + token
+          tx.set(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
+          tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+        });
+
+        // Optional photos (outside tx)
+        const files = Array.from(($("photos").files||[]));
+        if(files.length){
+          try{
+            const m = await import('/Farm-vista/js/firebase-init.js');
+            const st = m.getStorage(); const out=[];
+            for(const f of files){
+              const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+              const r = m.ref(st, `equipment/${eqRef.id}/${safe}`);
+              await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+              const url = await m.getDownloadURL(r);
+              out.push({name:f.name, url, path:`equipment/${eqRef.id}/${safe}`});
+            }
+            await updateDoc(eqRef, { photos: out, updatedAt: serverTimestamp() });
+          }catch(stErr){
+            $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
+          }
+        }
+
+        // Success → toast + reset
+        showToast("Saved");
+        resetForm();
+        window.scrollTo({ top:0, behavior:'smooth' });
+
+      }catch(err){
+        if(err && err.message === "DUP_UNIQ"){
+          alert("This Make + Model + Serial already exists. Duplicate not allowed.");
+        }else if(err && err.message === "DUP_TOKEN"){
+          alert("This QR token is already bound to another unit. Generate a new QR and try again.");
+        }else{
+          console.error(err);
+          alert("Save failed.");
+        }
+      }finally{
+        saving = false;
+        validateForm();
+      }
+    }
+
+    function resetForm(){
+      ["serial","engineHours","notes"].forEach(id=>$(id).value="");
+      $("photos").value="";
+      $("year").value=""; $("yearTrigger").textContent="— Select —";
+      $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
+      $("make").selectedIndex=0;
+      $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
+      pendingToken=null;
+    }
+
     (async()=>{
       await ready;
       const db  = getFirestore();
 
-      const params = new URLSearchParams(location.search);
-      const type = (params.get('type') || 'tractor').toLowerCase();
-      document.title = `FarmVista • Add ${type[0].toUpperCase()+type.slice(1)}`;
-      document.querySelector('.hero-head h1').textContent = `Add ${type[0].toUpperCase()+type.slice(1)}`;
+      document.title = `FarmVista • Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
+      document.querySelector('.hero-head h1').textContent = `Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
 
+      // Year
       buildYearOptions();
+      $("yearTrigger").addEventListener('click', ()=>{
+        const open = $("yearTrigger").getAttribute('aria-expanded') === 'true';
+        if(open) closeYearPanel(); else openYearPanel();
+      });
 
-      // ===== Makes / Models =====
-      async function getMakes(db){
-        const items=[];
-        try{
-          const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-          snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
-        }catch{
-          const snap=await getDocs(collection(db,'equipment-makes'));
-          snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
-          items.sort((a,b)=>a.name.localeCompare(b.name));
-        }
-        return items;
-      }
-      async function getModels(db, makeId){
-        if(!makeId) return [];
-        const items=[];
-        try{
-          const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-          snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
-        }catch{
-          const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
-          snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
-          items.sort((a,b)=>a.name.localeCompare(b.name));
-        }
-        return items;
-      }
-      function renderMakeOptions(list){
-        const addOpt = `<option value="__add_make__">Add New…</option>`;
-        return '<option value="">— Select —</option>' + addOpt +
-               list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-      }
-      function renderModelOptions(list){
-        const addOpt = `<option value="__add_model__">Add New…</option>`;
-        return '<option value="">— Select —</option>' + addOpt +
-               list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-      }
-
+      // Data
       let makes = await getMakes(db);
       $("make").innerHTML = renderMakeOptions(makes);
 
       $("make").addEventListener("change", async (e)=>{
+        validateForm();
         const val = e.target.value;
-        if(val==="__add_make__"){
-          const name = prompt("Add Make");
-          if(name){
-            const ref = doc(collection(db,'equipment-makes'));
-            await setDoc(ref, { name, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
-            makes = await getMakes(db);
-            $("make").innerHTML = renderMakeOptions(makes);
-            $("make").value = ref.id;
-            $("model").disabled=false;
-            $("model").innerHTML = renderModelOptions([]);
-          }else{
-            $("make").selectedIndex = 0;
-            $("model").disabled=true;
-            $("model").innerHTML = '<option value="">— Select a Make first —</option>';
-          }
-          return;
-        }
         if(!val){
           $("model").disabled=true;
           $("model").innerHTML = '<option value="">— Select a Make first —</option>';
@@ -336,104 +488,25 @@
         $("model").disabled=false;
         $("model").innerHTML = renderModelOptions(models);
       });
+      $("model").addEventListener("change", validateForm);
+      $("serial").addEventListener("input", validateForm);
 
-      $("model").addEventListener("change", async (e)=>{
-        const makeId = $("make").value;
-        const val = e.target.value;
-        if(val==="__add_model__"){
-          if(!makeId){ alert("Choose a Make first."); $("model").selectedIndex=0; return; }
-          const name = prompt("Add Model");
-          if(name){
-            const ref = doc(collection(db,'equipment-models'));
-            await setDoc(ref, { name, makeId, archived:false, createdAt:serverTimestamp(), updatedAt:serverTimestamp() });
-            const models = await getModels(db, makeId);
-            $("model").innerHTML = renderModelOptions(models);
-            const opt = Array.from($("model").options).find(o=>o.textContent.trim()===name);
-            if(opt) $("model").value = opt.value;
-          }else{
-            $("model").selectedIndex = 0;
-          }
+      // Buttons
+      $("btnQR").addEventListener("click", async ()=>{
+        // Generate token client-side only; no writes.
+        if(!pendingToken) pendingToken = randTokenHex(24);
+        const hubAbs = location.origin + `/Farm-vista/pages/equipment/equipment-hub.html?t=${encodeURIComponent(pendingToken)}`;
+        try{
+          await makeQRForUrl(hubAbs);
+        }catch(e){
+          console.error(e); alert("Could not create QR code.");
         }
       });
 
-      // ===== Save / QR / Cancel =====
-      let currentId = null;
-      let currentToken = null;
+      $("btnSave").addEventListener("click", ()=> saveAll(db));
+      $("btnClear").addEventListener("click", resetForm);
 
-      async function handleSave(){
-        try{
-          const ref = doc(collection(db,'equipment'));
-          const base = readForm();
-          await setDoc(ref, {
-            ...base,
-            status:"active",
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            // create token at save time (no QR generation here)
-            qr: { token: randTokenHex(24), createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
-          });
-          currentId = ref.id;
-          const snap = await getDoc(ref);
-          currentToken = (snap.data()?.qr?.token) || null;
-
-          // optional photos
-          const files = Array.from(($("photos").files||[]));
-          if(files.length){
-            try{
-              const m = await import('/Farm-vista/js/firebase-init.js');
-              const st = m.getStorage(); const out=[];
-              for(const f of files){
-                const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
-                const r = m.ref(st, `equipment/${ref.id}/${safe}`);
-                await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
-                const url = await m.getDownloadURL(r);
-                out.push({name:f.name, url, path:`equipment/${ref.id}/${safe}`});
-              }
-              await updateDoc(ref, { photos: out, updatedAt: serverTimestamp() });
-            }catch(stErr){
-              $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
-            }
-          }
-
-          showToast("Saved");
-        }catch(e){
-          console.error(e);
-          alert("Save failed.");
-        }
-      }
-
-      async function handleCreateQR(){
-        try{
-          // Build URL depending on saved state — no saving here
-          let abs;
-          if(currentId && currentToken){
-            abs = hubUrlAbs(currentId, currentToken);
-          }else{
-            // “Does nothing until saved”: point to generic hub
-            abs = location.origin + '/Farm-vista/pages/equipment/equipment-hub.html';
-          }
-          await makeQRForUrl(abs);
-        }catch(err){
-          console.error(err);
-          alert("Could not create QR code.");
-        }
-      }
-
-      function handleClear(){
-        ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-        $("photos").value="";
-        $("year").value="";
-        $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
-        $("make").selectedIndex=0;
-        $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
-        currentId=null; currentToken=null;
-        window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
-      }
-
-      $("btnSave").addEventListener("click", handleSave);
-      $("btnQR").addEventListener("click", handleCreateQR);
-      $("btnClear").addEventListener("click", handleClear);
-
+      validateForm();
       $("make").focus();
     })();
   </script>
