@@ -928,9 +928,9 @@
     }
 
    /* ============================== */
-/* QC: Quick Camera interactions  */
-/* ============================== */
-_initQuickCamera(){
+   /* QC: Quick Camera interactions  */
+   /* ============================== */
+   _initQuickCamera(){
   if (!this._qcRail || !this._qcHandle) return;
 
   // Hide on desktop (extra guard)
@@ -1029,7 +1029,6 @@ _openNativeCamera(){
     this._toastMsg('Unable to open camera.', 1800);
   }
 }
-
 });
 
 })();
