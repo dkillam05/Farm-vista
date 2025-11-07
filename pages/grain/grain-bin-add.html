@@ -225,7 +225,7 @@
 
     function getSelectedEmployee(){
       const sel = $("submittedBy");
-      const uid = sel.value || null; // in your DB this may be an email (doc id)
+      const uid = sel.value || null; // your employees doc id appears to be email
       const name = sel.options[sel.selectedIndex]?.textContent || null;
       return { uid, name };
     }
@@ -237,68 +237,74 @@
       if (help) help.textContent = "Loading…";
 
       const cu = auth.currentUser || {};
-      const curUid = cu.uid || "";
-      const curEmail = cu.email || "";
-      const curName = (cu.displayName || "Dane Killam").trim();
+      const curUid   = cu.uid || "";
+      const curEmail = (cu.email || "").toLowerCase();
+      const curName  = (cu.displayName || "Dane Killam").trim();
 
       let list = [];
 
       try {
-        // 1) Try unordered /employees (avoids index/order errors)
+        // Safe read first: unordered /employees (no index surprises)
         try{
           const snap = await getDocs(collection(db, "employees"));
           snap.forEach(d=>{
             const v = d.data()||{};
-            const name = (v.fullName || v.displayName || v.name || "").toString().trim();
-            if (name) list.push({ id:d.id, name }); // id is email in your screenshot
+            const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+            const email = (v.email || d.id || "").toString().toLowerCase();
+            if (name) list.push({ id:d.id, email, name });
           });
         }catch(e){ console.warn("employees unordered failed:", e); }
 
-        // 2) If empty, try orderBy fullName
+        // If empty, try orderBy fullName
         if(!list.length){
           try{
             const snap2 = await getDocs(query(collection(db,"employees"), orderBy("fullName")));
             snap2.forEach(d=>{
               const v = d.data()||{};
-              const name = (v.fullName || v.displayName || v.name || "").toString().trim();
-              if (name) list.push({ id:d.id, name });
+              const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+              const email = (v.email || d.id || "").toString().toLowerCase();
+              if (name) list.push({ id:d.id, email, name });
             });
           }catch(e){ console.warn("employees orderBy(fullName) failed:", e); }
         }
 
-        // 3) Fallback to /accountRoles
+        // Fallback: /accountRoles
         if(!list.length){
           try{
             const snap3 = await getDocs(collection(db, "accountRoles"));
             snap3.forEach(d=>{
               const v = d.data()||{};
-              const name = (v.fullName || v.displayName || v.name || "").toString().trim();
-              if (name) list.push({ id:d.id, name });
+              const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+              const email = (v.email || d.id || "").toString().toLowerCase();
+              if (name) list.push({ id:d.id, email, name });
             });
           }catch(e){ console.warn("accountRoles read failed:", e); }
         }
       } finally {
-        // Always render something
-        if(!list.length && (curUid || curEmail || curName)){
-          list = [{ id: curUid || curEmail || "unknown", name: curName }];
+        // Ensure current user is present
+        const found = list.find(e =>
+          e.id.toLowerCase() === curEmail ||
+          e.email === curEmail ||
+          e.name === curName
+        );
+        if (!found && (curEmail || curUid || curName)) {
+          list.unshift({ id: curEmail || curUid || "unknown", email: curEmail, name: curName });
         }
 
-        // Sort and ensure current user is present first if missing
+        // Sort + render
         list.sort((a,b)=>a.name.localeCompare(b.name));
-        const curVal = curUid || curEmail || "";
-        const hasCurrent = list.some(e => e.id === curVal || e.name === curName);
+        sel.innerHTML = list.map(e =>
+          `<option value="${esc(e.id)}">${esc(e.name)}</option>`
+        ).join("") || `<option value="${esc(curEmail || curUid || "unknown")}">${esc(curName)}</option>`;
 
-        let opts = list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("");
-        if(!hasCurrent && (curVal || curName)){
-          const injected = `<option value="${esc(curVal || "unknown")}">${esc(curName)}</option>`;
-          opts = injected + (opts ? `<option disabled>──────────</option>${opts}` : "");
-        }
-
-        sel.innerHTML = opts || `<option value="${esc(curVal || "unknown")}">${esc(curName)}</option>`;
-
-        // Default selection (UID → email → first)
-        if (curVal && sel.querySelector(`option[value="${curVal.replace(/"/g,'&quot;')}"]`)) {
-          sel.value = curVal;
+        // ✅ Default to the logged-in user (email match → name match → first)
+        const match = list.find(e =>
+          e.id.toLowerCase() === curEmail ||
+          e.email === curEmail ||
+          e.name === curName
+        );
+        if (match) {
+          sel.value = match.id;
         } else if (sel.options.length) {
           sel.selectedIndex = 0;
         }
