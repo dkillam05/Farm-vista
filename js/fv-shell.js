@@ -1029,6 +1029,7 @@ _openNativeCamera(){
     this._toastMsg('Unable to open camera.', 1800);
   }
 }
+}
    if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
 })();  
 
