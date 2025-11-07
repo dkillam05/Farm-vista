@@ -92,6 +92,33 @@
       border:1px solid var(--border); background:var(--surface);
       -webkit-appearance:none; appearance:none; color:var(--text)!important;
     }
+
+    /* ===== Compact Year Combo (5 visible rows) ===== */
+    .combo{ position:relative; }
+    .combo-trigger{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:12px; cursor:pointer; text-align:left;
+    }
+    .combo-panel{
+      position:absolute; left:0; right:0; z-index:1000; margin-top:6px;
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      box-shadow:0 12px 26px rgba(0,0,0,.18); overflow:auto;
+      /* exactly 5 rows visible without scrolling */
+      --row-h: 36px;
+      max-height: calc(var(--row-h) * 5);
+    }
+    .combo-item{
+      display:flex; align-items:center; height:var(--row-h);
+      padding:0 10px; border-bottom:1px solid var(--border);
+      background:var(--surface); color:var(--text); width:100%;
+      cursor:pointer; text-align:left; font:inherit;
+    }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-item[aria-selected="true"]{ font-weight:800; }
+    .combo-item:focus{ outline:2px solid var(--brand); outline-offset:-2px; }
+    .combo-hidden{ display:none !important; }
+
   </style>
 </head>
 
@@ -122,8 +149,17 @@
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
-              <select id="year" class="select"></select>
+
+              <!-- Compact 5-row custom combo; native select kept hidden + synced -->
+              <div class="combo" id="yearCombo">
+                <button type="button" id="yearTrigger" class="combo-trigger" aria-haspopup="listbox" aria-expanded="false">
+                  — Select —
+                </button>
+                <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
+                <select id="year" class="select combo-hidden" aria-hidden="true"></select>
+              </div>
             </div>
+
             <div class="field">
               <label for="serial">Serial #</label>
               <input id="serial" class="input" placeholder="Optional">
@@ -175,110 +211,60 @@
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
+    // ===== Year options + compact combo =====
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
+      buildYearPanelFromSelect(); // mirror into custom panel
     }
 
-    async function getMakes(db){
-      const items=[];
-      try{
-        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
-      }catch{
-        const snap=await getDocs(collection(db,'equipment-makes'));
-        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
-        items.sort((a,b)=>a.name.localeCompare(b.name));
-      }
-      return items;
-    }
-
-    async function getModels(db, makeId){
-      if(!makeId) return [];
-      const items=[];
-      try{
-        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
-      }catch{
-        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
-        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
-        items.sort((a,b)=>a.name.localeCompare(b.name));
-      }
-      return items;
-    }
-
-    function renderMakeOptions(list){
-      const addOpt = `<option value="__add_make__">Add New…</option>`;
-      return '<option value="">— Select —</option>' + addOpt +
-             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-    }
-    function renderModelOptions(list){
-      const addOpt = `<option value="__add_model__">Add New…</option>`;
-      return '<option value="">— Select —</option>' + addOpt +
-             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-    }
-
-    function openListModal({title, rows}){
-      const dlg=document.createElement('dialog');
-      dlg.innerHTML=`
-        <form method="dialog" class="modal">
-          <h3>${title}</h3>
-          <div class="list">${rows.map(r=>`
-            <div class="rowlist" data-id="${r.id}">
-              <div><strong>${r.name}</strong></div>
-              <div>
-                <button class="btn-mini" data-act="edit"  type="button">Edit</button>
-                <button class="btn-mini" data-act="archive" type="button">Archive</button>
-                <button class="btn-mini" data-act="delete" type="button">Delete</button>
-              </div>
-            </div>`).join('')}
-          </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-            <button class="btn" value="cancel">Close</button>
-          </div>
-        </form>`;
-      document.body.appendChild(dlg);
-      dlg.addEventListener('close', ()=> dlg.remove());
-      dlg.showModal();
-      return dlg;
-    }
-
-    async function promptText(label, value=""){
-      return new Promise(res=>{
-        const dlg=document.createElement('dialog');
-        dlg.innerHTML=`
-          <form method="dialog" class="modal">
-            <h3>${label}</h3>
-            <input id="txt" class="input" value="${value||''}" autofocus>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-              <button class="btn" value="cancel">Cancel</button>
-              <button class="btn btn-primary" value="ok">Save</button>
-            </div>
-          </form>`;
-        document.body.appendChild(dlg);
-        dlg.addEventListener('close', ()=>{ const v=dlg.returnValue==='ok' ? dlg.querySelector('#txt').value.trim() : null; dlg.remove(); res(v); });
-        dlg.showModal();
+    function buildYearPanelFromSelect(){
+      const sel=$("year"); const panel=$("yearPanel"); const trigger=$("yearTrigger");
+      panel.innerHTML="";
+      [...sel.options].forEach((opt, idx)=>{
+        const btn=document.createElement('button');
+        btn.type='button';
+        btn.className='combo-item';
+        btn.role='option';
+        btn.dataset.val=opt.value;
+        btn.textContent=opt.textContent;
+        if(idx===0) btn.setAttribute('aria-selected','true'); // default "— Select —"
+        btn.addEventListener('click', ()=>{
+          // update selection + trigger text
+          sel.value = opt.value;
+          trigger.textContent = opt.value ? opt.textContent : "— Select —";
+          // set selected style
+          panel.querySelectorAll('.combo-item').forEach(el=>el.removeAttribute('aria-selected'));
+          btn.setAttribute('aria-selected','true');
+          closeYearPanel();
+        });
+        panel.appendChild(btn);
       });
     }
 
-    async function confirmBox(msg){
-      return new Promise(res=>{
-        const dlg=document.createElement('dialog');
-        dlg.innerHTML=`
-          <form method="dialog" class="modal">
-            <h3>Confirm</h3>
-            <div>${msg}</div>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-              <button class="btn" value="no">No</button>
-              <button class="btn btn-primary" value="yes">Yes</button>
-            </div>
-          </form>`;
-        document.body.appendChild(dlg);
-        dlg.addEventListener('close', ()=>{ res(dlg.returnValue==='yes'); dlg.remove(); });
-        dlg.showModal();
-      });
+    function openYearPanel(){
+      const trigger=$("yearTrigger"), panel=$("yearPanel");
+      panel.classList.remove('combo-hidden');
+      trigger.setAttribute('aria-expanded','true');
+      // Focus current selection for better keyboard nav
+      const val=$("year").value;
+      const current = [...panel.children].find(el=>el.dataset.val===val) || panel.firstElementChild;
+      current?.focus();
+      document.addEventListener('click', onDocClickClose, { once:true });
+      document.addEventListener('keydown', onEscClose);
     }
+    function closeYearPanel(){
+      const trigger=$("yearTrigger"), panel=$("yearPanel");
+      panel.classList.add('combo-hidden');
+      trigger.setAttribute('aria-expanded','false');
+      document.removeEventListener('keydown', onEscClose);
+    }
+    function onDocClickClose(e){
+      if(!$("yearCombo").contains(e.target)) closeYearPanel();
+      else document.addEventListener('click', onDocClickClose, { once:true }); // re-arm if click was inside
+    }
+    function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
     (async()=>{
       await ready;
@@ -290,6 +276,112 @@
       document.querySelector('.hero-head h1').textContent = `Add ${type[0].toUpperCase()+type.slice(1)}`;
 
       buildYearOptions();
+
+      // wire combo trigger
+      $("yearTrigger").addEventListener('click', ()=>{
+        const isOpen = $("yearTrigger").getAttribute('aria-expanded') === 'true';
+        if(isOpen) closeYearPanel(); else openYearPanel();
+      });
+
+      // ===== Makes / Models (unchanged) =====
+      async function getMakes(db){
+        const items=[];
+        try{
+          const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+          snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
+        }catch{
+          const snap=await getDocs(collection(db,'equipment-makes'));
+          snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
+          items.sort((a,b)=>a.name.localeCompare(b.name));
+        }
+        return items;
+      }
+
+      async function getModels(db, makeId){
+        if(!makeId) return [];
+        const items=[];
+        try{
+          const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+          snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
+        }catch{
+          const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
+          snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
+          items.sort((a,b)=>a.name.localeCompare(b.name));
+        }
+        return items;
+      }
+
+      function renderMakeOptions(list){
+        const addOpt = `<option value="__add_make__">Add New…</option>`;
+        return '<option value="">— Select —</option>' + addOpt +
+               list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+      }
+      function renderModelOptions(list){
+        const addOpt = `<option value="__add_model__">Add New…</option>`;
+        return '<option value="">— Select —</option>' + addOpt +
+               list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+      }
+
+      function openListModal({title, rows}){
+        const dlg=document.createElement('dialog');
+        dlg.innerHTML=`
+          <form method="dialog" class="modal">
+            <h3>${title}</h3>
+            <div class="list">${rows.map(r=>`
+              <div class="rowlist" data-id="${r.id}">
+                <div><strong>${r.name}</strong></div>
+                <div>
+                  <button class="btn-mini" data-act="edit"  type="button">Edit</button>
+                  <button class="btn-mini" data-act="archive" type="button">Archive</button>
+                  <button class="btn-mini" data-act="delete" type="button">Delete</button>
+                </div>
+              </div>`).join('')}
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+              <button class="btn" value="cancel">Close</button>
+            </div>
+          </form>`;
+        document.body.appendChild(dlg);
+        dlg.addEventListener('close', ()=> dlg.remove());
+        dlg.showModal();
+        return dlg;
+      }
+
+      async function promptText(label, value=""){
+        return new Promise(res=>{
+          const dlg=document.createElement('dialog');
+          dlg.innerHTML=`
+            <form method="dialog" class="modal">
+              <h3>${label}</h3>
+              <input id="txt" class="input" value="${value||''}" autofocus>
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+                <button class="btn" value="cancel">Cancel</button>
+                <button class="btn btn-primary" value="ok">Save</button>
+              </div>
+            </form>`;
+          document.body.appendChild(dlg);
+          dlg.addEventListener('close', ()=>{ const v=dlg.returnValue==='ok' ? dlg.querySelector('#txt').value.trim() : null; dlg.remove(); res(v); });
+          dlg.showModal();
+        });
+      }
+
+      async function confirmBox(msg){
+        return new Promise(res=>{
+          const dlg=document.createElement('dialog');
+          dlg.innerHTML=`
+            <form method="dialog" class="modal">
+              <h3>Confirm</h3>
+              <div>${msg}</div>
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+                <button class="btn" value="no">No</button>
+                <button class="btn btn-primary" value="yes">Yes</button>
+              </div>
+            </form>`;
+          document.body.appendChild(dlg);
+          dlg.addEventListener('close', ()=>{ res(dlg.returnValue==='yes'); dlg.remove(); });
+          dlg.showModal();
+        });
+      }
 
       let makes = await getMakes(db);
       $("make").innerHTML = renderMakeOptions(makes);
@@ -432,14 +524,28 @@
 
         showToast("Saved — Ready for next unit");
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-        $("photos").value=""; $("year").selectedIndex=0;
+        $("photos").value="";
+        // reset year (both controls)
+        $("year").selectedIndex=0;
+        $("yearTrigger").textContent="— Select —";
+        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>{
+          el.toggleAttribute('aria-selected', i===0);
+        });
+
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0; window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
       });
 
       $("btnClear").addEventListener("click", ()=>{
         ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-        $("photos").value=""; $("year").selectedIndex=0;
+        $("photos").value="";
+        // reset year (both controls)
+        $("year").selectedIndex=0;
+        $("yearTrigger").textContent="— Select —";
+        $("yearPanel").querySelectorAll('.combo-item').forEach((el,i)=>{
+          el.toggleAttribute('aria-selected', i===0);
+        });
+
         $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
         $("make").selectedIndex=0;
         window.scrollTo({ top:0, behavior:'smooth' }); $("make").focus();
