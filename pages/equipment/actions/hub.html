@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Ensure fv-shell -->
+  <!-- fv-shell -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -119,48 +119,62 @@
   <script type="module">
     import {
       ready,
-      getFirestore, doc, getDoc
+      getFirestore, doc, getDoc, runTransaction
     } from '/Farm-vista/js/firebase-init.js';
 
+    const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
     const id = qs.get('id') || '';
     const t  = qs.get('t')  || '';
 
-    const $ = id => document.getElementById(id);
     const setText = (id, val, opts={})=>{
       const el=$(id); if(!el) return;
-      if(val==null || val===''){ el.hidden = !!opts.hideIfEmpty; return; }
+      if(val==null || val===''){ if(opts.hideIfEmpty) el.hidden=true; else el.textContent=''; return; }
       el.textContent = String(val);
       if(opts.unhide) el.hidden=false;
     };
+
+    async function resolveIdByToken(db, token){
+      // token doc is qr-tokens/{token} => { equipmentId }
+      const ref = doc(db, 'qr-tokens', token);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return null;
+      return snap.data()?.equipmentId || null;
+    }
 
     async function check(){
       $("subtitle").textContent = "Resolving equipment…";
       const ctx = await ready;
       const db  = getFirestore();
 
-      if(!id || !t){
-        $("stateMsg").innerHTML = "<strong>Invalid link.</strong> Missing id or token.";
+      let eqId = id;
+
+      if(!eqId && t){
+        // Allow token-only links from pre-printed stickers
+        eqId = await resolveIdByToken(db, t);
+      }
+
+      if(!eqId){
+        $("stateMsg").innerHTML = "<strong>Not linked yet.</strong> This QR was created before the equipment was saved.";
+        $("stateBox").classList.add("warn");
         $("content").hidden = true;
+        $("subtitle").textContent = "Not linked yet";
         return;
       }
 
       try{
-        const ref = doc(db,'equipment', id);
+        const ref = doc(db,'equipment', eqId);
         const snap = await getDoc(ref);
 
         if(!snap.exists()){
-          $("stateMsg").innerHTML =
-            "<strong>Not saved yet.</strong> This QR was created before the equipment was saved. " +
-            "Once it’s saved, scan again or tap Retry.";
-          $("stateBox").classList.add("warn");
+          $("stateMsg").innerHTML = "<strong>Not found.</strong> Equipment record doesn’t exist.";
           $("content").hidden = true;
-          $("subtitle").textContent = "Not saved yet";
+          $("subtitle").textContent = "Not found";
           return;
         }
 
         const data = snap.data() || {};
-        const ok = !!data.qr && data.qr.token === t;
+        const ok = !!t ? (data.qr && data.qr.token === t) : true;
 
         if(!ok){
           $("stateMsg").innerHTML = "<strong>Invalid link.</strong> Token mismatch.";
@@ -170,13 +184,13 @@
           return;
         }
 
-        // Render details
+        // Render
         $("deepLink").textContent = location.href;
-        $("tokenOK").textContent = "yes";
+        $("tokenOK").textContent = ok ? "yes" : "no";
 
         const type = data.type || "equipment";
         const makeModel = [data.makeName, data.modelName].filter(Boolean).join(" ");
-        const name = data.name || makeModel || `Unit ${id.slice(0,6)}`;
+        const name = data.name || makeModel || `Unit ${eqId.slice(0,6)}`;
 
         setText("eqName", name);
         setText("eqType", type);
@@ -186,13 +200,12 @@
         if(data.engineHours!=null) setText("eqHours", `${data.engineHours} hrs`, {unhide:true});
         if(data.notes) { setText("eqNotes", data.notes, {unhide:true}); }
 
-        // Wire quick links (point at your existing action pages)
-        // You can enhance with the same ?id&t to keep context.
+        // Quick links (keep context)
         const base = "/Farm-vista/pages/equipment/actions";
-        $("linkHours").href = `${base}/engine-hours.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
-        $("linkMaint").href = `${base}/maintenance.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
-        $("linkReq").href   = `${base}/service-request.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
-        $("linkPre").href   = `${base}/pre-check.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&from=qr`;
+        $("linkHours").href = `${base}/engine-hours.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
+        $("linkMaint").href = `${base}/maintenance.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
+        $("linkReq").href   = `${base}/service-request.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
+        $("linkPre").href   = `${base}/pre-check.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(data.qr?.token||'')}&from=qr`;
 
         $("stateBox").classList.remove("warn");
         $("stateMsg").textContent = "Linked.";
