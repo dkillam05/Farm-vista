@@ -1,74 +1,45 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.20
-   - Restores dark/light theming (no forced light backgrounds).
-   - Header / footer / sidebar fully working.
-   - Camera:
-       • Hidden on desktop (UA check)
-       • Fixed above footer & safe-area (never overlaps content)
-       • Color auto: green (light), white (dark)
-       • Links to qr-scan with auto=1 and back=<previous page>
-   - Footer:
-       • Web: taller green strip
-       • PWA standalone: ultra-thin strip but still keeps safe-area padding
+   FarmVista Shell — v5.10.19-g (Safe-zone camera + solid drawer)
+   - Camera sits in its own "qr-zone" strip ABOVE the green footer.
+   - That strip reserves space so content never overlaps it.
+   - Dark mode: camera icon turns white; Light mode: green.
+   - Hidden on desktop; visible on phones only.
+   - Web footer taller (44px). PWA keeps slim band w/ safe-area.
 */
 (function () {
-  // ====== TUNABLES ======
-  const AUTH_MAX_MS = 5000;  // wait up to 5s for real auth + user-context
-  const MENU_MAX_MS = 3000;  // wait up to 3s for a non-empty menu
+  const AUTH_MAX_MS = 5000;
+  const MENU_MAX_MS = 3000;
 
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
     :host{
-      /* Brand tokens */
       --green:#3B7E46; --gold:#D0C542;
-
-      /* Layout tokens */
-      --hdr-h:56px;         /* header height */
-      --ftr-h:22px;         /* WEB footer height (green strip only) */
-      --qr-size:48px;       /* floating camera size */
-      --qr-gap:26px;        /* gap between camera and footer/safe-area */
+      --hdr-h:56px;
+      --ftr-h:44px;            /* WEB footer height */
+      --qr-size:48px;          /* camera button size */
+      --qr-gap:12px;           /* breathing room inside qr-zone */
+      --qr-zone-h: calc(var(--qr-size) + var(--qr-gap) + 8px); /* reserved strip above footer */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
-
-      /* Theme bridge (use theme.css variables) */
-      --surface: var(--surface, #1b1d1b);
-      --bg:      var(--bg, #111);         /* DO NOT hardcode #fff here */
-      --text:    var(--text, #e8eae7);
-      --border:  var(--border, #2e332f);
-      --muted:   var(--muted, #8a928c);
-
-      display:block;
-      color:var(--text);
-      background:var(--bg);
-      min-height:100vh;
-      position:relative;
+      --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
+      display:block; color:var(--text); background:#fff; min-height:100vh; position:relative;
     }
 
-    /* PWA Standalone: ultra-slim green strip but keep safe-area padding */
+    /* PWA/standalone: thin footer band, still keep safe-area */
     @supports (display-mode: standalone) {
-      :host{ --ftr-h:3px; } /* visible thin band; safe-area still applied */
-      .ftr{
-        height: calc(var(--ftr-h) + env(safe-area-inset-bottom, 0px));
-        padding-bottom: env(safe-area-inset-bottom, 0px);
-        border-top-width: 1px;
-      }
-      .ftr .text{ font-size:12px; }
+      :host{ --ftr-h:14px; }
     }
 
-    .hdr{
-      position:fixed; inset:0 0 auto 0;
-      height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
-      padding-top:env(safe-area-inset-top,0px);
-      background:var(--green); color:#fff;
-      display:grid; grid-template-columns:56px 1fr 56px;
-      align-items:center; z-index:1000;
-      box-shadow:0 2px 0 rgba(0,0,0,.05);
-    }
+    /* ===== Header ===== */
+    .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
+      padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
+      display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
     .hdr .title{ text-align:center; font-weight:800; font-size:20px; }
     .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
+    /* ===== Boot overlay ===== */
     .boot{ position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
       background:color-mix(in srgb, #000 25%, transparent);
       backdrop-filter: blur(6px) saturate(1.1); -webkit-backdrop-filter: blur(6px) saturate(1.1);
@@ -79,59 +50,28 @@
     .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
-    .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface);
-      color:var(--text); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:10px;
+    /* ===== Pull-to-refresh bar ===== */
+    .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
+      color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change: transform, opacity; pointer-events:none; }
     .ptr.show{ transform:translateY(0); }
-    .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green); animation:spin 800ms linear infinite; }
-    .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green); }
+    .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46); animation:spin 800ms linear infinite; }
+    .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
     .ptr .txt{ font-weight:800; }
 
-    .ftr{
-      position:fixed; inset:auto 0 0 0;
-      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
-      padding-bottom:env(safe-area-inset-bottom,0px);
-      background:var(--green); color:#fff;
-      display:flex; align-items:center; justify-content:center;
-      border-top:2px solid var(--gold); z-index:900;
-    }
-    .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-    /* Camera — pinned above footer and inside safe area */
-    .qr-float{
-      position:fixed;
-      right:12px;
-      bottom: calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-gap));
-      width: var(--qr-size);
-      height: var(--qr-size);
-      display:grid; place-items:center;
-      background:transparent;
-      color: var(--qr-color, var(--green));   /* JS toggles --qr-color on theme changes */
-      text-decoration:none; -webkit-tap-highlight-color:transparent;
-      z-index:1400;
-      border-radius:12px;
-      touch-action: manipulation;
-    }
-    .qr-float svg{ width:26px; height:26px; display:block; }
-    .qr-float:active{ transform:translateY(1px); }
-
-    /* Reserve vertical space so content never sits beneath the camera */
-    .main{
-      position:relative;
+    /* ===== Main ===== */
+    .main{ position:relative;
       padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
-        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-size) + var(--qr-gap) + 12px);
+        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-zone-h) + 12px);
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text);
-    }
-    :host([data-no-qr="true"]) .main{
-      /* If QR is hidden (desktop) use regular footer padding */
-      padding-bottom: calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
 
+    /* ===== Drawer (force solid background) ===== */
     .drawer{ position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
       transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
@@ -143,21 +83,16 @@
     .org img{ width:40px; height:40px; border-radius:8px; object-fit:cover; }
     .org .org-text{ display:flex; flex-direction:column; }
     .org .org-name{ font-weight:800; line-height:1.15; }
-    .org .org-loc{ font-size:13px; color:#888; }
-
+    .org .org-loc{ font-size:13px; color:#666; }
     .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
     .drawer nav .skeleton{ padding:16px; color:#777; }
     .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color: var(--text); border-bottom:1px solid var(--border); }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
-
     .drawer-footer{ flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; padding:12px 16px;
       padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border);
       background: var(--surface); color: var(--text); }
-    .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
-    .df-left .brand{ font-weight:800; line-height:1.15; }
-    .df-left .slogan{ font-size:12.5px; color:#888; line-height:1.2; }
-    .df-right{ font-size:13px; color:#888; white-space:nowrap; }
 
+    /* ===== Top drawer ===== */
     .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
       border-bottom-left-radius:16px; border-bottom-right-radius:16px; padding-top:calc(env(safe-area-inset-top,0px) + 8px); max-height:72vh; overflow:auto; }
@@ -167,24 +102,72 @@
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
     .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
-
     .chips{ padding:0 12px 10px; }
     .chip{ appearance:none; border:1.5px solid color-mix(in srgb,#fff 65%, transparent); padding:9px 14px; border-radius:20px; background:#fff; color:#111; margin-right:10px; font-weight:700; display:inline-flex; align-items:center; gap:8px; }
     .chip[aria-pressed="true"]{ outline:3px solid color-mix(in srgb,#fff 25%, transparent); background:var(--gold); color:#111; border-color:transparent; }
-
     .row{ display:flex; align-items:center; justify-content:space-between; padding:16px 12px; text-decoration:none; color:#fff; border-top:1px solid color-mix(in srgb,#000 22%, var(--green)); }
     .row .left{ display:flex; align-items:center; gap:14px; }
     .row .ico{ width:28px; height:28px; display:grid; place-items:center; font-size:24px; line-height:1; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; line-height:1.25; }
     .row .chev{ opacity:.9; }
 
-    .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
+    /* ===== Toast ===== */
+    .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-zone-h) + 12px);
       transform:translateX(-50%); background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
       white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* While UI is locked (drawer/topdrawer open), suppress scroll gestures on content */
+    /* ===== Green footer ===== */
+    .ftr{ position:fixed; inset:auto 0 0 0;
+      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
+      padding-bottom:env(safe-area-inset-bottom,0px);
+      background:var(--green); color:#fff;
+      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
+    .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* ===== QR SAFE ZONE (looks like page background) ===== */
+    .qr-zone{
+      position:fixed;
+      left:0; right:0;
+      bottom: calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
+      height: var(--qr-zone-h);
+      background: var(--bg);               /* blends with the page */
+      z-index: 950;                        /* above content, below toast */
+      pointer-events:none;                 /* only the button is interactive */
+    }
+    .qr-inner{
+      position:absolute; inset:0;
+      padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+    }
+    .qr-float{
+      position:absolute;
+      right: max(16px, env(safe-area-inset-right));
+      bottom: max(6px, env(safe-area-inset-bottom));
+      width: var(--qr-size); height: var(--qr-size);
+      display:grid; place-items:center;
+      background:transparent;
+      color: var(--green);                 /* light mode */
+      text-decoration:none; -webkit-tap-highlight-color:transparent;
+      z-index: 960;
+      border-radius:12px;
+      pointer-events:auto;                 /* button is interactive */
+      touch-action: manipulation;
+      border:1.5px solid color-mix(in srgb, currentColor 40%, transparent);
+      background-clip: padding-box;
+    }
+    .qr-float svg{ width:26px; height:26px; display:block; }
+    .qr-float:active{ transform:translateY(1px); }
+
+    /* Dark mode: make camera icon white */
+    :host-context(.dark) .qr-float{ color:#fff; border-color: color-mix(in srgb, #fff 35%, transparent); }
+
+    /* When camera is disabled (desktop), collapse qr-zone height to 0 */
+    :host(.no-qr){
+      --qr-zone-h: 0px;
+    }
+
+    /* While UI is locked, suppress scroll on content */
     :host(.ui-locked) .main { touch-action: none; }
   </style>
 
@@ -201,7 +184,6 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- Boot overlay stays visible until we're sure -->
   <div class="boot js-boot"><div class="boot-card"><div class="spin" aria-hidden="true"></div><div>Loading. Please wait.</div></div></div>
 
   <div class="ptr js-ptr" aria-hidden="true">
@@ -253,13 +235,17 @@
 
   <main class="main" part="main"><slot></slot></main>
 
-  <!-- Floating QR/camera launcher -->
-  <a class="qr-float js-qr" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-      <circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
-    </svg>
-  </a>
+  <!-- QR SAFE ZONE (looks like background) -->
+  <div class="qr-zone js-qr-zone" aria-hidden="true">
+    <div class="qr-inner">
+      <a class="qr-float js-qr" href="/Farm-vista/pages/qr-scan.html" aria-label="Open QR Scanner">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 7.5l1.2-1.6c.2-.3.5-.4.9-.4h1.8c.3 0 .6.2.8.4L15 7.5h2.2c1.5 0 2.8 1.2 2.8 2.8v6.2c0 1.5-1.2 2.8-2.8 2.8H6.8C5.2 19.3 4 18 4 16.5V10.3C4 8.7 5.2 7.5 6.8 7.5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          <circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        </svg>
+      </a>
+    </div>
+  </div>
 
   <footer class="ftr" part="footer">
     <div class="text js-footer"></div>
@@ -278,7 +264,6 @@
       this._lastRoleHash = '';
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      // Scroll-lock state
       this._scrollLocked = false;
       this._scrollY = 0;
       this._isIOSStandaloneFlag = null;
@@ -303,33 +288,17 @@
       this._logoutLabel = r.getElementById('logoutLabel');
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
+      this._qrZone = r.querySelector('.js-qr-zone');
+      this._qrBtn  = r.querySelector('.js-qr');
 
-      // Camera visibility + color token
-      const qrFloat = r.querySelector('.js-qr');
+      // Hide camera + collapse safe zone on desktop
       const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
-      if (qrFloat && !isMobile) {
-        qrFloat.style.display = 'none';
-        this.setAttribute('data-no-qr', 'true');   // reduces bottom padding on desktop
-      } else {
-        this.removeAttribute('data-no-qr');
-      }
-      this._applyQrColor();   // seed color now
-      // Watch theme changes
-      const mo = new MutationObserver(()=> this._applyQrColor());
-      mo.observe(document.documentElement, { attributes:true, attributeFilter:['class','data-theme'] });
-      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=> this._applyQrColor());
-      document.addEventListener('fv:theme', ()=> this._applyQrColor());
-
-      // Add auto-scan + back-url to the QR link
-      if (qrFloat) {
-        const here = encodeURIComponent(location.pathname + location.search + location.hash);
-        const url = new URL(qrFloat.getAttribute('href'), location.origin);
-        url.searchParams.set('auto', '1');
-        url.searchParams.set('back', here);
-        qrFloat.setAttribute('href', url.pathname + url.search + url.hash);
+      if (!isMobile) {
+        this.classList.add('no-qr');                // collapses --qr-zone-h to 0
+        if (this._qrZone) this._qrZone.style.display = 'none';
       }
 
-      // Boot overlay visible until _authAndMenuGate() finishes.
+      // Boot overlay visible until gate passes
       if (this._boot) this._boot.hidden = false;
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -347,18 +316,10 @@
 
       this._bootSequence();
 
-      // Safety for odd WebView reflows
       window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
       window.addEventListener('resize', ()=>{ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
     }
 
-    _applyQrColor(){
-      // If documentElement has class 'dark', set camera to white; otherwise green
-      const dark = document.documentElement.classList.contains('dark');
-      this.shadowRoot.host.style.setProperty('--qr-color', dark ? '#ffffff' : 'var(--green)');
-    }
-
-    // --- Platform detector: iOS Home Screen (standalone) ---
     _isIOSStandalone(){
       if (this._isIOSStandaloneFlag != null) return this._isIOSStandaloneFlag;
       const ua = (navigator.userAgent || '').toLowerCase();
@@ -379,14 +340,10 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // HARD GATE: require real auth + context + menu
       await this._authAndMenuGate();
 
-      // Wire after menu is present
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
-
-      // Listen for UID/role changes to flush menu & repaint
       this._watchUserContextForSwaps();
 
       if (this._boot) this._boot.hidden = true;
@@ -401,20 +358,17 @@
 
       this._initPTR();
 
-      // Post-paint sanity
       setTimeout(()=> this._postPaintSanity(), 300);
     }
 
     async _authAndMenuGate(){
       const deadline = Date.now() + AUTH_MAX_MS;
-
       while (Date.now() < deadline) {
         if (await this._isAuthed() && this._hasUserCtx()) break;
         await this._sleep(120);
       }
       if (!(await this._isAuthed()) || !this._hasUserCtx()) {
-        this._kickToLogin('auth-timeout');
-        return Promise.reject('auth-timeout');
+        this._kickToLogin('auth-timeout'); return Promise.reject('auth-timeout');
       }
 
       const { uid, roleHash } = this._currentUIDAndRoleHash();
@@ -427,10 +381,7 @@
         if (this._hasMenuLinks()) break;
         await this._sleep(120);
       }
-      if (!this._hasMenuLinks()) {
-        this._kickToLogin('menu-timeout');
-        return Promise.reject('menu-timeout');
-      }
+      if (!this._hasMenuLinks()) { this._kickToLogin('menu-timeout'); return Promise.reject('menu-timeout'); }
 
       this._setLogoutLabelNow();
     }
@@ -462,10 +413,7 @@
       }catch{ return false; }
     }
     _hasUserCtx(){
-      try{
-        const u = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
-        return !!u;
-      }catch{ return false; }
+      try{ const u = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get(); return !!u; }catch{ return false; }
     }
     _hasMenuLinks(){
       const nav = this._navEl;
@@ -490,7 +438,6 @@
     }
 
     _sleep(ms){ return new Promise(r=> setTimeout(r, ms)); }
-
     _applyVersionToUI(){
       const v = (window && window.FV_VERSION) || {};
       const num = (v.number || '').toString().replace(/^\s*v/i,'').trim() || '0.0.0';
@@ -498,22 +445,19 @@
       if (this._verEl) this._verEl.textContent = `v${num}`;
       if (this._sloganEl) this._sloganEl.textContent = tag;
     }
-
     _loadScriptOnce(src, opts){
       return new Promise((resolve, reject)=>{
         const exists = Array.from(document.scripts).some(s=> (s.getAttribute('src')||'') === src);
         if (exists) { resolve(); return; }
         const s = document.createElement('script');
         if (opts && opts.type) s.type = opts.type;
-        s.defer = true;
-        s.src = src;
+        s.defer = true; s.src = src;
         s.onload = ()=> resolve();
         s.onerror = (e)=> reject(e);
         document.head.appendChild(s);
       });
     }
 
-    // ====== UID/role swap detection + skeleton paint ======
     _watchUserContextForSwaps(){
       const update = async ()=>{
         const { uid, roleHash } = this._currentUIDAndRoleHash();
@@ -537,10 +481,7 @@
           if (this._hasMenuLinks()) break;
           await this._sleep(120);
         }
-        if (!this._hasMenuLinks()) {
-          this._kickToLogin('menu-timeout');
-          return;
-        }
+        if (!this._hasMenuLinks()) { this._kickToLogin('menu-timeout'); return; }
 
         this._setLogoutLabelNow();
         if (this._boot) this._boot.hidden = true;
@@ -554,88 +495,30 @@
       } catch {}
     }
 
-    _paintSkeleton(){
-      if (!this._navEl) return;
-      this._navEl.innerHTML = `<div class="skeleton">Loading menu…</div>`;
-      this._collapseAllNavGroups();
-    }
-
-    _clearMenuStateFor(uid, roleHash){
-      try {
-        const key = this._navStateKeyFor(uid, roleHash);
-        if (key) localStorage.removeItem(key);
-      } catch {}
-    }
-
+    _paintSkeleton(){ if (!this._navEl) return; this._navEl.innerHTML = `<div class="skeleton">Loading menu…</div>`; this._collapseAllNavGroups(); }
+    _clearMenuStateFor(uid, roleHash){ try { const key = this._navStateKeyFor(uid, roleHash); if (key) localStorage.removeItem(key); } catch {} }
     _currentUIDAndRoleHash(){
-      let uid = '';
-      try {
-        const auth = (window.firebaseAuth) || null;
-        if (auth && auth.currentUser && auth.currentUser.uid) uid = auth.currentUser.uid;
-      } catch {}
-      let roleHash = '';
-      try {
-        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
-        const ids = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
-        roleHash = this._hashIDs(ids);
-      } catch {}
+      let uid = ''; try { const auth = (window.firebaseAuth) || null; if (auth && auth.currentUser && auth.currentUser.uid) uid = auth.currentUser.uid; } catch {}
+      let roleHash = ''; try { const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get(); const ids = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : []; roleHash = this._hashIDs(ids); } catch {}
       return { uid, roleHash };
     }
-
-    _hashIDs(arr){
-      const s = (arr||[]).slice().sort().join('|');
-      let h = 5381;
-      for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
-      return ('h' + (h>>>0).toString(36));
-    }
-
-    _navStateKeyFor(uid, roleHash){
-      if (!uid) return null;
-      return `fv:nav:groups:${uid}:${roleHash||'no-role'}`;
-    }
+    _hashIDs(arr){ const s=(arr||[]).slice().sort().join('|'); let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h)^s.charCodeAt(i);} return ('h'+(h>>>0).toString(36)); }
+    _navStateKeyFor(uid, roleHash){ if (!uid) return null; return `fv:nav:groups:${uid}:${roleHash||'no-role'}`; }
 
     async _loadMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
-      try{
-        const mod = await import(url);
-        return (mod && (mod.NAV_MENU || mod.default)) || null;
+      try{ const mod = await import(url); return (mod && (mod.NAV_MENU || mod.default)) || null;
       }catch(e){
         try{
-          await new Promise((res, rej)=>{
-            const s = document.createElement('script');
-            s.src = url; s.defer = true; s.onload = ()=> res(); s.onerror = (err)=> rej(err);
-            document.head.appendChild(s);
-          });
+          await new Promise((res, rej)=>{ const s=document.createElement('script'); s.src=url; s.defer=true; s.onload=()=>res(); s.onerror=(err)=>rej(err); document.head.appendChild(s); });
           return (window && window.FV_MENU) || null;
-        }catch(err){
-          console.error('[FV] Unable to load menu:', err);
-          return null;
-        }
+        }catch(err){ console.error('[FV] Unable to load menu:', err); return null; }
       }
     }
-
-    _countLinks(cfg){
-      let n = 0;
-      const walk = (nodes)=> (nodes||[]).forEach(it=>{
-        if (it.type === 'link') n++;
-        if (it.children) walk(it.children);
-      });
-      walk(cfg && cfg.items);
-      return n;
-    }
-    _collectAllLinks(cfg){
-      const out = [];
-      const walk = (nodes)=> (nodes||[]).forEach(it=>{
-        if (it.type === 'link') out.push(it);
-        if (it.children) walk(it.children);
-      });
-      walk(cfg && cfg.items);
-      return out;
-    }
+    _countLinks(cfg){ let n=0; const walk=(nodes)=> (nodes||[]).forEach(it=>{ if (it.type==='link') n++; if (it.children) walk(it.children); }); walk(cfg&&cfg.items); return n; }
+    _collectAllLinks(cfg){ const out=[]; const walk=(nodes)=> (nodes||[]).forEach(it=>{ if (it.type==='link') out.push(it); if (it.children) walk(it.children); }); walk(cfg&&cfg.items); return out; }
     _looksLikeHome(link){
-      const id = (link.id||'').toLowerCase();
-      const lbl = (link.label||'').toLowerCase();
-      const href = (link.href||'');
+      const id=(link.id||'').toLowerCase(); const lbl=(link.label||'').toLowerCase(); const href=(link.href||'');
       const p = href ? new URL(href, location.href).pathname : '';
       if (id.includes('home') || id.includes('dashboard')) return true;
       if (lbl.includes('home') || lbl.includes('dashboard')) return true;
@@ -666,6 +549,7 @@
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
+        linkCount = rescued.length;
       } else {
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
@@ -722,40 +606,12 @@
 
       const mkGroup = (g, depth=0) => {
         const wrap = document.createElement('div'); wrap.className = 'nav-group';
-
-        const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.alignItems = 'stretch';
-        row.style.borderBottom = '1px solid var(--border)';
-
-        const link = mkLink(g, depth);
-        link.style.flex = '1 1 auto';
-        link.style.borderRight = '1px solid var(--border)';
-        link.style.display = 'flex';
-        link.style.alignItems = 'center';
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.setAttribute('aria-label', 'Toggle ' + g.label);
-        btn.setAttribute('aria-expanded', 'false');
-        btn.style.width = '44px';
-        btn.style.height = '44px';
-        btn.style.display = 'grid';
-        btn.style.placeItems = 'center';
-        btn.style.background = 'transparent';
-        btn.style.border = '0';
-        btn.style.cursor = 'pointer';
-        btn.style.color = 'var(--text)';
-
-        const chev = document.createElement('span');
-        chev.textContent = '▶';
-        chev.style.display = 'inline-block';
-        chev.style.transition = 'transform .18s ease';
-        btn.appendChild(chev);
-
-        const kids = document.createElement('div');
-        kids.setAttribute('role','group');
-        kids.style.display = 'none';
+        const row = document.createElement('div'); row.style.display='flex'; row.style.alignItems='stretch'; row.style.borderBottom='1px solid var(--border)';
+        const link = mkLink(g, depth); link.style.flex='1 1 auto'; link.style.borderRight='1px solid var(--border)'; link.style.display='flex'; link.style.alignItems='center';
+        const btn = document.createElement('button'); btn.type='button'; btn.setAttribute('aria-label','Toggle '+g.label); btn.setAttribute('aria-expanded','false');
+        btn.style.width='44px'; btn.style.height='44px'; btn.style.display='grid'; btn.style.placeItems='center'; btn.style.background='transparent'; btn.style.border='0'; btn.style.cursor='pointer'; btn.style.color='var(--text)';
+        const chev = document.createElement('span'); chev.textContent='▶'; chev.style.display='inline-block'; chev.style.transition='transform .18s ease'; btn.appendChild(chev);
+        const kids = document.createElement('div'); kids.setAttribute('role','group'); kids.style.display='none';
 
         (g.children || []).forEach(ch => {
           if (ch.type === 'group' && ch.collapsible) kids.appendChild(mkGroup(ch, depth + 1));
@@ -803,7 +659,7 @@
       try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
-    // ===== Scroll lock helpers (iOS standalone robust) =====
+    /* ===== Scroll lock helpers ===== */
     _applyBodyFixedStyles(){
       document.body.style.position = 'fixed';
       document.body.style.top = `-${this._scrollY}px`;
@@ -829,7 +685,6 @@
           html.style.overflow = 'hidden';
         }
         this.classList.add('ui-locked');
-        this._scrollLocked = true;
         this._ptrDisabled = true;
       } else if (!on && this._scrollLocked){
         document.body.style.position = '';
@@ -878,7 +733,6 @@
           localStorage.setItem('fv-theme', mode);
         }
       }catch{}
-      this._applyQrColor();
       this._syncThemeChips(mode);
     }
 
@@ -889,42 +743,23 @@
       const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      const THRESHOLD = 72;
-      const MAX_ANGLE = 18;
-      const COOLDOWN  = 600;
-      const TOP_TOL   = 2;
-
+      const THRESHOLD = 72, MAX_ANGLE = 18, COOLDOWN = 600, TOP_TOL = 2;
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
       const atTop  = ()=> (window.scrollY || 0) <= TOP_TOL;
       const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open') && !this._ptrDisabled;
 
-      const showBar = ()=>{
-        bar.classList.add('show');
-        spin.hidden = true; dot.hidden = false;
-        txt.textContent = 'Pull to refresh';
-      };
-      const hideBar = ()=>{
-        bar.classList.remove('show');
-        spin.hidden = true; dot.hidden = true;
-        txt.textContent = 'Pull to refresh';
-      };
+      const showBar = ()=>{ bar.classList.add('show'); spin.hidden = true; dot.hidden = false; txt.textContent = 'Pull to refresh'; };
+      const hideBar = ()=>{ bar.classList.remove('show'); spin.hidden = true; dot.hidden = true; txt.textContent = 'Pull to refresh'; };
 
       const onStart = (clientX, clientY)=>{
-        if (!canUse()) { armed=false; pulling=false; return; }
-        if (!atTop()) { armed=false; pulling=false; return; }
-        if (Date.now() - lastEnd < COOLDOWN) { armed=false; pulling=false; return; }
-        armed   = true;
-        pulling = false;
-        startY  = clientY;
-        startX  = clientX;
-        deltaY  = 0;
+        if (!canUse() || !atTop() || (Date.now() - lastEnd < COOLDOWN)) { armed=false; pulling=false; return; }
+        armed=true; pulling=false; startY=clientY; startX=clientX; deltaY=0;
       };
 
       const onMoveInternal = (clientX, clientY, prevent)=>{
         if (!armed) return;
-        const dy = clientY - startY;
-        const dx = clientX - startX;
+        const dy = clientY - startY; const dx = clientX - startX;
         const angle = Math.abs(Math.atan2(dx, dy) * (180/Math.PI));
         if (angle > MAX_ANGLE) { armed=false; pulling=false; hideBar(); return; }
         if (dy > 0) {
@@ -932,9 +767,7 @@
           if (!pulling) { pulling = true; showBar(); }
           txt.textContent = (deltaY >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
           prevent();
-        } else {
-          armed=false; pulling=false; hideBar();
-        }
+        } else { armed=false; pulling=false; hideBar(); }
       };
 
       const onEnd = ()=>{
@@ -944,39 +777,23 @@
         if (shouldRefresh) {
           lastEnd = Date.now();
           (async ()=>{
-            dot.hidden  = true;
-            spin.hidden = false;
-            txt.textContent = 'Refreshing…';
-
+            dot.hidden  = true; spin.hidden = false; txt.textContent = 'Refreshing…';
             document.dispatchEvent(new CustomEvent('fv:refresh'));
             try { await this._initMenuFiltered(); } catch {}
             if (typeof window.FVRefresh === 'function') { try { await window.FVRefresh(); } catch {} }
-
             await new Promise(res=> setTimeout(res, 900));
             hideBar();
           })();
-        } else {
-          hideBar();
-        }
+        } else { hideBar(); }
       };
 
-      window.addEventListener('touchstart', (e)=>{
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        onStart(t.clientX, t.clientY);
-      }, { passive:true });
-
-      window.addEventListener('touchmove', (e)=>{
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        onMoveInternal(t.clientX, t.clientY, ()=> e.preventDefault());
-      }, { passive:false });
-
+      window.addEventListener('touchstart', (e)=>{ if (e.touches && e.touches.length===1){ const t=e.touches[0]; onStart(t.clientX, t.clientY);} }, { passive:true });
+      window.addEventListener('touchmove', (e)=>{ if (e.touches && e.touches.length===1){ const t=e.touches[0]; onMoveInternal(t.clientX, t.clientY, ()=> e.preventDefault()); } }, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
 
-      window.addEventListener('pointerdown', (e)=>{ if (e.pointerType !== 'mouse') onStart(e.clientX, e.clientY); }, { passive:true });
-      window.addEventListener('pointermove', (e)=>{ if (e.pointerType !== 'mouse') onMoveInternal(e.clientX, e.clientY, ()=> e.preventDefault()); }, { passive:false });
+      window.addEventListener('pointerdown', (e)=>{ if (e.pointerType!=='mouse') onStart(e.clientX, e.clientY); }, { passive:true });
+      window.addEventListener('pointermove', (e)=>{ if (e.pointerType!=='mouse') onMoveInternal(e.clientX, e.clientY, ()=> e.preventDefault()); }, { passive:false });
       window.addEventListener('pointerup', onEnd, { passive:true });
       window.addEventListener('pointercancel', onEnd, { passive:true });
 
@@ -985,14 +802,9 @@
 
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
-
       const setLabel = ()=> this._setLogoutLabelNow();
       setLabel();
-      try {
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(() => setLabel());
-        }
-      } catch {}
+      try { if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') window.FVUserContext.onChange(() => setLabel()); } catch {}
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
