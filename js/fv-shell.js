@@ -1,6 +1,5 @@
-
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-g3 (Auto-Mount + Camera Safe Zone + Solid Drawer + Dark-Safe)
+   FarmVista Shell — v5.10.19-g4 (Auto-Mount + Camera Safe Zone + Solid Drawer + Dark-Safe)
    - Auto-mounts <fv-shell> on any page that doesn't already have it (skips login).
    - Camera hidden on desktop; visible on touch devices.
    - Own safe zone above green footer; invisible but reserves space.
@@ -589,7 +588,7 @@
           const homeLink = allLinks.find(l => this._looksLikeHome(l));
           if (homeLink) {
             cfgToRender = {
-              items: [{ type:'link', id:homeLink.id, label:homeLink.label, href:homeLink.href, icon:l homeLink.icon, activeMatch:homeLink.activeMatch }]
+              items: [{ type:'link', id:homeLink.id, label:homeLink.label, href:homeLink.href, icon: homeLink.icon, activeMatch:homeLink.activeMatch }]
                      .concat(filtered.items||[])
             };
           }
@@ -1102,7 +1101,7 @@ const __fvBoot = (function(){
       function render(q=''){
         const qq=(q||'').toLowerCase();
         const vis = items.filter(x=>!qq || x.label.toLowerCase().includes(qq) || x.value.toLowerCase().includes(qq)).filter(x=>!x.disabled);
-        list.innerHTML = vis.length ? vis.map(x=>`<div class="fv-item" data-id="\${x.id}">\${x.label}</div>`).join('') : `<div class="fv-empty">(no matches)</div>`;
+        list.innerHTML = vis.length ? vis.map(x=>`<div class="fv-item" data-id="${x.id}">${x.label}</div>`).join('') : `<div class="fv-empty">(no matches)</div>`;
       }
       function open(){ closeAll(panel); panel.classList.add('show'); render(''); const s = panel.querySelector('.fv-search input'); if (s){ s.value=''; s.focus(); } }
       function close(){ panel.classList.remove('show'); }
