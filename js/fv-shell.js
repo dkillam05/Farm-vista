@@ -1,6 +1,7 @@
+<script>
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-g (Camera Safe Zone + Solid Drawer + Dark-Safe)
-   - Camera hidden on desktop; visible on phones.
+   FarmVista Shell — v5.10.19-g2 (Camera Safe Zone + Solid Drawer + Dark-Safe)
+   - Camera hidden on desktop; visible on phones/tablets (pointer:coarse).
    - Camera sits in its OWN SAFE ZONE above the green footer (a “second footer” that blends in).
    - Camera color: green in light mode; white in dark mode (auto via theme events).
    - Web browser: green footer ~44px tall. PWA standalone: ultra-thin green strip.
@@ -25,6 +26,7 @@
       --qr-size:48px;          /* camera button size */
       --qr-gap:16px;           /* gap inside safe zone */
       --qr-safe-h: calc(var(--qr-size) + var(--qr-gap) + 8px); /* reserved "second footer" */
+      --qr-active-safe: 0px;   /* JS toggles this on mobile/touch only */
 
       /* Elevation */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
@@ -120,7 +122,7 @@
 
     .drawer-footer{
       flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; padding:12px 16px;
-      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border);
+      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border));
       background: var(--surface); color: var(--text);
     }
     .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
@@ -163,23 +165,26 @@
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     /* ===== CAMERA SAFE ZONE =====
-       This is a FIXED strip above the green footer that reserves space for the icon.
-       It blends into the page background so it’s basically invisible, but nothing can occupy it. */
+       A FIXED strip above the green footer that reserves space for the icon on touch devices.
+       It blends into the page (no borders/lines) and is non-interactive except the icon. */
     .qr-safe{
       position:fixed; left:0; right:0;
       bottom: calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       height: var(--qr-safe-h);
-      background: var(--bg);            /* blends with page */
-      border-top: 1px solid var(--border);
-      z-index: 950;                     /* above content, below the floating icon */
-      display: none;                    /* default hidden (desktop) */
+      background: var(--bg);
+      /* IMPORTANT: no border/outline—keeps it invisible */
+      border: 0;
+      box-shadow: none;
+      z-index: 950;
+      display: none;              /* default hidden (desktop) */
+      pointer-events: none;       /* safe zone itself is inert */
     }
 
-    /* Floating camera is anchored INSIDE the safe zone */
+    /* Floating camera lives inside the safe zone */
     .qr-safe .qr-float{
       position:absolute;
       right:12px;
-      bottom: 8px;                      /* small internal offset */
+      bottom: 8px;
       width: var(--qr-size);
       height: var(--qr-size);
       display:grid; place-items:center;
@@ -189,23 +194,24 @@
       z-index: 1400;
       border-radius:12px;
       touch-action: manipulation;
+      pointer-events: auto;        /* clickable */
     }
     .qr-safe .qr-float svg{ width:26px; height:26px; display:block; }
     .qr-safe .qr-float:active{ transform:translateY(1px); }
 
-    /* Main content padding: reserve header, footer, AND the camera safe zone */
+    /* Main content padding: reserve header, footer, AND the camera safe zone (only when active) */
     .main{
       position:relative;
       padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
-        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px + var(--qr-active-safe, 0px));
+        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px + var(--qr-active-safe));
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text);
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
     .toast{
       position:fixed; left:50%;
-      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px + var(--qr-active-safe, 0px));
+      bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px + var(--qr-active-safe));
       transform:translateX(-50%);
       background:#111; color:#fff; padding:12px 22px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
       z-index:1400; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
@@ -343,15 +349,17 @@
       this._qrSafe = r.querySelector('.qr-safe');
       this._qrFloat = r.querySelector('.js-qr');
 
-      // Camera: hide on desktop; show on phones
-      const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
-      if (!isMobile) {
+      // Camera: hide on desktop; show on phones/tablets (no UA sniffing)
+      const isTouch = (window.matchMedia && (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(hover: none)').matches))
+                      || (window.innerWidth <= 860);
+      if (!isTouch) {
         // Hide safe zone and icon; remove reserved space
         if (this._qrSafe) this._qrSafe.style.display = 'none';
         this.style.setProperty('--qr-active-safe', '0px');
       } else {
         // Reserve safe zone height for content/Toast spacing
-        const safeH = getComputedStyle(this).getPropertyValue('--qr-safe-h').trim() || '72px';
+        const cs = getComputedStyle(this);
+        const safeH = cs.getPropertyValue('--qr-safe-h').trim() || '72px';
         this.style.setProperty('--qr-active-safe', safeH);
       }
 
@@ -708,7 +716,6 @@
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
-        linkCount = rescued.length;
       } else {
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
@@ -1499,3 +1506,4 @@ const __fvBoot = (function(){
     console.warn('[FV] inline combo upgrader failed:', e);
   }
 })();
+</script>
