@@ -1,10 +1,13 @@
 /* /Farm-vista/js/fv-combo.js
-   FarmVista Combo Upgrader — v1.2.0
+   FarmVista Combo Upgrader — v1.3.0
    - Rounded, tight “buttonish + combo panel”.
    - Portals to <body> so parents can’t clip it.
    - Panels prefer to open below; flip up if needed.
-   - Lists STOP above the green footer AND render UNDER it (footer overlays).
-   - Opt in with: <select data-fv-combo ...>  (optional: data-fv-search="true")
+   - Footer-aware: detects .ftr height and z-index (900 by your CSS),
+     sets panel z-index to (footerZ - 1) so the footer always overlays.
+   - List max-height clamps to stay above the footer line.
+   - Small padding + overflow fixes keep scrollbar end-cap visible.
+   - Opt in with: <select data-fv-combo ...> (optional: data-fv-search="true")
 */
 (function () {
   /* ---------- Styles (token-friendly) ---------- */
@@ -17,7 +20,6 @@
     --combo-shadow:0 12px 26px rgba(0,0,0,.18);
     --combo-item-pad:10px 8px;
     --combo-max-h:50vh;          /* hard ceiling; script will choose lower */
-    --combo-z: 900;              /* kept BELOW footer z-index at runtime */
   }
 
   .fv-field{ position:relative }
@@ -50,9 +52,9 @@
     border:1px solid var(--border);
     border-radius:var(--combo-radius);
     box-shadow:var(--combo-shadow);
-    z-index:var(--combo-z);
+    /* z-index is set dynamically to (footerZ - 1) so footer wins */
     padding:8px; display:none;
-    overflow:hidden;              /* ensures list scrollbar/arrow never “bleeds” */
+    overflow:hidden;              /* keeps scrollbar/arrow from visually bleeding */
   }
   .fv-panel.show{ display:block }
 
@@ -69,7 +71,7 @@
     max-height:var(--combo-max-h);
     overflow:auto;
     border-top:1px solid var(--border);
-    padding-bottom:10px;          /* prevents the last item/scroll arrow from clipping */
+    padding-bottom:10px;          /* ensures scrollbar end-cap is visible */
   }
 
   .fv-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
@@ -91,7 +93,6 @@
       n.style.top = '0';
       n.style.width = '0';
       n.style.height = '0';
-      // z-index is handled per-panel so footer can stay above us
       document.body.appendChild(n);
     }
     return n;
@@ -103,29 +104,28 @@
   document.addEventListener('click', () => closeAll());
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
 
-  /* ---- Footer helpers ---- */
+  /* ---- Footer helpers (canonical footer is .ftr) ---- */
   function getFooterEl() {
+    // Your footer uses .ftr; keep that as the primary selector.
     return (
-      document.querySelector('[data-fv-footer]') ||
       document.querySelector('.ftr') ||
+      document.querySelector('[data-fv-footer]') ||
       document.querySelector('footer.fv-footer')
     );
   }
+  function getFooterZ() {
+    const f = getFooterEl();
+    if (!f) return 900; // sane fallback (matches your CSS)
+    const zi = parseInt(getComputedStyle(f).zIndex || '900', 10);
+    return Number.isNaN(zi) ? 900 : zi;
+  }
   function getFooterHeight() {
-    const el = getFooterEl();
-    if (el) return Math.max(0, el.getBoundingClientRect().height);
+    const f = getFooterEl();
+    if (f) return Math.max(0, f.getBoundingClientRect().height);
+    // Fallback to CSS var or 44 if no element found
     const root = getComputedStyle(document.documentElement);
     const varFtr = parseFloat(root.getPropertyValue('--ftr-h')) || 0;
     return varFtr || 44;
-  }
-  function computePanelZBelowFooter(panel) {
-    const f = getFooterEl();
-    let z = 900; // sensible default
-    if (f) {
-      const zi = parseInt(getComputedStyle(f).zIndex || '0', 10);
-      if (!Number.isNaN(zi) && zi !== 0) z = Math.max(1, zi - 1); // always just under footer
-    }
-    panel.style.zIndex = String(z);
   }
 
   /* ---- Scrolling context helper ---- */
@@ -201,10 +201,18 @@
         : `<div class="fv-empty">(no matches)</div>`;
     }
 
-    /* ----- Smart placement (no footer overlap, respect hero box bottom) ----- */
+    /* ----- Smart placement (no footer overlap; footer overlays if touched) ----- */
     let scrollUnsub = null;
 
+    function computeAndApplyZ() {
+      const footerZ = getFooterZ();
+      // Always under the footer, but above normal content.
+      panel.style.zIndex = String(Math.max(1, footerZ - 1));
+    }
+
     function placePanel() {
+      computeAndApplyZ();
+
       const gap = Math.max(4, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-gap')) || 4);
       const r = anchor.getBoundingClientRect();
       const vwW = window.innerWidth;
@@ -212,46 +220,47 @@
 
       // Footer handling
       const footerH = getFooterHeight();
-      const bottomLimit = vwH - footerH - 6; // hard cap just above footer
-
-      // Panel chrome sizes
-      const padV = 16; // panel padding top+bottom (8+8)
-      const borderV = 2;
-
-      // Ensure panel sits UNDER the footer visually
-      computePanelZBelowFooter(panel);
+      const bottomLimit = vwH - footerH - 6; // small margin above footer/border
 
       // Temporarily show to measure content height
       panel.style.visibility = 'hidden';
       panel.style.display = 'block';
-      panel.style.width = Math.max(180, r.width) + 'px';
 
       // Width & horizontal clamp (avoid off-screen on narrow view)
-      let left = Math.round(Math.min(Math.max(8, r.left), vwW - panel.offsetWidth - 8));
+      const desiredWidth = Math.max(180, r.width);
+      panel.style.width = desiredWidth + 'px';
+      const panelW = panel.offsetWidth || desiredWidth;
+      let left = Math.round(Math.min(Math.max(8, r.left), vwW - panelW - 8));
 
-      // Choose top
+      // Default: open below the trigger
       let desiredTop = r.bottom + gap;
-      let flipUp = false;
 
-      // If below crosses the footer, try flipping up
-      const fullH = panel.offsetHeight;
+      // Measure total panel height
+      const fullH = panel.offsetHeight || 0;
+
+      // If opening below would cross the footer, try flipping up
       if ((desiredTop + fullH) > bottomLimit) {
         const tryUp = r.top - gap - fullH;
         if (tryUp >= 8) {
-          desiredTop = tryUp; flipUp = true;
+          desiredTop = tryUp; // flip up
         } else {
-          // Not enough space either way: we’ll clamp and make the list scroll
+          // Not enough space either way: clamp and make the list scroll
           desiredTop = Math.max(8, desiredTop);
         }
       }
 
       // Final clamp: bottom may not pass the footer line
       const maxBottom = bottomLimit;
-      const chrome = padV + borderV + (panel.querySelector('.fv-search') ? (4+8+0) + 42 : 0); // approximate search height
-      const maxListHeight = Math.max(120, Math.min(
-        parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-max-h')) || 600,
-        maxBottom - desiredTop - 12 - chrome
-      ));
+      const searchEl = panel.querySelector('.fv-search');
+      const searchChrome = searchEl ? (searchEl.getBoundingClientRect().height || 42) : 0;
+      const chrome = 8 + 8 + 2 + searchChrome; // pad(8+8) + border(2) + search
+      const maxListHeight = Math.max(
+        120,
+        Math.min(
+          parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-max-h')) || 600,
+          maxBottom - desiredTop - 12 - chrome
+        )
+      );
 
       const listEl = panel.querySelector('.fv-list');
       if (listEl) listEl.style.maxHeight = maxListHeight + 'px';
