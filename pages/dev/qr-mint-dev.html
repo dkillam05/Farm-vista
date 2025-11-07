@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Dev → QR Mint to Storage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (safe) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{ --brand:var(--green,#3B7E46); --card-max:980px }
+    body{ background:var(--app-bg,var(--surface)) }
+    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px) }
+    .card{ border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:0 8px 20px rgba(0,0,0,.06); overflow:hidden }
+    .head{ padding:14px 16px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center }
+    .head h1{ margin:0; font-size:clamp(19px,3vw,24px) }
+    .muted{ color:var(--muted,#67706B) }
+
+    .body{ padding:16px; display:grid; gap:14px }
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+    @media (max-width:780px){ .row{ grid-template-columns:1fr } }
+
+    label{ font-weight:800; margin-bottom:6px; display:block }
+    .input,.select,textarea{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:12px; outline:none
+    }
+
+    .btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px;
+      padding:10px 14px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer; color:var(--text)!important }
+    .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
+
+    .btnbar{ display:flex; gap:10px; flex-wrap:wrap }
+    .note{ font-size:12px; color:var(--muted) }
+    .ok{ color:#3B7E46 } .bad{ color:#b00020; font-weight:700 }
+
+    .qrbox{ display:grid; grid-template-columns:220px 1fr; gap:16px }
+    @media (max-width:780px){ .qrbox{ grid-template-columns:1fr } }
+    .qr-preview{ width:220px; height:220px; border:1px dashed var(--border); border-radius:12px;
+      background:#fff; display:grid; place-items:center; overflow:hidden }
+    .qr-preview img{ max-width:200px; max-height:200px }
+
+    .out{ width:100%; height:120px; border-radius:10px; border:1px solid var(--border); background:var(--surface); padding:8px; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="card">
+        <header class="head">
+          <div>🧪</div>
+          <div>
+            <h1>Dev • QR Mint to Storage</h1>
+            <div class="muted">Render a **real** PNG, upload to Storage, and write <code>qr{…}</code> on the equipment doc.</div>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="row">
+            <div>
+              <label>Equipment ID (Firestore doc id)</label>
+              <input id="eqId" class="input" placeholder="e.g., LHF…JofVQ"/>
+            </div>
+            <div>
+              <label>QR Token</label>
+              <input id="qrTok" class="input" placeholder="Click ‘Fetch’ to load from doc"/>
+            </div>
+          </div>
+
+          <div class="btnbar">
+            <button id="btnFetch" class="btn">Fetch from Firestore</button>
+            <button id="btnRender" class="btn">Render QR</button>
+            <button id="btnUpload" class="btn">Upload PNG → Storage</button>
+            <button id="btnBind" class="btn btn-primary">Bind URL on Doc</button>
+            <button id="btnPrint" class="btn">Print 2×2” Label</button>
+          </div>
+
+          <div class="qrbox">
+            <div class="qr-preview"><img id="qrImg" alt="QR"></div>
+            <div>
+              <label>Encoded smart link</label>
+              <textarea id="smartOut" class="out" readonly></textarea>
+              <div id="status" class="note">—</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Tiny inline QR generator (no CDN). Returns dataURL via window.QRGen(text). -->
+  <script>
+    (function(global){function B(d){this.mode=1;this.data=d}
+    B.prototype={getLength:function(){return unescape(encodeURIComponent(this.data)).length},write:function(b){var s=unescape(encodeURIComponent(this.data));for(var i=0;i<s.length;i++)b.put(s.charCodeAt(i),8)}};
+    function BB(){this.buffer=[];this.length=0}
+    BB.prototype={get:function(i){return((this.buffer[i>>3]>>>(7-i%8))&1)==1},put:function(n,l){for(var i=0;i<l;i++)this.putBit(((n>>>(l-i-1))&1)==1)},putBit:function(bit){var bi=this.length>>3;if(this.buffer.length<=bi)this.buffer.push(0);if(bit)this.buffer[bi]|=(0x80>>>(this.length%8));this.length++}};
+    var U={G15:1335,G15_MASK:21522,g:function(n){var c=0;while(n!=0){c++;n>>>=1}return c},t:function(d){var x=d<<10;while(U.g(x)-U.g(U.G15)>=0)x^=(U.G15<<(U.g(x)-U.g(U.G15)));return(x|d<<10)^U.G15_MASK;}};
+    var M={E:new Array(256),L:new Array(256),glog:function(n){if(n<1)throw new Error("glog");return this.L[n]},gexp:function(n){while(n<0)n+=255;while(n>=256)n-=255;return this.E[n]}};
+    for(var i=0;i<8;i++)M.E[i]=1<<i;for(i=8;i<256;i++)M.E[i]=M.E[i-4]^M.E[i-5]^M.E[i-6]^M.E[i-8];for(i=0;i<255;i++)M.L[M.E[i]]=i;
+    function P(num,shift){var o=0;while(o<num.length&&num[o]==0)o++;this.num=new Array(num.length-o+shift);for(var i=0;i<num.length-o;i++)this.num[i]=num[i+o]}
+    P.prototype={get:function(i){return this.num[i]},getLength:function(){return this.num.length},multiply:function(e){var n=new Array(this.getLength()+e.getLength()-1);for(var i=0;i<this.getLength();i++)for(var j=0;j<e.getLength();j++)n[i+j]^=M.gexp(M.glog(this.get(i))+M.glog(e.get(j)));return new P(n,0)},mod:function(e){if(this.getLength()-e.getLength()<0)return this;var r=M.glog(this.get(0))-M.glog(e.get(0));var n=this.num.slice(0);for(var i=0;i<e.getLength();i++)n[i]^=M.gexp(M.glog(e.get(i))+r);return new P(n,0).mod(e)}};
+    var RS={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]]};
+    function QR(t){this.tn=t;this.ec=2;this.m=null;this.mc=0;this.d=[]}
+    QR.prototype={addData:function(d){this.d.push(new B(d))},isDark:function(r,c){return this.m[r][c]},getModuleCount:function(){return this.mc},
+    make:function(){this.tn=this.tn||1;for(;;){this._mk(false,this._bm());if(this._cap()>=this._len())break;this.tn++;if(this.tn>12)break}},
+    _mk:function(test,mask){this.mc=this.tn*4+17;this.m=new Array(this.mc);for(var r=0;r<this.mc;r++){this.m[r]=new Array(this.mc);for(var c=0;c<this.mc;c++)this.m[r][c]=null}
+      ;for(var i=8;i<this.mc-8;i++){if(this.m[i][6]===null)this.m[i][6]=(i%2==0);if(this.m[6][i]===null)this.m[6][i]=(i%2==0)}
+      this._type(test,mask);var data=this._data();this._map(data,mask)},
+    _type:function(test,mask){var bits=U.t((1<<3)|mask);for(var i=0;i<15;i++){var mod=!test&&((bits>>i)&1)==1;this.m[i<6?i:i<8?i+1:this.mc-15+i][8]=mod}
+      for(i=0;i<15;i++){var mod2=!test&&((bits>>i)&1)==1;this.m[8][i<8?this.mc-1-i:i==8?15-i:this.mc-15+i]=mod2}this.m[this.mc-8][8]=!test},
+    _bm:function(){var min=0,pat=0;for(var i=0;i<8;i++){this._mk(true,i);var lost=0;if(i==0||min>lost){min=lost;pat=i}}return pat},
+    _cap:function(){var rs=(RS[this.tn]||RS[12])[0];return rs[1]},
+    _len:function(){var bb=new BB();for(var i=0;i<this.d.length;i++){bb.put(4,4);bb.put(this.d[i].getLength(),8);this.d[i].write(bb)}return bb.length/8|0},
+    _data:function(){var bb=new BB();for(var i=0;i<this.d.length;i++){bb.put(4,4);bb.put(this.d[i].getLength(),8);this.d[i].write(bb)}var rs=(RS[this.tn]||RS[12])[0];var dc=rs[1],ec=(rs[0]-dc),data=[];for(i=0;i<bb.length;i+=8)data.push((bb.get(i)?128:0)|(bb.get(i+1)?64:0)|(bb.get(i+2)?32:0)|(bb.get(i+3)?16:0)|(bb.get(i+4)?8:0)|(bb.get(i+5)?4:0)|(bb.get(i+6)?2:0)|(bb.get(i+7)?1:0));while(data.length<dc)data.push(data.length%2?0x11:0xEC);
+      var rsPoly=(function(ec){var a=new P([1],0);for(var i=0;i<ec;i++)a=a.multiply(new P([1,M.gexp(i)],0));return a})(ec);var raw=new P(data,rsPoly.getLength()-1);var mod=raw.mod(rsPoly);
+      var ecBytes=new Array(ec).fill(0),m=mod.num,off=ecBytes.length-m.length;for(i=0;i<m.length;i++)ecBytes[i+off]=m[i];return data.concat(ecBytes)},
+    _map:function(data,mask){var inc=-1,row=this.mc-1,bit=0,byte=0;for(var col=this.mc-1;col>0;col-=2){if(col==6)col--;for(;;){for(var c=0;c<2;c++)if(this.m[row][col-c]==null){var dark=false;if(byte<data.length){dark=(((data[byte]>>> (7-bit))&1)==1);bit++;if(bit==8){byte++;bit=0}}var mask2=(((row*col)%2+(row*col)%3)%2==0);this.m[row][col-c]=mask2? !dark: dark}row+=inc;if(row<0||this.mc<=row){row-=inc;inc=-inc;break}}}}
+    function draw(text,size){var qr=new QR(null);qr.addData(text);qr.make();var c=document.createElement('canvas');c.width=c.height=size;var ctx=c.getContext('2d');ctx.fillStyle="#fff";ctx.fillRect(0,0,size,size);var n=qr.getModuleCount(),px=(size/(n+8))|0,off=4*px;ctx.fillStyle="#000";for(var r=0;r<n;r++)for(var col=0;col<n;col++)if(qr.isDark(r,col))ctx.fillRect(off+col*px,off+r*px,px,px);return c.toDataURL('image/png')}
+    global.QRGen=function(text, size){return draw(text, size||768);}
+  })(window);
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, doc, getDoc, updateDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+    // Storage helpers from same module (available in your project)
+    import {
+      getStorage, ref, uploadString, getDownloadURL
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = id => document.getElementById(id);
+    const APP_ROOT = '/Farm-vista/';
+    const hubURL = (id, t) => `${location.origin}${APP_ROOT}pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}`;
+    const launchURL = abs => {
+      const u = new URL(location.origin + APP_ROOT + 'launch.html');
+      u.searchParams.set('to', abs);
+      return u.href;
+    };
+
+    function setStatus(msg, ok){
+      const s=$('status');
+      s.innerHTML = ok===false ? `<span class="bad">⚠</span> ${msg}` : `<span class="ok">✓</span> ${msg}`;
+    }
+
+    async function fetchFromFirestore(){
+      const id = $('eqId').value.trim();
+      if(!id){ setStatus('Enter equipment id.', false); return; }
+      await ready;
+      const db = getFirestore();
+      const refDoc = doc(db, 'equipment', id);
+      const snap = await getDoc(refDoc);
+      if(!snap.exists()){ setStatus('No equipment found for that ID.', false); return; }
+      const d = snap.data()||{};
+      $('qrTok').value = (d.qr && d.qr.token) ? d.qr.token : '';
+      setStatus('Loaded document. Token populated if present.', true);
+    }
+
+    function renderQR(){
+      const id = $('eqId').value.trim();
+      const tok = $('qrTok').value.trim();
+      if(!id || !tok){ setStatus('Need both Equipment ID and Token.', false); return; }
+      const deep = hubURL(id, tok);
+      const smart = launchURL(deep);
+      $('smartOut').value = smart;
+      try{
+        const dataUrl = window.QRGen(smart, 768);      // ECC H, margin baked into generator
+        $('qrImg').src = dataUrl;
+        setStatus('QR rendered (PNG).', true);
+      }catch(e){
+        console.error(e); setStatus('QR render failed.', false);
+      }
+    }
+
+    async function uploadPNG(){
+      const id = $('eqId').value.trim();
+      const tok = $('qrTok').value.trim();
+      const img = $('qrImg');
+      if(!id || !tok || !img.src){ setStatus('Render a QR first.', false); return; }
+      await ready;
+      const st = getStorage();
+      const path = `equipment/${id}/qr_v1.png`;
+      const r = ref(st, path);
+      await uploadString(r, img.src, 'data_url', { contentType:'image/png' });
+      const url = await getDownloadURL(r);
+      $('smartOut').value = url + '\n' + $('smartOut').value;
+      setStatus('Uploaded PNG to Storage.', true);
+      return { url, path };
+    }
+
+    async function bindOnDoc(){
+      const id = $('eqId').value.trim();
+      const tok = $('qrTok').value.trim();
+      if(!id || !tok){ setStatus('Need Equipment ID and Token.', false); return; }
+      await ready;
+      const db = getFirestore();
+      // ensure we have a URL (upload if not)
+      let url, path;
+      if($('smartOut').value.startsWith('https://firebasestorage')){
+        const firstLine = $('smartOut').value.split('\n')[0];
+        url = firstLine; path = `equipment/${id}/qr_v1.png`;
+      }else{
+        const up = await uploadPNG();
+        if(!up){ return; }
+        url = up.url; path = up.path;
+      }
+      const refDoc = doc(db, 'equipment', id);
+
+      // pull model + serial to prefill caption default
+      const snap = await getDoc(refDoc);
+      const d = snap.exists()? (snap.data()||{}) : {};
+      const model = d.modelName || 'Unit';
+      const serial = (d.serial||'').trim();
+      const last6 = serial ? serial.slice(-6) : '';
+
+      await updateDoc(refDoc, {
+        qr: {
+          url, path, token: tok,
+          version: 1, size: 768, ecc: 'H', margin: 4,
+          captionDefault: `${model} – #${last6}`,
+          updatedAt: serverTimestamp(),
+          createdAt: d.qr?.createdAt || serverTimestamp()
+        }
+      });
+      setStatus('Bound qr{…} on equipment doc.', true);
+    }
+
+    function printLabel(){
+      const id = $('eqId').value.trim();
+      const tok = $('qrTok').value.trim();
+      const img = $('qrImg').src;
+      if(!id || !tok || !img){ setStatus('Render a QR first.', false); return; }
+      const model = 'MODEL';
+      const last6 = '#LAST6';
+      const w = window.open('','_blank','width=900,height=900');
+      const when = new Date().toLocaleString();
+      const smart = $('smartOut').value.split('\n').slice(-1)[0];
+      w.document.write(`
+        <!doctype html><html><head><meta charset="utf-8"><title>Print 2×2</title>
+        <style>
+          body{margin:0; padding:24px; font-family:system-ui,-apple-system,Segoe UI,Roboto}
+          .wrap{width:2.2in; text-align:center}
+          img{width:2in; height:2in; display:block; margin:0 auto}
+          h1{font-size:12px; margin:8px 0 0 0}
+          .muted{font-size:10px; color:#555}
+        </style></head><body>
+          <div class="wrap">
+            <img src="${img}" alt="QR">
+            <h1>${model} – ${last6}</h1>
+            <div class="muted">${when}</div>
+            <div class="muted" style="word-break:break-all">${smart}</div>
+          </div>
+          <script>window.onload=function(){setTimeout(function(){window.print();},150);}<\/script>
+        </body></html>
+      `);
+      w.document.close();
+    }
+
+    // Wire up
+    $('btnFetch').addEventListener('click', fetchFromFirestore);
+    $('btnRender').addEventListener('click', renderQR);
+    $('btnUpload').addEventListener('click', uploadPNG);
+    $('btnBind').addEventListener('click', bindOnDoc);
+    $('btnPrint').addEventListener('click', printLabel);
+
+    // Pre-fill from last Firestore screenshot to make testing fast (you can clear them)
+    $('eqId').value = '';
+    $('qrTok').value = '';
+    $('status').textContent = 'Enter Equipment ID, then Fetch → Render → Upload → Bind.';
+  </script>
+</body>
+</html>
