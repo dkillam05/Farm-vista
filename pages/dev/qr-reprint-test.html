@@ -2,25 +2,36 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>Dev • Dead-Simple QR</title>
+  <title>Dev • Dead-Simple QR (Works Every Time)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+  <!-- (Optional) FarmVista chrome; safe to include -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
   <style>
-    :root { --brand:#3B7E46; --muted:#67706B; --border:#e5e7eb; }
-    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:0; background:#f7f8f7; color:#111; }
-    .wrap { max-width:760px; margin:0 auto; padding:18px; }
-    h1 { margin:0 0 10px 0; font-size:22px; }
+    :root { --brand:#3B7E46; --muted:#67706B; --border:#e5e7eb; --bg:#f7f8f7; }
+    *{box-sizing:border-box}
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:0; background:var(--bg); color:#111; }
+    .wrap { max-width:860px; margin:0 auto; padding:18px; }
+    h1 { margin:0 0 12px 0; font-size:22px; }
     .card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:16px; box-shadow:0 1px 0 rgba(0,0,0,.04); }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    @media (max-width:700px){ .row { grid-template-columns:1fr; } }
-    label { font-size:13px; font-weight:700; color:#111; display:block; margin-bottom:6px; }
-    .input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; font:inherit; }
-    .btnbar { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+    @media (max-width:760px){ .row { grid-template-columns:1fr; } }
+    label { font-size:13px; font-weight:800; color:#111; display:block; margin-bottom:6px; }
+    .input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; font:inherit; min-height:40px; }
+    .btnbar { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; align-items:center; }
     .btn { padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:#fff; font-weight:800; cursor:pointer; }
     .btn-primary { background:var(--brand); border-color:transparent; color:#fff; }
-    .status { font-size:13px; color:var(--muted); margin-left:auto; align-self:center; }
-    .preview { margin-top:14px; background:#fff; border:1px dashed var(--border); border-radius:12px; min-height:360px; display:grid; place-items:center; }
-    #qr canvas, #qr img { max-width:100%; height:auto; }
-    code { display:block; margin-top:8px; background:#f1f3f1; border:1px solid var(--border); border-radius:8px; padding:8px; word-break:break-all; }
+    .status { font-size:13px; color:var(--muted); margin-left:auto; }
+    .mono { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .hint { font-size:12px; color:var(--muted); margin-top:6px }
+    .box { margin-top:12px }
+    .codeblock { width:100%; border:1px solid var(--border); background:#f1f3f1; border-radius:8px; padding:8px; min-height:40px; white-space:normal; word-break:break-all; }
+    .preview { margin-top:12px; background:#fff; border:1px dashed var(--border); border-radius:12px; min-height:360px; display:grid; place-items:center; }
+    #qrHolder canvas, #qrHolder img { max-width:100%; height:auto }
+    .sep { height:1px; background:#ececec; margin:14px 0 }
   </style>
 </head>
 <body>
@@ -30,37 +41,50 @@
       <div class="row">
         <div>
           <label for="eqId">Equipment ID (Firestore doc id)</label>
-          <input id="eqId" class="input" placeholder="e.g., LHF...JofVQ">
+          <input id="eqId" class="input mono" placeholder="e.g., LHF...JofVQ">
+          <div class="hint">Paste the document ID from <span class="mono">equipment</span> collection.</div>
         </div>
         <div>
           <label for="tok">QR Token</label>
-          <input id="tok" class="input" placeholder="e.g., 274e9ab0...">
+          <input id="tok" class="input mono" placeholder="e.g., 274e9ab0…">
+          <div class="hint">You can fetch this automatically with the button below.</div>
         </div>
       </div>
 
       <div class="btnbar">
-        <button id="render" class="btn btn-primary">Render QR</button>
-        <button id="print" class="btn">Print label</button>
+        <button id="btnFetch" class="btn" type="button">Fetch token from Firestore</button>
+        <button id="render" class="btn btn-primary" type="button">Render QR</button>
+        <button id="print" class="btn" type="button">Print 2×2″ label</button>
         <div id="status" class="status" aria-live="polite"></div>
       </div>
 
-      <div>
-        <label style="margin-top:12px">Encoded smart link</label>
-        <code id="link">—</code>
+      <div class="box">
+        <label>Encoded smart link</label>
+        <div id="smartLink" class="codeblock mono">—</div>
       </div>
 
       <div class="preview">
-        <div id="qr" aria-live="polite"></div>
+        <div id="qrHolder" aria-live="polite"></div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="hint">
+        Printing caption format suggestion: <span class="mono">MODEL – #LAST6</span> (example: <span class="mono">4020 – #123456</span>)
       </div>
     </div>
   </div>
 
-  <!-- Only dependency: qrcodejs -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
-  <script>
+  <!-- QR dependency (CDN). We'll hard-wait for readiness before rendering. -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
+
+  <!-- Firestore fetch is optional; if firebase-init is present, we'll use it. -->
+  <script type="module">
+    // ===== DOM helpers
     const $ = id => document.getElementById(id);
     const APP_ROOT = '/Farm-vista/';
 
+    // ===== Smart-link builders
     const buildHub = (id,t) =>
       location.origin + APP_ROOT + 'pages/equipment/actions/hub.html'
       + `?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}`;
@@ -77,44 +101,53 @@
       s.style.color = ok ? '#111' : '#b00020';
     }
 
-    function waitQRReady(cb){
-      let tries=0; (function tick(){
-        if (window.__qrReady && window.QRCode) cb();
-        else if (tries++<200) setTimeout(tick,50);
-        else setStatus('QR library failed to load.', false);
-      })();
+    function clearQR(){
+      $('qrHolder').innerHTML = '';
+      $('smartLink').textContent = '—';
     }
 
-    function renderNow(){
+    function waitForQRCodeLib(){
+      return new Promise((resolve, reject) => {
+        let tries = 0;
+        (function check(){
+          if (window.QRCode && window.QRCode.CorrectLevel) resolve();
+          else if (tries++ < 200) setTimeout(check, 50);
+          else reject(new Error('QR library failed to load'));
+        })();
+      });
+    }
+
+    async function renderQR(){
       const id = $('eqId').value.trim();
       const t  = $('tok').value.trim();
-      $('qr').innerHTML = '';
-      $('link').textContent = '—';
+      clearQR();
       if(!id || !t){ setStatus('Enter both ID and Token.', false); return; }
 
       const smart = buildSmart(buildHub(id,t));
-      $('link').textContent = smart;
+      $('smartLink').textContent = smart;
 
-      waitQRReady(()=>{
-        try{
-          new QRCode($('qr'), { text: smart, width: 320, height: 320, correctLevel: QRCode.CorrectLevel.H });
-          setStatus('QR generated. Scan with phone.');
-        }catch(e){ console.error(e); setStatus('QR render failed.', false); }
-      });
+      try{
+        await waitForQRCodeLib();
+        new window.QRCode($('qrHolder'), { text: smart, width: 320, height: 320, correctLevel: window.QRCode.CorrectLevel.H });
+        setStatus('QR generated. Scan with phone.');
+      }catch(err){
+        console.error(err);
+        setStatus('QR render failed.', false);
+      }
     }
 
     function printLabel(){
       const id = $('eqId').value.trim();
       const t  = $('tok').value.trim();
-      const modelLast6 = prompt('Label text (e.g., "4020 - #123456")', '');
       if(!id || !t){ alert('Enter ID and Token first.'); return; }
+      const caption = prompt('Label text (e.g., "4020 - #123456")', '') || '';
       const smart = buildSmart(buildHub(id,t));
-      const w = window.open('', '_blank', 'width=600,height=600');
+      const w = window.open('', '_blank', 'width=620,height=680');
       w.document.write(`
         <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
         <style>
           @page { size: 2in 2in; margin: 4mm; }
-          body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+          body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
           .wrap{text-align:center}
           #qr{width:380px;height:380px;margin:0 auto 6px}
           h1{font-size:12px;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -122,14 +155,14 @@
         </style></head><body>
           <div class="wrap">
             <div id="qr"></div>
-            ${modelLast6 ? `<h1>${modelLast6.replace(/</g,'&lt;')}</h1>` : ``}
+            ${caption ? `<h1>${caption.replace(/</g,'&lt;')}</h1>` : ``}
           </div>
-          <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+          <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"><\/script>
           <script>
             (function(){
               function go(){
                 new QRCode(document.getElementById('qr'), { text: ${JSON.stringify(smart)}, width: 380, height: 380, correctLevel: QRCode.CorrectLevel.H });
-                setTimeout(function(){ window.print(); }, 200);
+                setTimeout(()=>window.print(), 200);
               }
               if(window.QRCode) go(); else window.addEventListener('load', go);
             })();
@@ -139,8 +172,33 @@
       w.document.close();
     }
 
-    $('render').addEventListener('click', renderNow);
+    // ===== Optional Firestore token fetch (only if your firebase-init is available)
+    async function fetchTokenFromFirestore(){
+      clearQR();
+      const id = $('eqId').value.trim();
+      if(!id){ setStatus('Enter an Equipment ID first.', false); return; }
+
+      try{
+        // Try to import your existing firebase bootstrap (absolute path).
+        const fb = await import('/Farm-vista/js/firebase-init.js');
+        await fb.ready;
+        const db = fb.getFirestore();
+        const snap = await fb.getDoc(fb.doc(db, 'equipment', id));
+        if(!snap.exists()){ setStatus('No equipment found for that ID.', false); return; }
+        const tok = (snap.data()?.qr?.token) || '';
+        if(!tok){ setStatus('This unit has no QR token yet.', false); return; }
+        $('tok').value = tok;
+        setStatus('Token fetched.');
+      }catch(err){
+        console.error(err);
+        setStatus('Could not load Firestore or fetch token.', false);
+      }
+    }
+
+    // Wire UI
+    $('render').addEventListener('click', renderQR);
     $('print').addEventListener('click', printLabel);
+    $('btnFetch').addEventListener('click', fetchTokenFromFirestore);
   </script>
 </body>
 </html>
