@@ -927,64 +927,70 @@
       clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
 
-    /* ============================== */
-    /* QC: Quick Camera interactions  */
-    /* ============================== */
-    _initQuickCamera(){
-      if (!this._qcRail || !this._qcHandle) return;
+   /* ============================== */
+/* QC: Quick Camera interactions  */
+/* ============================== */
+_initQuickCamera(){
+  if (!this._qcRail || !this._qcHandle) return;
 
-      // Hide on desktop (extra guard)
-      const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
-      if (!isCoarse) this._qcRail.style.display = 'none';
+  // Hide on desktop (extra guard)
+  const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+  if (!isCoarse) this._qcRail.style.display = 'none';
 
-      // Toggle panel
-      this._qcHandle.addEventListener('click', (e)=>{
-        e.preventDefault();
-        const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
-        this._qcToggle(on);
-      });
+  // Toggle panel
+  this._qcHandle.addEventListener('click', (e)=>{
+    e.preventDefault();
+    const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
+    this._qcToggle(on);
+  });
 
-      // Close when tapping outside
-      document.addEventListener('pointerdown', (e)=>{
-        if (!this.shadowRoot) return;
-        if (this._qcRail.getAttribute('aria-expanded') !== 'true') return;
-        const inside = this._qcRail.contains(e.target);
-        if (!inside) this._qcToggle(false);
-      });
+  // Close when tapping outside
+  document.addEventListener('pointerdown', (e)=>{
+    if (!this.shadowRoot) return;
+    if (this._qcRail.getAttribute('aria-expanded') !== 'true') return;
+    const inside = this._qcRail.contains(e.target);
+    if (!inside) this._qcToggle(false);
+  });
 
-      // Open actions (with sensible defaults)
-      const html = document.documentElement;
-      const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
-      const cameraURL = html.getAttribute('data-camera-url') || '';
-
-      if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
-        e.preventDefault();
-        this._qcToggle(false);
-        if (scanURL) location.href = scanURL;
-        else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
-      });
-
-      if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
-  e.preventDefault();
-  e.stopPropagation();           // keep it in the same gesture context
-  this._qcToggle(false);         // close the little rail
+  // Open actions (with sensible defaults)
   const html = document.documentElement;
+  const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
   const cameraURL = html.getAttribute('data-camera-url') || '';
-  if (cameraURL) {
-    location.href = cameraURL;   // custom camera page (if you ever add one)
-  } else {
-    this._openNativeCamera();    // native camera right now
-  }
-});
 
+  // QR: navigate immediately, or emit an event that can be caught globally
+  if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    this._qcToggle(false);
+    if (scanURL) {
+      location.href = scanURL;
+    } else {
+      // Ensure it escapes the shadowRoot
+      this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
     }
+  });
 
-    _qcToggle(on){
-      if (!this._qcRail) return;
-      this._qcRail.setAttribute('aria-expanded', String(!!on));
+  // Camera: prefer native camera immediately; fall back to event
+  if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();               // keep synchronous gesture path
+    this._qcToggle(false);
+    if (cameraURL) {
+      location.href = cameraURL;       // your own camera page, if set
+    } else {
+      this._openNativeCamera();        // open device camera now
+      // If you want to also notify outside listeners, uncomment:
+      // this.dispatchEvent(new CustomEvent('fv:open:camera', { bubbles:true, composed:true }));
     }
+  });
+}
 
-    // Open device camera using a throwaway hidden input (no UI change required)
+_qcToggle(on){
+  if (!this._qcRail) return;
+  this._qcRail.setAttribute('aria-expanded', String(!!on));
+}
+
+// Open device camera using a throwaway hidden input (no UI change required)
 _openNativeCamera(){
   try{
     const input = document.createElement('input');
@@ -994,10 +1000,9 @@ _openNativeCamera(){
     // - Some Androids like the 'capture=camera' hint inside accept.
     // - iOS looks for the separate capture attribute to prefer rear camera.
     input.setAttribute('accept', 'image/*;capture=camera');
-    input.setAttribute('capture', 'environment');
+    input.setAttribute('capture', 'environment'); // prefer rear camera
 
-    // Keep it in the DOM and "visible" to the browser, but off-screen.
-    // Avoid display:none before the click on Safari.
+    // Keep it present but off-screen (avoid display:none before click on Safari)
     input.style.position = 'fixed';
     input.style.left = '-9999px';
     input.style.top = '0';
@@ -1015,7 +1020,6 @@ _openNativeCamera(){
       } else {
         this._toastMsg('Camera closed.', 1200);
       }
-      // Remove immediately after result
       setTimeout(()=> input.remove(), 0);
     }, { once:true });
 
@@ -1026,27 +1030,6 @@ _openNativeCamera(){
   }
 }
 
-
-  if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
-
-   // --- Built-in QR & Camera handlers ---
-document.addEventListener('fv:open:qr', () => {
-  location.href = '/Farm-vista/pages/qr-scan.html';
-});
-
-document.addEventListener('fv:open:camera', () => {
-  try {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*;capture=camera';
-    input.capture = 'environment'; // prefer rear camera
-    input.style.display = 'none';
-    document.body.appendChild(input);
-    input.addEventListener('change', () => input.remove(), { once: true });
-    input.click(); // keep synchronous for iOS
-  } catch (err) {
-    console.error('Camera launch failed:', err);
-  }
 });
 
 })();
