@@ -1,9 +1,15 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19-f (QR color in dark mode + extra spacing + wider web footer)
-   - Camera color: green (light) → white (dark).
-   - Camera sits higher so it never overlaps tiles; main area reserves more space.
-   - Web footer strip slightly taller; PWA footer remains ultra-thin (safe-area preserved).
-   - Camera still hidden on desktop.
+   FarmVista Shell — v5.10.20
+   - Restores dark/light theming (no forced light backgrounds).
+   - Header / footer / sidebar fully working.
+   - Camera:
+       • Hidden on desktop (UA check)
+       • Fixed above footer & safe-area (never overlaps content)
+       • Color auto: green (light), white (dark)
+       • Links to qr-scan with auto=1 and back=<previous page>
+   - Footer:
+       • Web: taller green strip
+       • PWA standalone: ultra-thin strip but still keeps safe-area padding
 */
 (function () {
   // ====== TUNABLES ======
@@ -14,36 +20,50 @@
   tpl.innerHTML = `
   <style>
     :host{
+      /* Brand tokens */
       --green:#3B7E46; --gold:#D0C542;
-      --hdr-h:56px;           /* header height */
-      --ftr-h:22px;           /* WEB footer height (green strip) — was 14px */
-      --qr-size:48px;         /* camera button size */
-      --qr-gap:34px;          /* gap above footer/safe-area (raised so it avoids tiles) */
-      --qr-right: max(12px, env(safe-area-inset-right,0px) + 8px);
+
+      /* Layout tokens */
+      --hdr-h:56px;         /* header height */
+      --ftr-h:22px;         /* WEB footer height (green strip only) */
+      --qr-size:48px;       /* floating camera size */
+      --qr-gap:26px;        /* gap between camera and footer/safe-area */
       --shadow: 0 10px 24px rgba(0,0,0,.16);
-      --surface:#fff; --bg:#fff; --text:#141514; --border:#e4e7e4;
-      display:block; color:var(--text); background:#fff; min-height:100vh; position:relative;
+
+      /* Theme bridge (use theme.css variables) */
+      --surface: var(--surface, #1b1d1b);
+      --bg:      var(--bg, #111);         /* DO NOT hardcode #fff here */
+      --text:    var(--text, #e8eae7);
+      --border:  var(--border, #2e332f);
+      --muted:   var(--muted, #8a928c);
+
+      display:block;
+      color:var(--text);
+      background:var(--bg);
+      min-height:100vh;
+      position:relative;
     }
 
-    /* =======================
-       PWA-only visual tweaks
-       ======================= */
+    /* PWA Standalone: ultra-slim green strip but keep safe-area padding */
     @supports (display-mode: standalone) {
-      /* Make the visible green strip ultra thin while keeping iOS safe area */
-      :host{ --ftr-h:0px; }                /* green band thickness in PWA */
-
+      :host{ --ftr-h:3px; } /* visible thin band; safe-area still applied */
       .ftr{
-        /* total footer height = thin green + safe-area */
         height: calc(var(--ftr-h) + env(safe-area-inset-bottom, 0px));
         padding-bottom: env(safe-area-inset-bottom, 0px);
-        border-top-width: 1px;             /* lighter divider in PWA */
+        border-top-width: 1px;
       }
-      .ftr .text{ font-size:12px; }        /* slightly smaller footer text in PWA */
+      .ftr .text{ font-size:12px; }
     }
 
-    .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
-      padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
-      display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
+    .hdr{
+      position:fixed; inset:0 0 auto 0;
+      height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
+      padding-top:env(safe-area-inset-top,0px);
+      background:var(--green); color:#fff;
+      display:grid; grid-template-columns:56px 1fr 56px;
+      align-items:center; z-index:1000;
+      box-shadow:0 2px 0 rgba(0,0,0,.05);
+    }
     .hdr .title{ text-align:center; font-weight:800; font-size:20px; }
     .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
@@ -59,48 +79,53 @@
     .spin{ width:18px; height:18px; border-radius:50%; border:2.25px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .8s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
-    .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface,#fff);
-      color:var(--text,#111); border-bottom:1px solid var(--border,#e4e7e4); display:flex; align-items:center; justify-content:center; gap:10px;
+    .ptr{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 3px); left:0; right:0; height:54px; background:var(--surface);
+      color:var(--text); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:10px;
       z-index:998; transform:translateY(-56px); transition:transform .16s ease; will-change: transform, opacity; pointer-events:none; }
     .ptr.show{ transform:translateY(0); }
-    .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green,#3B7E46); animation:spin 800ms linear infinite; }
-    .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green,#3B7E46); }
+    .ptr .spinner{ width:18px;height:18px;border-radius:50%; border:2.25px solid #c9cec9;border-top-color:var(--green); animation:spin 800ms linear infinite; }
+    .ptr .dot{ width:10px; height:10px; border-radius:50%; background:var(--green); }
     .ptr .txt{ font-weight:800; }
 
-    .ftr{ position:fixed; inset:auto 0 0 0;
-      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px)); /* web uses 22px + 0, PWA uses 0px + safe-area */
+    .ftr{
+      position:fixed; inset:auto 0 0 0;
+      height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
       padding-bottom:env(safe-area-inset-bottom,0px);
       background:var(--green); color:#fff;
-      display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
+      display:flex; align-items:center; justify-content:center;
+      border-top:2px solid var(--gold); z-index:900;
+    }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    /* Floating camera — inside safe area and never overlaps content */
+    /* Camera — pinned above footer and inside safe area */
     .qr-float{
       position:fixed;
-      right: var(--qr-right);
+      right:12px;
       bottom: calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-gap));
       width: var(--qr-size);
       height: var(--qr-size);
       display:grid; place-items:center;
       background:transparent;
-      color: var(--green);         /* light mode default */
+      color: var(--qr-color, var(--green));   /* JS toggles --qr-color on theme changes */
       text-decoration:none; -webkit-tap-highlight-color:transparent;
       z-index:1400;
       border-radius:12px;
       touch-action: manipulation;
     }
-    /* Dark theme: make the icon white */
-    :host-context(:root.dark) .qr-float{ color:#fff; }
-
     .qr-float svg{ width:26px; height:26px; display:block; }
     .qr-float:active{ transform:translateY(1px); }
 
-    /* Reserve generous vertical space so tiles never sit under the camera */
-    .main{ position:relative;
+    /* Reserve vertical space so content never sits beneath the camera */
+    .main{
+      position:relative;
       padding:
         calc(var(--hdr-h) + env(safe-area-inset-top,0px) + 11px) 16px
-        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-size) + var(--qr-gap) + 24px);
+        calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + var(--qr-size) + var(--qr-gap) + 12px);
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text);
+    }
+    :host([data-no-qr="true"]) .main{
+      /* If QR is hidden (desktop) use regular footer padding */
+      padding-bottom: calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
     }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
@@ -118,7 +143,7 @@
     .org img{ width:40px; height:40px; border-radius:8px; object-fit:cover; }
     .org .org-text{ display:flex; flex-direction:column; }
     .org .org-name{ font-weight:800; line-height:1.15; }
-    .org .org-loc{ font-size:13px; color:#666; }
+    .org .org-loc{ font-size:13px; color:#888; }
 
     .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
     .drawer nav .skeleton{ padding:16px; color:#777; }
@@ -130,8 +155,8 @@
       background: var(--surface); color: var(--text); }
     .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
     .df-left .brand{ font-weight:800; line-height:1.15; }
-    .df-left .slogan{ font-size:12.5px; color:#777; line-height:1.2; }
-    .df-right{ font-size:13px; color:#777; white-space:nowrap; }
+    .df-left .slogan{ font-size:12.5px; color:#888; line-height:1.2; }
+    .df-right{ font-size:13px; color:#888; white-space:nowrap; }
 
     .topdrawer{ position:fixed; left:0; right:0; top:0; transform:translateY(-105%); transition:transform .26s ease;
       z-index:1300; background:var(--green); color:#fff; box-shadow:0 20px 44px rgba(0,0,0,.35);
@@ -253,6 +278,7 @@
       this._lastRoleHash = '';
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
+      // Scroll-lock state
       this._scrollLocked = false;
       this._scrollY = 0;
       this._isIOSStandaloneFlag = null;
@@ -278,11 +304,32 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
-      // Hide floating QR icon on desktop; show on phones
+      // Camera visibility + color token
       const qrFloat = r.querySelector('.js-qr');
       const isMobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent||'');
-      if (qrFloat && !isMobile) qrFloat.style.display = 'none';
+      if (qrFloat && !isMobile) {
+        qrFloat.style.display = 'none';
+        this.setAttribute('data-no-qr', 'true');   // reduces bottom padding on desktop
+      } else {
+        this.removeAttribute('data-no-qr');
+      }
+      this._applyQrColor();   // seed color now
+      // Watch theme changes
+      const mo = new MutationObserver(()=> this._applyQrColor());
+      mo.observe(document.documentElement, { attributes:true, attributeFilter:['class','data-theme'] });
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=> this._applyQrColor());
+      document.addEventListener('fv:theme', ()=> this._applyQrColor());
 
+      // Add auto-scan + back-url to the QR link
+      if (qrFloat) {
+        const here = encodeURIComponent(location.pathname + location.search + location.hash);
+        const url = new URL(qrFloat.getAttribute('href'), location.origin);
+        url.searchParams.set('auto', '1');
+        url.searchParams.set('back', here);
+        qrFloat.setAttribute('href', url.pathname + url.search + url.hash);
+      }
+
+      // Boot overlay visible until _authAndMenuGate() finishes.
       if (this._boot) this._boot.hidden = false;
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
@@ -300,10 +347,18 @@
 
       this._bootSequence();
 
+      // Safety for odd WebView reflows
       window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
       window.addEventListener('resize', ()=>{ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
     }
 
+    _applyQrColor(){
+      // If documentElement has class 'dark', set camera to white; otherwise green
+      const dark = document.documentElement.classList.contains('dark');
+      this.shadowRoot.host.style.setProperty('--qr-color', dark ? '#ffffff' : 'var(--green)');
+    }
+
+    // --- Platform detector: iOS Home Screen (standalone) ---
     _isIOSStandalone(){
       if (this._isIOSStandaloneFlag != null) return this._isIOSStandaloneFlag;
       const ua = (navigator.userAgent || '').toLowerCase();
@@ -324,10 +379,14 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
+      // HARD GATE: require real auth + context + menu
       await this._authAndMenuGate();
 
+      // Wire after menu is present
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
+
+      // Listen for UID/role changes to flush menu & repaint
       this._watchUserContextForSwaps();
 
       if (this._boot) this._boot.hidden = true;
@@ -341,6 +400,8 @@
       const fb = r.getElementById('feedbackLink'); if (fb) fb.addEventListener('click', () => { this.toggleTop(false); });
 
       this._initPTR();
+
+      // Post-paint sanity
       setTimeout(()=> this._postPaintSanity(), 300);
     }
 
@@ -452,6 +513,7 @@
       });
     }
 
+    // ====== UID/role swap detection + skeleton paint ======
     _watchUserContextForSwaps(){
       const update = async ()=>{
         const { uid, roleHash } = this._currentUIDAndRoleHash();
@@ -604,7 +666,6 @@
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
-        linkCount = rescued.length;
       } else {
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
@@ -742,6 +803,7 @@
       try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
+    // ===== Scroll lock helpers (iOS standalone robust) =====
     _applyBodyFixedStyles(){
       document.body.style.position = 'fixed';
       document.body.style.top = `-${this._scrollY}px`;
@@ -816,6 +878,7 @@
           localStorage.setItem('fv-theme', mode);
         }
       }catch{}
+      this._applyQrColor();
       this._syncThemeChips(mode);
     }
 
@@ -922,7 +985,6 @@
 
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
-      const logoutLabel = r.getElementById('logoutLabel');
 
       const setLabel = ()=> this._setLogoutLabelNow();
       setLabel();
