@@ -1,11 +1,11 @@
 /* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19  (with Mobile Quick Camera)
-   - PTR fixed on iOS Home-Screen (standalone) while retaining scroll-lock behavior from v5.10.18.
-     * Switch to touch events (with passive:false) and use window.scrollY for "at top" checks.
-     * Disable PTR automatically while UI is scroll-locked (drawer/topdrawer open).
-     * Slight tolerance to ignore 1–2px bounce offsets.
-   - NEW (mobile only): tiny camera button above footer opens a small upward/sideways drawer
+   FarmVista Shell — v5.10.19  (with Mobile Quick Camera – Side Rail)
+   - Original behavior preserved.
+   - NEW (mobile only): a tiny right-edge handle that slides out a slim rail
      with “QR Scanner” and “Camera”. Hidden on desktop. Theme-aware.
+   - Actions:
+       1) If <html> has data-scan-url / data-camera-url → navigates there.
+       2) Else fires events:  'fv:open:qr'   and   'fv:open:camera'.
 */
 (function () {
   // ====== TUNABLES ======
@@ -112,29 +112,26 @@
     /* While UI is locked (drawer/topdrawer open), suppress scroll gestures on content */
     :host(.ui-locked) .main { touch-action: none; }
 
-    /* ========================== */
-    /* QC: Quick Camera (mobile)  */
-    /* ========================== */
-    .qc-wrap{ position:fixed; right:12px; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 10px);
-      z-index:1350; display:none; }
-    /* Show on touch-centric devices only */
-    @media (pointer:coarse) {
-      .qc-wrap{ display:block; }
-    }
-    /* tiny button */
-    .qc-btn{ width:42px; height:42px; border-radius:12px; display:grid; place-items:center;
-      background:color-mix(in srgb, var(--green) 92%, #000 0%); color:#fff; border:1px solid color-mix(in srgb,#000 12%, transparent);
-      box-shadow:0 8px 22px rgba(0,0,0,.28); -webkit-tap-highlight-color:transparent; }
-    :host-context(.dark) .qc-btn,
-    :host(.dark) .qc-btn{ background:color-mix(in srgb, var(--green) 85%, #000 15%); color:#fff; }
-    .qc-btn svg{ width:22px; height:22px; display:block; }
+    /* ======================================= */
+    /* QC: Quick Camera — Right Edge Side Rail */
+    /* ======================================= */
+    .qc-rail{ position:fixed; right:0; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 8px);
+      height:auto; z-index:1350; display:none; }
+    @media (pointer:coarse) { .qc-rail{ display:block; } } /* mobile only */
 
-    /* the mini drawer that opens upward & left */
-    .qc-menu{ position:absolute; right:46px; bottom:46px; background:var(--surface,#fff); color:var(--text,#111);
-      border:1px solid var(--border,#e6e9e6); border-radius:12px; box-shadow:0 16px 36px rgba(0,0,0,.28);
-      padding:6px; width:176px; transform-origin: bottom right;
-      transform: translate(8px,8px) scale(.92); opacity:0; pointer-events:none; transition:.18s ease; }
-    .qc-wrap[aria-expanded="true"] .qc-menu{ transform: translate(0,0) scale(1); opacity:1; pointer-events:auto; }
+    /* the small green handle that peeks in from the edge */
+    .qc-handle{ position:absolute; right:0; bottom:0; width:30px; height:56px; border-top-left-radius:12px; border-bottom-left-radius:12px;
+      display:grid; place-items:center; background:var(--green); color:#fff; border:1px solid color-mix(in srgb,#000 18%, transparent);
+      box-shadow:0 8px 22px rgba(0,0,0,.28); transform:translateX(6px); } /* slight peek */
+    .qc-handle svg{ width:18px; height:18px; }
+
+    /* the sliding panel */
+    .qc-panel{ position:absolute; right:30px; bottom:0; width:186px; padding:6px;
+      background:var(--surface,#fff); color:var(--text,#111); border:1px solid var(--border,#e6e9e6);
+      border-radius:12px; box-shadow:0 16px 36px rgba(0,0,0,.28);
+      transform:translateX(12px); opacity:0; pointer-events:none; transition:transform .18s ease, opacity .18s ease; }
+    .qc-rail[aria-expanded="true"] .qc-panel{ transform:translateX(0); opacity:1; pointer-events:auto; }
+
     .qc-item{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:10px; text-decoration:none; color:inherit; }
     .qc-item:hover{ background:color-mix(in srgb, var(--green) 10%, transparent); }
     .qc-ico{ width:20px; height:20px; display:grid; place-items:center; opacity:.95; }
@@ -207,23 +204,19 @@
   <main class="main" part="main"><slot></slot></main>
   <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
 
-  <!-- QC: Mobile tiny camera trigger + upward/left mini drawer -->
-  <div class="qc-wrap js-qc" aria-expanded="false">
-    <button class="qc-btn js-qc-btn" aria-label="Open camera options" title="Scan / Camera">
+  <!-- QC: Mobile right-edge side rail -->
+  <div class="qc-rail js-qc" aria-expanded="false">
+    <button class="qc-handle js-qc-handle" aria-label="Camera tools" title="Scan / Camera">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect x="3.5" y="6.5" width="17" height="11" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
         <path d="M8.5 8.5l2-2h3l2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/>
       </svg>
     </button>
-    <div class="qc-menu js-qc-menu" role="menu" aria-label="Camera options">
-      <a href="#" class="qc-item js-qc-scan" role="menuitem">
-        <span class="qc-ico">▣</span><span>QR Scanner</span>
-      </a>
+    <div class="qc-panel js-qc-panel" role="menu" aria-label="Camera options">
+      <a href="#" class="qc-item js-qc-scan" role="menuitem"><span class="qc-ico">▣</span><span>QR Scanner</span></a>
       <div class="qc-sep" aria-hidden="true"></div>
-      <a href="#" class="qc-item js-qc-camera" role="menuitem">
-        <span class="qc-ico">📷</span><span>Camera</span>
-      </a>
+      <a href="#" class="qc-item js-qc-camera" role="menuitem"><span class="qc-ico">📷</span><span>Camera</span></a>
     </div>
   </div>
   <!-- /QC -->
@@ -237,8 +230,8 @@
       this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
       this._menuPainted = false;
       this._lastLogoutName = '';
-      this._lastUID = '';         // tracks current auth user id for swap detection
-      this._lastRoleHash = '';    // tracks allowedIds hash
+      this._lastUID = '';
+      this._lastRoleHash = '';
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
       // Scroll-lock state
@@ -268,19 +261,18 @@
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
 
-      /* QC: quick camera refs */
-      this._qcWrap = r.querySelector('.js-qc');
-      this._qcBtn = r.querySelector('.js-qc-btn');
-      this._qcMenu = r.querySelector('.js-qc-menu');
-      this._qcScan = r.querySelector('.js-qc-scan');
+      /* QC refs */
+      this._qcRail   = r.querySelector('.js-qc');
+      this._qcHandle = r.querySelector('.js-qc-handle');
+      this._qcPanel  = r.querySelector('.js-qc-panel');
+      this._qcScan   = r.querySelector('.js-qc-scan');
       this._qcCamera = r.querySelector('.js-qc-camera');
 
-      // Boot overlay visible until _authAndMenuGate() finishes.
       if (this._boot) this._boot.hidden = false;
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
-      this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); });
-      this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); });
+      this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); this._qcToggle(false); });
+      this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); this._qcToggle(false); });
       document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); this._qcToggle(false); } });
 
       r.querySelectorAll('.js-theme').forEach(btn=> btn.addEventListener('click', ()=> this.setTheme(btn.dataset.mode)));
@@ -293,11 +285,10 @@
 
       this._bootSequence();
 
-      // Safety for odd WebView reflows
       window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
       window.addEventListener('resize', ()=>{ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
 
-      /* QC: init quick camera (hide on desktop) */
+      /* QC init */
       this._initQuickCamera();
     }
 
@@ -322,14 +313,10 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // HARD GATE: require real auth + context + menu
       await this._authAndMenuGate();
 
-      // Wire after menu is present
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
-
-      // Listen for UID/role changes to flush menu & repaint
       this._watchUserContextForSwaps();
 
       if (this._boot) this._boot.hidden = true;
@@ -344,14 +331,11 @@
 
       this._initPTR();
 
-      // Post-paint sanity: if name missing or menu empty, kick
       setTimeout(()=> this._postPaintSanity(), 300);
     }
 
     async _authAndMenuGate(){
       const deadline = Date.now() + AUTH_MAX_MS;
-
-      // Wait for Firebase auth + user-context
       while (Date.now() < deadline) {
         if (await this._isAuthed() && this._hasUserCtx()) break;
         await this._sleep(120);
@@ -360,12 +344,9 @@
         this._kickToLogin('auth-timeout');
         return Promise.reject('auth-timeout');
       }
-
-      // Track current UID and role hash for later swap detection
       const { uid, roleHash } = this._currentUIDAndRoleHash();
       this._lastUID = uid; this._lastRoleHash = roleHash;
 
-      // Paint the menu (filtered) and confirm we have links
       await this._initMenuFiltered();
 
       const menuDeadline = Date.now() + MENU_MAX_MS;
@@ -378,7 +359,6 @@
         return Promise.reject('menu-timeout');
       }
 
-      // Once we know who the user is, update logout label immediately
       this._setLogoutLabelNow();
     }
 
@@ -467,49 +447,37 @@
         const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
         if (!changed) return;
 
-        // Reset boot flag and show overlay/skeleton
         sessionStorage.removeItem('fv:boot:hydrated');
         if (this._boot) this._boot.hidden = false;
 
-        // Clear menu state + blank drawer immediately (skeleton)
         this._clearMenuStateFor(this._lastUID, this._lastRoleHash);
         this._paintSkeleton();
 
-        // Update trackers
         this._lastUID = uid;
         this._lastRoleHash = roleHash;
         this._menuPainted = false;
 
-        // Repaint with new permissions
         await this._initMenuFiltered();
 
-        // If no links yet, wait briefly (MENU_MAX_MS) and then sanity-kick if still empty
         const menuDeadline = Date.now() + MENU_MAX_MS;
         while (Date.now() < menuDeadline) {
           if (this._hasMenuLinks()) break;
           await this._sleep(120);
         }
-        if (!this._hasMenuLinks()) {
-          this._kickToLogin('menu-timeout');
-          return;
-        }
+        if (!this._hasMenuLinks()) { this._kickToLogin('menu-timeout'); return; }
 
         this._setLogoutLabelNow();
         if (this._boot) this._boot.hidden = true;
         sessionStorage.setItem('fv:boot:hydrated', '1');
       };
 
-      try {
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(update);
-        }
-      } catch {}
+      try { if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') window.FVUserContext.onChange(update); } catch {}
     }
 
     _paintSkeleton(){
       if (!this._navEl) return;
       this._navEl.innerHTML = `<div class="skeleton">Loading menu…</div>`;
-      this._collapseAllNavGroups(); // ensure any previously-open groups are shut
+      this._collapseAllNavGroups();
     }
 
     _clearMenuStateFor(uid, roleHash){
@@ -535,10 +503,8 @@
     }
 
     _hashIDs(arr){
-      // stable small hash (djb2)
       const s = (arr||[]).slice().sort().join('|');
-      let h = 5381;
-      for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
+      let h = 5381; for (let i=0;i<s.length;i++) { h = ((h<<5)+h) ^ s.charCodeAt(i); }
       return ('h' + (h>>>0).toString(36));
     }
 
@@ -547,7 +513,7 @@
       return `fv:nav:groups:${uid}:${roleHash||'no-role'}`;
     }
 
-    // ====== Menu load/render (role-scoped state) ======
+    // ====== Menu load/render ======
     async _loadMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
       try{
@@ -603,13 +569,7 @@
       const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
       const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
 
-      // First paint: if we have no allowedIds yet, keep skeleton (avoid wrong menu).
-      if (!this._menuPainted && allowedIds.length === 0) {
-        this._paintSkeleton();
-        return;
-      }
-
-      // If menu already painted and ctx temporarily lacks allowedIds, don't clobber.
+      if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
       if (this._menuPainted && allowedIds.length === 0) return;
 
       const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
@@ -626,7 +586,6 @@
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
-        linkCount = rescued.length;
       } else {
         const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filtered);
@@ -779,7 +738,6 @@
       if (on && !this._scrollLocked){
         this._scrollY = window.scrollY || html.scrollTop || 0;
         if (iosStandalone){
-          // Strongest lock for iOS PWA
           this._applyBodyFixedStyles();
           html.style.overflow = 'hidden';
           html.style.height = '100%';
@@ -788,14 +746,12 @@
             this._scrim.addEventListener('wheel', this._scrimTouchBlocker, { passive:false });
           }
         } else {
-          // Normal browsers usually fine with overflow hidden on html
           html.style.overflow = 'hidden';
         }
         this.classList.add('ui-locked');
         this._scrollLocked = true;
-        this._ptrDisabled = true; // disable PTR while menus are open
+        this._ptrDisabled = true;
       } else if (!on && this._scrollLocked){
-        // Restore
         document.body.style.position = '';
         document.body.style.top = '';
         document.body.style.left = '';
@@ -811,7 +767,6 @@
         window.scrollTo(0, this._scrollY || 0);
         this.classList.remove('ui-locked');
         this._scrollLocked = false;
-        // small delay before re-enabling PTR to avoid bounce re-trigger
         setTimeout(()=> { this._ptrDisabled = false; }, 150);
       }
     }
@@ -846,128 +801,63 @@
       this._syncThemeChips(mode);
     }
 
-    /* ====== PULL-TO-REFRESH (robust; iOS standalone safe) ====== */
+    /* ====== PULL-TO-REFRESH ====== */
     _initPTR(){
       const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
       const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
       const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      const THRESHOLD = 72;     // px pull distance
-      const MAX_ANGLE = 18;     // degrees allowed away from vertical
-      const COOLDOWN  = 600;    // ms between triggers
-      const TOP_TOL   = 2;      // px tolerance for scrollY
-
+      const THRESHOLD = 72, MAX_ANGLE = 18, COOLDOWN = 600, TOP_TOL = 2;
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
       const atTop  = ()=> (window.scrollY || 0) <= TOP_TOL;
       const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open') && !this._ptrDisabled;
 
-      const showBar = ()=>{
-        bar.classList.add('show');
-        spin.hidden = true; dot.hidden = false;
-        txt.textContent = 'Pull to refresh';
-      };
-      const hideBar = ()=>{
-        bar.classList.remove('show');
-        spin.hidden = true; dot.hidden = true;
-        txt.textContent = 'Pull to refresh';
-      };
+      const showBar = ()=>{ bar.classList.add('show'); spin.hidden = true; dot.hidden = false; txt.textContent = 'Pull to refresh'; };
+      const hideBar = ()=>{ bar.classList.remove('show'); spin.hidden = true; dot.hidden = true; txt.textContent = 'Pull to refresh'; };
 
-      const onStart = (clientX, clientY)=>{
-        if (!canUse()) { armed=false; pulling=false; return; }
-        if (!atTop()) { armed=false; pulling=false; return; }
-        if (Date.now() - lastEnd < COOLDOWN) { armed=false; pulling=false; return; }
-        armed   = true;
-        pulling = false;
-        startY  = clientY;
-        startX  = clientX;
-        deltaY  = 0;
-      };
-
-      const onMoveInternal = (clientX, clientY, prevent)=>{
+      const onStart = (x,y)=>{ if (!canUse() || !atTop() || Date.now()-lastEnd<COOLDOWN){armed=false;return;} armed=true; pulling=false; startY=y; startX=x; deltaY=0; };
+      const onMove  = (x,y,prevent)=>{
         if (!armed) return;
-        const dy = clientY - startY;
-        const dx = clientX - startX;
-        const angle = Math.abs(Math.atan2(dx, dy) * (180/Math.PI));
-        if (angle > MAX_ANGLE) { armed=false; pulling=false; hideBar(); return; }
-        if (dy > 0) {
-          deltaY = dy;
-          if (!pulling) { pulling = true; showBar(); }
-          txt.textContent = (deltaY >= THRESHOLD) ? 'Release to refresh' : 'Pull to refresh';
-          prevent(); // stop rubber-band
-        } else {
-          armed=false; pulling=false; hideBar();
-        }
+        const dy=y-startY, dx=x-startX, angle=Math.abs(Math.atan2(dx,dy)*(180/Math.PI));
+        if (angle>MAX_ANGLE){ armed=false; pulling=false; hideBar(); return; }
+        if (dy>0){ deltaY=dy; if(!pulling){pulling=true; showBar();} txt.textContent=(deltaY>=THRESHOLD)?'Release to refresh':'Pull to refresh'; prevent(); }
+        else { armed=false; pulling=false; hideBar(); }
       };
-
       const onEnd = ()=>{
         if (!armed) return;
-        const shouldRefresh = pulling && deltaY >= THRESHOLD;
+        const shouldRefresh = pulling && deltaY>=THRESHOLD;
         armed=false; pulling=false; deltaY=0; startY=0; startX=0;
-        if (shouldRefresh) {
-          lastEnd = Date.now();
+        if (shouldRefresh){
+          lastEnd=Date.now();
           (async ()=>{
-            dot.hidden  = true;
-            spin.hidden = false;
-            txt.textContent = 'Refreshing…';
-
+            dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
             document.dispatchEvent(new CustomEvent('fv:refresh'));
             try { await this._initMenuFiltered(); } catch {}
             if (typeof window.FVRefresh === 'function') { try { await window.FVRefresh(); } catch {} }
-
             await new Promise(res=> setTimeout(res, 900));
             hideBar();
           })();
-        } else {
-          hideBar();
-        }
+        } else { hideBar(); }
       };
 
-      // Touch events (best reliability on iOS PWA)
-      window.addEventListener('touchstart', (e)=>{
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        onStart(t.clientX, t.clientY);
-      }, { passive:true });
-
-      window.addEventListener('touchmove', (e)=>{
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        onMoveInternal(t.clientX, t.clientY, ()=> e.preventDefault());
-      }, { passive:false });
-
+      window.addEventListener('touchstart', (e)=>{ if(e.touches&&e.touches.length===1){const t=e.touches[0]; onStart(t.clientX,t.clientY);} }, { passive:true });
+      window.addEventListener('touchmove',  (e)=>{ if(e.touches&&e.touches.length===1){const t=e.touches[0]; onMove(t.clientX,t.clientY, ()=>e.preventDefault());} }, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
-
-      // Pointer fallback (non-iOS browsers)
-      window.addEventListener('pointerdown', (e)=>{
-        if (e.pointerType === 'mouse') return;
-        onStart(e.clientX, e.clientY);
-      }, { passive:true });
-
-      window.addEventListener('pointermove', (e)=>{
-        if (e.pointerType === 'mouse') return;
-        onMoveInternal(e.clientX, e.clientY, ()=> e.preventDefault());
-      }, { passive:false });
-
+      window.addEventListener('pointerdown', (e)=>{ if(e.pointerType!=='mouse') onStart(e.clientX,e.clientY); }, { passive:true });
+      window.addEventListener('pointermove', (e)=>{ if(e.pointerType!=='mouse') onMove(e.clientX,e.clientY, ()=>e.preventDefault()); }, { passive:false });
       window.addEventListener('pointerup', onEnd, { passive:true });
       window.addEventListener('pointercancel', onEnd, { passive:true });
-
       document.addEventListener('visibilitychange', ()=>{ if (document.hidden) { armed=false; pulling=false; hideBar(); } });
     }
 
     _wireAuthLogout(r){
       const logoutRow = r.getElementById('logoutRow');
-      const logoutLabel = r.getElementById('logoutLabel');
-
       const setLabel = ()=> this._setLogoutLabelNow();
       setLabel();
-      try {
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-          window.FVUserContext.onChange(() => setLabel());
-        }
-      } catch {}
+      try { if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') window.FVUserContext.onChange(() => setLabel()); } catch {}
       let tries = 30; const tick = setInterval(()=>{ setLabel(); if(--tries<=0) clearInterval(tick); }, 200);
 
       if (logoutRow) {
@@ -1041,45 +931,50 @@
     /* QC: Quick Camera interactions  */
     /* ============================== */
     _initQuickCamera(){
-      if (!this._qcWrap || !this._qcBtn) return;
+      if (!this._qcRail || !this._qcHandle) return;
 
-      // Extra guard: hide on desktop even if CSS shows
+      // Hide on desktop (extra guard)
       const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
-      if (!isCoarse) this._qcWrap.style.display = 'none';
+      if (!isCoarse) this._qcRail.style.display = 'none';
 
-      this._qcBtn.addEventListener('click', (e)=>{
+      // Toggle panel
+      this._qcHandle.addEventListener('click', (e)=>{
         e.preventDefault();
-        this._qcToggle(this._qcWrap.getAttribute('aria-expanded') !== 'true');
+        const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
+        this._qcToggle(on);
       });
 
       // Close when tapping outside
       document.addEventListener('pointerdown', (e)=>{
         if (!this.shadowRoot) return;
-        const w = this._qcWrap;
-        if (!w) return;
-        if (w.getAttribute('aria-expanded') !== 'true') return;
-        const inside = w.contains(e.target);
+        if (this._qcRail.getAttribute('aria-expanded') !== 'true') return;
+        const inside = this._qcRail.contains(e.target);
         if (!inside) this._qcToggle(false);
       });
 
-      // Actions
+      // Open actions
+      const html = document.documentElement;
+      const scanURL   = html.getAttribute('data-scan-url')   || '';
+      const cameraURL = html.getAttribute('data-camera-url') || '';
+
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
         e.preventDefault();
         this._qcToggle(false);
-        // Fire an event the app can hook, or fallback to a known route if provided later.
-        this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true }));
+        if (scanURL) location.href = scanURL;
+        else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true }));
       });
 
       if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
         e.preventDefault();
         this._qcToggle(false);
-        this.dispatchEvent(new CustomEvent('fv:open:camera', { bubbles:true }));
+        if (cameraURL) location.href = cameraURL;
+        else this.dispatchEvent(new CustomEvent('fv:open:camera', { bubbles:true }));
       });
     }
 
     _qcToggle(on){
-      if (!this._qcWrap) return;
-      this._qcWrap.setAttribute('aria-expanded', String(!!on));
+      if (!this._qcRail) return;
+      this._qcRail.setAttribute('aria-expanded', String(!!on));
     }
   }
 
