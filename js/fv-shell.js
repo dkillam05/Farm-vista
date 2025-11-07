@@ -1,14 +1,13 @@
-/* /Farm-vista/js/fv-shell.js
-   FarmVista Shell — v5.10.19  (with Mobile Quick Camera – Side Rail • tweak A)
-   - Original behavior preserved.
-   - Mobile-only right-edge handle opens a slim rail with “QR Scanner” and “Camera”.
-   - QR Scanner defaults to /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
-   - Camera opens native camera via hidden input capture (override via <html data-camera-url>).
+<!-- /Farm-vista/js/fv-shell.js -->
+/* FarmVista Shell — v5.10.19  (Mobile Quick Camera – Side Rail • working camera)
+   - Mobile-only right-edge handle with “QR Scanner” and “Camera”.
+   - QR Scanner => /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
+   - Camera => native via hidden input (override via <html data-camera-url>).
 */
 (function () {
   // ====== TUNABLES ======
-  const AUTH_MAX_MS = 5000;  // wait up to 5s for real auth + user-context
-  const MENU_MAX_MS = 3000;  // wait up to 3s for a non-empty menu
+  const AUTH_MAX_MS = 5000;
+  const MENU_MAX_MS = 3000;
 
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -107,25 +106,19 @@
       white-space:nowrap; min-width:320px; max-width:92vw; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; text-align:center; }
     .toast.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(-4px); }
 
-    /* While UI is locked (drawer/topdrawer open), suppress scroll gestures on content */
     :host(.ui-locked) .main { touch-action: none; }
 
-    /* ======================================= */
-    /* QC: Quick Camera — Right Edge Side Rail */
-    /* ======================================= */
+    /* Quick Camera — side rail */
     .qc-rail{ position:fixed; right:0;
-      /* Bumped up so it sits a little higher above the footer */
       bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 75px);
       height:auto; z-index:1350; display:none; }
-    @media (pointer:coarse) { .qc-rail{ display:block; } } /* mobile only */
+    @media (pointer:coarse) { .qc-rail{ display:block; } }
 
-    /* the small green handle that peeks in from the edge */
     .qc-handle{ position:absolute; right:0; bottom:0; width:30px; height:56px; border-top-left-radius:12px; border-bottom-left-radius:12px;
       display:grid; place-items:center; background:var(--green); color:#fff; border:1px solid color-mix(in srgb,#000 18%, transparent);
-      box-shadow:0 8px 22px rgba(0,0,0,.28); transform:translateX(6px); } /* slight peek */
+      box-shadow:0 8px 22px rgba(0,0,0,.28); transform:translateX(6px); }
     .qc-handle svg{ width:18px; height:18px; }
 
-    /* the sliding panel */
     .qc-panel{ position:absolute; right:30px; bottom:0; width:186px; padding:6px;
       background:var(--surface,#fff); color:var(--text,#111); border:1px solid var(--border,#e6e9e6);
       border-radius:12px; box-shadow:0 16px 36px rgba(0,0,0,.28);
@@ -151,7 +144,6 @@
   </header>
   <div class="gold-bar" aria-hidden="true"></div>
 
-  <!-- Boot overlay stays visible until we're sure -->
   <div class="boot js-boot"><div class="boot-card"><div class="spin" aria-hidden="true"></div><div>Loading. Please wait.</div></div></div>
 
   <div class="ptr js-ptr" aria-hidden="true">
@@ -204,7 +196,7 @@
   <main class="main" part="main"><slot></slot></main>
   <footer class="ftr" part="footer"><div class="text js-footer"></div></footer>
 
-  <!-- QC: Mobile right-edge side rail -->
+  <!-- Quick Camera: right-edge rail -->
   <div class="qc-rail js-qc" aria-expanded="false">
     <button class="qc-handle js-qc-handle" aria-label="Camera tools" title="Scan / Camera">
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -219,7 +211,6 @@
       <a href="#" class="qc-item js-qc-camera" role="menuitem"><span class="qc-ico">📷</span><span>Camera</span></a>
     </div>
   </div>
-  <!-- /QC -->
 
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
@@ -234,13 +225,11 @@
       this._lastRoleHash = '';
       this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      // Scroll-lock state
       this._scrollLocked = false;
       this._scrollY = 0;
       this._isIOSStandaloneFlag = null;
       this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
 
-      // PTR state (shared)
       this._ptrDisabled = false;
     }
 
@@ -292,7 +281,6 @@
       this._initQuickCamera();
     }
 
-    // --- Platform detector: iOS Home Screen (standalone) ---
     _isIOSStandalone(){
       if (this._isIOSStandaloneFlag != null) return this._isIOSStandaloneFlag;
       const ua = (navigator.userAgent || '').toLowerCase();
@@ -440,7 +428,6 @@
       });
     }
 
-    // ====== UID/role swap detection + skeleton paint ======
     _watchUserContextForSwaps(){
       const update = async ()=>{
         const { uid, roleHash } = this._currentUIDAndRoleHash();
@@ -513,7 +500,6 @@
       return `fv:nav:groups:${uid}:${roleHash||'no-role'}`;
     }
 
-    // ====== Menu load/render ======
     async _loadMenu(){
       const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
       try{
@@ -723,7 +709,6 @@
       try { localStorage.setItem(key, JSON.stringify({})); } catch {}
     }
 
-    // ===== Scroll lock helpers (iOS standalone robust) =====
     _applyBodyFixedStyles(){
       document.body.style.position = 'fixed';
       document.body.style.top = `-${this._scrollY}px`;
@@ -801,7 +786,6 @@
       this._syncThemeChips(mode);
     }
 
-    /* ====== PULL-TO-REFRESH ====== */
     _initPTR(){
       const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
       const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
@@ -927,111 +911,118 @@
       clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
     }
 
-   /* ============================== */
-   /* QC: Quick Camera interactions  */
-   /* ============================== */
-   _initQuickCamera(){
-  if (!this._qcRail || !this._qcHandle) return;
+    /* ============================== */
+    /* Quick Camera interactions      */
+    /* ============================== */
+    _initQuickCamera(){
+      if (!this._qcRail || !this._qcHandle) return;
 
-  // Hide on desktop (extra guard)
-  const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
-  if (!isCoarse) this._qcRail.style.display = 'none';
+      // mobile only guard
+      const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+      if (!isCoarse) this._qcRail.style.display = 'none';
 
-  // Toggle panel
-  this._qcHandle.addEventListener('click', (e)=>{
-    e.preventDefault();
-    const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
-    this._qcToggle(on);
-  });
+      // Toggle panel
+      this._qcHandle.addEventListener('click', (e)=>{
+        e.preventDefault();
+        const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
+        this._qcToggle(on);
+      });
 
-  // Close when tapping outside
-  document.addEventListener('pointerdown', (e)=>{
-    if (!this.shadowRoot) return;
-    if (this._qcRail.getAttribute('aria-expanded') !== 'true') return;
-    const inside = this._qcRail.contains(e.target);
-    if (!inside) this._qcToggle(false);
-  });
+      // Close when tapping outside (use composedPath so shadow DOM clicks aren't mis-read)
+      document.addEventListener('pointerdown', (e)=>{
+        if (this._qcRail.getAttribute('aria-expanded') !== 'true') return;
+        const path = e.composedPath ? e.composedPath() : [e.target];
+        if (!path.includes(this._qcRail)) this._qcToggle(false);
+      });
 
-  // Open actions (with sensible defaults)
-  const html = document.documentElement;
-  const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
-  const cameraURL = html.getAttribute('data-camera-url') || '';
+      // Open actions
+      const html = document.documentElement;
+      const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
+      const cameraURL = html.getAttribute('data-camera-url') || '';
 
-  // QR: navigate immediately, or emit an event that can be caught globally
-  if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-    this._qcToggle(false);
-    if (scanURL) {
-      location.href = scanURL;
-    } else {
-      // Ensure it escapes the shadowRoot
-      this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
+      if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        if (scanURL) location.href = scanURL;
+        else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
+        this._qcToggle(false);
+      });
+
+      if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+
+        // IMPORTANT ORDER: trigger camera first (keep synchronous user gesture), THEN close rail
+        if (cameraURL) {
+          location.href = cameraURL;
+        } else {
+          this._openNativeCamera();
+        }
+        this._qcToggle(false);
+      });
     }
-  });
 
-  // Camera: prefer native camera immediately; fall back to event
-  if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
-    e.preventDefault();
-    e.stopPropagation();               // keep synchronous gesture path
-    this._qcToggle(false);
-    if (cameraURL) {
-      location.href = cameraURL;       // your own camera page, if set
-    } else {
-      this._openNativeCamera();        // open device camera now
-      // If you want to also notify outside listeners, uncomment:
-      // this.dispatchEvent(new CustomEvent('fv:open:camera', { bubbles:true, composed:true }));
+    _qcToggle(on){
+      if (!this._qcRail) return;
+      this._qcRail.setAttribute('aria-expanded', String(!!on));
     }
-  });
-}
 
-_qcToggle(on){
-  if (!this._qcRail) return;
-  this._qcRail.setAttribute('aria-expanded', String(!!on));
-}
+    // Native camera via hidden input (must be in DOM and not display:none when clicked)
+    _openNativeCamera(){
+      try{
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.setAttribute('capture', 'environment'); // prefer rear
 
-// Open device camera using a throwaway hidden input (no UI change required)
-_openNativeCamera(){
-  try{
-    const input = document.createElement('input');
-    input.type = 'file';
+        // off-screen but visible-to-browser
+        input.style.position = 'fixed';
+        input.style.left = '-9999px';
+        input.style.top = '0';
+        input.style.opacity = '0.0001';
+        input.style.width = '1px';
+        input.style.height = '1px';
+        input.style.pointerEvents = 'none';
 
-    // Hints that improve mobile behavior:
-    // - Some Androids like the 'capture=camera' hint inside accept.
-    // - iOS looks for the separate capture attribute to prefer rear camera.
-    input.setAttribute('accept', 'image/*;capture=camera');
-    input.setAttribute('capture', 'environment'); // prefer rear camera
+        document.body.appendChild(input);
 
-    // Keep it present but off-screen (avoid display:none before click on Safari)
-    input.style.position = 'fixed';
-    input.style.left = '-9999px';
-    input.style.top = '0';
-    input.style.opacity = '0';
-    input.style.width = '1px';
-    input.style.height = '1px';
+        input.addEventListener('change', ()=>{
+          const file = input.files && input.files[0];
+          if (file) {
+            this.dispatchEvent(new CustomEvent('fv:camera:file', { bubbles:true, composed:true, detail:{ file } }));
+            this._toastMsg('Photo captured.', 1400);
+          } else {
+            this._toastMsg('Camera closed.', 1200);
+          }
+          setTimeout(()=> input.remove(), 0);
+        }, { once:true });
 
-    document.body.appendChild(input);
-
-    input.addEventListener('change', ()=>{
-      const file = input.files && input.files[0];
-      if (file) {
-        this.dispatchEvent(new CustomEvent('fv:camera:file', { bubbles:true, composed:true, detail:{ file } }));
-        this._toastMsg('Photo captured.', 1400);
-      } else {
-        this._toastMsg('Camera closed.', 1200);
+        // synchronous to user click
+        input.click();
+      }catch{
+        this._toastMsg('Unable to open camera.', 1800);
       }
-      setTimeout(()=> input.remove(), 0);
-    }, { once:true });
-
-    // Must be synchronous in the original tap handler call stack
-    input.click();
-  }catch{
-    this._toastMsg('Unable to open camera.', 1800);
+    }
   }
-}
-}
-   if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
-})();  
 
+  if (!customElements.get('fv-shell')) customElements.define('fv-shell', FVShell);
 
+  // Optional global fallbacks (kept for compatibility with older pages)
+  document.addEventListener('fv:open:qr', () => {
+    location.href = '/Farm-vista/pages/qr-scan.html';
+  });
+  document.addEventListener('fv:open:camera', () => {
+    try {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.setAttribute('capture','environment');
+      input.style.position='fixed'; input.style.left='-9999px'; input.style.top='0'; input.style.opacity='0.0001';
+      document.body.appendChild(input);
+      input.addEventListener('change', ()=> input.remove(), { once:true });
+      input.click();
+    } catch (err) { console.error('Camera launch failed:', err); }
+  });
+
+})();
 
