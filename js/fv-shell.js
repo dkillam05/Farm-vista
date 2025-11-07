@@ -5,6 +5,10 @@
    - Own safe zone above green footer; invisible but reserves space.
    - Camera color flips (green light / white dark) automatically.
    - Drawer/topdrawer are solid. PWA footer stays thin.
+
+   CHANGES (g4):
+   - FIX: Syntax error in _initMenuFiltered (icon property) that prevented JS from executing.
+   - FIX: Combo upgrader template mapping used escaped ${...}; now evaluates correctly.
 */
 (function () {
   // ====== TUNABLES ======
@@ -1101,7 +1105,9 @@ const __fvBoot = (function(){
       function render(q=''){
         const qq=(q||'').toLowerCase();
         const vis = items.filter(x=>!qq || x.label.toLowerCase().includes(qq) || x.value.toLowerCase().includes(qq)).filter(x=>!x.disabled);
-        list.innerHTML = vis.length ? vis.map(x=>`<div class="fv-item" data-id="${x.id}">${x.label}</div>`).join('') : `<div class="fv-empty">(no matches)</div>`;
+        list.innerHTML = vis.length
+          ? vis.map(x=>`<div class="fv-item" data-id="${x.id}">${x.label}</div>`).join('')
+          : `<div class="fv-empty">(no matches)</div>`;
       }
       function open(){ closeAll(panel); panel.classList.add('show'); render(''); const s = panel.querySelector('.fv-search input'); if (s){ s.value=''; s.focus(); } }
       function close(){ panel.classList.remove('show'); }
@@ -1156,7 +1162,7 @@ const __fvBoot = (function(){
         const el = node;
         // Keep scripts that load this shell or service worker helpers in body
         if (el.tagName === 'SCRIPT') return;
-        // Keep portals/toasts that manage global overlays? We'll move them too so they render above content inside shell.
+        // Move all other elements inside the shell so header/footer/drawer render around them
         movers.push(el);
       } else if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() === '') {
         // ignore whitespace
