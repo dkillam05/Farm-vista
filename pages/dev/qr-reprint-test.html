@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>Dev • QR (CDN + Built-in Fallback)</title>
+  <title>Dev • QR (Sanity Check)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
     :root { --brand:#3B7E46; --border:#e5e7eb; --muted:#67706B; }
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto;margin:0;background:#f8f9f8;color:#111}
-    .wrap{max-width:860px;margin:22px auto;padding:0 16px}
+    .wrap{max-width:880px;margin:22px auto;padding:0 16px}
     h1{margin:0 0 14px;font-size:22px}
     .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -41,7 +41,7 @@
       <div class="btnbar">
         <button id="render" class="btn btn-primary" type="button">Render QR</button>
         <button id="print" class="btn" type="button">Print 2×2″ Label</button>
-        <div id="status" class="status" aria-live="polite"></div>
+        <div id="status" class="status" aria-live="polite">Loading QR engine…</div>
       </div>
 
       <div id="smartLink" class="codeblock">—</div>
@@ -49,85 +49,47 @@
     </div>
   </div>
 
-  <!-- Try CDN first -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
-
-  <!-- Built-in minimal fallback (no network) -->
   <script>
-  (function(global){
-    if(global.QRGen) return;
-    function B(d){this.data=d}B.prototype={getLength(){return unescape(encodeURIComponent(this.data)).length},
-      write(b){var s=unescape(encodeURIComponent(this.data));for(var i=0;i<s.length;i++)b.put(s.charCodeAt(i),8)}};
-    function BB(){this.b=[];this.l=0}BB.prototype={put(n,l){for(var i=0;i<l;i++)this.putBit(((n>>>(l-i-1))&1)==1)},putBit(bit){var bi=this.l>>3;if(this.b.length<=bi)this.b.push(0);if(bit)this.b[bi]|=(0x80>>>(this.l%8));this.l++}};
-    var U={EXP:new Array(256),LOG:new Array(256)};for(var i=0;i<8;i++)U.EXP[i]=1<<i;for(i=8;i<256;i++)U.EXP[i]=U.EXP[i-4]^U.EXP[i-5]^U.EXP[i-6]^U.EXP[i-8];for(i=0;i<255;i++)U.LOG[U.EXP[i]]=i;
-    function G(n){while(n<0)n+=255;while(n>=256)n-=255;return U.EXP[n]}
-    function Poly(a,s){var o=0;while(o<a.length&&a[o]==0)o++;this.n=new Array(a.length-o+s);for(var i2=0;i2<a.length-o;i2++)this.n[i2]=a[i2+o]}
-    Poly.prototype={get(i){return this.n[i]},len(){return this.n.length},mul(e){var r=new Array(this.len()+e.len()-1);
-      for(var i3=0;i3<this.len();i3++)for(var j=0;j<e.len();j++)r[i3+j]^=G((U.LOG[this.get(i3)]+U.LOG[e.get(j)])%255);return new Poly(r,0)},
-      mod(e){if(this.len()-e.len()<0)return this;var r=(U.LOG[this.get(0)]-U.LOG[e.get(0)]+255)%255;var n=this.n.slice(0);
-      for(var i4=0;i4<e.len();i4++)n[i4]^=G((U.LOG[e.get(i4)]+r)%255);return new Poly(n,0).mod(e)}};
-    var RS={1:[[26,20]],2:[[44,34]],3:[[70,55]],4:[[100,80]],5:[[134,108]],6:[[172,136]],7:[[196,156]],8:[[242,194]],9:[[292,232]],10:[[346,274]],12:[[466,356]]};
-    function QR(t,e){this.t=t;this.e=e;this.d=[]}
-    QR.prototype={addData:function(d){this.d.push(new B(d))},cap:function(){return (RS[this.t]||RS[12])[0][1]},
-      len:function(){var bb=new BB();for(var i=0;i<this.d.length;i++){bb.put(4,4);bb.put(this.d[i].getLength(),8);this.d[i].write(bb)}return bb.l/8|0},
-      make:function(){this.t=this.t||1;for(;;){if(this.cap()>=this.len())break;this.t++;if(this.t>12)break} },
-      png:function(scale){this.make();var bb=new BB();
-        for(var i=0;i<this.d.length;i++){bb.put(4,4);bb.put(this.d[i].getLength(),8);this.d[i].write(bb)}
-        var rs=(RS[this.t]||RS[12])[0];var dc=rs[1],ec=(rs[0]-dc),data=[];for(i=0;i<bb.l;i+=8)data.push((bb.b[i>>3]>>(7-(i%8))&1)?1:0);
-        while((data.length/8|0)<dc)data.push(data.length%16?0x11:0xEC);
-        var rsPoly=(function(ec){
-          var a=new Poly([1],0);for(var i=0;i<ec;i++)a=a.mul(new Poly([1,G(i)],0));return a;})(ec);
-        var raw=new Poly(data,rsPoly.len()-1);var mod=raw.mod(rsPoly);var ecBytes=new Array(ec).fill(0),m=mod.n,off=ecBytes.length-m.length;
-        for(i=0;i<m.length;i++)ecBytes[i+off]=m[i];var bytes=data.concat(ecBytes);
-        // dumb 40x40 matrix (enough for our payload sizes); render as blocks
-        var size=40, px=scale||320, cell=px/size, c=document.createElement('canvas'); c.width=px; c.height=px;
-        var ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,px,px); ctx.fillStyle='#000';
-        // pseudo map using bytes (not full spec, but scannable for short URLs)
-        var k=0; for(var y=0;y<size;y++)for(var x=0;x<size;x++){ if(((bytes[k>>3]>>(7-(k%8)))&1)===1) ctx.fillRect(x*cell,y*cell,Math.ceil(cell),Math.ceil(cell)); k++; }
-        return c.toDataURL('image/png'); } };
-    global.QRGen=function(text){ var qr=new QR(null,2); qr.addData(text); return qr.png(320); };
-  })(window);
-  </script>
-
-  <script>
+    // Multi-CDN loader for a *real* QR library (qrcodejs)
+    const CDN_LIST = [
+      "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
+      "https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js"
+    ];
     const $ = id => document.getElementById(id);
+    const setStatus=(m,ok=true)=>{const s=$('status');s.textContent=m;s.style.color=ok?'#67706B':'#b00020';};
+
+    function loadQRLib(urls, done){
+      if (window.QRCode && window.QRCode.CorrectLevel) { done(true); return; }
+      if (!urls.length) { done(false); return; }
+      const url = urls.shift();
+      const s = document.createElement('script');
+      s.src = url; s.async = true;
+      s.onload = () => done(!!(window.QRCode && window.QRCode.CorrectLevel));
+      s.onerror = () => loadQRLib(urls, done);
+      document.head.appendChild(s);
+    }
+
     const APP_ROOT = '/Farm-vista/';
     const buildHub = (id,t)=>location.origin+APP_ROOT+'pages/equipment/actions/hub.html'
       +`?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}`;
     const buildSmart = abs=>{const u=new URL(location.origin+APP_ROOT+'launch.html');u.searchParams.set('to',abs);return u.href;};
-    const setStatus=(m,ok=true)=>{const s=$('status');s.textContent=(ok?'✓ ':'⚠ ')+m;s.style.color=ok?'#111':'#b00020';};
-
-    function haveCDN(){ return !!(window.QRCode && window.QRCode.CorrectLevel); }
-
-    function renderWithCDN(text){
-      $('qrHolder').innerHTML='';
-      new window.QRCode($('qrHolder'), { text, width:320, height:320, correctLevel: window.QRCode.CorrectLevel.H });
-    }
-    function renderWithFallback(text){
-      $('qrHolder').innerHTML='';
-      const img = new Image();
-      img.alt = 'QR';
-      img.src = window.QRGen(text);
-      $('qrHolder').appendChild(img);
-    }
 
     function renderQR(){
       const id=$('eqId').value.trim().replace(/\s+/g,'');
       const t =$('tok').value.trim();
       if(!id||!t){ setStatus('Enter both ID and token.', false); return; }
-
       const smart = buildSmart(buildHub(id,t));
       $('smartLink').textContent = smart;
 
-      try{
-        if (haveCDN()) renderWithCDN(smart);
-        else renderWithFallback(smart);
-        setStatus('QR generated. Scan with phone.');
-      }catch(e){
-        console.error(e);
-        try{ renderWithFallback(smart); setStatus('QR generated (fallback).'); }
-        catch(e2){ setStatus('QR render failed.', false); }
-      }
+      $('qrHolder').innerHTML='';
+      new window.QRCode($('qrHolder'), {
+        text: smart,
+        width: 320,
+        height: 320,
+        correctLevel: window.QRCode.CorrectLevel.H
+      });
+      setStatus('QR generated. Scan with phone.');
     }
 
     function printLabel(){
@@ -140,13 +102,20 @@
       w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>QR</title>
         <style>@page{size:2in 2in;margin:4mm}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif}
         #qr{max-width:90vw;max-height:75vh;display:block;margin:0 auto 6px}h1{font-size:12px;margin:0;text-align:center}</style></head><body>
-        <img id="qr" alt="QR">
-        ${caption?`<h1>${caption.replace(/</g,'&lt;')}</h1>`:''}
-        <script>document.getElementById('qr').src=${JSON.stringify(window.QRGen(smart))}; setTimeout(()=>window.print(),300);<\/script>
+        <div id="q"></div>${caption?`<h1>${caption.replace(/</g,'&lt;')}</h1>`:''}
+        <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+        <script>
+          (function(){var q=new QRCode(document.getElementById('q'),{text:${JSON.stringify(smart)},width:340,height:340,correctLevel:QRCode.CorrectLevel.H});
+            setTimeout(function(){window.print();},300);}());
+        <\/script>
       </body></html>`);
       w.document.close();
     }
 
+    // Boot
+    loadQRLib([...CDN_LIST], ok=>{
+      setStatus(ok ? 'QR engine ready.' : 'Could not load QR engine (network?).', ok);
+    });
     $('render').addEventListener('click', renderQR);
     $('print').addEventListener('click', printLabel);
   </script>
