@@ -1029,6 +1029,4 @@ _openNativeCamera(){
     this._toastMsg('Unable to open camera.', 1800);
   }
 }
-});
-
 })();
