@@ -61,10 +61,7 @@
 
     .field label{display:block;font-weight:800;margin:0 0 6px}
 
-    /* ==========================================================
-       FORCE the rounded/tight look on all inputs & selects
-       (beats any app.css reset that was keeping them square)
-       ========================================================== */
+    /* Inputs + selects: tight + rounded */
     .field .input,
     .field .select{
       width:100%;
@@ -74,14 +71,13 @@
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border) !important;
       border-radius:var(--combo-btn-radius) !important;
-      padding:10px 12px !important;     /* tighter like your screenshot */
+      padding:10px 12px !important;
       min-height:40px;
       line-height:1.2;
       outline:none;
-      background-clip:padding-box;       /* keep corners clean */
+      background-clip:padding-box;
     }
 
-    /* Remove native arrows and add a custom caret so rounding sticks */
     .field .select{
       -webkit-appearance:none !important;
       -moz-appearance:none !important;
@@ -92,12 +88,11 @@
       background-repeat:no-repeat;
       background-position:right 12px center;
       background-size:14px 8px;
-      padding-right:42px !important;     /* room for caret */
+      padding-right:42px !important;
       cursor:pointer;
     }
-    .field .select::-ms-expand{ display:none; } /* old IE */
+    .field .select::-ms-expand{ display:none; }
 
-    /* Crisp focus/hover */
     .field .input:focus, .field .select:focus{
       border-color: color-mix(in srgb, var(--accent), #000 15%) !important;
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 70%);
@@ -176,7 +171,11 @@
           <div class="row">
             <div class="field">
               <label for="submittedBy">Submitted By</label>
-              <input id="submittedBy" class="input" placeholder="Auto: signed-in user"/>
+              <!-- changed to a select; defaults to signed-in user -->
+              <select id="submittedBy" class="select">
+                <option value="">— Loading employees… —</option>
+              </select>
+              <div id="submittedByHelp" class="help">—</div>
             </div>
             <div class="field">
               <label for="date">Date</label>
@@ -221,9 +220,64 @@
     function toast(msg="Saved.", ms=2200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
 
     let SITES=[]; let CURRENT_SITE=null; let CURRENT_BIN_INDEX=-1;
+    let EMPLOYEES=[];
 
     const todayISO=()=>new Date().toISOString().slice(0,10);
     const hasRoom=b=>{const cap=+b?.bushels||0, on=+b?.onHand||0; return cap>0 ? on<cap : true;}
+
+    function getSelectedEmployee(){
+      const sel = $("submittedBy");
+      const uid = sel.value || null;
+      const name = sel.options[sel.selectedIndex]?.textContent || null;
+      return { uid, name };
+    }
+
+    async function loadEmployees(db, auth){
+      // Pull employees (ordered) and default to current user
+      EMPLOYEES = [];
+      try{
+        const snap = await getDocs(query(collection(db,'employees'), orderBy('displayName')));
+        snap.forEach(d=>{
+          const v = d.data()||{};
+          const name = String(v.displayName || v.name || '').trim();
+          if(name) EMPLOYEES.push({ id:d.id, name });
+        });
+      }catch(e){
+        console.warn('Employees load failed', e);
+      }
+
+      // Build options
+      const sel = $("submittedBy");
+      const cu = auth.currentUser;
+      const cuUid = cu?.uid || '';
+      const cuName = (cu?.displayName || 'Dane Killam').trim();
+
+      // See if current user exists in employees
+      const idxInList = EMPLOYEES.findIndex(e=>e.id===cuUid || e.name===cuName);
+      // Options HTML
+      let opts = '';
+      if(EMPLOYEES.length){
+        opts = EMPLOYEES.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+      }
+
+      // If current user not in list, prepend them explicitly so default still works
+      if(idxInList===-1 && cuUid){
+        opts = `<option value="${esc(cuUid)}">${esc(cuName)}</option>` + (opts?('<option disabled>──────────</option>'+opts):'');
+      }
+
+      // Write options
+      sel.innerHTML = opts || `<option value="${esc(cuUid)}">${esc(cuName)}</option>`;
+      // Default selection
+      if(cuUid){
+        sel.value = cuUid;
+      }else if(sel.options.length){
+        sel.selectedIndex = 0;
+      }
+
+      // Help line
+      const countShown = sel.querySelectorAll('option:not([disabled])').length;
+      $("submittedByHelp").textContent = `${countShown} option${countShown===1?'':'s'}`;
+    }
 
     function updateCapacityHelp(){
       const capEl=$("capHelp"), buEl=$("bushels"), save=$("btnSave");
@@ -276,6 +330,8 @@
       const cap=+bin.bushels||0, on=+bin.onHand||0;
       if(cap>0 && on+bushels>cap){ $("bushels").classList.add('invalid'); $("err").hidden=false; $("err").textContent="Bushels exceed bin capacity."; return; }
 
+      const { uid:submittedByUid, name:submittedByName } = getSelectedEmployee();
+
       try{
         const siteRef=doc(db,'binSites',siteId);
         const snap=await getDoc(siteRef);
@@ -289,7 +345,8 @@
           onHand: after,
           lastCropType: $("cropType").value || null,
           lastCropMoisture: $("cropMoisture").value ? parseFloat($("cropMoisture").value) : null,
-          lastUpdatedBy: $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam'),
+          lastUpdatedBy: submittedByName || (auth.currentUser?.displayName || 'Dane Killam'),
+          lastUpdatedUid: submittedByUid || (auth.currentUser?.uid || null),
           lastUpdatedMs: Date.now()
         };
 
@@ -303,7 +360,8 @@
           cropType: $("cropType").value || null,
           cropMoisture: $("cropMoisture").value ? parseFloat($("cropMoisture").value) : null,
           note: ($("note").value||"").trim() || null,
-          submittedBy: $("submittedBy").value || (auth.currentUser?.displayName || 'Dane Killam'),
+          submittedBy: submittedByName || (auth.currentUser?.displayName || 'Dane Killam'),
+          submittedByUid: submittedByUid || (auth.currentUser?.uid || null),
           dateISO: $("date").value || null,
           createdAt: serverTimestamp()
         });
@@ -322,10 +380,13 @@
       await ready;
       const db=getFirestore(); const auth=getAuth();
 
-      $("submittedBy").value = auth.currentUser?.displayName || "Dane Killam";
       $("date").value = todayISO();
 
-      await loadSites(db);
+      await Promise.all([
+        loadSites(db),
+        loadEmployees(db, auth)
+      ]);
+
       $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
       $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateCapacityHelp(); });
       $("bushels").addEventListener("input", updateCapacityHelp);
