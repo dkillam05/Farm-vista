@@ -132,6 +132,7 @@ const __fvBoot = (function(){
 /*
  RULES:
   - Login page is PUBLIC.
+  - NO_AUTH allowlist (below) is PUBLIC.
   - Other pages require Auth. We wait briefly for hydration before redirect.
   - Optional Firestore-gating toggles below.
   - In stub/dev, we allow by default to prevent bounce-loops.
@@ -141,8 +142,22 @@ const __fvBoot = (function(){
   const TREAT_MISSING_DOC_AS_DENY  = false;
   const ALLOW_STUB_MODE            = true;
 
+  // ---- PUBLIC allowlist (no auth required) ---------------------------------
+  // NOTE: Update the scanner path if yours differs.
+  const NO_AUTH = new Set([
+    '/Farm-vista/launch.html',
+    '/Farm-vista/pages/dev/qr-scanner.html',
+    // add more public pages here as needed:
+    // '/Farm-vista/pages/tools/qr-scanner.html',
+  ]);
+
   const FIELD_DISABLED = 'disabled';
   const FIELD_ACTIVE   = 'active';
+
+  const normPath = (p) => {
+    try { return new URL(p, location.origin).pathname; } catch { return p; }
+  };
+  const herePath = () => normPath(location.pathname);
 
   const samePath = (a, b) => {
     try {
@@ -155,6 +170,14 @@ const __fvBoot = (function(){
   const isLoginPath = () => {
     const cur = location.pathname.endsWith('/') ? location.pathname : (location.pathname + '/');
     return cur.startsWith('/Farm-vista/pages/login/');
+  };
+
+  const isNoAuthPath = () => {
+    const p = herePath();
+    if (NO_AUTH.has(p)) return true;
+    // also allow /Farm-vista/launch.html with any query string
+    if (p === '/Farm-vista/launch.html') return true;
+    return false;
   };
 
   const gotoLogin = (reason) => {
@@ -182,7 +205,7 @@ const __fvBoot = (function(){
 
   const run = async () => {
     try {
-      if (isLoginPath()) return;
+      if (isLoginPath() || isNoAuthPath()) return;
 
       const mod = await import('/Farm-vista/js/firebase-init.js');
       const ctx = await mod.ready;
@@ -235,7 +258,7 @@ const __fvBoot = (function(){
       }
     } catch (e) {
       console.warn('[FV] auth-guard error:', e);
-      if (!isLoginPath()) gotoLogin('guard-error');
+      if (!isLoginPath() && !isNoAuthPath()) gotoLogin('guard-error');
     }
   };
 
