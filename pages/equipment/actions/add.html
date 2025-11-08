@@ -2,7 +2,7 @@
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
 Adds: persist QR preview to Storage and save its URL under equipment.qr.image
 + Centered card on mobile
-+ Label-tap popup editor for Makes/Models (inline, no iframes, theme-safe)
++ Inline editors for Makes/Models (no blue text, no Add, conditional Delete/Archive)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -140,29 +140,30 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     .modal.show{ display:flex; }
     .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
     .sheet{
-      position:relative; width:min(100vw, 760px); max-width:90vw; height:auto;
-      background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
+      position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
+      border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
       display:flex; flex-direction:column; overflow:hidden;
     }
     .sheet header{
-      padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800; display:flex; align-items:center; justify-content:space-between;
+      padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
+      display:flex; align-items:center; justify-content:space-between;
     }
     .sheet header .close{ border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer; padding:6px 10px; border-radius:10px; }
     .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
 
     .ed-wrap{ padding:12px; display:grid; gap:12px; }
     .ed-toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .ed-toolbar .select{ width:auto; min-width:220px; }
     .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:hidden; }
     .ed-row{ display:grid; grid-template-columns:1fr auto auto auto; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
     .ed-row input{ width:100%; }
-    .tag{ display:inline-block; padding:2px 8px; border-radius:10px; border:1px solid var(--border); font-size:12px; }
-    .chip{ padding:6px 10px; border-radius:10px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:700; }
-    .chip[disabled]{ opacity:.6; cursor:not-allowed; }
 
-    .sm{ padding:6px 10px; border-radius:10px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:700; }
+    .tag{ display:inline-block; padding:2px 8px; border-radius:10px; border:1px solid var(--border); font-size:12px; color:var(--text); background:var(--card-surface,var(--surface)); }
+    .sm{ padding:6px 10px; border-radius:10px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:800; color:var(--text); }
     .sm.primary{ background:var(--brand); border-color:transparent; color:#fff; }
     .sm.danger{ border-color:#b00020; color:#b00020; }
+    .sm[hidden]{ display:none !important; }
   </style>
 </head>
 
@@ -248,8 +249,8 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         <button class="close" type="button" data-close>Close</button>
       </header>
       <div class="ed-wrap">
-        <div class="ed-toolbar">
-          <button id="edAdd" class="chip" type="button">Add New</button>
+        <div class="ed-toolbar" id="edToolbar">
+          <!-- For models, we inject a Make filter <select> here -->
           <span id="edContext" class="tag">—</span>
         </div>
         <div id="edList" class="ed-list" role="list"></div>
@@ -414,6 +415,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       return items;
     }
     async function getModels(db, makeId){
+      // when makeId is null, return empty
       if(!makeId) return [];
       const items=[];
       try{
@@ -437,7 +439,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
              list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
     }
 
-    /* === Add New flows (kept) === */
+    /* === Add New flows retained for the main form only === */
     async function addMake(db){
       const name = (prompt("New Make name:")||"").trim();
       if(!name) return null;
@@ -454,6 +456,26 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       return { id: docRef.id, name };
     }
 
+    /* ===== Links/usage checks for Delete/Archive rules ===== */
+    async function usageInfo(db, kind, id){
+      // Returns { total, active }
+      // kind: 'makes' or 'models'
+      let qRef;
+      if(kind==='makes'){
+        qRef = query(collection(db,'equipment'), where('makeId','==',id));
+      }else{
+        qRef = query(collection(db,'equipment'), where('modelId','==',id));
+      }
+      const snap = await getDocs(qRef);
+      let total = 0, active = 0;
+      snap.forEach(d=>{
+        total++;
+        const v=d.data()||{};
+        if(String(v.status||'').toLowerCase()==='active') active++;
+      });
+      return { total, active };
+    }
+
     /* ===== Inline editor modal logic ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     function openModal(title){
@@ -465,6 +487,8 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       $("editModal").classList.remove('show');
       document.body.style.overflow='';
       $("edList").innerHTML='';
+      const sel = document.getElementById('edMakeSelect');
+      if(sel) sel.remove();
       EDIT_KIND=null;
     }
     document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
@@ -472,24 +496,45 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     async function loadEditor(db){
       const listEl = $("edList");
       listEl.innerHTML = '';
-      let items = [];
       const ctx = $("edContext");
+      const toolbar = $("edToolbar");
 
+      let items = [];
       if(EDIT_KIND === 'makes'){
         ctx.textContent = 'Makes';
         items = await getMakes(db);
-      }else if(EDIT_KIND === 'models'){
-        const makeId = $("make").value;
-        if(!makeId){ alert("Pick a Make first to edit Models."); return; }
-        const makeName = $("make").options[$("make").selectedIndex].textContent.trim();
-        ctx.textContent = `Models for ${makeName}`;
-        items = await getModels(db, makeId);
+      }else{
+        // Inject a Make filter select (works even if main form hasn't chosen a make)
+        let sel = document.getElementById('edMakeSelect');
+        if(!sel){
+          sel = document.createElement('select');
+          sel.id = 'edMakeSelect';
+          sel.className = 'select';
+          toolbar.insertBefore(sel, ctx);
+        }
+        const makes = await getMakes(db);
+        sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+        // default to main form's make if set
+        const cur = $("make").value;
+        if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
+        const chosen = sel.value || (makes[0]?.id || null);
+        ctx.textContent = 'Models';
+        items = chosen ? await getModels(db, chosen) : [];
+
+        sel.onchange = async ()=>{ items = await getModels(db, sel.value); await renderRows(items, db, 'models', sel.value); };
       }
+
+      await renderRows(items, db, EDIT_KIND, document.getElementById('edMakeSelect')?.value || null);
+    }
+
+    async function renderRows(items, db, kind, makeCtx){
+      const listEl = $("edList");
+      listEl.innerHTML = '';
 
       if(!items.length){
         const empty = document.createElement('div');
         empty.className = 'ed-row';
-        empty.textContent = 'No items yet.';
+        empty.textContent = 'No items.';
         listEl.appendChild(empty);
         return;
       }
@@ -505,39 +550,57 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
 
         const tag = document.createElement('span');
         tag.className='tag';
-        tag.textContent = 'active';
+        tag.textContent = 'checking…';
 
         const saveBtn = document.createElement('button');
         saveBtn.className='sm primary';
         saveBtn.type='button';
         saveBtn.textContent='Save';
 
-        const arcBtn = document.createElement('button');
-        arcBtn.className='sm';
-        arcBtn.type='button';
-        arcBtn.textContent='Archive';
+        const archiveBtn = document.createElement('button');
+        archiveBtn.className='sm';
+        archiveBtn.type='button';
+        archiveBtn.textContent='Archive';
 
         const delBtn = document.createElement('button');
         delBtn.className='sm danger';
         delBtn.type='button';
         delBtn.textContent='Delete';
 
-        row.append(input, tag, saveBtn, arcBtn, delBtn);
+        row.append(input, tag, saveBtn, archiveBtn, delBtn);
         listEl.appendChild(row);
 
-        // Button wiring
+        // Evaluate usage to decide which actions are allowed
+        const usage = await usageInfo(db, kind, it.id);
+        if(usage.total === 0){
+          // No usage: can delete
+          tag.textContent = 'unused';
+          archiveBtn.hidden = true;
+          delBtn.hidden = false;
+        }else if(usage.active > 0){
+          // Some active usage: no archive/delete
+          tag.textContent = 'in use (active)';
+          archiveBtn.hidden = true;
+          delBtn.hidden = true;
+        }else{
+          // Only inactive history: archive allowed, no delete
+          tag.textContent = 'in use (inactive only)';
+          archiveBtn.hidden = false;
+          delBtn.hidden = true;
+        }
+
+        // Wire actions
         saveBtn.addEventListener('click', async ()=>{
           const newName = input.value.trim();
           if(!newName) return;
-          const ref = (EDIT_KIND==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
+          const ref = (kind==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
           await updateDoc(ref, { name:newName, nameLower:newName.toLowerCase(), updatedAt: serverTimestamp() });
           showToast('Saved');
-          // refresh dropdowns
           await refreshDropdowns(db);
         });
 
-        arcBtn.addEventListener('click', async ()=>{
-          const ref = (EDIT_KIND==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
+        archiveBtn.addEventListener('click', async ()=>{
+          const ref = (kind==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
           await updateDoc(ref, { archived:true, updatedAt: serverTimestamp() });
           row.remove();
           showToast('Archived');
@@ -545,8 +608,8 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         });
 
         delBtn.addEventListener('click', async ()=>{
-          if(!confirm('Delete this item permanently?')) return;
-          const ref = (EDIT_KIND==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
+          if(!confirm('Delete permanently?')) return;
+          const ref = (kind==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
           await deleteDoc(ref);
           row.remove();
           showToast('Deleted');
@@ -554,21 +617,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         });
       }
     }
-
-    $("edAdd").addEventListener('click', async ()=>{
-      const db = getFirestore();
-      if(EDIT_KIND==='makes'){
-        const created = await addMake(db);
-        await refreshDropdowns(db);
-        if(created){ await loadEditor(db); }
-      }else if(EDIT_KIND==='models'){
-        const makeId = $("make").value;
-        if(!makeId){ alert("Pick a Make first."); return; }
-        const created = await addModel(db, makeId);
-        await refreshDropdowns(db);
-        if(created){ await loadEditor(db); }
-      }
-    });
 
     async function refreshDropdowns(db){
       // Refresh makes
@@ -739,12 +787,11 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         if(open) closeYearPanel(); else openYearPanel();
       });
 
-      // Label taps -> inline modal
+      // Label taps -> inline modal (models works even if no make picked)
       $("openMakes").addEventListener('click', async ()=>{
         EDIT_KIND='makes'; openModal('Edit Makes'); await loadEditor(db);
       });
       $("openModels").addEventListener('click', async ()=>{
-        if(!$("make").value){ alert("Pick a Make first to edit Models."); return; }
         EDIT_KIND='models'; openModal('Edit Models'); await loadEditor(db);
       });
       document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
