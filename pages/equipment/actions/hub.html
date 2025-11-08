@@ -1,7 +1,4 @@
-<!-- /Farm-vista/pages/equipment/equipment-hub.html (FULL FILE)
-Adds: Cancel button back to tractors list, print window auto-close (reprint),
-keeps invalid-QR modal & all existing links
--->
+<!-- /Farm-vista/pages/equipment/equipment-hub.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -33,9 +30,9 @@ keeps invalid-QR modal & all existing links
 
   <style>
     :root{ --card-max:900px; --brand: var(--green,#3B7E46); }
-    body{ background:var(--app-bg,var(--surface)); max-width:100vw; overflow-x:hidden; touch-action:pan-y; }
+    body{ background:var(--app-bg,var(--surface)); }
     .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important; overflow-x:clip; }
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important; }
 
     .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin:8px 0 18px; }
@@ -77,7 +74,7 @@ keeps invalid-QR modal & all existing links
       border:1px solid var(--border); border-radius:16px; box-shadow:0 18px 60px rgba(0,0,0,.35); }
     .md-head{ padding:14px 16px; border-bottom:1px solid var(--border); font-weight:800; font-size:18px }
     .md-body{ padding:14px 16px; color:var(--muted,#67706B) }
-    .md-foot{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:10px }
+    .md-foot{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end }
   </style>
 </head>
 
@@ -119,7 +116,6 @@ keeps invalid-QR modal & all existing links
               <div style="display:flex; gap:10px; flex-wrap:wrap">
                 <button id="btnReprint" class="btn">Reprint QR</button>
                 <a id="btnOpenList" class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Open Tractors</a>
-                <button id="btnCancel" class="btn">Cancel</button>
               </div>
             </div>
             <div id="qrMsg" class="qr-msg">Finding QR…</div>
@@ -158,7 +154,7 @@ keeps invalid-QR modal & all existing links
 
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
-    const fallbackScanner = '/Farm-vista/pages/tools/qr-scanner.html';
+    const fallbackScanner = '/Farm-vista/pages/tools/qr-scanner.html'; // <-- change if your scanner lives elsewhere
 
     const id = qs.get('id') || '';
     const t  = qs.get('t')  || '';
@@ -192,25 +188,17 @@ keeps invalid-QR modal & all existing links
       const m = $('badQR');
       m.classList.add('show');
       m.setAttribute('aria-hidden','false');
+      // One button – return to scanner
       $('badQRBtn').onclick = ()=>{
+        // If opened from in-app scanner, this will go back there.
         if (history.length > 1) {
           history.back();
+          // Safety net: if back doesn’t navigate (e.g., direct open), jump to scanner.
           setTimeout(()=>{ if (document.visibilityState === 'visible') location.assign(fallbackScanner); }, 250);
         } else {
           location.assign(fallbackScanner);
         }
       };
-    }
-
-    function closeAfterPrint(win){
-      try{
-        win.onafterprint = () => { try{ win.close(); }catch{} };
-        win.matchMedia && win.matchMedia('print').addEventListener('change', (m)=>{
-          if(!m.matches){ setTimeout(()=>{ try{ win.close(); }catch{} }, 50); }
-        });
-        // Safety: if the print dialog was canceled and focus returns
-        win.onfocus = () => { setTimeout(()=>{ try{ win.close(); }catch{} }, 200); };
-      }catch{}
     }
 
     async function load(){
@@ -224,6 +212,7 @@ keeps invalid-QR modal & all existing links
       }
 
       if(!eqId){
+        // No way to resolve → invalid
         showInvalidModal();
         return;
       }
@@ -232,6 +221,7 @@ keeps invalid-QR modal & all existing links
       const snap = await getDoc(ref);
 
       if(!snap.exists()){
+        // Deleted/missing → invalid
         showInvalidModal();
         return;
       }
@@ -240,6 +230,7 @@ keeps invalid-QR modal & all existing links
       const ok = !!t ? (data.qr && data.qr.token === t) : true;
 
       if(!ok){
+        // Token mismatch → treat as invalid for scanner loop
         showInvalidModal();
         return;
       }
@@ -267,11 +258,6 @@ keeps invalid-QR modal & all existing links
       $("linkReq").href   = `${base}/service-request.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
       $("linkPre").href   = `${base}/pre-check.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
 
-      // Cancel button -> tractors list
-      $("btnCancel").addEventListener('click', ()=> {
-        location.assign('/Farm-vista/pages/equipment/equipment-tractors.html');
-      });
-
       // QR display / reprint
       const img = $("qrImg"); const msg = $("qrMsg");
       const saved = data.qr?.image?.url || null;
@@ -280,18 +266,7 @@ keeps invalid-QR modal & all existing links
 
       if(saved){
         img.src = saved; img.hidden = false; msg.textContent = "";
-        $("btnReprint").onclick = ()=> {
-          const w = window.open('', '_blank', 'width=620,height=720');
-          w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
-          <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
-          .wrap{text-align:center}img{display:block;width:100%;max-width:380px;margin:0 auto 4px}
-          h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace; font-weight:700}</style></head><body>
-          <div class="wrap"><img id="qr" src="${saved}" alt="QR"><h1>${caption.replace(/</g,'&lt;')}</h1></div>
-          <script>(function(){function go(){try{window.print()}catch{}}var i=document.getElementById('qr');if(i.complete){setTimeout(go,60)}else{i.addEventListener('load',function(){setTimeout(go,60)})}})();<\/script>
-          </body></html>`);
-          w.document.close();
-          closeAfterPrint(w);
-        };
+        $("btnReprint").onclick = ()=> printImage(saved, caption);
       }else if(tok){
         msg.textContent = "Generating QR…";
         const holder = document.createElement('div');
@@ -305,19 +280,7 @@ keeps invalid-QR modal & all existing links
         if(node){
           img.src = node.tagName==='CANVAS' ? node.toDataURL('image/png') : node.src;
           img.hidden = false; msg.textContent = "";
-          $("btnReprint").onclick = ()=> {
-            const w = window.open('', '_blank', 'width=620,height=720');
-            w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
-            <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
-            .wrap{text-align:center}#qr{width:100%;max-width:380px;margin:0 auto 4px}
-            h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
-            <div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div>
-            <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-            <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(smart)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){try{window.print()}catch{}},260)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
-            </body></html>`);
-            w.document.close();
-            closeAfterPrint(w);
-          };
+          $("btnReprint").onclick = ()=> printGenerated(smart, caption);
         }else{
           msg.textContent = "QR render failed.";
         }
@@ -328,6 +291,31 @@ keeps invalid-QR modal & all existing links
 
       $("content").hidden = false;
       $("subtitle").textContent = "Linked";
+    }
+
+    function printImage(url, caption){
+      const w = window.open('', '_blank', 'width=620,height=720');
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+      <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
+      .wrap{text-align:center}img{display:block;width:100%;max-width:380px;margin:0 auto 4px}
+      h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace; font-weight:700}</style></head><body>
+      <div class="wrap"><img id="qr" src="${url}" alt="QR"><h1>${caption.replace(/</g,'&lt;')}</h1></div>
+      <script>(function(){var i=document.getElementById('qr');function p(){try{window.print()}catch{}} if(i.complete){setTimeout(p,60)}else{i.addEventListener('load',function(){setTimeout(p,60)})}})();<\/script>
+      </body></html>`);
+      w.document.close();
+    }
+
+    function printGenerated(text, caption){
+      const w = window.open('', '_blank', 'width=620,height=720');
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+      <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
+      .wrap{text-align:center}#qr{width:100%;max-width:380px;margin:0 auto 4px}
+      h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
+      <div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div>
+      <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+      <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(text)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},260)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
+      </body></html>`);
+      w.document.close();
     }
 
     load().catch(e=>{ console.error(e); showInvalidModal(); });
