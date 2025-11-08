@@ -1,7 +1,8 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
 Adds: persist QR preview to Storage and save its URL under equipment.qr.image
-+ Center form, + Manage buttons for Make/Model, + “Add New…” flows restored
++ Centered card on mobile
++ “Make” / “Model” labels open a popup modal with your list pages
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -35,33 +36,48 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
 
   <style>
     :root{ --card-max:1100px; --page-bottom-gap:96px; --brand: var(--green, #3B7E46); }
-    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important; }
 
-    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin-bottom:var(--page-bottom-gap); }
-    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
-      padding:14px 16px; border-bottom:1px solid var(--border); background:var(--surface); }
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+
+    /* Center the card itself so the whole form is visually centered on phone */
+    .hero{
+      max-width:720px;          /* <- keeps it centered/narrow on mobile */
+      margin:0 auto var(--page-bottom-gap);
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .hero-head{
+      display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border); background:var(--surface);
+    }
     .hero-head .icon{ width:24px; height:24px; display:grid; place-items:center; color:var(--brand); }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B) }
 
-    /* Center the form body content inside the card */
-    .body{ padding:16px; display:grid; gap:14px; max-width:720px; margin:0 auto; }
+    .body{ padding:16px; display:grid; gap:14px; }
     .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
 
-    /* tiny “manage” buttons beside labels */
-    .manage{
-      margin-left:auto; display:inline-flex; align-items:center; gap:8px;
-      font-weight:800; font-size:13px; padding:6px 10px; border-radius:10px;
-      border:1px solid var(--border); background:var(--card-surface,var(--surface));
+    /* Make/Model labels become tappable “as-label” buttons */
+    .as-label{
+      display:inline-flex; align-items:center; gap:8px;
+      font:inherit; font-weight:800; background:transparent; border:none; padding:0;
       color:var(--text); cursor:pointer;
     }
-    .manage:hover{ background:var(--hover,rgba(0,0,0,.06)); }
+    .as-label:hover{ text-decoration:underline; }
+    .as-label.req::after{ content:" *"; color:var(--brand); }
 
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
@@ -118,6 +134,22 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
+
+    /* ===== Simple modal ===== */
+    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
+    .modal.show{ display:flex; }
+    .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
+    .sheet{
+      position:relative; width:min(100vw, 920px); height:min(88vh, 760px);
+      background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
+      display:flex; flex-direction:column; overflow:hidden;
+    }
+    .sheet header{
+      padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800; display:flex; align-items:center; justify-content:space-between;
+    }
+    .sheet header .close{ border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer; padding:6px 10px; border-radius:10px; }
+    .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
+    .sheet iframe{ flex:1 1 auto; width:100%; border:0; background:#fff; }
   </style>
 </head>
 
@@ -136,17 +168,14 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         <div class="body">
           <div class="row">
             <div class="field">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <label for="make" class="req" style="margin:0;">Make</label>
-                <button id="manageMakes" type="button" class="manage" title="View/Edit/Archive Makes">Manage</button>
-              </div>
+              <!-- Label is now tappable to open Makes modal -->
+              <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
               <select id="make" class="select"><option value="">— Loading… —</option></select>
             </div>
+
             <div class="field">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <label for="model" class="req" style="margin:0;">Model</label>
-                <button id="manageModels" type="button" class="manage" title="View/Edit/Archive Models">Manage</button>
-              </div>
+              <!-- Label is now tappable to open Models modal -->
+              <button id="openModels" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Model</button>
               <select id="model" class="select" disabled><option value="">— Select a Make first —</option></select>
             </div>
           </div>
@@ -199,6 +228,18 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       </section>
     </div>
   </fv-shell>
+
+  <!-- Popup modal used for both Makes and Models (loads your existing pages in an iframe) -->
+  <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <div class="backdrop" data-close></div>
+    <div class="sheet">
+      <header>
+        <div id="editTitle">Edit</div>
+        <button class="close" type="button" data-close>Close</button>
+      </header>
+      <iframe id="editFrame" src="about:blank" title="Edit"></iframe>
+    </div>
+  </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
@@ -386,7 +427,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
              list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
     }
 
-    /* === Add New flows (restored) === */
+    /* === Add New flows (kept) === */
     async function addMake(db){
       const name = (prompt("New Make name:")||"").trim();
       if(!name) return null;
@@ -420,10 +461,9 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       if(!form.modelId){ alert("Please choose a Model."); return; }
       if(!form.serial){ alert("Serial # is required."); return; }
 
-      // We require a QR preview to persist (so it exists on View forever).
       if(!pendingQRBlob){
         const ok = confirm("No QR preview yet. Create it first? (Click Cancel to save without a QR image.)");
-        if(ok) return; // let them click Create QR, then Save again
+        if(ok) return;
       }
 
       saving = true; $("btnSave").disabled = true;
@@ -434,7 +474,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       const uniqRef = doc(db, 'equipment-uniq', uniqDocId);
       const tokenRef = doc(db, 'qr-tokens', token);
 
-      // Try to lazy-load runTransaction (may not exist in your init file)
+      // Try to lazy-load runTransaction
       let runTransaction;
       try{
         const m = await import('/Farm-vista/js/firebase-init.js');
@@ -443,7 +483,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
 
       try{
         if (typeof runTransaction === 'function'){
-          // Preferred: true txn
           await runTransaction(db, async (tx)=>{
             const uSnap = await tx.get(uniqRef);
             if(uSnap.exists()){
@@ -465,7 +504,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
             tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
           });
         } else {
-          // Fallback: pre-checks
           const [uSnap, tSnap] = await Promise.all([getDoc(uniqRef), getDoc(tokenRef)]);
           if(uSnap.exists() && uSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_UNIQ");
           if(tSnap.exists() && tSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_TOKEN");
@@ -553,6 +591,19 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       pendingQRBlob=null;
     }
 
+    /* ===== Modal helpers ===== */
+    function openModal(title, url){
+      $("editTitle").textContent = title;
+      $("editFrame").src = url;
+      $("editModal").classList.add('show');
+      document.body.style.overflow='hidden';
+    }
+    function closeModal(){
+      $("editModal").classList.remove('show');
+      $("editFrame").src='about:blank';
+      document.body.style.overflow='';
+    }
+
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -567,13 +618,14 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         if(open) closeYearPanel(); else openYearPanel();
       });
 
-      // Manage buttons (use your existing pages)
-      $("manageMakes").addEventListener('click', ()=>{
-        location.href = '/Farm-vista/pages/equipment/equipment-makes.html';
+      // Label taps -> modal with your existing pages
+      $("openMakes").addEventListener('click', ()=>{
+        openModal('Edit Makes', '/Farm-vista/pages/equipment/equipment-makes.html');
       });
-      $("manageModels").addEventListener('click', ()=>{
-        location.href = '/Farm-vista/pages/equipment/equipment-models.html';
+      $("openModels").addEventListener('click', ()=>{
+        openModal('Edit Models', '/Farm-vista/pages/equipment/equipment-models.html');
       });
+      document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
 
       // Data
       let makes = await getMakes(db);
@@ -583,17 +635,12 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         validateForm();
         const val = e.target.value;
 
-        // Handle "Add New…" for Make
+        // Handle "Add New…" for Make (kept)
         if(val === "__add_make__"){
           const created = await addMake(db);
-          // Refresh list and select the newly created one
           makes = await getMakes(db);
           $("make").innerHTML = renderMakeOptions(makes);
-          if(created){
-            $("make").value = created.id;
-          }else{
-            $("make").value = "";
-          }
+          if(created){ $("make").value = created.id; } else { $("make").value = ""; }
         }
 
         const selectedMakeId = $("make").value;
@@ -608,16 +655,12 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       });
 
       $("model").addEventListener("change", async (e)=>{
-        // Handle "Add New…" for Model
+        // Handle "Add New…" for Model (kept)
         if(e.target.value === "__add_model__"){
           const created = await addModel(db, $("make").value);
           const models = await getModels(db, $("make").value);
           $("model").innerHTML = renderModelOptions(models);
-          if(created){
-            $("model").value = created.id;
-          }else{
-            $("model").value = "";
-          }
+          if(created){ $("model").value = created.id; } else { $("model").value = ""; }
         }
         validateForm();
       });
