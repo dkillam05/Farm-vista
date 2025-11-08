@@ -1,9 +1,8 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE
-Fixes:
-• Live list via onSnapshot when available; safe one-shot fallback if not
-• Loading + Empty states (no more giant empty pane)
-• Modal is vertical-only with background scroll lock
-• QR preview + reprint flow unchanged; hub link correct
+Live list fix:
+• Try onSnapshot(qy, cb) first; if it throws, try onSnapshot(qy, {includeMetadataChanges:true}, cb)
+• If both fail, render via one-shot getDocs() so "Loading…" never sticks
+• All paths, styles, modal, QR, and hub links unchanged
 -->
 <!doctype html>
 <html lang="en">
@@ -38,29 +37,19 @@ Fixes:
     :root{
       --brand:var(--green,#3B7E46);
       --card-max:1200px;
-      --modal-max-w: 96vw;       /* clamp modal to viewport */
-      --modal-max-h: 90vh;       /* vertical-only scrolling inside */
+      --modal-max-w: 96vw;
+      --modal-max-h: 90vh;
     }
-
-    /* ===== Global: kill sideways movement ===== */
     html, body { max-width:100vw; overflow-x:hidden; }
     html { overscroll-behavior-x: none; }
     body{
       background:var(--app-bg,var(--surface));
-      touch-action: pan-y;           /* only allow vertical panning */
-      overscroll-behavior-x: none;   /* no left-right bounce */
-      word-wrap: break-word;         /* prevent long tokens from forcing width */
+      touch-action: pan-y;
+      overscroll-behavior-x: none;
+      word-wrap: break-word;
     }
+    body.modal-open{ position:fixed; width:100%; overflow:hidden; touch-action:none; }
 
-    /* Body lock while modal open (prevents background drift/diagonal pans) */
-    body.modal-open{
-      position: fixed;
-      width: 100%;
-      overflow: hidden;              /* disable body scrolling */
-      touch-action: none;            /* block touch pans on background */
-    }
-
-    /* Prevent any child from forcing horizontal scroll */
     img, svg, canvas, video { max-width:100%; height:auto; }
     table { max-width:100%; display:block; overflow:auto; }
     pre, code { white-space:pre-wrap; word-break:break-word; }
@@ -127,12 +116,12 @@ Fixes:
 
     /* ===== Modal (vertical-only) ===== */
     .modal-backdrop{
-      position:fixed; inset:0; padding:8px;        /* padding prevents edge cutoffs */
+      position:fixed; inset:0; padding:8px;
       background:rgba(0,0,0,.35);
       display:none; align-items:center; justify-content:center; z-index:9000;
-      overflow:hidden;                               /* never allow x-scroll here */
-      touch-action: pan-y;                            /* vertical pan only in backdrop */
-      overscroll-behavior: contain;                   /* stop scroll chaining */
+      overflow:hidden;
+      touch-action: pan-y;
+      overscroll-behavior: contain;
     }
     .modal-backdrop.show{ display:flex; }
 
@@ -143,9 +132,7 @@ Fixes:
       display:flex; flex-direction:column;
       background:var(--surface); border:1px solid var(--border); border-radius:16px;
       box-shadow:0 20px 60px rgba(0,0,0,.35);
-      overflow:hidden;             /* content scrolls inside .md-body only */
-      contain:content;             /* prevents layout spill causing side-scroll */
-      touch-action: pan-y;         /* only vertical pan on card */
+      overflow:hidden; contain:content; touch-action: pan-y;
     }
     .md-head{
       display:flex; align-items:center; justify-content:space-between;
@@ -154,11 +141,8 @@ Fixes:
     }
     .md-body{
       padding:16px; display:grid; gap:12px;
-      overflow-y:auto;             /* vertical scroll here */
-      overflow-x:hidden;           /* NO horizontal */
-      overscroll-behavior-x:none;  /* no sideways bounce */
-      -webkit-overflow-scrolling:touch;
-      touch-action: pan-y;
+      overflow-y:auto; overflow-x:hidden; overscroll-behavior-x:none;
+      -webkit-overflow-scrolling:touch; touch-action: pan-y;
     }
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
     @media (max-width:640px){ .grid2{ grid-template-columns:1fr } }
@@ -202,7 +186,6 @@ Fixes:
           <div>Added</div>
         </div>
         <div id="rows"></div>
-        <!-- Empty/Loading message area -->
         <div id="rowsEmpty" class="qr-empty" style="padding:12px; display:none;">No tractors to show.</div>
       </div>
     </div>
@@ -275,7 +258,7 @@ Fixes:
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script type="module">
-    /* -------- Firestore import (guarded) -------- */
+    /* -------- Firestore import (safe) -------- */
     import * as FB from '/Farm-vista/js/firebase-init.js';
 
     const {
@@ -284,7 +267,6 @@ Fixes:
       doc, getDoc, updateDoc, serverTimestamp
     } = FB;
 
-    // Use whatever listener function your wrapper exposes
     const onSnapshot = FB.onSnapshot || FB.firestoreOnSnapshot || null;
 
     const $ = id => document.getElementById(id);
@@ -298,11 +280,8 @@ Fixes:
         const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
       }
     }
-
-    // Correct hub location
     const hubUrl = (id, token) =>
       `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
-
     const smartLaunch = (absTo) => {
       const u = new URL(location.origin + '/Farm-vista/launch.html');
       u.searchParams.set('to', absTo);
@@ -314,21 +293,12 @@ Fixes:
     let currentSmartLink = null;
     let currentQRImageUrl = null;
 
-    /* ===== Body scroll lock helpers ===== */
+    /* ===== Body scroll lock ===== */
     let __scrollY = 0;
-    function lockBodyScroll(){
-      __scrollY = window.scrollY || 0;
-      document.body.classList.add('modal-open');
-      document.body.style.top = `-${__scrollY}px`;
-    }
-    function unlockBodyScroll(){
-      document.body.classList.remove('modal-open');
-      document.body.style.top = '';
-      window.scrollTo(0, __scrollY || 0);
-      __scrollY = 0;
-    }
+    function lockBodyScroll(){ __scrollY = window.scrollY||0; document.body.classList.add('modal-open'); document.body.style.top = `-${__scrollY}px`; }
+    function unlockBodyScroll(){ document.body.classList.remove('modal-open'); document.body.style.top=''; window.scrollTo(0, __scrollY||0); __scrollY=0; }
 
-    /* =================== LIST: loading/empty + live listener =================== */
+    /* =================== LIST: loading/empty + guarded listener =================== */
     let unsubList = null;
     let firstPaintDone = false;
 
@@ -390,38 +360,14 @@ Fixes:
       let qy = query(base, where('type','==','tractor'));
       if (f === 'active')   qy = query(qy, where('status','==','active'));
       if (f === 'archived') qy = query(qy, where('status','==','archived'));
-      try { qy = query(qy, orderBy('name')); } catch { /* ok if index missing */ }
+      try { qy = query(qy, orderBy('name')); } catch {}
 
       if (!firstPaintDone) {
         $("rows").innerHTML = `<div class="qr-empty" style="padding:12px">Loading…</div>`;
         $("rowsEmpty").style.display = "none";
       }
 
-      if (typeof onSnapshot === 'function') {
-        unsubList = onSnapshot(qy, { includeMetadataChanges:true }, (snap)=>{
-          const list = [];
-          snap.forEach(d => list.push({ id:d.id, ...d.data() }));
-
-          // Apply client sort to honor current UI selection
-          const sort = $("sort").value;
-          if (sort==='name')   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-          if (sort==='year')   list.sort((a,b)=>(b.year||0)-(a.year||0));
-          if (sort==='hours')  list.sort((a,b)=>Number(b.engineHours||0)-Number(a.engineHours||0));
-          if (sort==='created')list.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
-
-          tractors = list;
-          renderList();
-          firstPaintDone = true;
-        }, (err)=>{
-          console.warn('[tractors] snapshot error, fallback once:', err);
-          fallbackOnce();
-        });
-      } else {
-        console.warn('[tractors] onSnapshot not available; using one-shot fallback');
-        fallbackOnce();
-      }
-
-      async function fallbackOnce(){
+      const useFallback = async (reason) => {
         try{
           const s = await getDocs(query(base, where('type','==','tractor')));
           const temp=[]; s.forEach(d=>temp.push({id:d.id, ...d.data()}));
@@ -430,12 +376,52 @@ Fixes:
         }catch(e){
           $("rows").innerHTML = `<div class="qr-empty" style="padding:12px">Couldn’t load tractors.</div>`;
           $("rowsEmpty").style.display = "none";
-          console.error(e);
+          console.error('[tractors] fallback failed:', e, reason||'');
         }
+      };
+
+      // Try signature: onSnapshot(qy, cb, errCb)
+      if (typeof onSnapshot === 'function') {
+        try {
+          unsubList = onSnapshot(qy, (snap)=>{
+            const list = [];
+            snap.forEach(d => list.push({ id:d.id, ...d.data() }));
+            // honor UI sort
+            const sort = $("sort").value;
+            if (sort==='name')   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+            if (sort==='year')   list.sort((a,b)=>(b.year||0)-(a.year||0));
+            if (sort==='hours')  list.sort((a,b)=>Number(b.engineHours||0)-Number(a.engineHours||0));
+            if (sort==='created')list.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
+            tractors = list; renderList(); firstPaintDone = true;
+          }, (err)=>{ console.warn('[tractors] snapshot error (no-opts):', err); useFallback('no-opts err'); });
+          return; // success
+        } catch (e1) {
+          // Try signature: onSnapshot(qy, opts, cb, errCb)
+          try {
+            unsubList = onSnapshot(qy, { includeMetadataChanges:true }, (snap)=>{
+              const list = [];
+              snap.forEach(d => list.push({ id:d.id, ...d.data() }));
+              const sort = $("sort").value;
+              if (sort==='name')   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+              if (sort==='year')   list.sort((a,b)=>(b.year||0)-(a.year||0));
+              if (sort==='hours')  list.sort((a,b)=>Number(b.engineHours||0)-Number(a.engineHours||0));
+              if (sort==='created')list.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
+              tractors = list; renderList(); firstPaintDone = true;
+            }, (err)=>{ console.warn('[tractors] snapshot error (opts):', err); useFallback('opts err'); });
+            return; // success
+          } catch (e2) {
+            console.warn('[tractors] onSnapshot threw; using one-shot fallback', e1, e2);
+            useFallback('throws');
+            return;
+          }
+        }
+      } else {
+        // Listener not available at all
+        useFallback('no-listener');
       }
     }
 
-    /* ===================== MODAL + QR (unchanged behavior) ===================== */
+    /* ===================== MODAL + QR (unchanged) ===================== */
     function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
 
     function waitQRReady(cb){
@@ -446,7 +432,7 @@ Fixes:
     }
 
     async function openModal(id){
-      lockBodyScroll();                 // lock background / no sideways drift
+      lockBodyScroll();
       currentId = id;
       currentSmartLink = null;
       currentQRImageUrl = null;
@@ -469,18 +455,15 @@ Fixes:
       const token = d.qr?.token || null;
       const savedImg = d.qr?.image?.url || null;
 
-      // Build hub link correctly and open in same tab
       const hub = token ? hubUrl(id, token) : null;
       const openHubBtn = $("btnOpenHub");
       openHubBtn.href = hub || '#';
       openHubBtn.target = "_self";
       openHubBtn.rel = "";
 
-      // Show modal
       $("modal").classList.add("show");
       $("modal").setAttribute('aria-hidden','false');
 
-      // Prefer saved QR
       const img = $("qrSmall"); const msg = $("qrMsg");
       if (savedImg){
         currentQRImageUrl = savedImg;
@@ -490,7 +473,6 @@ Fixes:
         return;
       }
 
-      // Fallback generate
       if (!token){
         img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
         currentSmartLink = null;
@@ -548,7 +530,7 @@ Fixes:
       currentSmartLink = null;
       currentQRImageUrl = null;
       $("btnReprint").disabled = true;
-      unlockBodyScroll();             // restore background scroll position
+      unlockBodyScroll();
     }
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
@@ -600,23 +582,22 @@ Fixes:
       closeAfterPrint(w);
     }
 
-    /* ============================== STARTUP WIRING ============================= */
+    /* ============================== STARTUP ============================== */
     (async()=>{
       await ready;
       DB = getFirestore();
 
       buildYearOptions(document.createElement('select')); // warm
-      startListListener(); // live subscription or safe fallback
+      startListListener(); // guarded live sub or safe fallback
 
       $("search").addEventListener('input', renderList);
-      $("filter").addEventListener('change', startListListener); // resubscribe on scope change
+      $("filter").addEventListener('change', startListListener);
       $("sort").addEventListener('change', renderList);
 
       $("btnClose").addEventListener('click', closeModal);
       $("btnSave").addEventListener('click', async ()=>{ await saveModal(); closeModal(); });
       $("btnReprint").addEventListener('click', reprintQR);
 
-      // Click outside sheet closes modal (and never causes sideways scroll)
       $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
     })();
