@@ -1,3 +1,8 @@
+<!-- /Farm-vista/pages/equipment/tractors-view.html  — FULL FILE
+Fixes:
+• Vertical-only scroll (no horizontal pan)
+• Reprint QR print window closes on cancel (iOS/Android/desktop)
+-->
 <!doctype html>
 <html lang="en">
 <head>
@@ -41,7 +46,11 @@
       --combo-max-h: 50vh;
     }
 
-    body{ background:var(--app-bg,var(--surface)); }
+    /* ===== Kill sideways movement, allow vertical pan only ===== */
+    html, body { max-width:100vw; overflow-x:hidden; }
+    body { background:var(--app-bg,var(--surface)); touch-action: pan-y; overscroll-behavior-x: none; }
+    fv-shell, .wrap, .modal-card { max-width:100vw; overflow-x:clip; }
+
     .wrap{
       max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 80px)!important;
@@ -241,8 +250,9 @@
       }
     }
 
+    // CORRECT hub path + token
     const hubUrl = (id, token) =>
-      `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}&t=${encodeURIComponent(token)}`;
+      `${location.origin}/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
 
     const smartLaunch = (absTo) => {
       const u = new URL(location.origin + '/Farm-vista/launch.html');
@@ -359,11 +369,11 @@
       const hub = token ? hubUrl(id, token) : null;
       $("btnOpenHub").href = hub || '#';
 
-      // Show modal now
+      // Show modal
       $("modal").classList.add("show");
       $("modal").setAttribute('aria-hidden','false');
 
-      // Prefer the SAVED image
+      // Prefer the saved QR image
       if (savedImg){
         currentQRImageUrl = savedImg;
         img.src = savedImg;
@@ -373,7 +383,7 @@
         return;
       }
 
-      // Fallback: no saved image → generate on the fly if token exists
+      // Fallback: generate on the fly if token exists
       if (!token){
         img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
         currentSmartLink = null;
@@ -442,27 +452,38 @@
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
 
+    // Robust auto-close after (or cancel of) print dialog
+    function closeAfterPrint(win){
+      try{
+        // Fires when the print dialog is dismissed (OK or Cancel) in many browsers
+        win.onafterprint = () => { try{ win.close(); }catch{} };
+        // Media query watcher helps on iOS Safari
+        const mq = win.matchMedia && win.matchMedia('print');
+        if(mq && mq.addEventListener){
+          mq.addEventListener('change', (m)=>{ if(!m.matches){ setTimeout(()=>{ try{ win.close(); }catch{} }, 60); } });
+        }
+        // Fallback: when focus returns to the popup, close it
+        win.onfocus = () => { setTimeout(()=>{ try{ win.close(); }catch{} }, 200); };
+      }catch{}
+    }
+
     function reprintQR(){
-      // Build caption: MODEL - #LAST6
       const model = $("dwModel").value.trim() || "";
       const serial = $("dwSerial").value.trim() || "";
       const caption = `${model || "Unit"} - #${last6(serial)}`;
 
-      // Preferred: saved PNG in Storage
       if (currentQRImageUrl){
-        const url = currentQRImageUrl + (currentQRImageUrl.includes('?') ? '&' : '?') + 'v=' + Date.now(); // cache-bust
+        const url = currentQRImageUrl + (currentQRImageUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
         const w = window.open('', '_blank', 'width=600,height=700');
-
-        // Robust print after image load
         w.document.write(`
           <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
           <style>
             @page { size: 2in 2.25in; margin: 3mm; }
             html,body{height:100%}
-            body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+            body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui}
             .wrap{text-align:center}
             img{display:block; width:100%; max-width:380px; height:auto; margin:0 auto 4px}
-            h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
+            h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace; font-weight:700}
             @media screen{ body{padding:16px} .wrap{max-width:420px} }
           </style></head><body>
             <div class="wrap">
@@ -471,25 +492,19 @@
             </div>
             <script>
               (function(){
-                var img = document.getElementById('qr');
-                function safePrint(){ try{ window.print(); }catch(e){} }
-                if (img.complete) { setTimeout(safePrint, 50); }
-                else {
-                  img.addEventListener('load', function(){ setTimeout(safePrint, 50); });
-                  img.addEventListener('error', function(){
-                    // If the image fails, at least show the caption
-                    setTimeout(safePrint, 200);
-                  });
-                }
+                var img=document.getElementById('qr');
+                function go(){ try{ window.print(); }catch{} }
+                if(img.complete){ setTimeout(go,60); }
+                else { img.addEventListener('load', function(){ setTimeout(go,60); }); img.addEventListener('error', function(){ setTimeout(go,200); }); }
               })();
             <\/script>
           </body></html>
         `);
         w.document.close();
+        closeAfterPrint(w);
         return;
       }
 
-      // Fallback: no saved image → generate QR inside popup, then print
       if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
       const w = window.open('', '_blank', 'width=600,height=700');
       w.document.write(`
@@ -497,10 +512,10 @@
         <style>
           @page { size: 2in 2.25in; margin: 3mm; }
           html,body{height:100%}
-          body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+          body{margin:0; display:flex; align-items:center; justify-content:center; font-family:ui-sans-serif,system-ui}
           .wrap{text-align:center}
           #qr{width:100%; max-width:380px; margin:0 auto 4px}
-          h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700}
+          h1{font-size:12px; margin:0; line-height:1.05; font-family:ui-monospace; font-weight:700}
           @media screen{ body{padding:16px} .wrap{max-width:420px} }
         </style></head><body>
           <div class="wrap">
@@ -511,8 +526,8 @@
           <script>
             (function(){
               function go(){
-                new QRCode(document.getElementById('qr'), { text: ${JSON.stringify(currentSmartLink)}, width: 380, height: 380, correctLevel: QRCode.CorrectLevel.H, colorDark:'#000000', colorLight:'#ffffff' });
-                setTimeout(function(){ window.print(); }, 250);
+                new QRCode(document.getElementById('qr'), { text: ${JSON.stringify(currentSmartLink)}, width: 380, height: 380, correctLevel: QRCode.CorrectLevel.H, colorDark:'#000', colorLight:'#fff' });
+                setTimeout(function(){ try{ window.print(); }catch{} }, 250);
               }
               if(window.QRCode) go(); else window.addEventListener('load', go);
             })();
@@ -520,6 +535,7 @@
         </body></html>
       `);
       w.document.close();
+      closeAfterPrint(w);
     }
 
     (async()=>{
