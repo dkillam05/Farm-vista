@@ -1,6 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
 Adds: persist QR preview to Storage and save its URL under equipment.qr.image
++ Center form, + Manage buttons for Make/Model, + “Add New…” flows restored
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -45,12 +46,22 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B) }
 
-    .body{ padding:16px; display:grid; gap:14px }
+    /* Center the form body content inside the card */
+    .body{ padding:16px; display:grid; gap:14px; max-width:720px; margin:0 auto; }
     .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
+
+    /* tiny “manage” buttons beside labels */
+    .manage{
+      margin-left:auto; display:inline-flex; align-items:center; gap:8px;
+      font-weight:800; font-size:13px; padding:6px 10px; border-radius:10px;
+      border:1px solid var(--border); background:var(--card-surface,var(--surface));
+      color:var(--text); cursor:pointer;
+    }
+    .manage:hover{ background:var(--hover,rgba(0,0,0,.06)); }
 
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
@@ -125,11 +136,17 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         <div class="body">
           <div class="row">
             <div class="field">
-              <label for="make" class="req">Make</label>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <label for="make" class="req" style="margin:0;">Make</label>
+                <button id="manageMakes" type="button" class="manage" title="View/Edit/Archive Makes">Manage</button>
+              </div>
               <select id="make" class="select"><option value="">— Loading… —</option></select>
             </div>
             <div class="field">
-              <label for="model" class="req">Model</label>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <label for="model" class="req" style="margin:0;">Model</label>
+                <button id="manageModels" type="button" class="manage" title="View/Edit/Archive Models">Manage</button>
+              </div>
               <select id="model" class="select" disabled><option value="">— Select a Make first —</option></select>
             </div>
           </div>
@@ -369,6 +386,30 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
              list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
     }
 
+    /* === Add New flows (restored) === */
+    async function addMake(db){
+      const name = (prompt("New Make name:")||"").trim();
+      if(!name) return null;
+      const docRef = doc(collection(db,'equipment-makes'));
+      await setDoc(docRef,{
+        name, nameLower:name.toLowerCase(), status:'active', archived:false,
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      return { id: docRef.id, name };
+    }
+    async function addModel(db, makeId){
+      if(!makeId){ alert("Pick a Make before adding a Model."); return null; }
+      const name = (prompt("New Model name:")||"").trim();
+      if(!name) return null;
+      const docRef = doc(collection(db,'equipment-models'));
+      await setDoc(docRef,{
+        name, nameLower:name.toLowerCase(), status:'active', archived:false,
+        makeId,
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      return { id: docRef.id, name };
+    }
+
     /* ===== Save (atomic if runTransaction is available) ===== */
     let saving = false;
 
@@ -526,6 +567,14 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         if(open) closeYearPanel(); else openYearPanel();
       });
 
+      // Manage buttons (use your existing pages)
+      $("manageMakes").addEventListener('click', ()=>{
+        location.href = '/Farm-vista/pages/equipment/equipment-makes.html';
+      });
+      $("manageModels").addEventListener('click', ()=>{
+        location.href = '/Farm-vista/pages/equipment/equipment-models.html';
+      });
+
       // Data
       let makes = await getMakes(db);
       $("make").innerHTML = renderMakeOptions(makes);
@@ -533,16 +582,46 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       $("make").addEventListener("change", async (e)=>{
         validateForm();
         const val = e.target.value;
-        if(!val){
+
+        // Handle "Add New…" for Make
+        if(val === "__add_make__"){
+          const created = await addMake(db);
+          // Refresh list and select the newly created one
+          makes = await getMakes(db);
+          $("make").innerHTML = renderMakeOptions(makes);
+          if(created){
+            $("make").value = created.id;
+          }else{
+            $("make").value = "";
+          }
+        }
+
+        const selectedMakeId = $("make").value;
+        if(!selectedMakeId){
           $("model").disabled=true;
           $("model").innerHTML = '<option value="">— Select a Make first —</option>';
           return;
         }
-        const models = await getModels(db, val);
+        const models = await getModels(db, selectedMakeId);
         $("model").disabled=false;
         $("model").innerHTML = renderModelOptions(models);
       });
-      $("model").addEventListener("change", validateForm);
+
+      $("model").addEventListener("change", async (e)=>{
+        // Handle "Add New…" for Model
+        if(e.target.value === "__add_model__"){
+          const created = await addModel(db, $("make").value);
+          const models = await getModels(db, $("make").value);
+          $("model").innerHTML = renderModelOptions(models);
+          if(created){
+            $("model").value = created.id;
+          }else{
+            $("model").value = "";
+          }
+        }
+        validateForm();
+      });
+
       $("serial").addEventListener("input", validateForm);
 
       // Buttons
