@@ -1,9 +1,9 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE
 Fixes:
-• Live Firestore list via onSnapshot (no “blank until logout”)
+• Live list via onSnapshot when available; safe one-shot fallback if not
 • Loading + Empty states (no more giant empty pane)
-• Modal remains vertical-only; background scroll lock preserved
-• QR preview + reprint flow unchanged; hub link fixed
+• Modal is vertical-only with background scroll lock
+• QR preview + reprint flow unchanged; hub link correct
 -->
 <!doctype html>
 <html lang="en">
@@ -202,7 +202,7 @@ Fixes:
           <div>Added</div>
         </div>
         <div id="rows"></div>
-        <!-- Empty/Loading message area (added) -->
+        <!-- Empty/Loading message area -->
         <div id="rowsEmpty" class="qr-empty" style="padding:12px; display:none;">No tractors to show.</div>
       </div>
     </div>
@@ -275,10 +275,17 @@ Fixes:
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script type="module">
-    import {
+    /* -------- Firestore import (guarded) -------- */
+    import * as FB from '/Farm-vista/js/firebase-init.js';
+
+    const {
       ready,
-      getFirestore, collection, getDocs, query, where, orderBy, doc, getDoc, updateDoc, serverTimestamp, onSnapshot
-    } from '/Farm-vista/js/firebase-init.js';
+      getFirestore, collection, getDocs, query, where, orderBy,
+      doc, getDoc, updateDoc, serverTimestamp
+    } = FB;
+
+    // Use whatever listener function your wrapper exposes
+    const onSnapshot = FB.onSnapshot || FB.firestoreOnSnapshot || null;
 
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -362,7 +369,7 @@ Fixes:
         row.innerHTML = `
           <div><strong>${esc(name||'—')}</strong></div>
           <div>${esc(makeModel||'—')}${x.year?` • ${esc(x.year)}`:''}</div>
-          <div><span class="status">${esc(x.status||('active'))}</span></div>
+          <div><span class="status">${esc(x.status||'active')}</span></div>
           <div>${esc(fmtDate(x.createdAt))}</div>
           <div class="mobile-line">${esc(makeModel||'—')} ${x.year?`• ${esc(x.year)}`:''} • ${esc(x.status||'active')} • ${esc(fmtDate(x.createdAt))}</div>
         `;
@@ -371,7 +378,7 @@ Fixes:
         row.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); open(); }});
         rows.appendChild(row);
       }
-      setEmptyState(); // <— added
+      setEmptyState();
     }
 
     function startListListener(){
@@ -390,32 +397,42 @@ Fixes:
         $("rowsEmpty").style.display = "none";
       }
 
-      unsubList = onSnapshot(qy, { includeMetadataChanges:true }, (snap)=>{
-        const list = [];
-        snap.forEach(d => list.push({ id:d.id, ...d.data() }));
+      if (typeof onSnapshot === 'function') {
+        unsubList = onSnapshot(qy, { includeMetadataChanges:true }, (snap)=>{
+          const list = [];
+          snap.forEach(d => list.push({ id:d.id, ...d.data() }));
 
-        // Apply client sort to honor current UI sort even if server didn’t order
-        const sort = $("sort").value;
-        if (sort==='name')   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-        if (sort==='year')   list.sort((a,b)=>(b.year||0)-(a.year||0));
-        if (sort==='hours')  list.sort((a,b)=>Number(b.engineHours||0)-Number(a.engineHours||0));
-        if (sort==='created')list.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
+          // Apply client sort to honor current UI selection
+          const sort = $("sort").value;
+          if (sort==='name')   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+          if (sort==='year')   list.sort((a,b)=>(b.year||0)-(a.year||0));
+          if (sort==='hours')  list.sort((a,b)=>Number(b.engineHours||0)-Number(a.engineHours||0));
+          if (sort==='created')list.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
 
-        tractors = list;
-        renderList();
-        firstPaintDone = true;
-      }, (err)=>{
-        console.warn('[tractors] snapshot error, fallback once:', err);
-        getDocs(query(base, where('type','==','tractor'))).then(s=>{
+          tractors = list;
+          renderList();
+          firstPaintDone = true;
+        }, (err)=>{
+          console.warn('[tractors] snapshot error, fallback once:', err);
+          fallbackOnce();
+        });
+      } else {
+        console.warn('[tractors] onSnapshot not available; using one-shot fallback');
+        fallbackOnce();
+      }
+
+      async function fallbackOnce(){
+        try{
+          const s = await getDocs(query(base, where('type','==','tractor')));
           const temp=[]; s.forEach(d=>temp.push({id:d.id, ...d.data()}));
           temp.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
           tractors = temp; renderList(); firstPaintDone = true;
-        }).catch(e=>{
+        }catch(e){
           $("rows").innerHTML = `<div class="qr-empty" style="padding:12px">Couldn’t load tractors.</div>`;
           $("rowsEmpty").style.display = "none";
           console.error(e);
-        });
-      });
+        }
+      }
     }
 
     /* ===================== MODAL + QR (unchanged behavior) ===================== */
@@ -429,7 +446,7 @@ Fixes:
     }
 
     async function openModal(id){
-      lockBodyScroll();                 // <— lock background / no sideways drift
+      lockBodyScroll();                 // lock background / no sideways drift
       currentId = id;
       currentSmartLink = null;
       currentQRImageUrl = null;
@@ -531,7 +548,7 @@ Fixes:
       currentSmartLink = null;
       currentQRImageUrl = null;
       $("btnReprint").disabled = true;
-      unlockBodyScroll();             // <— restore background scroll position
+      unlockBodyScroll();             // restore background scroll position
     }
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
@@ -589,10 +606,10 @@ Fixes:
       DB = getFirestore();
 
       buildYearOptions(document.createElement('select')); // warm
-      startListListener(); // <— live subscription (replaces old loadList())
+      startListListener(); // live subscription or safe fallback
 
       $("search").addEventListener('input', renderList);
-      $("filter").addEventListener('change', startListListener); // <— resubscribe on scope change
+      $("filter").addEventListener('change', startListListener); // resubscribe on scope change
       $("sort").addEventListener('change', renderList);
 
       $("btnClose").addEventListener('click', closeModal);
