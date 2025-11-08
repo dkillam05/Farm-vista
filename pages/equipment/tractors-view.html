@@ -1,12 +1,9 @@
-<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE (DIAGNOSTIC BUILD)
-What this adds (temporary, safe):
-• A tiny on-screen debug overlay (bottom-left) that logs each step: ready → query start → snapshot → render.
-• Catches window errors + unhandled promise rejections and shows the message on screen (and console).
-• Tries the complex query FIRST (where type + status + orderBy name) so if an INDEX is required, you will SEE it here.
-• If that throws, logs the error and auto-swaps to a simple, index-free query (type==tractor) and still renders.
-• Watchdog: if no snapshot payload is received in time, runs a one-shot getDocs and logs the fallback.
-
-Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean build.
+<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE (Index-Free + Watchdog + Pageshow Restart)
+   - No Firestore composite indexes required.
+   - Server query: where('type','==','tractor') only.
+   - Client does status filter + sort.
+   - Watchdog fallback if listener stalls.
+   - Restarts listener when returning from Hub (pageshow persisted).
 -->
 <!doctype html>
 <html lang="en">
@@ -157,13 +154,8 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
     .qr-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
     .qr-empty{ font-size:13px; color:var(--muted,#67706B); }
 
-    /* ===== Tiny on-screen debug overlay (temporary) ===== */
-    #fv-debug{
-      position:fixed; left:8px; bottom:calc(env(safe-area-inset-bottom,0px) + 56px);
-      background:rgba(0,0,0,.70); color:#fff; font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      padding:8px 10px; border-radius:8px; z-index:100000; max-width:80vw; pointer-events:none; white-space:pre-wrap;
-    }
-    #fv-debug b{ color:#D0C542; }
+    /* ===== small helper ===== */
+    .muted-inline{ color:var(--muted,#67706B); font-size:14px; padding:12px; }
   </style>
 </head>
 <body>
@@ -198,7 +190,7 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
           <div>Added</div>
         </div>
         <div id="rows"></div>
-        <div id="rowsEmpty" class="qr-empty" style="padding:12px; display:none;">No tractors to show.</div>
+        <div id="rowsEmpty" class="muted-inline" style="display:none;">No tractors to show.</div>
       </div>
     </div>
   </fv-shell>
@@ -266,9 +258,6 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
     </div>
   </div>
 
-  <!-- Tiny on-screen debug area -->
-  <div id="fv-debug" aria-live="polite">boot…</div>
-
   <!-- QR library (fallback when image missing) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
@@ -276,23 +265,12 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
     import * as FB from '/Farm-vista/js/firebase-init.js';
     const {
       ready,
-      getFirestore, collection, getDocs, query, where, orderBy,
+      getFirestore, collection, getDocs, query, where,
       doc, getDoc, updateDoc, serverTimestamp
     } = FB;
     const onSnapshot = FB.onSnapshot || FB.firestoreOnSnapshot || null;
 
     const $ = id => document.getElementById(id);
-    const D = $("fv-debug");
-    const t0 = performance.now();
-    function dbg(msg, obj){
-      const dt = ((performance.now()-t0)/1000).toFixed(2)+'s';
-      const line = `[${dt}] ${msg}`;
-      try { console.log('[TRACTORS]', msg, obj||''); } catch {}
-      if(D){ D.textContent = (D.textContent ? D.textContent + "\n" : "") + line; }
-    }
-    window.addEventListener('error', e=> dbg('window.error: '+(e.message||e.error||'unknown')));
-    window.addEventListener('unhandledrejection', e=> dbg('unhandledrejection: '+(e.reason && (e.reason.message||e.reason) || 'unknown')));
-
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
 
@@ -303,6 +281,7 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
         const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
       }
     }
+
     const hubUrl = (id, token) =>
       `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
     const smartLaunch = (absTo) => {
@@ -319,7 +298,7 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
     function lockBodyScroll(){ __scrollY = window.scrollY||0; document.body.classList.add('modal-open'); document.body.style.top = `-${__scrollY}px`; }
     function unlockBodyScroll(){ document.body.classList.remove('modal-open'); document.body.style.top=''; window.scrollTo(0, __scrollY||0); __scrollY=0; }
 
-    /* ===== Render helpers ===== */
+    /* ===== Empty state + render ===== */
     function setEmptyState() {
       const rows = $("rows");
       const empty = $("rowsEmpty");
@@ -365,22 +344,18 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
       setEmptyState();
     }
 
-    /* =================== LISTENER with DIAGNOSTICS =================== */
+    /* =================== INDEX-FREE LISTENER + WATCHDOG =================== */
     let unsubList = null;
     let firstPayload = false;
 
-    async function runFallback(reason){
-      dbg('fallback→getDocs (reason: '+reason+')');
+    async function runFallback(){
       try{
         const s = await getDocs(query(collection(DB,'equipment'), where('type','==','tractor')));
         const temp=[]; s.forEach(d=>temp.push({id:d.id, ...d.data()}));
         temp.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
         tractors = temp; renderList();
         firstPayload = true;
-        dbg('fallback rendered '+temp.length+' docs');
-      }catch(e){
-        dbg('fallback getDocs ERROR: '+(e && (e.message||e.code||e) || 'unknown'));
-      }
+      }catch(e){ console.warn('fallback getDocs failed:', e); }
     }
 
     function startListListener(){
@@ -388,62 +363,39 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
       firstPayload = false;
 
       const base = collection(DB,'equipment');
-      const f = $("filter").value;
-      const wantStatus = (f==='active' || f==='archived');
+      const qy = query(base, where('type','==','tractor')); // <— index-free
 
-      // Build the MOST selective query first to surface index errors explicitly.
-      let qy = query(base, where('type','==','tractor'));
-      if (wantStatus) qy = query(qy, where('status','==', f));
-      try { qy = query(qy, orderBy('name')); } catch {}
-
-      dbg('listener start — wantStatus='+wantStatus+', onSnapshot='+typeof onSnapshot);
-
-      const watchdog = setTimeout(()=>{
-        if(!firstPayload){
-          dbg('watchdog: no payload in time → run fallback');
-          runFallback('timeout');
-        }
-      }, 3500);
-
-      const handleSnap = (snap)=>{
-        clearTimeout(watchdog);
-        const list=[]; snap.forEach(d=>list.push({id:d.id, ...d.data()}));
-        tractors = list;
-        firstPayload = true;
-        dbg('snapshot ok: '+list.length+' docs');
-        renderList();
-      };
-      const handleErr = (err)=>{
-        clearTimeout(watchdog);
-        dbg('snapshot ERROR: '+(err && (err.message||err.code||err) || 'unknown'));
-        // If we asked for status filter, try again without status/order (index-free) but still render
-        try{
-          let q2 = query(base, where('type','==','tractor'));
-          if (unsubList) { try{unsubList();}catch{} unsubList=null; }
-          if (typeof onSnapshot === 'function'){
-            dbg('retry listener with type-only');
-            unsubList = onSnapshot(q2, handleSnap, (e2)=>{ dbg('retry error: '+(e2 && (e2.message||e2.code||e2)||'unknown')); runFallback('retry-error'); });
-          } else {
-            runFallback('no-listener');
-          }
-        }catch(e2){
-          dbg('retry threw: '+(e2 && (e2.message||e2)||'unknown'));
-          runFallback('retry-throws');
-        }
-      };
+      const watchdog = setTimeout(()=>{ if(!firstPayload) runFallback(); }, 3500);
 
       if (typeof onSnapshot === 'function'){
         try{
-          unsubList = onSnapshot(qy, handleSnap, handleErr);
-        }catch(e1){
-          dbg('onSnapshot threw immediately: '+(e1 && (e1.message||e1)||'unknown'));
-          handleErr(e1);
+          unsubList = onSnapshot(qy, (snap)=>{
+            clearTimeout(watchdog);
+            const list=[]; snap.forEach(d=>list.push({id:d.id, ...d.data()}));
+            tractors = list;
+            firstPayload = true;
+            renderList();
+          }, (err)=>{
+            clearTimeout(watchdog);
+            console.warn('snapshot error (index-free):', err);
+            runFallback();
+          });
+        }catch(e){
+          clearTimeout(watchdog);
+          console.warn('onSnapshot threw (index-free):', e);
+          runFallback();
         }
-      } else {
-        dbg('no onSnapshot available → fallback');
-        runFallback('no-listener');
+      }else{
+        clearTimeout(watchdog);
+        runFallback();
       }
     }
+
+    // Restart the listener when returning from Hub via bfcache (iOS Safari)
+    window.addEventListener('pageshow', (e)=>{
+      const persisted = e.persisted || (performance && performance.navigation && performance.navigation.type === 2);
+      if (persisted) startListListener();
+    });
 
     /* ===================== MODAL + QR (unchanged) ===================== */
     function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
@@ -460,10 +412,8 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
       currentQRImageUrl = null;
       $("btnReprint").disabled = true;
 
-      dbg('openModal -> '+id);
-
       const ref = doc(DB,'equipment', id);
-      const snap = await getDoc(ref); if(!snap.exists()){ dbg('doc not found'); return; }
+      const snap = await getDoc(ref); if(!snap.exists()) return;
 
       const d = snap.data() || {};
       const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
@@ -494,7 +444,6 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
         img.src = savedImg; img.alt = "Saved QR for Equipment Hub";
         img.hidden = false; msg.hidden = true;
         $("btnReprint").disabled = false;
-        dbg('modal has saved QR image');
         return;
       }
 
@@ -502,7 +451,6 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
         img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
         currentSmartLink = null;
         $("btnReprint").disabled = true;
-        dbg('modal no token');
         return;
       }
 
@@ -519,9 +467,7 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
           img.alt = "QR for Equipment Hub";
           img.hidden = false; msg.hidden = true;
           $("btnReprint").disabled = false;
-          dbg('modal QR generated');
-        }catch(e){
-          dbg('QR render failed: '+(e && (e.message||e)||'unknown'));
+        }catch{
           img.hidden = true; msg.hidden = false; msg.textContent = "QR render failed.";
           $("btnReprint").disabled = true;
         }
@@ -548,7 +494,6 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
       const idx = tractors.findIndex(x=>x.id===currentId);
       if(idx>-1) tractors[idx] = { ...tractors[idx], ...patch };
       renderList();
-      dbg('modal saved '+currentId);
     }
 
     function closeModal(){
@@ -559,7 +504,6 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
       currentQRImageUrl = null;
       $("btnReprint").disabled = true;
       unlockBodyScroll();
-      dbg('modal closed');
     }
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
@@ -593,7 +537,6 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
           </body></html>`);
         w.document.close();
         closeAfterPrint(w);
-        dbg('print existing QR');
         return;
       }
 
@@ -610,19 +553,15 @@ Remove the <div id="fv-debug"> block + dbg() calls later to go back to a clean b
         </body></html>`);
       w.document.close();
       closeAfterPrint(w);
-      dbg('print generated QR');
     }
 
     /* ============================== STARTUP ============================== */
     (async()=>{
-      dbg('await ready…');
       await ready;
-      dbg('ready OK');
       DB = getFirestore();
-      dbg('getFirestore OK; onSnapshot='+typeof onSnapshot);
 
       buildYearOptions(document.createElement('select')); // warm
-      startListListener(); // starts + logs
+      startListListener(); // start live listener (index-free)
 
       $("search").addEventListener('input', renderList);
       $("filter").addEventListener('change', startListListener);
