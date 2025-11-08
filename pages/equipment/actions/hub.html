@@ -1,6 +1,6 @@
-<!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB (no QR UI)
-     Shows equipment info, uses last 6 of serial in the title, and includes buttons.
-     Error modal appears ONLY after a failed QR scan (not from normal Hub opens).
+<!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB
+     Resolves equipment from (?id,&t) OR sessionStorage('fv.ctx.eqId','fv.ctx.eqTok').
+     Bad-QR modal only shows after a failed scan (flagged via ?qrError=1 or sessionStorage).
 -->
 <!doctype html>
 <html lang="en">
@@ -39,7 +39,6 @@
       max-width:var(--card-max);
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
-      /* leave space for camera safe zone/footer on mobile */
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important;
     }
 
@@ -124,8 +123,8 @@
         <!-- Neutral actions (shown when Hub is opened directly with no equipment context) -->
         <div class="body" id="neutralBlock" hidden>
           <div class="actions">
-            <a id="linkHome" class="btn" href="/Farm-vista/index.html">Return to Home</a>
-            <a id="linkList" class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
+            <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
+            <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
           </div>
         </div>
       </section>
@@ -151,13 +150,21 @@
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
 
-    // Incoming context
-    const idParam  = qs.get('id') || '';
-    const token    = qs.get('t')  || '';
+    // Primary inputs (query string)
+    let idParam  = qs.get('id') || '';
+    let token    = qs.get('t')  || '';
+
+    // Safety-net inputs (session from previous page, e.g., tractors-view "Open Hub")
+    if (!idParam) {
+      const ssId  = sessionStorage.getItem('fv.ctx.eqId');
+      if (ssId) idParam = ssId;
+    }
+    if (!token) {
+      const ssTok = sessionStorage.getItem('fv.ctx.eqTok');
+      if (ssTok) token = ssTok;
+    }
 
     // Gate for showing the error modal ONLY after a failed scan:
-    //  - ?qrError=1  OR
-    //  - sessionStorage flag set by scanner ('fv.qrError' === '1')
     const fromScanFail =
       qs.get('qrError') === '1' ||
       sessionStorage.getItem('fv.qrError') === '1';
@@ -185,8 +192,6 @@
       const m = $('badQR');
       m.classList.add('show');
       m.setAttribute('aria-hidden','false');
-
-      // one-tap close; also clear flags so it won't reappear
       $('badQRClose').onclick = hideInvalidModal;
     }
     function hideInvalidModal(){
@@ -219,13 +224,12 @@
 
       // If we have no equipment context:
       if (!eqId) {
-        // Only show modal if this came from a failed scan; otherwise neutral view.
         if (fromScanFail) showInvalidModal();
         showNeutral();
         return;
       }
 
-      // With an equipment id, fetch and validate
+      // Fetch the equipment
       const ref = doc(db,'equipment', eqId);
       const snap = await getDoc(ref);
       if(!snap.exists()){
@@ -245,7 +249,6 @@
       // ===== Render equipment card =====
       const type = data.type || "equipment";
       const makeModel = [data.makeName, data.modelName].filter(Boolean).join(" ");
-
       const lastSix = last6(data.serial);
       const title = makeModel
         ? `${makeModel}${lastSix ? ` (#${lastSix})` : ''}`
@@ -261,7 +264,7 @@
 
       // Action links — keep id (& token when present) for downstream pages
       const base = "/Farm-vista/pages/equipment/actions";
-      const tok  = data.qr?.token || '';
+      const tok  = data.qr?.token || token || '';
       const q    = `?id=${encodeURIComponent(eqId)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
 
       $("linkHours").href = `${base}/engine-hours.html${q}`;
@@ -272,11 +275,14 @@
       $('eqBlock').hidden = false;
       $('neutralBlock').hidden = true;
       setText("subtitle","Linked");
+
+      // Clean up one-shot context so future Hub opens don't “stick” to last unit
+      sessionStorage.removeItem('fv.ctx.eqId');
+      sessionStorage.removeItem('fv.ctx.eqTok');
     }
 
     load().catch(e=>{
       console.error(e);
-      // catastrophic fail: only show modal if it was a scan failure; otherwise stay neutral
       if (fromScanFail) showInvalidModal();
       showNeutral();
     });
