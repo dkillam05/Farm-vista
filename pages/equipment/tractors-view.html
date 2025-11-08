@@ -1,6 +1,8 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE
 Fixes:
 • Modal is constrained to viewport; vertical-only scroll (no horizontal drift)
+• Background scroll lock while modal is open (prevents diagonal "pan" on mobile)
+• Word/IMG clamps to prevent accidental overflow
 • "Open Hub" links to /Farm-vista/pages/equipment/equipment-hub.html?id=...&t=... (no 404)
 • Print popup still auto-closes after cancel/print
 -->
@@ -41,9 +43,28 @@ Fixes:
       --modal-max-h: 90vh;       /* vertical-only scrolling inside */
     }
 
-    /* ===== Kill sideways movement globally ===== */
+    /* ===== Global: kill sideways movement ===== */
     html, body { max-width:100vw; overflow-x:hidden; }
-    body{ background:var(--app-bg,var(--surface)); touch-action:pan-y; overscroll-behavior-x:none; }
+    html { overscroll-behavior-x: none; }
+    body{
+      background:var(--app-bg,var(--surface));
+      touch-action: pan-y;           /* only allow vertical panning */
+      overscroll-behavior-x: none;   /* no left-right bounce */
+      word-wrap: break-word;         /* prevent long tokens from forcing width */
+    }
+
+    /* Body lock while modal open (prevents background drift/diagonal pans) */
+    body.modal-open{
+      position: fixed;
+      width: 100%;
+      overflow: hidden;              /* disable body scrolling */
+      touch-action: none;            /* block touch pans on background */
+    }
+
+    /* Prevent any child from forcing horizontal scroll */
+    img, svg, canvas, video { max-width:100%; height:auto; }
+    table { max-width:100%; display:block; overflow:auto; }
+    pre, code { white-space:pre-wrap; word-break:break-word; }
 
     .wrap{
       max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
@@ -111,6 +132,8 @@ Fixes:
       background:rgba(0,0,0,.35);
       display:none; align-items:center; justify-content:center; z-index:9000;
       overflow:hidden;                               /* never allow x-scroll here */
+      touch-action: pan-y;                            /* vertical pan only in backdrop */
+      overscroll-behavior: contain;                   /* stop scroll chaining */
     }
     .modal-backdrop.show{ display:flex; }
 
@@ -123,6 +146,7 @@ Fixes:
       box-shadow:0 20px 60px rgba(0,0,0,.35);
       overflow:hidden;             /* content scrolls inside .md-body only */
       contain:content;             /* prevents layout spill causing side-scroll */
+      touch-action: pan-y;         /* only vertical pan on card */
     }
     .md-head{
       display:flex; align-items:center; justify-content:space-between;
@@ -131,9 +155,11 @@ Fixes:
     }
     .md-body{
       padding:16px; display:grid; gap:12px;
-      overflow:auto;               /* vertical scroll here */
+      overflow-y:auto;             /* vertical scroll here */
+      overflow-x:hidden;           /* NO horizontal */
       overscroll-behavior-x:none;  /* no sideways bounce */
       -webkit-overflow-scrolling:touch;
+      touch-action: pan-y;
     }
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
     @media (max-width:640px){ .grid2{ grid-template-columns:1fr } }
@@ -280,6 +306,20 @@ Fixes:
     let currentSmartLink = null;
     let currentQRImageUrl = null;
 
+    /* ===== Body scroll lock helpers ===== */
+    let __scrollY = 0;
+    function lockBodyScroll(){
+      __scrollY = window.scrollY || 0;
+      document.body.classList.add('modal-open');
+      document.body.style.top = `-${__scrollY}px`;
+    }
+    function unlockBodyScroll(){
+      document.body.classList.remove('modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, __scrollY || 0);
+      __scrollY = 0;
+    }
+
     async function loadList(){
       const rows = $("rows"); rows.innerHTML = "";
       let snap;
@@ -356,6 +396,7 @@ Fixes:
     }
 
     async function openModal(id){
+      lockBodyScroll();                 // <— lock background / no sideways drift
       currentId = id;
       currentSmartLink = null;
       currentQRImageUrl = null;
@@ -457,6 +498,7 @@ Fixes:
       currentSmartLink = null;
       currentQRImageUrl = null;
       $("btnReprint").disabled = true;
+      unlockBodyScroll();             // <— restore background scroll position
     }
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
