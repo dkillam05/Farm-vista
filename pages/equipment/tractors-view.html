@@ -1,3 +1,9 @@
+<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE
+Fixes:
+• Modal is constrained to viewport; vertical-only scroll (no horizontal drift)
+• "Open Hub" links to /Farm-vista/pages/equipment/equipment-hub.html?id=...&t=... (no 404)
+• Print popup still auto-closes after cancel/print
+-->
 <!doctype html>
 <html lang="en">
 <head>
@@ -31,12 +37,12 @@
     :root{
       --brand:var(--green,#3B7E46);
       --card-max:1200px;
-      --modal-max-w:96vw;
-      --modal-max-h:90vh;
+      --modal-max-w: 96vw;       /* clamp modal to viewport */
+      --modal-max-h: 90vh;       /* vertical-only scrolling inside */
     }
 
-    /* ===== Hard-stop horizontal scroll everywhere ===== */
-    html, body { width:100%; max-width:100vw; overflow-x:hidden; }
+    /* ===== Kill sideways movement globally ===== */
+    html, body { max-width:100vw; overflow-x:hidden; }
     body{ background:var(--app-bg,var(--surface)); touch-action:pan-y; overscroll-behavior-x:none; }
 
     .wrap{
@@ -69,6 +75,14 @@
     }
     .select::-ms-expand{ display:none; }
 
+    .input:focus, .select:focus, .textarea:focus{
+      border-color: color-mix(in srgb, var(--brand), #000 15%);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand), transparent 70%);
+    }
+
+    .toolbar .input{ min-width:240px; }
+    .toolbar .select{ min-width:160px; }
+
     .btn{
       display:inline-flex; align-items:center; justify-content:center;
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
@@ -91,24 +105,24 @@
       .row .mobile-line{ font-size:13px; color:var(--muted) }
     }
 
-    /* ===== Modal (vertical scroll only) ===== */
+    /* ===== Modal (vertical-only) ===== */
     .modal-backdrop{
-      position:fixed; inset:0; padding:8px;
+      position:fixed; inset:0; padding:8px;        /* padding prevents edge cutoffs */
       background:rgba(0,0,0,.35);
       display:none; align-items:center; justify-content:center; z-index:9000;
-      overflow:hidden; overscroll-behavior-x:none; touch-action:pan-y;
+      overflow:hidden;                               /* never allow x-scroll here */
     }
     .modal-backdrop.show{ display:flex; }
 
     .modal-card{
-      width:min(720px,100%); max-width:var(--modal-max-w); max-height:var(--modal-max-h);
+      width:min(720px, var(--modal-max-w));
+      max-width:var(--modal-max-w);
+      max-height:var(--modal-max-h);
       display:flex; flex-direction:column;
       background:var(--surface); border:1px solid var(--border); border-radius:16px;
       box-shadow:0 20px 60px rgba(0,0,0,.35);
-      overflow:hidden;                 /* containment stops sideways creep */
-      contain:layout paint size;
-      scrollbar-gutter:stable both-edges;
-      touch-action:pan-y;
+      overflow:hidden;             /* content scrolls inside .md-body only */
+      contain:content;             /* prevents layout spill causing side-scroll */
     }
     .md-head{
       display:flex; align-items:center; justify-content:space-between;
@@ -117,12 +131,10 @@
     }
     .md-body{
       padding:16px; display:grid; gap:12px;
-      overflow-y:auto; overflow-x:hidden;
-      overscroll-behavior-x:none; -webkit-overflow-scrolling:touch;
-      max-width:100%; touch-action:pan-y;
+      overflow:auto;               /* vertical scroll here */
+      overscroll-behavior-x:none;  /* no sideways bounce */
+      -webkit-overflow-scrolling:touch;
     }
-    .md-body, .md-body *{ max-width:100%; word-break:break-word; }
-
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
     @media (max-width:640px){ .grid2{ grid-template-columns:1fr } }
 
@@ -232,7 +244,7 @@
     </div>
   </div>
 
-  <!-- QR library -->
+  <!-- QR library (fallback when image missing) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script type="module">
@@ -253,12 +265,13 @@
       }
     }
 
-    const HUB_PATH = '/Farm-vista/pages/equipment/actions/hub.html';  // <-- your actual Hub
+    // Correct hub location
+    const hubUrl = (id, token) =>
+      `${location.origin}/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
 
-    const hubUrl = (id, token) => {
-      const u = new URL(location.origin + HUB_PATH);
-      u.searchParams.set('id', id);
-      if (token) u.searchParams.set('t', token);
+    const smartLaunch = (absTo) => {
+      const u = new URL(location.origin + '/Farm-vista/launch.html');
+      u.searchParams.set('to', absTo);
       return u.href;
     };
 
@@ -333,6 +346,8 @@
       }
     }
 
+    function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
+
     function waitQRReady(cb){
       let tries=0; (function tick(){
         if (window.__qrReady && window.QRCode) cb();
@@ -354,11 +369,7 @@
       $("mdTitle").textContent = name || `Unit ${id.slice(0,6)}`;
       $("dwMake").value  = d.makeName || '';
       $("dwModel").value = d.modelName || '';
-      (function buildYears(){
-        const sel=$("dwYear"); sel.innerHTML='<option value="">—</option>';
-        const now=new Date().getFullYear(); for(let y=now;y>=1980;y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
-        if(d.year) sel.value=String(d.year);
-      })();
+      yearOptions($("dwYear"), d.year||'');
       $("dwSerial").value = d.serial || '';
       $("dwHours").value  = (d.engineHours!=null)? d.engineHours : '';
       $("dwStatus").value = d.status || 'active';
@@ -367,27 +378,28 @@
       const token = d.qr?.token || null;
       const savedImg = d.qr?.image?.url || null;
 
-      // Correct hub path
+      // Build hub link correctly and open in same tab
       const hub = token ? hubUrl(id, token) : null;
-      const openHub = $("btnOpenHub");
-      if(hub){ openHub.href = hub; openHub.target = "_self"; } else { openHub.removeAttribute('href'); }
+      const openHubBtn = $("btnOpenHub");
+      openHubBtn.href = hub || '#';
+      openHubBtn.target = "_self";
+      openHubBtn.rel = "";
 
-      // Show modal now
+      // Show modal
       $("modal").classList.add("show");
       $("modal").setAttribute('aria-hidden','false');
 
-      const img = $("qrSmall");
-      const msg = $("qrMsg");
-
+      // Prefer saved QR
+      const img = $("qrSmall"); const msg = $("qrMsg");
       if (savedImg){
         currentQRImageUrl = savedImg;
-        img.src = savedImg;
-        img.alt = "Saved QR for Equipment Hub";
+        img.src = savedImg; img.alt = "Saved QR for Equipment Hub";
         img.hidden = false; msg.hidden = true;
         $("btnReprint").disabled = false;
         return;
       }
 
+      // Fallback generate
       if (!token){
         img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
         currentSmartLink = null;
@@ -395,21 +407,16 @@
         return;
       }
 
-      currentSmartLink = hub;
-
+      const smart = smartLaunch(hub);
+      currentSmartLink = smart;
       img.hidden = true; msg.hidden = false; msg.textContent = "Generating…";
+
       waitQRReady(()=>{
         try{
           const holder = document.createElement('div');
-          new window.QRCode(holder, { text: hub, width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.H, colorDark:"#000000", colorLight:"#ffffff" });
+          new window.QRCode(holder, { text: smart, width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.H, colorDark:"#000", colorLight:"#fff" });
           const node = holder.querySelector('canvas') || holder.querySelector('img');
-          if (node && node.tagName === 'CANVAS'){
-            img.src = node.toDataURL('image/png');
-          }else if(node && node.tagName === 'IMG'){
-            img.src = node.src;
-          }else{
-            throw new Error('QR node missing');
-          }
+          img.src = node.tagName==='CANVAS' ? node.toDataURL('image/png') : node.src;
           img.alt = "QR for Equipment Hub";
           img.hidden = false; msg.hidden = true;
           $("btnReprint").disabled = false;
@@ -454,57 +461,58 @@
 
     function last6(v){ v=String(v||""); return v.slice(-6); }
 
+    function closeAfterPrint(win){
+      try{
+        win.onafterprint = () => { try{ win.close(); }catch{} };
+        const mq = win.matchMedia && win.matchMedia('print');
+        if(mq && mq.addEventListener){
+          mq.addEventListener('change', (m)=>{ if(!m.matches){ setTimeout(()=>{ try{ win.close(); }catch{} }, 60); } });
+        }
+        win.onfocus = () => { setTimeout(()=>{ try{ win.close(); }catch{} }, 200); };
+      }catch{}
+    }
+
     function reprintQR(){
       const model = $("dwModel").value.trim() || "";
       const serial = $("dwSerial").value.trim() || "";
       const caption = `${model || "Unit"} - #${last6(serial)}`;
 
-      // Helper template: closes when printed OR cancelled
-      function addAutoCloseScript(){
-        return `
-          <script>
-            (function(){
-              let printed=false;
-              function tryClose(){ try{ window.close(); }catch{} }
-              window.addEventListener('afterprint', function(){ printed=true; setTimeout(tryClose, 200); });
-              // If user cancels print, focus returns → close shortly after
-              window.addEventListener('focus', function(){ if(!printed){ setTimeout(tryClose, 300); }});
-            })();
-          <\/script>`;
-      }
-
       if (currentQRImageUrl){
         const url = currentQRImageUrl + (currentQRImageUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
         const w = window.open('', '_blank', 'width=600,height=700');
-        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+        w.document.write(`
+          <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
           <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
-          .wrap{text-align:center}img{display:block;width:100%;max-width:380px;margin:0 auto 4px}
+          .wrap{text-align:center}img{display:block;width:100%;max-width:380px;height:auto;margin:0 auto 4px}
           h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
           <div class="wrap"><img id="qr" src="${url}" alt="QR"><h1>${caption.replace(/</g,'&lt;')}</h1></div>
           <script>(function(){var i=document.getElementById('qr');function p(){try{window.print()}catch{}} if(i.complete){setTimeout(p,60)}else{i.addEventListener('load',function(){setTimeout(p,60)})}})();<\/script>
-          ${addAutoCloseScript()}
-        </body></html>`);
+          </body></html>`);
         w.document.close();
+        closeAfterPrint(w);
         return;
       }
 
       if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
       const w = window.open('', '_blank', 'width=600,height=700');
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+      w.document.write(`
+        <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
         <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
         .wrap{text-align:center}#qr{width:100%;max-width:380px;margin:0 auto 4px}
         h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
         <div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div>
         <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-        <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(currentSmartLink)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},260)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
-        ${addAutoCloseScript()}
-      </body></html>`);
+        <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(currentSmartLink)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},250)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
+        </body></html>`);
       w.document.close();
+      closeAfterPrint(w);
     }
 
     (async()=>{
       await ready;
       DB = getFirestore();
+
+      buildYearOptions(document.createElement('select')); // warm
       await loadList();
 
       $("search").addEventListener('input', renderList);
@@ -514,6 +522,8 @@
       $("btnClose").addEventListener('click', closeModal);
       $("btnSave").addEventListener('click', async ()=>{ await saveModal(); closeModal(); });
       $("btnReprint").addEventListener('click', reprintQR);
+
+      // Click outside sheet closes modal (and never causes sideways scroll)
       $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
     })();
