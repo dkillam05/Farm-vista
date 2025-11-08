@@ -1,5 +1,6 @@
 <!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB (no QR UI)
      Shows equipment info, uses last 6 of serial in the title, and includes buttons.
+     Error modal appears ONLY after a failed QR scan (not from normal Hub opens).
 -->
 <!doctype html>
 <html lang="en">
@@ -74,7 +75,7 @@
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
 
-    /* ===== Invalid QR modal (single action) ===== */
+    /* ===== Invalid QR modal (single Close action) ===== */
     .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:99999;
       background:rgba(0,0,0,.45); }
     .modal-backdrop.show{ display:flex; }
@@ -98,13 +99,14 @@
           </div>
         </header>
 
-        <div class="body" id="content" hidden>
+        <!-- Equipment block (hidden until we resolve a valid equipment doc) -->
+        <div class="body" id="eqBlock" hidden>
           <div class="card">
             <h2 id="eqName" style="margin:0"></h2>
             <div class="meta">
               <span id="eqType" class="chip"></span>
               <span id="eqMakeModel" class="chip"></span>
-              <!-- Removed Year chip per request -->
+              <!-- Year chip removed by request -->
               <span id="eqSerial" class="chip" hidden></span>
               <span id="eqHours" class="chip" hidden></span>
             </div>
@@ -114,8 +116,14 @@
           <div class="actions">
             <a id="linkHours" class="btn btn-primary" href="#">Track Engine Hours</a>
             <a id="linkMaint" class="btn" href="#">Service Records</a>
-            <a id="linkReq" class="btn" href="#">Submit Service Request</a>
-            <a id="linkPre" class="btn" href="#">Pre-Season Checklist</a>
+            <a id="linkReq"   class="btn" href="#">Submit Service Request</a>
+            <a id="linkPre"   class="btn" href="#">Pre-Season Checklist</a>
+          </div>
+        </div>
+
+        <!-- Neutral actions (shown when Hub is opened directly with no equipment context) -->
+        <div class="body" id="neutralBlock" hidden>
+          <div class="actions">
             <a id="linkHome" class="btn" href="/Farm-vista/index.html">Return to Home</a>
             <a id="linkList" class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
           </div>
@@ -124,7 +132,7 @@
     </div>
   </fv-shell>
 
-  <!-- Invalid QR modal -->
+  <!-- Invalid QR modal (gated; shows only after failed scan) -->
   <div id="badQR" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
       <div class="md-head">Invalid QR for FarmVista</div>
@@ -132,7 +140,7 @@
         We couldn’t open this code. It isn’t linked to a piece of equipment. Please try scanning again.
       </div>
       <div class="md-foot">
-        <button id="badQRBtn" class="btn btn-primary" type="button">Open Scanner</button>
+        <button id="badQRClose" class="btn btn-primary" type="button">Close</button>
       </div>
     </div>
   </div>
@@ -143,10 +151,16 @@
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
 
-    const idParam = qs.get('id') || '';
-    const token   = qs.get('t')  || '';
+    // Incoming context
+    const idParam  = qs.get('id') || '';
+    const token    = qs.get('t')  || '';
 
-    const fallbackScanner = '/Farm-vista/pages/tools/qr-scanner.html';
+    // Gate for showing the error modal ONLY after a failed scan:
+    //  - ?qrError=1  OR
+    //  - sessionStorage flag set by scanner ('fv.qrError' === '1')
+    const fromScanFail =
+      qs.get('qrError') === '1' ||
+      sessionStorage.getItem('fv.qrError') === '1';
 
     const setText = (id, val, opts={})=>{
       const el=$(id); if(!el) return;
@@ -155,65 +169,92 @@
       if(opts.unhide) el.hidden=false;
     };
 
-    function last6(v){ v = String(v||''); return v.slice(-6); }
+    const last6 = v => String(v||'').slice(-6);
 
     async function resolveIdByToken(db, t){
       try{
         const ref = doc(db, 'qr-tokens', t);
         const snap = await getDoc(ref);
         return snap.exists() ? (snap.data()?.equipmentId || null) : null;
-      }catch{ return null; }
+      }catch{
+        return null;
+      }
     }
 
     function showInvalidModal(){
       const m = $('badQR');
       m.classList.add('show');
       m.setAttribute('aria-hidden','false');
-      $('badQRBtn').onclick = ()=>{
-        if (history.length > 1) {
-          history.back();
-          setTimeout(()=>{ if (document.visibilityState === 'visible') location.assign(fallbackScanner); }, 250);
-        } else {
-          location.assign(fallbackScanner);
-        }
-      };
+
+      // one-tap close; also clear flags so it won't reappear
+      $('badQRClose').onclick = hideInvalidModal;
+    }
+    function hideInvalidModal(){
+      const m = $('badQR');
+      m.classList.remove('show');
+      m.setAttribute('aria-hidden','true');
+      sessionStorage.removeItem('fv.qrError');
+      if (qs.get('qrError') === '1') {
+        const clean = new URL(location.href);
+        clean.searchParams.delete('qrError');
+        history.replaceState({}, '', clean.pathname + clean.search + clean.hash);
+      }
+    }
+
+    function showNeutral(){
+      $('neutralBlock').hidden = false;
+      $('eqBlock').hidden = true;
+      setText('subtitle','Ready');
     }
 
     async function load(){
-      $('subtitle').textContent = 'Resolving equipment…';
+      setText('subtitle','Resolving equipment…');
       await ready;
       const db  = getFirestore();
 
       let eqId = idParam;
-      if(!eqId && token){
+      if (!eqId && token){
         eqId = await resolveIdByToken(db, token);
       }
 
-      if(!eqId){ showInvalidModal(); return; }
+      // If we have no equipment context:
+      if (!eqId) {
+        // Only show modal if this came from a failed scan; otherwise neutral view.
+        if (fromScanFail) showInvalidModal();
+        showNeutral();
+        return;
+      }
 
+      // With an equipment id, fetch and validate
       const ref = doc(db,'equipment', eqId);
       const snap = await getDoc(ref);
-      if(!snap.exists()){ showInvalidModal(); return; }
+      if(!snap.exists()){
+        if (fromScanFail) showInvalidModal();
+        showNeutral();
+        return;
+      }
 
       const data = snap.data() || {};
       const tokenOK = token ? (data.qr && data.qr.token === token) : true;
-      if(!tokenOK){ showInvalidModal(); return; }
+      if(!tokenOK){
+        if (fromScanFail) showInvalidModal();
+        showNeutral();
+        return;
+      }
 
-      // ===== Render equipment info =====
+      // ===== Render equipment card =====
       const type = data.type || "equipment";
       const makeModel = [data.makeName, data.modelName].filter(Boolean).join(" ");
 
       const lastSix = last6(data.serial);
-      // Title: Make + Model + (#lastSix)  — replaces (Year)
       const title = makeModel
         ? `${makeModel}${lastSix ? ` (#${lastSix})` : ''}`
-        : (data.name || `Unit ${eqId.slice(0,6)}`);
+        : (data.name || `Unit ${String(eqId).slice(0,6)}`);
 
       setText("eqName", title);
       setText("eqType", type);
       setText("eqMakeModel", makeModel);
 
-      // Show serial chip as last-6 only
       if(lastSix) setText("eqSerial", `SN #${lastSix}`, {unhide:true});
       if(data.engineHours!=null) setText("eqHours", `${data.engineHours} hrs`, {unhide:true});
       if(data.notes) setText("eqNotes", data.notes, {unhide:true});
@@ -228,11 +269,17 @@
       $("linkReq").href   = `${base}/service-request.html${q}`;
       $("linkPre").href   = `${base}/pre-check.html${q}`;
 
-      $("content").hidden = false;
-      $("subtitle").textContent = "Linked";
+      $('eqBlock').hidden = false;
+      $('neutralBlock').hidden = true;
+      setText("subtitle","Linked");
     }
 
-    load().catch(e=>{ console.error(e); showInvalidModal(); });
+    load().catch(e=>{
+      console.error(e);
+      // catastrophic fail: only show modal if it was a scan failure; otherwise stay neutral
+      if (fromScanFail) showInvalidModal();
+      showNeutral();
+    });
   </script>
 </body>
 </html>
