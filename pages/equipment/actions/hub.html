@@ -1,4 +1,7 @@
-<!-- /Farm-vista/pages/equipment/equipment-hub.html -->
+<!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB (no QR UI)
+     Keeps: Firestore equipment info, token→id resolving, invalid-QR modal, actions, Return to Home
+     Removes: QR preview/image, reprint button, deepLink/token debug, helper text
+-->
 <!doctype html>
 <html lang="en">
 <head>
@@ -17,7 +20,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- fv-shell -->
+  <!-- Ensure fv-shell is available -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -31,18 +34,32 @@
   <style>
     :root{ --card-max:900px; --brand: var(--green,#3B7E46); }
     body{ background:var(--app-bg,var(--surface)); }
-    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important; }
 
-    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin:8px 0 18px; }
-    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      /* leave space for camera safe zone/footer on mobile */
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin:8px 0 18px;
+    }
+    .hero-head{
+      display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
       padding:14px 16px; border-bottom:1px solid var(--border);
-      background: color-mix(in srgb, var(--brand) 12%, transparent); }
+      background: color-mix(in srgb, var(--brand) 12%, transparent);
+    }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); }
-    .body{ padding:16px; display:grid; gap:14px }
-
     .muted{ color:var(--muted,#67706B) }
+
+    .body{ padding:16px; display:grid; gap:18px }
 
     .card{ border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:14px; display:grid; gap:6px }
     .meta{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
@@ -53,18 +70,10 @@
     .btn{
       display:inline-flex; align-items:center; justify-content:center;
       padding:12px 14px; border-radius:12px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer
+      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer;
+      text-decoration:none;
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
-
-    /* QR card */
-    .qr-card{ border:1px dashed var(--border); border-radius:12px; background:color-mix(in srgb, var(--brand) 6%, transparent);
-      padding:12px; display:grid; gap:10px }
-    .qr-row{ display:flex; gap:14px; align-items:center; flex-wrap:wrap }
-    .qr-img{ width:220px; height:220px; background:#fff; border:1px solid var(--border); border-radius:10px;
-      display:grid; place-items:center; overflow:hidden; padding:10px }
-    .qr-img img{ max-width:100%; max-height:100%; display:block }
-    .qr-msg{ font-size:13px; color:var(--muted) }
 
     /* ===== Invalid QR modal (single action) ===== */
     .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:99999;
@@ -108,22 +117,8 @@
             <a id="linkMaint" class="btn" href="#">Service Records</a>
             <a id="linkReq" class="btn" href="#">Submit Service Request</a>
             <a id="linkPre" class="btn" href="#">Pre-Season Checklist</a>
-          </div>
-
-          <div class="qr-card">
-            <div class="qr-row">
-              <div class="qr-img"><img id="qrImg" alt="QR" hidden></div>
-              <div style="display:flex; gap:10px; flex-wrap:wrap">
-                <button id="btnReprint" class="btn">Reprint QR</button>
-                <a id="btnOpenList" class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Open Tractors</a>
-              </div>
-            </div>
-            <div id="qrMsg" class="qr-msg">Finding QR…</div>
-          </div>
-
-          <div class="muted" style="font-size:12px">
-            <div>Link: <code id="deepLink">—</code></div>
-            <div>QR token verified: <span id="tokenOK">—</span></div>
+            <a id="linkHome" class="btn" href="/Farm-vista/index.html">Return to Home</a>
+            <a id="linkList" class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Open Tractors</a>
           </div>
         </div>
       </section>
@@ -143,21 +138,16 @@
     </div>
   </div>
 
-  <!-- QR lib (for fallback generation) -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
-
   <script type="module">
-    import {
-      ready,
-      getFirestore, doc, getDoc
-    } from '/Farm-vista/js/firebase-init.js';
+    import { ready, getFirestore, doc, getDoc } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
-    const fallbackScanner = '/Farm-vista/pages/tools/qr-scanner.html'; // <-- change if your scanner lives elsewhere
 
-    const id = qs.get('id') || '';
-    const t  = qs.get('t')  || '';
+    const idParam = qs.get('id') || '';
+    const token   = qs.get('t')  || '';
+
+    const fallbackScanner = '/Farm-vista/pages/tools/qr-scanner.html'; // adjust if scanner path differs
 
     const setText = (id, val, opts={})=>{
       const el=$(id); if(!el) return;
@@ -166,34 +156,21 @@
       if(opts.unhide) el.hidden=false;
     };
 
-    const smartLaunch = (absTo) => {
-      const u = new URL(location.origin + '/Farm-vista/launch.html');
-      u.searchParams.set('to', absTo);
-      return u.href;
-    };
-    const hubLinkFor = (id, tok) =>
-      `${location.origin}/Farm-vista/pages/equipment/equipment-hub.html?id=${encodeURIComponent(id)}${tok?`&t=${encodeURIComponent(tok)}`:''}`;
-
-    async function resolveIdByToken(db, token){
+    async function resolveIdByToken(db, t){
       try{
-        const ref = doc(db, 'qr-tokens', token);
+        const ref = doc(db, 'qr-tokens', t);
         const snap = await getDoc(ref);
         return snap.exists() ? (snap.data()?.equipmentId || null) : null;
       }catch{ return null; }
     }
 
-    function last6(v){ v=String(v||''); return v.slice(-6); }
-
     function showInvalidModal(){
       const m = $('badQR');
       m.classList.add('show');
       m.setAttribute('aria-hidden','false');
-      // One button – return to scanner
       $('badQRBtn').onclick = ()=>{
-        // If opened from in-app scanner, this will go back there.
         if (history.length > 1) {
           history.back();
-          // Safety net: if back doesn’t navigate (e.g., direct open), jump to scanner.
           setTimeout(()=>{ if (document.visibilityState === 'visible') location.assign(fallbackScanner); }, 250);
         } else {
           location.assign(fallbackScanner);
@@ -206,39 +183,22 @@
       await ready;
       const db  = getFirestore();
 
-      let eqId = id;
-      if(!eqId && t){
-        eqId = await resolveIdByToken(db, t);
+      let eqId = idParam;
+      if(!eqId && token){
+        eqId = await resolveIdByToken(db, token);
       }
 
-      if(!eqId){
-        // No way to resolve → invalid
-        showInvalidModal();
-        return;
-      }
+      if(!eqId){ showInvalidModal(); return; }
 
       const ref = doc(db,'equipment', eqId);
       const snap = await getDoc(ref);
-
-      if(!snap.exists()){
-        // Deleted/missing → invalid
-        showInvalidModal();
-        return;
-      }
+      if(!snap.exists()){ showInvalidModal(); return; }
 
       const data = snap.data() || {};
-      const ok = !!t ? (data.qr && data.qr.token === t) : true;
+      const tokenOK = token ? (data.qr && data.qr.token === token) : true;
+      if(!tokenOK){ showInvalidModal(); return; }
 
-      if(!ok){
-        // Token mismatch → treat as invalid for scanner loop
-        showInvalidModal();
-        return;
-      }
-
-      // ===== Render normal hub =====
-      setText("deepLink", location.href);
-      setText("tokenOK", ok ? "yes" : "no");
-
+      // ===== Render equipment info =====
       const type = data.type || "equipment";
       const makeModel = [data.makeName, data.modelName].filter(Boolean).join(" ");
       const name = data.name || makeModel || `Unit ${eqId.slice(0,6)}`;
@@ -246,76 +206,23 @@
       setText("eqName", name);
       setText("eqType", type);
       setText("eqMakeModel", makeModel);
-      if(data.year)  setText("eqYear",  `Year ${data.year}`, {unhide:true});
+      if(data.year) setText("eqYear",  `Year ${data.year}`, {unhide:true});
       if(data.serial) setText("eqSerial", `SN ${data.serial}`, {unhide:true});
       if(data.engineHours!=null) setText("eqHours", `${data.engineHours} hrs`, {unhide:true});
-      if(data.notes) { setText("eqNotes", data.notes, {unhide:true}); }
+      if(data.notes) setText("eqNotes", data.notes, {unhide:true});
 
+      // Action links — keep id (& token when present) for downstream pages
       const base = "/Farm-vista/pages/equipment/actions";
       const tok  = data.qr?.token || '';
-      $("linkHours").href = `${base}/engine-hours.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
-      $("linkMaint").href = `${base}/maintenance.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
-      $("linkReq").href   = `${base}/service-request.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
-      $("linkPre").href   = `${base}/pre-check.html?id=${encodeURIComponent(eqId)}&t=${encodeURIComponent(tok)}&from=qr`;
+      const q    = `?id=${encodeURIComponent(eqId)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
 
-      // QR display / reprint
-      const img = $("qrImg"); const msg = $("qrMsg");
-      const saved = data.qr?.image?.url || null;
-      const smart = smartLaunch(hubLinkFor(eqId, tok));
-      const caption = `${data.modelName || 'Unit'} - #${last6(data.serial)}`;
-
-      if(saved){
-        img.src = saved; img.hidden = false; msg.textContent = "";
-        $("btnReprint").onclick = ()=> printImage(saved, caption);
-      }else if(tok){
-        msg.textContent = "Generating QR…";
-        const holder = document.createElement('div');
-        new window.QRCode(holder, {
-          text: smart,
-          width: 220, height: 220,
-          correctLevel: window.QRCode.CorrectLevel.H,
-          colorDark:"#000000", colorLight:"#ffffff"
-        });
-        const node = holder.querySelector('canvas') || holder.querySelector('img');
-        if(node){
-          img.src = node.tagName==='CANVAS' ? node.toDataURL('image/png') : node.src;
-          img.hidden = false; msg.textContent = "";
-          $("btnReprint").onclick = ()=> printGenerated(smart, caption);
-        }else{
-          msg.textContent = "QR render failed.";
-        }
-      }else{
-        msg.textContent = "No QR bound to this unit yet.";
-        $("btnReprint").onclick = ()=> alert('No QR yet — reprint from the list.');
-      }
+      $("linkHours").href = `${base}/engine-hours.html${q}`;
+      $("linkMaint").href = `${base}/maintenance.html${q}`;
+      $("linkReq").href   = `${base}/service-request.html${q}`;
+      $("linkPre").href   = `${base}/pre-check.html${q}`;
 
       $("content").hidden = false;
       $("subtitle").textContent = "Linked";
-    }
-
-    function printImage(url, caption){
-      const w = window.open('', '_blank', 'width=620,height=720');
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
-      <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
-      .wrap{text-align:center}img{display:block;width:100%;max-width:380px;margin:0 auto 4px}
-      h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace; font-weight:700}</style></head><body>
-      <div class="wrap"><img id="qr" src="${url}" alt="QR"><h1>${caption.replace(/</g,'&lt;')}</h1></div>
-      <script>(function(){var i=document.getElementById('qr');function p(){try{window.print()}catch{}} if(i.complete){setTimeout(p,60)}else{i.addEventListener('load',function(){setTimeout(p,60)})}})();<\/script>
-      </body></html>`);
-      w.document.close();
-    }
-
-    function printGenerated(text, caption){
-      const w = window.open('', '_blank', 'width=620,height=720');
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
-      <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
-      .wrap{text-align:center}#qr{width:100%;max-width:380px;margin:0 auto 4px}
-      h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
-      <div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div>
-      <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-      <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(text)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},260)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
-      </body></html>`);
-      w.document.close();
     }
 
     load().catch(e=>{ console.error(e); showInvalidModal(); });
