@@ -1,10 +1,9 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE
 Fixes:
-• Modal is constrained to viewport; vertical-only scroll (no horizontal drift)
-• Background scroll lock while modal is open (prevents diagonal "pan" on mobile)
-• Word/IMG clamps to prevent accidental overflow
-• "Open Hub" links to /Farm-vista/pages/equipment/equipment-hub.html?id=...&t=... (no 404)
-• Print popup still auto-closes after cancel/print
+• Live Firestore list via onSnapshot (no “blank until logout”)
+• Loading + Empty states (no more giant empty pane)
+• Modal remains vertical-only; background scroll lock preserved
+• QR preview + reprint flow unchanged; hub link fixed
 -->
 <!doctype html>
 <html lang="en">
@@ -203,6 +202,8 @@ Fixes:
           <div>Added</div>
         </div>
         <div id="rows"></div>
+        <!-- Empty/Loading message area (added) -->
+        <div id="rowsEmpty" class="qr-empty" style="padding:12px; display:none;">No tractors to show.</div>
       </div>
     </div>
   </fv-shell>
@@ -276,7 +277,7 @@ Fixes:
   <script type="module">
     import {
       ready,
-      getFirestore, collection, getDocs, query, where, orderBy, doc, getDoc, updateDoc, serverTimestamp
+      getFirestore, collection, getDocs, query, where, orderBy, doc, getDoc, updateDoc, serverTimestamp, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -320,29 +321,15 @@ Fixes:
       __scrollY = 0;
     }
 
-    async function loadList(){
-      const rows = $("rows"); rows.innerHTML = "";
-      let snap;
-      try{
-        const f = $("filter").value;
-        const base = collection(DB,'equipment');
-        let qy;
-        if(f === 'active'){
-          qy = query(base, where('type','==','tractor'), where('status','==','active'), orderBy('name'));
-        }else if(f === 'archived'){
-          qy = query(base, where('type','==','tractor'), where('status','==','archived'), orderBy('name'));
-        }else{
-          qy = query(base, where('type','==','tractor'), orderBy('name'));
-        }
-        snap = await getDocs(qy);
-      }catch(_){
-        const base = collection(DB,'equipment');
-        const all = await getDocs(query(base, where('type','==','tractor')));
-        const temp = []; all.forEach(d=> temp.push({ id:d.id, ...d.data() }) );
-        temp.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-        tractors = temp; renderList(); return;
-      }
-      const list = []; snap.forEach(d=> list.push({ id:d.id, ...d.data() })); tractors = list; renderList();
+    /* =================== LIST: loading/empty + live listener =================== */
+    let unsubList = null;
+    let firstPaintDone = false;
+
+    function setEmptyState() {
+      const rows = $("rows");
+      const empty = $("rowsEmpty");
+      const has = rows.children.length > 0;
+      empty.style.display = has ? "none" : "block";
     }
 
     function applySearchSort(items){
@@ -375,7 +362,7 @@ Fixes:
         row.innerHTML = `
           <div><strong>${esc(name||'—')}</strong></div>
           <div>${esc(makeModel||'—')}${x.year?` • ${esc(x.year)}`:''}</div>
-          <div><span class="status">${esc(x.status||'active')}</span></div>
+          <div><span class="status">${esc(x.status||('active'))}</span></div>
           <div>${esc(fmtDate(x.createdAt))}</div>
           <div class="mobile-line">${esc(makeModel||'—')} ${x.year?`• ${esc(x.year)}`:''} • ${esc(x.status||'active')} • ${esc(fmtDate(x.createdAt))}</div>
         `;
@@ -384,8 +371,54 @@ Fixes:
         row.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); open(); }});
         rows.appendChild(row);
       }
+      setEmptyState(); // <— added
     }
 
+    function startListListener(){
+      if (unsubList) { try{ unsubList(); }catch{} unsubList = null; }
+
+      const base = collection(DB,'equipment');
+      const f = $("filter").value;
+
+      let qy = query(base, where('type','==','tractor'));
+      if (f === 'active')   qy = query(qy, where('status','==','active'));
+      if (f === 'archived') qy = query(qy, where('status','==','archived'));
+      try { qy = query(qy, orderBy('name')); } catch { /* ok if index missing */ }
+
+      if (!firstPaintDone) {
+        $("rows").innerHTML = `<div class="qr-empty" style="padding:12px">Loading…</div>`;
+        $("rowsEmpty").style.display = "none";
+      }
+
+      unsubList = onSnapshot(qy, { includeMetadataChanges:true }, (snap)=>{
+        const list = [];
+        snap.forEach(d => list.push({ id:d.id, ...d.data() }));
+
+        // Apply client sort to honor current UI sort even if server didn’t order
+        const sort = $("sort").value;
+        if (sort==='name')   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+        if (sort==='year')   list.sort((a,b)=>(b.year||0)-(a.year||0));
+        if (sort==='hours')  list.sort((a,b)=>Number(b.engineHours||0)-Number(a.engineHours||0));
+        if (sort==='created')list.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
+
+        tractors = list;
+        renderList();
+        firstPaintDone = true;
+      }, (err)=>{
+        console.warn('[tractors] snapshot error, fallback once:', err);
+        getDocs(query(base, where('type','==','tractor'))).then(s=>{
+          const temp=[]; s.forEach(d=>temp.push({id:d.id, ...d.data()}));
+          temp.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+          tractors = temp; renderList(); firstPaintDone = true;
+        }).catch(e=>{
+          $("rows").innerHTML = `<div class="qr-empty" style="padding:12px">Couldn’t load tractors.</div>`;
+          $("rowsEmpty").style.display = "none";
+          console.error(e);
+        });
+      });
+    }
+
+    /* ===================== MODAL + QR (unchanged behavior) ===================== */
     function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
 
     function waitQRReady(cb){
@@ -550,15 +583,16 @@ Fixes:
       closeAfterPrint(w);
     }
 
+    /* ============================== STARTUP WIRING ============================= */
     (async()=>{
       await ready;
       DB = getFirestore();
 
       buildYearOptions(document.createElement('select')); // warm
-      await loadList();
+      startListListener(); // <— live subscription (replaces old loadList())
 
       $("search").addEventListener('input', renderList);
-      $("filter").addEventListener('change', loadList);
+      $("filter").addEventListener('change', startListListener); // <— resubscribe on scope change
       $("sort").addEventListener('change', renderList);
 
       $("btnClose").addEventListener('click', closeModal);
