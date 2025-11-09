@@ -1,9 +1,14 @@
-<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE (Index-Free + Watchdog + Soft Reload)
+<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE (Index-Free + Watchdog + Soft Reload + UX/Toast + Safe Context + Debounce + Server Fallback)
    - No Firestore composite indexes required.
    - Server query: where('type','==','tractor') only.
    - Client does status filter + sort.
    - Watchdog fallback if listener stalls.
    - Soft reload: restart listener on pageshow/visibilitychange/focus.
+   - NEW: Wait for FVUserContext.ready before querying.
+   - NEW: Per-page toast (no shell change).
+   - NEW: Page hook window.FVRefresh() for PTR to call.
+   - NEW: Force-network fallback path when cached-empty is suspected.
+   - NEW: Debounced re-attach to prevent rapid churn.
 -->
 <!doctype html>
 <html lang="en">
@@ -156,6 +161,32 @@
 
     /* ===== small helper ===== */
     .muted-inline{ color:var(--muted,#67706B); font-size:14px; padding:12px; }
+
+    /* ===== PAGE-LOCAL TOAST (per your request; no shell change) ===== */
+    .local-toast{
+      position: fixed;
+      left: 50%;
+      bottom: calc(var(--ftr-h, 14px) + env(safe-area-inset-bottom, 0px) + 16px);
+      transform: translateX(-50%) translateY(8px);
+      background: #111;
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.35);
+      z-index: 999999; /* above shell footer */
+      font-size: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+      white-space: nowrap;
+      max-width: 92vw;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    .local-toast.show{
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
   </style>
 </head>
 <body>
@@ -258,6 +289,9 @@
     </div>
   </div>
 
+  <!-- Per-page toast element -->
+  <div id="toast" class="local-toast" aria-live="polite" aria-atomic="true"></div>
+
   <!-- QR library (fallback when image missing) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
@@ -269,10 +303,22 @@
       doc, getDoc, updateDoc, serverTimestamp
     } = FB;
     const onSnapshot = FB.onSnapshot || FB.firestoreOnSnapshot || null;
+    const getDocsFromServer = FB.getDocsFromServer || null; // optional (if exported by SDK build)
 
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
+
+    /* =================== NEW #4: Local toast (per-page) =================== */
+    function toast(msg, ms=2000){
+      try{
+        const t = $("toast"); if(!t) return;
+        t.textContent = msg || '';
+        t.classList.add('show');
+        clearTimeout(toast._tt);
+        toast._tt = setTimeout(()=> t.classList.remove('show'), ms);
+      }catch{}
+    }
 
     function buildYearOptions(sel){
       sel.innerHTML = '<option value="">—</option>';
@@ -349,29 +395,55 @@
     let unsubList = null;
     let firstPayload = false;
 
-    async function runFallback(){
+    async function runFallback(forceNetwork=false){
       try{
-        const s = await getDocs(query(collection(DB,'equipment'), where('type','==','tractor')));
-        const temp=[]; s.forEach(d=>temp.push({id:d.id, ...d.data()}));
+        let snap;
+        if (forceNetwork && typeof getDocsFromServer === 'function'){
+          snap = await getDocsFromServer(query(collection(DB,'equipment'), where('type','==','tractor')));
+        } else {
+          snap = await getDocs(query(collection(DB,'equipment'), where('type','==','tractor')));
+        }
+        const temp=[]; snap.forEach(d=>temp.push({id:d.id, ...d.data()}));
         temp.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
         tractors = temp; renderList();
         firstPayload = true;
-      }catch(e){ console.warn('fallback getDocs failed:', e); }
+        if (forceNetwork) { toast('Data refreshed from server'); }
+      }catch(e){
+        console.warn('fallback getDocs failed:', e);
+        toast('Refresh failed: ' + (e && e.message ? e.message : 'Unknown error'), 2600);
+      }
     }
 
-    function startListListener(){
+    // NEW #5: Debounce helper
+    function debounce(fn, wait=180){
+      let t=0; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), wait); };
+    }
+
+    // reattach (debounced) used by lifecycle & PTR hook
+    const debouncedStart = debounce(()=> startListListener(true), 180);
+
+    function startListListener(isUserInitiated=false){
       if (unsubList) { try{ unsubList(); }catch{} unsubList=null; }
       firstPayload = false;
 
       const base = collection(DB,'equipment');
       const qy = query(base, where('type','==','tractor')); // <— index-free
 
-      const watchdog = setTimeout(()=>{ if(!firstPayload) runFallback(); }, 3500);
+      const watchdog = setTimeout(async ()=>{
+        if(!firstPayload){
+          // If the live listener hasn't delivered anything, try a forced server read once.
+          await runFallback(true);
+        }
+      }, 3500);
 
       if (typeof onSnapshot === 'function'){
         try{
           unsubList = onSnapshot(qy, (snap)=>{
             clearTimeout(watchdog);
+            // If we suspect cached-empty on user-initiated refresh, try server once.
+            if (isUserInitiated && snap.metadata && snap.metadata.fromCache && snap.size === 0){
+              runFallback(true); // don't return; still allow rendering if server fails
+            }
             const list=[]; snap.forEach(d=>list.push({id:d.id, ...d.data()}));
             tractors = list;
             firstPayload = true;
@@ -379,16 +451,18 @@
           }, (err)=>{
             clearTimeout(watchdog);
             console.warn('snapshot error (index-free):', err);
-            runFallback();
+            toast('Live update error: ' + (err && err.message ? err.message : 'Unknown'), 2800);
+            runFallback(true);
           });
         }catch(e){
           clearTimeout(watchdog);
           console.warn('onSnapshot threw (index-free):', e);
-          runFallback();
+          toast('Listener failed: ' + (e && e.message ? e.message : 'Unknown'), 2800);
+          runFallback(true);
         }
       }else{
         clearTimeout(watchdog);
-        runFallback();
+        runFallback(true);
       }
     }
 
@@ -490,6 +564,7 @@
       const idx = tractors.findIndex(x=>x.id===currentId);
       if(idx>-1) tractors[idx] = { ...tractors[idx], ...patch };
       renderList();
+      toast('Saved changes');
     }
 
     function closeModal(){
@@ -552,16 +627,45 @@
     }
 
     /* ============================== STARTUP ============================== */
+
+    // NEW #1: Wait for FVUserContext.ready (auth/roles) before any Firestore reads.
+    async function waitForUserContextReady(timeoutMs=5000){
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs){
+        try{
+          if (window.FVUserContext && window.FVUserContext.ready){
+            await window.FVUserContext.ready;
+            return true;
+          }
+          // If there is a get() returning something truthy, also accept.
+          if (window.FVUserContext && typeof window.FVUserContext.get === 'function'){
+            const ctx = window.FVUserContext.get();
+            if (ctx) return true;
+          }
+        }catch{}
+        await new Promise(r=> setTimeout(r, 120));
+      }
+      // Not fatal; just proceed and let error paths surface visibly
+      return false;
+    }
+
     (async()=>{
       await ready;
+      // ensure user context is live (NEW #1)
+      const ctxOk = await waitForUserContextReady(5000);
+      if (!ctxOk) {
+        // Proceed, but warn visibly so we can correlate if a refresh fails.
+        toast('User context not fully ready — attempting load', 2400);
+      }
+
       DB = getFirestore();
 
       buildYearWarm();           // warm year options
-      startListListener();       // start live listener (index-free)
+      startListListener(false);  // start live listener (index-free)
 
       // UI handlers
       $("search").addEventListener('input', renderList);
-      $("filter").addEventListener('change', startListListener);
+      $("filter").addEventListener('change', ()=> startListListener(false));
       $("sort").addEventListener('change', renderList);
 
       $("btnClose").addEventListener('click', closeModal);
@@ -572,12 +676,19 @@
       document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
 
       // ---------- SOFT RELOAD TRIGGERS ----------
-      // Always (re)start the listener when the page becomes active again.
-      window.addEventListener('pageshow', () => { startListListener(); });
+      // Debounced to avoid double/triple attach on iOS PWA resume.
+      window.addEventListener('pageshow', () => { debouncedStart(); });
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') startListListener();
+        if (document.visibilityState === 'visible') debouncedStart();
       });
-      window.addEventListener('focus', () => { startListListener(); });
+      window.addEventListener('focus', () => { debouncedStart(); });
+
+      // NEW #2: Page-level PTR refresh hook so the shell can trigger real data reloads.
+      window.FVRefresh = async function(){
+        // Re-check context quickly then do a user-initiated start (enables server-fallback branch)
+        await waitForUserContextReady(1800);
+        startListListener(true);
+      };
     })();
   </script>
 </body>
