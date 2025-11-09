@@ -1,8 +1,6 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html
-     Hybrid data model + Page-local Diagnostics + STATUS NORMALIZATION (fixes empty list)
-     - Normalize status to lowercase with default 'active' so client filters don't hide rows.
-     - Diagnostics now show pre/post filter counts + current filter + search.
-     - ADDED: strict orgId gating + FVUserContext.onChange + resume guards + "reload blocked" diag.
+     Hybrid data model + Page-local Diagnostics + STATUS NORMALIZATION
+     + Soft orgId gating: proceed if auth is present even when orgId is still warming.
 -->
 <!doctype html>
 <html lang="en">
@@ -379,14 +377,11 @@
       snapshotCount: 0, serverCount: 0,
       listenerAttachedAt: 0, lastEnableAt: 0, lastDisableAt: 0,
       tokenAgeMin: '', orgId: '', allowedIdsLen: 0,
-      // NEW: filter & search and counts
-      filter: 'active',
-      search: '',
-      preCount: 0,
-      postCount: 0,
-      // NEW ADD: org gating flags
-      reloadBlocked: false,
-      lastBlockedAt: 0
+      // filter/search and counts
+      filter: 'active', search: '', preCount: 0, postCount: 0,
+      // Soft orgId gate flags
+      reloadBlocked: false, lastBlockedAt: 0,
+      proceededWithoutOrg: false, lastProceedAt: 0
     };
     function log(...a){ if(DIAG.verbose) console.log('[Tractors]',...a); }
     function warn(...a){ console.warn('[Tractors]',...a); }
@@ -399,9 +394,10 @@
       const ctxWarn = DIAG.orgId ? `<span class="diag-ok">${esc(DIAG.orgId)}</span>` : '<span class="diag-warn">missing</span>';
       const attached = DIAG.listenerAttachedAt?new Date(DIAG.listenerAttachedAt).toLocaleTimeString():'—';
       const blocked = DIAG.reloadBlocked ? `<span class="diag-warn">true @ ${new Date(DIAG.lastBlockedAt).toLocaleTimeString()}</span>` : '<span class="diag-ok">false</span>';
+      const soft = DIAG.proceededWithoutOrg ? `<span class="diag-warn">yes @ ${new Date(DIAG.lastProceedAt).toLocaleTimeString()}</span>` : '<span class="diag-ok">no</span>';
       g.innerHTML = `
         <div class="diag-k">Auth</div><div class="diag-v">Online: <code>${navigator.onLine?'true':'false'}</code> • Token age: <code>${tokenAge}</code></div>
-        <div class="diag-k">Context</div><div class="diag-v">orgId: ${ctxWarn} • allowedIds: <code>${DIAG.allowedIdsLen}</code> • Reload Blocked: ${blocked}</div>
+        <div class="diag-k">Context</div><div class="diag-v">orgId: ${ctxWarn} • allowedIds: <code>${DIAG.allowedIdsLen}</code> • Reload Blocked: ${blocked} • Soft Proceed (no orgId): ${soft}</div>
         <div class="diag-k">Network</div><div class="diag-v">last enable: <code>${DIAG.lastEnableAt?new Date(DIAG.lastEnableAt).toLocaleTimeString():'—'}</code> • last disable: <code>${DIAG.lastDisableAt?new Date(DIAG.lastDisableAt).toLocaleTimeString():'—'}</code></div>
         <div class="diag-k">Server Pull</div><div class="diag-v">count: <code>${DIAG.serverCount}</code> • time: <code>${lastPullMs}</code> • source: <code>${lastSrc}</code></div>
         <div class="diag-k">Listener</div><div class="diag-v">attached: <code>${attached}</code> • last detach: <code>${esc(DIAG.lastDetachReason||'—')}</code> • last snap count: <code>${DIAG.snapshotCount}</code></div>
@@ -443,8 +439,8 @@
       return {
         id,
         ...d,
-        status: statusNorm,                 // normalized for filtering
-        _statusLabel: statusNorm==='archived' ? 'Archived' : 'Active' // nice label
+        status: statusNorm,
+        _statusLabel: statusNorm==='archived' ? 'Archived' : 'Active'
       };
     }
 
@@ -564,7 +560,6 @@
       const start = Date.now();
       while(Date.now()-start < timeoutMs){
         try{
-          // Prefer explicit orgId presence
           if (window.FVUserContext && typeof window.FVUserContext.get==='function'){
             const ctx = window.FVUserContext.get();
             if(ctx && (ctx.orgId || ctx.org || ctx.tenantId)){
@@ -587,26 +582,37 @@
       updateDiag(); return false;
     }
 
-    // ===== NEW: hard guard that REQUIRES orgId before any reload =====
+    // --- Soft gate helpers (ADDED) ---
     function hasOrgId(){
       try{
         const ctx = (window.FVUserContext && typeof window.FVUserContext.get==='function') ? window.FVUserContext.get() : null;
         return !!(ctx && (ctx.orgId || ctx.org || ctx.tenantId));
       }catch{ return false; }
     }
+    function hasAuth(){
+      try{
+        const a=_getAuth(); return !!(a && a.currentUser);
+      }catch{ return false; }
+    }
 
     async function hardReload(userInitiated){
-      // block if orgId missing
+      // Soft gating: if orgId missing but auth is present, continue and log it.
       if(!hasOrgId()){
-        DIAG.reloadBlocked = true; DIAG.lastBlockedAt = Date.now(); updateDiag();
-        toast('Waiting for account context…', 1200);
-        return; // will retry when FVUserContext.onChange fires
+        if (hasAuth()){
+          DIAG.proceededWithoutOrg = true; DIAG.lastProceedAt = Date.now();
+          DIAG.reloadBlocked = false; updateDiag();
+        }else{
+          DIAG.reloadBlocked = true; DIAG.lastBlockedAt = Date.now(); updateDiag();
+          toast('Waiting for account context…', 1200);
+          return;
+        }
+      } else {
+        DIAG.proceededWithoutOrg = false; DIAG.reloadBlocked = false; updateDiag();
       }
-      DIAG.reloadBlocked = false; updateDiag();
 
       detachLive('reload');
-      await ready; // keep your original ordering
-      const DBx = getFirestore(); DB = DBx;
+      await ready;
+      DB = getFirestore();
 
       try{
         await serverPull();
@@ -732,7 +738,7 @@
     /* ============ STARTUP & LIFECYCLE ============ */
     async function waitForReadyStack(){ await ready; DB = getFirestore(); }
 
-    // Token age display
+    // Token age display (unchanged)
     function trackTokenAge(){
       try{
         const auth = _getAuth();
@@ -742,31 +748,6 @@
           const exp = u.stsTokenManager && u.stsTokenManager.expirationTime;
           if(exp){ const iat = exp - 3600*1000; const min = Math.max(0, Math.round((Date.now() - iat)/60000)); DIAG.tokenAgeMin = min + ' min'; updateDiag(); }
         });
-      }catch{}
-    }
-
-    // ===== NEW: react instantly to orgId changes =====
-    function subscribeContextChanges(){
-      try{
-        if (window.FVUserContext && typeof window.FVUserContext.onChange==='function'){
-          window.FVUserContext.onChange(()=>{
-            try{
-              const ctx = window.FVUserContext.get && window.FVUserContext.get();
-              const newOrg = (ctx && (ctx.orgId||ctx.org||ctx.tenantId)) || '';
-              const oldOrg = DIAG.orgId;
-              DIAG.orgId = newOrg;
-              DIAG.allowedIdsLen = (ctx && Array.isArray(ctx.allowedIds) && ctx.allowedIds.length) || 0;
-              updateDiag();
-              if (newOrg && newOrg !== oldOrg){
-                // orgId appeared or changed -> run a hard reload now
-                hardReload(false);
-              } else if (newOrg && DIAG.reloadBlocked){
-                // previously blocked resume can proceed now
-                hardReload(false);
-              }
-            }catch{}
-          });
-        }
       }catch{}
     }
 
@@ -810,40 +791,37 @@
       }catch{}
 
       trackTokenAge();
-      subscribeContextChanges(); // NEW
 
-      // Lifecycle (NEW guards: only reload when orgId present; else toast & mark blocked)
-      window.addEventListener('pageshow', ()=>{
-        if (hasOrgId()) debouncedResume();
-        else { DIAG.reloadBlocked = true; DIAG.lastBlockedAt = Date.now(); updateDiag(); toast('Waiting for account context…', 1200); }
-      });
+      // Lifecycle
+      window.addEventListener('pageshow', ()=> { debouncedResume(); });
       document.addEventListener('visibilitychange', ()=>{
-        if (document.visibilityState === 'visible'){
-          if (hasOrgId()) debouncedResume();
-          else { DIAG.reloadBlocked = true; DIAG.lastBlockedAt = Date.now(); updateDiag(); toast('Waiting for account context…', 1200); }
-        } else if (document.visibilityState === 'hidden') {
-          detachLive('hidden');
-        }
+        if (document.visibilityState === 'visible') debouncedResume();
+        else if (document.visibilityState === 'hidden') detachLive('hidden');
       });
-      window.addEventListener('focus', ()=>{
-        if (hasOrgId()) debouncedResume();
-        else { DIAG.reloadBlocked = true; DIAG.lastBlockedAt = Date.now(); updateDiag(); toast('Waiting for account context…', 1200); }
-      });
+      window.addEventListener('focus', ()=> { debouncedResume(); });
       window.addEventListener('pagehide', ()=> { detachLive('pagehide'); });
 
       // PTR contract
-      window.FVRefresh = async function(){
-        if (hasOrgId()) { toast('PTR: server refresh', 900); await hardReload(true); }
-        else { DIAG.reloadBlocked = true; DIAG.lastBlockedAt = Date.now(); updateDiag(); toast('Waiting for account context…', 1200); }
-      };
+      window.FVRefresh = async function(){ toast('PTR: server refresh', 900); await hardReload(true); };
 
       // Network indicators
       window.addEventListener('online', ()=> updateDiag());
       window.addEventListener('offline', ()=> updateDiag());
 
-      // Initial load (NEW: gate on orgId)
-      if (hasOrgId()) { await hardReload(false); }
-      else { DIAG.reloadBlocked = true; DIAG.lastBlockedAt = Date.now(); updateDiag(); toast('Waiting for account context…', 1200); }
+      // Initial load
+      await hardReload(false);
+      updateDiag();
+
+      // Also listen for context becoming ready and retry if we ever blocked
+      if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function'){
+        window.FVUserContext.onChange(()=>{
+          const ctx = window.FVUserContext.get && window.FVUserContext.get();
+          DIAG.orgId = (ctx && (ctx.orgId||ctx.org||ctx.tenantId)) || '';
+          DIAG.allowedIdsLen = (ctx && Array.isArray(ctx.allowedIds) && ctx.allowedIds.length) || 0;
+          updateDiag();
+          if (!tractors.length) debouncedResume();
+        });
+      }
     })();
   </script>
 </body>
