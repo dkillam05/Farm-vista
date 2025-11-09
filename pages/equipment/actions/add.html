@@ -3,6 +3,7 @@
 Adds: persist QR preview to Storage and save its URL under equipment.qr.image
 + Centered card on mobile
 + Inline editors for Makes/Models (no blue text, no Add, conditional Delete/Archive)
++ Cancel now navigates to /Farm-vista/pages/equipment/equipment-tractors.HTML (falls back to .html)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -773,6 +774,23 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       pendingQRBlob=null;
     }
 
+    // ===== Cancel => navigate to tractors list (tries .HTML then .html) =====
+    async function pathExists(url, ms=2500){
+      try{
+        const ctrl=new AbortController();
+        const t=setTimeout(()=>ctrl.abort(), ms);
+        const res=await fetch(url, { method:'HEAD', cache:'no-store', signal: ctrl.signal });
+        clearTimeout(t);
+        return res.ok;
+      }catch{ return false; }
+    }
+    async function goToTractors(){
+      const p1 = '/Farm-vista/pages/equipment/equipment-tractors.HTML';
+      const p2 = '/Farm-vista/pages/equipment/equipment-tractors.html';
+      const target = (await pathExists(p1)) ? p1 : p2;
+      location.assign(target);
+    }
+
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -842,7 +860,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       });
 
       $("btnSave").addEventListener("click", ()=> saveAll(db));
-      $("btnClear").addEventListener("click", resetForm);
+      $("btnClear").addEventListener("click", goToTractors);
 
       validateForm();
       $("make").focus();
