@@ -1,10 +1,7 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html
-     Hybrid data model: Server-first + short-lived live listener + auth/lifecycle guards + 5min idle timeout
-     - Index-free query (where('type','==','tractor')), client filters/sorts.
-     - Hard reload on load/resume/PTR uses enableNetwork + getDocsFromServer (fallback to getDocs).
-     - Live onSnapshot attaches after server render; detaches on hide/idle/PTR start; reattaches on resume.
-     - Auth token watcher re-inits data on change.
-     - Per-page toast; debounced resumes; PTR hook that truly refetches online.
+     Hybrid data model + Page-local Diagnostics Panel
+     - Keeps your current flow intact.
+     - Adds: health panel, verbose console (toggle), PTR banner, timing, error surfacing.
 -->
 <!doctype html>
 <html lang="en">
@@ -158,7 +155,7 @@
     /* ===== small helper ===== */
     .muted-inline{ color:var(--muted,#67706B); font-size:14px; padding:12px; }
 
-    /* ===== PAGE-LOCAL TOAST (per your request; no shell change) ===== */
+    /* ===== PAGE-LOCAL TOAST ===== */
     .local-toast{
       position: fixed;
       left: 50%;
@@ -179,10 +176,46 @@
       text-overflow: ellipsis;
       overflow: hidden;
     }
-    .local-toast.show{
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
+    .local-toast.show{ opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ===== DIAGNOSTICS ===== */
+    .diag-toggle{
+      position: fixed;
+      right: 10px;
+      bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 66px);
+      z-index: 1000000;
+      background: var(--brand);
+      color: #fff;
+      border: 0;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-weight: 800;
+      box-shadow: 0 8px 22px rgba(0,0,0,.26);
     }
+    .diag-panel{
+      position: fixed;
+      left: 10px; right: 10px;
+      bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 14px);
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 16px 36px rgba(0,0,0,.28);
+      z-index: 1000000;
+      display: none;
+      max-height: 46vh;
+      overflow: auto;
+    }
+    .diag-panel.open{ display: block; }
+    .diag-grid{ display:grid; grid-template-columns: 140px 1fr; gap: 6px 10px; padding: 10px 12px; font-size: 13px; }
+    .diag-k{ font-weight:800; color: var(--brand); }
+    .diag-v code{ background: color-mix(in srgb, var(--brand) 10%, transparent); padding:2px 6px; border-radius: 8px; }
+    .diag-err{ color:#b00020; font-weight:800; }
+    .diag-warn{ color:#b36b00; font-weight:800; }
+    .diag-ok{ color:#1b5e20; font-weight:800; }
+    .diag-hr{ height:1px; background:var(--border); margin:2px 0; grid-column: 1 / -1; }
+    .diag-actions{ display:flex; gap:8px; padding: 8px 12px 12px; justify-content:flex-end; }
+    .diag-actions .btn{ padding:8px 12px; }
   </style>
 </head>
 <body>
@@ -288,6 +321,20 @@
   <!-- Per-page toast element -->
   <div id="toast" class="local-toast" aria-live="polite" aria-atomic="true"></div>
 
+  <!-- Diagnostics UI -->
+  <button id="diagToggle" class="diag-toggle" type="button">🩺 Diagnostics</button>
+  <div id="diag" class="diag-panel" role="region" aria-label="Diagnostics">
+    <div class="diag-grid" id="diagGrid">
+      <!-- filled by JS -->
+    </div>
+    <div class="diag-actions">
+      <button id="diagCopyErr" class="btn" type="button">Copy last error</button>
+      <button id="diagForceServer" class="btn" type="button">Force server pull</button>
+      <button id="diagToggleVerbose" class="btn" type="button">Verbose logs: Off</button>
+      <button id="diagClose" class="btn" type="button">Close</button>
+    </div>
+  </div>
+
   <!-- QR library (fallback when image missing) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
@@ -316,7 +363,7 @@
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
 
-    /* =================== Local toast (per-page) =================== */
+    /* =================== Local toast =================== */
     function toast(msg, ms=2000){
       try{
         const t = $("toast"); if(!t) return;
@@ -327,6 +374,67 @@
       }catch{}
     }
 
+    /* =================== Diagnostics State =================== */
+    const DIAG = {
+      verbose: /\bdebug=1\b/i.test(location.search),
+      online: navigator.onLine,
+      lastError: '',
+      lastErrorCode: '',
+      lastErrorTime: 0,
+      lastDetachReason: '',
+      lastSource: '', // 'server' | 'cache' | ''
+      lastServerMs: 0,
+      snapshotCount: 0,
+      serverCount: 0,
+      listenerAttachedAt: 0,
+      lastEnableAt: 0,
+      lastDisableAt: 0,
+      tokenAgeMin: '',
+      orgId: '',
+      allowedIdsLen: 0
+    };
+
+    function log(...args){ if (DIAG.verbose) console.log('[Tractors]', ...args); }
+    function warn(...args){ console.warn('[Tractors]', ...args); }
+    function timeStart(label){ if (DIAG.verbose) console.time(label); }
+    function timeEnd(label){ if (DIAG.verbose) console.timeEnd(label); }
+
+    function setError(e){
+      const code = (e && (e.code || e.name)) || '';
+      const msg  = (e && (e.message || String(e))) || '';
+      DIAG.lastError = msg;
+      DIAG.lastErrorCode = code;
+      DIAG.lastErrorTime = Date.now();
+      updateDiag();
+    }
+
+    function clearError(){
+      DIAG.lastError = '';
+      DIAG.lastErrorCode = '';
+      updateDiag();
+    }
+
+    function updateDiag(){
+      const grid = $("diagGrid"); if(!grid) return;
+      const elapsedLive = DIAG.listenerAttachedAt ? Math.round((Date.now()-DIAG.listenerAttachedAt)/1000)+'s' : '—';
+      const tokenAge = DIAG.tokenAgeMin || '—';
+      const lastPullMs = DIAG.lastServerMs ? (DIAG.lastServerMs + ' ms') : '—';
+      const lastSrc = DIAG.lastSource || '—';
+      const lastErr = DIAG.lastErrorCode ? `<span class="diag-err">${esc(DIAG.lastErrorCode)}</span> ${esc(DIAG.lastError)}` : '<span class="diag-ok">None</span>';
+      const ctxWarn = DIAG.orgId ? `<span class="diag-ok">${esc(DIAG.orgId)}</span>` : '<span class="diag-warn">missing</span>';
+
+      grid.innerHTML = `
+        <div class="diag-k">Auth</div><div class="diag-v">Online: <code>${navigator.onLine?'true':'false'}</code> • Token age: <code>${tokenAge}</code></div>
+        <div class="diag-k">Context</div><div class="diag-v">orgId: ${ctxWarn} • allowedIds: <code>${DIAG.allowedIdsLen}</code></div>
+        <div class="diag-k">Network</div><div class="diag-v">last enable: <code>${DIAG.lastEnableAt?new Date(DIAG.lastEnableAt).toLocaleTimeString():'—'}</code> • last disable: <code>${DIAG.lastDisableAt?new Date(DIAG.lastDisableAt).toLocaleTimeString():'—'}</code></div>
+        <div class="diag-k">Server Pull</div><div class="diag-v">count: <code>${DIAG.serverCount}</code> • time: <code>${lastPullMs}</code> • source: <code>${lastSrc}</code></div>
+        <div class="diag-k">Listener</div><div class="diag-v">attached: <code>${DIAG.listenerAttachedAt?new Date(DIAG.listenerAttachedAt).toLocaleTimeString():'—'}</code> (${elapsedLive}) • last detach: <code>${esc(DIAG.lastDetachReason||'—')}</code> • last snap count: <code>${DIAG.snapshotCount}</code></div>
+        <div class="diag-hr"></div>
+        <div class="diag-k">Last Error</div><div class="diag-v">${lastErr}</div>
+      `;
+    }
+
+    /* =================== Page data & UI =================== */
     function buildYearOptions(sel){
       sel.innerHTML = '<option value="">—</option>';
       const now = new Date().getFullYear();
@@ -398,13 +506,12 @@
       setEmptyState();
     }
 
-    /* =================== HYBRID DATA MODEL =================== */
+    /* =================== HYBRID DATA MODEL + DIAG =================== */
     let unsubList = null;
     let liveAttachedAt = 0;
     let idleTimer = 0;
     const IDLE_MS = 5 * 60 * 1000; // 5 minutes
     let firstPayload = false;
-    let lastServerRefresh = 0;
 
     // Debounce helper
     function debounce(fn, wait=200){
@@ -429,9 +536,13 @@
     function detachLive(reason='nav'){
       if (unsubList) { try{ unsubList(); }catch{} unsubList = null; }
       liveAttachedAt = 0;
-      // Optional: park the network to be extra clean; harmless if no-op.
-      _disableNetwork(DB).catch(()=>{});
-      // reason is informational; no UI required here
+      DIAG.listenerAttachedAt = 0;
+      DIAG.lastDetachReason = reason;
+      updateDiag();
+
+      // We keep your existing "park network" so we can catch it in diagnostics.
+      _disableNetwork(DB).then(()=>{ DIAG.lastDisableAt = Date.now(); updateDiag(); }).catch(()=>{});
+      log('detachLive:', reason);
     }
 
     async function attachLive(){
@@ -439,100 +550,108 @@
       const base = collection(DB,'equipment');
       const qy = query(base, where('type','==','tractor'));
       firstPayload = false;
-      liveAttachedAt = Date.now();
 
-      // Ensure network is up before attaching
-      try { await _enableNetwork(DB); } catch {}
+      try { await _enableNetwork(DB); DIAG.lastEnableAt = Date.now(); updateDiag(); } catch {}
 
       try{
+        const started = performance.now();
         unsubList = _onSnapshot(qy, (snap)=>{
-          const list=[];
-          snap.forEach(d=> list.push({id:d.id, ...d.data()}));
+          const list=[]; snap.forEach(d=>list.push({id:d.id, ...d.data()}));
           tractors = list;
           firstPayload = true;
+          DIAG.snapshotCount = list.length;
           renderList();
+          if (!liveAttachedAt){
+            liveAttachedAt = Date.now();
+            DIAG.listenerAttachedAt = liveAttachedAt;
+          }
+          log('snapshot payload', {count:list.length, ms: Math.round(performance.now()-started)});
+          updateDiag();
         }, (err)=>{
-          console.warn('Live listener error:', err);
-          toast('Live update error: ' + (err?.message || 'Unknown'), 2800);
+          setError(err);
+          warn('Live listener error:', err);
         });
       }catch(e){
-        console.warn('Live attach failed:', e);
-        toast('Live listener failed', 2000);
+        setError(e);
+        warn('Live attach failed:', e);
       }
     }
 
     async function serverPull(){
-      // Prefer server; gracefully fall back to cache-backed getDocs.
       const base = collection(DB,'equipment');
       const qy = query(base, where('type','==','tractor'));
+      try { await _enableNetwork(DB); DIAG.lastEnableAt = Date.now(); updateDiag(); } catch {}
 
-      try {
-        await _enableNetwork(DB);
-      } catch {}
-
-      let snap;
+      const t0 = performance.now();
+      let snap, source='cache';
       try{
-        if (_getDocsFromServer) snap = await _getDocsFromServer(qy);
-        else snap = await getDocs(qy); // best-effort
+        if (_getDocsFromServer){ snap = await _getDocsFromServer(qy); source='server'; }
+        else { snap = await getDocs(qy); source = (navigator.onLine?'server?':'cache'); }
+        clearError();
       }catch(e){
-        // If offline or server unreachable, try cached to at least show something.
-        console.warn('Server pull failed, trying cache:', e);
-        toast('Offline — showing cached', 2200);
-        try { snap = await getDocs(qy); } catch (e2) { throw e2; }
+        setError(e);
+        warn('Server pull failed, trying cache:', e);
+        try { snap = await getDocs(qy); source='cache'; }
+        catch(e2){ setError(e2); throw e2; }
       }
-
-      const temp = [];
-      snap.forEach(d=> temp.push({ id:d.id, ...d.data() }));
+      const temp=[]; snap.forEach(d=> temp.push({ id:d.id, ...d.data() }));
       temp.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
       tractors = temp;
+      DIAG.serverCount = temp.length;
+      DIAG.lastSource = source;
+      DIAG.lastServerMs = Math.round(performance.now()-t0);
       renderList();
-      lastServerRefresh = Date.now();
+      updateDiag();
     }
 
     async function hardReload(userInitiated){
-      // Stop any existing live listener while we reload
       detachLive('reload');
-
-      // Ensure auth/user-context are ready
       await waitForUserContextReady(5000);
 
-      // Do a hard server pull
+      timeStart('hardReload:serverPull');
       try{
         await serverPull();
         if (userInitiated) toast('Server refreshed', 1400);
       }catch(e){
-        console.warn('Hard reload failed:', e);
+        warn('Hard reload failed:', e);
         toast('Refresh failed: ' + (e?.message || 'Unknown error'), 2600);
       }
+      timeEnd('hardReload:serverPull');
 
-      // Re-attach live listener for short-lived freshness while active
       await attachLive();
-
-      // Reset idle countdown
       trackActivity();
     }
 
-    // Wait for FVUserContext.ready (auth/roles) before any Firestore reads.
+    // Wait for FVUserContext.ready (auth/roles) before reads.
     async function waitForUserContextReady(timeoutMs=5000){
       const start = Date.now();
       while (Date.now() - start < timeoutMs){
         try{
           if (window.FVUserContext && window.FVUserContext.ready){
             await window.FVUserContext.ready;
+            const ctx = window.FVUserContext.get && window.FVUserContext.get();
+            DIAG.orgId = (ctx && (ctx.orgId || ctx.org || ctx.tenantId)) || '';
+            DIAG.allowedIdsLen = (ctx && Array.isArray(ctx.allowedIds) && ctx.allowedIds.length) || 0;
+            updateDiag();
             return true;
           }
           if (window.FVUserContext && typeof window.FVUserContext.get === 'function'){
             const ctx = window.FVUserContext.get();
-            if (ctx) return true;
+            if (ctx){
+              DIAG.orgId = (ctx.orgId || ctx.org || ctx.tenantId) || '';
+              DIAG.allowedIdsLen = (Array.isArray(ctx.allowedIds) && ctx.allowedIds.length) || 0;
+              updateDiag();
+              return true;
+            }
           }
         }catch{}
         await new Promise(r=> setTimeout(r, 120));
       }
-      return false; // proceed anyway; errors surface via toast
+      updateDiag();
+      return false;
     }
 
     /* ===================== MODAL + QR ===================== */
-    function buildYearWarm(){ buildYearOptions(document.createElement('select')); }
     function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
     function waitQRReady(cb){
       let tries=0; (function tick(){
@@ -548,7 +667,16 @@
       $("btnReprint").disabled = true;
 
       const ref = doc(DB,'equipment', id);
-      const snap = await getDoc(ref); if(!snap.exists()) return;
+      let snap;
+      try{
+        snap = await getDoc(ref);
+        clearError();
+      }catch(e){
+        setError(e);
+        unlockBodyScroll();
+        return;
+      }
+      if(!snap.exists()){ unlockBodyScroll(); return; }
 
       const d = snap.data() || {};
       const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
@@ -602,7 +730,8 @@
           img.alt = "QR for Equipment Hub";
           img.hidden = false; msg.hidden = true;
           $("btnReprint").disabled = false;
-        }catch{
+        }catch(e){
+          setError(e);
           img.hidden = true; msg.hidden = false; msg.textContent = "QR render failed.";
           $("btnReprint").disabled = true;
         }
@@ -625,11 +754,17 @@
       const nm = [patch.makeName, patch.modelName].filter(Boolean).join(' ');
       patch.name = nm ? (patch.year ? `${nm} (${patch.year})` : nm) : null;
 
-      await updateDoc(ref, patch);
-      const idx = tractors.findIndex(x=>x.id===currentId);
-      if(idx>-1) tractors[idx] = { ...tractors[idx], ...patch };
-      renderList();
-      toast('Saved changes');
+      try{
+        await updateDoc(ref, patch);
+        const idx = tractors.findIndex(x=>x.id===currentId);
+        if(idx>-1) tractors[idx] = { ...tractors[idx], ...patch };
+        renderList();
+        toast('Saved changes');
+        clearError();
+      }catch(e){
+        setError(e);
+        toast('Save failed', 1800);
+      }
     }
 
     function closeModal(){
@@ -697,6 +832,25 @@
       DB = getFirestore();
     }
 
+    // Token age tracker (rough minutes since last refresh)
+    function trackTokenAge(){
+      try{
+        const auth = _getAuth();
+        if(!auth) return;
+        _onIdTokenChanged(auth, (u)=>{
+          if(!u){ DIAG.tokenAgeMin='—'; updateDiag(); return; }
+          const iatSec = (u.stsTokenManager && u.stsTokenManager.expirationTime)
+            ? (u.stsTokenManager.expirationTime - 3600*1000) / 1000 // rough
+            : null;
+          if (iatSec){
+            const min = Math.max(0, Math.round((Date.now()/1000 - iatSec)/60));
+            DIAG.tokenAgeMin = min + ' min';
+            updateDiag();
+          }
+        });
+      }catch{}
+    }
+
     (async()=>{
       await waitForReadyStack();
 
@@ -713,13 +867,34 @@
       $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
 
+      // Diagnostics controls
+      const diag = $("diag"), diagToggle = $("diagToggle");
+      const diagClose = $("diagClose"), diagCopy = $("diagCopyErr"), diagForce = $("diagForceServer"), diagVerbose = $("diagToggleVerbose");
+      diagToggle.addEventListener('click', ()=> diag.classList.toggle('open'));
+      diagClose.addEventListener('click', ()=> diag.classList.remove('open'));
+      diagCopy.addEventListener('click', ()=> {
+        const txt = (DIAG.lastErrorCode? (DIAG.lastErrorCode+': ') : '') + (DIAG.lastError||'No error');
+        navigator.clipboard && navigator.clipboard.writeText(txt).then(()=> toast('Copied')), updateDiag();
+      });
+      diagForce.addEventListener('click', ()=> hardReload(true));
+      diagVerbose.addEventListener('click', ()=>{
+        DIAG.verbose = !DIAG.verbose;
+        diagVerbose.textContent = 'Verbose logs: ' + (DIAG.verbose?'On':'Off');
+        toast('Verbose logs ' + (DIAG.verbose?'ON':'OFF'), 1200);
+      });
+      // default based on ?debug=1
+      diagVerbose.textContent = 'Verbose logs: ' + (DIAG.verbose?'On':'Off');
+
       // Auth token/user changes => do a hard server reload
       try{
         const auth = _getAuth();
         if (auth) _onIdTokenChanged(auth, ()=> { debouncedResume(); });
       }catch{}
 
-      // Lifecycle: resume => hard reload; hide => detach live (and optionally park network)
+      // Token age displays
+      trackTokenAge();
+
+      // Lifecycle
       window.addEventListener('pageshow', (e)=> { debouncedResume(); });
       document.addEventListener('visibilitychange', ()=>{
         if (document.visibilityState === 'visible') debouncedResume();
@@ -728,13 +903,19 @@
       window.addEventListener('focus', ()=> { debouncedResume(); });
       window.addEventListener('pagehide', ()=> { detachLive('pagehide'); });
 
-      // PTR contract: shell will call this; make it a true online refresh
+      // PTR contract: true online refresh + banner
       window.FVRefresh = async function(){
+        toast('PTR: server refresh', 900);
         await hardReload(true);
       };
 
+      // Network events -> show in diag
+      window.addEventListener('online', ()=> { DIAG.online = true; updateDiag(); });
+      window.addEventListener('offline', ()=> { DIAG.online = false; updateDiag(); });
+
       // Initial load (server-first), then attach live
       await hardReload(false);
+      updateDiag();
     })();
   </script>
 </body>
