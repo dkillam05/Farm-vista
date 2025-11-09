@@ -1,9 +1,9 @@
-<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE (Index-Free + Watchdog + Pageshow Restart)
+<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE (Index-Free + Watchdog + Soft Reload)
    - No Firestore composite indexes required.
    - Server query: where('type','==','tractor') only.
    - Client does status filter + sort.
    - Watchdog fallback if listener stalls.
-   - Restarts listener when returning from Hub (pageshow persisted).
+   - Soft reload: restart listener on pageshow/visibilitychange/focus.
 -->
 <!doctype html>
 <html lang="en">
@@ -308,8 +308,9 @@
     function applySearchSort(items){
       const q = $("search").value.trim().toLowerCase();
       let out = items.filter(x=>{
-        if($("filter").value==='active'   && x.status!=='active') return false;
-        if($("filter").value==='archived' && x.status!=='archived') return false;
+        const f = $("filter").value;
+        if(f==='active'   && x.status!=='active') return false;
+        if(f==='archived' && x.status!=='archived') return false;
         if(!q) return true;
         const hay = [x.name,x.makeName,x.modelName,x.year,x.serial,x.engineHours].map(v=>String(v||"").toLowerCase()).join(" ");
         return hay.includes(q);
@@ -391,13 +392,8 @@
       }
     }
 
-    // Restart the listener when returning from Hub via bfcache (iOS Safari)
-    window.addEventListener('pageshow', (e)=>{
-      const persisted = e.persisted || (performance && performance.navigation && performance.navigation.type === 2);
-      if (persisted) startListListener();
-    });
-
-    /* ===================== MODAL + QR (unchanged) ===================== */
+    /* ===================== MODAL + QR ===================== */
+    function buildYearWarm(){ buildYearOptions(document.createElement('select')); }
     function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
     function waitQRReady(cb){
       let tries=0; (function tick(){
@@ -560,9 +556,10 @@
       await ready;
       DB = getFirestore();
 
-      buildYearOptions(document.createElement('select')); // warm
-      startListListener(); // start live listener (index-free)
+      buildYearWarm();           // warm year options
+      startListListener();       // start live listener (index-free)
 
+      // UI handlers
       $("search").addEventListener('input', renderList);
       $("filter").addEventListener('change', startListListener);
       $("sort").addEventListener('change', renderList);
@@ -573,6 +570,14 @@
 
       $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
+
+      // ---------- SOFT RELOAD TRIGGERS ----------
+      // Always (re)start the listener when the page becomes active again.
+      window.addEventListener('pageshow', () => { startListListener(); });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') startListListener();
+      });
+      window.addEventListener('focus', () => { startListListener(); });
     })();
   </script>
 </body>
