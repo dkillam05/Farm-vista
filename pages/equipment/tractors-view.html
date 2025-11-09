@@ -1,14 +1,10 @@
-<!-- /Farm-vista/pages/equipment/tractors-view.html — FULL FILE (Index-Free + Watchdog + Soft Reload + UX/Toast + Safe Context + Debounce + Server Fallback)
-   - No Firestore composite indexes required.
-   - Server query: where('type','==','tractor') only.
-   - Client does status filter + sort.
-   - Watchdog fallback if listener stalls.
-   - Soft reload: restart listener on pageshow/visibilitychange/focus.
-   - NEW: Wait for FVUserContext.ready before querying.
-   - NEW: Per-page toast (no shell change).
-   - NEW: Page hook window.FVRefresh() for PTR to call.
-   - NEW: Force-network fallback path when cached-empty is suspected.
-   - NEW: Debounced re-attach to prevent rapid churn.
+<!-- /Farm-vista/pages/equipment/tractors-view.html
+     Hybrid data model: Server-first + short-lived live listener + auth/lifecycle guards + 5min idle timeout
+     - Index-free query (where('type','==','tractor')), client filters/sorts.
+     - Hard reload on load/resume/PTR uses enableNetwork + getDocsFromServer (fallback to getDocs).
+     - Live onSnapshot attaches after server render; detaches on hide/idle/PTR start; reattaches on resume.
+     - Auth token watcher re-inits data on change.
+     - Per-page toast; debounced resumes; PTR hook that truly refetches online.
 -->
 <!doctype html>
 <html lang="en">
@@ -173,7 +169,7 @@
       padding: 12px 18px;
       border-radius: 12px;
       box-shadow: 0 12px 32px rgba(0,0,0,.35);
-      z-index: 999999; /* above shell footer */
+      z-index: 999999;
       font-size: 14px;
       opacity: 0;
       pointer-events: none;
@@ -300,16 +296,27 @@
     const {
       ready,
       getFirestore, collection, getDocs, query, where,
-      doc, getDoc, updateDoc, serverTimestamp
+      doc, getDoc, updateDoc, serverTimestamp,
+      // Optional/SDK-dependent exports:
+      getDocsFromServer, enableNetwork, disableNetwork,
+      onSnapshot, getAuth, onIdTokenChanged
     } = FB;
-    const onSnapshot = FB.onSnapshot || FB.firestoreOnSnapshot || null;
-    const getDocsFromServer = FB.getDocsFromServer || null; // optional (if exported by SDK build)
+
+    // Safe fallbacks if SDK build names differ:
+    const _onSnapshot = onSnapshot || FB.firestoreOnSnapshot || null;
+    const _getDocsFromServer = getDocsFromServer || null;
+    const _enableNetwork = enableNetwork || (async ()=>{});
+    const _disableNetwork = disableNetwork || (async ()=>{});
+    const _getAuth = getAuth || (()=> (window.firebaseAuth || null));
+    const _onIdTokenChanged = onIdTokenChanged || ((auth, fn)=> {
+      try { auth && auth.onIdTokenChanged && auth.onIdTokenChanged(fn); } catch {}
+    });
 
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
 
-    /* =================== NEW #4: Local toast (per-page) =================== */
+    /* =================== Local toast (per-page) =================== */
     function toast(msg, ms=2000){
       try{
         const t = $("toast"); if(!t) return;
@@ -391,79 +398,137 @@
       setEmptyState();
     }
 
-    /* =================== INDEX-FREE LISTENER + WATCHDOG =================== */
+    /* =================== HYBRID DATA MODEL =================== */
     let unsubList = null;
+    let liveAttachedAt = 0;
+    let idleTimer = 0;
+    const IDLE_MS = 5 * 60 * 1000; // 5 minutes
     let firstPayload = false;
+    let lastServerRefresh = 0;
 
-    async function runFallback(forceNetwork=false){
-      try{
-        let snap;
-        if (forceNetwork && typeof getDocsFromServer === 'function'){
-          snap = await getDocsFromServer(query(collection(DB,'equipment'), where('type','==','tractor')));
-        } else {
-          snap = await getDocs(query(collection(DB,'equipment'), where('type','==','tractor')));
-        }
-        const temp=[]; snap.forEach(d=>temp.push({id:d.id, ...d.data()}));
-        temp.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-        tractors = temp; renderList();
-        firstPayload = true;
-        if (forceNetwork) { toast('Data refreshed from server'); }
-      }catch(e){
-        console.warn('fallback getDocs failed:', e);
-        toast('Refresh failed: ' + (e && e.message ? e.message : 'Unknown error'), 2600);
-      }
-    }
-
-    // NEW #5: Debounce helper
-    function debounce(fn, wait=180){
+    // Debounce helper
+    function debounce(fn, wait=200){
       let t=0; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), wait); };
     }
+    const debouncedResume = debounce(()=> hardReload(false), 250);
 
-    // reattach (debounced) used by lifecycle & PTR hook
-    const debouncedStart = debounce(()=> startListListener(true), 180);
+    function trackActivity(){
+      const bump = ()=> {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(stopLiveForIdle, IDLE_MS);
+      };
+      ['pointerdown','keydown','touchstart','wheel'].forEach(ev=> window.addEventListener(ev, bump, { passive:true }));
+      bump();
+    }
 
-    function startListListener(isUserInitiated=false){
-      if (unsubList) { try{ unsubList(); }catch{} unsubList=null; }
-      firstPayload = false;
+    function stopLiveForIdle(){
+      detachLive('idle');
+      toast('Live updates paused (idle)', 2000);
+    }
 
+    function detachLive(reason='nav'){
+      if (unsubList) { try{ unsubList(); }catch{} unsubList = null; }
+      liveAttachedAt = 0;
+      // Optional: park the network to be extra clean; harmless if no-op.
+      _disableNetwork(DB).catch(()=>{});
+      // reason is informational; no UI required here
+    }
+
+    async function attachLive(){
+      if (!_onSnapshot) return; // older build fallback: live not available
       const base = collection(DB,'equipment');
-      const qy = query(base, where('type','==','tractor')); // <— index-free
+      const qy = query(base, where('type','==','tractor'));
+      firstPayload = false;
+      liveAttachedAt = Date.now();
 
-      const watchdog = setTimeout(async ()=>{
-        if(!firstPayload){
-          // If the live listener hasn't delivered anything, try a forced server read once.
-          await runFallback(true);
-        }
-      }, 3500);
+      // Ensure network is up before attaching
+      try { await _enableNetwork(DB); } catch {}
 
-      if (typeof onSnapshot === 'function'){
-        try{
-          unsubList = onSnapshot(qy, (snap)=>{
-            clearTimeout(watchdog);
-            // If we suspect cached-empty on user-initiated refresh, try server once.
-            if (isUserInitiated && snap.metadata && snap.metadata.fromCache && snap.size === 0){
-              runFallback(true); // don't return; still allow rendering if server fails
-            }
-            const list=[]; snap.forEach(d=>list.push({id:d.id, ...d.data()}));
-            tractors = list;
-            firstPayload = true;
-            renderList();
-          }, (err)=>{
-            clearTimeout(watchdog);
-            console.warn('snapshot error (index-free):', err);
-            toast('Live update error: ' + (err && err.message ? err.message : 'Unknown'), 2800);
-            runFallback(true);
-          });
-        }catch(e){
-          clearTimeout(watchdog);
-          console.warn('onSnapshot threw (index-free):', e);
-          toast('Listener failed: ' + (e && e.message ? e.message : 'Unknown'), 2800);
-          runFallback(true);
-        }
-      }else{
-        clearTimeout(watchdog);
-        runFallback(true);
+      try{
+        unsubList = _onSnapshot(qy, (snap)=>{
+          const list=[];
+          snap.forEach(d=> list.push({id:d.id, ...d.data()}));
+          tractors = list;
+          firstPayload = true;
+          renderList();
+        }, (err)=>{
+          console.warn('Live listener error:', err);
+          toast('Live update error: ' + (err?.message || 'Unknown'), 2800);
+        });
+      }catch(e){
+        console.warn('Live attach failed:', e);
+        toast('Live listener failed', 2000);
       }
+    }
+
+    async function serverPull(){
+      // Prefer server; gracefully fall back to cache-backed getDocs.
+      const base = collection(DB,'equipment');
+      const qy = query(base, where('type','==','tractor'));
+
+      try {
+        await _enableNetwork(DB);
+      } catch {}
+
+      let snap;
+      try{
+        if (_getDocsFromServer) snap = await _getDocsFromServer(qy);
+        else snap = await getDocs(qy); // best-effort
+      }catch(e){
+        // If offline or server unreachable, try cached to at least show something.
+        console.warn('Server pull failed, trying cache:', e);
+        toast('Offline — showing cached', 2200);
+        try { snap = await getDocs(qy); } catch (e2) { throw e2; }
+      }
+
+      const temp = [];
+      snap.forEach(d=> temp.push({ id:d.id, ...d.data() }));
+      temp.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
+      tractors = temp;
+      renderList();
+      lastServerRefresh = Date.now();
+    }
+
+    async function hardReload(userInitiated){
+      // Stop any existing live listener while we reload
+      detachLive('reload');
+
+      // Ensure auth/user-context are ready
+      await waitForUserContextReady(5000);
+
+      // Do a hard server pull
+      try{
+        await serverPull();
+        if (userInitiated) toast('Server refreshed', 1400);
+      }catch(e){
+        console.warn('Hard reload failed:', e);
+        toast('Refresh failed: ' + (e?.message || 'Unknown error'), 2600);
+      }
+
+      // Re-attach live listener for short-lived freshness while active
+      await attachLive();
+
+      // Reset idle countdown
+      trackActivity();
+    }
+
+    // Wait for FVUserContext.ready (auth/roles) before any Firestore reads.
+    async function waitForUserContextReady(timeoutMs=5000){
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs){
+        try{
+          if (window.FVUserContext && window.FVUserContext.ready){
+            await window.FVUserContext.ready;
+            return true;
+          }
+          if (window.FVUserContext && typeof window.FVUserContext.get === 'function'){
+            const ctx = window.FVUserContext.get();
+            if (ctx) return true;
+          }
+        }catch{}
+        await new Promise(r=> setTimeout(r, 120));
+      }
+      return false; // proceed anyway; errors surface via toast
     }
 
     /* ===================== MODAL + QR ===================== */
@@ -626,69 +691,50 @@
       closeAfterPrint(w);
     }
 
-    /* ============================== STARTUP ============================== */
-
-    // NEW #1: Wait for FVUserContext.ready (auth/roles) before any Firestore reads.
-    async function waitForUserContextReady(timeoutMs=5000){
-      const start = Date.now();
-      while (Date.now() - start < timeoutMs){
-        try{
-          if (window.FVUserContext && window.FVUserContext.ready){
-            await window.FVUserContext.ready;
-            return true;
-          }
-          // If there is a get() returning something truthy, also accept.
-          if (window.FVUserContext && typeof window.FVUserContext.get === 'function'){
-            const ctx = window.FVUserContext.get();
-            if (ctx) return true;
-          }
-        }catch{}
-        await new Promise(r=> setTimeout(r, 120));
-      }
-      // Not fatal; just proceed and let error paths surface visibly
-      return false;
+    /* ============================== STARTUP & LIFECYCLE ============================== */
+    async function waitForReadyStack(){
+      await ready;
+      DB = getFirestore();
     }
 
     (async()=>{
-      await ready;
-      // ensure user context is live (NEW #1)
-      const ctxOk = await waitForUserContextReady(5000);
-      if (!ctxOk) {
-        // Proceed, but warn visibly so we can correlate if a refresh fails.
-        toast('User context not fully ready — attempting load', 2400);
-      }
+      await waitForReadyStack();
 
-      DB = getFirestore();
-
-      buildYearWarm();           // warm year options
-      startListListener(false);  // start live listener (index-free)
+      // Warm UI pieces
+      (function buildYearWarm(){ buildYearOptions(document.createElement('select')); })();
 
       // UI handlers
       $("search").addEventListener('input', renderList);
-      $("filter").addEventListener('change', ()=> startListListener(false));
+      $("filter").addEventListener('change', ()=> hardReload(false));
       $("sort").addEventListener('change', renderList);
-
       $("btnClose").addEventListener('click', closeModal);
       $("btnSave").addEventListener('click', async ()=>{ await saveModal(); closeModal(); });
       $("btnReprint").addEventListener('click', reprintQR);
-
       $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
 
-      // ---------- SOFT RELOAD TRIGGERS ----------
-      // Debounced to avoid double/triple attach on iOS PWA resume.
-      window.addEventListener('pageshow', () => { debouncedStart(); });
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') debouncedStart();
-      });
-      window.addEventListener('focus', () => { debouncedStart(); });
+      // Auth token/user changes => do a hard server reload
+      try{
+        const auth = _getAuth();
+        if (auth) _onIdTokenChanged(auth, ()=> { debouncedResume(); });
+      }catch{}
 
-      // NEW #2: Page-level PTR refresh hook so the shell can trigger real data reloads.
+      // Lifecycle: resume => hard reload; hide => detach live (and optionally park network)
+      window.addEventListener('pageshow', (e)=> { debouncedResume(); });
+      document.addEventListener('visibilitychange', ()=>{
+        if (document.visibilityState === 'visible') debouncedResume();
+        else if (document.visibilityState === 'hidden') detachLive('hidden');
+      });
+      window.addEventListener('focus', ()=> { debouncedResume(); });
+      window.addEventListener('pagehide', ()=> { detachLive('pagehide'); });
+
+      // PTR contract: shell will call this; make it a true online refresh
       window.FVRefresh = async function(){
-        // Re-check context quickly then do a user-initiated start (enables server-fallback branch)
-        await waitForUserContextReady(1800);
-        startListListener(true);
+        await hardReload(true);
       };
+
+      // Initial load (server-first), then attach live
+      await hardReload(false);
     })();
   </script>
 </body>
