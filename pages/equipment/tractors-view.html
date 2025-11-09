@@ -1,11 +1,15 @@
-<!-- /Farm-vista/pages/equipment/tractors-view.html
-     Hybrid data model + orgId gate on resume:
-     - Index-free query (where('type','==','tractor')), client filters/sorts.
-     - Server-first hard reload; short-lived live listener while active.
-     - Strict gate: no reads until FVUserContext.orgId is available.
-     - Re-run on FVUserContext.onChange (org swap/arrival).
-     - PTR calls window.FVRefresh() => true online refresh.
--->
+<!-- =========================================================
+/Farm-vista/pages/equipment/tractors-view.html — FULL FILE
+Hybrid data model + Diagnostics (no trimming)
+- Index-free query: where('type','==','tractor'); client filters/sorts.
+- Server-first refresh (enableNetwork + getDocsFromServer fallback).
+- Short-lived live onSnapshot while page is active; detaches on hide/idle/PTR.
+- Robust auth/user-context wait (requires orgId + allowedIds).
+- Idle timeout (5 min) with resume debounce.
+- PTR hook that truly refreshes online (window.FVRefresh).
+- “Return from Hub” safety: detect back/forward nav & force hard reload.
+- Filter/query-param sanitizers; page-local toast; diagnostics overlay.
+========================================================= -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -155,27 +159,51 @@
     .qr-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
     .qr-empty{ font-size:13px; color:var(--muted,#67706B); }
 
-    /* ===== page-local toast ===== */
+    /* ===== Page-local toast ===== */
     .local-toast{
       position: fixed;
       left: 50%;
       bottom: calc(var(--ftr-h, 14px) + env(safe-area-inset-bottom, 0px) + 16px);
       transform: translateX(-50%) translateY(8px);
-      background: #111; color: #fff; padding: 12px 18px;
-      border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.35);
-      z-index: 999999; font-size: 14px; opacity: 0; pointer-events: none;
-      transition: opacity .18s ease, transform .18s ease; white-space: nowrap; max-width: 92vw; text-overflow: ellipsis; overflow: hidden;
+      background: #111;
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.35);
+      z-index: 999999;
+      font-size: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+      white-space: nowrap;
+      max-width: 92vw;
+      text-overflow: ellipsis;
+      overflow: hidden;
     }
-    .local-toast.show{ opacity: 1; transform: translateX(-50%) translateY(0); }
+    .local-toast.show{
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
 
-    /* ===== diagnostics ===== */
-    .diag-toggle{ position:fixed; right:10px; bottom:calc(58px + env(safe-area-inset-bottom,0px)); z-index:9999999; }
-    .diag{ position:fixed; left:10px; right:10px; bottom:10px; background:#fff; color:#111; border:1px solid #e0e4e0; border-radius:14px; padding:10px; box-shadow:0 14px 30px rgba(0,0,0,.25); z-index:9999999; }
-    .diag h4{ margin:8px 0 6px 0; color:#2F6C3C }
-    .diag .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; border:0; padding:0; }
-    .pill{ padding:2px 6px; border:1px solid #e0e4e0; border-radius:10px; background:#f7faf7; }
-    .diag .btns{ display:flex; gap:10px; margin-top:8px; flex-wrap:wrap; }
-    .diag button{ padding:10px 14px; border-radius:12px; border:1px solid #e0e4e0; background:#fff; font-weight:800; }
+    /* ===== Diagnostics panel ===== */
+    .diag{
+      position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 9999999;
+      background: #fff; color: #0f2314; border: 1px solid #dfe5e0; border-radius: 14px;
+      box-shadow: 0 22px 60px rgba(0,0,0,.28);
+      padding: 14px; font: 600 14px/1.25 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      display: none;
+    }
+    .diag.show{ display:block; }
+    .diag h4{ margin:6px 0 8px 0; color:#215b31 }
+    .diag .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .diag code, .diag .pill{
+      background:#eef2ee; border:1px solid #dde5dd; border-radius:10px; padding:2px 6px; font-weight:800;
+    }
+    .diag .btns{ display:flex; gap:12px; margin-top:10px; flex-wrap:wrap; }
+    .diag button{
+      padding:10px 14px;border-radius:12px;border:1px solid #cfd8d0; background:#f7faf7; font-weight:800; cursor:pointer;
+    }
+    .diag .close{ float:right; }
   </style>
 </head>
 <body>
@@ -278,29 +306,37 @@
     </div>
   </div>
 
-  <!-- Page-local toast + diagnostics -->
+  <!-- Page-local toast -->
   <div id="toast" class="local-toast" aria-live="polite" aria-atomic="true"></div>
-  <button id="diagToggle" class="diag-toggle btn">Diagnostics</button>
-  <div id="diag" class="diag" hidden>
+
+  <!-- Diagnostics overlay (toggle with long-press page title or URL param diag=1) -->
+  <div id="diag" class="diag" role="dialog" aria-label="Diagnostics">
+    <button class="close btn" id="diagClose" type="button">Close</button>
     <h4>Auth</h4>
-    <div class="row">Online: <span id="dOnline" class="pill">–</span> • Token age: <span id="dTokAge" class="pill">–</span></div>
+    <div class="row">Online: <span id="dOnline" class="pill">?</span> • Token age: <span id="dTokAge" class="pill">-</span></div>
+
     <h4>Context</h4>
-    <div class="row">orgId: <span id="dOrg" class="pill">–</span> • allowedIds: <span id="dAllowed" class="pill">–</span></div>
+    <div class="row">orgId: <span id="dOrg" class="pill">?</span> • allowedIds: <span id="dAllow" class="pill">0</span></div>
+
     <h4>Network</h4>
-    <div class="row">last enable: <span id="dEn" class="pill">–</span> • last disable: <span id="dDis" class="pill">–</span></div>
+    <div class="row">last enable: <span id="dEn" class="pill">-</span> • last disable: <span id="dDis" class="pill">-</span></div>
+
     <h4>Server Pull</h4>
-    <div class="row">count: <span id="dCnt" class="pill">0</span> • time: <span id="dTime" class="pill">–</span> • source: <span id="dSrc" class="pill">–</span></div>
+    <div class="row">count: <span id="dSpCount" class="pill">0</span> • time: <span id="dSpMs" class="pill">-</span> • source: <span id="dSpSrc" class="pill">server?</span></div>
+
     <h4>Listener</h4>
-    <div class="row">attached: <span id="dAtt" class="pill">–</span> • last detach: <span id="dLd" class="pill">–</span> • last snap count: <span id="dSnap" class="pill">0</span></div>
+    <div class="row">attached: <span id="dAttached" class="pill">-</span> • last detach: <span id="dDetach" class="pill">-</span> • last snap count: <span id="dSnap" class="pill">0</span></div>
+
     <h4>Filter</h4>
-    <div class="row">filter=<span id="dFilter" class="pill">active</span> • search="<span id="dSearch" class="pill"></span>" • pre=<span id="dPre" class="pill">0</span> → post=<span id="dPost" class="pill">0</span></div>
+    <div class="row">filter= <span id="dFilter" class="pill">active</span> • search="<span id="dSearch"></span>" • pre=<span id="dPre" class="pill">0</span> → post=<span id="dPost" class="pill">0</span></div>
+
     <h4>Last Error</h4>
     <div class="row"><span id="dErr">None</span></div>
+
     <div class="btns">
-      <button id="btnCopyErr">Copy last error</button>
-      <button id="btnForce">Force server pull</button>
-      <button id="btnVerbose">Verbose logs: Off</button>
-      <button id="btnDiagClose">Close</button>
+      <button id="btnCopyErr" type="button">Copy last error</button>
+      <button id="btnForcePull" type="button">Force server pull</button>
+      <button id="btnVerbose" type="button" aria-pressed="false">Verbose logs: Off</button>
     </div>
   </div>
 
@@ -317,7 +353,7 @@
       onSnapshot, getAuth, onIdTokenChanged
     } = FB;
 
-    // Fallback aliases if build names differ
+    // ---------- SDK fallback guards ----------
     const _onSnapshot = onSnapshot || FB.firestoreOnSnapshot || null;
     const _getDocsFromServer = getDocsFromServer || null;
     const _enableNetwork = enableNetwork || (async ()=>{});
@@ -325,69 +361,83 @@
     const _getAuth = getAuth || (()=> (window.firebaseAuth || null));
     const _onIdTokenChanged = onIdTokenChanged || ((auth, fn)=>{ try{ auth && auth.onIdTokenChanged && auth.onIdTokenChanged(fn); }catch{} });
 
+    // ---------- tiny utils ----------
     const $ = id => document.getElementById(id);
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]}));
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
     const nowHHMMSS = ()=> new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit', second:'2-digit'});
 
-    /* ===== local toast ===== */
-    function toast(msg, ms=1600){
-      try{ const t=$("toast"); t.textContent=msg||''; t.classList.add('show'); clearTimeout(toast._tt); toast._tt=setTimeout(()=>t.classList.remove('show'), ms); }catch{}
+    // ---------- toast ----------
+    function toast(msg, ms=2000){
+      try{
+        const t = $("toast"); if(!t) return;
+        t.textContent = msg || '';
+        t.classList.add('show');
+        clearTimeout(toast._tt);
+        toast._tt = setTimeout(()=> t.classList.remove('show'), ms);
+      }catch{}
     }
 
-    /* ===== diagnostics helpers ===== */
-    let LAST_ERR = null, VERBOSE = false;
-    function setDiag(id, v){ const el=$(id); if(el) el.textContent = v; }
-    function bumpDiagFilter(pre, post){
-      setDiag('dFilter', $('filter').value); setDiag('dSearch', $('search').value||'');
-      setDiag('dPre', pre); setDiag('dPost', post);
-    }
-
+    // ---------- year select ----------
     function buildYearOptions(sel){
       sel.innerHTML = '<option value="">—</option>';
-      const Y = new Date().getFullYear();
-      for(let y=Y;y>=1980;y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
+      const now = new Date().getFullYear();
+      for(let y=now;y>=1980;y--){
+        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
+      }
     }
+    function buildYearWarm(){ buildYearOptions(document.createElement('select')); }
+    function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
 
-    const hubUrl = (id, token)=> `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
-    const smartLaunch = (absTo)=>{ const u=new URL(location.origin + '/Farm-vista/launch.html'); u.searchParams.set('to', absTo); return u.href; };
+    // ---------- hub + smart launch ----------
+    const hubUrl = (id, token) =>
+      `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
+    const smartLaunch = (absTo) => {
+      const u = new URL(location.origin + '/Farm-vista/launch.html'); u.searchParams.set('to', absTo); return u.href;
+    };
 
+    // ---------- state ----------
     let DB, tractors = [];
     let currentId = null, currentSmartLink = null, currentQRImageUrl = null;
 
-    /* ===== Body scroll lock ===== */
+    // modal scroll lock
     let __scrollY = 0;
     function lockBodyScroll(){ __scrollY = window.scrollY||0; document.body.classList.add('modal-open'); document.body.style.top = `-${__scrollY}px`; }
     function unlockBodyScroll(){ document.body.classList.remove('modal-open'); document.body.style.top=''; window.scrollTo(0, __scrollY||0); __scrollY=0; }
 
-    /* ===== Empty state + render ===== */
-    function setEmptyState(){ const has = $("rows").children.length > 0; $("rowsEmpty").style.display = has ? "none" : "block"; }
+    // ---------- render pipeline ----------
+    function setEmptyState() {
+      const rows = $("rows");
+      const empty = $("rowsEmpty");
+      const has = rows.children.length > 0;
+      empty.style.display = has ? "none" : "block";
+    }
     function applySearchSort(items){
-      const q = $("search").value.trim().toLowerCase(); const f = $("filter").value;
+      const q = $("search").value.trim().toLowerCase();
       let out = items.filter(x=>{
-        const status = String(x.status||'active').toLowerCase();
-        if (f==='active'   && status!=='active') return false;
-        if (f==='archived' && status!=='archived') return false;
-        if (!q) return true;
+        const f = $("filter").value;
+        if(f==='active'   && x.status!=='active') return false;
+        if(f==='archived' && x.status!=='archived') return false;
+        if(!q) return true;
         const hay = [x.name,x.makeName,x.modelName,x.year,x.serial,x.engineHours].map(v=>String(v||"").toLowerCase()).join(" ");
         return hay.includes(q);
       });
-      const pre = out.length;
       const sort = $("sort").value;
       if(sort==='name') out.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
       else if(sort==='year') out.sort((a,b)=>(b.year||0)-(a.year||0));
-      else if(sort==='hours') out.sort((a,b)=>(Number(b.engineHours||0)-Number(a.engineHours||0)));
+      else if(sort==='hours') out.sort((a,b)=>(Number(b.engineHours||0) - Number(a.engineHours||0)));
       else if(sort==='created') out.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
-      bumpDiagFilter(items.length, out.length);
       return out;
     }
     function renderList(){
-      const rows = $("rows"); rows.innerHTML="";
+      const rows = $("rows"); rows.innerHTML = "";
+      const pre = tractors.length;
       const data = applySearchSort(tractors);
       for(const x of data){
-        const row=document.createElement('div'); row.className='row'; row.tabIndex=0; row.dataset.id=x.id;
-        const name=x.name || [x.makeName,x.modelName].filter(Boolean).join(' ');
-        const makeModel=[x.makeName,x.modelName].filter(Boolean).join(' ');
+        const row = document.createElement('div');
+        row.className='row'; row.tabIndex=0; row.dataset.id = x.id;
+        const name = x.name || [x.makeName, x.modelName].filter(Boolean).join(' ');
+        const makeModel = [x.makeName, x.modelName].filter(Boolean).join(' ');
         row.innerHTML = `
           <div><strong>${esc(name||'—')}</strong></div>
           <div>${esc(makeModel||'—')}${x.year?` • ${esc(x.year)}`:''}</div>
@@ -395,160 +445,390 @@
           <div>${esc(fmtDate(x.createdAt))}</div>
           <div class="mobile-line">${esc(makeModel||'—')} ${x.year?`• ${esc(x.year)}`:''} • ${esc(x.status||'active')} • ${esc(fmtDate(x.createdAt))}</div>
         `;
-        const open=()=>openModal(x.id);
+        const open = ()=> openModal(x.id);
         row.addEventListener('click', open);
-        row.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' ') { e.preventDefault(); open(); }});
+        row.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); open(); }});
         rows.appendChild(row);
       }
       setEmptyState();
-      setDiag('dSnap', String(data.length));
+      // diag
+      $("#dPre").textContent = String(pre);
+      $("#dPost").textContent = String(data.length);
+      $("#dFilter").textContent = $("filter").value;
+      $("#dSearch").textContent = $("search").value;
     }
 
-    /* ===== HYBRID DATA MODEL + ORG GATE ===== */
-    let unsubList = null, liveAttachedAt = 0, idleTimer = 0, firstPayload = false, lastServerRefresh = 0;
-    const IDLE_MS = 5*60*1000;
+    // ---------- HYBRID DATA MODEL ----------
+    let unsubList = null;
+    let liveAttachedAt = 0;
+    let idleTimer = 0;
+    const IDLE_MS = 5 * 60 * 1000; // 5 minutes
+    let firstPayload = false;
+    let lastServerRefresh = 0;
+    let lastError = null;
+    let lastDetachReason = '-';
+    let serverPullCount = 0;
+    let verbose = false;
 
-    const debounce = (fn, wait=220)=>{ let t=0; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; };
+    function log(...args){ if(verbose) console.log('[TRACTORS]', ...args); }
+
+    // Debounce helper
+    function debounce(fn, wait=200){
+      let t=0; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), wait); };
+    }
     const debouncedResume = debounce(()=> hardReload(false), 250);
 
-    function getCtx(){ try{ return (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null; }catch{return null;} }
-    function ctxOrgId(){ const c=getCtx(); return c && (c.orgId || c.orgID || c.organizationId) || null; }
-
-    async function waitForOrgId(timeoutMs=5000){
-      const start=Date.now();
-      while(Date.now()-start < timeoutMs){
-        const oid = ctxOrgId();
-        if (oid) return oid;
-        await new Promise(r=> setTimeout(r, 120));
-      }
-      return null;
-    }
-
     function trackActivity(){
-      const bump = ()=>{ clearTimeout(idleTimer); idleTimer=setTimeout(stopLiveForIdle, IDLE_MS); };
+      const bump = ()=> {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(stopLiveForIdle, IDLE_MS);
+      };
       ['pointerdown','keydown','touchstart','wheel'].forEach(ev=> window.addEventListener(ev, bump, { passive:true }));
       bump();
     }
-    function stopLiveForIdle(){ detachLive('idle'); toast('Live updates paused (idle)', 1200); }
-    function detachLive(reason){
-      if (unsubList){ try{unsubList();}catch{} unsubList=null; }
-      liveAttachedAt=0;
+
+    function stopLiveForIdle(){
+      detachLive('idle');
+      toast('Live updates paused (idle)', 2000);
+    }
+
+    function detachLive(reason='nav'){
+      if (unsubList) { try{ unsubList(); }catch{} unsubList = null; }
+      liveAttachedAt = 0;
+      lastDetachReason = reason;
       try{ _disableNetwork(DB); }catch{}
-      if(VERBOSE) console.log('[tractors] detachLive:', reason);
-      setDiag('dLd', reason||'');
+      // diag
+      $("#dDetach").textContent = reason || '-';
     }
 
     async function attachLive(){
       if (!_onSnapshot) return;
-      const oid = ctxOrgId(); if(!oid){ if(VERBOSE) console.log('[tractors] attachLive blocked — no orgId'); return; }
-      try{ await _enableNetwork(DB); }catch{}
-      const qy = query(collection(DB,'equipment'), where('type','==','tractor'));
-      firstPayload=false; liveAttachedAt=Date.now();
-      setDiag('dAtt', new Date().toLocaleTimeString());
-      unsubList = _onSnapshot(qy, (snap)=>{
-        const list=[]; snap.forEach(d=> list.push({id:d.id, ...d.data()}));
-        tractors=list; firstPayload=true; renderList();
-      }, (err)=>{ LAST_ERR=err; setDiag('dErr', (err&&err.message)||'error'); toast('Live update error', 1400); });
+      const base = collection(DB,'equipment');
+      const qy = query(base, where('type','==','tractor'));
+      firstPayload = false;
+      liveAttachedAt = Date.now();
+
+      try { await _enableNetwork(DB); } catch {}
+      const attachedAtStr = new Date().toLocaleTimeString();
+
+      try{
+        unsubList = _onSnapshot(qy, (snap)=>{
+          const list=[]; snap.forEach(d=> list.push({id:d.id, ...d.data()}));
+          tractors = list;
+          firstPayload = true;
+          $("#dSnap").textContent = String(list.length);
+          $("#dAttached").textContent = attachedAtStr + ' (' + Math.round((Date.now()-liveAttachedAt)/1000) + 's)';
+          renderList();
+        }, (err)=>{
+          lastError = err; $("#dErr").textContent = (err?.message || String(err));
+          console.warn('Live listener error:', err);
+          toast('Live update error', 1800);
+        });
+      }catch(e){
+        lastError = e; $("#dErr").textContent = (e?.message || String(e));
+        console.warn('Live attach failed:', e);
+        toast('Live listener failed', 1800);
+      }
     }
 
     async function serverPull(){
-      const start=performance.now();
-      const qy = query(collection(DB,'equipment'), where('type','==','tractor'));
-      try{ await _enableNetwork(DB); }catch{}
-      let snap;
+      const base = collection(DB,'equipment');
+      const qy = query(base, where('type','==','tractor'));
+
+      try { await _enableNetwork(DB); } catch {}
+      const t0 = performance.now();
+      let snap, src = 'server?';
       try{
-        snap = _getDocsFromServer ? await _getDocsFromServer(qy) : await getDocs(qy);
-        setDiag('dSrc','server?');
+        if (_getDocsFromServer){ snap = await _getDocsFromServer(qy); src = 'server'; }
+        else { snap = await getDocs(qy); src = 'best-effort'; }
       }catch(e){
-        LAST_ERR=e; setDiag('dErr', (e&&e.message)||'error');
-        if(VERBOSE) console.warn('[tractors] server pull failed, cache fallback:', e);
-        snap = await getDocs(qy); setDiag('dSrc','cache');
+        console.warn('Server pull failed, trying cache:', e);
+        lastError = e; $("#dErr").textContent = (e?.message || String(e));
+        toast('Offline — showing cached', 2200);
+        try { snap = await getDocs(qy); src='cache'; } catch (e2) { lastError=e2; $("#dErr").textContent=(e2?.message||String(e2)); throw e2; }
       }
-      const arr=[]; snap.forEach(d=> arr.push({id:d.id, ...d.data()}));
-      arr.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
-      tractors=arr; renderList();
-      lastServerRefresh=Date.now();
-      setDiag('dCnt', String(arr.length));
-      setDiag('dTime', Math.round(performance.now()-start)+' ms');
+
+      const temp = [];
+      snap.forEach(d=> temp.push({ id:d.id, ...d.data() }));
+      temp.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
+      tractors = temp;
+      renderList();
+
+      const ms = Math.max(1, Math.round(performance.now()-t0));
+      lastServerRefresh = Date.now(); serverPullCount++;
+      // diag
+      $("#dSpCount").textContent = String(serverPullCount);
+      $("#dSpMs").textContent = ms + ' ms';
+      $("#dSpSrc").textContent = src;
+    }
+
+    // Wait for FVUserContext (with orgId + allowedIds)
+    async function waitForUserContextReady(timeoutMs=7000){
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs){
+        try{
+          if (window.FVUserContext && window.FVUserContext.ready){
+            await window.FVUserContext.ready;
+          }
+          const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+          const orgId = ctx && (ctx.orgId || ctx.organizationId);
+          const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+          $("#dOrg").textContent = orgId ? String(orgId) : 'missing';
+          $("#dAllow").textContent = String(allowedIds.length);
+          if (orgId && allowedIds.length > 0) return true;
+        }catch{}
+        await new Promise(r=> setTimeout(r, 150));
+      }
+      return false;
     }
 
     async function hardReload(userInitiated){
-      const oid = await waitForOrgId(4000);
-      setDiag('dOrg', oid ? (String(oid).slice(0,8)+'…') : 'missing');
-      if (!oid){
-        toast('Waiting for account context…', 900);
-        return; // onChange below will call us again when orgId appears
-      }
+      log('hardReload', { userInitiated });
+
+      // Stop any existing live listener
       detachLive('reload');
-      try{ await serverPull(); if(userInitiated) toast('Server refreshed', 900); }catch(e){ LAST_ERR=e; setDiag('dErr',(e&&e.message)||'error'); toast('Refresh failed', 1200); }
+
+      // Make sure auth + user context are ready
+      await ready;
+      DB = getFirestore();
+
+      // Online flag + token age
+      try{
+        const auth = _getAuth();
+        const u = auth && auth.currentUser;
+        $("#dOnline").textContent = String(!!navigator.onLine);
+        const ageMin = u && u.stsTokenManager && u.stsTokenManager.expirationTime
+          ? Math.max(0, Math.round((Date.now() - (u.stsTokenManager.lastRefreshAt||Date.now()))/60000))
+          : '-';
+        $("#dTokAge").textContent = String(ageMin) + ' min';
+      }catch{}
+
+      // Require FVUserContext (orgId/allowedIds) to avoid “missing” state
+      const ctxReady = await waitForUserContextReady(7000);
+      if (!ctxReady){
+        toast('Waiting for account context…', 1200);
+      }
+
+      try{
+        await serverPull();
+        if (userInitiated) toast('Server refreshed', 1200);
+      }catch(e){
+        lastError = e; $("#dErr").textContent = (e?.message || String(e));
+        toast('Refresh failed', 2000);
+      }
+
       await attachLive();
       trackActivity();
     }
 
-    /* ===== MODAL + QR (unchanged) ===== */
-    function buildYearWarm(){ buildYearOptions(document.createElement('select')); }
-    function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
-    function waitQRReady(cb){ let tries=0;(function t(){ if(window.__qrReady&&window.QRCode) cb(); else if(tries++<200) setTimeout(t,50); })(); }
+    // ---------- Modal + QR ----------
+    function waitQRReady(cb){
+      let tries=0; (function tick(){
+        if (window.__qrReady && window.QRCode) cb();
+        else if (tries++ < 200) setTimeout(tick,50);
+      })();
+    }
     async function openModal(id){
       lockBodyScroll();
-      currentId=id; currentSmartLink=null; currentQRImageUrl=null; $("btnReprint").disabled=true;
-      const ref=doc(DB,'equipment', id); const snap=await getDoc(ref); if(!snap.exists()) return;
-      const d=snap.data()||{}; const name=d.name||[d.makeName,d.modelName].filter(Boolean).join(' ');
+      currentId = id;
+      currentSmartLink = null;
+      currentQRImageUrl = null;
+      $("btnReprint").disabled = true;
+
+      const ref = doc(DB,'equipment', id);
+      const snap = await getDoc(ref); if(!snap.exists()) return;
+
+      const d = snap.data() || {};
+      const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
       $("mdTitle").textContent = name || `Unit ${id.slice(0,6)}`;
-      $("dwMake").value=d.makeName||''; $("dwModel").value=d.modelName||''; yearOptions($("dwYear"), d.year||'');
-      $("dwSerial").value=d.serial||''; $("dwHours").value=(d.engineHours!=null)?d.engineHours:''; $("dwStatus").value=d.status||'active'; $("dwNotes").value=d.notes||'';
-      const token=d.qr?.token||null; const savedImg=d.qr?.image?.url||null;
-      const hub = token ? hubUrl(id, token) : null; const openHubBtn=$("btnOpenHub"); openHubBtn.href=hub||'#'; openHubBtn.target="_self"; openHubBtn.rel="";
-      $("modal").classList.add("show"); $("modal").setAttribute('aria-hidden','false');
-      const img=$("qrSmall"), msg=$("qrMsg");
-      if(savedImg){ currentQRImageUrl=savedImg; img.src=savedImg; img.alt="Saved QR for Equipment Hub"; img.hidden=false; msg.hidden=true; $("btnReprint").disabled=false; return; }
-      if(!token){ img.hidden=true; msg.hidden=false; msg.textContent="No QR yet — generate one on the Add/Edit page and save."; $("btnReprint").disabled=true; return; }
-      const smart = smartLaunch(hub); currentSmartLink=smart; img.hidden=true; msg.hidden=false; msg.textContent="Generating…";
-      waitQRReady(()=>{ try{ const holder=document.createElement('div'); new window.QRCode(holder,{text:smart,width:180,height:180,correctLevel:window.QRCode.CorrectLevel.H,colorDark:"#000",colorLight:"#fff"}); const node=holder.querySelector('canvas')||holder.querySelector('img'); img.src=(node.tagName==='CANVAS')?node.toDataURL('image/png'):node.src; img.alt="QR for Equipment Hub"; img.hidden=false; msg.hidden=true; $("btnReprint").disabled=false; }catch{ img.hidden=true; msg.hidden=false; msg.textContent="QR render failed."; $("btnReprint").disabled=true; } });
-    }
-    async function saveModal(){
-      if(!currentId) return;
-      const ref=doc(DB,'equipment', currentId);
-      const patch={
-        makeName:$("dwMake").value.trim()||null,
-        modelName:$("dwModel").value.trim()||null,
-        year:$("dwYear").value?Number($("dwYear").value):null,
-        serial:$("dwSerial").value.trim()||null,
-        engineHours:$("dwHours").value?Number($("dwHours").value):null,
-        status:$("dwStatus").value||'active',
-        notes:$("dwNotes").value.trim()||null,
-        updatedAt: serverTimestamp()
-      };
-      const nm=[patch.makeName,patch.modelName].filter(Boolean).join(' ');
-      patch.name = nm ? (patch.year ? `${nm} (${patch.year})` : nm) : null;
-      await updateDoc(ref, patch);
-      const idx=tractors.findIndex(x=>x.id===currentId);
-      if(idx>-1) tractors[idx]={...tractors[idx], ...patch};
-      renderList(); toast('Saved changes');
-    }
-    function closeModal(){ $("modal").classList.remove("show"); $("modal").setAttribute('aria-hidden','true'); currentId=null; currentSmartLink=null; currentQRImageUrl=null; $("btnReprint").disabled=true; unlockBodyScroll(); }
-    function last6(v){ v=String(v||""); return v.slice(-6); }
-    function closeAfterPrint(win){ try{ win.onafterprint=()=>{try{win.close();}catch{}}; const mq=win.matchMedia&&win.matchMedia('print'); if(mq&&mq.addEventListener){ mq.addEventListener('change',(m)=>{ if(!m.matches){ setTimeout(()=>{try{win.close();}catch{}},60); } }); } win.onfocus=()=>{ setTimeout(()=>{try{win.close();}catch{}},200); }; }catch{} }
-    function reprintQR(){
-      const model=$("dwModel").value.trim()||""; const serial=$("dwSerial").value.trim()||""; const caption=`${model||"Unit"} - #${last6(serial)}`;
-      if(currentQRImageUrl){
-        const url=currentQRImageUrl+(currentQRImageUrl.includes('?')?'&':'?')+'v='+Date.now();
-        const w=window.open('','_blank','width=600,height=700');
-        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title><style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}.wrap{text-align:center}img{display:block;width:100%;max-width:380px;height:auto;margin:0 auto 4px}h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body><div class="wrap"><img id="qr" src="${url}" alt="QR"><h1>${caption.replace(/</g,'&lt;')}</h1></div><script>(function(){var i=document.getElementById('qr');function p(){try{window.print()}catch{}} if(i.complete){setTimeout(p,60)}else{i.addEventListener('load',function(){setTimeout(p,60)})}})();<\/script></body></html>`);
-        w.document.close(); closeAfterPrint(w); return;
+      $("dwMake").value  = d.makeName || '';
+      $("dwModel").value = d.modelName || '';
+      yearOptions($("dwYear"), d.year||'');
+      $("dwSerial").value = d.serial || '';
+      $("dwHours").value  = (d.engineHours!=null)? d.engineHours : '';
+      $("dwStatus").value = d.status || 'active';
+      $("dwNotes").value  = d.notes || '';
+
+      const token = d.qr?.token || null;
+      const savedImg = d.qr?.image?.url || null;
+
+      const hub = token ? hubUrl(id, token) : null;
+      const openHubBtn = $("btnOpenHub");
+      openHubBtn.href = hub || '#';
+      openHubBtn.target = "_self";
+      openHubBtn.rel = "";
+
+      $("modal").classList.add("show");
+      $("modal").setAttribute('aria-hidden','false');
+
+      const img = $("qrSmall"); const msg = $("qrMsg");
+      if (savedImg){
+        currentQRImageUrl = savedImg;
+        img.src = savedImg; img.alt = "Saved QR for Equipment Hub";
+        img.hidden = false; msg.hidden = true;
+        $("btnReprint").disabled = false;
+        return;
       }
-      if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
-      const w=window.open('','_blank','width=600,height=700');
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title><style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}.wrap{text-align:center}#qr{width:100%;max-width:380px;margin:0 auto 4px}h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body><div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div><script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script><script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(currentSmartLink)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},250)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script></body></html>`);
-      w.document.close(); closeAfterPrint(w);
+
+      if (!token){
+        img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
+        currentSmartLink = null;
+        $("btnReprint").disabled = true;
+        return;
+      }
+
+      const smart = smartLaunch(hub);
+      currentSmartLink = smart;
+      img.hidden = true; msg.hidden = false; msg.textContent = "Generating…";
+
+      waitQRReady(()=>{
+        try{
+          const holder = document.createElement('div');
+          new window.QRCode(holder, { text: smart, width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.H, colorDark:"#000", colorLight:"#fff" });
+          const node = holder.querySelector('canvas') || holder.querySelector('img');
+          img.src = node.tagName==='CANVAS' ? node.toDataURL('image/png') : node.src;
+          img.alt = "QR for Equipment Hub";
+          img.hidden = false; msg.hidden = true;
+          $("btnReprint").disabled = false;
+        }catch{
+          img.hidden = true; msg.hidden = false; msg.textContent = "QR render failed.";
+          $("btnReprint").disabled = true;
+        }
+      });
     }
 
-    /* ===== STARTUP & LIFECYCLE ===== */
-    async function waitForReadyStack(){ await ready; DB=getFirestore(); }
+    async function saveModal(){
+      if(!currentId) return;
+      const ref = doc(DB,'equipment', currentId);
+      const patch = {
+        makeName: $("dwMake").value.trim() || null,
+        modelName: $("dwModel").value.trim() || null,
+        year: $("dwYear").value ? Number($("dwYear").value) : null,
+        serial: $("dwSerial").value.trim() || null,
+        engineHours: $("dwHours").value ? Number($("dwHours").value) : null,
+        status: $("dwStatus").value || 'active',
+        notes: $("dwNotes").value.trim() || null,
+        updatedAt: serverTimestamp()
+      };
+      const nm = [patch.makeName, patch.modelName].filter(Boolean).join(' ');
+      patch.name = nm ? (patch.year ? `${nm} (${patch.year})` : nm) : null;
+
+      await updateDoc(ref, patch);
+      const idx = tractors.findIndex(x=>x.id===currentId);
+      if(idx>-1) tractors[idx] = { ...tractors[idx], ...patch };
+      renderList();
+      toast('Saved changes');
+    }
+
+    function closeModal(){
+      $("modal").classList.remove("show");
+      $("modal").setAttribute('aria-hidden','true');
+      currentId = null;
+      currentSmartLink = null;
+      currentQRImageUrl = null;
+      $("btnReprint").disabled = true;
+      unlockBodyScroll();
+    }
+
+    function last6(v){ v=String(v||""); return v.slice(-6); }
+
+    function closeAfterPrint(win){
+      try{
+        win.onafterprint = () => { try{ win.close(); }catch{} };
+        const mq = win.matchMedia && win.matchMedia('print');
+        if(mq && mq.addEventListener){
+          mq.addEventListener('change', (m)=>{ if(!m.matches){ setTimeout(()=>{ try{ win.close(); }catch{} }, 60); } });
+        }
+        win.onfocus = () => { setTimeout(()=>{ try{ win.close(); }catch{} }, 200); };
+      }catch{}
+    }
+
+    function reprintQR(){
+      const model = $("dwModel").value.trim() || "";
+      const serial = $("dwSerial").value.trim() || "";
+      const caption = `${model || "Unit"} - #${last6(serial)}`;
+
+      if (currentQRImageUrl){
+        const url = currentQRImageUrl + (currentQRImageUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+        const w = window.open('', '_blank', 'width=600,height=700');
+        w.document.write(`
+          <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+          <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
+          .wrap{text-align:center}img{display:block;width:100%;max-width:380px;height:auto;margin:0 auto 4px}
+          h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
+          <div class="wrap"><img id="qr" src="${url}" alt="QR"><h1>${caption.replace(/</g,'&lt;')}</h1></div>
+          <script>(function(){var i=document.getElementById('qr');function p(){try{window.print()}catch{}} if(i.complete){setTimeout(p,60)}else{i.addEventListener('load',function(){setTimeout(p,60)})}})();<\/script>
+          </body></html>`);
+        w.document.close();
+        closeAfterPrint(w);
+        return;
+      }
+
+      if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
+      const w = window.open('', '_blank', 'width=600,height=700');
+      w.document.write(`
+        <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
+        <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
+        .wrap{text-align:center}#qr{width:100%;max-width:380px;margin:0 auto 4px}
+        h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
+        <div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div>
+        <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+        <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(currentSmartLink)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},250)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
+        </body></html>`);
+      w.document.close();
+      closeAfterPrint(w);
+    }
+
+    // ---------- STARTUP & LIFECYCLE ----------
+    function sanitizeQueryParams(){
+      try{
+        const u = new URL(location.href);
+        const filter = u.searchParams.get('filter');
+        const search = u.searchParams.get('search');
+        const sort   = u.searchParams.get('sort');
+        if (filter && ['active','archived','all'].includes(filter)) $("filter").value = filter;
+        if (typeof search === 'string') $("search").value = search.slice(0,120);
+        if (sort && ['name','year','hours','created'].includes(sort)) $("sort").value = sort;
+      }catch{}
+    }
+
+    function wireDiagnostics(){
+      const diag = $("diag");
+      const toggle = (on)=> diag.classList.toggle('show', !!on);
+      const want = /[?&]diag=1\b/.test(location.search);
+      if (want) toggle(true);
+      // long-press title
+      (function(){
+        const h = document.querySelector('header.page h1');
+        if(!h) return;
+        let t=0;
+        h.addEventListener('pointerdown', ()=>{ t=Date.now(); });
+        h.addEventListener('pointerup', ()=>{ if(Date.now()-t>550) toggle(true); });
+      })();
+      $("diagClose").addEventListener('click', ()=> toggle(false));
+      $("btnCopyErr").addEventListener('click', ()=>{
+        try{
+          const txt = $("dErr").textContent || 'None';
+          navigator.clipboard.writeText(txt); toast('Copied', 900);
+        }catch{}
+      });
+      $("btnForcePull").addEventListener('click', ()=> hardReload(true));
+      $("btnVerbose").addEventListener('click', (e)=>{
+        verbose = !verbose; e.currentTarget.setAttribute('aria-pressed', String(verbose));
+        e.currentTarget.textContent = 'Verbose logs: ' + (verbose ? 'On' : 'Off');
+      });
+    }
+
+    async function waitForReadyStack(){
+      await ready;
+      DB = getFirestore();
+    }
 
     (async()=>{
       await waitForReadyStack();
-      (function buildYearWarm(){ buildYearOptions(document.createElement('select')); })();
+      buildYearWarm();
+      wireDiagnostics();
+      sanitizeQueryParams();
 
       // UI handlers
       $("search").addEventListener('input', renderList);
@@ -558,36 +838,31 @@
       $("btnSave").addEventListener('click', async ()=>{ await saveModal(); closeModal(); });
       $("btnReprint").addEventListener('click', reprintQR);
       $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
-      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && $("modal").classList.contains('show')) closeModal(); });
+      document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
 
-      // Diagnostics UI
-      $("diagToggle").addEventListener('click', ()=> $("diag").hidden = !$("diag").hidden);
-      $("btnDiagClose").addEventListener('click', ()=> $("diag").hidden = true);
-      $("btnVerbose").addEventListener('click', (e)=>{ VERBOSE=!VERBOSE; e.target.textContent='Verbose logs: ' + (VERBOSE?'On':'Off'); });
-      $("btnCopyErr").addEventListener('click', ()=> navigator.clipboard.writeText(LAST_ERR ? (LAST_ERR.stack||LAST_ERR.message||String(LAST_ERR)) : 'None'));
-      $("btnForce").addEventListener('click', ()=> hardReload(true));
-
-      // Auth token changes => attempt resume (but org gate will block until ready)
-      try{ const auth=_getAuth(); if(auth) _onIdTokenChanged(auth, ()=> debouncedResume()); }catch{}
-
-      // Context changes => if orgId appears/changes, do a hard reload
+      // Auth token/user changes => hard reload
       try{
-        if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function'){
-          window.FVUserContext.onChange(()=>{
-            const oid = ctxOrgId();
-            setDiag('dOrg', oid ? (String(oid).slice(0,8)+'…') : 'missing');
-            debouncedResume();
-          });
-        }
+        const auth = _getAuth();
+        if (auth) _onIdTokenChanged(auth, ()=> { debouncedResume(); });
       }catch{}
 
-      // Lifecycle (bfcache resumes included)
-      window.addEventListener('pageshow', (e)=> { debouncedResume(); });
-      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') debouncedResume(); else detachLive('hidden'); });
-      window.addEventListener('focus', ()=> debouncedResume());
-      window.addEventListener('pagehide', ()=> detachLive('pagehide'));
+      // Lifecycle: resume/hide etc.
+      window.addEventListener('pageshow', (e)=> {
+        // If returned from Hub or bfcache restore, force server reload
+        if (e.persisted || (performance && performance.getEntriesByType)){
+          debouncedResume();
+        } else {
+          debouncedResume();
+        }
+      });
+      document.addEventListener('visibilitychange', ()=>{
+        if (document.visibilityState === 'visible') debouncedResume();
+        else if (document.visibilityState === 'hidden') detachLive('hidden');
+      });
+      window.addEventListener('focus', ()=> { debouncedResume(); });
+      window.addEventListener('pagehide', ()=> { detachLive('pagehide'); });
 
-      // PTR contract
+      // PTR contract from shell
       window.FVRefresh = async function(){ await hardReload(true); };
 
       // Initial load
