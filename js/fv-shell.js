@@ -1,8 +1,9 @@
-<!-- /Farm-vista/js/fv-shell.js -->
-/* FarmVista Shell — v5.10.19  (Mobile Quick Camera – Side Rail • working camera)
+/* /Farm-vista/js/fv-shell.js */
+/* FarmVista Shell — v5.10.20  (Mobile Quick Camera – Side Rail • working camera • Strong PTR Contract)
    - Mobile-only right-edge handle with “QR Scanner” and “Camera”.
    - QR Scanner => /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
    - Camera => native via hidden input (override via <html data-camera-url>).
+   - PTR: Top-zone only, auth/context revalidation, page & data hooks, begin/end events.
 */
 (function () {
   // ====== TUNABLES ======
@@ -734,7 +735,6 @@
           html.style.overflow = 'hidden';
         }
         this.classList.add('ui-locked');
-        this._scrollLocked = true;
         this._ptrDisabled = true;
       } else if (!on && this._scrollLocked){
         document.body.style.position = '';
@@ -751,7 +751,6 @@
         }
         window.scrollTo(0, this._scrollY || 0);
         this.classList.remove('ui-locked');
-        this._scrollLocked = false;
         setTimeout(()=> { this._ptrDisabled = false; }, 150);
       }
     }
@@ -792,7 +791,13 @@
       const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      const THRESHOLD = 72, MAX_ANGLE = 18, COOLDOWN = 600, TOP_TOL = 2;
+      // ---- Stronger rules to prevent "middle-of-screen" triggers ----
+      const THRESHOLD = 72;             // how far to pull to trigger
+      const MAX_ANGLE = 18;             // must be mostly vertical
+      const COOLDOWN  = 600;            // ms between allowed refreshes
+      const TOP_TOL   = 2;              // must be at scroll top (<=2px)
+      const START_ZONE_PX = 90;         // gesture must BEGIN within top zone (~header+gold)
+
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
       const atTop  = ()=> (window.scrollY || 0) <= TOP_TOL;
@@ -801,39 +806,99 @@
       const showBar = ()=>{ bar.classList.add('show'); spin.hidden = true; dot.hidden = false; txt.textContent = 'Pull to refresh'; };
       const hideBar = ()=>{ bar.classList.remove('show'); spin.hidden = true; dot.hidden = true; txt.textContent = 'Pull to refresh'; };
 
-      const onStart = (x,y)=>{ if (!canUse() || !atTop() || Date.now()-lastEnd<COOLDOWN){armed=false;return;} armed=true; pulling=false; startY=y; startX=x; deltaY=0; };
+      const onStart = (x,y)=>{
+        // Only arm if: usable, at absolute top, cooldown met, and user starts in the "top zone"
+        if (!canUse() || !atTop() || Date.now()-lastEnd<COOLDOWN || y > START_ZONE_PX){
+          armed=false; return;
+        }
+        // Avoid interfering with text inputs or draggable regions
+        const active = document.activeElement;
+        if (active && (active.tagName==='INPUT' || active.tagName==='TEXTAREA' || active.isContentEditable)) { armed=false; return; }
+
+        armed=true; pulling=false; startY=y; startX=x; deltaY=0;
+      };
+
       const onMove  = (x,y,prevent)=>{
         if (!armed) return;
         const dy=y-startY, dx=x-startX, angle=Math.abs(Math.atan2(dx,dy)*(180/Math.PI));
+        // Must remain mostly vertical and downward; abort on upward or angled drags
         if (angle>MAX_ANGLE){ armed=false; pulling=false; hideBar(); return; }
         if (dy>0){ deltaY=dy; if(!pulling){pulling=true; showBar();} txt.textContent=(deltaY>=THRESHOLD)?'Release to refresh':'Pull to refresh'; prevent(); }
         else { armed=false; pulling=false; hideBar(); }
       };
+
+      const revalidateAuthAndCtx = async()=>{
+        const deadline = Date.now() + 1500; // quick recheck, not the full gate
+        while (Date.now() < deadline) {
+          if (await this._isAuthed() && this._hasUserCtx()) return true;
+          await this._sleep(80);
+        }
+        return false;
+      };
+
+      const runRefreshContract = async ()=>{
+        // Announce begin
+        document.dispatchEvent(new CustomEvent('fv:refresh:begin'));
+        // Page hook (preferred)
+        if (typeof window.FVRefresh === 'function') {
+          try { await window.FVRefresh(); } catch(e){ console.error('[FV] FVRefresh failed:', e); }
+        }
+        // Global data layer hook (optional)
+        try {
+          if (window.FVData && typeof window.FVData.refreshAll === 'function') {
+            await window.FVData.refreshAll();
+          }
+        } catch(e){ console.error('[FV] FVData.refreshAll failed:', e); }
+        // Repaint menu (in case ACL/context changed)
+        try { await this._initMenuFiltered(); } catch {}
+        // Announce end
+        document.dispatchEvent(new CustomEvent('fv:refresh:end'));
+      };
+
       const onEnd = ()=>{
         if (!armed) return;
         const shouldRefresh = pulling && deltaY>=THRESHOLD;
         armed=false; pulling=false; deltaY=0; startY=0; startX=0;
+
         if (shouldRefresh){
           lastEnd=Date.now();
           (async ()=>{
             dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
+
+            // Legacy signal kept for compatibility
             document.dispatchEvent(new CustomEvent('fv:refresh'));
-            try { await this._initMenuFiltered(); } catch {}
-            if (typeof window.FVRefresh === 'function') { try { await window.FVRefresh(); } catch {} }
+
+            // Revalidate auth/context before asking pages to refetch
+            const ok = await revalidateAuthAndCtx();
+            if (ok) {
+              await runRefreshContract();
+            } else {
+              // If not ready, bounce to login to avoid silent failures
+              this._toastMsg('Session not ready. Re-authenticating…', 1400);
+              this._kickToLogin('ptr-auth');
+              return;
+            }
+
+            // UI settle time
             await new Promise(res=> setTimeout(res, 900));
             hideBar();
           })();
-        } else { hideBar(); }
+        } else {
+          hideBar();
+        }
       };
 
+      // Touch/pointer wiring (mobile-first)
       window.addEventListener('touchstart', (e)=>{ if(e.touches&&e.touches.length===1){const t=e.touches[0]; onStart(t.clientX,t.clientY);} }, { passive:true });
       window.addEventListener('touchmove',  (e)=>{ if(e.touches&&e.touches.length===1){const t=e.touches[0]; onMove(t.clientX,t.clientY, ()=>e.preventDefault());} }, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
       window.addEventListener('touchcancel', onEnd, { passive:true });
+
       window.addEventListener('pointerdown', (e)=>{ if(e.pointerType!=='mouse') onStart(e.clientX,e.clientY); }, { passive:true });
       window.addEventListener('pointermove', (e)=>{ if(e.pointerType!=='mouse') onMove(e.clientX,e.clientY, ()=>e.preventDefault()); }, { passive:false });
       window.addEventListener('pointerup', onEnd, { passive:true });
       window.addEventListener('pointercancel', onEnd, { passive:true });
+
       document.addEventListener('visibilitychange', ()=>{ if (document.hidden) { armed=false; pulling=false; hideBar(); } });
     }
 
@@ -1025,4 +1090,3 @@
   });
 
 })();
-
