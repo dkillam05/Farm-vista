@@ -1,9 +1,9 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html
-     Hybrid data model + Page-local Diagnostics + STATUS NORMALIZATION
-     + Multi-farm HARD GATE overlay (context/auth readiness)
-     + Timed retries (every 10s, up to 5min) with friendly messaging
-     + Watchdog (every 2min) to re-attach live listener if it ever drops
-     + Farm name pulled from FVUserContext first, fallback to /company/details in Firestore
+     SIMPLE SINGLE-FARM VIEW (no org/context dependency)
+     - Reads Firestore collection('equipment') where type=='tractor'
+     - Client-side filter for status (active/archived/all) with normalization
+     - Initial server pull + live onSnapshot
+     - Same modal + QR reprint + diagnostics + PTR
 -->
 <!doctype html>
 <html lang="en">
@@ -120,9 +120,7 @@
       position:fixed; inset:0; padding:8px;
       background:rgba(0,0,0,.35);
       display:none; align-items:center; justify-content:center; z-index:9000;
-      overflow:hidden;
-      touch-action: pan-y;
-      overscroll-behavior: contain;
+      overflow:hidden; touch-action: pan-y; overscroll-behavior: contain;
     }
     .modal-backdrop.show{ display:flex; }
 
@@ -135,16 +133,11 @@
       box-shadow:0 20px 60px rgba(0,0,0,.35);
       overflow:hidden; contain:content; touch-action: pan-y;
     }
-    .md-head{
-      display:flex; align-items:center; justify-content:space-between;
+    .md-head{ display:flex; align-items:center; justify-content:space-between;
       padding:14px 16px; border-bottom:1px solid var(--border);
-      background:color-mix(in srgb, var(--brand) 10%, transparent)
-    }
-    .md-body{
-      padding:16px; display:grid; gap:12px;
-      overflow-y:auto; overflow-x:hidden; overscroll-behavior-x:none;
-      -webkit-overflow-scrolling:touch; touch-action: pan-y;
-    }
+      background:color-mix(in srgb, var(--brand) 10%, transparent) }
+    .md-body{ padding:16px; display:grid; gap:12px; overflow-y:auto; overflow-x:hidden;
+      overscroll-behavior-x:none; -webkit-overflow-scrolling:touch; touch-action: pan-y; }
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
     @media (max-width:640px){ .grid2{ grid-template-columns:1fr } }
 
@@ -154,7 +147,6 @@
     .qr-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
     .qr-empty{ font-size:13px; color:var(--muted,#67706B); }
 
-    /* ===== small helper ===== */
     .muted-inline{ color:var(--muted,#67706B); font-size:14px; padding:12px; }
 
     /* ===== PAGE-LOCAL TOAST ===== */
@@ -163,50 +155,26 @@
       left: 50%;
       bottom: calc(var(--ftr-h, 14px) + env(safe-area-inset-bottom, 0px) + 16px);
       transform: translateX(-50%) translateY(8px);
-      background: #111;
-      color: #fff;
-      padding: 12px 18px;
-      border-radius: 12px;
-      box-shadow: 0 12px 32px rgba(0,0,0,.35);
-      z-index: 999999;
-      font-size: 14px;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .18s ease, transform .18s ease;
-      white-space: nowrap;
-      max-width: 92vw;
-      text-overflow: ellipsis;
-      overflow: hidden;
+      background: #111; color: #fff; padding: 12px 18px; border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.35); z-index: 999999; font-size: 14px;
+      opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+      white-space: nowrap; max-width: 92vw; text-overflow: ellipsis; overflow: hidden;
     }
     .local-toast.show{ opacity: 1; transform: translateX(-50%) translateY(0); }
 
     /* ===== DIAGNOSTICS ===== */
     .diag-toggle{
-      position: fixed;
-      right: 10px;
+      position: fixed; right: 10px;
       bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 66px);
-      z-index: 1000000;
-      background: var(--brand);
-      color: #fff;
-      border: 0;
-      border-radius: 999px;
-      padding: 8px 12px;
-      font-weight: 800;
-      box-shadow: 0 8px 22px rgba(0,0,0,.26);
+      z-index: 1000000; background: var(--brand); color: #fff; border: 0;
+      border-radius: 999px; padding: 8px 12px; font-weight: 800; box-shadow: 0 8px 22px rgba(0,0,0,.26);
     }
     .diag-panel{
-      position: fixed;
-      left: 10px; right: 10px;
+      position: fixed; left: 10px; right: 10px;
       bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 14px);
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      box-shadow: 0 16px 36px rgba(0,0,0,.28);
-      z-index: 1000000;
-      display: none;
-      max-height: 46vh;
-      overflow: auto;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,.28);
+      z-index: 1000000; display: none; max-height: 46vh; overflow: auto;
     }
     .diag-panel.open{ display: block; }
     .diag-grid{ display:grid; grid-template-columns: 140px 1fr; gap: 6px 10px; padding: 10px 12px; font-size: 13px; }
@@ -218,41 +186,6 @@
     .diag-hr{ height:1px; background:var(--border); margin:2px 0; grid-column: 1 / -1; }
     .diag-actions{ display:flex; gap:8px; padding: 8px 12px 12px; justify-content:flex-end; }
     .diag-actions .btn{ padding:8px 12px; }
-
-    /* ===== HARD-GATE OVERLAY ===== */
-    .gate{
-      position: fixed; inset: 0;
-      background: color-mix(in srgb, var(--brand) 6%, var(--app-bg, var(--surface)));
-      backdrop-filter: blur(2px);
-      display: grid; place-items: center;
-      z-index: 1000001;
-    }
-    .gate-card{
-      width:min(520px, 92vw);
-      border:1px solid var(--border);
-      background: var(--surface);
-      color: var(--text);
-      border-radius: 16px;
-      box-shadow: 0 18px 44px rgba(0,0,0,.28);
-      padding: 18px;
-      display: grid; gap: 10px;
-      text-align: center;
-    }
-    .gate-h{
-      margin: 0; font-weight: 900; font-size: clamp(18px, 3.5vw, 22px);
-      color: var(--brand);
-    }
-    .gate-sub{ margin:0; color: var(--muted,#67706B) }
-    .gate-row{ display:flex; justify-content:center; gap:10px; align-items:center }
-    .spinner{
-      width: 20px; height: 20px; border-radius: 50%;
-      border: 3px solid color-mix(in srgb, var(--brand) 15%, transparent);
-      border-top-color: var(--brand);
-      animation: spin 0.9s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg) } }
-    .gate-note{ font-size: 12px; color: var(--muted,#67706B) }
-    .gate-actions{ display:flex; gap:8px; justify-content:center; margin-top:4px }
   </style>
 </head>
 <body>
@@ -370,19 +303,6 @@
     </div>
   </div>
 
-  <!-- HARD-GATE OVERLAY (context/auth readiness) -->
-  <div id="gate" class="gate" hidden>
-    <div class="gate-card">
-      <h2 class="gate-h" id="gateTitle">Connecting…</h2>
-      <p class="gate-sub" id="gateSub">Preparing your farm data.</p>
-      <div class="gate-row"><div class="spinner" aria-hidden="true"></div><div id="gateStep">Waiting for account context…</div></div>
-      <div class="gate-note" id="gateNote">This can take a few seconds after login.</div>
-      <div class="gate-actions">
-        <button id="gateRetry" class="btn" type="button">Retry now</button>
-      </div>
-    </div>
-  </div>
-
   <!-- QR library -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
@@ -396,6 +316,7 @@
       onSnapshot, getAuth, onIdTokenChanged
     } = FB;
 
+    // Shims
     const _onSnapshot = onSnapshot || FB.firestoreOnSnapshot || null;
     const _getDocsFromServer = getDocsFromServer || null;
     const _enableNetwork = enableNetwork || (async ()=>{});
@@ -427,11 +348,8 @@
       lastDetachReason: '', lastSource: '', lastServerMs: 0,
       snapshotCount: 0, serverCount: 0,
       listenerAttachedAt: 0, lastEnableAt: 0, lastDisableAt: 0,
-      tokenAgeMin: '', orgId: '', allowedIdsLen: 0,
-      // filter/search and counts
-      filter: 'active', search: '', preCount: 0, postCount: 0,
-      // Gate state
-      gateShown: false, gateTries: 0, gateStart: 0, gateTimedOut: false
+      tokenAgeMin: '',
+      filter: 'active', search: '', preCount: 0, postCount: 0
     };
     function log(...a){ if(DIAG.verbose) console.log('[Tractors]',...a); }
     function warn(...a){ console.warn('[Tractors]',...a); }
@@ -441,11 +359,9 @@
       const lastPullMs = DIAG.lastServerMs ? (DIAG.lastServerMs + ' ms') : '—';
       const lastSrc = DIAG.lastSource || '—';
       const lastErr = DIAG.lastErrorCode ? `<span class="diag-err">${esc(DIAG.lastErrorCode)}</span> ${esc(DIAG.lastError)}` : '<span class="diag-ok">None</span>';
-      const ctxWarn = DIAG.orgId ? `<span class="diag-ok">${esc(DIAG.orgId)}</span>` : '<span class="diag-warn">missing</span>';
       const attached = DIAG.listenerAttachedAt?new Date(DIAG.listenerAttachedAt).toLocaleTimeString():'—';
       g.innerHTML = `
         <div class="diag-k">Auth</div><div class="diag-v">Online: <code>${navigator.onLine?'true':'false'}</code> • Token age: <code>${tokenAge}</code></div>
-        <div class="diag-k">Context</div><div class="diag-v">orgId: ${ctxWarn} • allowedIds: <code>${DIAG.allowedIdsLen}</code></div>
         <div class="diag-k">Network</div><div class="diag-v">last enable: <code>${DIAG.lastEnableAt?new Date(DIAG.lastEnableAt).toLocaleTimeString():'—'}</code> • last disable: <code>${DIAG.lastDisableAt?new Date(DIAG.lastDisableAt).toLocaleTimeString():'—'}</code></div>
         <div class="diag-k">Server Pull</div><div class="diag-v">count: <code>${DIAG.serverCount}</code> • time: <code>${lastPullMs}</code> • source: <code>${lastSrc}</code></div>
         <div class="diag-k">Listener</div><div class="diag-v">attached: <code>${attached}</code> • last detach: <code>${esc(DIAG.lastDetachReason||'—')}</code> • last snap count: <code>${DIAG.snapshotCount}</code></div>
@@ -484,21 +400,14 @@
     /* ===== Rendering + FILTER FIX ===== */
     function normalizeItem(d,id){
       const statusNorm = String(d.status ?? 'active').toLowerCase();
-      return {
-        id,
-        ...d,
-        status: statusNorm,
-        _statusLabel: statusNorm==='archived' ? 'Archived' : 'Active'
-      };
+      return { id, ...d, status: statusNorm, _statusLabel: statusNorm==='archived' ? 'Archived' : 'Active' };
     }
-
     function setEmptyState() {
       const rows = $("rows");
       const empty = $("rowsEmpty");
       const has = rows.children.length > 0;
       empty.style.display = has ? "none" : "block";
     }
-
     function applySearchSort(items){
       const q = $("search").value.trim().toLowerCase();
       const f = $("filter").value;
@@ -524,7 +433,6 @@
       DIAG.postCount = out.length; updateDiag();
       return out;
     }
-
     function renderList(){
       const rows = $("rows"); rows.innerHTML = "";
       const data = applySearchSort(tractors);
@@ -548,7 +456,7 @@
       setEmptyState();
     }
 
-    /* ===== Data model (hybrid) ===== */
+    /* ===== Data model (simple) ===== */
     let unsubList = null;
     let idleTimer = 0;
     const IDLE_MS = 5*60*1000;
@@ -604,107 +512,18 @@
       renderList(); updateDiag();
     }
 
-    /* ===== Farm name (FVUserContext first; Firestore fallback) ===== */
-    function ctx(){ try{ return (window.FVUserContext && typeof window.FVUserContext.get==='function') ? window.FVUserContext.get() : null; }catch{ return null; } }
-    function getFarmNameFromCtx(){
-      const c = ctx() || {};
-      return c.orgName || c.companyName || c.company || c.orgLabel || '';
-    }
-    async function fetchFarmNameFallback(){
+    async function hardReload(userInitiated){
+      detachLive('reload');
+      await ready; DB = getFirestore();
       try{
-        if(!DB) return '';
-        const snap = await getDoc(doc(DB,'company','details'));
-        const d = snap.exists() ? (snap.data()||{}) : {};
-        return d.name || d.company || d.displayName || '';
-      }catch{ return ''; }
-    }
-    async function resolveFarmName(){
-      let name = getFarmNameFromCtx();
-      if(name) return name;
-      return await fetchFarmNameFallback();
-    }
-
-    /* ===== HARD GATE (auth + orgId) with retries ===== */
-    const GATE_RETRY_MS = 10000;   // 10s between attempts
-    const GATE_MAX_MS   = 5*60*1000; // 5 minutes total
-    let gateTimer = 0, watchdogTimer = 0;
-
-    function showGate(msgStep='Waiting for account context…'){
-      const g = $("gate"); if(!g) return;
-      if(!DIAG.gateShown){ g.hidden = false; DIAG.gateShown = true; }
-      $("gateStep").textContent = msgStep || 'Preparing…';
-    }
-    function hideGate(){
-      const g = $("gate"); if(!g) return;
-      g.hidden = true; DIAG.gateShown = false;
-    }
-    async function updateGateTitle(){
-      const title = $("gateTitle"), sub = $("gateSub");
-      const name = await resolveFarmName();
-      title.textContent = name ? `Connecting to ${name}` : 'Connecting…';
-      sub.textContent = name ? 'Preparing your farm data.' : 'Preparing your farm data.';
-    }
-    function hasOrgId(){
-      try{ const c = ctx(); return !!(c && (c.orgId || c.org || c.tenantId)); }catch{ return false; }
-    }
-    function hasAuth(){
-      try{ const a=_getAuth(); return !!(a && a.currentUser); }catch{ return false; }
-    }
-
-    async function gateUntilReady(){
-      DIAG.gateStart = Date.now();
-      DIAG.gateTries = 0;
-      DIAG.gateTimedOut = false;
-      await updateGateTitle();
-      showGate('Waiting for account context…');
-
-      // keep trying until auth + orgId
-      while(true){
-        const elapsed = Date.now() - DIAG.gateStart;
-        const authOK = hasAuth();
-        const orgOK  = hasOrgId();
-
-        if(authOK && orgOK){
-          hideGate();
-          return true;
-        }
-
-        if(elapsed >= GATE_MAX_MS){
-          DIAG.gateTimedOut = true;
-          $("gateStep").textContent = 'Still waiting for context…';
-          $("gateNote").textContent = 'If this persists, try logging out/in or check connectivity.';
-          return false; // stop gating after timeout — page stays with overlay open state user can retry
-        }
-
-        // Wait and retry
-        await new Promise(r=> setTimeout(r, GATE_RETRY_MS));
-        DIAG.gateTries++;
-        await updateGateTitle();
-        showGate(authOK ? 'Waiting for farm context…' : 'Waiting for sign-in…');
+        await serverPull();
+        if(userInitiated) toast('Server refreshed', 1400);
+      }catch(e){
+        warn('Hard reload failed:', e);
+        toast('Refresh failed: ' + (e?.message || 'Unknown error'), 2600);
       }
-    }
-
-    /* ===== Watchdog: every 2 minutes, ensure live is healthy ===== */
-    function startWatchdog(){
-      clearInterval(watchdogTimer);
-      watchdogTimer = setInterval(async ()=>{
-        const authOK = hasAuth();
-        const orgOK  = hasOrgId();
-        const liveOK = !!unsubList;
-        if(!authOK || !orgOK){
-          // If we lost context, re-gate
-          showGate(!authOK ? 'Waiting for sign-in…' : 'Waiting for farm context…');
-          await gateUntilReady();
-          if(hasAuth() && hasOrgId()){
-            await hardReload(false);
-          }
-          return;
-        }
-        if(!liveOK){
-          // listener dropped — reattach
-          await attachLive();
-        }
-      }, 120000); // 2 min
+      await attachLive();
+      trackActivity();
     }
 
     /* ===== Modal + QR (unchanged behavior) ===== */
@@ -820,7 +639,7 @@
     /* ============ STARTUP & LIFECYCLE ============ */
     async function waitForReadyStack(){ await ready; DB = getFirestore(); }
 
-    // Token age display (unchanged)
+    // Token age display
     function trackTokenAge(){
       try{
         const auth = _getAuth();
@@ -840,8 +659,8 @@
       (function buildYearWarm(){ buildYearOptions(document.createElement('select')); })();
 
       // UI handlers
-      $("search").addEventListener('input', ()=>{ renderList(); });
-      $("filter").addEventListener('change', ()=> { renderList(); });
+      $("search").addEventListener('input', renderList);
+      $("filter").addEventListener('change', renderList);
       $("sort").addEventListener('change', renderList);
       $("btnClose").addEventListener('click', closeModal);
       $("btnSave").addEventListener('click', async ()=>{ await saveModal(); closeModal(); });
@@ -858,28 +677,13 @@
         const txt = (DIAG.lastErrorCode? (DIAG.lastErrorCode+': ') : '') + (DIAG.lastError||'No error');
         navigator.clipboard && navigator.clipboard.writeText(txt).then(()=> toast('Copied'));
       });
-      diagForce.addEventListener('click', async ()=>{
-        // Force server pull: if context missing, show gate and try through it
-        if(!hasAuth() || !hasOrgId()){
-          showGate(!hasAuth() ? 'Waiting for sign-in…' : 'Waiting for farm context…');
-          const ok = await gateUntilReady();
-          if(!ok) return; // user can retry
-          hideGate();
-        }
-        await hardReload(true);
-      });
+      diagForce.addEventListener('click', ()=> hardReload(true));
       diagVerbose.addEventListener('click', ()=>{
         DIAG.verbose = !DIAG.verbose;
         diagVerbose.textContent = 'Verbose logs: ' + (DIAG.verbose?'On':'Off');
         toast('Verbose logs ' + (DIAG.verbose?'ON':'OFF'), 1200);
       });
       diagVerbose.textContent = 'Verbose logs: ' + (DIAG.verbose?'On':'Off');
-
-      // Auth token/user changes => hard server reload (debounced)
-      try{
-        const auth = _getAuth();
-        if (auth) _onIdTokenChanged(auth, ()=> { debouncedResume(); });
-      }catch{}
 
       trackTokenAge();
 
@@ -893,70 +697,16 @@
       window.addEventListener('pagehide', ()=> { detachLive('pagehide'); });
 
       // PTR contract
-      window.FVRefresh = async function(){
-        // PTR: ensure context present
-        if(!hasAuth() || !hasOrgId()){
-          showGate(!hasAuth() ? 'Waiting for sign-in…' : 'Waiting for farm context…');
-          const ok = await gateUntilReady();
-          if(!ok) return;
-          hideGate();
-        }
-        toast('PTR: server refresh', 900);
-        await hardReload(true);
-      };
+      window.FVRefresh = async function(){ toast('PTR: server refresh', 900); await hardReload(true); };
 
       // Network indicators
       window.addEventListener('online', ()=> updateDiag());
       window.addEventListener('offline', ()=> updateDiag());
 
-      // ==== HARD-GATE on first load ====
-      $("gateRetry").addEventListener('click', async ()=>{
-        showGate('Retrying…');
-        const ok = await gateUntilReady();
-        if(ok){ hideGate(); await hardReload(false); }
-      });
-
-      const ok = await gateUntilReady();
-      if(ok){
-        hideGate();
-        await hardReload(false);
-        startWatchdog();
-      }else{
-        // Timed out — keep overlay visible; user can tap Retry
-        showGate('Still waiting for context…');
-      }
-
-      // Also listen for context changes; when orgId appears, proceed
-      if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function'){
-        window.FVUserContext.onChange(async ()=>{
-          const c = ctx()||{};
-          DIAG.orgId = (c.orgId||c.org||c.tenantId)||'';
-          DIAG.allowedIdsLen = (Array.isArray(c.allowedIds)&&c.allowedIds.length)||0;
-          updateDiag();
-          await updateGateTitle();
-          if(DIAG.gateShown && hasAuth() && hasOrgId()){
-            hideGate();
-            await hardReload(false);
-            startWatchdog();
-          }
-        });
-      }
-
+      // Initial load
+      await hardReload(false);
       updateDiag();
     })();
-
-    async function hardReload(userInitiated){
-      detachLive('reload');
-      try{
-        await serverPull();
-        if(userInitiated) toast('Server refreshed', 1400);
-      }catch(e){
-        warn('Hard reload failed:', e);
-        toast('Refresh failed: ' + (e?.message || 'Unknown error'), 2600);
-      }
-      await attachLive();
-      trackActivity();
-    }
   </script>
 </body>
 </html>
