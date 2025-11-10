@@ -1,14 +1,8 @@
-<!-- /Farm-vista/pages/equipment/tractors-view.html
-     SIMPLE MODEL: direct pull + live listen on /equipment, client-side filter to tractors/active
-     - No org/context gating
-     - No theme overrides (uses global theme.css + app.css)
-     - Modal scrolls top-to-bottom only (no horizontal scroll anywhere)
--->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • View Tractors</title>
+  <title>FarmVista • Tractors</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -16,8 +10,6 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-
-  <!-- Theme + base app styles (no local overrides) -->
   <script defer src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
@@ -27,467 +19,274 @@
     (function(){
       if(!customElements.get('fv-shell')){
         const s=document.createElement('script');
-        s.src='/Farm-vista/js/fv-shell.js';
-        s.defer=true; document.head.appendChild(s);
+        s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
       }
     })();
   </script>
 
+  <!-- Firebase CONFIG FIRST (matches your Directory page load order) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
   <style>
-    /* Keep things tight but let global theme control colors */
-    html, body { max-width:100vw; overflow-x:hidden; }
-    body.modal-open{ position:fixed; width:100%; overflow:hidden; touch-action:none; }
+    :root{ --card-max:1100px; }
+    html,body{ max-width:100vw; overflow-x:hidden; }
+    body{ background:var(--app-bg,var(--surface)); }
 
-    .wrap{
-      max-width:1200px; margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 84px)!important;
+    .page{
+      max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
     }
+    .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
+    .sub{ margin:0 0 18px; color:var(--muted,#6f7772); }
+    .muted{ color:var(--muted,#6f7772); }
 
-    .toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:10px 0 14px}
-    .input, .select{
-      width:100%; font:inherit; font-size:16px;
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border); border-radius:10px; padding:10px 12px; min-height:40px;
+    /* Search */
+    .search{
+      display:flex; align-items:center; gap:10px; border:1px solid var(--border);
+      border-radius:12px; background:var(--surface); padding:10px 12px;
     }
-    .toolbar .input{ min-width:240px; }
-    .toolbar .select{ min-width:160px; }
+    .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; }
+
+    .count{ margin:10px 0; color:var(--muted,#6f7772); font-weight:700; }
+
+    /* Cards */
+    .group{ margin:14px 0; }
+    .group h3{ margin:0 0 8px; color:var(--green,#2F6C3C); }
+    .card{
+      border:1px solid var(--border); border-radius:16px; background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      padding:12px 14px; display:grid; gap:6px; cursor:pointer;
+    }
+    .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
+    .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .badges{ display:flex; gap:8px; flex-wrap:wrap; }
+    .badge{ padding:4px 10px; border-radius:999px; font-size:13px; font-weight:800; border:1px solid var(--border); }
+    .badge.green{ background:color-mix(in srgb, var(--green) 12%, transparent); }
+
+    /* Detail modal (vertical-only) */
+    dialog.sheet{
+      width:min(740px, 92vw); border:1px solid var(--border); border-radius:16px; padding:0;
+      background:var(--surface); box-shadow:0 18px 40px rgba(0,0,0,.28);
+    }
+    .sheet::backdrop{ background:rgba(0,0,0,.35); }
+    .sheet header{ padding:14px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .sheet .body{
+      padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+    }
+    .kv{ display:grid; grid-template-columns:180px 1fr; gap:8px 12px; }
+    @media(max-width:700px){ .kv{ grid-template-columns:1fr } .kv div{ padding:2px 0 } }
+    .k{ font-weight:800; color:var(--green,#2F6C3C); }
+    .v{ color:var(--text); }
+    .sheet footer{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
     .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      padding:10px 14px; border-radius:12px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer;
+      display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
-    .btn-primary{ border-color:transparent; background:var(--green); color:#fff!important }
-
-    .list{ border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--surface); }
-    .thead,.row{ display:grid; grid-template-columns: 0.6fr 1.2fr 0.6fr 0.6fr; gap:10px; align-items:center; }
-    .thead{ padding:10px 12px; font-weight:800; background:color-mix(in srgb, var(--green) 10%, transparent); }
-    .row{ padding:12px; border-top:1px solid var(--border); cursor:pointer }
-    .row:hover{ background:color-mix(in srgb, var(--green) 6%, transparent); }
-    .status{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
-
-    @media (max-width:900px){
-      .thead{ display:none }
-      .row{ grid-template-columns: 1fr; gap:6px }
-      .row .mobile-line{ font-size:13px; color:var(--muted) }
-    }
-
-    /* ===== Modal (vertical-only; no horizontal scroll) ===== */
-    .modal-backdrop{
-      position:fixed; inset:0; padding:8px;
-      background:rgba(0,0,0,.35);
-      display:none; align-items:center; justify-content:center; z-index:9000;
-      overflow:hidden; /* prevent side scroll on the overlay */
-      touch-action: pan-y;
-      overscroll-behavior: contain;
-    }
-    .modal-backdrop.show{ display:flex; }
-    .modal-card{
-      width:min(720px, 96vw);
-      max-height:90vh;
-      display:flex; flex-direction:column;
-      background:var(--surface); border:1px solid var(--border); border-radius:16px;
-      box-shadow:0 20px 60px rgba(0,0,0,.35);
-      overflow:hidden; contain:content;
-    }
-    .md-head{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:14px 16px; border-bottom:1px solid var(--border);
-      background:color-mix(in srgb, var(--green) 10%, transparent)
-    }
-    .md-body{
-      padding:16px; display:grid; gap:12px;
-      overflow-y:auto; /* vertical only */
-      overflow-x:hidden; /* kill sideways */
-      overscroll-behavior-x:none; -webkit-overflow-scrolling:touch; touch-action: pan-y;
-    }
-    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
-    @media (max-width:640px){ .grid2{ grid-template-columns:1fr } }
-
-    .qr-box{ border:1px dashed var(--border); border-radius:12px; padding:12px; display:grid; gap:10px; background:color-mix(in srgb, var(--green) 4%, transparent); }
-    .qr-img{ width:196px; height:196px; background:#fff; border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden; padding:8px; }
-    .qr-img img{ max-width:180px; max-height:180px; display:block }
-    .qr-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
-    .qr-empty{ font-size:13px; color:var(--muted,#67706B); }
-
-    .muted-inline{ color:var(--muted,#67706B); font-size:14px; padding:12px; }
-
-    /* Tiny toast */
-    .local-toast{
-      position: fixed; left:50%; bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 16px);
-      transform: translateX(-50%) translateY(8px);
-      background:#111; color:#fff; padding:12px 18px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
-      z-index:999999; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; white-space:nowrap; max-width:92vw; text-overflow:ellipsis; overflow:hidden;
-    }
-    .local-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+    .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff; }
   </style>
 </head>
 <body>
   <fv-shell>
-    <div class="wrap">
-      <header class="page">
-        <h1>View Tractors</h1>
-        <p class="muted">Search and filter. Tap a row to edit or reprint the QR.</p>
-      </header>
+    <div class="page">
+      <h1 class="title">Tractors</h1>
+      <p class="sub">Active tractors only. Search by make, model, serial, or year.</p>
 
-      <div class="toolbar">
-        <input id="search" class="input" placeholder="Search make, model, year, serial…">
-        <select id="filter" class="select" aria-label="Filter">
-          <option value="active" selected>Active</option>
-          <option value="archived">Archived</option>
-          <option value="all">All</option>
-        </select>
-        <select id="sort" class="select" aria-label="Sort">
-          <option value="name">Name (A→Z)</option>
-          <option value="year">Year (new→old)</option>
-          <option value="hours">Hours (high→low)</option>
-          <option value="created">Recently added</option>
-        </select>
-        <a class="btn" href="/Farm-vista/pages/equipment/actions/add.html?type=tractor">Add Tractor</a>
+      <!-- Search -->
+      <div class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
+        <input id="q" type="search" placeholder="Search" autocomplete="off"/>
       </div>
 
-      <div class="list">
-        <div class="thead">
-          <div>Name</div>
-          <div>Make / Model • Year</div>
-          <div>Status</div>
-          <div>Added</div>
-        </div>
-        <div id="rows"></div>
-        <div id="rowsEmpty" class="muted-inline" style="display:none;">No tractors to show.</div>
-      </div>
+      <p id="count" class="count">0 entries</p>
+      <div id="list"></div>
     </div>
   </fv-shell>
 
-  <!-- Modal -->
-  <div id="modal" class="modal-backdrop" aria-modal="true" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-labelledby="mdTitle">
-      <div class="md-head">
-        <strong id="mdTitle">Unit</strong>
-        <div style="display:flex;gap:8px">
-          <button id="btnClose" class="btn" type="button">Close</button>
-          <button id="btnSave" class="btn btn-primary" type="button">Save</button>
-        </div>
-      </div>
-      <div class="md-body">
-        <div class="grid2">
-          <div>
-            <label>Make</label>
-            <input id="dwMake" class="input" placeholder="Make">
-          </div>
-          <div>
-            <label>Model</label>
-            <input id="dwModel" class="input" placeholder="Model">
-          </div>
-        </div>
-        <div class="grid2">
-          <div>
-            <label>Year</label>
-            <select id="dwYear" class="select"></select>
-          </div>
-          <div>
-            <label>Serial #</label>
-            <input id="dwSerial" class="input" placeholder="Serial (optional)">
-          </div>
-        </div>
-        <div class="grid2">
-          <div>
-            <label>Engine Hours</label>
-            <input id="dwHours" type="number" step="0.1" class="input" placeholder="e.g., 1250.5">
-          </div>
-          <div>
-            <label>Status</label>
-            <select id="dwStatus" class="select">
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <label>Notes</label>
-          <textarea id="dwNotes" class="input" style="min-height:110px" placeholder="Optional details"></textarea>
-        </div>
-
-        <div class="qr-box">
-          <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap">
-            <div class="qr-img"><img id="qrSmall" alt="QR" hidden></div>
-            <div class="qr-actions">
-              <button id="btnReprint" class="btn" type="button" disabled>Reprint QR</button>
-              <a id="btnOpenHub" class="btn">Open Hub</a>
-            </div>
-          </div>
-          <div id="qrMsg" class="qr-empty" hidden>No QR yet — generate one on the Add/Edit page and save.</div>
-        </div>
-      </div>
+  <!-- Detail modal (read-only) -->
+  <dialog id="detail" class="sheet" aria-modal="true">
+    <header>
+      <strong id="dTitle">Details</strong>
+      <button id="dClose" class="btn" type="button">Close</button>
+    </header>
+    <div class="body">
+      <div class="kv" id="dKV"></div>
     </div>
-  </div>
-
-  <!-- Toast -->
-  <div id="toast" class="local-toast" aria-live="polite" aria-atomic="true"></div>
-
-  <!-- QR library (for on-the-fly reprint if no saved image) -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
+    <footer>
+      <a id="openHub" class="btn btn-primary" href="#">Open Hub</a>
+      <button id="dClose2" class="btn" type="button">Close</button>
+    </footer>
+  </dialog>
 
   <script type="module">
-    import * as FB from '/Farm-vista/js/firebase-init.js';
-    const { ready, getFirestore, collection, getDocs, onSnapshot,
-            doc, getDoc, updateDoc, serverTimestamp } = FB;
+    import {
+      ready,
+      getFirestore, collection, query, where, onSnapshot,
+      getDocs, doc, getDoc
+    } from '/Farm-vista/js/firebase-init.js';
 
-    const $ = id => document.getElementById(id);
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
+    const $ = sel => document.querySelector(sel);
+    const list = $('#list');
+    const countEl = $('#count');
+    const qInput = $('#q');
 
-    /* ===== Tiny toast ===== */
-    function toast(msg, ms=1400){
-      try{ const t=$("toast"); t.textContent=msg||''; t.classList.add('show'); clearTimeout(toast._tt); toast._tt=setTimeout(()=>t.classList.remove('show'),ms);}catch{}
-    }
+    // Local state
+    let DATA = [];       // tractors (active only, after normalization)
+    let unsub = null;    // live listener for tractors
 
-    /* ===== Body scroll lock for modal ===== */
-    let __scrollY = 0;
-    function lockBodyScroll(){ __scrollY = window.scrollY||0; document.body.classList.add('modal-open'); document.body.style.top = `-${__scrollY}px`; }
-    function unlockBodyScroll(){ document.body.classList.remove('modal-open'); document.body.style.top=''; window.scrollTo(0, __scrollY||0); __scrollY=0; }
+    // Helpers
+    const last6 = v => String(v||'').slice(-6);
+    const safe = v => (v==null ? '' : String(v));
+    const normStatus = v => String(v ?? 'active').toLowerCase();
+    const isActive = d => {
+      // Accept explicit 'active', legacy booleans, or missing treated as active
+      const s = normStatus(d.status);
+      return s === 'active' || (d.active === true) || (d.status == null);
+    };
+    const tractorName = d => {
+      const mm = [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
+      const ls = last6(d.serial);
+      if (mm) return ls ? `${mm} (#${ls})` : mm;
+      return d.name || '(tractor)';
+    };
+    const hubUrl = (id, token) => {
+      const base = `${location.origin}/Farm-vista/pages/equipment/actions/hub.html`;
+      const u = new URL(base);
+      u.searchParams.set('id', id);
+      if (token) u.searchParams.set('t', token);
+      return u.href;
+    };
 
-    /* ===== Data cache ===== */
-    let DB, tractors = [];
-    let unsubList = null;
-
-    function normalizeItem(d,id){
-      const statusNorm = String(d.status ?? 'active').toLowerCase();
-      return {
-        id, ...d,
-        status: statusNorm,
-        _statusLabel: statusNorm==='archived' ? 'Archived' : 'Active'
-      };
-    }
-
-    function setEmptyState() {
-      const rows = $("rows"), empty = $("rowsEmpty");
-      const has = rows.children.length > 0;
-      empty.style.display = has ? "none" : "block";
-    }
-
-    function applySearchSort(items){
-      const q = $("search").value.trim().toLowerCase();
-      const f = $("filter").value;
-      let out = items.filter(x=>{
-        const sx = String(x.status || 'active').toLowerCase();
-        if(f==='active'   && sx!=='active') return false;
-        if(f==='archived' && sx!=='archived') return false;
-        if(!q) return true;
-        const hay = [x.name,x.makeName,x.modelName,x.year,x.serial,x.engineHours]
-          .map(v=>String(v||"").toLowerCase()).join(" ");
-        return hay.includes(q);
-      });
-
-      const sort = $("sort").value;
-      if(sort==='name') out.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-      else if(sort==='year') out.sort((a,b)=>(b.year||0)-(a.year||0));
-      else if(sort==='hours') out.sort((a,b)=>(Number(b.engineHours||0) - Number(a.engineHours||0)));
-      else if(sort==='created') out.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
-      return out;
-    }
-
-    function renderList(){
-      const rows = $("rows"); rows.innerHTML = "";
-      const data = applySearchSort(tractors);
-      for(const x of data){
-        const row = document.createElement('div');
-        row.className='row'; row.tabIndex=0; row.dataset.id = x.id;
-        const name = x.name || [x.makeName, x.modelName].filter(Boolean).join(' ');
-        const makeModel = [x.makeName, x.modelName].filter(Boolean).join(' ');
-        row.innerHTML = `
-          <div><strong>${esc(name||'—')}</strong></div>
-          <div>${esc(makeModel||'—')}${x.year?` • ${esc(x.year)}`:''}</div>
-          <div><span class="status">${esc(x._statusLabel)}</span></div>
-          <div>${esc(fmtDate(x.createdAt))}</div>
-          <div class="mobile-line">${esc(makeModel||'—')} ${x.year?`• ${esc(x.year)}`:''} • ${esc(x._statusLabel)} • ${esc(fmtDate(x.createdAt))}</div>
-        `;
-        const open = ()=> openModal(x.id);
-        row.addEventListener('click', open);
-        row.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); open(); }});
-        rows.appendChild(row);
-      }
-      setEmptyState();
-    }
-
-    /* ===== Simple data flow ===== */
-    async function initialPull(){
-      const snap = await getDocs(collection(DB,'equipment'));
-      const temp = [];
-      snap.forEach(d=>{
-        const x = normalizeItem(d.data()||{}, d.id);
-        if ((String(x.type||'').toLowerCase()==='tractor')
-            && (String(x.status||'active').toLowerCase()==='active')) {
-          temp.push(x);
-        }
-      });
-      temp.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
-      tractors = temp;
-      renderList();
-    }
-
-    function attachLive(){
-      if (unsubList) try{unsubList();}catch{}
-      unsubList = onSnapshot(collection(DB,'equipment'), (snap)=>{
-        const list=[];
-        snap.forEach(d=>{
-          const x = normalizeItem(d.data()||{}, d.id);
-          // Client-side filter for simplicity + index-free reads
-          if (String(x.type||'').toLowerCase()==='tractor'){
-            // We'll respect the UI filter later; keep all tractors here
-            list.push(x);
-          }
+    function attach(){
+      if (unsub) return; // prevent double-attach
+      const db = getFirestore();
+      // Simple server query: type == 'tractor'
+      const qref = query(collection(db,'equipment'), where('type','==','tractor'));
+      unsub = onSnapshot(qref, (snap)=>{
+        const out = [];
+        snap.forEach(docSnap=>{
+          const d = docSnap.data() || {};
+          if (!isActive(d)) return; // client-side active filter
+          out.push({ id: docSnap.id, ...d });
         });
-        tractors = list;
-        renderList();
-      }, (err)=> {
-        console.error('Live listener error:', err);
-        toast('Live update error');
+        // Sort by name A->Z
+        out.sort((a,b)=> tractorName(a).localeCompare(tractorName(b)));
+        DATA = out;
+        render();
+      }, (err)=>{
+        console.error('Tractors listener error:', err);
+      });
+    }
+    function detach(){
+      if (unsub){ try{ unsub(); }catch{}; unsub = null; }
+    }
+
+    function render(){
+      const q = (qInput.value || '').toLowerCase().trim();
+      const rows = DATA.filter(d=>{
+        if (!q) return true;
+        const blob = [
+          tractorName(d), d.makeName, d.modelName, d.serial, d.year, d.notes
+        ].map(x=>String(x||'').toLowerCase()).join(' ');
+        return blob.includes(q);
+      });
+
+      countEl.textContent = `${rows.length}/${DATA.length} entries`;
+      list.innerHTML = '';
+
+      if(!rows.length){
+        const p = document.createElement('p');
+        p.className='muted'; p.textContent='No matches.';
+        list.appendChild(p);
+        return;
+      }
+
+      // Group A-Z by display name
+      const by = {};
+      rows.forEach(d=>{
+        const name = tractorName(d);
+        const k = (name || '?').charAt(0).toUpperCase();
+        (by[k] ||= []).push(d);
+      });
+
+      Object.keys(by).sort().forEach(letter=>{
+        const wrap = document.createElement('div'); wrap.className='group';
+        const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
+        by[letter].forEach(d=>{
+          const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
+          const title = document.createElement('div'); title.style.fontWeight='800'; title.textContent = tractorName(d);
+
+          const badges = document.createElement('div'); badges.className='badges';
+          const mk = [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ');
+          const year = d.year ? `• ${d.year}` : '';
+          badges.innerHTML = `
+            <span class="badge">Tractor ${year}</span>
+            ${mk ? `<span class="badge">${mk}</span>` : ``}
+            <span class="badge green">Active</span>
+          `;
+
+          card.append(title, badges);
+          card.addEventListener('click', ()=> openDetail(d));
+          wrap.appendChild(card);
+        });
+        list.appendChild(wrap);
       });
     }
 
-    /* ===== Modal + QR ===== */
-    function buildYearOptions(sel){
-      sel.innerHTML = '<option value="">—</option>';
-      const now = new Date().getFullYear();
-      for(let y=now;y>=1980;y--){
-        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
-      }
-    }
-    function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
-    function last6(v){ v=String(v||""); return v.slice(-6); }
-    function waitQRReady(cb){ let tries=0;(function tick(){ if(window.__qrReady&&window.QRCode) cb(); else if(tries++<200) setTimeout(tick,50); })(); }
-    const hubUrl = (id, token) => `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
+    // Detail modal (read-only) — vertical-only scroll
+    const dlg = document.getElementById('detail');
+    const dTitle = document.getElementById('dTitle');
+    const dKV = document.getElementById('dKV');
+    const btnHub = document.getElementById('openHub');
+    const close = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
+    document.getElementById('dClose').addEventListener('click', close);
+    document.getElementById('dClose2').addEventListener('click', close);
 
-    let currentId=null, currentQRImageUrl=null, currentHub=null;
-
-    async function openModal(id){
-      lockBodyScroll();
-      currentId = id; currentQRImageUrl=null; currentHub=null;
-      let snap; try{ snap = await getDoc(doc(DB,'equipment', id)); }catch(e){ unlockBodyScroll(); return; }
-      if(!snap.exists()){ unlockBodyScroll(); return; }
-      const d = snap.data() || {};
-      const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
-      $("mdTitle").textContent = name || `Unit ${id.slice(0,6)}`;
-      $("dwMake").value  = d.makeName || '';
-      $("dwModel").value = d.modelName || '';
-      yearOptions($("dwYear"), d.year||'');
-      $("dwSerial").value = d.serial || '';
-      $("dwHours").value  = (d.engineHours!=null)? d.engineHours : '';
-      $("dwStatus").value = String(d.status ?? 'active').toLowerCase();
-      $("dwNotes").value  = d.notes || '';
-
-      const token = d.qr?.token || null;
-      currentHub = token ? hubUrl(id, token) : null;
-      $("btnOpenHub").href = currentHub || '#';
-
-      const img = $("qrSmall"); const msg = $("qrMsg");
-      const savedImg = d.qr?.image?.url || null;
-      if (savedImg){
-        currentQRImageUrl = savedImg; img.src = savedImg; img.alt = "Saved QR for Equipment Hub";
-        img.hidden = false; msg.hidden = true; $("btnReprint").disabled = false;
-      }else if (currentHub){
-        img.hidden = true; msg.hidden = false; msg.textContent = "Generating…";
-        waitQRReady(()=>{
-          try{
-            const holder = document.createElement('div');
-            new window.QRCode(holder, { text: currentHub, width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.H, colorDark:"#000", colorLight:"#fff" });
-            const node = holder.querySelector('canvas') || holder.querySelector('img');
-            img.src = node.tagName==='CANVAS' ? node.toDataURL('image/png') : node.src;
-            img.alt = "QR for Equipment Hub"; img.hidden = false; msg.hidden = true; $("btnReprint").disabled = false;
-          }catch(e){ img.hidden = true; msg.hidden = false; msg.textContent = "QR render failed."; $("btnReprint").disabled = true; }
-        });
-      }else{
-        img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
-        $("btnReprint").disabled = true;
-      }
-
-      $("modal").classList.add("show"); $("modal").setAttribute('aria-hidden','false');
+    const has = v => !(v===undefined || v===null || v==='');
+    function addRow(k, v){
+      if(!has(v)) return;
+      const K = document.createElement('div'); K.className='k'; K.textContent = k;
+      const V = document.createElement('div'); V.className='v'; V.textContent = String(v);
+      dKV.append(K,V);
     }
 
-    async function saveModal(){
-      if(!currentId) return;
-      const ref = doc(DB,'equipment', currentId);
-      const patch = {
-        makeName: $("dwMake").value.trim() || null,
-        modelName: $("dwModel").value.trim() || null,
-        year: $("dwYear").value ? Number($("dwYear").value) : null,
-        serial: $("dwSerial").value.trim() || null,
-        engineHours: $("dwHours").value ? Number($("dwHours").value) : null,
-        status: ($("dwStatus").value || 'active').toLowerCase(),
-        notes: $("dwNotes").value.trim() || null,
-        updatedAt: serverTimestamp()
-      };
-      const nm = [patch.makeName, patch.modelName].filter(Boolean).join(' ');
-      patch.name = nm ? (patch.year ? `${nm} (${patch.year})` : nm) : null;
-      try{
-        await updateDoc(ref, patch);
-        // update local cache
-        const i = tractors.findIndex(x=>x.id===currentId);
-        if(i>-1) tractors[i] = { ...tractors[i], ...patch, _statusLabel: (patch.status==='archived'?'Archived':'Active') };
-        renderList(); toast('Saved');
-      }catch(e){ toast('Save failed'); }
+    function openDetail(d){
+      dTitle.textContent = tractorName(d);
+      dKV.innerHTML = '';
+      addRow('Type','Tractor');
+      addRow('Make', d.makeName);
+      addRow('Model', d.modelName);
+      addRow('Year', d.year);
+      const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
+      addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
+      addRow('Notes', d.notes);
+      // Hub link
+      const tok = d.qr && d.qr.token ? d.qr.token : '';
+      btnHub.href = hubUrl(d.id, tok);
+      try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    function closeModal(){
-      $("modal").classList.remove("show");
-      $("modal").setAttribute('aria-hidden','true');
-      currentId = null; currentQRImageUrl = null; currentHub = null;
-      $("btnReprint").disabled = true;
-      unlockBodyScroll();
+    // Resume hooks (BFCache / tab visibility / focus)
+    function resume(){
+      // if already attached, do nothing; otherwise attach
+      if (!unsub) attach();
     }
 
-    function closeAfterPrint(win){ try{ win.onafterprint=()=>{try{win.close()}catch{}}; const mq=win.matchMedia&&win.matchMedia('print'); if(mq&&mq.addEventListener){ mq.addEventListener('change',(m)=>{ if(!m.matches){ setTimeout(()=>{try{win.close()}catch{}},60); } }); } win.onfocus=()=>{ setTimeout(()=>{try{win.close()}catch{}},200); }; }catch{} }
-
-    function reprintQR(){
-      const model = $("dwModel").value.trim() || "";
-      const serial = $("dwSerial").value.trim() || "";
-      const caption = `${model || "Unit"} - #${last6(serial)}`;
-
-      if (currentQRImageUrl){
-        const url = currentQRImageUrl + (currentQRImageUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
-        const w = window.open('', '_blank', 'width=600,height=700');
-        w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
-          <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
-          .wrap{text-align:center}img{display:block;width:100%;max-width:380px;height:auto;margin:0 auto 4px}
-          h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
-          <div class="wrap"><img id="qr" src="${url}" alt="QR"><h1>${caption.replace(/</g,'&lt;')}</h1></div>
-          <script>(function(){var i=document.getElementById('qr');function p(){try{window.print()}catch{}} if(i.complete){setTimeout(p,60)}else{i.addEventListener('load',function(){setTimeout(p,60)})}})();<\/script>
-          </body></html>`);
-        w.document.close(); closeAfterPrint(w); return;
-      }
-      if(!currentHub){ alert("No QR for this unit yet."); return; }
-      const w = window.open('', '_blank', 'width=600,height=700');
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
-        <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
-        .wrap{text-align:center}#qr{width:100%;max-width:380px;margin:0 auto 4px}
-        h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
-        <div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div>
-        <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-        <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(currentHub)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},250)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
-        </body></html>`);
-      w.document.close(); closeAfterPrint(w);
-    }
-
-    /* ===== Wire up ===== */
+    // Kickoff
     (async()=>{
-      await ready; DB = getFirestore();
+      await ready;
+      // initial attach
+      attach();
 
-      // UI handlers
-      $("search").addEventListener('input', renderList);
-      $("filter").addEventListener('change', renderList);
-      $("sort").addEventListener('change', renderList);
-      $("btnClose").addEventListener('click', closeModal);
-      $("btnSave").addEventListener('click', async ()=>{ await saveModal(); closeModal(); });
-      $("btnReprint").addEventListener('click', reprintQR);
-      $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
-      document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
+      // search
+      qInput.addEventListener('input', render);
 
-      // Warm select years once
-      buildYearOptions(document.createElement('select'));
-
-      // Load + live
-      await initialPull();
-      attachLive();
+      // lifecycle
+      window.addEventListener('pageshow', (e)=>{ resume(); });
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
+      window.addEventListener('focus', resume);
+      window.addEventListener('pagehide', ()=>{ detach(); });
     })();
   </script>
 </body>
