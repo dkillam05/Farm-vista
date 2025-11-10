@@ -1,4 +1,4 @@
-<!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB (simple, with Return to Tractors + Return to Home) -->
+<!-- /Farm-vista/pages/equipment/actions/hub.html — Dynamic {Type} Hub (clean header, returns at bottom) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -37,8 +37,9 @@
 
     .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin:8px 0 18px; }
-    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
-      padding:14px 16px; border-bottom:1px solid var(--border);
+
+    /* Header now text-only (no icon) */
+    .hero-head{ display:block; padding:14px 16px; border-bottom:1px solid var(--border);
       background:color-mix(in srgb,var(--brand) 12%, transparent); }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); }
     .muted{ color:var(--muted,#67706B) }
@@ -67,11 +68,9 @@
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div aria-hidden="true">🔗</div>
-          <div>
-            <h1>Equipment Hub</h1>
-            <p class="muted" id="subtitle">Loading…</p>
-          </div>
+          <h1 id="pageTitle">Equipment Hub</h1>
+          <!-- Hidden status line; only shown if there's an error or special notice -->
+          <p class="muted" id="status" hidden></p>
         </header>
 
         <div class="body">
@@ -87,18 +86,18 @@
             <p id="eqNotes" class="muted" hidden></p>
           </div>
 
-          <!-- Simple, explicit navigation -->
-          <div class="actions">
-            <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
-            <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
-          </div>
-
-          <!-- Functional links (keep id/token) -->
+          <!-- Functional links first -->
           <div class="actions" id="fnLinks" hidden>
             <a id="linkHours" class="btn btn-primary" href="#">Track Engine Hours</a>
             <a id="linkMaint" class="btn" href="#">Service Records</a>
             <a id="linkReq"   class="btn" href="#">Submit Service Request</a>
             <a id="linkPre"   class="btn" href="#">Pre-Season Checklist</a>
+          </div>
+
+          <!-- Return links moved to the bottom -->
+          <div class="actions">
+            <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
+            <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
           </div>
         </div>
       </section>
@@ -128,6 +127,7 @@
       if(opts.unhide) el.hidden=false;
     };
     const last6 = v => String(v||'').slice(-6);
+    const capWords = s => String(s||'').replace(/\b\w/g, c=>c.toUpperCase());
 
     async function resolveIdByToken(db, t){
       if (!t) return '';
@@ -146,20 +146,20 @@
     }
 
     async function init(){
-      $('subtitle').textContent = 'Resolving equipment…';
       await ready;
 
       const db = getFirestore();
 
       // If id is missing but we have a token, try reverse lookup once
       if (!eqId && token){
-        $('subtitle').textContent = 'Looking up by token…';
         eqId = await resolveIdByToken(db, token);
       }
 
       if (!eqId){
-        // No way to resolve — keep page functional but show message
-        $('subtitle').textContent = 'No equipment found for this code.';
+        // No way to resolve — keep page functional but show message (no "Linked")
+        const s = $('status');
+        s.textContent = 'No equipment found for this code.';
+        s.hidden = false;
         return;
       }
 
@@ -167,17 +167,27 @@
       const snap = await getDoc(ref);
 
       if (!snap.exists()){
-        $('subtitle').textContent = 'Not found';
+        const s = $('status');
+        s.textContent = 'Not found.';
+        s.hidden = false;
         return;
       }
 
       const d = snap.data() || {};
+
+      // Dynamic header: {Type} Hub
+      const typeRaw = d.type || 'equipment';
+      const typePretty = capWords(typeRaw);
+      const hubTitle = `${typePretty} Hub`;
+      setText('pageTitle', hubTitle);
+      document.title = `FarmVista • ${hubTitle}`;
+
       // Render summary
       const mm = [d.makeName, d.modelName].filter(Boolean).join(' ');
       const ls = last6(d.serial);
       const title = mm ? `${mm}${ls ? ` (#${ls})` : ''}` : (d.name || `Unit ${String(eqId).slice(0,6)}`);
       setText('eqName', title);
-      setText('eqType', d.type || 'equipment');
+      setText('eqType', typeRaw || 'equipment');
       setText('eqMakeModel', mm);
       if (ls) setText('eqSerial', `SN #${ls}`, {unhide:true});
       if (d.engineHours != null) setText('eqHours', `${d.engineHours} hrs`, {unhide:true});
@@ -194,8 +204,6 @@
       $("linkPre").href   = `${base}/pre-check.html${qstr}`;
       $('fnLinks').hidden = false;
 
-      $('subtitle').textContent = 'Linked';
-
       // Clear one-shot context
       sessionStorage.removeItem('fv.ctx.eqId');
       sessionStorage.removeItem('fv.ctx.eqTok');
@@ -203,7 +211,9 @@
 
     init().catch(err=>{
       console.error(err);
-      $('subtitle').textContent = 'Error';
+      const s = $('status');
+      s.textContent = 'Error loading hub.';
+      s.hidden = false;
     });
   </script>
 </body>
