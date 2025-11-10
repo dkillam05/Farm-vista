@@ -1,9 +1,8 @@
 <!-- /Farm-vista/launch.html
-     Polished loader:
-       • Full-screen blur overlay + spinner immediately
-       • Org name fetched from Firestore, then fades in
-       • Small minimum hold before navigating
-       • No Retry button; small gray footer text kept
+     Two-phase loader (as requested):
+       Phase 1: Full-screen blur + spinner ("Loading…") until company name is found
+       Phase 2: Switch to card UI, show "Loading data for (Company Name)" for at least MIN_CARD_SHOW_MS
+       Then proceed to target
 -->
 <!doctype html>
 <html lang="en">
@@ -21,18 +20,28 @@
       --muted:   var(--muted, #67706B);
     }
     html, body { height:100%; margin:0; background:var(--surface); color:var(--text); }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; display:flex; align-items:center; justify-content:center; }
 
-    /* Full-screen overlay with background blur */
+    /* PHASE 1 — full-screen blur overlay + spinner */
     .overlay {
       position: fixed; inset: 0;
       display: grid; place-items: center;
       background: rgba(255,255,255,0.25);
-      -webkit-backdrop-filter: blur(8px) saturate(1.02);
-      backdrop-filter: blur(8px) saturate(1.02);
+      -webkit-backdrop-filter: blur(10px) saturate(1.02);
+      backdrop-filter: blur(10px) saturate(1.02);
       z-index: 9999;
     }
+    .ovl-inner { text-align:center; padding:18px; }
+    .spinner{
+      width:34px; height:34px; border-radius:50%;
+      border:3px solid var(--green); border-top-color: transparent;
+      margin:0 auto 10px;
+      animation:spin .9s linear infinite;
+    }
+    .ovl-text{ color:var(--muted); font-weight:600; }
+    @keyframes spin { to { transform: rotate(360deg) } }
 
+    /* PHASE 2 — your existing card UI */
     .box {
       width:min(560px, 92vw);
       text-align:center;
@@ -41,23 +50,15 @@
       border-radius:18px;
       background:#fff;
       box-shadow:0 20px 60px rgba(0,0,0,.18);
+      display:none;  /* hidden until Phase 2 */
     }
 
     h1{ margin:6px 0 6px; font-size:22px; color:var(--green); }
     p{ margin:6px 0 0; color:var(--muted); }
 
-    /* Spinner */
-    .spin-wrap{ margin:14px 0 10px; display:flex; align-items:center; justify-content:center; min-height:28px; }
-    .spinner{
-      width:28px; height:28px; border-radius:50%;
-      border:3px solid var(--green); border-top-color: transparent;
-      animation:spin 0.9s linear infinite;
-    }
-    @keyframes spin { to{ transform: rotate(360deg) } }
-
-    /* Org line fades in when name is known */
-    #orgLine{ opacity:0; transition: opacity .25s ease; }
-    #orgLine.show{ opacity:1; }
+    .row{ margin-top:14px; display:flex; gap:10px; align-items:center; justify-content:center; }
+    .dot{ width:14px; height:14px; border-radius:50%; border:2px solid var(--green); animation:pulse 1.2s infinite ease-in-out; }
+    @keyframes pulse { 0%{opacity:.3} 50%{opacity:1} 100%{opacity:.3} }
 
     .sub{ margin-top:8px; font-size:13px; color:#8a948f; }
     .diag{ margin-top:6px; font-size:12px; color:#8a948f; text-align:center; }
@@ -65,43 +66,49 @@
 </head>
 <body>
 
-  <!-- Everything happens on the overlay -->
-  <div class="overlay" role="status" aria-live="polite">
-    <div class="box">
-      <h1>Connecting…</h1>
-
-      <div class="spin-wrap">
-        <div class="spinner" aria-hidden="true"></div>
-      </div>
-
-      <!-- Hidden until we know the company name -->
-      <p id="orgLine">Loading data…</p>
-
-      <div id="sub" class="sub">This can take a few seconds after login.</div>
-      <div id="diag" class="diag"></div>
+  <!-- PHASE 1: Blur + spinner -->
+  <div id="overlay" class="overlay" role="status" aria-live="polite">
+    <div class="ovl-inner">
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="ovl-text">Loading…</div>
     </div>
+  </div>
+
+  <!-- PHASE 2: Your existing card UI (shows after we know the company name) -->
+  <div id="card" class="box" role="status" aria-live="polite">
+    <h1>Connecting…</h1>
+    <p id="orgLine">Loading data for your farm</p>
+    <div class="row" aria-hidden="true">
+      <span class="dot"></span>
+    </div>
+    <div id="sub" class="sub">This can take a few seconds after login.</div>
+    <div id="diag" class="diag"></div>
   </div>
 
   <script type="module">
     import * as FB from '/Farm-vista/js/firebase-init.js';
     const { ready, getAuth, onAuthStateChanged, getFirestore, doc, getDoc } = FB;
 
-    // -------- Config: minimum time to show AFTER org name appears --------
-    const MIN_HOLD_MS_AFTER_NAME = 900;
-    // ---------------------------------------------------------------------
+    // -------- Config --------
+    // Minimum time to keep the card UI visible once company name is shown (ms)
+    const MIN_CARD_SHOW_MS = 2400; // adjust to 2000–3000 as you prefer
+    // ------------------------
 
     const params = new URLSearchParams(location.search);
     const target = params.get('to') || '/Farm-vista/index.html';
 
     const $ = id => document.getElementById(id);
+    const overlay = $('overlay');
+    const card    = $('card');
     const orgLine = $('orgLine');
-    const diag = $('diag');
+    const diag    = $('diag');
 
     function go(href){ location.replace(href); }
 
     async function ensureAuthOrLogin(){
       await ready;
       const auth = getAuth();
+
       return new Promise(resolve=>{
         let settled = false;
         const fallback = setTimeout(()=>{
@@ -133,62 +140,57 @@
       });
     }
 
-    // Pull org name directly from Firestore (accountRoles -> company)
-    async function loadOrgName(){
+    // Direct Firestore fetch of company name (accountRoles -> company)
+    async function fetchCompanyName(){
+      const auth = getAuth();
+      const uid = auth.currentUser?.uid;
+      if (!uid) return null;
+
+      const db = getFirestore();
+
+      // accountRoles/{uid} → orgId | org (fallback to 'main')
+      let orgId = 'main';
       try{
-        const auth = getAuth();
-        const uid = auth.currentUser?.uid;
-        if (!uid) return null;
+        const roleSnap = await getDoc(doc(db, 'accountRoles', uid));
+        const role = roleSnap.exists() ? roleSnap.data() : null;
+        orgId = (role?.orgId || role?.org || 'main');
+      }catch{}
 
-        const db = getFirestore();
+      // company/{orgId} → name
+      try{
+        const compSnap = await getDoc(doc(db, 'company', orgId));
+        if (compSnap.exists()){
+          const comp = compSnap.data();
+          return comp?.name || null;
+        }
+      }catch{}
 
-        // accountRoles/{uid} → orgId | org (fallback to 'main')
-        let orgId = 'main';
-        try{
-          const roleSnap = await getDoc(doc(db, 'accountRoles', uid));
-          const role = roleSnap.exists() ? roleSnap.data() : null;
-          orgId = (role?.orgId || role?.org || 'main');
-        }catch{}
-
-        // company/{orgId} → name
-        try{
-          const compSnap = await getDoc(doc(db, 'company', orgId));
-          if (compSnap.exists()){
-            const comp = compSnap.data();
-            return comp?.name || null;
-          }
-        }catch{}
-
-        return null;
-      }catch{
-        return null;
-      }
+      return null;
     }
 
-    async function connectFlow(){
-      const authed = await ensureAuthOrLogin();
-      if (!authed) return;
+    async function run(){
+      const ok = await ensureAuthOrLogin();
+      if (!ok) return;
 
-      // Get the org name; show line only once we have it
-      const name = await loadOrgName();
-      if (name){
-        orgLine.textContent = `Loading data for ${name}`;
-      } else {
-        orgLine.textContent = `Loading data for your farm`;
-      }
-      // Fade in the org line
-      orgLine.classList.add('show');
+      // PHASE 1: we’re on blur+spinner. Fetch the company name.
+      const name = await fetchCompanyName();
 
-      // Hold briefly for a polished feel
-      await new Promise(r=>setTimeout(r, MIN_HOLD_MS_AFTER_NAME));
+      // Switch to PHASE 2 card UI as soon as we have a name (or fallback)
+      orgLine.textContent = `Loading data for ${name || 'your farm'}`;
+      overlay.style.display = 'none';
+      card.style.display = 'block';
 
-      // Small settle, then proceed
+      // Keep the card visible for a minimum duration so it can be read
+      const t0 = Date.now();
+      const remaining = Math.max(0, MIN_CARD_SHOW_MS - (Date.now() - t0));
+      await new Promise(r=>setTimeout(r, remaining));
+
+      // Small settle, then proceed to target
       await new Promise(r=>setTimeout(r, 150));
       go(target);
     }
 
-    // Auto-run
-    connectFlow();
+    run();
 
     // Network hints
     window.addEventListener('online',  ()=> diag.textContent = 'Back online.');
