@@ -1,7 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <select>
-      metrics, locking control height, and isolating the hero layout.
+Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
+     with Fields-style custom dropdowns (.dd). Stable metrics from frame 0.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -46,7 +46,6 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       --ctl-radius:10px;
     }
 
-    /* Prevent width nudge when scrollbar appears later on mobile */
     html, body { min-height:100%; }
     body { scrollbar-gutter:stable; }
 
@@ -66,7 +65,7 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
-      contain:layout paint; /* isolation = no “blip” recenter */
+      contain:layout paint;
     }
 
     .hero-head{
@@ -84,7 +83,7 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
 
-    /* Tappable labels (for your inline editors) */
+    /* Tappable labels (inline editors) */
     .as-label{
       display:inline-flex; align-items:center; gap:8px;
       font:inherit; font-weight:800; background:transparent; border:none; padding:0;
@@ -93,10 +92,10 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
     .as-label:hover{ text-decoration:underline; }
     .as-label.req::after{ content:" *"; color:var(--brand); }
 
-    /* ---------- Controls: stable from first paint ---------- */
+    /* ---------- Stable base controls ---------- */
     .input,.select,.textarea{
       width:100%;
-      font:inherit; font-size:16px; /* lock iOS text size so it won't zoom/reflow */
+      font:inherit; font-size:16px;
       color:var(--text);
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
@@ -106,20 +105,6 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       outline:none;
     }
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
-
-    /* Make native SELECT stable: remove iOS/Android UI swap and provide our own arrow */
-    select.select{
-      -webkit-appearance:none; appearance:none;  /* stop the late menulist swap */
-      background-image: linear-gradient(45deg, currentColor 25%, transparent 25%),
-                        linear-gradient(-45deg, currentColor 25%, transparent 25%),
-                        linear-gradient(45deg, transparent 75%, currentColor 75%),
-                        linear-gradient(-45deg, transparent 75%, currentColor 75%);
-      background-size: 8px 8px;
-      background-position: right 16px top 18px, right 8px top 18px, right 16px top 26px, right 8px top 26px;
-      background-repeat: no-repeat;
-      padding-right:40px; /* keep room for our arrow so width never changes */
-    }
-
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
@@ -165,6 +150,27 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
     }
     .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
     .combo-hidden{ display:none !important; }
+
+    /* ===== Custom dropdowns (Fields style) ===== */
+    .dd{position:relative}
+    .dd-btn{
+      width:100%;text-align:left;padding:12px;padding-right:40px;
+      border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));
+      font:inherit;color:var(--text);cursor:pointer;appearance:none;position:relative;height:var(--ctl-h);
+      line-height:calc(var(--ctl-h) - 2px);
+    }
+    .dd-btn::after{
+      content:""; position:absolute; right:12px; top:50%; transform:translateY(-50%);
+      width:18px; height:18px; pointer-events:none; opacity:.7;
+      background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+    }
+    .dd-list{position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
+    .dd.open .dd-list{display:block}
+    .dd-list input{width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);font:inherit;outline:none;background:var(--surface)}
+    .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+    .dd-list li{padding:10px 12px;cursor:pointer}
+    .dd-list li:hover{background:#f0f1f0}
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
     /* ===== QR Preview ===== */
     .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
@@ -217,14 +223,30 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
 
         <div class="body">
           <div class="row">
+            <!-- ===== Make (custom dropdown) ===== -->
             <div class="field">
               <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
-              <select id="make" class="select"><option value="">— Loading… —</option></select>
+              <input type="hidden" id="makeId" value=""/>
+              <div id="ddMake" class="dd">
+                <button type="button" id="ddMakeBtn" class="dd-btn">— Loading… —</button>
+                <div class="dd-list">
+                  <input type="text" id="ddMakeSearch" placeholder="Search make…">
+                  <ul id="ddMakeList"></ul>
+                </div>
+              </div>
             </div>
 
+            <!-- ===== Model (custom dropdown, depends on Make) ===== -->
             <div class="field">
               <button id="openModels" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Model</button>
-              <select id="model" class="select" disabled><option value="">— Select a Make first —</option></select>
+              <input type="hidden" id="modelId" value=""/>
+              <div id="ddModel" class="dd">
+                <button type="button" id="ddModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
+                <div class="dd-list">
+                  <input type="text" id="ddModelSearch" placeholder="Search model…" disabled>
+                  <ul id="ddModelList"></ul>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -312,13 +334,14 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
 
+    /* ===== Toast ===== */
     function showToast(msg="Saved.", ms=3500){
       const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
       void t.offsetWidth; t.classList.add("show");
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* ===== Year options ===== */
+    /* ===== Year options (unchanged) ===== */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -352,16 +375,54 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
     function onDocClickClose(e){ if(!$("yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
+    /* ===== Dropdown helpers (copied from Fields pattern) ===== */
+    function wireDropdownOpenClose(root){
+      const btn = root.querySelector(".dd-btn");
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+        if(btn.disabled) return;
+        root.classList.toggle("open");
+        const inp = root.querySelector(".dd-list input");
+        if(root.classList.contains("open") && inp){ setTimeout(()=>inp.focus(), 60); }
+      });
+    }
+    document.addEventListener("click",(e)=>{
+      if(!e.target.closest(".dd")){
+        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+      }
+    });
+    function setupSearch(inputEl, listEl){
+      inputEl.addEventListener("input", ()=>{
+        const term=inputEl.value.toLowerCase();
+        listEl.querySelectorAll("li").forEach(li=>{
+          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+        });
+      });
+    }
+    function buildList(listEl, items, onPick){
+      listEl.innerHTML="";
+      items.forEach(([val,label,meta])=>{
+        const li=document.createElement("li");
+        li.textContent=label;
+        li.dataset.value=val;
+        if(meta && meta.isAdd){
+          li.style.fontWeight='800';
+        }
+        li.onclick=()=>onPick(val,label,meta);
+        listEl.appendChild(li);
+      });
+    }
+
     /* ===== Form helpers ===== */
     function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
     function uniqKey(makeId, modelId, serial){
       return [String(makeId||''), String(modelId||''), normalizeSerial(serial)].join('_');
     }
     function readForm(){
-      const makeSel=$("make"), modelSel=$("model");
-      const makeId=makeSel.value||null, modelId=modelSel.value||null;
-      const makeName=makeId? makeSel.options[makeSel.selectedIndex].textContent.trim():null;
-      const modelName=modelId? modelSel.options[modelSel.selectedIndex].textContent.trim():null;
+      const makeId = $("makeId").value || null;
+      const modelId = $("modelId").value || null;
+      const makeName = $("#ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const modelName = $("#ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
       const yr = $("year").value ? Number($("year").value) : null;
       const serialNorm = normalizeSerial($("serial").value);
       const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
@@ -376,8 +437,8 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       };
     }
     function validateForm(){
-      const makeOk = Boolean($("make").value);
-      const modelOk= Boolean($("model").value);
+      const makeOk = Boolean($("makeId").value);
+      const modelOk= Boolean($("modelId").value);
       const serialOk= Boolean(normalizeSerial($("serial").value));
       $("btnSave").disabled = !(makeOk && modelOk && serialOk);
     }
@@ -430,7 +491,6 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       }
       const blob = await canvasToBlob(canvas);
       const dataURL = canvas.toDataURL('image/png');
-
       const img=$("qrThumb");
       img.src=dataURL;
       img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
@@ -463,18 +523,8 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       }
       return items;
     }
-    function renderMakeOptions(list){
-      const addOpt = `<option value="__add_make__">Add New…</option>`;
-      return '<option value="">— Select —</option>' + addOpt +
-             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-    }
-    function renderModelOptions(list){
-      const addOpt = `<option value="__add_model__">Add New…</option>`;
-      return '<option value="">— Select —</option>' + addOpt +
-             list.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-    }
 
-    /* === Add New flows retained for the main form only === */
+    /* ===== Add flows (for dd lists) ===== */
     async function addMake(db){
       const name = (prompt("New Make name:")||"").trim();
       if(!name) return null;
@@ -491,7 +541,120 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       return { id: docRef.id, name };
     }
 
-    /* ===== Links/usage checks for Delete/Archive rules ===== */
+    /* ===== Build & wire custom dropdowns ===== */
+    let ddMake, ddModel;
+    function buildDdObjects(){
+      ddMake = {
+        root: $("ddMake"),
+        btn: $("ddMakeBtn"),
+        search: $("ddMakeSearch"),
+        list: $("ddMakeList"),
+        hidden: $("makeId")
+      };
+      ddModel = {
+        root: $("ddModel"),
+        btn: $("ddModelBtn"),
+        search: $("ddModelSearch"),
+        list: $("ddModelList"),
+        hidden: $("modelId")
+      };
+      wireDropdownOpenClose(ddMake.root);
+      wireDropdownOpenClose(ddModel.root);
+      setupSearch(ddMake.search, ddMake.list);
+      setupSearch(ddModel.search, ddModel.list);
+    }
+
+    async function populateMakes(db, preselectId){
+      const makes = await getMakes(db);
+      const items = [
+        ["__add__", "Add New…", {isAdd:true}],
+        ...makes.map(m=>[m.id, m.name])
+      ];
+      buildList(ddMake.list, items, async (val,label,meta)=>{
+        if(meta && meta.isAdd){
+          const created = await addMake(db);
+          await populateMakes(db, created ? created.id : "");
+          if(created){ setMake(created.id, created.name); }
+          return;
+        }
+        setMake(val, label);
+      });
+      if(preselectId && makes.find(m=>m.id===preselectId)){
+        const name = makes.find(m=>m.id===preselectId).name;
+        setMake(preselectId, name);
+      }else{
+        ddMake.hidden.value = "";
+        ddMake.btn.textContent = "— Select —";
+      }
+    }
+
+    function setMake(id, label){
+      ddMake.hidden.value = id || "";
+      ddMake.btn.textContent = id ? label : "— Select —";
+      ddMake.root.classList.remove("open");
+
+      // Reset model until loaded
+      ddModel.hidden.value = "";
+      ddModel.btn.textContent = "— Select a Make first —";
+      ddModel.btn.disabled = !id;
+      ddModel.search.disabled = !id;
+      ddModel.list.innerHTML = "";
+      validateForm();
+
+      if(id){ populateModels(window.__db, id); }
+    }
+
+    async function populateModels(db, makeId, preselectId){
+      const models = await getModels(db, makeId);
+      const items = [
+        ["__add__", "Add New…", {isAdd:true}],
+        ...models.map(m=>[m.id, m.name])
+      ];
+      buildList(ddModel.list, items, async (val,label,meta)=>{
+        if(meta && meta.isAdd){
+          const created = await addModel(db, ddMake.hidden.value);
+          await populateModels(db, ddMake.hidden.value, created ? created.id : "");
+          if(created){ setModel(created.id, created.name); }
+          return;
+        }
+        setModel(val, label);
+      });
+      ddModel.btn.disabled = false;
+      ddModel.search.disabled = false;
+
+      if(preselectId && models.find(m=>m.id===preselectId)){
+        const name = models.find(m=>m.id===preselectId).name;
+        setModel(preselectId, name);
+      }else{
+        ddModel.hidden.value = "";
+        ddModel.btn.textContent = "— Select —";
+      }
+    }
+
+    function setModel(id, label){
+      ddModel.hidden.value = id || "";
+      ddModel.btn.textContent = id ? label : "— Select —";
+      ddModel.root.classList.remove("open");
+      validateForm();
+    }
+
+    /* ===== Inline editor modal logic (unchanged, but refresh hooks updated) ===== */
+    let EDIT_KIND = null; // 'makes' | 'models'
+    function openModal(title){
+      $("editTitle").textContent = title;
+      $("editModal").classList.add('show');
+      document.body.style.overflow='hidden';
+    }
+    function closeModal(){
+      $("editModal").classList.remove('show');
+      document.body.style.overflow='';
+      $("edList").innerHTML='';
+      const sel = document.getElementById('edMakeSelect');
+      if(sel) sel.remove();
+      EDIT_KIND=null;
+    }
+    document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
+
     async function usageInfo(db, kind, id){
       let qRef;
       if(kind==='makes'){
@@ -508,23 +671,6 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       });
       return { total, active };
     }
-
-    /* ===== Inline editor modal logic ===== */
-    let EDIT_KIND = null; // 'makes' | 'models'
-    function openModal(title){
-      $("editTitle").textContent = title;
-      $("editModal").classList.add('show');
-      document.body.style.overflow='hidden';
-    }
-    function closeModal(){
-      $("editModal").classList.remove('show');
-      document.body.style.overflow='';
-      $("edList").innerHTML='';
-      const sel = document.getElementById('edMakeSelect');
-      if(sel) sel.remove();
-      EDIT_KIND=null;
-    }
-    document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
 
     async function loadEditor(db){
       const listEl = $("edList");
@@ -546,7 +692,7 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
         }
         const makes = await getMakes(db);
         sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
-        const cur = $("make").value;
+        const cur = $("makeId").value;
         if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
         const chosen = sel.value || (makes[0]?.id || null);
         ctx.textContent = 'Models';
@@ -645,21 +791,12 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
     }
 
     async function refreshDropdowns(db){
-      const makes = await getMakes(db);
-      const curMake = $("make").value;
-      $("make").innerHTML = renderMakeOptions(makes);
-      if(makes.find(m=>m.id===curMake)) $("make").value = curMake; else $("make").value="";
-
-      const selectedMakeId = $("make").value;
-      if(selectedMakeId){
-        const models = await getModels(db, selectedMakeId);
-        const curModel = $("model").value;
-        $("model").disabled=false;
-        $("model").innerHTML = renderModelOptions(models);
-        if(models.find(m=>m.id===curModel)) $("model").value = curModel; else $("model").value="";
-      }else{
-        $("model").disabled=true;
-        $("model").innerHTML = '<option value="">— Select a Make first —</option>';
+      // Rebuild Make list and re-resolve Model list for current make
+      const curMake = $("makeId").value;
+      const curModel = $("modelId").value;
+      await populateMakes(db, curMake);
+      if(curMake){
+        await populateModels(db, curMake, curModel);
       }
       validateForm();
     }
@@ -788,11 +925,16 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       ["serial","engineHours","notes"].forEach(id=>$(id).value="");
       $("photos").value="";
       $("year").value=""; $("yearTrigger").textContent="— Select —";
-      $("model").disabled=true; $("model").innerHTML='<option value="">— Select a Make first —</option>';
-      $("make").selectedIndex=0;
+
+      // reset dd make/model
+      ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
+      ddModel.hidden.value=""; ddModel.btn.textContent="— Select a Make first —";
+      ddModel.btn.disabled = true; ddModel.search.disabled = true; ddModel.list.innerHTML = "";
+
       $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
       pendingToken=null;
       pendingQRBlob=null;
+      validateForm();
     }
 
     // ===== Cancel => navigate to tractors list (tries .HTML then .html) =====
@@ -813,8 +955,9 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
     }
 
     (async()=>{
-      await ready;
+      const ctx = await ready;
       const db  = getFirestore();
+      window.__db = db;
 
       document.title = `FarmVista • Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
       document.querySelector('.hero-head h1').textContent = `Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
@@ -826,7 +969,10 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
         if(open) closeYearPanel(); else openYearPanel();
       });
 
-      // Label taps -> inline modal (models works even if no make picked)
+      // Build custom dropdown objects
+      buildDdObjects();
+
+      // Label taps -> inline modal
       $("openMakes").addEventListener('click', async ()=>{
         EDIT_KIND='makes'; openModal('Edit Makes'); await loadEditor(db);
       });
@@ -835,41 +981,8 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       });
       document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
 
-      // Data load
-      let makes = await getMakes(db);
-      $("make").innerHTML = renderMakeOptions(makes);
-
-      $("make").addEventListener("change", async (e)=>{
-        validateForm();
-        const val = e.target.value;
-
-        if(val === "__add_make__"){
-          const created = await addMake(db);
-          makes = await getMakes(db);
-          $("make").innerHTML = renderMakeOptions(makes);
-          $("make").value = created ? created.id : "";
-        }
-
-        const selectedMakeId = $("make").value;
-        if(!selectedMakeId){
-          $("model").disabled=true;
-          $("model").innerHTML = '<option value="">— Select a Make first —</option>';
-          return;
-        }
-        const models = await getModels(db, selectedMakeId);
-        $("model").disabled=false;
-        $("model").innerHTML = renderModelOptions(models);
-      });
-
-      $("model").addEventListener("change", async (e)=>{
-        if(e.target.value === "__add_model__"){
-          const created = await addModel(db, $("make").value);
-          const models = await getModels(db, $("make").value);
-          $("model").innerHTML = renderModelOptions(models);
-          $("model").value = created ? created.id : "";
-        }
-        validateForm();
-      });
+      // Load lists
+      await populateMakes(db);
 
       $("serial").addEventListener("input", validateForm);
 
@@ -884,7 +997,6 @@ Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <sel
       $("btnClear").addEventListener("click", goToTractors);
 
       validateForm();
-      $("make").focus();
     })();
   </script>
 </body>
