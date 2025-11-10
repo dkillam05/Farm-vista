@@ -26,6 +26,8 @@
 
   <!-- Firebase CONFIG FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
+  <!-- Combo upgrader (same look/feel as Add form) -->
+  <script defer src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
     :root{ --card-max:1100px; }
@@ -48,7 +50,7 @@
 
     .count{ margin:10px 0; color:var(--muted,#6f7772); font-weight:700; }
 
-    /* Cards (minimal: make, model, #last6 only) */
+    /* Cards */
     .group{ margin:14px 0; }
     .group h3{ margin:0 0 8px; color:var(--muted); font-weight:800; letter-spacing:.02em; }
     .card{
@@ -64,7 +66,7 @@
     .card-title{ font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .badge{ font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; color:var(--muted); }
 
-    /* Edit modal — dark theme compliant */
+    /* Edit modal */
     dialog.sheet{
       width:min(740px, 92vw);
       border:1px solid var(--border);
@@ -116,7 +118,6 @@
       <h1 class="title">Tractors</h1>
       <p class="sub">Active tractors only. Search by make, model, serial, or year.</p>
 
-      <!-- Search -->
       <div class="search">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -142,16 +143,18 @@
       <div class="kv">
         <div>
           <label for="mk">Make</label>
-          <input id="mk" type="text" placeholder="e.g., John Deere"/>
+          <!-- same combobox behavior as Add form -->
+          <select id="mk" data-fv-combo></select>
         </div>
         <div>
           <label for="md">Model</label>
-          <input id="md" type="text" placeholder="e.g., 8R 340"/>
+          <select id="md" data-fv-combo></select>
+          <div class="tip">Models filter by the selected make.</div>
         </div>
 
         <div>
           <label for="yr">Year</label>
-          <input id="yr" type="text" inputmode="numeric" placeholder="e.g., 2021"/>
+          <select id="yr" data-fv-combo></select>
         </div>
         <div>
           <label for="sn">Serial (full)</label>
@@ -188,7 +191,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, doc, getDoc, getDocs, query, where, onSnapshot, setDoc, updateDoc, serverTimestamp, limit
+      getFirestore, collection, doc, getDoc, getDocs, query, where, orderBy, onSnapshot, setDoc, updateDoc, serverTimestamp, limit
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = sel => document.querySelector(sel);
@@ -203,7 +206,8 @@
     const eClose = $('#eClose');
 
     const f = {
-      mk: $('#mk'), md: $('#md'), yr: $('#yr'), sn: $('#sn'), sn6: $('#sn6'),
+      mk: $('#mk'), md: $('#md'), yr: $('#yr'),
+      sn: $('#sn'), sn6: $('#sn6'),
       st: $('#st'), hrs: $('#hrs'), notes: $('#notes')
     };
     const saveBtn = $('#saveBtn');
@@ -216,7 +220,11 @@
     let currentId = null;
     let deleteClean = false;
 
-    // Helpers (kept identical to your tractors file)
+    // Caches for Make/Model lists
+    let MAKES = [];  // [{id,name,active}]
+    let MODELS = []; // [{id,name,makeId?,makeName?,active}]
+
+    // Helpers (kept aligned with your tractors page)
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
     const normStatus = v => String(v ?? 'active').toLowerCase();
@@ -236,6 +244,92 @@
       return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || '(tractor)');
     };
 
+    /* --------------------- YEAR LIST --------------------- */
+    function buildYears(){
+      const now = new Date().getFullYear();
+      const years = [];
+      for(let y = now+1; y >= now-40; y--) years.push(String(y));
+      return years;
+    }
+
+    function fillSelect(sel, items, value, placeholder='Select…'){
+      sel.innerHTML = '';
+      const opt0 = document.createElement('option');
+      opt0.value=''; opt0.textContent=placeholder;
+      sel.appendChild(opt0);
+      items.forEach(it=>{
+        const o = document.createElement('option');
+        o.value = it.value; o.textContent = it.label;
+        if(value && value === it.value) o.selected = true;
+        sel.appendChild(o);
+      });
+      // trigger fv-combo upgrade refresh if present
+      sel.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+
+    /* --------------------- MAKES/MODELS --------------------- */
+    async function loadMakes(){
+      const db = getFirestore();
+      try{
+        const qs = await getDocs(query(collection(db,'equipment-makes'), orderBy('name')));
+        MAKES = [];
+        qs.forEach(s=>{
+          const d = s.data()||{};
+          MAKES.push({ id:s.id, name:d.name||d.make||'', active:(d.active!==false) });
+        });
+      }catch(e){ console.error('loadMakes', e); MAKES=[]; }
+    }
+    async function loadModels(){
+      const db = getFirestore();
+      try{
+        const qs = await getDocs(query(collection(db,'equipment-models'), orderBy('name')));
+        MODELS = [];
+        qs.forEach(s=>{
+          const d = s.data()||{};
+          MODELS.push({
+            id:s.id, name:d.name||d.model||'',
+            makeId:d.makeId||d.makeRef||'',
+            makeName:d.makeName||d.make||'',
+            active:(d.active!==false)
+          });
+        });
+      }catch(e){ console.error('loadModels', e); MODELS=[]; }
+    }
+    function currentMakeObj(){
+      const val = f.mk.value;
+      // match by id or by name
+      return MAKES.find(m=>m.id===val || m.name===val) || null;
+    }
+    function filteredModelsByMake(){
+      const mk = currentMakeObj();
+      if(!mk) return MODELS.filter(m=>m.active);
+      return MODELS.filter(m=>{
+        if(!m.active) return false;
+        // allow either linkage style
+        if(m.makeId && mk.id) return m.makeId===mk.id;
+        if(m.makeName && mk.name) return (m.makeName===mk.name);
+        return false;
+      });
+    }
+    function refreshMakeSelect(currentMakeName=''){
+      const list = MAKES.filter(m=>m.active).sort((a,b)=>a.name.localeCompare(b.name))
+        .map(m=>({ value: m.id || m.name, label: m.name }));
+      // prefer match by id; if none, try by name
+      const val = (MAKES.find(m=>m.name===currentMakeName)?.id) || currentMakeName || '';
+      fillSelect(f.mk, list, val, 'Pick a make');
+    }
+    function refreshModelSelect(currentModelName=''){
+      const list = filteredModelsByMake()
+        .sort((a,b)=>a.name.localeCompare(b.name))
+        .map(m=>({ value: m.id || m.name, label: m.name }));
+      const val = (MODELS.find(m=>m.name===currentModelName)?.id) || currentModelName || '';
+      fillSelect(f.md, list, val, 'Pick a model');
+    }
+    function refreshYearSelect(currentYear=''){
+      const list = buildYears().map(y=>({ value:y, label:y }));
+      fillSelect(f.yr, list, String(currentYear||''), 'Pick a year');
+    }
+
     /* --------------------- LISTENER --------------------- */
     function attach(){
       if (unsub) return;
@@ -245,7 +339,7 @@
         const out = [];
         snap.forEach(docSnap=>{
           const d = docSnap.data() || {};
-          if (!isActive(d)) return; // Active tractors only, per your view file
+          if (!isActive(d)) return;
           out.push({ id: docSnap.id, ...d });
         });
         out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
@@ -278,7 +372,6 @@
         return;
       }
 
-      // Group A-Z by first letter of display line
       const by = {};
       rows.forEach(d=>{
         const name = displayLine(d);
@@ -315,27 +408,39 @@
       if(!snap.exists()){ alert('Tractor not found'); return; }
       const d = snap.data() || {};
 
-      eTitle.textContent = titleFor(d);
+      // Ensure picklists are ready
+      if(!MAKES.length) await loadMakes();
+      if(!MODELS.length) await loadModels();
 
-      // Populate with your field names
-      f.mk.value  = d.makeName  || '';
-      f.md.value  = d.modelName || '';
-      f.yr.value  = d.year       || '';
-      f.sn.value  = d.serial     || '';
+      // Populate selects/inputs
+      refreshMakeSelect(d.makeName||'');
+      // If the make value doesn't match an id option, try set value to name
+      if(!f.mk.value && d.makeName) f.mk.value = d.makeName;
+
+      refreshModelSelect(d.modelName||'');
+      if(!f.md.value && d.modelName) f.md.value = d.modelName;
+
+      refreshYearSelect(d.year||'');
+      if(!f.yr.value && d.year) f.yr.value = String(d.year);
+
+      f.sn.value  = d.serial || '';
       f.sn6.textContent = last6(d.serial);
-      f.st.value  = d.status     || 'Active';
+      f.st.value  = d.status || 'Active';
       f.hrs.value = (d.engineHours ?? '');
       f.notes.value = d.notes || '';
 
-      archiveBtn.textContent = (f.st.value==='Archived') ? 'Unarchive' : 'Archive';
+      // Wire dependent model list
+      f.mk.addEventListener('change', ()=> {
+        refreshModelSelect('');
+      }, { once:false });
 
+      // Live last-6
       f.sn.oninput = ()=> (f.sn6.textContent = last6(f.sn.value||''));
 
       // Reference check for delete; UI stays enabled either way
-      dependencyGuard(id).then(ok=>{
-        deleteClean = ok;
-      }).catch(()=>{ deleteClean=false; });
+      dependencyGuard(id).then(ok=>{ deleteClean = ok; }).catch(()=>{ deleteClean=false; });
 
+      eTitle.textContent = titleFor(d);
       openModal(dlg);
     }
 
@@ -351,21 +456,33 @@
         try{
           const qs = await getDocs(query(collection(db,c), where(field,'==', equipmentId), limit(1)));
           return qs.size===0;
-        }catch(_){ return false; } // fail closed
+        }catch(_){ return false; }
       });
       const rs = await Promise.all(checks);
       return rs.every(Boolean);
     }
 
     function collectPatch(){
+      // Resolve selected Make/Model display names from option labels
+      const makeVal = f.mk.value;
+      const modelVal = f.md.value;
+
+      const makeName = (MAKES.find(m=>m.id===makeVal)?.name)
+                    || (MAKES.find(m=>m.name===makeVal)?.name)
+                    || (f.mk.options[f.mk.selectedIndex]?.text || '').trim();
+
+      const modelName = (MODELS.find(m=>m.id===modelVal)?.name)
+                     || (MODELS.find(m=>m.name===modelVal)?.name)
+                     || (f.md.options[f.md.selectedIndex]?.text || '').trim();
+
       const patch = {
-        makeName:  f.mk.value.trim(),
-        modelName: f.md.value.trim(),
-        year:      f.yr.value.trim(),
-        serial:    f.sn.value.trim(),
-        status:    f.st.value || 'Active',
+        makeName,
+        modelName,
+        year: f.yr.value || '',
+        serial: f.sn.value.trim(),
+        status: f.st.value || 'Active',
         engineHours: Number(f.hrs.value||0),
-        notes:     f.notes.value.trim(),
+        notes: f.notes.value.trim(),
         updatedAt: serverTimestamp()
       };
       return patch;
@@ -373,6 +490,7 @@
     function validate(p){
       if(!p.makeName) return 'Make is required.';
       if(!p.modelName) return 'Model is required.';
+      if(!p.year) return 'Year is required.';
       if(!p.serial || p.serial.length<6) return 'Serial must be at least 6 characters.';
       if(p.engineHours<0) return 'Engine hours cannot be negative.';
       return '';
@@ -391,7 +509,7 @@
         closeModal(dlg);
       }catch(e){
         console.error(e);
-        alert('Save failed by Firestore rules. (You can see it, but rules denied edit.)');
+        alert('Save failed by Firestore rules.');
       }
     }
 
@@ -448,6 +566,8 @@
     function resume(){ if (!unsub) attach(); }
     (async()=>{
       await ready;
+      // Preload lists so first open is fast
+      await Promise.all([loadMakes(), loadModels()]);
       attach();
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
