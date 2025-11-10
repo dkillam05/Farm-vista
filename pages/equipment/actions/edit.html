@@ -24,7 +24,7 @@
     })();
   </script>
 
-  <!-- Firebase CONFIG FIRST (matches your convention) -->
+  <!-- Firebase CONFIG FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -57,7 +57,7 @@
       background:var(--surface);
       color:var(--text);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      padding:14px 16px; display:flex; align-items:center; justify-content:space-between;
+      padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px;
       cursor:pointer;
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
@@ -77,10 +77,9 @@
     .sheet::backdrop{ background:rgba(0,0,0,.55); }
     .sheet header{
       padding:14px 16px; border-bottom:1px solid var(--border);
-      display:flex; justify-content:space-between; align-items:center;
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
       background:var(--card-surface, var(--surface));
       color:var(--text);
-      gap:10px;
     }
     .sheet .body{
       padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
@@ -135,7 +134,7 @@
     <header>
       <strong id="eTitle">Edit Tractor</strong>
       <div style="display:flex; gap:8px; align-items:center">
-        <span id="rolePill" class="badge">Checking permissions…</span>
+        <span class="badge" title="UI is editable; Firestore still enforces writes.">Editable</span>
         <button id="eClose" class="btn" type="button">Close</button>
       </div>
     </header>
@@ -181,7 +180,7 @@
     </div>
     <footer>
       <button id="archiveBtn" class="btn btn-warn" type="button">Archive</button>
-      <button id="deleteBtn" class="btn btn-danger" type="button" disabled>Delete</button>
+      <button id="deleteBtn" class="btn btn-danger" type="button">Delete</button>
       <button id="saveBtn" class="btn btn-primary" type="button">Save Changes</button>
     </footer>
   </dialog>
@@ -202,7 +201,6 @@
     const dlg = $('#edit');
     const eTitle = $('#eTitle');
     const eClose = $('#eClose');
-    const rolePill = $('#rolePill');
 
     const f = {
       mk: $('#mk'), md: $('#md'), yr: $('#yr'), sn: $('#sn'), sn6: $('#sn6'),
@@ -215,11 +213,10 @@
     // State
     let DATA = [];
     let unsub = null;
-    let APP = { user:null, orgId:null, role:'', canAll:false, canEdit:false };
     let currentId = null;
     let deleteClean = false;
 
-    // Helpers (kept identical to your file where possible)
+    // Helpers (kept identical to your tractors file)
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
     const normStatus = v => String(v ?? 'active').toLowerCase();
@@ -239,19 +236,7 @@
       return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || '(tractor)');
     };
 
-    function applyRole(){
-      APP.canAll = ['Owner','Admin'].includes(APP.role);
-      APP.canEdit = APP.canAll || APP.role==='Employee';
-      rolePill.textContent = APP.canAll ? 'Owner/Admin' : (APP.canEdit ? 'Employee (limited)' : 'Read-only');
-      saveBtn.disabled = !APP.canEdit;
-      archiveBtn.disabled = !APP.canEdit;
-      deleteBtn.disabled = !APP.canAll || !deleteClean;
-      // read-only feel by disabling inputs if truly view-only
-      [f.mk,f.md,f.yr,f.sn,f.st,f.hrs,f.notes].forEach(el=>{
-        el.disabled = !APP.canEdit;
-      });
-    }
-
+    /* --------------------- LISTENER --------------------- */
     function attach(){
       if (unsub) return;
       const db = getFirestore();
@@ -260,7 +245,7 @@
         const out = [];
         snap.forEach(docSnap=>{
           const d = docSnap.data() || {};
-          if (!isActive(d)) return; // Active tractors only (exactly like your view)
+          if (!isActive(d)) return; // Active tractors only, per your view file
           out.push({ id: docSnap.id, ...d });
         });
         out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
@@ -316,14 +301,14 @@
       });
     }
 
-    // Modal helpers
+    /* --------------------- MODAL/EDIT --------------------- */
     function openModal(el){ try{ el.showModal(); }catch{ el.setAttribute('open',''); } }
     function closeModal(el){ try{ el.close(); }catch{ el.removeAttribute('open'); } }
 
     async function openEditor(id){
       currentId = id;
       deleteClean = false;
-      deleteBtn.disabled = true;
+      deleteBtn.disabled = false; // UI always enabled
 
       const db = getFirestore();
       const snap = await getDoc(doc(db,'equipment',id));
@@ -332,7 +317,7 @@
 
       eTitle.textContent = titleFor(d);
 
-      // Populate form with YOUR field names
+      // Populate with your field names
       f.mk.value  = d.makeName  || '';
       f.md.value  = d.modelName || '';
       f.yr.value  = d.year       || '';
@@ -342,25 +327,19 @@
       f.hrs.value = (d.engineHours ?? '');
       f.notes.value = d.notes || '';
 
-      // Archive toggle label
       archiveBtn.textContent = (f.st.value==='Archived') ? 'Unarchive' : 'Archive';
 
-      // Role
-      applyRole();
-
-      // Serial live → last 6
       f.sn.oninput = ()=> (f.sn6.textContent = last6(f.sn.value||''));
 
-      // Pre-check delete eligibility
+      // Reference check for delete; UI stays enabled either way
       dependencyGuard(id).then(ok=>{
         deleteClean = ok;
-        deleteBtn.disabled = !(APP.canAll && deleteClean);
-      }).catch(()=>{ deleteClean=false; deleteBtn.disabled = true; });
+      }).catch(()=>{ deleteClean=false; });
 
       openModal(dlg);
     }
 
-    // Only allow delete when NO references exist
+    // Only allow hard delete when NO references exist (UI shows error if blocked)
     async function dependencyGuard(equipmentId){
       const db = getFirestore();
       const checks = [
@@ -379,19 +358,15 @@
     }
 
     function collectPatch(){
-      const makeName  = f.mk.value.trim();
-      const modelName = f.md.value.trim();
-      const serial    = f.sn.value.trim();
       const patch = {
-        makeName,
-        modelName,
-        year: f.yr.value.trim(),
-        serial,
-        status: f.st.value || 'Active',
+        makeName:  f.mk.value.trim(),
+        modelName: f.md.value.trim(),
+        year:      f.yr.value.trim(),
+        serial:    f.sn.value.trim(),
+        status:    f.st.value || 'Active',
         engineHours: Number(f.hrs.value||0),
-        notes: f.notes.value.trim(),
-        updatedAt: serverTimestamp(),
-        updatedBy: APP.user?.displayName || 'System'
+        notes:     f.notes.value.trim(),
+        updatedAt: serverTimestamp()
       };
       return patch;
     }
@@ -410,42 +385,39 @@
       const err = validate(patch);
       if(err){ alert(err); return; }
 
-      // Employees can edit hours + notes; Owners/Admins can edit everything
-      if(!APP.canAll && APP.canEdit){
-        await setDoc(doc(db,'equipment',currentId), {
-          engineHours: patch.engineHours,
-          notes: patch.notes,
-          updatedAt: patch.updatedAt,
-          updatedBy: patch.updatedBy
-        }, { merge:true });
-      }else if(APP.canAll){
+      try{
         await setDoc(doc(db,'equipment',currentId), patch, { merge:true });
-      }else{
-        alert('Read-only.'); return;
+        alert('Saved ✓');
+        closeModal(dlg);
+      }catch(e){
+        console.error(e);
+        alert('Save failed by Firestore rules. (You can see it, but rules denied edit.)');
       }
-      alert('Saved ✓');
-      closeModal(dlg);
     }
 
     async function toggleArchive(){
       if(!currentId) return;
       const db = getFirestore();
-      const snap = await getDoc(doc(db,'equipment',currentId));
-      if(!snap.exists()) return;
-      const now = snap.data() || {};
-      const nextStatus = (now.status==='Archived') ? 'Active' : 'Archived';
-      await updateDoc(doc(db,'equipment',currentId), {
-        status: nextStatus,
-        updatedAt: serverTimestamp(),
-        updatedBy: APP.user?.displayName || 'System'
-      });
-      alert(nextStatus==='Archived' ? 'Archived ✓' : 'Restored ✓');
-      closeModal(dlg);
+      try{
+        const snap = await getDoc(doc(db,'equipment',currentId));
+        if(!snap.exists()) return;
+        const now = snap.data() || {};
+        const nextStatus = (now.status==='Archived') ? 'Active' : 'Archived';
+        await updateDoc(doc(db,'equipment',currentId), {
+          status: nextStatus,
+          updatedAt: serverTimestamp()
+        });
+        alert(nextStatus==='Archived' ? 'Archived ✓' : 'Restored ✓');
+        closeModal(dlg);
+      }catch(e){
+        console.error(e);
+        alert('Archive/Unarchive failed by Firestore rules.');
+      }
     }
 
     async function doDelete(){
       if(!currentId) return;
-      if(!APP.canAll){ alert('Only Owner/Admin can delete.'); return; }
+
       if(!deleteClean){
         alert('This tractor is referenced by other data. Delete is blocked. Use Archive instead.');
         return;
@@ -454,53 +426,29 @@
       if(!ok) return;
 
       const db = getFirestore();
-      // Try hard delete; if rules prevent, fall back to soft-archive
       try{
         const { deleteDoc } = await import('/Farm-vista/js/firebase-init.js');
         await deleteDoc(doc(db,'equipment',currentId));
         alert('Deleted ✓');
-      }catch(_){
-        await updateDoc(doc(db,'equipment',currentId), {
-          status: 'Archived',
-          deletedAt: serverTimestamp(),
-          updatedBy: APP.user?.displayName || 'System'
-        });
-        alert('Could not hard delete; archived instead ✓');
+        closeModal(dlg);
+      }catch(e){
+        console.error(e);
+        alert('Delete failed by Firestore rules. Try Archiving instead.');
       }
-      closeModal(dlg);
     }
 
-    // Wire modal buttons
+    // Wire UI
     eClose.addEventListener('click', ()=> closeModal(dlg));
     saveBtn.addEventListener('click', saveEdits);
     archiveBtn.addEventListener('click', toggleArchive);
     deleteBtn.addEventListener('click', doDelete);
-
-    // Search
     qInput.addEventListener('input', render);
 
     // Resume hooks
     function resume(){ if (!unsub) attach(); }
-
     (async()=>{
       await ready;
-
-      // Resolve FVUserContext supplied by theme-boot
-      (function waitCtx(t0=Date.now()){
-        if(window.FVUserContext && FVUserContext.user){
-          APP.user = FVUserContext.user;
-          APP.orgId = FVUserContext.orgId || null;
-          APP.role = FVUserContext.role || 'Employee';
-          applyRole();
-          attach();
-        }else if(Date.now()-t0 > 6000){
-          // Proceed; some environments might still allow public read per rules
-          attach();
-        }else{
-          setTimeout(()=>waitCtx(t0), 120);
-        }
-      })();
-
+      attach();
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
