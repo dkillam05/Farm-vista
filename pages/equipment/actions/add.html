@@ -1,9 +1,10 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Adds: persist QR preview to Storage and save its URL under equipment.qr.image
-+ Centered card on mobile
-+ Inline editors for Makes/Models (no blue text, no Add, conditional Delete/Archive)
-+ Cancel now navigates to /Farm-vista/pages/equipment/equipment-tractors.HTML (falls back to .html)
+Fixes:
+  • Locks control geometry (uniform height + padding) so selects can't resize/shift
+  • Ensures hero centers pixel-perfect on mobile (no subpixel drift)
+  • Prevents iOS text autosize/zoom from changing control font size after paint
+  • Keeps your behaviors (QR, modal editors, Firestore, cancel routing) unchanged
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -36,7 +37,20 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
   </script>
 
   <style>
-    :root{ --card-max:1100px; --page-bottom-gap:96px; --brand: var(--green,#3B7E46); }
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --brand: var(--green,#3B7E46);
+
+      /* NEW: uniform control height */
+      --ctl-h: 48px;
+      --ctl-pad-x: 12px;
+      --ctl-pad-y: 12px;
+    }
+
+    /* Guard against width nudge from late scrollbar appearance */
+    html, body { min-height:100%; }
+    body { scrollbar-gutter: stable; }
 
     .wrap{
       max-width:var(--card-max);
@@ -45,9 +59,9 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
-    /* Center the card */
+    /* Center the card (pixel-even width) */
     .hero{
-      max-width:720px;
+      width: min(720px, calc(100% - 24px));
       margin:0 auto var(--page-bottom-gap);
       border:1px solid var(--border);
       border-radius:14px;
@@ -80,12 +94,26 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     .as-label:hover{ text-decoration:underline; }
     .as-label.req::after{ content:" *"; color:var(--brand); }
 
+    /* === Controls: locked geometry + stable font size === */
     .input,.select,.textarea{
-      width:100%; font:inherit; font-size:16px; color:var(--text);
-      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:10px; padding:12px; outline:none
+      width:100%; font:inherit; font-size:16px; /* lock iOS so it won't zoom/resize */
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:var(--ctl-pad-y) var(--ctl-pad-x);
+      outline:none;
+      box-sizing:border-box;
     }
-    .textarea{ min-height:110px; resize:vertical }
+    .input,.select{ height:var(--ctl-h); line-height: calc(var(--ctl-h) - 2px); }
+    .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
+
+    /* Keep native select (stable) but normalize padding so it doesn't widen later */
+    select.select{
+      -webkit-appearance: menulist; appearance: menulist;
+      padding-right: 28px; /* ensure room for native arrow */
+      background-color: var(--card-surface,var(--surface));
+    }
 
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
@@ -416,7 +444,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       return items;
     }
     async function getModels(db, makeId){
-      // when makeId is null, return empty
       if(!makeId) return [];
       const items=[];
       try{
@@ -459,8 +486,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
 
     /* ===== Links/usage checks for Delete/Archive rules ===== */
     async function usageInfo(db, kind, id){
-      // Returns { total, active }
-      // kind: 'makes' or 'models'
       let qRef;
       if(kind==='makes'){
         qRef = query(collection(db,'equipment'), where('makeId','==',id));
@@ -505,7 +530,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         ctx.textContent = 'Makes';
         items = await getMakes(db);
       }else{
-        // Inject a Make filter select (works even if main form hasn't chosen a make)
         let sel = document.getElementById('edMakeSelect');
         if(!sel){
           sel = document.createElement('select');
@@ -515,7 +539,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         }
         const makes = await getMakes(db);
         sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
-        // default to main form's make if set
         const cur = $("make").value;
         if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
         const chosen = sel.value || (makes[0]?.id || null);
@@ -571,26 +594,21 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         row.append(input, tag, saveBtn, archiveBtn, delBtn);
         listEl.appendChild(row);
 
-        // Evaluate usage to decide which actions are allowed
         const usage = await usageInfo(db, kind, it.id);
         if(usage.total === 0){
-          // No usage: can delete
           tag.textContent = 'unused';
           archiveBtn.hidden = true;
           delBtn.hidden = false;
         }else if(usage.active > 0){
-          // Some active usage: no archive/delete
           tag.textContent = 'in use (active)';
           archiveBtn.hidden = true;
           delBtn.hidden = true;
         }else{
-          // Only inactive history: archive allowed, no delete
           tag.textContent = 'in use (inactive only)';
           archiveBtn.hidden = false;
           delBtn.hidden = true;
         }
 
-        // Wire actions
         saveBtn.addEventListener('click', async ()=>{
           const newName = input.value.trim();
           if(!newName) return;
@@ -620,13 +638,11 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     }
 
     async function refreshDropdowns(db){
-      // Refresh makes
       const makes = await getMakes(db);
       const curMake = $("make").value;
       $("make").innerHTML = renderMakeOptions(makes);
       if(makes.find(m=>m.id===curMake)) $("make").value = curMake; else $("make").value="";
 
-      // Refresh models for selected make
       const selectedMakeId = $("make").value;
       if(selectedMakeId){
         const models = await getModels(db, selectedMakeId);
@@ -663,7 +679,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       const uniqRef = doc(db, 'equipment-uniq', uniqDocId);
       const tokenRef = doc(db, 'qr-tokens', token);
 
-      // Try to lazy-load runTransaction (may or may not be exported)
       let runTransaction;
       try{
         const m = await import('/Farm-vista/js/firebase-init.js');
@@ -725,7 +740,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
           }
         }
 
-        // Optional photos
         const files = Array.from(($("photos").files||[]));
         if(files.length){
           try{
