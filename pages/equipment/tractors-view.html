@@ -1,9 +1,8 @@
 <!-- /Farm-vista/pages/equipment/tractors-view.html
-     Equipment • View Tractors
-     - Theme-safe (no dark/light overrides; only uses app tokens)
-     - No horizontal scroll globally
-     - Modal scrolls vertically only; background locked while open
-     - Hybrid data model + Diagnostics
+     SIMPLE MODEL: direct pull + live listen on /equipment, client-side filter to tractors/active
+     - No org/context gating
+     - No theme overrides (uses global theme.css + app.css)
+     - Modal scrolls top-to-bottom only (no horizontal scroll anywhere)
 -->
 <!doctype html>
 <html lang="en">
@@ -18,8 +17,8 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
-  <!-- Theme + base app styles -->
-  <script src="/Farm-vista/js/theme-boot.js" defer></script>
+  <!-- Theme + base app styles (no local overrides) -->
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -35,74 +34,35 @@
   </script>
 
   <style>
-    /* ===== Layout / No horizontal scroll ===== */
-    html, body { max-width:100vw; overflow-x:hidden; overscroll-behavior-x:none; }
-    body{
-      background:var(--app-bg,var(--surface));
-      color:var(--text);
-      touch-action: pan-y;
-      word-wrap: break-word;
-    }
-    /* Lock background scroll when modal open */
+    /* Keep things tight but let global theme control colors */
+    html, body { max-width:100vw; overflow-x:hidden; }
     body.modal-open{ position:fixed; width:100%; overflow:hidden; touch-action:none; }
-
-    /* Common elements */
-    img, svg, canvas, video { max-width:100%; height:auto; display:block; }
-    table { max-width:100%; display:block; overflow:auto; }
-    pre, code { white-space:pre-wrap; word-break:break-word; }
 
     .wrap{
       max-width:1200px; margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 80px)!important;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 84px)!important;
     }
-
-    header.page{margin:8px 0 14px;}
-    header.page h1{margin:0 0 6px 0; font-size:clamp(22px,3.5vw,28px)}
-    header.page p{margin:0; color:var(--muted,#67706B)}
 
     .toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:10px 0 14px}
-
-    .input, .select, .textarea{
-      width:100%; font:inherit; font-size:16px; color:var(--text);
+    .input, .select{
+      width:100%; font:inherit; font-size:16px;
       background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:10px 12px; outline:none; line-height:1.2; min-height:40px;
+      border:1px solid var(--border); border-radius:10px; padding:10px 12px; min-height:40px;
     }
-    .textarea{min-height:110px; resize:vertical}
-
-    .select{
-      -webkit-appearance:none; -moz-appearance:none; appearance:none;
-      position:relative;
-      background-image:
-        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="8" viewBox="0 0 14 8"><path d="M1 1l6 6 6-6" fill="none" stroke="%2367706B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
-      background-repeat:no-repeat; background-position:right 12px center; background-size:14px 8px;
-      padding-right:40px; cursor:pointer;
-    }
-    .select::-ms-expand{ display:none; }
-
-    .input:focus, .select:focus, .textarea:focus{
-      border-color: color-mix(in srgb, var(--green,#3B7E46), #000 15%);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--green,#3B7E46), transparent 70%);
-    }
-
     .toolbar .input{ min-width:240px; }
     .toolbar .select{ min-width:160px; }
-
     .btn{
       display:inline-flex; align-items:center; justify-content:center;
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer;
     }
-    .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff!important }
-    .btn-quiet{ background:transparent }
-    .btn[disabled]{ opacity:.6; cursor:not-allowed }
+    .btn-primary{ border-color:transparent; background:var(--green); color:#fff!important }
 
     .list{ border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--surface); }
     .thead,.row{ display:grid; grid-template-columns: 0.6fr 1.2fr 0.6fr 0.6fr; gap:10px; align-items:center; }
-    .thead{ padding:10px 12px; font-weight:800; background:color-mix(in srgb, var(--green,#3B7E46) 10%, transparent); }
+    .thead{ padding:10px 12px; font-weight:800; background:color-mix(in srgb, var(--green) 10%, transparent); }
     .row{ padding:12px; border-top:1px solid var(--border); cursor:pointer }
-    .row:hover{ background:color-mix(in srgb, var(--green,#3B7E46) 6%, transparent); }
+    .row:hover{ background:color-mix(in srgb, var(--green) 6%, transparent); }
     .status{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
 
     @media (max-width:900px){
@@ -111,96 +71,54 @@
       .row .mobile-line{ font-size:13px; color:var(--muted) }
     }
 
-    /* ===== Modal (vertical-only scroll) ===== */
+    /* ===== Modal (vertical-only; no horizontal scroll) ===== */
     .modal-backdrop{
       position:fixed; inset:0; padding:8px;
       background:rgba(0,0,0,.35);
       display:none; align-items:center; justify-content:center; z-index:9000;
-      overflow:hidden; /* prevent sideways in backdrop */
+      overflow:hidden; /* prevent side scroll on the overlay */
       touch-action: pan-y;
+      overscroll-behavior: contain;
     }
     .modal-backdrop.show{ display:flex; }
-
     .modal-card{
       width:min(720px, 96vw);
-      max-width:96vw; max-height:90vh;
+      max-height:90vh;
       display:flex; flex-direction:column;
       background:var(--surface); border:1px solid var(--border); border-radius:16px;
       box-shadow:0 20px 60px rgba(0,0,0,.35);
-      overflow:hidden; /* key: disable X inside the card */
-      contain:content;
+      overflow:hidden; contain:content;
     }
     .md-head{
       display:flex; align-items:center; justify-content:space-between;
       padding:14px 16px; border-bottom:1px solid var(--border);
-      background:var(--surface);
+      background:color-mix(in srgb, var(--green) 10%, transparent)
     }
     .md-body{
       padding:16px; display:grid; gap:12px;
-      overflow-y:auto;    /* vertical scroll only */
-      overflow-x:hidden;  /* kill horizontal */
-      overscroll-behavior-x:none;
-      -webkit-overflow-scrolling:touch;
-      touch-action: pan-y;
-      min-width:0;
+      overflow-y:auto; /* vertical only */
+      overflow-x:hidden; /* kill sideways */
+      overscroll-behavior-x:none; -webkit-overflow-scrolling:touch; touch-action: pan-y;
     }
-    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; min-width:0; }
+    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
     @media (max-width:640px){ .grid2{ grid-template-columns:1fr } }
 
-    .qr-box{ border:1px dashed var(--border); border-radius:12px; padding:12px; display:grid; gap:10px; background:color-mix(in srgb, var(--green,#3B7E46) 4%, transparent); }
-    .qr-img{ width:196px; height:196px; background:var(--surface); border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden; padding:8px; }
+    .qr-box{ border:1px dashed var(--border); border-radius:12px; padding:12px; display:grid; gap:10px; background:color-mix(in srgb, var(--green) 4%, transparent); }
+    .qr-img{ width:196px; height:196px; background:#fff; border:1px solid var(--border); border-radius:8px; display:grid; place-items:center; overflow:hidden; padding:8px; }
     .qr-img img{ max-width:180px; max-height:180px; display:block }
     .qr-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
     .qr-empty{ font-size:13px; color:var(--muted,#67706B); }
 
     .muted-inline{ color:var(--muted,#67706B); font-size:14px; padding:12px; }
 
-    /* ===== Page-local toast ===== */
+    /* Tiny toast */
     .local-toast{
-      position: fixed;
-      left: 50%;
-      bottom: calc(var(--ftr-h, 14px) + env(safe-area-inset-bottom, 0px) + 16px);
+      position: fixed; left:50%; bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 16px);
       transform: translateX(-50%) translateY(8px);
-      background: #111; color: #fff;
-      padding: 12px 18px; border-radius: 12px;
-      box-shadow: 0 12px 32px rgba(0,0,0,.35);
-      z-index: 999999; font-size: 14px;
-      opacity: 0; pointer-events: none;
-      transition: opacity .18s ease, transform .18s ease;
-      white-space: nowrap; max-width: 92vw; text-overflow: ellipsis; overflow: hidden;
+      background:#111; color:#fff; padding:12px 18px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35);
+      z-index:999999; font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; white-space:nowrap; max-width:92vw; text-overflow:ellipsis; overflow:hidden;
     }
-    .local-toast.show{ opacity: 1; transform: translateX(-50%) translateY(0); }
-
-    /* ===== Diagnostics ===== */
-    .diag-toggle{
-      position: fixed;
-      right: 10px;
-      bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 66px);
-      z-index: 1000000;
-      background: var(--green,#3B7E46);
-      color: #fff; border: 0; border-radius: 999px;
-      padding: 8px 12px; font-weight: 800;
-      box-shadow: 0 8px 22px rgba(0,0,0,.26);
-    }
-    .diag-panel{
-      position: fixed;
-      left: 10px; right: 10px;
-      bottom: calc(var(--ftr-h,14px) + env(safe-area-inset-bottom,0px) + 14px);
-      background: var(--surface); color: var(--text);
-      border: 1px solid var(--border); border-radius: 12px;
-      box-shadow: 0 16px 36px rgba(0,0,0,.28);
-      z-index: 1000000; display: none; max-height: 46vh; overflow: auto;
-    }
-    .diag-panel.open{ display: block; }
-    .diag-grid{ display:grid; grid-template-columns: 140px 1fr; gap: 6px 10px; padding: 10px 12px; font-size: 13px; }
-    .diag-k{ font-weight:800; color: var(--green,#3B7E46); }
-    .diag-v code{ background: color-mix(in srgb, var(--green,#3B7E46) 10%, transparent); padding:2px 6px; border-radius: 8px; }
-    .diag-err{ color:#b00020; font-weight:800; }
-    .diag-warn{ color:#b36b00; font-weight:800; }
-    .diag-ok{ color:#1b5e20; font-weight:800; }
-    .diag-hr{ height:1px; background:var(--border); margin:2px 0; grid-column: 1 / -1; }
-    .diag-actions{ display:flex; gap:8px; padding: 8px 12px 12px; justify-content:flex-end; }
-    .diag-actions .btn{ padding:8px 12px; }
+    .local-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
   </style>
 </head>
 <body>
@@ -213,12 +131,12 @@
 
       <div class="toolbar">
         <input id="search" class="input" placeholder="Search make, model, year, serial…">
-        <select id="filter" class="select">
-          <option value="active">Active</option>
+        <select id="filter" class="select" aria-label="Filter">
+          <option value="active" selected>Active</option>
           <option value="archived">Archived</option>
           <option value="all">All</option>
         </select>
-        <select id="sort" class="select">
+        <select id="sort" class="select" aria-label="Sort">
           <option value="name">Name (A→Z)</option>
           <option value="year">Year (new→old)</option>
           <option value="hours">Hours (high→low)</option>
@@ -286,7 +204,7 @@
         </div>
         <div>
           <label>Notes</label>
-          <textarea id="dwNotes" class="textarea" placeholder="Optional details"></textarea>
+          <textarea id="dwNotes" class="input" style="min-height:110px" placeholder="Optional details"></textarea>
         </div>
 
         <div class="qr-box">
@@ -294,7 +212,7 @@
             <div class="qr-img"><img id="qrSmall" alt="QR" hidden></div>
             <div class="qr-actions">
               <button id="btnReprint" class="btn" type="button" disabled>Reprint QR</button>
-              <a id="btnOpenHub" class="btn btn-quiet">Open Hub</a>
+              <a id="btnOpenHub" class="btn">Open Hub</a>
             </div>
           </div>
           <div id="qrMsg" class="qr-empty" hidden>No QR yet — generate one on the Add/Edit page and save.</div>
@@ -303,129 +221,46 @@
     </div>
   </div>
 
-  <!-- Per-page toast element -->
+  <!-- Toast -->
   <div id="toast" class="local-toast" aria-live="polite" aria-atomic="true"></div>
 
-  <!-- Diagnostics UI -->
-  <button id="diagToggle" class="diag-toggle" type="button">🩺 Diagnostics</button>
-  <div id="diag" class="diag-panel" role="region" aria-label="Diagnostics">
-    <div class="diag-grid" id="diagGrid"></div>
-    <div class="diag-actions">
-      <button id="diagCopyErr" class="btn" type="button">Copy last error</button>
-      <button id="diagForceServer" class="btn" type="button">Force server pull</button>
-      <button id="diagToggleVerbose" class="btn" type="button">Verbose logs: Off</button>
-      <button id="diagClose" class="btn" type="button">Close</button>
-    </div>
-  </div>
-
-  <!-- QR library -->
+  <!-- QR library (for on-the-fly reprint if no saved image) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script type="module">
     import * as FB from '/Farm-vista/js/firebase-init.js';
-    const {
-      ready,
-      getFirestore, collection, getDocs, query, where,
-      doc, getDoc, updateDoc, serverTimestamp,
-      getDocsFromServer, enableNetwork, disableNetwork,
-      onSnapshot, getAuth, onIdTokenChanged
-    } = FB;
-
-    const _onSnapshot = onSnapshot || FB.firestoreOnSnapshot || null;
-    const _getDocsFromServer = getDocsFromServer || null;
-    const _enableNetwork = enableNetwork || (async ()=>{});
-    const _disableNetwork = disableNetwork || (async ()=>{});
-    const _getAuth = getAuth || (()=> (window.firebaseAuth || null));
-    const _onIdTokenChanged = onIdTokenChanged || ((auth, fn)=> {
-      try { auth && auth.onIdTokenChanged && auth.onIdTokenChanged(fn); } catch {}
-    });
+    const { ready, getFirestore, collection, getDocs, onSnapshot,
+            doc, getDoc, updateDoc, serverTimestamp } = FB;
 
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtDate = ts => ts?.toDate ? new Date(ts.toDate()).toLocaleDateString() : (ts ? new Date(ts).toLocaleDateString() : "—");
 
-    /* ============ Local toast ============ */
-    function toast(msg, ms=2000){
-      try{
-        const t = $("toast"); if(!t) return;
-        t.textContent = msg || '';
-        t.classList.add('show');
-        clearTimeout(toast._tt);
-        toast._tt = setTimeout(()=> t.classList.remove('show'), ms);
-      }catch{}
+    /* ===== Tiny toast ===== */
+    function toast(msg, ms=1400){
+      try{ const t=$("toast"); t.textContent=msg||''; t.classList.add('show'); clearTimeout(toast._tt); toast._tt=setTimeout(()=>t.classList.remove('show'),ms);}catch{}
     }
-
-    /* ============ Diagnostics State ============ */
-    const DIAG = {
-      verbose: /\bdebug=1\b/i.test(location.search),
-      lastError: '', lastErrorCode: '', lastErrorTime: 0,
-      lastDetachReason: '', lastSource: '', lastServerMs: 0,
-      snapshotCount: 0, serverCount: 0,
-      listenerAttachedAt: 0, lastEnableAt: 0, lastDisableAt: 0,
-      tokenAgeMin: '',
-
-      filter: 'active', search: '', preCount: 0, postCount: 0
-    };
-    function log(...a){ if(DIAG.verbose) console.log('[Tractors]',...a); }
-    function warn(...a){ console.warn('[Tractors]',...a); }
-    function updateDiag(){
-      const g=$("diagGrid"); if(!g) return;
-      const tokenAge = DIAG.tokenAgeMin || '—';
-      const lastPullMs = DIAG.lastServerMs ? (DIAG.lastServerMs + ' ms') : '—';
-      const lastSrc = DIAG.lastSource || '—';
-      const lastErr = DIAG.lastErrorCode ? `<span class="diag-err">${esc(DIAG.lastErrorCode)}</span> ${esc(DIAG.lastError)}` : '<span class="diag-ok">None</span>';
-      const attached = DIAG.listenerAttachedAt?new Date(DIAG.listenerAttachedAt).toLocaleTimeString():'—';
-      g.innerHTML = `
-        <div class="diag-k">Auth</div><div class="diag-v">Online: <code>${navigator.onLine?'true':'false'}</code> • Token age: <code>${tokenAge}</code></div>
-        <div class="diag-k">Network</div><div class="diag-v">last enable: <code>${DIAG.lastEnableAt?new Date(DIAG.lastEnableAt).toLocaleTimeString():'—'}</code> • last disable: <code>${DIAG.lastDisableAt?new Date(DIAG.lastDisableAt).toLocaleTimeString():'—'}</code></div>
-        <div class="diag-k">Server Pull</div><div class="diag-v">count: <code>${DIAG.serverCount}</code> • time: <code>${lastPullMs}</code> • source: <code>${lastSrc}</code></div>
-        <div class="diag-k">Listener</div><div class="diag-v">attached: <code>${attached}</code> • last detach: <code>${esc(DIAG.lastDetachReason||'—')}</code> • last snap count: <code>${DIAG.snapshotCount}</code></div>
-        <div class="diag-hr"></div>
-        <div class="diag-k">Filter</div><div class="diag-v">filter=<code>${esc(DIAG.filter)}</code> • search="<code>${esc(DIAG.search)}</code>" • pre=<code>${DIAG.preCount}</code> → post=<code>${DIAG.postCount}</code></div>
-        <div class="diag-k">Last Error</div><div class="diag-v">${lastErr}</div>
-      `;
-    }
-    function setError(e){
-      const code = (e && (e.code || e.name)) || '';
-      const msg  = (e && (e.message || String(e))) || '';
-      DIAG.lastError = msg; DIAG.lastErrorCode = code; DIAG.lastErrorTime = Date.now();
-      updateDiag();
-    }
-    function clearError(){ DIAG.lastError=''; DIAG.lastErrorCode=''; updateDiag(); }
-
-    /* ============ Helpers ============ */
-    function buildYearOptions(sel){
-      sel.innerHTML = '<option value="">—</option>';
-      const now = new Date().getFullYear();
-      for(let y=now;y>=1980;y--){
-        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
-      }
-    }
-    const hubUrl = (id, token) => `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
-    const smartLaunch = (absTo) => { const u = new URL(location.origin + '/Farm-vista/launch.html'); u.searchParams.set('to', absTo); return u.href; };
-
-    let DB, tractors = [];
-    let currentId = null, currentSmartLink = null, currentQRImageUrl = null;
 
     /* ===== Body scroll lock for modal ===== */
     let __scrollY = 0;
     function lockBodyScroll(){ __scrollY = window.scrollY||0; document.body.classList.add('modal-open'); document.body.style.top = `-${__scrollY}px`; }
     function unlockBodyScroll(){ document.body.classList.remove('modal-open'); document.body.style.top=''; window.scrollTo(0, __scrollY||0); __scrollY=0; }
 
-    /* ===== Rendering + filters ===== */
+    /* ===== Data cache ===== */
+    let DB, tractors = [];
+    let unsubList = null;
+
     function normalizeItem(d,id){
       const statusNorm = String(d.status ?? 'active').toLowerCase();
       return {
-        id,
-        ...d,
+        id, ...d,
         status: statusNorm,
         _statusLabel: statusNorm==='archived' ? 'Archived' : 'Active'
       };
     }
 
     function setEmptyState() {
-      const rows = $("rows");
-      const empty = $("rowsEmpty");
+      const rows = $("rows"), empty = $("rowsEmpty");
       const has = rows.children.length > 0;
       empty.style.display = has ? "none" : "block";
     }
@@ -433,9 +268,6 @@
     function applySearchSort(items){
       const q = $("search").value.trim().toLowerCase();
       const f = $("filter").value;
-      DIAG.filter = f; DIAG.search = $("search").value || '';
-      DIAG.preCount = items.length;
-
       let out = items.filter(x=>{
         const sx = String(x.status || 'active').toLowerCase();
         if(f==='active'   && sx!=='active') return false;
@@ -451,8 +283,6 @@
       else if(sort==='year') out.sort((a,b)=>(b.year||0)-(a.year||0));
       else if(sort==='hours') out.sort((a,b)=>(Number(b.engineHours||0) - Number(a.engineHours||0)));
       else if(sort==='created') out.sort((a,b)=>((b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)));
-
-      DIAG.postCount = out.length; updateDiag();
       return out;
     }
 
@@ -479,87 +309,61 @@
       setEmptyState();
     }
 
-    /* ===== Data model (hybrid) ===== */
-    let unsubList = null;
-    let idleTimer = 0;
-    const IDLE_MS = 5*60*1000;
-    const debouncedResume = ((fn,wait=250)=>{ let t=0; return ()=>{ clearTimeout(t); t=setTimeout(fn,wait); };})(()=> hardReload(false));
-
-    function trackActivity(){
-      const bump = ()=>{ clearTimeout(idleTimer); idleTimer = setTimeout(()=> detachLive('idle'), IDLE_MS); };
-      ['pointerdown','keydown','touchstart','wheel'].forEach(ev=> window.addEventListener(ev, bump, {passive:true}));
-      bump();
-    }
-
-    function detachLive(reason='nav'){
-      if (unsubList) { try{ unsubList(); }catch{} unsubList=null; }
-      DIAG.listenerAttachedAt = 0; DIAG.lastDetachReason = reason; updateDiag();
-      _disableNetwork(DB).then(()=>{ DIAG.lastDisableAt=Date.now(); updateDiag(); }).catch(()=>{});
-      log('detachLive:', reason);
-    }
-
-    async function attachLive(){
-      if(!_onSnapshot) return;
-      const qy = query(collection(DB,'equipment'), where('type','==','tractor'));
-      try { await _enableNetwork(DB); DIAG.lastEnableAt=Date.now(); updateDiag(); } catch {}
-      try{
-        unsubList = _onSnapshot(qy, (snap)=>{
-          const list=[]; snap.forEach(d=> list.push(normalizeItem(d.data()||{}, d.id)));
-          tractors = list;
-          DIAG.snapshotCount = list.length;
-          if(!DIAG.listenerAttachedAt) DIAG.listenerAttachedAt = Date.now();
-          renderList(); updateDiag();
-        }, (err)=>{ setError(err); warn('Live listener error:', err); });
-      }catch(e){ setError(e); warn('Live attach failed:', e); }
-    }
-
-    async function serverPull(){
-      const qy = query(collection(DB,'equipment'), where('type','==','tractor'));
-      try { await _enableNetwork(DB); DIAG.lastEnableAt=Date.now(); updateDiag(); } catch {}
-      const t0 = performance.now();
-      let snap, source='cache';
-      try{
-        if(_getDocsFromServer){ snap = await _getDocsFromServer(qy); source='server'; }
-        else { snap = await getDocs(qy); source=(navigator.onLine?'server?':'cache'); }
-        clearError();
-      }catch(e){
-        setError(e); warn('Server pull failed, trying cache:', e);
-        snap = await getDocs(qy); source='cache';
-      }
-      const temp=[]; snap.forEach(d=> temp.push(normalizeItem(d.data()||{}, d.id)));
+    /* ===== Simple data flow ===== */
+    async function initialPull(){
+      const snap = await getDocs(collection(DB,'equipment'));
+      const temp = [];
+      snap.forEach(d=>{
+        const x = normalizeItem(d.data()||{}, d.id);
+        if ((String(x.type||'').toLowerCase()==='tractor')
+            && (String(x.status||'active').toLowerCase()==='active')) {
+          temp.push(x);
+        }
+      });
       temp.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
       tractors = temp;
-      DIAG.serverCount = temp.length;
-      DIAG.lastSource = source;
-      DIAG.lastServerMs = Math.round(performance.now()-t0);
-      renderList(); updateDiag();
+      renderList();
     }
 
-    async function hardReload(userInitiated){
-      detachLive('reload');
-      await ready;
-      DB = getFirestore();
-
-      try{
-        await serverPull();
-        if(userInitiated) toast('Server refreshed', 1400);
-      }catch(e){
-        warn('Hard reload failed:', e);
-        toast('Refresh failed: ' + (e?.message || 'Unknown error'), 2600);
-      }
-      await attachLive();
-      trackActivity();
+    function attachLive(){
+      if (unsubList) try{unsubList();}catch{}
+      unsubList = onSnapshot(collection(DB,'equipment'), (snap)=>{
+        const list=[];
+        snap.forEach(d=>{
+          const x = normalizeItem(d.data()||{}, d.id);
+          // Client-side filter for simplicity + index-free reads
+          if (String(x.type||'').toLowerCase()==='tractor'){
+            // We'll respect the UI filter later; keep all tractors here
+            list.push(x);
+          }
+        });
+        tractors = list;
+        renderList();
+      }, (err)=> {
+        console.error('Live listener error:', err);
+        toast('Live update error');
+      });
     }
 
     /* ===== Modal + QR ===== */
-    function buildYearWarm(){ buildYearOptions(document.createElement('select')); }
+    function buildYearOptions(sel){
+      sel.innerHTML = '<option value="">—</option>';
+      const now = new Date().getFullYear();
+      for(let y=now;y>=1980;y--){
+        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o);
+      }
+    }
     function yearOptions(sel, value){ buildYearOptions(sel); if(value) sel.value=String(value); }
+    function last6(v){ v=String(v||""); return v.slice(-6); }
     function waitQRReady(cb){ let tries=0;(function tick(){ if(window.__qrReady&&window.QRCode) cb(); else if(tries++<200) setTimeout(tick,50); })(); }
+    const hubUrl = (id, token) => `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}${token?`&t=${encodeURIComponent(token)}`:''}`;
+
+    let currentId=null, currentQRImageUrl=null, currentHub=null;
 
     async function openModal(id){
       lockBodyScroll();
-      currentId = id; currentSmartLink = null; currentQRImageUrl = null; $("btnReprint").disabled = true;
-      let snap; try{ snap = await getDoc(doc(DB,'equipment', id)); clearError(); }catch(e){ setError(e); unlockBodyScroll(); return; }
+      currentId = id; currentQRImageUrl=null; currentHub=null;
+      let snap; try{ snap = await getDoc(doc(DB,'equipment', id)); }catch(e){ unlockBodyScroll(); return; }
       if(!snap.exists()){ unlockBodyScroll(); return; }
       const d = snap.data() || {};
       const name = d.name || [d.makeName,d.modelName].filter(Boolean).join(' ');
@@ -571,32 +375,33 @@
       $("dwHours").value  = (d.engineHours!=null)? d.engineHours : '';
       $("dwStatus").value = String(d.status ?? 'active').toLowerCase();
       $("dwNotes").value  = d.notes || '';
+
       const token = d.qr?.token || null;
-      const savedImg = d.qr?.image?.url || null;
-      const hub = token ? hubUrl(id, token) : null;
-      const openHubBtn = $("btnOpenHub"); openHubBtn.href = hub || '#'; openHubBtn.target = "_self"; openHubBtn.rel = "";
-      $("modal").classList.add("show"); $("modal").setAttribute('aria-hidden','false');
+      currentHub = token ? hubUrl(id, token) : null;
+      $("btnOpenHub").href = currentHub || '#';
 
       const img = $("qrSmall"); const msg = $("qrMsg");
+      const savedImg = d.qr?.image?.url || null;
       if (savedImg){
         currentQRImageUrl = savedImg; img.src = savedImg; img.alt = "Saved QR for Equipment Hub";
-        img.hidden = false; msg.hidden = true; $("btnReprint").disabled = false; return;
-      }
-      if (!token){
+        img.hidden = false; msg.hidden = true; $("btnReprint").disabled = false;
+      }else if (currentHub){
+        img.hidden = true; msg.hidden = false; msg.textContent = "Generating…";
+        waitQRReady(()=>{
+          try{
+            const holder = document.createElement('div');
+            new window.QRCode(holder, { text: currentHub, width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.H, colorDark:"#000", colorLight:"#fff" });
+            const node = holder.querySelector('canvas') || holder.querySelector('img');
+            img.src = node.tagName==='CANVAS' ? node.toDataURL('image/png') : node.src;
+            img.alt = "QR for Equipment Hub"; img.hidden = false; msg.hidden = true; $("btnReprint").disabled = false;
+          }catch(e){ img.hidden = true; msg.hidden = false; msg.textContent = "QR render failed."; $("btnReprint").disabled = true; }
+        });
+      }else{
         img.hidden = true; msg.hidden = false; msg.textContent = "No QR yet — generate one on the Add/Edit page and save.";
-        currentSmartLink = null; $("btnReprint").disabled = true; return;
+        $("btnReprint").disabled = true;
       }
-      const smart = smartLaunch(hub); currentSmartLink = smart;
-      img.hidden = true; msg.hidden = false; msg.textContent = "Generating…";
-      waitQRReady(()=>{
-        try{
-          const holder = document.createElement('div');
-          new window.QRCode(holder, { text: smart, width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.H, colorDark:"#000", colorLight:"#fff" });
-          const node = holder.querySelector('canvas') || holder.querySelector('img');
-          img.src = node.tagName==='CANVAS' ? node.toDataURL('image/png') : node.src;
-          img.alt = "QR for Equipment Hub"; img.hidden = false; msg.hidden = true; $("btnReprint").disabled = false;
-        }catch(e){ setError(e); img.hidden = true; msg.hidden = false; msg.textContent = "QR render failed."; $("btnReprint").disabled = true; }
-      });
+
+      $("modal").classList.add("show"); $("modal").setAttribute('aria-hidden','false');
     }
 
     async function saveModal(){
@@ -616,26 +421,28 @@
       patch.name = nm ? (patch.year ? `${nm} (${patch.year})` : nm) : null;
       try{
         await updateDoc(ref, patch);
-        const idx = tractors.findIndex(x=>x.id===currentId);
-        if(idx>-1) tractors[idx] = { ...tractors[idx], ...patch, _statusLabel: (patch.status==='archived'?'Archived':'Active') };
-        renderList(); toast('Saved changes'); clearError();
-      }catch(e){ setError(e); toast('Save failed', 1800); }
+        // update local cache
+        const i = tractors.findIndex(x=>x.id===currentId);
+        if(i>-1) tractors[i] = { ...tractors[i], ...patch, _statusLabel: (patch.status==='archived'?'Archived':'Active') };
+        renderList(); toast('Saved');
+      }catch(e){ toast('Save failed'); }
     }
 
     function closeModal(){
       $("modal").classList.remove("show");
       $("modal").setAttribute('aria-hidden','true');
-      currentId = null; currentSmartLink = null; currentQRImageUrl = null; $("btnReprint").disabled = true;
+      currentId = null; currentQRImageUrl = null; currentHub = null;
+      $("btnReprint").disabled = true;
       unlockBodyScroll();
     }
 
-    function last6(v){ v=String(v||""); return v.slice(-6); }
     function closeAfterPrint(win){ try{ win.onafterprint=()=>{try{win.close()}catch{}}; const mq=win.matchMedia&&win.matchMedia('print'); if(mq&&mq.addEventListener){ mq.addEventListener('change',(m)=>{ if(!m.matches){ setTimeout(()=>{try{win.close()}catch{}},60); } }); } win.onfocus=()=>{ setTimeout(()=>{try{win.close()}catch{}},200); }; }catch{} }
 
     function reprintQR(){
       const model = $("dwModel").value.trim() || "";
       const serial = $("dwSerial").value.trim() || "";
       const caption = `${model || "Unit"} - #${last6(serial)}`;
+
       if (currentQRImageUrl){
         const url = currentQRImageUrl + (currentQRImageUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
         const w = window.open('', '_blank', 'width=600,height=700');
@@ -648,7 +455,7 @@
           </body></html>`);
         w.document.close(); closeAfterPrint(w); return;
       }
-      if(!currentSmartLink){ alert("No QR for this unit yet."); return; }
+      if(!currentHub){ alert("No QR for this unit yet."); return; }
       const w = window.open('', '_blank', 'width=600,height=700');
       w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
         <style>@page{size:2in 2.25in;margin:3mm}html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui}
@@ -656,32 +463,14 @@
         h1{font-size:12px;margin:0;line-height:1.05;font-family:ui-monospace;font-weight:700}</style></head><body>
         <div class="wrap"><div id="qr"></div><h1>${caption.replace(/</g,'&lt;')}</h1></div>
         <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-        <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(currentSmartLink)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},250)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
+        <script>(function(){function go(){new QRCode(document.getElementById('qr'),{text:${JSON.stringify(currentHub)},width:380,height:380,correctLevel:QRCode.CorrectLevel.H,colorDark:'#000',colorLight:'#fff'});setTimeout(function(){window.print()},250)} if(window.QRCode)go();else window.addEventListener('load', go);})();<\/script>
         </body></html>`);
       w.document.close(); closeAfterPrint(w);
     }
 
-    /* ============ STARTUP & LIFECYCLE ============ */
-    async function waitForReadyStack(){ await ready; DB = getFirestore(); }
-
-    // Token age display
-    function trackTokenAge(){
-      try{
-        const auth = _getAuth();
-        if(!auth) return;
-        _onIdTokenChanged(auth, (u)=>{
-          if(!u){ DIAG.tokenAgeMin='—'; updateDiag(); return; }
-          const exp = u.stsTokenManager && u.stsTokenManager.expirationTime;
-          if(exp){ const iat = exp - 3600*1000; const min = Math.max(0, Math.round((Date.now() - iat)/60000)); DIAG.tokenAgeMin = min + ' min'; updateDiag(); }
-        });
-      }catch{}
-    }
-
+    /* ===== Wire up ===== */
     (async()=>{
-      await waitForReadyStack();
-
-      // Warm UI pieces
-      (function buildYearWarm(){ buildYearOptions(document.createElement('select')); })();
+      await ready; DB = getFirestore();
 
       // UI handlers
       $("search").addEventListener('input', renderList);
@@ -693,50 +482,12 @@
       $("modal").addEventListener('click', (e)=>{ if(e.target === $("modal")) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && $("modal").classList.contains('show')) closeModal(); });
 
-      // Diagnostics controls
-      const diag = $("diag"), diagToggle = $("diagToggle");
-      const diagClose = $("diagClose"), diagCopy = $("diagCopyErr"), diagForce = $("diagForceServer"), diagVerbose = $("diagToggleVerbose");
-      diagToggle.addEventListener('click', ()=> diag.classList.toggle('open'));
-      diagClose.addEventListener('click', ()=> diag.classList.remove('open'));
-      diagCopy.addEventListener('click', ()=> {
-        const txt = (DIAG.lastErrorCode? (DIAG.lastErrorCode+': ') : '') + (DIAG.lastError||'No error');
-        navigator.clipboard && navigator.clipboard.writeText(txt).then(()=> toast('Copied'));
-      });
-      diagForce.addEventListener('click', ()=> hardReload(true));
-      diagVerbose.addEventListener('click', ()=>{
-        DIAG.verbose = !DIAG.verbose;
-        diagVerbose.textContent = 'Verbose logs: ' + (DIAG.verbose?'On':'Off');
-        toast('Verbose logs ' + (DIAG.verbose?'ON':'OFF'), 1200);
-      });
-      diagVerbose.textContent = 'Verbose logs: ' + (DIAG.verbose?'On':'Off');
+      // Warm select years once
+      buildYearOptions(document.createElement('select'));
 
-      // Auth token/user changes => hard server reload (debounced)
-      try{
-        const auth = _getAuth();
-        if (auth) _onIdTokenChanged(auth, ()=> { debouncedResume(); });
-      }catch{}
-
-      trackTokenAge();
-
-      // Lifecycle
-      window.addEventListener('pageshow', ()=> { debouncedResume(); });
-      document.addEventListener('visibilitychange', ()=>{
-        if (document.visibilityState === 'visible') debouncedResume();
-        else if (document.visibilityState === 'hidden') detachLive('hidden');
-      });
-      window.addEventListener('focus', ()=> { debouncedResume(); });
-      window.addEventListener('pagehide', ()=> { detachLive('pagehide'); });
-
-      // Pull-to-refresh contract
-      window.FVRefresh = async function(){ toast('PTR: server refresh', 900); await hardReload(true); };
-
-      // Network indicators
-      window.addEventListener('online', updateDiag);
-      window.addEventListener('offline', updateDiag);
-
-      // Initial load
-      await hardReload(false);
-      updateDiag();
+      // Load + live
+      await initialPull();
+      attachLive();
     })();
   </script>
 </body>
