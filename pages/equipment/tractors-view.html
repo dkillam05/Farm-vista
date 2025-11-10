@@ -78,20 +78,24 @@
     .k{ font-weight:800; color:var(--green,#2F6C3C); }
     .v{ color:var(--text); }
 
+    /* QR preview block */
+    .qrbox{
+      margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
+      display:grid; place-items:center; gap:10px; background:var(--surface);
+    }
+    .qrbox h4{ margin:0; font-size:16px; }
+    .qrbox img{
+      display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
+      border:1px solid var(--border); background:#fff;
+    }
+    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
+
     .sheet footer{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
     .btn{
       display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
       background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
     .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff; }
-
-    /* --- minimal QR styles (preview only) --- */
-    .qrbox{ margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
-      display:grid; place-items:center; gap:10px; background:var(--surface); }
-    .qrbox h4{ margin:0; font-size:16px; }
-    .qrbox img{ display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
-      border:1px solid var(--border); background:#fff; }
-    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
   </style>
 </head>
 <body>
@@ -122,7 +126,7 @@
     <div class="body">
       <div class="kv" id="dKV"></div>
 
-      <!-- QR preview ONLY (no buttons) -->
+      <!-- QR preview -->
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -148,8 +152,8 @@
     const qInput = $('#q');
 
     // Local state
-    let DATA = [];       // tractors (active only, after normalization)
-    let unsub = null;    // live listener for tractors
+    let DATA = [];
+    let unsub = null;
 
     // Helpers
     const last6 = v => String(v||'').slice(-6);
@@ -174,27 +178,22 @@
     };
 
     function attach(){
-      if (unsub) return; // prevent double-attach
+      if (unsub) return;
       const db = getFirestore();
-      // Keep your working query exactly the same
       const qref = query(collection(db,'equipment'), where('type','==','tractor'));
       unsub = onSnapshot(qref, (snap)=>{
         const out = [];
         snap.forEach(docSnap=>{
           const d = docSnap.data() || {};
-          if (!isActive(d)) return; // client-side active filter
+          if (!isActive(d)) return;
           out.push({ id: docSnap.id, ...d });
         });
         out.sort((a,b)=> tractorName(a).localeCompare(tractorName(b)));
         DATA = out;
         render();
-      }, (err)=>{
-        console.error('Tractors listener error:', err);
-      });
+      }, (err)=>{ console.error('Tractors listener error:', err); });
     }
-    function detach(){
-      if (unsub){ try{ unsub(); }catch{}; unsub = null; }
-    }
+    function detach(){ if (unsub){ try{ unsub(); }catch{}; unsub = null; } }
 
     function render(){
       const q = (qInput.value || '').toLowerCase().trim();
@@ -247,7 +246,7 @@
       });
     }
 
-    // Detail modal — unchanged, with QR preview added inside try/catch
+    // Detail modal with QR preview
     const dlg = document.getElementById('detail');
     const dTitle = document.getElementById('dTitle');
     const dKV = document.getElementById('dKV');
@@ -268,6 +267,18 @@
       dKV.append(K,V);
     }
 
+    // Resolve qr.image as string OR {url}
+    function getQrUrl(d){
+      try{
+        if (!d || !d.qr) return '';
+        const img = d.qr.image;
+        if (!img) return '';
+        if (typeof img === 'string') return img;
+        if (typeof img.url === 'string') return img.url;
+        return '';
+      }catch{ return ''; }
+    }
+
     function openDetail(d){
       dTitle.textContent = tractorName(d);
       dKV.innerHTML = '';
@@ -282,30 +293,25 @@
       const tok = d.qr && d.qr.token ? d.qr.token : '';
       btnHub.href = hubUrl(d.id, tok);
 
-      // --- QR PREVIEW ONLY (safe, won’t block render) ---
-      try{
-        const qrUrl = d.qr && d.qr.image ? String(d.qr.image) : '';
-        const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
-        if (qrUrl){
-          qrImg.src = qrUrl;
-          qrImg.alt = `QR for ${labelText}`;
-          qrLbl.textContent = labelText;
-          qrSection.hidden = false;
-        }else{
-          qrImg.removeAttribute('src');
-          qrLbl.textContent = 'No QR image saved for this equipment.';
-          qrSection.hidden = false;
-        }
-      }catch(e){
-        console.warn('QR preview skipped:', e);
-        if (qrSection) qrSection.hidden = true;
+      // QR preview (now supports qr.image.url)
+      const url = getQrUrl(d);
+      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+      if (url){
+        // add small cache-buster to avoid stale image
+        const bust = (url.includes('?') ? '&' : '?') + '_=' + Date.now();
+        qrImg.src = url + bust;
+        qrImg.alt = `QR for ${labelText}`;
+        qrLbl.textContent = labelText;
+        qrSection.hidden = false;
+      } else {
+        qrImg.removeAttribute('src');
+        qrLbl.textContent = 'No QR image saved for this equipment.';
+        qrSection.hidden = false;
       }
-      // --- END QR PREVIEW ---
 
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    // Resume hooks (BFCache / tab visibility / focus)
     function resume(){ if (!unsub) attach(); }
 
     (async()=>{
