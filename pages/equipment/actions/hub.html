@@ -106,8 +106,7 @@
   </fv-shell>
 
   <script type="module">
-    import * as FB from '/Farm-vista/js/firebase-init.js';
-    const { ready, getFirestore, doc, getDoc, getAuth } = FB;
+    import { ready, getFirestore, doc, getDoc } from '/Farm-vista/js/firebase-init.js';
     const $ = (id)=>document.getElementById(id);
     const qs = new URLSearchParams(location.search);
 
@@ -126,51 +125,9 @@
     };
     const last6 = v => String(v||'').slice(-6);
 
-    // ---------- SELF-GUARD: ensure auth + org context (bounce to Launch if not ready) ----------
-    function currentUrl(){
-      // Preserve full path + query; keep hash too if present
-      return location.pathname + location.search + location.hash;
-    }
-    function goLaunch(){
-      const to = currentUrl();
-      const u = new URL('/Farm-vista/launch.html', location.origin);
-      u.searchParams.set('to', to.startsWith('/') ? to : '/'+to);
-      location.replace(u.href);
-    }
-    function hasOrg(){
-      try{
-        const ctx = window.FVUserContext && typeof window.FVUserContext.get==='function'
-          ? window.FVUserContext.get() : null;
-        return !!(ctx && (ctx.orgId || ctx.org || ctx.tenantId));
-      }catch{ return false; }
-    }
-
-    async function guardAuthAndContext(){
-      await ready;
-      const auth = getAuth();
-      const user = auth && auth.currentUser;
-
-      // Not signed in → Launch (it will send to /auth then back here)
-      if (!user) { goLaunch(); return false; }
-
-      // Give context a brief chance; if it doesn't appear, Launch will soft-proceed
-      const start = Date.now();
-      while (!hasOrg() && Date.now() - start < 600){
-        await new Promise(r=>setTimeout(r,120));
-      }
-      if (!hasOrg()){
-        goLaunch(); return false;
-      }
-      return true;
-    }
-    // -------------------------------------------------------------------------------------------
-
     async function init(){
       $('subtitle').textContent = 'Resolving equipment…';
-
-      const ok = await guardAuthAndContext();
-      if (!ok) return; // Launch will handle and bring us back
-
+      await ready;
       if (!eqId){ $('subtitle').textContent = 'Ready'; return; } // still show the static buttons
 
       const db = getFirestore();
