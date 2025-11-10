@@ -123,7 +123,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, onSnapshot
+      getFirestore, collection, query, where, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = sel => document.querySelector(sel);
@@ -138,18 +138,6 @@
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
 
-    const norm = v => String(v ?? '').toLowerCase().trim();
-    const isActive = d => {
-      const s = norm(d.status);
-      // treat missing as active; legacy bool supported
-      return s === 'active' || d.active === true || d.status == null;
-    };
-    const isTractor = d => {
-      // tolerate different field names / capitalization
-      const t = norm(d.type) || norm(d.equipmentType) || norm(d.category);
-      return t === 'tractor' || t === 'tractors' || t.includes('tractor');
-    };
-
     const tractorName = d => {
       const mm = [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
       const ls = last6(d.serial);
@@ -159,30 +147,49 @@
 
     const hubUrl = (id, token) => {
       const base = `${location.origin}/Farm-vista/pages/equipment/actions/hub.html`;
-      const u = new URL(base);
-      u.searchParams.set('id', id);
-      if (token) u.searchParams.set('t', token);
-      return u.href;
+      const u = new URL(base); u.searchParams.set('id', id); if (token) u.searchParams.set('t', token); return u.href;
     };
 
+    // --- Attach with progressive fallbacks (active tractors) ---
     function attach(){
       if (unsub) return;
       const db = getFirestore();
-      // Pull ALL equipment; filter to tractors client-side (tolerant).
-      const cref = collection(db,'equipment');
-      unsub = onSnapshot(cref, (snap)=>{
-        const out = [];
-        snap.forEach(docSnap=>{
-          const d = docSnap.data() || {};
-          if (!isActive(d)) return;
-          if (!isTractor(d)) return;
-          out.push({ id: docSnap.id, ...d });
-        });
-        out.sort((a,b)=> tractorName(a).localeCompare(tractorName(b)));
-        DATA = out;
-        render();
-      }, (err)=> console.error('equipment listener error:', err));
+
+      // 1) Strict: type == 'tractor' AND status == 'active'
+      const strictQ = query(collection(db,'equipment'),
+        where('type','==','tractor'),
+        where('status','==','active')
+      );
+      unsub = onSnapshot(strictQ, (snap)=>{
+        let out = [];
+        snap.forEach(s=> out.push({id:s.id, ...s.data()}));
+        if (out.length) { DATA = sortByName(out); render(); return; }
+
+        // 2) Fallback A: type == 'tractor' (some docs may not have status yet)
+        const fallbackQ = query(collection(db,'equipment'), where('type','==','tractor'));
+        onSnapshot(fallbackQ, (snap2)=>{
+          let out2 = [];
+          snap2.forEach(s=>{
+            const d = s.data() || {};
+            if ((d.status ?? 'active') === 'active') out2.push({id:s.id, ...d});
+          });
+          if (out2.length) { DATA = sortByName(out2); render(); return; }
+
+          // 3) Fallback B: entire collection -> client filter
+          onSnapshot(collection(db,'equipment'), (snap3)=>{
+            const out3 = [];
+            snap3.forEach(s=>{
+              const d = s.data() || {};
+              if ((String(d.type||'').toLowerCase()==='tractor') &&
+                  ((d.status ?? 'active') === 'active')) out3.push({id:s.id, ...d});
+            });
+            DATA = sortByName(out3); render();
+          }, err=> console.error('Fallback B error:', err));
+        }, err=> console.error('Fallback A error:', err));
+      }, err=> console.error('Strict query error:', err));
     }
+
+    function sortByName(arr){ return arr.sort((a,b)=> tractorName(a).localeCompare(tractorName(b))); }
     function detach(){ if (unsub){ try{ unsub(); }catch{}; unsub = null; } }
 
     function render(){
@@ -200,8 +207,7 @@
 
       if(!rows.length){
         const p = document.createElement('p');
-        p.className='muted';
-        p.textContent='No active tractors match your search.';
+        p.className='muted'; p.textContent='No active tractors found.';
         list.appendChild(p);
         return;
       }
@@ -260,14 +266,14 @@
     }
 
     function openDetail(d){
-      CURRENT = d;
+      const ls = last6(d.serial);
       dTitle.textContent = tractorName(d);
       dKV.innerHTML = '';
       addRow('Type','Tractor');
       addRow('Make', d.makeName);
       addRow('Model', d.modelName);
       addRow('Year', d.year);
-      const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
+      if(ls) addRow('Serial (last 6)', ls);
       addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
       addRow('Notes', d.notes);
 
@@ -277,27 +283,23 @@
       const qrUrl = d.qr && d.qr.image ? String(d.qr.image) : '';
       const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
       if (qrUrl){
-        qrImg.src = qrUrl;
-        qrImg.alt = `QR for ${labelText}`;
+        qrImg.src = qrUrl; qrImg.alt = `QR for ${labelText}`;
         qrLbl.textContent = labelText;
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
+        btnPrintQR.onclick = ()=> printQR(qrUrl, labelText);
       } else {
         qrImg.removeAttribute('src');
         qrLbl.textContent = 'No QR image saved for this equipment.';
         qrSection.hidden = false;
         btnPrintQR.disabled = true;
+        btnPrintQR.onclick = null;
       }
 
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    // Print label: QR + "MODEL - #LAST6"
-    btnPrintQR.addEventListener('click', ()=>{
-      const d = CURRENT;
-      if (!d || !(d.qr && d.qr.image)) return;
-      const ls = last6(d.serial);
-      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+    function printQR(url, labelText){
       const w = window.open('', '_blank', 'noopener,noreferrer'); if(!w) return;
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -305,11 +307,11 @@
 body{display:grid;place-items:center;gap:6px;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 img{width:75%;height:auto;image-rendering:crisp-edges}.lbl{font-weight:700;font-size:12px}</style>
 </head><body>
-<img src="${d.qr.image}" alt="QR"/><div class="lbl">${labelText}</div>
+<img src="${url}" alt="QR"/><div class="lbl">${labelText}</div>
 <script>setTimeout(()=>{window.print();setTimeout(()=>window.close(),250)},300);</script>
 </body></html>`;
       w.document.open(); w.document.write(html); w.document.close();
-    });
+    }
 
     function resume(){ if (!unsub) attach(); }
 
