@@ -24,7 +24,7 @@
     })();
   </script>
 
-  <!-- Firebase CONFIG FIRST (matches your Directory page load order) -->
+  <!-- Firebase CONFIG FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -58,30 +58,51 @@
       padding:12px 14px; display:grid; gap:6px; cursor:pointer;
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
-    .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .badges{ display:flex; gap:8px; flex-wrap:wrap; }
     .badge{ padding:4px 10px; border-radius:999px; font-size:13px; font-weight:800; border:1px solid var(--border); }
     .badge.green{ background:color-mix(in srgb, var(--green) 12%, transparent); }
 
-    /* Detail modal (vertical-only) */
+    /* Detail modal — themed to match app (no blue, vertical-only scroll) */
     dialog.sheet{
       width:min(740px, 92vw); border:1px solid var(--border); border-radius:16px; padding:0;
-      background:var(--surface); box-shadow:0 18px 40px rgba(0,0,0,.28);
+      background:var(--surface); color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.28);
     }
-    .sheet::backdrop{ background:rgba(0,0,0,.35); }
-    .sheet header{ padding:14px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .sheet::backdrop{ background:rgba(0,0,0,.45); }
+    .sheet header{
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center;
+      background:var(--surface); color:var(--text);
+    }
     .sheet .body{
       padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+      background:var(--surface);
     }
     .kv{ display:grid; grid-template-columns:180px 1fr; gap:8px 12px; }
     @media(max-width:700px){ .kv{ grid-template-columns:1fr } .kv div{ padding:2px 0 } }
     .k{ font-weight:800; color:var(--green,#2F6C3C); }
     .v{ color:var(--text); }
-    .sheet footer{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+
+    .qrbox{
+      margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
+      display:grid; place-items:center; gap:10px; background:var(--surface);
+    }
+    .qrbox h4{ margin:0; font-size:16px; }
+    .qrbox img{
+      display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
+      border:1px solid var(--border); background:#fff;
+    }
+    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
+
+    .sheet footer{
+      padding:12px 16px; border-top:1px solid var(--border);
+      display:flex; justify-content:flex-end; gap:8px; background:var(--surface);
+    }
     .btn{
       display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
       background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
+    .btn[disabled]{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff; }
   </style>
 </head>
@@ -112,8 +133,16 @@
     </header>
     <div class="body">
       <div class="kv" id="dKV"></div>
+
+      <!-- QR section -->
+      <div id="qrSection" class="qrbox" hidden>
+        <h4>Equipment QR</h4>
+        <img id="qrImg" alt="Equipment QR"/>
+        <p id="qrLbl" class="qrnote"></p>
+      </div>
     </div>
     <footer>
+      <button id="btnPrintQR" class="btn" type="button" disabled>Reprint QR</button>
       <a id="openHub" class="btn btn-primary" href="#">Open Hub</a>
       <button id="dClose2" class="btn" type="button">Close</button>
     </footer>
@@ -122,8 +151,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, query, where, onSnapshot,
-      getDocs, doc, getDoc
+      getFirestore, collection, query, where, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = sel => document.querySelector(sel);
@@ -134,13 +162,13 @@
     // Local state
     let DATA = [];       // tractors (active only, after normalization)
     let unsub = null;    // live listener for tractors
+    let CURRENT = null;  // currently open tractor
 
     // Helpers
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
     const normStatus = v => String(v ?? 'active').toLowerCase();
     const isActive = d => {
-      // Accept explicit 'active', legacy booleans, or missing treated as active
       const s = normStatus(d.status);
       return s === 'active' || (d.active === true) || (d.status == null);
     };
@@ -161,7 +189,6 @@
     function attach(){
       if (unsub) return; // prevent double-attach
       const db = getFirestore();
-      // Simple server query: type == 'tractor'
       const qref = query(collection(db,'equipment'), where('type','==','tractor'));
       unsub = onSnapshot(qref, (snap)=>{
         const out = [];
@@ -170,17 +197,12 @@
           if (!isActive(d)) return; // client-side active filter
           out.push({ id: docSnap.id, ...d });
         });
-        // Sort by name A->Z
         out.sort((a,b)=> tractorName(a).localeCompare(tractorName(b)));
         DATA = out;
         render();
-      }, (err)=>{
-        console.error('Tractors listener error:', err);
-      });
+      }, (err)=> console.error('Tractors listener error:', err));
     }
-    function detach(){
-      if (unsub){ try{ unsub(); }catch{}; unsub = null; }
-    }
+    function detach(){ if (unsub){ try{ unsub(); }catch{}; unsub = null; } }
 
     function render(){
       const q = (qInput.value || '').toLowerCase().trim();
@@ -202,7 +224,6 @@
         return;
       }
 
-      // Group A-Z by display name
       const by = {};
       rows.forEach(d=>{
         const name = tractorName(d);
@@ -234,11 +255,16 @@
       });
     }
 
-    // Detail modal (read-only) — vertical-only scroll
+    // Detail modal wired up
     const dlg = document.getElementById('detail');
     const dTitle = document.getElementById('dTitle');
     const dKV = document.getElementById('dKV');
     const btnHub = document.getElementById('openHub');
+    const btnPrintQR = document.getElementById('btnPrintQR');
+    const qrSection = document.getElementById('qrSection');
+    const qrImg = document.getElementById('qrImg');
+    const qrLbl = document.getElementById('qrLbl');
+
     const close = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
     document.getElementById('dClose').addEventListener('click', close);
     document.getElementById('dClose2').addEventListener('click', close);
@@ -246,12 +272,13 @@
     const has = v => !(v===undefined || v===null || v==='');
     function addRow(k, v){
       if(!has(v)) return;
-      const K = document.createElement('div'); K.className='k'; K.textContent = k;
-      const V = document.createElement('div'); V.className='v'; V.textContent = String(v);
+      const K = document.createElement('div'); K.className = 'k'; K.textContent = k;
+      const V = document.createElement('div'); V.className = 'v'; V.textContent = String(v);
       dKV.append(K,V);
     }
 
     function openDetail(d){
+      CURRENT = d;
       dTitle.textContent = tractorName(d);
       dKV.innerHTML = '';
       addRow('Type','Tractor');
@@ -261,29 +288,77 @@
       const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
       addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
       addRow('Notes', d.notes);
+
       // Hub link
       const tok = d.qr && d.qr.token ? d.qr.token : '';
       btnHub.href = hubUrl(d.id, tok);
+
+      // QR section population
+      const qrUrl = d.qr && d.qr.image ? String(d.qr.image) : '';
+      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+      if (qrUrl){
+        qrImg.src = qrUrl;
+        qrImg.alt = `QR for ${labelText}`;
+        qrLbl.textContent = labelText;
+        qrSection.hidden = false;
+        btnPrintQR.disabled = false;
+      } else {
+        qrImg.removeAttribute('src');
+        qrLbl.textContent = 'No QR image saved for this equipment.';
+        qrSection.hidden = false;         // still show the box but with the note
+        btnPrintQR.disabled = true;      // no image to print
+      }
+
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    // Resume hooks (BFCache / tab visibility / focus)
-    function resume(){
-      // if already attached, do nothing; otherwise attach
-      if (!unsub) attach();
+    // Print a clean label: QR + "MODEL - #LAST6"
+    btnPrintQR.addEventListener('click', ()=>{
+      const d = CURRENT;
+      if (!d || !(d.qr && d.qr.image)) return;
+      const ls = last6(d.serial);
+      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+
+      const w = window.open('', '_blank', 'noopener,noreferrer');
+      if(!w) return;
+
+      // Minimal, label-maker friendly page. Default to 2in x 1in; user can choose their label size in print dialog.
+      const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>QR Label</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    @page { size: 2in 1in; margin: 4mm; }   /* adjust in printer dialog as needed */
+    html,body{ height:100%; margin:0; }
+    body{
+      display:grid; place-items:center; gap:6px; text-align:center; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
     }
+    img{ width:75%; height:auto; image-rendering:crisp-edges; }
+    .lbl{ font-weight:700; font-size:12px; }
+  </style>
+</head>
+<body>
+  <img src="${d.qr.image}" alt="QR"/>
+  <div class="lbl">${labelText}</div>
+  <script>
+    setTimeout(()=>{ window.print(); setTimeout(()=>window.close(), 250); }, 300);
+  </script>
+</body>
+</html>`;
+      w.document.open(); w.document.write(html); w.document.close();
+    });
+
+    // Resume hooks (BFCache / tab visibility / focus)
+    function resume(){ if (!unsub) attach(); }
 
     // Kickoff
     (async()=>{
       await ready;
-      // initial attach
       attach();
-
-      // search
       qInput.addEventListener('input', render);
-
-      // lifecycle
-      window.addEventListener('pageshow', (e)=>{ resume(); });
+      window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
       window.addEventListener('pagehide', ()=>{ detach(); });
