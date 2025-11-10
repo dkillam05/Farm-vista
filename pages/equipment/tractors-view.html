@@ -78,25 +78,20 @@
     .k{ font-weight:800; color:var(--green,#2F6C3C); }
     .v{ color:var(--text); }
 
-    /* --- QR section (added) --- */
-    .qrbox{
-      margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
-      display:grid; place-items:center; gap:10px; background:var(--surface);
-    }
-    .qrbox h4{ margin:0; font-size:16px; }
-    .qrbox img{
-      display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
-      border:1px solid var(--border); background:#fff;
-    }
-    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
-
     .sheet footer{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
     .btn{
       display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
       background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
-    .btn[disabled]{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff; }
+
+    /* --- minimal QR styles (preview only) --- */
+    .qrbox{ margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
+      display:grid; place-items:center; gap:10px; background:var(--surface); }
+    .qrbox h4{ margin:0; font-size:16px; }
+    .qrbox img{ display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
+      border:1px solid var(--border); background:#fff; }
+    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
   </style>
 </head>
 <body>
@@ -127,7 +122,7 @@
     <div class="body">
       <div class="kv" id="dKV"></div>
 
-      <!-- QR preview (added) -->
+      <!-- QR preview ONLY (no buttons) -->
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -135,8 +130,6 @@
       </div>
     </div>
     <footer>
-      <!-- Reprint button (added) -->
-      <button id="btnPrintQR" class="btn" type="button" disabled>Reprint QR</button>
       <a id="openHub" class="btn btn-primary" href="#">Open Hub</a>
       <button id="dClose2" class="btn" type="button">Close</button>
     </footer>
@@ -163,7 +156,6 @@
     const safe = v => (v==null ? '' : String(v));
     const normStatus = v => String(v ?? 'active').toLowerCase();
     const isActive = d => {
-      // Accept explicit 'active', legacy booleans, or missing treated as active
       const s = normStatus(d.status);
       return s === 'active' || (d.active === true) || (d.status == null);
     };
@@ -184,7 +176,7 @@
     function attach(){
       if (unsub) return; // prevent double-attach
       const db = getFirestore();
-      // Simple server query: type == 'tractor'
+      // Keep your working query exactly the same
       const qref = query(collection(db,'equipment'), where('type','==','tractor'));
       unsub = onSnapshot(qref, (snap)=>{
         const out = [];
@@ -193,7 +185,6 @@
           if (!isActive(d)) return; // client-side active filter
           out.push({ id: docSnap.id, ...d });
         });
-        // Sort by name A->Z
         out.sort((a,b)=> tractorName(a).localeCompare(tractorName(b)));
         DATA = out;
         render();
@@ -225,7 +216,6 @@
         return;
       }
 
-      // Group A-Z by display name
       const by = {};
       rows.forEach(d=>{
         const name = tractorName(d);
@@ -257,14 +247,11 @@
       });
     }
 
-    // Detail modal (read-only) — vertical-only scroll
+    // Detail modal — unchanged, with QR preview added inside try/catch
     const dlg = document.getElementById('detail');
     const dTitle = document.getElementById('dTitle');
     const dKV = document.getElementById('dKV');
     const btnHub = document.getElementById('openHub');
-
-    // (added) QR elements
-    const btnPrintQR = document.getElementById('btnPrintQR');
     const qrSection = document.getElementById('qrSection');
     const qrImg = document.getElementById('qrImg');
     const qrLbl = document.getElementById('qrLbl');
@@ -291,58 +278,41 @@
       const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
       addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
       addRow('Notes', d.notes);
-      // Hub link
+
       const tok = d.qr && d.qr.token ? d.qr.token : '';
       btnHub.href = hubUrl(d.id, tok);
 
-      // --- QR preview + Reprint (added) ---
-      const qrUrl = d.qr && d.qr.image ? String(d.qr.image) : '';
-      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
-      if (qrUrl){
-        qrImg.src = qrUrl;
-        qrImg.alt = `QR for ${labelText}`;
-        qrLbl.textContent = labelText;
-        qrSection.hidden = false;
-        btnPrintQR.disabled = false;
-        btnPrintQR.onclick = ()=> printQR(qrUrl, labelText);
-      } else {
-        qrImg.removeAttribute('src');
-        qrLbl.textContent = 'No QR image saved for this equipment.';
-        qrSection.hidden = false;           // still show note
-        btnPrintQR.disabled = true;
-        btnPrintQR.onclick = null;
+      // --- QR PREVIEW ONLY (safe, won’t block render) ---
+      try{
+        const qrUrl = d.qr && d.qr.image ? String(d.qr.image) : '';
+        const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+        if (qrUrl){
+          qrImg.src = qrUrl;
+          qrImg.alt = `QR for ${labelText}`;
+          qrLbl.textContent = labelText;
+          qrSection.hidden = false;
+        }else{
+          qrImg.removeAttribute('src');
+          qrLbl.textContent = 'No QR image saved for this equipment.';
+          qrSection.hidden = false;
+        }
+      }catch(e){
+        console.warn('QR preview skipped:', e);
+        if (qrSection) qrSection.hidden = true;
       }
-      // --- end QR additions ---
+      // --- END QR PREVIEW ---
 
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    // (added) Minimal print page for label makers: QR + "MODEL - #LAST6"
-    function printQR(url, labelText){
-      const w = window.open('', '_blank', 'noopener,noreferrer'); if(!w) return;
-      const html = `<!doctype html><html><head><meta charset="utf-8"/>
-<title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>@page{size:2in 1in;margin:4mm}html,body{height:100%;margin:0}
-body{display:grid;place-items:center;gap:6px;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-img{width:75%;height:auto;image-rendering:crisp-edges}.lbl{font-weight:700;font-size:12px}</style>
-</head><body>
-<img src="${url}" alt="QR"/><div class="lbl">${labelText}</div>
-<script>setTimeout(()=>{window.print();setTimeout(()=>window.close(),250)},300);</script>
-</body></html>`;
-      w.document.open(); w.document.write(html); w.document.close();
-    }
-
     // Resume hooks (BFCache / tab visibility / focus)
-    function resume(){
-      if (!unsub) attach();
-    }
+    function resume(){ if (!unsub) attach(); }
 
-    // Kickoff
     (async()=>{
       await ready;
       attach();
       qInput.addEventListener('input', render);
-      window.addEventListener('pageshow', (e)=>{ resume(); });
+      window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
       window.addEventListener('pagehide', ()=>{ detach(); });
