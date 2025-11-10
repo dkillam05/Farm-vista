@@ -1,10 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Fixes:
-  • Locks control geometry (uniform height + padding) so selects can't resize/shift
-  • Ensures hero centers pixel-perfect on mobile (no subpixel drift)
-  • Prevents iOS text autosize/zoom from changing control font size after paint
-  • Keeps your behaviors (QR, modal editors, Firestore, cancel routing) unchanged
+Fix: stop iOS/Chrome mobile "blip" that off-centers the hero by stabilizing <select>
+      metrics, locking control height, and isolating the hero layout.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -42,15 +39,16 @@ Fixes:
       --page-bottom-gap:96px;
       --brand: var(--green,#3B7E46);
 
-      /* NEW: uniform control height */
-      --ctl-h: 48px;
-      --ctl-pad-x: 12px;
-      --ctl-pad-y: 12px;
+      /* Stable control metrics */
+      --ctl-h:48px;
+      --ctl-pad-x:12px;
+      --ctl-pad-y:12px;
+      --ctl-radius:10px;
     }
 
-    /* Guard against width nudge from late scrollbar appearance */
+    /* Prevent width nudge when scrollbar appears later on mobile */
     html, body { min-height:100%; }
-    body { scrollbar-gutter: stable; }
+    body { scrollbar-gutter:stable; }
 
     .wrap{
       max-width:var(--card-max);
@@ -59,15 +57,16 @@ Fixes:
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
-    /* Center the card (pixel-even width) */
+    /* Center the card & isolate its layout so child reflows can't recenter it */
     .hero{
-      width: min(720px, calc(100% - 24px));
+      width:min(720px, calc(100% - 24px));
       margin:0 auto var(--page-bottom-gap);
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
+      contain:layout paint; /* isolation = no “blip” recenter */
     }
 
     .hero-head{
@@ -85,7 +84,7 @@ Fixes:
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
 
-    /* tappable labels */
+    /* Tappable labels (for your inline editors) */
     .as-label{
       display:inline-flex; align-items:center; gap:8px;
       font:inherit; font-weight:800; background:transparent; border:none; padding:0;
@@ -94,26 +93,34 @@ Fixes:
     .as-label:hover{ text-decoration:underline; }
     .as-label.req::after{ content:" *"; color:var(--brand); }
 
-    /* === Controls: locked geometry + stable font size === */
+    /* ---------- Controls: stable from first paint ---------- */
     .input,.select,.textarea{
-      width:100%; font:inherit; font-size:16px; /* lock iOS so it won't zoom/resize */
+      width:100%;
+      font:inherit; font-size:16px; /* lock iOS text size so it won't zoom/reflow */
       color:var(--text);
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
-      border-radius:10px;
+      border-radius:var(--ctl-radius);
       padding:var(--ctl-pad-y) var(--ctl-pad-x);
-      outline:none;
       box-sizing:border-box;
+      outline:none;
     }
-    .input,.select{ height:var(--ctl-h); line-height: calc(var(--ctl-h) - 2px); }
-    .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
+    .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
 
-    /* Keep native select (stable) but normalize padding so it doesn't widen later */
+    /* Make native SELECT stable: remove iOS/Android UI swap and provide our own arrow */
     select.select{
-      -webkit-appearance: menulist; appearance: menulist;
-      padding-right: 28px; /* ensure room for native arrow */
-      background-color: var(--card-surface,var(--surface));
+      -webkit-appearance:none; appearance:none;  /* stop the late menulist swap */
+      background-image: linear-gradient(45deg, currentColor 25%, transparent 25%),
+                        linear-gradient(-45deg, currentColor 25%, transparent 25%),
+                        linear-gradient(45deg, transparent 75%, currentColor 75%),
+                        linear-gradient(-45deg, transparent 75%, currentColor 75%);
+      background-size: 8px 8px;
+      background-position: right 16px top 18px, right 8px top 18px, right 16px top 26px, right 8px top 26px;
+      background-repeat: no-repeat;
+      padding-right:40px; /* keep room for our arrow so width never changes */
     }
+
+    .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
@@ -137,7 +144,7 @@ Fixes:
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* ===== Year popover ===== */
+    /* ===== Year popover (unchanged) ===== */
     .combo{ position:relative; }
     .combo-trigger{ width:100%; text-align:left; }
     .combo-trigger.select{ position:relative; }
