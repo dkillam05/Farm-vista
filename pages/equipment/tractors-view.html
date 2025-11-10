@@ -325,42 +325,54 @@
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    // UPDATED: robust print that works on iOS/Safari and PWAs
+    /* -------- Print (fixed-size 2x1, single page, no splits) -------- */
     function printQR(url, labelText){
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>@page{size:2in 1in;margin:4mm}html,body{height:100%;margin:0}
-body{display:grid;place-items:center;gap:6px;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-img{width:75%;height:auto;image-rendering:crisp-edges}.lbl{font-weight:700;font-size:12px}</style>
+<style>
+  @page { size: 2in 1in; margin: 0; }
+  html, body { width: 2in; height: 1in; margin: 0; padding: 0; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #card {
+    width: 2in; height: 1in; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  #qri { max-width: 1.25in; max-height: 0.72in; display:block; image-rendering: pixelated; }
+  #lbl { font: 700 10px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1; white-space: nowrap; margin-top: 2px; }
+  /* Prevent any accidental breaks */
+  html, body, #card { page-break-inside: avoid; break-inside: avoid; }
+</style>
 </head><body>
-<img id="qri" src="${url}" alt="QR"/><div class="lbl">${labelText}</div>
+  <div id="card">
+    <img id="qri" src="${url}" alt="QR"/>
+    <div id="lbl">${labelText}</div>
+  </div>
 <script>
-  const img=document.getElementById('qri');
-  function go(){ try{ window.print(); setTimeout(()=>window.close(), 400); }catch(e){} }
-  if (img.complete) { go(); } else { img.addEventListener('load', go, {once:true}); }
+  const img = document.getElementById('qri');
+  function go(){ try { window.print(); setTimeout(()=>window.close(), 400); } catch(e){} }
+  if (img.complete) { go(); } else { img.addEventListener('load', go, { once:true }); }
 <\/script>
 </body></html>`;
 
       try{
         const blob = new Blob([html], {type:'text/html'});
         const blobUrl = URL.createObjectURL(blob);
-        const w = window.open(blobUrl, '_blank');
+        const w = window.open(blobUrl, '_blank', 'noopener,noreferrer');
         if (!w) throw new Error('popup-blocked');
-
-        // Best effort revoke later
         setTimeout(()=>URL.revokeObjectURL(blobUrl), 10000);
       }catch(e){
-        // Fallback: hidden iframe same-origin print
+        // Fallback: hidden iframe
         const ifr = document.createElement('iframe');
         ifr.style.position='fixed'; ifr.style.right='-9999px'; ifr.style.bottom='-9999px';
         document.body.appendChild(ifr);
         const doc = ifr.contentWindow.document;
         doc.open(); doc.write(html); doc.close();
-        setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }finally{
+        setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); } finally {
           setTimeout(()=>ifr.remove(), 1000);
         }}, 250);
       }
     }
+    /* --------------------------------------------------------------- */
 
     // Resume hooks (BFCache / tab visibility / focus)
     function resume(){ if (!unsub) attach(); }
