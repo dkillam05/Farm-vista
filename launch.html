@@ -1,9 +1,10 @@
 <!-- /Farm-vista/launch.html
-     Safe resolver — never hang:
-       • Wait up to 6s for FVUserContext.orgId
-       • If authed but no org after 6s → soft-proceed to ?to=...
-       • If not authed → redirect to /auth with ?to=...
-       • "Retry now" re-runs flow immediately
+     Safe resolver — waits for auth + org context and proceeds.
+     UI per request:
+       • "Connecting…" heading
+       • "Loading data for (company name)" (dynamic from FVUserContext)
+       • No Retry button
+       • Keep the small gray subtext
 -->
 <!doctype html>
 <html lang="en">
@@ -24,7 +25,6 @@
     .row{ margin-top:14px; display:flex; gap:10px; align-items:center; justify-content:center; }
     .dot{ width:14px; height:14px; border-radius:50%; border:2px solid var(--green); animation:pulse 1.2s infinite ease-in-out; }
     @keyframes pulse { 0%{opacity:.3} 50%{opacity:1} 100%{opacity:.3} }
-    .btn{ margin-top:16px; display:inline-flex; align-items:center; justify-content:center; padding:10px 16px; border-radius:12px; border:1px solid var(--border); background:#fff; color:var(--text); font-weight:800; cursor:pointer; }
     .sub{ margin-top:8px; font-size:13px; color:#8a948f; }
     .diag{ margin-top:6px; font-size:12px; color:#8a948f; }
   </style>
@@ -32,12 +32,10 @@
 <body>
   <div class="box" role="status" aria-live="polite">
     <h1>Connecting…</h1>
-    <p>Preparing your farm data.</p>
-    <div class="row">
-      <span class="dot" aria-hidden="true"></span>
-      <span id="statusText">Waiting for farm context…</span>
+    <p id="orgLine">Loading data for your farm</p>
+    <div class="row" aria-hidden="true">
+      <span class="dot"></span>
     </div>
-    <button id="retryBtn" class="btn" type="button">Retry now</button>
     <div id="sub" class="sub">This can take a few seconds after login.</div>
     <div id="diag" class="diag"></div>
   </div>
@@ -50,22 +48,29 @@
     const target = params.get('to') || '/Farm-vista/index.html';
 
     const $ = id => document.getElementById(id);
-    const statusText = $('statusText');
+    const orgLine = $('orgLine');
     const diag = $('diag');
-    const retryBtn = $('retryBtn');
 
-    function getCtx(){
-      try {
-        if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
-          return window.FVUserContext.get() || null;
-        }
-      } catch {}
-      return null;
+    // ---------- Org name helper (from FVUserContext) ----------
+    function ctx(){
+      try { return (window.FVUserContext && typeof window.FVUserContext.get==='function')
+        ? (window.FVUserContext.get() || null) : null; } catch { return null; }
     }
     function hasOrgId(){
-      const c = getCtx();
+      const c = ctx();
       return !!(c && (c.orgId || c.org || c.tenantId));
     }
+    function updateOrgLine(){
+      const c = ctx();
+      const name = (c && (c.orgName || c.org)) ? (c.orgName || c.org) : 'your farm';
+      orgLine.textContent = `Loading data for ${name}`;
+    }
+    updateOrgLine();
+    if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
+      window.FVUserContext.onChange(updateOrgLine);
+    }
+    // ----------------------------------------------------------
+
     function isAuthed(){
       try {
         const a = getAuth();
@@ -114,6 +119,7 @@
       return new Promise(resolve=>{
         const start = Date.now();
         (function tick(){
+          updateOrgLine();
           if (hasOrgId()) return resolve(true);
           if (Date.now() - start >= maxMs) return resolve(false);
           setTimeout(tick, stepMs);
@@ -121,11 +127,7 @@
       });
     }
 
-    async function connectFlow(userTapped=false){
-      retryBtn.disabled = true;
-      statusText.textContent = userTapped ? 'Retrying…' : 'Waiting for farm context…';
-      diag.textContent = '';
-
+    async function connectFlow(){
       const ok = await ensureAuthOrLogin();
       if (!ok) return;
 
@@ -133,7 +135,6 @@
 
       if (gotCtx) {
         diag.textContent = 'Context ready → proceeding.';
-        // tiny settle so shell/context subscribers catch up
         await new Promise(r=>setTimeout(r, 200));
         go(target);
         return;
@@ -154,20 +155,8 @@
       go(login.href);
     }
 
-    retryBtn.addEventListener('click', ()=> connectFlow(true));
-
     // Auto-run once
-    connectFlow(false);
-
-    // If context can notify, proceed immediately when it becomes ready
-    if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-      window.FVUserContext.onChange(()=>{
-        if (hasOrgId()) {
-          diag.textContent = 'Context signaled ready → proceeding.';
-          go(target);
-        }
-      });
-    }
+    connectFlow();
 
     // Network hints
     window.addEventListener('online',  ()=> diag.textContent = 'Back online.');
