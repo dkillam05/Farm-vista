@@ -1,6 +1,5 @@
-<!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB
-     Resolves equipment from (?id,&t) OR sessionStorage('fv.ctx.eqId','fv.ctx.eqTok').
-     Bad-QR modal only shows after a failed scan (flagged via ?qrError=1 or sessionStorage).
+<!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB (links fixed)
+     - All "Return to Tractors" links go to /Farm-vista/pages/equipment/tractors-view.html
 -->
 <!doctype html>
 <html lang="en">
@@ -34,49 +33,27 @@
   <style>
     :root{ --card-max:900px; --brand: var(--green,#3B7E46); }
     body{ background:var(--app-bg,var(--surface)); }
-
-    .wrap{
-      max-width:var(--card-max);
-      margin:0 auto;
-      padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important;
-    }
-
-    .hero{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
-      margin:8px 0 18px;
-    }
-    .hero-head{
-      display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+    .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important; }
+    .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden; margin:8px 0 18px; }
+    .hero-head{ display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
       padding:14px 16px; border-bottom:1px solid var(--border);
-      background: color-mix(in srgb, var(--brand) 12%, transparent);
-    }
+      background: color-mix(in srgb, var(--brand) 12%, transparent); }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); }
     .muted{ color:var(--muted,#67706B) }
-
     .body{ padding:16px; display:grid; gap:18px }
-
     .card{ border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:14px; display:grid; gap:6px }
     .meta{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
     .chip{ font-size:12px; border:1px solid var(--border); border-radius:999px; padding:4px 8px; background:var(--surface) }
-
     .actions{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px }
     @media (max-width:560px){ .actions{ grid-template-columns:1fr } }
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      padding:12px 14px; border-radius:12px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer;
-      text-decoration:none;
-    }
+    .btn{ display:inline-flex; align-items:center; justify-content:center; padding:12px 14px; border-radius:12px;
+      border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer; text-decoration:none; }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
 
-    /* ===== Invalid QR modal (single Close action) ===== */
-    .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:99999;
-      background:rgba(0,0,0,.45); }
+    /* Invalid QR modal */
+    .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:99999; background:rgba(0,0,0,.45); }
     .modal-backdrop.show{ display:flex; }
     .modal-card{ width:min(420px,92vw); background:var(--surface); color:var(--text);
       border:1px solid var(--border); border-radius:16px; box-shadow:0 18px 60px rgba(0,0,0,.35); }
@@ -98,18 +75,23 @@
           </div>
         </header>
 
-        <!-- Equipment block (hidden until we resolve a valid equipment doc) -->
+        <!-- Equipment block (valid equipment resolved) -->
         <div class="body" id="eqBlock" hidden>
           <div class="card">
             <h2 id="eqName" style="margin:0"></h2>
             <div class="meta">
               <span id="eqType" class="chip"></span>
               <span id="eqMakeModel" class="chip"></span>
-              <!-- Year chip removed by request -->
               <span id="eqSerial" class="chip" hidden></span>
               <span id="eqHours" class="chip" hidden></span>
             </div>
             <p id="eqNotes" class="muted" hidden></p>
+          </div>
+
+          <!-- Always shows: returns to tractors list -->
+          <div class="actions">
+            <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
+            <span class="btn" style="visibility:hidden"></span>
           </div>
 
           <div class="actions">
@@ -120,7 +102,7 @@
           </div>
         </div>
 
-        <!-- Neutral actions (shown when Hub is opened directly with no equipment context) -->
+        <!-- Neutral actions (no equipment context) -->
         <div class="body" id="neutralBlock" hidden>
           <div class="actions">
             <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
@@ -131,7 +113,7 @@
     </div>
   </fv-shell>
 
-  <!-- Invalid QR modal (gated; shows only after failed scan) -->
+  <!-- Invalid QR modal -->
   <div id="badQR" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
       <div class="md-head">Invalid QR for FarmVista</div>
@@ -150,11 +132,11 @@
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
 
-    // Primary inputs (query string)
+    // Query inputs
     let idParam  = qs.get('id') || '';
     let token    = qs.get('t')  || '';
 
-    // Safety-net inputs (session from previous page, e.g., tractors-view "Open Hub")
+    // Safety-net from session (Open Hub from tractors page)
     if (!idParam) {
       const ssId  = sessionStorage.getItem('fv.ctx.eqId');
       if (ssId) idParam = ssId;
@@ -164,7 +146,7 @@
       if (ssTok) token = ssTok;
     }
 
-    // Gate for showing the error modal ONLY after a failed scan:
+    // Show bad-QR modal only after a failed scan
     const fromScanFail =
       qs.get('qrError') === '1' ||
       sessionStorage.getItem('fv.qrError') === '1';
@@ -222,14 +204,12 @@
         eqId = await resolveIdByToken(db, token);
       }
 
-      // If we have no equipment context:
       if (!eqId) {
         if (fromScanFail) showInvalidModal();
         showNeutral();
         return;
       }
 
-      // Fetch the equipment
       const ref = doc(db,'equipment', eqId);
       const snap = await getDoc(ref);
       if(!snap.exists()){
@@ -246,7 +226,6 @@
         return;
       }
 
-      // ===== Render equipment card =====
       const type = data.type || "equipment";
       const makeModel = [data.makeName, data.modelName].filter(Boolean).join(" ");
       const lastSix = last6(data.serial);
@@ -257,12 +236,11 @@
       setText("eqName", title);
       setText("eqType", type);
       setText("eqMakeModel", makeModel);
-
       if(lastSix) setText("eqSerial", `SN #${lastSix}`, {unhide:true});
       if(data.engineHours!=null) setText("eqHours", `${data.engineHours} hrs`, {unhide:true});
       if(data.notes) setText("eqNotes", data.notes, {unhide:true});
 
-      // Action links — keep id (& token when present) for downstream pages
+      // Action links keep id/token
       const base = "/Farm-vista/pages/equipment/actions";
       const tok  = data.qr?.token || token || '';
       const q    = `?id=${encodeURIComponent(eqId)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
@@ -276,7 +254,7 @@
       $('neutralBlock').hidden = true;
       setText("subtitle","Linked");
 
-      // Clean up one-shot context so future Hub opens don't “stick” to last unit
+      // clear one-shot context
       sessionStorage.removeItem('fv.ctx.eqId');
       sessionStorage.removeItem('fv.ctx.eqTok');
     }
