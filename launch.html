@@ -1,9 +1,9 @@
 <!-- /Farm-vista/launch.html
-     Minimal + reliable: fetch org name directly from Firestore.
-     • Heading: "Connecting…"
-     • Sub: "Loading data for (company name)"
-     • No Retry button
-     • Keep small gray footer line
+     Polished loader:
+       • Full-screen blur overlay + spinner immediately
+       • Org name fetched from Firestore, then fades in
+       • Small minimum hold before navigating
+       • No Retry button; small gray footer text kept
 -->
 <!doctype html>
 <html lang="en">
@@ -15,33 +15,80 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <style>
-    :root{ --green:#3B7E46; --surface: var(--app-bg, #F3F7F4); --muted: var(--muted, #67706B); }
+    :root{
+      --green:#3B7E46;
+      --surface: var(--app-bg, #F3F7F4);
+      --muted:   var(--muted, #67706B);
+    }
     html, body { height:100%; margin:0; background:var(--surface); color:var(--text); }
-    body { display:flex; align-items:center; justify-content:center; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    .box { width:min(560px, 92vw); text-align:center; padding:22px 20px 18px; border:1px solid var(--border); border-radius:18px; background:#fff; box-shadow:0 20px 60px rgba(0,0,0,.18); }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+
+    /* Full-screen overlay with background blur */
+    .overlay {
+      position: fixed; inset: 0;
+      display: grid; place-items: center;
+      background: rgba(255,255,255,0.25);
+      -webkit-backdrop-filter: blur(8px) saturate(1.02);
+      backdrop-filter: blur(8px) saturate(1.02);
+      z-index: 9999;
+    }
+
+    .box {
+      width:min(560px, 92vw);
+      text-align:center;
+      padding:22px 20px 18px;
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:#fff;
+      box-shadow:0 20px 60px rgba(0,0,0,.18);
+    }
+
     h1{ margin:6px 0 6px; font-size:22px; color:var(--green); }
     p{ margin:6px 0 0; color:var(--muted); }
-    .row{ margin-top:14px; display:flex; gap:10px; align-items:center; justify-content:center; }
-    .dot{ width:14px; height:14px; border-radius:50%; border:2px solid var(--green); animation:pulse 1.2s infinite ease-in-out; }
-    @keyframes pulse { 0%{opacity:.3} 50%{opacity:1} 100%{opacity:.3} }
+
+    /* Spinner */
+    .spin-wrap{ margin:14px 0 10px; display:flex; align-items:center; justify-content:center; min-height:28px; }
+    .spinner{
+      width:28px; height:28px; border-radius:50%;
+      border:3px solid var(--green); border-top-color: transparent;
+      animation:spin 0.9s linear infinite;
+    }
+    @keyframes spin { to{ transform: rotate(360deg) } }
+
+    /* Org line fades in when name is known */
+    #orgLine{ opacity:0; transition: opacity .25s ease; }
+    #orgLine.show{ opacity:1; }
+
     .sub{ margin-top:8px; font-size:13px; color:#8a948f; }
-    .diag{ margin-top:6px; font-size:12px; color:#8a948f; }
+    .diag{ margin-top:6px; font-size:12px; color:#8a948f; text-align:center; }
   </style>
 </head>
 <body>
-  <div class="box" role="status" aria-live="polite">
-    <h1>Connecting…</h1>
-    <p id="orgLine">Loading data for your farm</p>
-    <div class="row" aria-hidden="true">
-      <span class="dot"></span>
+
+  <!-- Everything happens on the overlay -->
+  <div class="overlay" role="status" aria-live="polite">
+    <div class="box">
+      <h1>Connecting…</h1>
+
+      <div class="spin-wrap">
+        <div class="spinner" aria-hidden="true"></div>
+      </div>
+
+      <!-- Hidden until we know the company name -->
+      <p id="orgLine">Loading data…</p>
+
+      <div id="sub" class="sub">This can take a few seconds after login.</div>
+      <div id="diag" class="diag"></div>
     </div>
-    <div id="sub" class="sub">This can take a few seconds after login.</div>
-    <div id="diag" class="diag"></div>
   </div>
 
   <script type="module">
     import * as FB from '/Farm-vista/js/firebase-init.js';
     const { ready, getAuth, onAuthStateChanged, getFirestore, doc, getDoc } = FB;
+
+    // -------- Config: minimum time to show AFTER org name appears --------
+    const MIN_HOLD_MS_AFTER_NAME = 900;
+    // ---------------------------------------------------------------------
 
     const params = new URLSearchParams(location.search);
     const target = params.get('to') || '/Farm-vista/index.html';
@@ -86,16 +133,16 @@
       });
     }
 
-    // Direct Firestore fetch of org name (no FVUserContext dependency)
+    // Pull org name directly from Firestore (accountRoles -> company)
     async function loadOrgName(){
       try{
         const auth = getAuth();
         const uid = auth.currentUser?.uid;
-        if (!uid) return;
+        if (!uid) return null;
 
         const db = getFirestore();
 
-        // accountRoles/{uid} → orgId | org  (fallback to "main")
+        // accountRoles/{uid} → orgId | org (fallback to 'main')
         let orgId = 'main';
         try{
           const roleSnap = await getDoc(doc(db, 'accountRoles', uid));
@@ -106,26 +153,37 @@
         // company/{orgId} → name
         try{
           const compSnap = await getDoc(doc(db, 'company', orgId));
-          const comp = compSnap.exists() ? compSnap.data() : null;
-          const name = (comp?.name || 'your farm');
-          orgLine.textContent = `Loading data for ${name}`;
-        }catch{
-          orgLine.textContent = 'Loading data for your farm';
-        }
+          if (compSnap.exists()){
+            const comp = compSnap.data();
+            return comp?.name || null;
+          }
+        }catch{}
+
+        return null;
       }catch{
-        orgLine.textContent = 'Loading data for your farm';
+        return null;
       }
     }
 
     async function connectFlow(){
-      const ok = await ensureAuthOrLogin();
-      if (!ok) return;
+      const authed = await ensureAuthOrLogin();
+      if (!authed) return;
 
-      // Show org name ASAP
-      await loadOrgName();
+      // Get the org name; show line only once we have it
+      const name = await loadOrgName();
+      if (name){
+        orgLine.textContent = `Loading data for ${name}`;
+      } else {
+        orgLine.textContent = `Loading data for your farm`;
+      }
+      // Fade in the org line
+      orgLine.classList.add('show');
 
-      // Tiny settle so shell / other listeners catch up
-      await new Promise(r=>setTimeout(r, 200));
+      // Hold briefly for a polished feel
+      await new Promise(r=>setTimeout(r, MIN_HOLD_MS_AFTER_NAME));
+
+      // Small settle, then proceed
+      await new Promise(r=>setTimeout(r, 150));
       go(target);
     }
 
