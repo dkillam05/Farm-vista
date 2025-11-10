@@ -24,6 +24,7 @@
     })();
   </script>
 
+  <!-- Firebase CONFIG FIRST (matches your Directory page load order) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -39,6 +40,7 @@
     .sub{ margin:0 0 18px; color:var(--muted,#6f7772); }
     .muted{ color:var(--muted,#6f7772); }
 
+    /* Search */
     .search{
       display:flex; align-items:center; gap:10px; border:1px solid var(--border);
       border-radius:12px; background:var(--surface); padding:10px 12px;
@@ -47,6 +49,7 @@
 
     .count{ margin:10px 0; color:var(--muted,#6f7772); font-weight:700; }
 
+    /* Cards */
     .group{ margin:14px 0; }
     .group h3{ margin:0 0 8px; color:var(--green,#2F6C3C); }
     .card{
@@ -55,43 +58,42 @@
       padding:12px 14px; display:grid; gap:6px; cursor:pointer;
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
-
+    .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .badges{ display:flex; gap:8px; flex-wrap:wrap; }
     .badge{ padding:4px 10px; border-radius:999px; font-size:13px; font-weight:800; border:1px solid var(--border); }
     .badge.green{ background:color-mix(in srgb, var(--green) 12%, transparent); }
 
+    /* Detail modal (vertical-only) */
     dialog.sheet{
       width:min(740px, 92vw); border:1px solid var(--border); border-radius:16px; padding:0;
       background:var(--surface); box-shadow:0 18px 40px rgba(0,0,0,.28);
     }
     .sheet::backdrop{ background:rgba(0,0,0,.35); }
     .sheet header{ padding:14px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-    .sheet .body{ padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; }
+    .sheet .body{
+      padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+    }
     .kv{ display:grid; grid-template-columns:180px 1fr; gap:8px 12px; }
-    @media(max-width:700px){ .kv{ grid-template-columns:1fr } }
-
+    @media(max-width:700px){ .kv{ grid-template-columns:1fr } .kv div{ padding:2px 0 } }
     .k{ font-weight:800; color:var(--green,#2F6C3C); }
     .v{ color:var(--text); }
 
+    /* QR preview block */
     .qrbox{
       margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
       display:grid; place-items:center; gap:10px; background:var(--surface);
     }
     .qrbox h4{ margin:0; font-size:16px; }
     .qrbox img{
-      display:block; width:min(220px,70%); height:auto; border-radius:8px;
+      display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
       border:1px solid var(--border); background:#fff;
     }
     .qrnote{ margin:0; color:var(--muted); font-size:13px; }
 
-    .sheet footer{
-      padding:12px 16px; border-top:1px solid var(--border);
-      display:flex; justify-content:flex-end; gap:8px;
-    }
+    .sheet footer{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
     .btn{
-      display:inline-flex; align-items:center; gap:8px;
-      border:1px solid var(--border); border-radius:12px;
-      background:var(--surface); color:var(--text);
-      padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
+      display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
     .btn[disabled]{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff; }
@@ -103,8 +105,9 @@
       <h1 class="title">Tractors</h1>
       <p class="sub">Active tractors only. Search by make, model, serial, or year.</p>
 
+      <!-- Search -->
       <div class="search">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
         <input id="q" type="search" placeholder="Search" autocomplete="off"/>
@@ -115,6 +118,7 @@
     </div>
   </fv-shell>
 
+  <!-- Detail modal (read-only) -->
   <dialog id="detail" class="sheet" aria-modal="true">
     <header>
       <strong id="dTitle">Details</strong>
@@ -123,6 +127,7 @@
     <div class="body">
       <div class="kv" id="dKV"></div>
 
+      <!-- QR preview -->
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -142,14 +147,15 @@
       getFirestore, collection, query, where, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $ = s => document.querySelector(s);
-    const list = $('#list'), countEl = $('#count'), qInput = $('#q');
-    const dlg = $('#detail'), dTitle = $('#dTitle'), dKV = $('#dKV');
-    const btnHub = $('#openHub'), qrSection = $('#qrSection');
-    const qrImg = $('#qrImg'), qrLbl = $('#qrLbl'), btnPrintQR = $('#btnPrintQR');
+    const $ = sel => document.querySelector(sel);
+    const list = $('#list');
+    const countEl = $('#count');
+    const qInput = $('#q');
 
-    let DATA = [], unsub = null;
+    let DATA = [];
+    let unsub = null;
 
+    // Helpers
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
     const normStatus = v => String(v ?? 'active').toLowerCase();
@@ -160,136 +166,213 @@
     const tractorName = d => {
       const mm = [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
       const ls = last6(d.serial);
-      return mm ? (ls ? `${mm} (#${ls})` : mm) : d.name || '(tractor)';
+      if (mm) return ls ? `${mm} (#${ls})` : mm;
+      return d.name || '(tractor)';
     };
     const hubUrl = (id, token) => {
-      const u = new URL(`${location.origin}/Farm-vista/pages/equipment/actions/hub.html`);
+      const base = `${location.origin}/Farm-vista/pages/equipment/actions/hub.html`;
+      const u = new URL(base);
       u.searchParams.set('id', id);
       if (token) u.searchParams.set('t', token);
       return u.href;
     };
-    const getQrUrl = d => {
-      try {
-        const img = d?.qr?.image;
-        if (!img) return '';
-        if (typeof img === 'string') return img;
-        if (typeof img.url === 'string') return img.url;
-      } catch {}
-      return '';
-    };
 
     function attach(){
-      if (unsub) return;
+      if (unsub) return; // prevent double-attach
       const db = getFirestore();
+      // Simple server query: type == 'tractor'
       const qref = query(collection(db,'equipment'), where('type','==','tractor'));
-      unsub = onSnapshot(qref,snap=>{
-        const out=[];
+      unsub = onSnapshot(qref, (snap)=>{
+        const out = [];
         snap.forEach(docSnap=>{
-          const d=docSnap.data()||{};
-          if(!isActive(d))return;
-          out.push({id:docSnap.id,...d});
+          const d = docSnap.data() || {};
+          if (!isActive(d)) return; // client-side active filter
+          out.push({ id: docSnap.id, ...d });
         });
-        out.sort((a,b)=>tractorName(a).localeCompare(tractorName(b)));
-        DATA=out; render();
-      },err=>console.error('Tractors listener error:',err));
+        // Sort by name A->Z
+        out.sort((a,b)=> tractorName(a).localeCompare(tractorName(b)));
+        DATA = out;
+        render();
+      }, (err)=>{
+        console.error('Tractors listener error:', err);
+      });
     }
-    function detach(){ if(unsub){try{unsub();}catch{}unsub=null;} }
+    function detach(){
+      if (unsub){ try{ unsub(); }catch{}; unsub = null; }
+    }
 
     function render(){
-      const q=(qInput.value||'').toLowerCase().trim();
-      const rows=DATA.filter(d=>{
-        if(!q)return true;
-        const blob=[tractorName(d),d.makeName,d.modelName,d.serial,d.year,d.notes]
-          .map(x=>String(x||'').toLowerCase()).join(' ');
+      const q = (qInput.value || '').toLowerCase().trim();
+      const rows = DATA.filter(d=>{
+        if (!q) return true;
+        const blob = [
+          tractorName(d), d.makeName, d.modelName, d.serial, d.year, d.notes
+        ].map(x=>String(x||'').toLowerCase()).join(' ');
         return blob.includes(q);
       });
-      countEl.textContent=`${rows.length}/${DATA.length} entries`;
-      list.innerHTML='';
+
+      countEl.textContent = `${rows.length}/${DATA.length} entries`;
+      list.innerHTML = '';
+
       if(!rows.length){
-        const p=document.createElement('p');p.className='muted';p.textContent='No matches.';list.appendChild(p);return;
+        const p = document.createElement('p');
+        p.className='muted'; p.textContent='No matches.';
+        list.appendChild(p);
+        return;
       }
-      const by={};
+
+      // Group A-Z by display name
+      const by = {};
       rows.forEach(d=>{
-        const name=tractorName(d);const k=(name||'?').charAt(0).toUpperCase();
+        const name = tractorName(d);
+        const k = (name || '?').charAt(0).toUpperCase();
         (by[k] ||= []).push(d);
       });
+
       Object.keys(by).sort().forEach(letter=>{
-        const wrap=document.createElement('div');wrap.className='group';
-        const h=document.createElement('h3');h.textContent=letter;wrap.appendChild(h);
+        const wrap = document.createElement('div'); wrap.className='group';
+        const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
         by[letter].forEach(d=>{
-          const card=document.createElement('div');card.className='card';card.setAttribute('role','button');
-          const title=document.createElement('div');title.style.fontWeight='800';title.textContent=tractorName(d);
-          const badges=document.createElement('div');badges.className='badges';
-          const mk=[safe(d.makeName),safe(d.modelName)].filter(Boolean).join(' ');
-          const year=d.year?`• ${d.year}`:'';badges.innerHTML=`
+          const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
+          const title = document.createElement('div'); title.style.fontWeight='800'; title.textContent = tractorName(d);
+
+          const badges = document.createElement('div'); badges.className='badges';
+          const mk = [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ');
+          const year = d.year ? `• ${d.year}` : '';
+          badges.innerHTML = `
             <span class="badge">Tractor ${year}</span>
-            ${mk?`<span class="badge">${mk}</span>`:''}
-            <span class="badge green">Active</span>`;
-          card.append(title,badges);
-          card.addEventListener('click',()=>openDetail(d));
+            ${mk ? `<span class="badge">${mk}</span>` : ``}
+            <span class="badge green">Active</span>
+          `;
+
+          card.append(title, badges);
+          card.addEventListener('click', ()=> openDetail(d));
           wrap.appendChild(card);
         });
         list.appendChild(wrap);
       });
     }
 
-    function addRow(k,v){
-      if(v===undefined||v===null||v==='')return;
-      const K=document.createElement('div');K.className='k';K.textContent=k;
-      const V=document.createElement('div');V.className='v';V.textContent=String(v);
+    // Detail modal (read-only) — vertical-only scroll
+    const dlg = document.getElementById('detail');
+    const dTitle = document.getElementById('dTitle');
+    const dKV = document.getElementById('dKV');
+    const btnHub = document.getElementById('openHub');
+
+    // QR elements
+    const btnPrintQR = document.getElementById('btnPrintQR');
+    const qrSection = document.getElementById('qrSection');
+    const qrImg = document.getElementById('qrImg');
+    const qrLbl = document.getElementById('qrLbl');
+
+    const close = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
+    document.getElementById('dClose').addEventListener('click', close);
+    document.getElementById('dClose2').addEventListener('click', close);
+
+    const has = v => !(v===undefined || v===null || v==='');
+    function addRow(k, v){
+      if(!has(v)) return;
+      const K = document.createElement('div'); K.className='k'; K.textContent = k;
+      const V = document.createElement('div'); V.className='v'; V.textContent = String(v);
       dKV.append(K,V);
     }
 
-    function openDetail(d){
-      dTitle.textContent=tractorName(d);
-      dKV.innerHTML='';
-      addRow('Type','Tractor');
-      addRow('Make',d.makeName);
-      addRow('Model',d.modelName);
-      addRow('Year',d.year);
-      const ls=last6(d.serial);if(ls)addRow('Serial (last 6)',ls);
-      addRow('Engine Hours',d.engineHours);
-      addRow('Notes',d.notes);
-      const tok=d.qr?.token||'';
-      btnHub.href=hubUrl(d.id,tok);
-
-      const url=getQrUrl(d);
-      const labelText=[safe(d.modelName)].filter(Boolean).join(' ')+(ls?` - #${ls}`:'');
-      if(url){
-        qrImg.src=url;qrImg.alt=`QR for ${labelText}`;
-        qrLbl.textContent=labelText;qrSection.hidden=false;
-        btnPrintQR.disabled=false;
-        btnPrintQR.onclick=()=>printQR(url,labelText);
-      }else{
-        qrImg.removeAttribute('src');qrLbl.textContent='No QR image saved.';qrSection.hidden=false;
-        btnPrintQR.disabled=true;
-      }
-      dlg.showModal();
+    // Resolve qr.image as string OR {url}
+    function getQrUrl(d){
+      try{
+        if (!d || !d.qr) return '';
+        const img = d.qr.image;
+        if (!img) return '';
+        if (typeof img === 'string') return img;
+        if (typeof img.url === 'string') return img.url;
+        return '';
+      }catch{ return ''; }
     }
 
-    function printQR(url,labelText){
-      const w=window.open('','_blank','noopener,noreferrer');if(!w)return;
-      const html=`<!doctype html><html><head><meta charset="utf-8"/>
+    function openDetail(d){
+      dTitle.textContent = tractorName(d);
+      dKV.innerHTML = '';
+      addRow('Type','Tractor');
+      addRow('Make', d.makeName);
+      addRow('Model', d.modelName);
+      addRow('Year', d.year);
+      const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
+      addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
+      addRow('Notes', d.notes);
+
+      const tok = d.qr && d.qr.token ? d.qr.token : '';
+      btnHub.href = hubUrl(d.id, tok);
+
+      // QR preview
+      const url = getQrUrl(d);
+      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+      if (url){
+        const bust = (url.includes('?') ? '&' : '?') + '_=' + Date.now();
+        qrImg.src = url + bust;
+        qrImg.alt = `QR for ${labelText}`;
+        qrLbl.textContent = labelText;
+        qrSection.hidden = false;
+        btnPrintQR.disabled = false;
+        btnPrintQR.onclick = ()=> printQR(url, labelText);
+      } else {
+        qrImg.removeAttribute('src');
+        qrLbl.textContent = 'No QR image saved for this equipment.';
+        qrSection.hidden = false;
+        btnPrintQR.disabled = true;
+        btnPrintQR.onclick = null;
+      }
+
+      try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
+    }
+
+    // UPDATED: robust print that works on iOS/Safari and PWAs
+    function printQR(url, labelText){
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>@page{size:2in 1in;margin:4mm}html,body{height:100%;margin:0}
 body{display:grid;place-items:center;gap:6px;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 img{width:75%;height:auto;image-rendering:crisp-edges}.lbl{font-weight:700;font-size:12px}</style>
 </head><body>
-<img src="${url}" alt="QR"/><div class="lbl">${labelText}</div>
-<script>setTimeout(()=>{window.print();setTimeout(()=>window.close(),250)},300);<\/script>
+<img id="qri" src="${url}" alt="QR"/><div class="lbl">${labelText}</div>
+<script>
+  const img=document.getElementById('qri');
+  function go(){ try{ window.print(); setTimeout(()=>window.close(), 400); }catch(e){} }
+  if (img.complete) { go(); } else { img.addEventListener('load', go, {once:true}); }
+<\/script>
 </body></html>`;
-      w.document.open();w.document.write(html);w.document.close();
+
+      try{
+        const blob = new Blob([html], {type:'text/html'});
+        const blobUrl = URL.createObjectURL(blob);
+        const w = window.open(blobUrl, '_blank');
+        if (!w) throw new Error('popup-blocked');
+
+        // Best effort revoke later
+        setTimeout(()=>URL.revokeObjectURL(blobUrl), 10000);
+      }catch(e){
+        // Fallback: hidden iframe same-origin print
+        const ifr = document.createElement('iframe');
+        ifr.style.position='fixed'; ifr.style.right='-9999px'; ifr.style.bottom='-9999px';
+        document.body.appendChild(ifr);
+        const doc = ifr.contentWindow.document;
+        doc.open(); doc.write(html); doc.close();
+        setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }finally{
+          setTimeout(()=>ifr.remove(), 1000);
+        }}, 250);
+      }
     }
 
-    $('#dClose').onclick=$('#dClose2').onclick=()=>{try{dlg.close();}catch{dlg.removeAttribute('open');}};
-    qInput.addEventListener('input',render);
+    // Resume hooks (BFCache / tab visibility / focus)
+    function resume(){ if (!unsub) attach(); }
 
-    function resume(){if(!unsub)attach();}
-    (async()=>{await ready;attach();
-      window.addEventListener('pageshow',resume);
-      document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')resume();});
-      window.addEventListener('focus',resume);
-      window.addEventListener('pagehide',()=>detach());
+    (async()=>{
+      await ready;
+      attach();
+      qInput.addEventListener('input', render);
+      window.addEventListener('pageshow', resume);
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
+      window.addEventListener('focus', resume);
+      window.addEventListener('pagehide', ()=>{ detach(); });
     })();
   </script>
 </body>
