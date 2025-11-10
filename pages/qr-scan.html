@@ -71,16 +71,16 @@
 
   function setStatus(msg, ok=true){ status.innerHTML = (ok?'<span class="ok">✓</span> ':'<span class="bad">⚠</span> ')+msg; }
 
-  function inScope(href){ return href.startsWith(location.origin + APP_SCOPE); }
   function normalize(href){
-    try { return new URL(href).href; } catch {
+    try { return new URL(href, location.origin).href; } catch {
       const path = href.startsWith('/') ? href : '/'+href;
-      return location.origin + path;
+      return new URL(path, location.origin).href;
     }
   }
+
+  // Always go through Launch so auth/context are ready before deep pages
   function go(targetAbs){
-    if (inScope(targetAbs)) location.href = targetAbs.replace(location.origin,'');
-    else location.href = LAUNCH(targetAbs);
+    location.href = LAUNCH(targetAbs);
   }
 
   function cleanup(){
@@ -92,9 +92,7 @@
   async function start(){
     try{
       cleanup();
-      // If already granted, this won’t prompt. First time, browser will show one prompt (unavoidable).
-      const st = await (navigator.permissions && navigator.permissions.query ? navigator.permissions.query({ name:'camera' }) : Promise.resolve({state:'prompt'}));
-      // Try to use rear camera
+      // Try to use rear camera; browser will prompt if needed
       stream = await navigator.mediaDevices.getUserMedia({
         video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }, audio:false
       });
@@ -111,7 +109,10 @@
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         ctx.drawImage(video,0,0,canvas.width,canvas.height);
         const img = ctx.getImageData(0,0,canvas.width,canvas.height);
-        const code = jsQR(img.data, img.width, img.height, { inversionAttempts:'dontInvert' });
+
+        // More tolerant decode for screens: attemptBoth
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts:'attemptBoth' });
+
         if (code && code.data){
           cleanup();
           setStatus('QR detected. Opening…');
@@ -134,9 +135,9 @@
     else location.replace(APP_SCOPE);
   });
 
-  // Auto-start as soon as page is ready
+  // Auto-start
   document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && !running && !stream) start(); });
-  start(); // kick immediately
+  start();
 })();
 </script>
 </body>
