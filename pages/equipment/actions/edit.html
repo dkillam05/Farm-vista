@@ -37,28 +37,18 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
     }
     .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
-    .sub{ margin:0 10px 18px 0; color:var(--muted,#6f7772); }
-    .toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+    .sub{ margin:0 0 18px; color:var(--muted,#6f7772); }
 
     /* Search */
     .search{
       display:flex; align-items:center; gap:10px; border:1px solid var(--border);
       border-radius:12px; background:var(--surface); padding:10px 12px;
-      min-width:min(340px, 100%);
-      flex:1;
     }
     .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; color:var(--text); }
 
-    /* Filter chip */
-    .chip{
-      display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border);
-      border-radius:999px; background:var(--surface); color:var(--text); padding:8px 12px; font-weight:800; cursor:pointer;
-    }
-    .chip .muted{ color:var(--muted); font-weight:600; }
-
     .count{ margin:10px 0; color:var(--muted,#6f7772); font-weight:700; }
 
-    /* Cards (minimal list: make, model, #last6) */
+    /* Cards (minimal: make, model, #last6 only) */
     .group{ margin:14px 0; }
     .group h3{ margin:0 0 8px; color:var(--muted); font-weight:800; letter-spacing:.02em; }
     .card{
@@ -67,7 +57,7 @@
       background:var(--surface);
       color:var(--text);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:14px 16px; display:flex; align-items:center; justify-content:space-between;
       cursor:pointer;
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
@@ -87,9 +77,10 @@
     .sheet::backdrop{ background:rgba(0,0,0,.55); }
     .sheet header{
       padding:14px 16px; border-bottom:1px solid var(--border);
-      display:flex; justify-content:space-between; align-items:center; gap:10px;
+      display:flex; justify-content:space-between; align-items:center;
       background:var(--card-surface, var(--surface));
       color:var(--text);
+      gap:10px;
     }
     .sheet .body{
       padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
@@ -108,6 +99,7 @@
       border:1px solid var(--border); border-radius:12px; padding:10px 12px;
     }
     textarea{ min-height:110px; resize:vertical; }
+    .tip{ font-size:12px; color:var(--muted); margin-top:6px; }
 
     .btn{
       display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
@@ -117,31 +109,20 @@
     .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
     .btn-warn{ background:var(--brand-gold,#D0C542); color:#2b2b2b; border-color:var(--brand-gold,#D0C542); }
     .btn-danger{ background:#B3261E; color:#fff; border-color:#B3261E; }
-
-    .row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    @media(max-width:700px){ .row{ grid-template-columns:1fr } }
-
-    .tip{ font-size:12px; color:var(--muted); margin-top:6px; }
-    .ro input, .ro select, .ro textarea{ opacity:.7; pointer-events:none; }
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="page">
-      <h1 class="title">Edit Tractors</h1>
-      <div class="toolbar">
-        <div class="search" title="Search make, model, serial, notes…">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
-          <input id="q" type="search" placeholder="Search tractors" autocomplete="off"/>
-        </div>
-        <button id="filterBtn" class="chip" type="button">
-          <span>Filter:</span><span class="muted" id="filterLabel">Active</span>
-        </button>
-        <button id="sortBtn" class="chip" type="button">
-          <span>Sort:</span><span class="muted" id="sortLabel">Make</span>
-        </button>
+      <h1 class="title">Tractors</h1>
+      <p class="sub">Active tractors only. Search by make, model, serial, or year.</p>
+
+      <!-- Search -->
+      <div class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
+        <input id="q" type="search" placeholder="Search" autocomplete="off"/>
       </div>
 
       <p id="count" class="count">0 entries</p>
@@ -149,17 +130,17 @@
     </div>
   </fv-shell>
 
-  <!-- Edit modal -->
-  <dialog id="editDlg" class="sheet" aria-modal="true">
+  <!-- EDIT MODAL -->
+  <dialog id="edit" class="sheet" aria-modal="true">
     <header>
-      <strong id="dlgTitle">Edit Tractor</strong>
+      <strong id="eTitle">Edit Tractor</strong>
       <div style="display:flex; gap:8px; align-items:center">
         <span id="rolePill" class="badge">Checking permissions…</span>
-        <button id="dlgClose" class="btn" type="button">Close</button>
+        <button id="eClose" class="btn" type="button">Close</button>
       </div>
     </header>
     <div class="body">
-      <div class="kv" id="formWrap">
+      <div class="kv">
         <div>
           <label for="mk">Make</label>
           <input id="mk" type="text" placeholder="e.g., John Deere"/>
@@ -188,20 +169,17 @@
           </select>
         </div>
         <div>
-          <label for="hrs">Hours</label>
+          <label for="hrs">Engine Hours</label>
           <input id="hrs" type="number" min="0" step="1" placeholder="0"/>
         </div>
 
-        <div class="row" style="grid-column:1/-1">
-          <div>
-            <label for="notes">Notes</label>
-            <textarea id="notes" placeholder="Append a quick note…"></textarea>
-            <div class="tip">Saving appends a new note entry instead of overwriting old notes.</div>
-          </div>
+        <div style="grid-column:1/-1">
+          <label for="notes">Notes</label>
+          <textarea id="notes" placeholder="Append a quick note… (replaces text notes field)"></textarea>
         </div>
       </div>
     </div>
-    <footer id="dlgFt">
+    <footer>
       <button id="archiveBtn" class="btn btn-warn" type="button">Archive</button>
       <button id="deleteBtn" class="btn btn-danger" type="button" disabled>Delete</button>
       <button id="saveBtn" class="btn btn-primary" type="button">Save Changes</button>
@@ -211,26 +189,21 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, doc, getDoc, getDocs, query, where, onSnapshot, setDoc, updateDoc, serverTimestamp, limit,
-      arrayUnion
+      getFirestore, collection, doc, getDoc, getDocs, query, where, onSnapshot, setDoc, updateDoc, serverTimestamp, limit
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $ = s=>document.querySelector(s);
+    const $ = sel => document.querySelector(sel);
+
     const list = $('#list');
     const countEl = $('#count');
     const qInput = $('#q');
-    const filterBtn = $('#filterBtn');
-    const sortBtn = $('#sortBtn');
-    const filterLabel = $('#filterLabel');
-    const sortLabel = $('#sortLabel');
 
-    // Modal elements
-    const dlg = $('#editDlg');
-    const dlgTitle = $('#dlgTitle');
-    const dlgClose = $('#dlgClose');
+    // Modal + form
+    const dlg = $('#edit');
+    const eTitle = $('#eTitle');
+    const eClose = $('#eClose');
     const rolePill = $('#rolePill');
 
-    // Form fields
     const f = {
       mk: $('#mk'), md: $('#md'), yr: $('#yr'), sn: $('#sn'), sn6: $('#sn6'),
       st: $('#st'), hrs: $('#hrs'), notes: $('#notes')
@@ -239,59 +212,101 @@
     const archiveBtn = $('#archiveBtn');
     const deleteBtn = $('#deleteBtn');
 
-    // App state
-    let APP = { role:'', canAll:false, canEdit:false, orgId:null, user:null };
-    let DATA = []; // tractors loaded
-    let FILTER = 'Active'; // Active | Archived | All
-    let SORT = 'Make';    // Make | Model | Hours | Updated | Last6
+    // State
+    let DATA = [];
     let unsub = null;
-    let currentId = null; // editing id
-    let deleteClean = false; // delete eligibility
+    let APP = { user:null, orgId:null, role:'', canAll:false, canEdit:false };
+    let currentId = null;
+    let deleteClean = false;
 
-    // Helpers
+    // Helpers (kept identical to your file where possible)
+    const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
-    const last6 = v => String(v||'').slice(-6).toUpperCase();
     const normStatus = v => String(v ?? 'active').toLowerCase();
     const isActive = d => {
       const s = normStatus(d.status);
       return s === 'active' || (d.active === true) || (d.status == null);
     };
-    const isArchived = d => normStatus(d.status) === 'archived';
-    const nameLine = d => {
-      const mm = [d.make||d.makeName||'', d.model||d.modelName||''].filter(Boolean).join(' ').trim();
+    const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
+    const displayLine = d => {
+      const mm = mmText(d);
       const ls = last6(d.serial);
       return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : '(tractor)');
+    };
+    const titleFor = d => {
+      const mm = mmText(d);
+      const ls = last6(d.serial);
+      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || '(tractor)');
     };
 
     function applyRole(){
       APP.canAll = ['Owner','Admin'].includes(APP.role);
       APP.canEdit = APP.canAll || APP.role==='Employee';
       rolePill.textContent = APP.canAll ? 'Owner/Admin' : (APP.canEdit ? 'Employee (limited)' : 'Read-only');
-
-      // Footer buttons by role
       saveBtn.disabled = !APP.canEdit;
       archiveBtn.disabled = !APP.canEdit;
       deleteBtn.disabled = !APP.canAll || !deleteClean;
-      // Read-only style on the form
-      $('#formWrap').classList.toggle('ro', !APP.canEdit);
+      // read-only feel by disabling inputs if truly view-only
+      [f.mk,f.md,f.yr,f.sn,f.st,f.hrs,f.notes].forEach(el=>{
+        el.disabled = !APP.canEdit;
+      });
     }
 
-    function groupRender(rows){
+    function attach(){
+      if (unsub) return;
+      const db = getFirestore();
+      const qref = query(collection(db,'equipment'), where('type','==','tractor'));
+      unsub = onSnapshot(qref, (snap)=>{
+        const out = [];
+        snap.forEach(docSnap=>{
+          const d = docSnap.data() || {};
+          if (!isActive(d)) return; // Active tractors only (exactly like your view)
+          out.push({ id: docSnap.id, ...d });
+        });
+        out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
+        DATA = out;
+        render();
+      }, (err)=> {
+        console.error('Tractors listener error:', err);
+        alert('Error loading tractors. Check Firestore rules or network.');
+      });
+    }
+    function detach(){ if (unsub){ try{ unsub(); }catch{}; unsub = null; } }
+
+    function render(){
+      const q = (qInput.value || '').toLowerCase().trim();
+      const rows = DATA.filter(d=>{
+        if (!q) return true;
+        const blob = [
+          displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes
+        ].map(x=>String(x||'').toLowerCase()).join(' ');
+        return blob.includes(q);
+      });
+
       countEl.textContent = `${rows.length}/${DATA.length} entries`;
       list.innerHTML = '';
+
       if(!rows.length){
-        const p = document.createElement('p'); p.className='sub'; p.textContent='No matches.'; list.appendChild(p); return;
+        const p = document.createElement('p');
+        p.className='sub'; p.textContent='No matches.';
+        list.appendChild(p);
+        return;
       }
+
+      // Group A-Z by first letter of display line
       const by = {};
       rows.forEach(d=>{
-        const n = nameLine(d); const k = (n||'?').charAt(0).toUpperCase(); (by[k] ||= []).push(d);
+        const name = displayLine(d);
+        const k = (name || '?').charAt(0).toUpperCase();
+        (by[k] ||= []).push(d);
       });
+
       Object.keys(by).sort().forEach(letter=>{
         const wrap = document.createElement('div'); wrap.className='group';
         const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
         by[letter].forEach(d=>{
           const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
-          const title = document.createElement('div'); title.className='card-title'; title.textContent = nameLine(d);
+          const title = document.createElement('div'); title.className='card-title'; title.textContent = displayLine(d);
           const badge = document.createElement('span'); badge.className='badge'; badge.textContent = d.status||'Active';
           card.append(title, badge);
           card.addEventListener('click', ()=> openEditor(d.id));
@@ -301,83 +316,9 @@
       });
     }
 
-    function render(){
-      const q = (qInput.value||'').toLowerCase().trim();
-      let rows = DATA.filter(d=>{
-        if(FILTER==='Active') return isActive(d);
-        if(FILTER==='Archived') return isArchived(d);
-        return true;
-      }).filter(d=>{
-        if(!q) return true;
-        const blob = [
-          nameLine(d), d.make, d.model, d.serial, d.year, d.notesText
-        ].map(x=>String(x||'').toLowerCase()).join(' ');
-        return blob.includes(q);
-      });
-
-      // sort
-      rows.sort((a,b)=>{
-        const ta = (a.updatedAt? a.updatedAt.toMillis?.()||a.updatedAt : 0);
-        const tb = (b.updatedAt? b.updatedAt.toMillis?.()||b.updatedAt : 0);
-        const a6 = (a.lastSix || last6(a.serial));
-        const b6 = (b.lastSix || last6(b.serial));
-        if(SORT==='Make'){
-          const A = `${a.make||''}\u0000${a.model||''}\u0000${a6||''}`;
-          const B = `${b.make||''}\u0000${b.model||''}\u0000${b6||''}`;
-          return A.localeCompare(B);
-        }
-        if(SORT==='Model'){
-          const A = `${a.model||''}\u0000${a.make||''}\u0000${a6||''}`;
-          const B = `${b.model||''}\u0000${b.make||''}\u0000${b6||''}`;
-          return A.localeCompare(B);
-        }
-        if(SORT==='Hours'){
-          return (Number(b.hours||0) - Number(a.hours||0));
-        }
-        if(SORT==='Updated'){
-          return (tb - ta);
-        }
-        if(SORT==='Last6'){
-          return safe(a6).localeCompare(safe(b6));
-        }
-        return nameLine(a).localeCompare(nameLine(b));
-      });
-
-      groupRender(rows);
-    }
-
-    function toggleFilter(){
-      FILTER = (FILTER==='Active') ? 'Archived' : (FILTER==='Archived' ? 'All' : 'Active');
-      filterLabel.textContent = FILTER;
-      render();
-    }
-    function toggleSort(){
-      const order = ['Make','Model','Hours','Updated','Last6'];
-      const i = order.indexOf(SORT);
-      SORT = order[(i+1)%order.length];
-      sortLabel.textContent = SORT === 'Last6' ? 'Last 6' : SORT;
-      render();
-    }
-
-    async function attach(){
-      if(unsub) return;
-      const db = getFirestore();
-      const qref = query(collection(db,'equipment'), where('type','==','tractor'));
-      unsub = onSnapshot(qref, (snap)=>{
-        const out=[];
-        snap.forEach(docSnap=>{
-          const d=docSnap.data()||{};
-          const notesText = Array.isArray(d.notes) ? d.notes.map(n=>n.text).join(' ') : (d.notes||'');
-          out.push({ id:docSnap.id, ...d, notesText });
-        });
-        DATA = out;
-        render();
-      }, (err)=> console.error('Tractors listener error:', err));
-    }
-    function detach(){ if (unsub){ try{unsub();}catch{}; unsub=null; } }
-
-    function openModal(dlgEl){ try{ dlgEl.showModal(); }catch{ dlgEl.setAttribute('open',''); } }
-    function closeModal(dlgEl){ try{ dlgEl.close(); }catch{ dlgEl.removeAttribute('open'); } }
+    // Modal helpers
+    function openModal(el){ try{ el.showModal(); }catch{ el.setAttribute('open',''); } }
+    function closeModal(el){ try{ el.close(); }catch{ el.removeAttribute('open'); } }
 
     async function openEditor(id){
       currentId = id;
@@ -386,40 +327,40 @@
 
       const db = getFirestore();
       const snap = await getDoc(doc(db,'equipment',id));
-      if(!snap.exists()){
-        alert('Tractor not found'); return;
-      }
-      const d = snap.data()||{};
-      dlgTitle.textContent = nameLine(d);
+      if(!snap.exists()){ alert('Tractor not found'); return; }
+      const d = snap.data() || {};
 
-      // Populate fields
-      f.mk.value = d.make || d.makeName || '';
-      f.md.value = d.model || d.modelName || '';
-      f.yr.value = d.year || '';
-      f.sn.value = d.serial || '';
+      eTitle.textContent = titleFor(d);
+
+      // Populate form with YOUR field names
+      f.mk.value  = d.makeName  || '';
+      f.md.value  = d.modelName || '';
+      f.yr.value  = d.year       || '';
+      f.sn.value  = d.serial     || '';
       f.sn6.textContent = last6(d.serial);
-      f.st.value = d.status || 'Active';
-      f.hrs.value = d.hours ?? '';
-      f.notes.value = '';
+      f.st.value  = d.status     || 'Active';
+      f.hrs.value = (d.engineHours ?? '');
+      f.notes.value = d.notes || '';
 
-      // Archive button text
+      // Archive toggle label
       archiveBtn.textContent = (f.st.value==='Archived') ? 'Unarchive' : 'Archive';
 
-      // Role controls
+      // Role
       applyRole();
 
-      // Pre-check delete eligibility (dependency guard)
+      // Serial live → last 6
+      f.sn.oninput = ()=> (f.sn6.textContent = last6(f.sn.value||''));
+
+      // Pre-check delete eligibility
       dependencyGuard(id).then(ok=>{
         deleteClean = ok;
         deleteBtn.disabled = !(APP.canAll && deleteClean);
       }).catch(()=>{ deleteClean=false; deleteBtn.disabled = true; });
 
-      // Wire serial live last-6
-      f.sn.oninput = ()=> (f.sn6.textContent = last6(f.sn.value||''));
-
       openModal(dlg);
     }
 
+    // Only allow delete when NO references exist
     async function dependencyGuard(equipmentId){
       const db = getFirestore();
       const checks = [
@@ -429,7 +370,7 @@
         ['qrScans','equipmentId'],
       ].map(async ([c,field])=>{
         try{
-          const qs = await getDocs(query(collection(db,c), where('orgId','==',APP.orgId), where(field,'==', equipmentId), limit(1)));
+          const qs = await getDocs(query(collection(db,c), where(field,'==', equipmentId), limit(1)));
           return qs.size===0;
         }catch(_){ return false; } // fail closed
       });
@@ -438,34 +379,27 @@
     }
 
     function collectPatch(){
-      const make = f.mk.value.trim();
-      const model = f.md.value.trim();
-      const serial = f.sn.value.trim();
+      const makeName  = f.mk.value.trim();
+      const modelName = f.md.value.trim();
+      const serial    = f.sn.value.trim();
       const patch = {
-        make, model,
+        makeName,
+        modelName,
         year: f.yr.value.trim(),
-        serial, lastSix: last6(serial),
-        status: f.st.value||'Active',
-        hours: Number(f.hrs.value||0),
+        serial,
+        status: f.st.value || 'Active',
+        engineHours: Number(f.hrs.value||0),
+        notes: f.notes.value.trim(),
         updatedAt: serverTimestamp(),
         updatedBy: APP.user?.displayName || 'System'
       };
-      const noteText = f.notes.value.trim();
-      if(noteText){
-        patch.notes = arrayUnion({
-          text: noteText,
-          authorName: APP.user?.displayName || 'Unknown',
-          authorId: APP.user?.uid || null,
-          ts: serverTimestamp()
-        });
-      }
       return patch;
     }
     function validate(p){
-      if(!p.make) return 'Make is required.';
-      if(!p.model) return 'Model is required.';
+      if(!p.makeName) return 'Make is required.';
+      if(!p.modelName) return 'Model is required.';
       if(!p.serial || p.serial.length<6) return 'Serial must be at least 6 characters.';
-      if(p.hours<0) return 'Hours cannot be negative.';
+      if(p.engineHours<0) return 'Engine hours cannot be negative.';
       return '';
     }
 
@@ -476,21 +410,19 @@
       const err = validate(patch);
       if(err){ alert(err); return; }
 
-      // Employees can edit Hours + Notes only; Owners/Admins can edit all
+      // Employees can edit hours + notes; Owners/Admins can edit everything
       if(!APP.canAll && APP.canEdit){
-        const limited = {
-          hours: patch.hours,
+        await setDoc(doc(db,'equipment',currentId), {
+          engineHours: patch.engineHours,
+          notes: patch.notes,
           updatedAt: patch.updatedAt,
           updatedBy: patch.updatedBy
-        };
-        if(patch.notes) limited.notes = patch.notes;
-        await setDoc(doc(db,'equipment',currentId), limited, { merge:true });
+        }, { merge:true });
       }else if(APP.canAll){
         await setDoc(doc(db,'equipment',currentId), patch, { merge:true });
       }else{
         alert('Read-only.'); return;
       }
-      f.notes.value='';
       alert('Saved ✓');
       closeModal(dlg);
     }
@@ -520,52 +452,59 @@
       }
       const ok = confirm('Delete this tractor permanently? This cannot be undone.');
       if(!ok) return;
+
       const db = getFirestore();
-      await updateDoc(doc(db,'equipment',currentId), { // soft delete fallback if rules block hard delete
-        status: 'Archived',
-        deletedAt: serverTimestamp(),
-        updatedBy: APP.user?.displayName || 'System'
-      }).catch(async ()=>{
-        // If allowed, perform a hard delete:
-        await (await import('/Farm-vista/js/firebase-init.js')).deleteDoc?.(doc(db,'equipment',currentId));
-      });
-      alert('Deleted (or archived) ✓');
+      // Try hard delete; if rules prevent, fall back to soft-archive
+      try{
+        const { deleteDoc } = await import('/Farm-vista/js/firebase-init.js');
+        await deleteDoc(doc(db,'equipment',currentId));
+        alert('Deleted ✓');
+      }catch(_){
+        await updateDoc(doc(db,'equipment',currentId), {
+          status: 'Archived',
+          deletedAt: serverTimestamp(),
+          updatedBy: APP.user?.displayName || 'System'
+        });
+        alert('Could not hard delete; archived instead ✓');
+      }
       closeModal(dlg);
     }
 
-    // Wire UI
-    qInput.addEventListener('input', render);
-    filterBtn.addEventListener('click', toggleFilter);
-    sortBtn.addEventListener('click', toggleSort);
-    dlgClose.addEventListener('click', ()=> closeModal(dlg));
+    // Wire modal buttons
+    eClose.addEventListener('click', ()=> closeModal(dlg));
     saveBtn.addEventListener('click', saveEdits);
     archiveBtn.addEventListener('click', toggleArchive);
     deleteBtn.addEventListener('click', doDelete);
 
+    // Search
+    qInput.addEventListener('input', render);
+
     // Resume hooks
     function resume(){ if (!unsub) attach(); }
-    window.addEventListener('pageshow', resume);
-    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
-    window.addEventListener('focus', resume);
-    window.addEventListener('pagehide', ()=>{ detach(); });
 
-    // Boot
     (async()=>{
       await ready;
-      // Resolve FVUserContext (provided by theme-boot)
+
+      // Resolve FVUserContext supplied by theme-boot
       (function waitCtx(t0=Date.now()){
-        if(window.FVUserContext && FVUserContext.orgId && FVUserContext.user){
+        if(window.FVUserContext && FVUserContext.user){
           APP.user = FVUserContext.user;
-          APP.orgId = FVUserContext.orgId;
+          APP.orgId = FVUserContext.orgId || null;
           APP.role = FVUserContext.role || 'Employee';
           applyRole();
           attach();
         }else if(Date.now()-t0 > 6000){
-          alert('Could not resolve account. Try reloading from Launch.');
+          // Proceed; some environments might still allow public read per rules
+          attach();
         }else{
           setTimeout(()=>waitCtx(t0), 120);
         }
       })();
+
+      window.addEventListener('pageshow', resume);
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
+      window.addEventListener('focus', resume);
+      window.addEventListener('pagehide', ()=>{ detach(); });
     })();
   </script>
 </body>
