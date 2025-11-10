@@ -1,4 +1,4 @@
-<!-- /Farm-vista/pages/equipment/actions/hub.html — INFO-ONLY HUB (Return-to-Tractors fully removed) -->
+<!-- /Farm-vista/pages/equipment/actions/hub.html — Simplified with single Return to Tractors button -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -53,16 +53,6 @@
       background:var(--card-surface,var(--surface)); font-weight:800;
       color:var(--text)!important; cursor:pointer; text-decoration:none; }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
-
-    /* Invalid QR modal */
-    .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-      z-index:99999; background:rgba(0,0,0,.45); }
-    .modal-backdrop.show{ display:flex; }
-    .modal-card{ width:min(420px,92vw); background:var(--surface); color:var(--text);
-      border:1px solid var(--border); border-radius:16px; box-shadow:0 18px 60px rgba(0,0,0,.35); }
-    .md-head{ padding:14px 16px; border-bottom:1px solid var(--border); font-weight:800; font-size:18px }
-    .md-body{ padding:14px 16px; color:var(--muted,#67706B) }
-    .md-foot{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end }
   </style>
 </head>
 
@@ -78,8 +68,8 @@
           </div>
         </header>
 
-        <!-- Equipment block (valid equipment resolved) -->
-        <div class="body" id="eqBlock" hidden>
+        <!-- Equipment block -->
+        <div class="body" id="eqBlock">
           <div class="card">
             <h2 id="eqName" style="margin:0"></h2>
             <div class="meta">
@@ -91,37 +81,21 @@
             <p id="eqNotes" class="muted" hidden></p>
           </div>
 
-          <!-- Only functional links -->
           <div class="actions">
             <a id="linkHours" class="btn btn-primary" href="#">Track Engine Hours</a>
             <a id="linkMaint" class="btn" href="#">Service Records</a>
-            <a id="linkReq"   class="btn" href="#">Submit Service Request</a>
-            <a id="linkPre"   class="btn" href="#">Pre-Season Checklist</a>
+            <a id="linkReq" class="btn" href="#">Submit Service Request</a>
+            <a id="linkPre" class="btn" href="#">Pre-Season Checklist</a>
           </div>
-        </div>
 
-        <!-- Neutral block (no equipment context) -->
-        <div class="body" id="neutralBlock" hidden>
-          <div class="actions">
-            <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
+          <!-- Single clean return button -->
+          <div class="actions" style="margin-top:10px;">
+            <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
           </div>
         </div>
       </section>
     </div>
   </fv-shell>
-
-  <!-- Invalid QR modal -->
-  <div id="badQR" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal-card">
-      <div class="md-head">Invalid QR for FarmVista</div>
-      <div class="md-body">
-        We couldn’t open this code. It isn’t linked to a piece of equipment. Please try scanning again.
-      </div>
-      <div class="md-foot">
-        <button id="badQRClose" class="btn btn-primary" type="button">Close</button>
-      </div>
-    </div>
-  </div>
 
   <script type="module">
     import { ready, getFirestore, doc, getDoc } from '/Farm-vista/js/firebase-init.js';
@@ -132,7 +106,6 @@
     if(!idParam){ const s=sessionStorage.getItem('fv.ctx.eqId'); if(s) idParam=s; }
     if(!token){ const t=sessionStorage.getItem('fv.ctx.eqTok'); if(t) token=t; }
 
-    const fromScanFail=qs.get('qrError')==='1'||sessionStorage.getItem('fv.qrError')==='1';
     const setText=(id,v,o={})=>{const el=$(id);if(!el)return;
       if(!v){if(o.hideIfEmpty)el.hidden=true;else el.textContent='';return;}
       el.textContent=String(v);if(o.unhide)el.hidden=false;};
@@ -143,33 +116,22 @@
         return s.exists()?(s.data()?.equipmentId||null):null;}catch{return null;}
     }
 
-    function showInvalidModal(){
-      const m=$('badQR');m.classList.add('show');m.setAttribute('aria-hidden','false');
-      $('badQRClose').onclick=()=>{m.classList.remove('show');m.setAttribute('aria-hidden','true');
-        sessionStorage.removeItem('fv.qrError');};
-    }
-
-    function showNeutral(){ $('neutralBlock').hidden=false; $('eqBlock').hidden=true;
-      setText('subtitle','Ready'); }
-
     async function load(){
       setText('subtitle','Resolving equipment…'); await ready;
       const db=getFirestore(); let eqId=idParam;
       if(!eqId&&token) eqId=await resolveIdByToken(db,token);
-      if(!eqId){ if(fromScanFail) showInvalidModal(); showNeutral(); return; }
+      if(!eqId){ setText('subtitle','No equipment found'); return; }
 
       const ref=doc(db,'equipment',eqId); const snap=await getDoc(ref);
-      if(!snap.exists()){ if(fromScanFail) showInvalidModal(); showNeutral(); return; }
+      if(!snap.exists()){ setText('subtitle','Not found'); return; }
 
-      const d=snap.data()||{}; const tokenOK=token?(d.qr&&d.qr.token===token):true;
-      if(!tokenOK){ if(fromScanFail) showInvalidModal(); showNeutral(); return; }
-
-      const type=d.type||'equipment';
+      const d=snap.data()||{};
       const mm=[d.makeName,d.modelName].filter(Boolean).join(' ');
       const ls=last6(d.serial);
       const title=mm?`${mm}${ls?` (#${ls})`:''}`:(d.name||`Unit ${String(eqId).slice(0,6)}`);
-
-      setText('eqName',title); setText('eqType',type); setText('eqMakeModel',mm);
+      setText('eqName',title);
+      setText('eqType',d.type||'equipment');
+      setText('eqMakeModel',mm);
       if(ls) setText('eqSerial',`SN #${ls}`,{unhide:true});
       if(d.engineHours!=null) setText('eqHours',`${d.engineHours} hrs`,{unhide:true});
       if(d.notes) setText('eqNotes',d.notes,{unhide:true});
@@ -181,15 +143,10 @@
       $("linkMaint").href=`${base}/maintenance.html${q}`;
       $("linkReq").href=`${base}/service-request.html${q}`;
       $("linkPre").href=`${base}/pre-check.html${q}`;
-
-      $('eqBlock').hidden=false; $('neutralBlock').hidden=true;
       setText('subtitle','Linked');
-      sessionStorage.removeItem('fv.ctx.eqId');
-      sessionStorage.removeItem('fv.ctx.eqTok');
     }
 
-    load().catch(e=>{console.error(e);
-      if(fromScanFail)showInvalidModal();showNeutral();});
+    load().catch(e=>{console.error(e);setText('subtitle','Error loading');});
   </script>
 </body>
 </html>
