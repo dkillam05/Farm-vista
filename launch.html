@@ -1,10 +1,9 @@
 <!-- /Farm-vista/launch.html
-     Safe resolver — waits for auth + org context and proceeds.
-     UI per request:
-       • "Connecting…" heading
-       • "Loading data for (company name)" (dynamic from FVUserContext)
-       • No Retry button
-       • Keep the small gray subtext
+     Minimal + reliable: fetch org name directly from Firestore.
+     • Heading: "Connecting…"
+     • Sub: "Loading data for (company name)"
+     • No Retry button
+     • Keep small gray footer line
 -->
 <!doctype html>
 <html lang="en">
@@ -42,7 +41,7 @@
 
   <script type="module">
     import * as FB from '/Farm-vista/js/firebase-init.js';
-    const { ready, getAuth, onAuthStateChanged } = FB;
+    const { ready, getAuth, onAuthStateChanged, getFirestore, doc, getDoc } = FB;
 
     const params = new URLSearchParams(location.search);
     const target = params.get('to') || '/Farm-vista/index.html';
@@ -51,45 +50,17 @@
     const orgLine = $('orgLine');
     const diag = $('diag');
 
-    // ---------- Org name helper (from FVUserContext) ----------
-    function ctx(){
-      try { return (window.FVUserContext && typeof window.FVUserContext.get==='function')
-        ? (window.FVUserContext.get() || null) : null; } catch { return null; }
-    }
-    function hasOrgId(){
-      const c = ctx();
-      return !!(c && (c.orgId || c.org || c.tenantId));
-    }
-    function updateOrgLine(){
-      const c = ctx();
-      const name = (c && (c.orgName || c.org)) ? (c.orgName || c.org) : 'your farm';
-      orgLine.textContent = `Loading data for ${name}`;
-    }
-    updateOrgLine();
-    if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') {
-      window.FVUserContext.onChange(updateOrgLine);
-    }
-    // ----------------------------------------------------------
-
-    function isAuthed(){
-      try {
-        const a = getAuth();
-        return !!(a && a.currentUser);
-      } catch { return false; }
-    }
     function go(href){ location.replace(href); }
 
     async function ensureAuthOrLogin(){
       await ready;
       const auth = getAuth();
-
-      // race auth state vs 4s fallback
       return new Promise(resolve=>{
-        let done = false;
+        let settled = false;
         const fallback = setTimeout(()=>{
-          if (done) return;
-          done = true;
-          if (isAuthed()) { resolve(true); }
+          if (settled) return;
+          settled = true;
+          if (auth.currentUser) resolve(true);
           else {
             const login = new URL('/Farm-vista/auth/index.html', location.origin);
             login.searchParams.set('to', target);
@@ -100,8 +71,8 @@
         }, 4000);
 
         onAuthStateChanged(auth, (user)=>{
-          if (done) return;
-          done = true;
+          if (settled) return;
+          settled = true;
           clearTimeout(fallback);
           if (user) resolve(true);
           else {
@@ -115,47 +86,50 @@
       });
     }
 
-    function waitForContext(maxMs=6000, stepMs=150){
-      return new Promise(resolve=>{
-        const start = Date.now();
-        (function tick(){
-          updateOrgLine();
-          if (hasOrgId()) return resolve(true);
-          if (Date.now() - start >= maxMs) return resolve(false);
-          setTimeout(tick, stepMs);
-        })();
-      });
+    // Direct Firestore fetch of org name (no FVUserContext dependency)
+    async function loadOrgName(){
+      try{
+        const auth = getAuth();
+        const uid = auth.currentUser?.uid;
+        if (!uid) return;
+
+        const db = getFirestore();
+
+        // accountRoles/{uid} → orgId | org  (fallback to "main")
+        let orgId = 'main';
+        try{
+          const roleSnap = await getDoc(doc(db, 'accountRoles', uid));
+          const role = roleSnap.exists() ? roleSnap.data() : null;
+          orgId = (role?.orgId || role?.org || 'main');
+        }catch{}
+
+        // company/{orgId} → name
+        try{
+          const compSnap = await getDoc(doc(db, 'company', orgId));
+          const comp = compSnap.exists() ? compSnap.data() : null;
+          const name = (comp?.name || 'your farm');
+          orgLine.textContent = `Loading data for ${name}`;
+        }catch{
+          orgLine.textContent = 'Loading data for your farm';
+        }
+      }catch{
+        orgLine.textContent = 'Loading data for your farm';
+      }
     }
 
     async function connectFlow(){
       const ok = await ensureAuthOrLogin();
       if (!ok) return;
 
-      const gotCtx = await waitForContext(6000, 150);
+      // Show org name ASAP
+      await loadOrgName();
 
-      if (gotCtx) {
-        diag.textContent = 'Context ready → proceeding.';
-        await new Promise(r=>setTimeout(r, 200));
-        go(target);
-        return;
-      }
-
-      // Soft-proceed: authenticated but orgId never surfaced
-      if (isAuthed()) {
-        diag.textContent = 'Soft-proceed (no orgId after 6s).';
-        await new Promise(r=>setTimeout(r, 150));
-        go(target);
-        return;
-      }
-
-      // Fallback to login (should be covered above)
-      const login = new URL('/Farm-vista/auth/index.html', location.origin);
-      login.searchParams.set('to', target);
-      diag.textContent = 'No auth. Redirecting to login…';
-      go(login.href);
+      // Tiny settle so shell / other listeners catch up
+      await new Promise(r=>setTimeout(r, 200));
+      go(target);
     }
 
-    // Auto-run once
+    // Auto-run
     connectFlow();
 
     // Network hints
