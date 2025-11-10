@@ -106,7 +106,11 @@
   </fv-shell>
 
   <script type="module">
-    import { ready, getFirestore, doc, getDoc } from '/Farm-vista/js/firebase-init.js';
+    import {
+      ready, getFirestore, doc, getDoc,
+      collection, query, where, getDocs, limit
+    } from '/Farm-vista/js/firebase-init.js';
+
     const $ = (id)=>document.getElementById(id);
     const qs = new URLSearchParams(location.search);
 
@@ -125,16 +129,47 @@
     };
     const last6 = v => String(v||'').slice(-6);
 
+    async function resolveIdByToken(db, t){
+      if (!t) return '';
+      try{
+        // One-shot reverse lookup: equipment where qr.token == t
+        const q = query(collection(db,'equipment'), where('qr.token','==', t), limit(1));
+        const snap = await getDocs(q);
+        if (!snap.empty){
+          const docSnap = snap.docs[0];
+          return docSnap.id || '';
+        }
+      }catch(e){
+        console.error('Token reverse-lookup failed:', e);
+      }
+      return '';
+    }
+
     async function init(){
       $('subtitle').textContent = 'Resolving equipment…';
       await ready;
-      if (!eqId){ $('subtitle').textContent = 'Ready'; return; } // still show the static buttons
 
       const db = getFirestore();
+
+      // If id is missing but we have a token, try reverse lookup once
+      if (!eqId && token){
+        $('subtitle').textContent = 'Looking up by token…';
+        eqId = await resolveIdByToken(db, token);
+      }
+
+      if (!eqId){
+        // No way to resolve — keep page functional but show message
+        $('subtitle').textContent = 'No equipment found for this code.';
+        return;
+      }
+
       const ref = doc(db,'equipment', eqId);
       const snap = await getDoc(ref);
 
-      if (!snap.exists()){ $('subtitle').textContent = 'Not found'; return; }
+      if (!snap.exists()){
+        $('subtitle').textContent = 'Not found';
+        return;
+      }
 
       const d = snap.data() || {};
       // Render summary
@@ -152,11 +187,11 @@
       // Wire functional links (preserve id/token)
       const base = "/Farm-vista/pages/equipment/actions";
       const tok  = d.qr?.token || token || '';
-      const q    = `?id=${encodeURIComponent(eqId)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
-      $("linkHours").href = `${base}/engine-hours.html${q}`;
-      $("linkMaint").href = `${base}/maintenance.html${q}`;
-      $("linkReq").href   = `${base}/service-request.html${q}`;
-      $("linkPre").href   = `${base}/pre-check.html${q}`;
+      const qstr = `?id=${encodeURIComponent(eqId)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
+      $("linkHours").href = `${base}/engine-hours.html${qstr}`;
+      $("linkMaint").href = `${base}/maintenance.html${qstr}`;
+      $("linkReq").href   = `${base}/service-request.html${qstr}`;
+      $("linkPre").href   = `${base}/pre-check.html${qstr}`;
       $('fnLinks').hidden = false;
 
       $('subtitle').textContent = 'Linked';
