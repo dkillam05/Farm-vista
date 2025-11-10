@@ -1,9 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Adds: persist QR preview to Storage and save its URL under equipment.qr.image
-+ Centered card on mobile
-+ Inline editors for Makes/Models (no blue text, no Add, conditional Delete/Archive)
-+ Cancel now navigates to /Farm-vista/pages/equipment/equipment-tractors.HTML (falls back to .html)
+Mobile centering fix:
+  • Centers fields inside hero via .hero-body > .inner (max-width + auto margins)
+  • Sets 16px min font-size on inputs/selects to stop iOS zoom/relayout
+  • Normalizes select arrow + padding so width doesn’t jump after paint
+  • Reserves footer space and contains hero layout to prevent “blip”
+Other behaviors unchanged.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -36,8 +38,14 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
   </script>
 
   <style>
-    :root{ --card-max:1100px; --page-bottom-gap:96px; --brand: var(--green,#3B7E46); }
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --brand: var(--green,#3B7E46);
+    }
 
+    /* Keep page height & footer space stable so nothing jumps on boot */
+    html, body { min-height: 100%; }
     .wrap{
       max-width:var(--card-max);
       margin:0 auto;
@@ -45,7 +53,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
-    /* Center the card */
+    /* Center the card and isolate its layout so late-arriving tokens don’t shift it */
     .hero{
       max-width:720px;
       margin:0 auto var(--page-bottom-gap);
@@ -54,6 +62,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
+      contain: layout paint; /* isolates tiny late changes outside */
     }
 
     .hero-head{
@@ -64,7 +73,14 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B) }
 
-    .body{ padding:16px; display:grid; gap:14px; }
+    /* NEW: inner container to center form fields within hero on mobile */
+    .hero-body{ padding:16px; }
+    .hero-body .inner{
+      max-width:640px;  /* governs the fields, not the card */
+      margin:0 auto;    /* centers fields perfectly inside hero */
+      display:grid; gap:14px;
+    }
+
     .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
@@ -80,12 +96,29 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     .as-label:hover{ text-decoration:underline; }
     .as-label.req::after{ content:" *"; color:var(--brand); }
 
+    /* Controls: lock min font-size to stop iOS zoom + keep widths stable */
+    .input,.select,.textarea, .btn, .sm{
+      width:100%; font:inherit; font-size:16px; /* <- critical for iOS */
+      color:var(--text);
+    }
     .input,.select,.textarea{
-      width:100%; font:inherit; font-size:16px; color:var(--text);
-      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:10px; padding:12px; outline:none
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px; padding:12px; outline:none;
+      -webkit-appearance:none; appearance:none; /* normalize */
     }
     .textarea{ min-height:110px; resize:vertical }
+
+    /* Normalize native select arrow space so text never reflows after paint */
+    select.select{
+      padding-right:34px; /* room for arrow */
+      background-image: linear-gradient(45deg,transparent 50%, currentColor 50%),
+                        linear-gradient(135deg, currentColor 50%, transparent 50%),
+                        linear-gradient(to right, transparent, transparent);
+      background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%, 0 0;
+      background-size: 6px 6px, 6px 6px, 100% 100%;
+      background-repeat: no-repeat;
+    }
 
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
@@ -93,6 +126,7 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer;
       -webkit-appearance:none; appearance:none; color:var(--text)!important;
+      width:auto; /* buttons should size to content, not force 100% */
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent; color:var(--text)!important }
@@ -159,9 +193,8 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     .ed-row{ display:grid; grid-template-columns:1fr auto auto auto; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
     .ed-row input{ width:100%; }
-
     .tag{ display:inline-block; padding:2px 8px; border-radius:10px; border:1px solid var(--border); font-size:12px; color:var(--text); background:var(--card-surface,var(--surface)); }
-    .sm{ padding:6px 10px; border-radius:10px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:800; color:var(--text); }
+    .sm{ padding:6px 10px; border-radius:10px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:800; color:var(--text); width:auto; }
     .sm.primary{ background:var(--brand); border-color:transparent; color:#fff; }
     .sm.danger{ border-color:#b00020; color:#b00020; }
     .sm[hidden]{ display:none !important; }
@@ -180,61 +213,64 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
           </div>
         </header>
 
-        <div class="body">
-          <div class="row">
-            <div class="field">
-              <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
-              <select id="make" class="select"><option value="">— Loading… —</option></select>
+        <!-- NEW: inner wrapper keeps all fields perfectly centered -->
+        <div class="hero-body">
+          <div class="inner">
+            <div class="row">
+              <div class="field">
+                <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
+                <select id="make" class="select"><option value="">— Loading… —</option></select>
+              </div>
+
+              <div class="field">
+                <button id="openModels" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Model</button>
+                <select id="model" class="select" disabled><option value="">— Select a Make first —</option></select>
+              </div>
             </div>
 
-            <div class="field">
-              <button id="openModels" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Model</button>
-              <select id="model" class="select" disabled><option value="">— Select a Make first —</option></select>
-            </div>
-          </div>
+            <div class="row">
+              <div class="field">
+                <label for="year">Year</label>
+                <div class="combo" id="yearCombo">
+                  <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+                  <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
+                  <select id="year" class="select" aria-hidden="true" style="display:none"></select>
+                </div>
+              </div>
 
-          <div class="row">
-            <div class="field">
-              <label for="year">Year</label>
-              <div class="combo" id="yearCombo">
-                <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
-                <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
-                <select id="year" class="select" aria-hidden="true" style="display:none"></select>
+              <div class="field">
+                <label for="serial" class="req">Serial #</label>
+                <input id="serial" class="input" placeholder="Required">
               </div>
             </div>
 
             <div class="field">
-              <label for="serial" class="req">Serial #</label>
-              <input id="serial" class="input" placeholder="Required">
+              <label for="engineHours">Engine Hours</label>
+              <input id="engineHours" type="number" class="input" inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
             </div>
-          </div>
 
-          <div class="field">
-            <label for="engineHours">Engine Hours</label>
-            <input id="engineHours" type="number" class="input" inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
-          </div>
+            <div class="field">
+              <label for="notes">Notes</label>
+              <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
+            </div>
 
-          <div class="field">
-            <label for="notes">Notes</label>
-            <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
-          </div>
+            <div class="field">
+              <label for="photos">Photos (optional)</label>
+              <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+            </div>
 
-          <div class="field">
-            <label for="photos">Photos (optional)</label>
-            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
-          </div>
+            <!-- Tiny QR preview (client-only, before save) -->
+            <div id="qrArea" class="qr-area" hidden>
+              <img id="qrThumb" alt="QR code">
+            </div>
 
-          <!-- Tiny QR preview (client-only, before save) -->
-          <div id="qrArea" class="qr-area" hidden>
-            <img id="qrThumb" alt="QR code">
-          </div>
+            <div id="err" class="error" hidden></div>
 
-          <div id="err" class="error" hidden></div>
-
-          <div class="actions">
-            <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
-            <button id="btnQR" class="btn" type="button">Create QR Code</button>
-            <button id="btnClear" class="btn btn-quiet" type="button">Cancel</button>
+            <div class="actions">
+              <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
+              <button id="btnQR" class="btn" type="button">Create QR Code</button>
+              <button id="btnClear" class="btn btn-quiet" type="button">Cancel</button>
+            </div>
           </div>
         </div>
       </section>
@@ -416,7 +452,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       return items;
     }
     async function getModels(db, makeId){
-      // when makeId is null, return empty
       if(!makeId) return [];
       const items=[];
       try{
@@ -459,8 +494,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
 
     /* ===== Links/usage checks for Delete/Archive rules ===== */
     async function usageInfo(db, kind, id){
-      // Returns { total, active }
-      // kind: 'makes' or 'models'
       let qRef;
       if(kind==='makes'){
         qRef = query(collection(db,'equipment'), where('makeId','==',id));
@@ -505,7 +538,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         ctx.textContent = 'Makes';
         items = await getMakes(db);
       }else{
-        // Inject a Make filter select (works even if main form hasn't chosen a make)
         let sel = document.getElementById('edMakeSelect');
         if(!sel){
           sel = document.createElement('select');
@@ -515,7 +547,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         }
         const makes = await getMakes(db);
         sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
-        // default to main form's make if set
         const cur = $("make").value;
         if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
         const chosen = sel.value || (makes[0]?.id || null);
@@ -571,26 +602,21 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
         row.append(input, tag, saveBtn, archiveBtn, delBtn);
         listEl.appendChild(row);
 
-        // Evaluate usage to decide which actions are allowed
         const usage = await usageInfo(db, kind, it.id);
         if(usage.total === 0){
-          // No usage: can delete
           tag.textContent = 'unused';
           archiveBtn.hidden = true;
           delBtn.hidden = false;
         }else if(usage.active > 0){
-          // Some active usage: no archive/delete
           tag.textContent = 'in use (active)';
           archiveBtn.hidden = true;
           delBtn.hidden = true;
         }else{
-          // Only inactive history: archive allowed, no delete
           tag.textContent = 'in use (inactive only)';
           archiveBtn.hidden = false;
           delBtn.hidden = true;
         }
 
-        // Wire actions
         saveBtn.addEventListener('click', async ()=>{
           const newName = input.value.trim();
           if(!newName) return;
@@ -620,13 +646,11 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
     }
 
     async function refreshDropdowns(db){
-      // Refresh makes
       const makes = await getMakes(db);
       const curMake = $("make").value;
       $("make").innerHTML = renderMakeOptions(makes);
       if(makes.find(m=>m.id===curMake)) $("make").value = curMake; else $("make").value="";
 
-      // Refresh models for selected make
       const selectedMakeId = $("make").value;
       if(selectedMakeId){
         const models = await getModels(db, selectedMakeId);
@@ -663,7 +687,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
       const uniqRef = doc(db, 'equipment-uniq', uniqDocId);
       const tokenRef = doc(db, 'qr-tokens', token);
 
-      // Try to lazy-load runTransaction (may or may not be exported)
       let runTransaction;
       try{
         const m = await import('/Farm-vista/js/firebase-init.js');
@@ -725,7 +748,6 @@ Adds: persist QR preview to Storage and save its URL under equipment.qr.image
           }
         }
 
-        // Optional photos
         const files = Array.from(($("photos").files||[]));
         if(files.length){
           try{
