@@ -77,11 +77,25 @@
     @media(max-width:700px){ .kv{ grid-template-columns:1fr } .kv div{ padding:2px 0 } }
     .k{ font-weight:800; color:var(--green,#2F6C3C); }
     .v{ color:var(--text); }
+
+    /* --- QR section (added) --- */
+    .qrbox{
+      margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
+      display:grid; place-items:center; gap:10px; background:var(--surface);
+    }
+    .qrbox h4{ margin:0; font-size:16px; }
+    .qrbox img{
+      display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
+      border:1px solid var(--border); background:#fff;
+    }
+    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
+
     .sheet footer{ padding:12px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
     .btn{
       display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
       background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
+    .btn[disabled]{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff; }
   </style>
 </head>
@@ -112,8 +126,17 @@
     </header>
     <div class="body">
       <div class="kv" id="dKV"></div>
+
+      <!-- QR preview (added) -->
+      <div id="qrSection" class="qrbox" hidden>
+        <h4>Equipment QR</h4>
+        <img id="qrImg" alt="Equipment QR"/>
+        <p id="qrLbl" class="qrnote"></p>
+      </div>
     </div>
     <footer>
+      <!-- Reprint button (added) -->
+      <button id="btnPrintQR" class="btn" type="button" disabled>Reprint QR</button>
       <a id="openHub" class="btn btn-primary" href="#">Open Hub</a>
       <button id="dClose2" class="btn" type="button">Close</button>
     </footer>
@@ -239,6 +262,13 @@
     const dTitle = document.getElementById('dTitle');
     const dKV = document.getElementById('dKV');
     const btnHub = document.getElementById('openHub');
+
+    // (added) QR elements
+    const btnPrintQR = document.getElementById('btnPrintQR');
+    const qrSection = document.getElementById('qrSection');
+    const qrImg = document.getElementById('qrImg');
+    const qrLbl = document.getElementById('qrLbl');
+
     const close = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
     document.getElementById('dClose').addEventListener('click', close);
     document.getElementById('dClose2').addEventListener('click', close);
@@ -264,25 +294,54 @@
       // Hub link
       const tok = d.qr && d.qr.token ? d.qr.token : '';
       btnHub.href = hubUrl(d.id, tok);
+
+      // --- QR preview + Reprint (added) ---
+      const qrUrl = d.qr && d.qr.image ? String(d.qr.image) : '';
+      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+      if (qrUrl){
+        qrImg.src = qrUrl;
+        qrImg.alt = `QR for ${labelText}`;
+        qrLbl.textContent = labelText;
+        qrSection.hidden = false;
+        btnPrintQR.disabled = false;
+        btnPrintQR.onclick = ()=> printQR(qrUrl, labelText);
+      } else {
+        qrImg.removeAttribute('src');
+        qrLbl.textContent = 'No QR image saved for this equipment.';
+        qrSection.hidden = false;           // still show note
+        btnPrintQR.disabled = true;
+        btnPrintQR.onclick = null;
+      }
+      // --- end QR additions ---
+
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
+    }
+
+    // (added) Minimal print page for label makers: QR + "MODEL - #LAST6"
+    function printQR(url, labelText){
+      const w = window.open('', '_blank', 'noopener,noreferrer'); if(!w) return;
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+<title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>@page{size:2in 1in;margin:4mm}html,body{height:100%;margin:0}
+body{display:grid;place-items:center;gap:6px;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+img{width:75%;height:auto;image-rendering:crisp-edges}.lbl{font-weight:700;font-size:12px}</style>
+</head><body>
+<img src="${url}" alt="QR"/><div class="lbl">${labelText}</div>
+<script>setTimeout(()=>{window.print();setTimeout(()=>window.close(),250)},300);</script>
+</body></html>`;
+      w.document.open(); w.document.write(html); w.document.close();
     }
 
     // Resume hooks (BFCache / tab visibility / focus)
     function resume(){
-      // if already attached, do nothing; otherwise attach
       if (!unsub) attach();
     }
 
     // Kickoff
     (async()=>{
       await ready;
-      // initial attach
       attach();
-
-      // search
       qInput.addEventListener('input', render);
-
-      // lifecycle
       window.addEventListener('pageshow', (e)=>{ resume(); });
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
