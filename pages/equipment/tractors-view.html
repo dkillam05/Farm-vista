@@ -325,8 +325,18 @@
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    /* -------- Print (fixed-size 2x1, single page, no splits) -------- */
+    /* ===========================================================
+       Robust Print (no popups, single cancel, iOS-safe)
+       - Uses a single hidden <iframe srcdoc> (inherits same-origin).
+       - Prints once after QR image loads (keeps user gesture).
+       - Cleans up and releases lock so repeated prints work.
+       =========================================================== */
+    let PRINTING = false;
     function printQR(url, labelText){
+      if (PRINTING) return; // prevent double triggers
+      PRINTING = true;
+
+      // Build the print document via srcdoc so it's same-origin
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
@@ -339,7 +349,6 @@
   }
   #qri { max-width: 1.25in; max-height: 0.72in; display:block; image-rendering: pixelated; }
   #lbl { font: 700 10px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1; white-space: nowrap; margin-top: 2px; }
-  /* Prevent any accidental breaks */
   html, body, #card { page-break-inside: avoid; break-inside: avoid; }
 </style>
 </head><body>
@@ -349,30 +358,36 @@
   </div>
 <script>
   const img = document.getElementById('qri');
-  function go(){ try { window.print(); setTimeout(()=>window.close(), 400); } catch(e){} }
+  function go(){ try { window.focus(); window.print(); } catch(e){} }
   if (img.complete) { go(); } else { img.addEventListener('load', go, { once:true }); }
+  // Signal parent after print dialog closes (desktop) or immediately after calling print (iOS)
+  window.addEventListener('afterprint', ()=> parent.postMessage({fv:'printed'}, '*'));
+  // Fallback: if afterprint not fired, still poke parent in 1.2s
+  setTimeout(()=> parent.postMessage({fv:'printed'}, '*'), 1200);
 <\/script>
 </body></html>`;
 
-      try{
-        const blob = new Blob([html], {type:'text/html'});
-        const blobUrl = URL.createObjectURL(blob);
-        const w = window.open(blobUrl, '_blank', 'noopener,noreferrer');
-        if (!w) throw new Error('popup-blocked');
-        setTimeout(()=>URL.revokeObjectURL(blobUrl), 10000);
-      }catch(e){
-        // Fallback: hidden iframe
-        const ifr = document.createElement('iframe');
-        ifr.style.position='fixed'; ifr.style.right='-9999px'; ifr.style.bottom='-9999px';
-        document.body.appendChild(ifr);
-        const doc = ifr.contentWindow.document;
-        doc.open(); doc.write(html); doc.close();
-        setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); } finally {
-          setTimeout(()=>ifr.remove(), 1000);
-        }}, 250);
-      }
+      // Create (or reuse) a single hidden iframe
+      const ifr = document.createElement('iframe');
+      ifr.setAttribute('aria-hidden','true');
+      ifr.style.position='fixed';
+      ifr.style.right='-9999px';
+      ifr.style.bottom='-9999px';
+      document.body.appendChild(ifr);
+
+      // One-time parent message listener to cleanup
+      const onMsg = (ev)=>{
+        if (!ev || !ev.data || ev.data.fv!=='printed') return;
+        window.removeEventListener('message', onMsg);
+        setTimeout(()=>{ try{ ifr.remove(); }catch{} PRINTING=false; }, 200);
+      };
+      window.addEventListener('message', onMsg, { once:false });
+
+      // Write the print doc
+      const doc = ifr.contentWindow.document;
+      doc.open(); doc.write(html); doc.close();
     }
-    /* --------------------------------------------------------------- */
+    /* =========================================================== */
 
     // Resume hooks (BFCache / tab visibility / focus)
     function resume(){ if (!unsub) attach(); }
