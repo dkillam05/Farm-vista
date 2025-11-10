@@ -1,0 +1,848 @@
+<!-- /Farm-vista/pages/equipment/actions/edit.html
+     Centered Tractor Editor + Modal UX  •  v1.0.0
+     - Absolute paths respected
+     - No blue; theme tokens only; dark-mode safe
+     - Tractors only (type == 'tractor')
+     - Left list lives inside a "Pick Tractor" modal (Filter/Sort/Search)
+     - Inline Make/Model editor modals (label tap)
+     - Notes add modal + rolling log
+     - Delete guard: block if referenced; else allow
+     - Archive hides from default (Active) filter
+     - Cancel returns to tractors list with .HTML → .html fallback
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Edit Tractor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Absolute assets -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Combo enhancer (rounded selects, capped dropdown, correct z) -->
+  <script defer src="/Farm-vista/js/fv-combo.js"></script>
+
+  <style>
+    :root{
+      --green:#3B7E46;
+      --surface:var(--app-bg,#F3F7F4);
+      --card-bg:var(--card-surface,#fff);
+      --text:var(--text, #0f172a);
+      --muted:var(--muted,#67706B);
+      --border:var(--hairline,#E3E7E5);
+      --shadow:0 10px 30px rgba(0,0,0,.12);
+      --radius:16px;
+      --pad:clamp(14px,2.4vw,22px);
+      --maxw:860px;
+      --modal-bg:color-mix(in oklab, var(--card-bg) 100%, transparent);
+      --danger:#B3261E;
+      --gold:var(--brand-gold,#D0C542);
+    }
+    html,body{height:100%}
+    body{margin:0;background:var(--surface);color:var(--text)}
+
+    /* Centered page shell */
+    .page{
+      max-width:var(--maxw);
+      margin:0 auto;
+      padding:calc(var(--pad) + var(--safe-top)) var(--pad) calc(var(--pad) + var(--safe-bottom));
+    }
+
+    /* Hero */
+    .hero{
+      display:grid; gap:6px;
+      margin-bottom:16px;
+    }
+    .hero .title{font-weight:700; font-size:clamp(22px,3.6vw,28px)}
+    .hero .subtitle{color:var(--muted); font-size:14px}
+
+    /* Card */
+    .card{
+      background:var(--card-bg);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:clamp(14px,2vw,18px);
+      /* prevent mobile "blip" from dropdowns */
+      min-height:520px;
+      display:grid; gap:16px;
+    }
+
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    .row-3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px}
+    .row-4{display:grid; grid-template-columns:repeat(4,1fr); gap:12px}
+    .full{grid-column:1/-1}
+
+    label{
+      display:flex; align-items:center; gap:8px;
+      font-size:13px; color:var(--muted); margin-bottom:6px; user-select:none;
+    }
+    label .editable{cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px}
+    input[type="text"], input[type="number"], textarea, select, button.fv-buttonish{
+      width:100%; font:inherit; color:inherit;
+      background:var(--card-bg); border:1px solid var(--border); border-radius:12px;
+      padding:10px 12px;
+    }
+    textarea{min-height:110px; resize:vertical}
+
+    .actions{
+      display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; margin-top:6px
+    }
+    .btn{
+      border:1px solid var(--border);
+      background:var(--card-bg);
+      padding:10px 14px; border-radius:12px; cursor:pointer;
+    }
+    .btn.primary{background:var(--green); color:white; border-color:var(--green)}
+    .btn.ghost{background:transparent}
+    .btn.danger{background:var(--danger); color:#fff; border-color:var(--danger)}
+    .btn.warn{background:var(--gold); color:#2b2b2b; border-color:var(--gold)}
+    .pill{font-size:12px; padding:4px 8px; border-radius:999px; border:1px solid var(--border); color:var(--muted)}
+
+    .qr{
+      display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center;
+      border:1px dashed var(--border); border-radius:12px; padding:10px;
+    }
+    .qr img{width:96px; height:96px; object-fit:contain; border-radius:8px; background:var(--surface)}
+
+    /* Modal system */
+    .modal-backdrop{
+      position:fixed; inset:0; background:rgba(0,0,0,.35);
+      opacity:0; pointer-events:none; transition:opacity .18s ease;
+      z-index:999;
+    }
+    .modal-backdrop.show{opacity:1; pointer-events:auto}
+    .modal{
+      position:fixed; left:50%; top:50%; transform:translate(-50%,-50%) scale(.96);
+      width:min(920px, 92vw); max-height:80vh; overflow:auto;
+      background:var(--modal-bg); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow);
+      opacity:0; transition:opacity .18s ease, transform .18s ease; z-index:1000; padding:16px;
+    }
+    .modal.show{opacity:1; transform:translate(-50%,-50%) scale(1)}
+    .modal .hd{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px}
+    .modal .hd .t{font-weight:700}
+    .modal .ft{display:flex; gap:10px; justify-content:flex-end; margin-top:12px}
+    .list{border:1px solid var(--border); border-radius:12px; overflow:hidden}
+    .list .row{
+      display:grid; grid-template-columns:1.3fr 1fr 80px; gap:10px; padding:10px 12px; align-items:center;
+      border-top:1px solid var(--border);
+    }
+    .list .row:first-child{border-top:none}
+    .list .muted{color:var(--muted); font-size:12px}
+
+    /* Read-only state */
+    .ro input, .ro textarea, .ro select, .ro .btn:not(.ghost){opacity:.7; pointer-events:none}
+
+    /* Footer offset for mobile dropdowns (fv-combo caps to 50vh by script) */
+    footer{height:calc(24px + var(--safe-bottom))}
+    @media (max-width:740px){
+      .row, .row-3, .row-4{grid-template-columns:1fr}
+      .qr{grid-template-columns:80px 1fr}
+      .card{min-height:560px}
+    }
+  </style>
+
+  <!-- Ensure fv-shell exists -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+</head>
+<body>
+  <fv-shell app-title="FarmVista"></fv-shell>
+
+  <main class="page">
+    <header class="hero">
+      <div class="title">Edit Tractor</div>
+      <div class="subtitle" id="subTitle">Pick a tractor to begin</div>
+    </header>
+
+    <section class="card" id="formCard" aria-busy="true">
+      <!-- Picker -->
+      <div class="row">
+        <div>
+          <label>Current Tractor</label>
+          <div style="display:flex; gap:8px">
+            <input id="currentDisplay" type="text" readonly placeholder="None selected"/>
+            <button class="btn" id="btnPick">Pick Tractor</button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:flex-end; justify-content:flex-end; gap:8px">
+          <span class="pill" id="rolePill">Checking permissions…</span>
+        </div>
+      </div>
+
+      <!-- Identity -->
+      <div class="row-3">
+        <div>
+          <label><span class="editable" id="lblMake">Make</span></label>
+          <select id="fldMake" data-fv-combo></select>
+        </div>
+        <div>
+          <label><span class="editable" id="lblModel">Model</span></label>
+          <select id="fldModel" data-fv-combo></select>
+        </div>
+        <div>
+          <label>Year</label>
+          <input id="fldYear" type="text" inputmode="numeric" placeholder="e.g. 2018"/>
+        </div>
+      </div>
+
+      <div class="row-3">
+        <div>
+          <label>Serial (full)</label>
+          <input id="fldSerial" type="text" placeholder="Full serial"/>
+        </div>
+        <div>
+          <label>Last 6 (auto)</label>
+          <input id="fldLastSix" type="text" readonly placeholder="—"/>
+        </div>
+        <div>
+          <label>Status</label>
+          <select id="fldStatus" data-fv-combo>
+            <option value="Active">Active</option>
+            <option value="Archived">Archived</option>
+            <option value="Out of Service">Out of Service</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Ops -->
+      <div class="row-3">
+        <div>
+          <label>Hours</label>
+          <input id="fldHours" type="number" min="0" step="1" placeholder="0"/>
+        </div>
+        <div>
+          <label>Location</label>
+          <select id="fldLocation" data-fv-combo></select>
+        </div>
+        <div>
+          <label>Assigned To</label>
+          <select id="fldAssigned" data-fv-combo></select>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div class="full">
+        <label>Notes</label>
+        <textarea id="fldNotes" placeholder="Add quick note here… (this will append to the log)"></textarea>
+        <div class="actions" style="justify-content:flex-start">
+          <button class="btn" id="btnAddNote">Add Note</button>
+          <span class="pill" id="notesCount">0 notes</span>
+        </div>
+        <div id="notesLog" class="list" style="margin-top:8px; display:none"></div>
+      </div>
+
+      <!-- QR -->
+      <div class="full qr">
+        <img id="qrImg" alt="QR Preview" src="" onerror="this.src='/Farm-vista/assets/icons/logo.png'"/>
+        <div>
+          <div style="font-weight:600; margin-bottom:6px">QR Code</div>
+          <div class="actions" style="justify-content:flex-start">
+            <button class="btn" id="btnQrRefresh">Refresh Preview</button>
+            <button class="btn" id="btnQrReprint">Reprint</button>
+          </div>
+          <div id="qrMsg" class="muted" style="color:var(--muted); font-size:12px; margin-top:4px"></div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button class="btn ghost" id="btnCancel">Cancel</button>
+        <button class="btn warn" id="btnArchive">Archive</button>
+        <button class="btn danger" id="btnDelete" style="display:none">Delete</button>
+        <button class="btn primary" id="btnSave">Save</button>
+      </div>
+    </section>
+
+    <footer></footer>
+  </main>
+
+  <!-- Backdrop -->
+  <div class="modal-backdrop" id="backdrop"></div>
+
+  <!-- Tractor Picker Modal -->
+  <div class="modal" id="mdPick">
+    <div class="hd">
+      <div class="t">Pick Tractor</div>
+      <button class="btn ghost" data-close="mdPick">Close</button>
+    </div>
+    <div class="row">
+      <div>
+        <label>Filter</label>
+        <select id="pkFilter" data-fv-combo>
+          <option value="Active">Active</option>
+          <option value="Archived">Archived</option>
+          <option value="All">All</option>
+        </select>
+      </div>
+      <div>
+        <label>Sort</label>
+        <select id="pkSort" data-fv-combo>
+          <option value="make">Make</option>
+          <option value="model">Model</option>
+          <option value="hours">Hours</option>
+          <option value="updated">Updated</option>
+          <option value="lastSix">Last 6</option>
+        </select>
+      </div>
+      <div>
+        <label>Search</label>
+        <input id="pkSearch" type="text" placeholder="Make, model, serial, notes…"/>
+      </div>
+    </div>
+    <div id="pkList" class="list" style="margin-top:10px"></div>
+    <div class="ft">
+      <button class="btn ghost" data-close="mdPick">Close</button>
+    </div>
+  </div>
+
+  <!-- Make Editor Modal -->
+  <div class="modal" id="mdMake">
+    <div class="hd">
+      <div class="t">Edit Makes</div>
+      <button class="btn ghost" data-close="mdMake">Close</button>
+    </div>
+    <div id="makeList" class="list"></div>
+    <div class="ft">
+      <button class="btn ghost" data-close="mdMake">Close</button>
+    </div>
+  </div>
+
+  <!-- Model Editor Modal -->
+  <div class="modal" id="mdModel">
+    <div class="hd">
+      <div class="t">Edit Models</div>
+      <button class="btn ghost" data-close="mdModel">Close</button>
+    </div>
+    <div id="modelList" class="list"></div>
+    <div class="ft">
+      <button class="btn ghost" data-close="mdModel">Close</button>
+    </div>
+  </div>
+
+  <!-- Add Note Modal -->
+  <div class="modal" id="mdNote">
+    <div class="hd">
+      <div class="t">Add Note</div>
+      <button class="btn ghost" data-close="mdNote">Close</button>
+    </div>
+    <div class="full">
+      <textarea id="noteText" placeholder="Type your note…"></textarea>
+    </div>
+    <div class="ft">
+      <button class="btn ghost" data-close="mdNote">Cancel</button>
+      <button class="btn primary" id="noteSave">Save Note</button>
+    </div>
+  </div>
+
+  <!-- Reprint QR Modal -->
+  <div class="modal" id="mdQR">
+    <div class="hd">
+      <div class="t">Reprint QR</div>
+      <button class="btn ghost" data-close="mdQR">Close</button>
+    </div>
+    <p class="muted">This will open the QR print flow for the current tractor.</p>
+    <div class="ft">
+      <button class="btn ghost" data-close="mdQR">Cancel</button>
+      <button class="btn primary" id="qrGo">Open Print</button>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div class="modal" id="mdDel">
+    <div class="hd">
+      <div class="t">Delete Tractor</div>
+      <button class="btn ghost" data-close="mdDel">Close</button>
+    </div>
+    <p id="delMsg" class="muted">Checking references…</p>
+    <div class="ft">
+      <button class="btn ghost" data-close="mdDel">Cancel</button>
+      <button class="btn danger" id="delConfirm" disabled>Delete</button>
+    </div>
+  </div>
+
+  <!-- Invalid QR Modal -->
+  <div class="modal" id="mdBadQR">
+    <div class="hd">
+      <div class="t">Invalid QR for FarmVista</div>
+    </div>
+    <p class="muted">That QR code doesn’t match any equipment. Try scanning again.</p>
+    <div class="ft">
+      <button class="btn primary" id="badQrBack">Return to Scanner</button>
+    </div>
+  </div>
+
+  <script>
+    // --------- Util ----------
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const qs = new URLSearchParams(location.search);
+    const toParam = qs.get('to') || '/Farm-vista/pages/equipment/equipment-tractors.HTML';
+    const go = async (p) => {
+      try{
+        const resp = await fetch(p, {method:'HEAD'});
+        if(resp.ok){ location.href = p; return; }
+      }catch(_){}
+      location.href = p.replace('.HTML','.html');
+    };
+    const showToast = (msg, ok=true) => {
+      // lightweight toast using alert-style for now (keeps dependencies minimal)
+      console.log('TOAST:', msg);
+    };
+    const backdrop = $('#backdrop');
+    const modals = ['mdPick','mdMake','mdModel','mdNote','mdQR','mdDel','mdBadQR']
+      .reduce((m,id)=> (m[id]=$('#'+id), m), {});
+    const openModal = id => { backdrop.classList.add('show'); modals[id].classList.add('show'); };
+    const closeModal = id => { modals[id].classList.remove('show'); if(!$$('.modal.show').length) backdrop.classList.remove('show'); };
+    backdrop.addEventListener('click', ()=> $$('.modal.show').forEach(m=>m.classList.remove('show')) || backdrop.classList.remove('show'));
+    document.body.addEventListener('click', (e)=>{
+      const btn = e.target.closest('[data-close]');
+      if(btn){ closeModal(btn.getAttribute('data-close')); }
+    });
+
+    // --------- State ----------
+    let app = { user:null, orgId:null, role:'', canEdit:false, canAll:false };
+    let tractors = [];         // all pulled (type==tractor)
+    let filtered = [];         // filtered/sorted list in picker
+    let current = null;        // currently loaded tractor doc
+    let makes = []; let models = []; let locations = []; let employees = [];
+    let notesBuffer = [];      // rolling log from doc
+    let lastDepsClean = false; // delete guard result
+
+    // --------- Firestore helpers (assumes firebase already booted by theme-boot) ----------
+    const db = () => (window.firebase && firebase.firestore ? firebase.firestore() : null);
+    const ts = () => (window.firebase && firebase.firestore ? firebase.firestore.FieldValue.serverTimestamp() : null);
+    const col = (name) => db().collection(name);
+
+    async function resolveContext(timeoutMs=6000){
+      // Wait for FVUserContext provided by theme-boot.js (project convention)
+      return new Promise((res)=>{
+        const t0 = Date.now();
+        (function tick(){
+          if(window.FVUserContext && FVUserContext.user && FVUserContext.orgId){
+            res({user:FVUserContext.user, orgId:FVUserContext.orgId, role:FVUserContext.role||'Employee'});
+          }else if(Date.now()-t0>timeoutMs){ res(null); }
+          else setTimeout(tick, 120);
+        })();
+      });
+    }
+
+    function applyRolePill(){
+      $('#rolePill').textContent = app.canAll ? 'Owner/Admin' : (app.canEdit ? 'Employee (limited)' : 'Read-only');
+    }
+
+    function computeLastSix(s){ if(!s) return ''; const t = (s+'').trim(); return t.length>=6 ? t.slice(-6).toUpperCase() : ''; }
+
+    // --------- Picker (Filter/Sort/Search) ----------
+    function applyPicker(){
+      const mode = $('#pkFilter').value;
+      const sort = $('#pkSort').value;
+      const q = ($('#pkSearch').value || '').trim().toLowerCase();
+
+      filtered = tractors.filter(t=>{
+        let pass = true;
+        if(mode==='Active') pass = (t.status || 'Active')==='Active';
+        else if(mode==='Archived') pass = (t.status||'')==='Archived';
+        // search
+        if(pass && q){
+          const hay = [
+            t.make||'', t.model||'', t.serial||'', t.lastSix||'',
+            (t.notesText||''), (t.assignedToName||'')
+          ].join(' ').toLowerCase();
+          pass = hay.includes(q);
+        }
+        return pass;
+      });
+
+      const dir = (sort==='hours' || sort==='updated') ? -1 : 1;
+      filtered.sort((a,b)=>{
+        function val(x){
+          if(sort==='make') return `${x.make||''}\u0000${x.model||''}\u0000${x.lastSix||''}`;
+          if(sort==='model') return `${x.model||''}\u0000${x.make||''}\u0000${x.lastSix||''}`;
+          if(sort==='lastSix') return `${x.lastSix||''}\u0000${x.make||''}`;
+          if(sort==='hours') return Number(x.hours||0);
+          if(sort==='updated') return (x.updatedAt? x.updatedAt.toMillis?.()||x.updatedAt : 0);
+          return `${x.make||''}\u0000${x.model||''}`;
+        }
+        const va = val(a), vb = val(b);
+        if(typeof va==='number' && typeof vb==='number') return (vb - va); // desc for numeric sorts
+        return va>vb ? dir : (va<vb ? -dir : 0);
+      });
+
+      // Render
+      const list = $('#pkList');
+      list.innerHTML = '';
+      if(!filtered.length){
+        const div = document.createElement('div');
+        div.style.padding='14px';
+        div.className='muted';
+        div.textContent='No tractors match.';
+        list.appendChild(div);
+        return;
+      }
+      filtered.forEach(t=>{
+        const row = document.createElement('div');
+        row.className='row';
+        const a = document.createElement('div'); a.innerHTML = `<div style="font-weight:600">${t.make||'—'} • ${t.model||'—'}</div><div class="muted">ID: ${t.id}</div>`;
+        const b = document.createElement('div'); b.innerHTML = `<div>Last 6: <strong>${t.lastSix||'—'}</strong></div><div class="muted">${t.status||'Active'}</div>`;
+        const c = document.createElement('div'); c.style.textAlign='right'; c.innerHTML = `<button class="btn primary">Select</button>`;
+        row.append(a,b,c);
+        c.querySelector('button').addEventListener('click', ()=>{ loadTractor(t.id); closeModal('mdPick'); });
+        list.appendChild(row);
+      });
+    }
+
+    // --------- Make/Model List Renderers ----------
+    function renderSimpleList(container, items, kind){
+      const list = $(container);
+      list.innerHTML = '';
+      if(!items.length){
+        const d = document.createElement('div'); d.style.padding='14px'; d.className='muted'; d.textContent=`No ${kind}s.`;
+        list.appendChild(d); return;
+      }
+      items.forEach(it=>{
+        const row = document.createElement('div'); row.className='row';
+        const a = document.createElement('div'); a.innerHTML = `<div style="font-weight:600">${it.name||'—'}</div><div class="muted">ID: ${it.id||'—'}</div>`;
+        const b = document.createElement('div'); b.innerHTML = `<div class="muted">${it.state||''}</div>`;
+        const c = document.createElement('div'); c.style.textAlign='right';
+        const delBtn = document.createElement('button'); delBtn.className='btn danger'; delBtn.textContent='Delete';
+        const arcBtn = document.createElement('button'); arcBtn.className='btn'; arcBtn.style.marginLeft='6px'; arcBtn.textContent='Archive';
+        c.append(delBtn, arcBtn);
+        // Guards
+        delBtn.addEventListener('click', async ()=>{
+          const ok = await canDeleteRef(kind, it.id);
+          if(!ok){ showToast(`In use. Archive instead.`, false); return; }
+          await col(kind+'s').doc(it.id).delete();
+          showToast('Deleted ✓');
+          await refreshLookups(); renderSimpleList(container, (kind==='make'?makes:models), kind);
+        });
+        arcBtn.addEventListener('click', async ()=>{
+          const ok = await canArchiveRef(kind, it.id);
+          if(!ok){ showToast(`Active equipment references exist.`, false); return; }
+          await col(kind+'s').doc(it.id).set({archived:true, updatedAt:ts()}, {merge:true});
+          showToast('Archived ✓');
+          await refreshLookups(); renderSimpleList(container, (kind==='make'?makes:models), kind);
+        });
+        row.append(a,b,c); list.appendChild(row);
+      });
+    }
+
+    // --------- Loaders ----------
+    async function refreshLookups(){
+      // Makes/Models/Locations/Employees for combos; tolerate missing collections
+      async function safeList(cname, map){
+        try{
+          const qs = await col(cname).where('orgId','==', app.orgId).get();
+          return qs.docs.map(d=> ({ id:d.id, ...d.data() })).filter(x=>!x.archived);
+        }catch(e){ console.warn('Missing collection', cname, e); return []; }
+      }
+      [makes, models, locations, employees] = await Promise.all([
+        safeList('makes'), safeList('models'), safeList('locations'), safeList('employees')
+      ]);
+
+      // Fill selects
+      const fill = (sel, arr, getName) => { sel.innerHTML=''; const optD = document.createElement('option'); optD.value=''; optD.textContent='—'; sel.appendChild(optD); arr.forEach(x=>{ const o=document.createElement('option'); o.value=x.id; o.textContent=getName?getName(x):x.name||x.title||x.displayName||x.model||x.make||x.id; sel.appendChild(o); }); };
+      fill($('#fldMake'), makes, x=>x.name);
+      fill($('#fldModel'), models, x=>x.name);
+      fill($('#fldLocation'), locations, x=>x.name||x.title);
+      fill($('#fldAssigned'), employees, x=>x.displayName||x.name);
+    }
+
+    async function loadTractors(){
+      if(!db()) return;
+      const qs = await col('equipment').where('orgId','==', app.orgId).where('type','==','tractor').get();
+      tractors = qs.docs.map(d=> {
+        const data = d.data(); 
+        const notesText = Array.isArray(data.notes) ? data.notes.map(n=>n.text).join(' ') : (data.notes||'');
+        return { id:d.id, ...data, notesText };
+      });
+      applyPicker();
+    }
+
+    function applyCurrentUI(){
+      if(!current){
+        $('#subTitle').textContent = 'Pick a tractor to begin';
+        $('#currentDisplay').value = '';
+        $('#formCard').setAttribute('aria-busy','true');
+        return;
+      }
+      $('#formCard').removeAttribute('aria-busy');
+      const t = current;
+      $('#subTitle').textContent = `${t.make||'—'} ${t.model||''} • Last 6: ${t.lastSix||'—'}`;
+      $('#currentDisplay').value = `${t.make||'—'} • ${t.model||'—'} • ${t.lastSix||'—'}`;
+
+      // set selects by id if present, else attempt by name
+      const setSel = (sel, id, nameFallback, arr)=> {
+        if(id){ sel.value=id; if(!sel.value){ sel.value=''; } }
+        else if(nameFallback){
+          const hit = (arr||[]).find(x=> (x.name||'').toLowerCase() === (nameFallback||'').toLowerCase());
+          sel.value = hit? hit.id : '';
+        }else sel.value='';
+      };
+      setSel($('#fldMake'), t.makeId, t.make, makes);
+      setSel($('#fldModel'), t.modelId, t.model, models);
+      $('#fldYear').value = t.year || '';
+      $('#fldSerial').value = t.serial || '';
+      $('#fldLastSix').value = t.lastSix || computeLastSix(t.serial);
+      $('#fldStatus').value = t.status || 'Active';
+      $('#fldHours').value = t.hours ?? '';
+      setSel($('#fldLocation'), t.locationId, t.locationName, locations);
+      setSel($('#fldAssigned'), t.assignedToId, t.assignedToName, employees);
+
+      // notes
+      notesBuffer = Array.isArray(t.notes) ? t.notes.slice().sort((a,b)=>(b.ts?.toMillis?.()||0)-(a.ts?.toMillis?.()||0)) : [];
+      renderNotes();
+
+      // QR
+      refreshQrPreview();
+
+      // delete button visibility (we compute on open)
+      $('#btnDelete').style.display = app.canAll ? 'inline-flex' : 'none';
+
+      // role gating
+      const card = $('#formCard');
+      if(app.canAll){ card.classList.remove('ro'); }
+      else if(app.canEdit){ card.classList.remove('ro'); // but we soft-enforce on save which fields we actually write
+      } else { card.classList.add('ro'); }
+    }
+
+    async function loadTractor(id){
+      const d = await col('equipment').doc(id).get();
+      if(!d.exists){ showToast('Not found', false); return; }
+      current = { id:d.id, ...d.data() };
+      // If not tractor, block (safety)
+      if((current.type||'')!=='tractor'){ showToast('This page edits tractors only.', false); return; }
+      applyCurrentUI();
+      // pre-check for delete eligibility in background
+      try{ lastDepsClean = await dependencyCheck(current.id); }catch(_){ lastDepsClean = false; }
+      $('#btnDelete').disabled = !lastDepsClean;
+    }
+
+    // --------- QR ----------
+    function refreshQrPreview(){
+      if(!current){ $('#qrImg').src=''; $('#qrMsg').textContent=''; return; }
+      const u = (current.qr && current.qr.image) ? current.qr.image : '';
+      if(!u){ $('#qrImg').src='/Farm-vista/assets/icons/logo.png'; $('#qrMsg').textContent='No QR image found.'; return; }
+      const bust = `${u}${u.includes('?')?'&':'?'}t=${Date.now()}`;
+      $('#qrImg').src = bust;
+      $('#qrMsg').textContent = 'Cache refreshed.';
+    }
+
+    // --------- Delete Guard ----------
+    async function dependencyCheck(equipmentId){
+      // Look in a few common collections; if any document references this equipment, block delete.
+      const checks = [
+        ['equipmentLogs','equipmentId'],
+        ['maintenance','equipmentId'],
+        ['usage','equipmentId'],
+        ['qrScans','equipmentId'],
+      ].map(async ([c,field])=>{
+        try{
+          const qs = await col(c).where('orgId','==',app.orgId).where(field,'==',equipmentId).limit(1).get();
+          return qs.size===0;
+        }catch(_){ return false; } // fail closed = block delete
+      });
+      const results = await Promise.all(checks);
+      return results.every(Boolean);
+    }
+    async function canDeleteRef(kind, id){
+      // For make/model delete buttons: ensure no ACTIVE equipment references them
+      try{
+        const field = (kind==='make' ? 'makeId' : 'modelId');
+        const qs1 = await col('equipment').where('orgId','==',app.orgId).where(field,'==', id).where('status','==','Active').limit(1).get();
+        return qs1.empty;
+      }catch(_){ return false; }
+    }
+    async function canArchiveRef(kind, id){
+      // Allow archive only if all referencing equipment are NOT Active
+      try{
+        const field = (kind==='make' ? 'makeId' : 'modelId');
+        const qs = await col('equipment').where('orgId','==',app.orgId).where(field,'==', id).get();
+        return qs.docs.every(d => (d.data().status||'')!=='Active');
+      }catch(_){ return false; }
+    }
+
+    // --------- Notes ----------
+    function renderNotes(){
+      const log = $('#notesLog');
+      log.innerHTML = '';
+      if(!notesBuffer.length){ log.style.display='none'; $('#notesCount').textContent='0 notes'; return; }
+      log.style.display='block';
+      $('#notesCount').textContent = `${notesBuffer.length} note${notesBuffer.length===1?'':'s'}`;
+      notesBuffer.slice(0,6).forEach(n=>{
+        const row = document.createElement('div'); row.className='row';
+        const a = document.createElement('div'); a.innerHTML = `<div style="font-weight:600">${n.authorName||'Unknown'}</div><div class="muted">${n.ts?.toDate?.().toLocaleString?.()||''}</div>`;
+        const b = document.createElement('div'); b.className='full'; b.textContent = n.text||'';
+        row.append(a,b);
+        log.appendChild(row);
+      });
+    }
+
+    // --------- Save / Archive / Delete ----------
+    function collectEdits(){
+      if(!current) return null;
+      const makeId = $('#fldMake').value || null;
+      const modelId = $('#fldModel').value || null;
+      const makeName = (makes.find(x=>x.id===makeId)||{}).name || (current.make||'');
+      const modelName = (models.find(x=>x.id===modelId)||{}).name || (current.model||'');
+      const serial = ($('#fldSerial').value||'').trim();
+      const lastSix = computeLastSix(serial);
+      return {
+        makeId, modelId, make:makeName, model:modelName,
+        year: ($('#fldYear').value||'').trim(),
+        serial, lastSix,
+        status: $('#fldStatus').value||'Active',
+        hours: Number($('#fldHours').value||0),
+        locationId: $('#fldLocation').value || null,
+        locationName: (locations.find(x=>x.id===$('#fldLocation').value)||{}).name || null,
+        assignedToId: $('#fldAssigned').value || null,
+        assignedToName: (employees.find(x=>x.id===$('#fldAssigned').value)||{}).displayName || null,
+      };
+    }
+    function validateEdits(data){
+      if(!data.make && !data.makeId) return 'Select a Make.';
+      if(!data.model && !data.modelId) return 'Select a Model.';
+      if(!data.serial || data.serial.trim().length<6) return 'Serial must be at least 6 characters.';
+      if(data.hours<0) return 'Hours cannot be negative.';
+      return '';
+    }
+
+    async function doSave(){
+      if(!current){ showToast('Pick a tractor first.', false); return; }
+      const patch = collectEdits();
+      const err = validateEdits(patch);
+      if(err){ showToast(err, false); return; }
+      // Append note if provided
+      const noteText = ($('#fldNotes').value||'').trim();
+      if(noteText){
+        const entry = { text:noteText, authorName: app.user?.displayName||'Unknown', authorId:app.user?.uid||null, ts:ts() };
+        patch.notes = firebase.firestore.FieldValue.arrayUnion(entry);
+      }
+      patch.updatedBy = app.user?.displayName||'System';
+      patch.updatedAt = ts();
+
+      // Employees have limited write: hours + notes only (and updatedBy/At)
+      if(!app.canAll && app.canEdit){
+        const limited = {
+          hours: patch.hours,
+          updatedBy: patch.updatedBy, updatedAt: patch.updatedAt
+        };
+        if(patch.notes) limited.notes = patch.notes;
+        await col('equipment').doc(current.id).set(limited, {merge:true});
+      }else{
+        await col('equipment').doc(current.id).set(patch, {merge:true});
+      }
+      showToast('Saved ✓');
+      // refresh local
+      await loadTractor(current.id);
+      $('#fldNotes').value='';
+    }
+
+    async function doArchiveToggle(){
+      if(!current){ showToast('Pick a tractor first.', false); return; }
+      const next = (current.status==='Archived') ? 'Active' : 'Archived';
+      await col('equipment').doc(current.id).set({status:next, updatedAt:ts(), updatedBy:app.user?.displayName||'System'}, {merge:true});
+      showToast(`${next==='Archived'?'Archived':'Restored'} ✓`);
+      await loadTractor(current.id);
+      // If archived, default picker filter stays Active, so item may not appear—ok
+    }
+
+    async function doDeleteFlow(){
+      if(!current){ return; }
+      $('#delMsg').textContent = 'Checking references…';
+      $('#delConfirm').disabled = true;
+      openModal('mdDel');
+      lastDepsClean = await dependencyCheck(current.id);
+      if(lastDepsClean){
+        $('#delMsg').textContent = 'No references found. This tractor can be safely deleted.';
+        $('#delConfirm').disabled = false;
+      }else{
+        $('#delMsg').textContent = 'This tractor is referenced by other records. Delete is blocked. Use Archive instead.';
+        $('#delConfirm').disabled = true;
+      }
+    }
+    async function doDeleteConfirm(){
+      if(!current || !lastDepsClean){ closeModal('mdDel'); return; }
+      await col('equipment').doc(current.id).delete();
+      closeModal('mdDel');
+      showToast('Deleted ✓');
+      current = null; applyCurrentUI();
+      await loadTractors();
+    }
+
+    // --------- Events ----------
+    $('#btnPick').addEventListener('click', ()=> openModal('mdPick'));
+    $('#pkFilter').addEventListener('change', applyPicker);
+    $('#pkSort').addEventListener('change', applyPicker);
+    $('#pkSearch').addEventListener('input', ()=> { clearTimeout(app._pkDeb); app._pkDeb=setTimeout(applyPicker, 250); });
+
+    $('#lblMake').addEventListener('click', async ()=>{ await refreshLookups(); renderSimpleList('#makeList', makes, 'make'); openModal('mdMake'); });
+    $('#lblModel').addEventListener('click', async ()=>{ await refreshLookups(); renderSimpleList('#modelList', models, 'model'); openModal('mdModel'); });
+
+    $('#fldSerial').addEventListener('input', ()=> $('#fldLastSix').value = computeLastSix($('#fldSerial').value));
+
+    $('#btnAddNote').addEventListener('click', ()=> openModal('mdNote'));
+    $('#noteSave').addEventListener('click', ()=>{
+      const t = ($('#noteText').value||'').trim();
+      if(!t){ showToast('Note is empty.', false); return; }
+      $('#fldNotes').value = t; $('#noteText').value=''; closeModal('mdNote');
+    });
+
+    $('#btnQrRefresh').addEventListener('click', refreshQrPreview);
+    $('#btnQrReprint').addEventListener('click', ()=> openModal('mdQR'));
+    $('#qrGo').addEventListener('click', ()=>{
+      closeModal('mdQR');
+      if(!current) return;
+      // Route to your print flow/hub
+      location.href = `/Farm-vista/pages/equipment/actions/hub.html?mode=reprintQR&id=${encodeURIComponent(current.id)}&type=tractor`;
+    });
+    $('#badQrBack').addEventListener('click', ()=> go('/Farm-vista/pages/equipment/actions/scanner.html'));
+
+    $('#btnSave').addEventListener('click', doSave);
+    $('#btnArchive').addEventListener('click', doArchiveToggle);
+    $('#btnDelete').addEventListener('click', doDeleteFlow);
+    $('#delConfirm').addEventListener('click', doDeleteConfirm);
+
+    $('#btnCancel').addEventListener('click', ()=> go(toParam));
+
+    // --------- Boot ----------
+    (async function boot(){
+      // Wait a tick so fv-combo can attach after first paint (prevents "blip")
+      await new Promise(r=> requestAnimationFrame(()=> requestAnimationFrame(r)));
+
+      const ctx = await resolveContext();
+      if(!ctx){ showToast('Could not resolve account. Retry from Launch.', false); return; }
+      app.user = ctx.user; app.orgId = ctx.orgId; app.role = ctx.role||'Employee';
+      app.canAll = ['Owner','Admin'].includes(app.role);
+      app.canEdit = app.canAll || app.role==='Employee';
+      applyRolePill();
+
+      await refreshLookups();
+      await loadTractors();
+
+      // If deep link has ?id=... load it
+      const preId = new URLSearchParams(location.search).get('id');
+      if(preId){ await loadTractor(preId); }
+
+      // Cap combo dropdown height to avoid footer overlap (fv-combo uses --combo-max-h)
+      document.documentElement.style.setProperty('--combo-max-h','50vh');
+    })();
+  </script>
+</body>
+</html>
