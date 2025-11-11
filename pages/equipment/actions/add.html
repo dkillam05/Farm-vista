@@ -1,12 +1,9 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Adds:
-  • Dynamic equipment switches sourced from /Farm-vista/js/menu.js
-  • New Make modal (name + switches) — no prompt()
-  • Edit Makes modal: collapsed rows, same switch UI, one "Save All" button
-  • Models follow Make categories (cascade on save)
-  • Type-aware dropdown filtering; legacy items visible everywhere
-  • No blue font in modals; theme-aware
+Edits in this version:
+  • Edit modal made scrollable (sheet max-height + ed-list overflow:auto)
+  • Shorter action texts: "Delete" / "Archive"
+  • Visibility rules: show Delete only when UNUSED; Archive only when INACTIVE-ONLY; none when ACTIVE
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -187,10 +184,12 @@ Adds:
       position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
       border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
       display:flex; flex-direction:column; overflow:hidden;
+      max-height:90vh;   /* ← keep modal on screen */
     }
     .sheet header{
       padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
       display:flex; align-items:center; justify-content:space-between; color:var(--text);
+      flex:0 0 auto;
     }
     .sheet header .close{
       border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer;
@@ -199,10 +198,10 @@ Adds:
     .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
 
     /* ===== Edit/New content ===== */
-    .ed-wrap{ padding:12px; display:grid; gap:12px; }
+    .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
     .ed-toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .ed-toolbar .select{ width:auto; min-width:220px; }
-    .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
     .ed-row{ display:block; padding:0; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
 
@@ -243,17 +242,17 @@ Adds:
     .toggle:checked::after{ left:22px; }
 
     .ed-footer{
-      display:flex; justify-content:flex-end; gap:10px; padding:10px 12px; border-top:1px solid var(--border);
+      display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0;
     }
     .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
 
     .mark-danger{
-      display:inline-flex; align-items:center; gap:10px; padding:10px 12px;
-      border:1px solid #b00020; color:#b00020; border-radius:10px; background:transparent; cursor:pointer;
+      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
+      border:1px solid #b00020; color:#b00020; border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
     .mark-warn{
-      display:inline-flex; align-items:center; gap:10px; padding:10px 12px;
-      border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer;
+      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
+      border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
 
     /* New Make modal */
@@ -419,7 +418,6 @@ Adds:
     /* normalize label -> slug for categories */
     function normType(label){
       const s = String(label||'').toLowerCase();
-      // map common variations to our slugs used on forms
       if(s.includes('tractor')) return 'tractor';
       if(s.includes('combine')) return 'combine';
       if(s.includes('implement')) return 'implement';
@@ -440,7 +438,6 @@ Adds:
     const EQUIP_TYPES = getEquipmentTypesFromMenu(); // [{label, slug}, ...]
     const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
 
-    /* stamp the page with type for downstream reads / CSS */
     document.addEventListener('DOMContentLoaded',()=> {
       const wrap = document.querySelector('.wrap');
       if(wrap) wrap.dataset.equipmentType = TYPE;
@@ -676,7 +673,6 @@ Adds:
           const row=document.createElement('div'); row.className='switch';
           const lab=document.createElement('label'); lab.textContent=t.label;
           const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=t.slug;
-          // default to current TYPE
           if(t.slug===TYPE) tog.checked=true;
           row.append(lab, tog);
           this.list.appendChild(row);
@@ -687,12 +683,11 @@ Adds:
     };
     document.querySelectorAll('#newMakeModal [data-close]').forEach(el=>el.addEventListener('click', ()=>NewMake.close()));
 
-    /* ===== Add flows (dropdown “Add New…”) ===== */
     async function createMakeFromModal(db){
       const name = (NewMake.name.value||"").trim();
       if(!name){ alert("Enter a make name."); return null; }
       const chosen = [...NewMake.list.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug).filter(x=>EQUIP_SLUGS.includes(x));
-      const cats = chosen.length ? chosen : [TYPE]; // safety
+      const cats = chosen.length ? chosen : [TYPE];
       const docRef = doc(collection(db,'equipment-makes'));
       await setDoc(docRef,{
         name, nameLower:name.toLowerCase(),
@@ -707,7 +702,6 @@ Adds:
       if(!makeId){ alert("Pick a Make before adding a Model."); return null; }
       const name = (prompt("New Model name:")||"").trim();
       if(!name) return null;
-      // inherit cats from make
       let makeCats = [TYPE];
       try{
         const mSnap = await getDoc(doc(db,'equipment-makes', makeId));
@@ -821,7 +815,7 @@ Adds:
       el: $("editModal"),
       list: $("edList"),
       saveAllBtn: $("edSaveAll"),
-      pending: new Map(),   // makeId -> { name, categories, delete, archive }
+      pending: new Map(),
       open(title){ $("editTitle").textContent = title; this.pending.clear(); this.el.classList.add('show'); document.body.style.overflow='hidden'; },
       close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; }
     };
@@ -866,51 +860,61 @@ Adds:
           const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
           const tag=document.createElement('span'); tag.className='ed-tag'; tag.textContent='checking…';
           const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-          nameWrap.append(inp);
+          nameWrap.append(inp, tag);
           head.append(nameWrap, chev);
           row.append(head);
 
-          // body (switches + marks)
+          // body (switches + actions)
           const body=document.createElement('div'); body.className='ed-body';
           const switches=document.createElement('div'); switches.className='switch-list';
           const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
           EQUIP_TYPES.forEach(t=>{
             switches.appendChild( buildSwitchRow(t.label, t.slug, selected.includes(t.slug)) );
           });
-          const marks=document.createElement('div'); marks.className='ed-footer';
+
+          const actions=document.createElement('div'); actions.className='ed-footer';
           const left=document.createElement('div'); left.className='ed-foot-left';
-          const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Mark for Delete (unused only)';
-          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Mark for Archive (no active use)';
+          const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
+          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
           left.append(delBtn, arcBtn);
-          marks.append(left);
-          body.append(switches, marks);
+          actions.append(left);
+          body.append(switches, actions);
           row.append(body);
           Edit.list.append(row);
 
-          // usage state
+          // usage → decide which action(s) to show
           (async ()=>{
             const use = await usageInfo(db, 'makes', it.id);
-            if(use.total===0){ tag.textContent='unused'; delBtn.disabled=false; arcBtn.disabled=true; }
-            else if(use.active>0){ tag.textContent='in use (active)'; delBtn.disabled=true; arcBtn.disabled=true; }
-            else { tag.textContent='in use (inactive only)'; delBtn.disabled=true; arcBtn.disabled=false; }
+            if(use.total===0){
+              tag.textContent='unused';
+              delBtn.hidden = false;
+              arcBtn.hidden = true;
+            }else if(use.active>0){
+              tag.textContent='in use (active)';
+              delBtn.hidden = true;
+              arcBtn.hidden = true;
+            }else{
+              tag.textContent='in use (inactive only)';
+              delBtn.hidden = true;
+              arcBtn.hidden = false;
+            }
           })();
 
           // expand/collapse
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
-          // track edits
+          // stage edits
           function stage(){
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
             Edit.pending.set(it.id, { name: inp.value.trim(), categories: cats, delete:false, archive:false });
           }
           inp.addEventListener('input', stage);
           switches.addEventListener('change', stage);
-          delBtn.addEventListener('click', ()=>{ stage(); const cur=Edit.pending.get(it.id)||{}; cur.delete=true; cur.archive=false; Edit.pending.set(it.id, cur); showToast('Will delete on Save (if unused)'); });
-          arcBtn.addEventListener('click', ()=>{ stage(); const cur=Edit.pending.get(it.id)||{}; cur.archive=true; cur.delete=false; Edit.pending.set(it.id, cur); showToast('Will archive on Save (if allowed)'); });
+          delBtn.addEventListener('click', ()=>{ stage(); const cur=Edit.pending.get(it.id)||{}; cur.delete=true; cur.archive=false; Edit.pending.set(it.id, cur); showToast('Delete queued'); });
+          arcBtn.addEventListener('click', ()=>{ stage(); const cur=Edit.pending.get(it.id)||{}; cur.archive=true; cur.delete=false; Edit.pending.set(it.id, cur); showToast('Archive queued'); });
         }
 
       }else{
-        // models editor remains simple (they follow make); we keep current behavior
         ctx.textContent = 'Models (follow Make categories)';
         const sel = document.createElement('select');
         sel.id = 'edMakeSelect'; sel.className='select';
@@ -936,7 +940,7 @@ Adds:
             const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
             const tag=document.createElement('span'); tag.className='ed-tag'; tag.textContent='checking…';
             const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-            nameWrap.append(inp);
+            nameWrap.append(inp, tag);
             head.append(nameWrap, chev);
             const body=document.createElement('div'); body.className='ed-body';
             const note=document.createElement('div'); note.className='ed-tag'; note.style.display='inline-block'; note.textContent='categories inherited from Make';
@@ -953,7 +957,6 @@ Adds:
               else tag.textContent='in use (inactive only)';
             })();
 
-            // stage only name changes for models
             inp.addEventListener('input', ()=>{
               Edit.pending.set(it.id, { model:true, name: inp.value.trim() });
             });
@@ -967,23 +970,17 @@ Adds:
     async function applySaveAll(db){
       if(Edit.pending.size===0){ showToast('No changes'); return; }
 
-      // split between make edits and model edits
       const makeOps = [];
       const modelOps = [];
-      const cascades = []; // to update models' categories when make categories changed
+      const cascades = [];
 
       for(const [id, change] of Edit.pending.entries()){
         if(change.model){
-          // model name edit only
           const ref = doc(db,'equipment-models',id);
           modelOps.push( updateDoc(ref, { name: change.name, nameLower: change.name.toLowerCase(), updatedAt: serverTimestamp() }) );
         }else{
-          // make
           if(change.delete){
-            // check unused (best effort server-side rule should also guard)
-            // we already signaled in UI, just attempt deletion
             makeOps.push( deleteDoc(doc(db,'equipment-makes',id)) );
-            // cascade delete models of this make
             cascades.push( (async ()=>{
               const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
               const dels = [];
@@ -999,12 +996,10 @@ Adds:
               await Promise.all(ups);
             })() );
           }else{
-            // name + categories
             makeOps.push( updateDoc(doc(db,'equipment-makes',id), {
               name: change.name, nameLower: change.name.toLowerCase(),
               categories: change.categories, updatedAt: serverTimestamp()
             }) );
-            // cascade categories to models
             cascades.push( (async ()=>{
               const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
               const ups = [];
@@ -1029,7 +1024,6 @@ Adds:
       }
     }
 
-    /* ===== Refresh dropdowns ===== */
     async function refreshDropdowns(db){
       const curMake = $("makeId").value;
       const curModel = $("modelId").value;
@@ -1163,7 +1157,6 @@ Adds:
       $("photos").value="";
       $("year").value=""; $("yearTrigger").textContent="— Select —";
 
-      // reset dd make/model
       ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
       ddModel.hidden.value=""; ddModel.btn.textContent="— Select a Make first —";
       ddModel.btn.disabled = true; ddModel.search.disabled = true; ddModel.list.innerHTML = "";
@@ -1191,7 +1184,6 @@ Adds:
       location.assign(target);
     }
 
-    /* ===== Boot ===== */
     (async()=>{
       const ctx = await ready;
       const db  = getFirestore();
@@ -1200,17 +1192,14 @@ Adds:
       document.title = `FarmVista • Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
       document.querySelector('.hero-head h1').textContent = `Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
 
-      // Year
       buildYearOptions();
       $("yearTrigger").addEventListener('click', ()=>{
         const open = $("yearTrigger").getAttribute('aria-expanded') === 'true';
         if(open) closeYearPanel(); else openYearPanel();
       });
 
-      // Build custom dropdown objects
       buildDdObjects();
 
-      // Label taps -> inline modal
       $("openMakes").addEventListener('click', async ()=>{
         EDIT_KIND='makes'; Edit.open('Edit Makes'); await loadEditor(db);
       });
@@ -1219,12 +1208,10 @@ Adds:
       });
       Edit.saveAllBtn.addEventListener('click', ()=>applySaveAll(db));
 
-      // Load lists
       await populateMakes(db);
 
       $("serial").addEventListener("input", validateForm);
 
-      // Buttons
       $("btnQR").addEventListener("click", async ()=>{
         if(!pendingToken) pendingToken = randTokenHex(24);
         const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?t=${encodeURIComponent(pendingToken)}`;
