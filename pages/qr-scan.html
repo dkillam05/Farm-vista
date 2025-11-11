@@ -12,213 +12,116 @@
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
   <style>
-    :root{
-      --brand:#3B7E46;
-      --ink:#ffffff;
-      --hud-bg:rgba(0,0,0,.52);
-      --safe-b: env(safe-area-inset-bottom, 0px);
-      --safe-t: env(safe-area-inset-top, 0px);
-    }
-    html,body{height:100%;margin:0;background:#000;overscroll-behavior:none;}
-    body{position:fixed;inset:0;display:grid;grid-template-rows:1fr;touch-action:none;}
-
-    /* Video fills screen */
-    #view{
-      position:relative; width:100%; height:100%; overflow:hidden; background:#000;
-    }
-    video{
-      position:absolute; inset:0; width:100%; height:100%;
-      object-fit:cover; -webkit-transform:translateZ(0); transform:translateZ(0);
-    }
-
-    /* Simple scan guide */
-    .guide{
-      position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-      width:min(70vw, 70vh); height:min(70vw, 70vh);
-      border:3px solid rgba(255,255,255,.9); border-radius:16px;
-      box-shadow:0 0 0 9999px rgba(0,0,0,.25) inset;
-      pointer-events:none;
-    }
-
-    /* HUD: top and bottom */
-    .topbar, .bottombar{
-      position:absolute; left:0; right:0; display:flex; align-items:center; gap:12px;
-      padding:12px; z-index:3; color:var(--ink);
-    }
-    .topbar{ top:0; padding-top:calc(var(--safe-t) + 8px); justify-content:space-between; background:linear-gradient(to bottom, var(--hud-bg), transparent); }
-    .bottombar{ bottom:0; padding-bottom:calc(var(--safe-b) + 12px); justify-content:center; background:linear-gradient(to top, var(--hud-bg), transparent); }
-
-    .btn{
-      -webkit-tap-highlight-color: transparent;
-      display:inline-flex; align-items:center; justify-content:center;
-      min-width:120px; height:48px; padding:0 16px; border-radius:12px; border:0; font-weight:800;
-      color:#fff; background:var(--brand); text-decoration:none; font-size:16px;
-    }
-    .btn.ghost{ background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.25); }
-    .txt{ color:#fff; font-weight:700; margin:0 12px; text-shadow:0 1px 2px rgba(0,0,0,.5); }
-
-    /* Unsupported overlay */
-    #unsupported{
-      position:absolute; inset:0; display:none; place-items:center; background:#000; color:#fff; z-index:4;
-      padding:24px; text-align:center;
-    }
-    #unsupported.show{ display:grid; }
-    #unsupported .box{
-      max-width:520px; border-radius:16px; padding:22px; background:rgba(20,20,20,.9); border:1px solid rgba(255,255,255,.15);
-      display:grid; gap:12px;
-    }
-    #status{ font-size:14px; opacity:.9; }
-
-    /* Prevent blue focus outlines on iOS tap */
-    * { outline: none; }
+    html,body{height:100%;margin:0;background:#000;overscroll-behavior:none}
+    body{position:fixed;inset:0;display:grid;grid-template-rows:1fr;touch-action:none}
+    #view{position:relative;width:100%;height:100%;overflow:hidden;background:#000}
+    video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:translateZ(0)}
+    .guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+      width:min(70vw,70vh);height:min(70vw,70vh);border:3px solid rgba(255,255,255,.9);
+      border-radius:16px;box-shadow:0 0 0 9999px rgba(0,0,0,.28) inset;pointer-events:none}
+    .hud{position:absolute;left:0;right:0;bottom:0;padding:calc(env(safe-area-inset-bottom,0px)+14px) 16px;
+      display:flex;justify-content:center;gap:12px;background:linear-gradient(to top,rgba(0,0,0,.45),transparent)}
+    .btn{appearance:none;border:0;border-radius:12px;padding:12px 16px;min-width:130px;
+      font-weight:800;color:#fff;background:rgba(255,255,255,.18);-webkit-tap-highlight-color:transparent;text-decoration:none}
+    .btn.primary{background:#3B7E46}
+    #unsupported{position:absolute;inset:0;display:none;place-items:center;background:#000;color:#fff;padding:24px;text-align:center}
+    #unsupported.show{display:grid}
+    #unsupported .box{max-width:520px;border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:22px;background:rgba(20,20,20,.9)}
   </style>
 </head>
 <body>
   <div id="view" aria-label="QR Scanner">
     <video id="cam" autoplay playsinline muted></video>
     <div class="guide" aria-hidden="true"></div>
-
-    <div class="topbar">
-      <span class="txt">Scan an equipment QR</span>
-      <a class="btn ghost" href="/Farm-vista/index.html">Home</a>
+    <div class="hud">
+      <a class="btn" href="/Farm-vista/index.html">Home</a>
+      <button id="closeBtn" class="btn" type="button">Close</button>
     </div>
-
-    <div class="bottombar">
-      <button id="closeBtn" class="btn ghost" type="button">Close</button>
-    </div>
-
     <div id="unsupported">
       <div class="box">
-        <div style="font-size:24px;font-weight:900;">Camera scanning not supported</div>
-        <div id="status">This device/browser can’t access the camera or QR API inside the app.</div>
-        <div style="display:grid;gap:10px;margin-top:6px;">
-          <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
-        </div>
+        <div style="font-size:22px;font-weight:900;margin-bottom:6px">Camera scanning not supported</div>
+        <div>Please open from a device/browser that supports camera access.</div>
+        <div style="margin-top:10px"><a class="btn primary" href="/Farm-vista/index.html">Return to Home</a></div>
       </div>
     </div>
   </div>
 
   <script>
-    // ------- STRICTLY MINIMAL SCANNER (no file picker, no libs) ---------------
+    // Minimal scanner: BarcodeDetector only. Scan → navigate to Hub. No file picker. No Firestore. No timers.
     const cam = document.getElementById('cam');
     const unsupported = document.getElementById('unsupported');
-    const statusEl = document.getElementById('status');
     const closeBtn = document.getElementById('closeBtn');
 
-    let stream = null;
-    let detector = null;
-    let rafId = 0;
-    let navigating = false;
-
-    // Debounce: require same value 3 frames in a row to avoid false triggers
-    let lastVal = '', streak = 0;
-    const REQUIRED_STREAK = 3;
+    let stream=null, detector=null, raf=0, navigating=false, lastVal='', streak=0;
+    const REQUIRED_STREAK = 2; // 2 frames is enough to avoid flicker + stay snappy
 
     function go(url){
+      if(navigating) return;
       navigating = true;
-      stopAll();
-      // Hard navigation avoids iOS bfcache weirdness
-      location.replace(url);
+      stop();
+      location.replace(url); // hard nav keeps us in PWA scope and avoids iOS bfcache weirdness
     }
 
-    function routeFromQR(text){
-      if (!text) return;
-      // Normalize whitespace
-      const raw = String(text).trim();
-
-      // 1) If full hub URL, normalize to our base and honor ?id or ?code (?t legacy)
+    function toHubFromText(raw){
+      const txt = String(raw||'').trim();
+      // If it’s already a hub URL, normalize to our origin/scope and preserve ?id (prefer) or ?code/?t
       try{
-        const u = new URL(raw, location.origin);
-        if (u.pathname.endsWith('/pages/equipment/actions/hub.html')){
+        const u = new URL(txt, location.origin);
+        if(u.pathname.endsWith('/pages/equipment/actions/hub.html')){
           const id   = u.searchParams.get('id');
           const code = u.searchParams.get('code') || u.searchParams.get('t');
-          if (id)   return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
-          if (code) return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(code)}`);
+          if(id)   return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
+          if(code) return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(code)}`);
         }
-      }catch(_e){ /* not a URL; proceed */ }
+      }catch(e){/* not a URL; continue */}
 
-      // 2) If looks like an ID (Firestore-like), go with id
-      if (/^[A-Za-z0-9_-]{8,}$/.test(raw)){
-        return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(raw)}`);
+      // Looks like a Firestore-ish id → treat as id
+      if(/^[A-Za-z0-9_-]{8,}$/.test(txt)){
+        return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(txt)}`);
       }
-
-      // 3) Otherwise treat as token/code
-      return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(raw)}`);
+      // Otherwise treat as token/code (legacy)
+      return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(txt)}`);
     }
 
     async function start(){
-      // Guard: BarcodeDetector must exist
-      if (!('BarcodeDetector' in window)){
-        unsupported.classList.add('show');
-        statusEl.textContent = 'QR API not available in this browser.';
-        return;
+      if(!('BarcodeDetector' in window)){
+        unsupported.classList.add('show'); return;
       }
-
       try{
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } , width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false
-        });
-      }catch(err){
-        console.error(err);
-        unsupported.classList.add('show');
-        statusEl.textContent = 'Camera access denied or unavailable.';
-        return;
+        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+      }catch(e){
+        unsupported.classList.add('show'); return;
       }
-
       cam.srcObject = stream;
       await cam.play().catch(()=>{});
-
-      detector = new BarcodeDetector({ formats: ['qr_code'] });
+      detector = new BarcodeDetector({formats:['qr_code']});
       scan();
     }
 
     async function scan(){
-      if (navigating) return;
+      if(navigating) return;
       try{
-        const res = await detector.detect(cam);
-        const val = res && res[0] ? (res[0].rawValue || '') : '';
-        if (val){
-          if (val === lastVal){ streak++; } else { lastVal = val; streak = 1; }
-          if (streak >= REQUIRED_STREAK){
-            routeFromQR(val);
-            return;
-          }
-        }else{
-          // reset streak when nothing detected
-          streak = 0; lastVal = '';
-        }
-      }catch(e){
-        // ignore transient detection errors
-      }
-      rafId = requestAnimationFrame(scan);
+        const codes = await detector.detect(cam);
+        const v = codes && codes[0] ? (codes[0].rawValue||'') : '';
+        if(v){
+          if(v===lastVal){ streak++; } else { lastVal=v; streak=1; }
+          if(streak>=REQUIRED_STREAK){ toHubFromText(v); return; }
+        }else{ streak=0; lastVal=''; }
+      }catch(e){ /* ignore */ }
+      raf = requestAnimationFrame(scan);
     }
 
-    function stopAll(){
-      cancelAnimationFrame(rafId);
-      if (stream){
-        stream.getTracks().forEach(t => { try{ t.stop(); }catch{} });
-        stream = null;
-      }
+    function stop(){
+      cancelAnimationFrame(raf);
+      if(stream){ stream.getTracks().forEach(t=>{try{t.stop()}catch{}}); stream=null; }
     }
 
-    // Close → go Home (hard nav, no history back)
-    closeBtn.addEventListener('click', ()=>{
-      stopAll();
-      location.href = '/Farm-vista/index.html';
-    });
+    closeBtn.addEventListener('click', ()=>{ stop(); location.href='/Farm-vista/index.html'; });
+    window.addEventListener('pagehide', stop);
+    window.addEventListener('beforeunload', stop);
 
-    // Clean up on leave
-    window.addEventListener('pagehide', stopAll);
-    window.addEventListener('beforeunload', stopAll);
-
-    // Kick off
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-      start();
-    }else{
-      unsupported.classList.add('show');
-      statusEl.textContent = 'Camera not supported on this device.';
-    }
+    if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){ start(); }
+    else { unsupported.classList.add('show'); }
   </script>
 </body>
 </html>
