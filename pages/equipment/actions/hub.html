@@ -1,4 +1,8 @@
-<!-- /Farm-vista/pages/equipment/actions/hub.html — Dynamic {Type} Hub (clean header, returns at bottom) -->
+<!-- /Farm-vista/pages/equipment/actions/hub.html — Dynamic {Type} Hub (clean header, returns at bottom)
+     Minimal change version:
+       • Adds a 12s watchdog → "Timed out" card with Rescan + Home
+       • No overlay/blur; no extra fetches; preserves your working flow exactly
+-->
 <!doctype html>
 <html lang="en">
 <head>
@@ -60,6 +64,15 @@
       cursor:pointer; text-decoration:none;
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
+
+    /* Minimal: state card for timeout */
+    .state{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      padding:22px; display:grid; gap:10px; justify-items:center; text-align:center; }
+    .state .emo{ font-size:42px; line-height:1; filter:grayscale(.05); }
+    .state h2{ margin:0; font-size:20px; font-weight:900; }
+    .state p{ margin:0; color:var(--muted,#67706B); max-width:520px; }
+
+    [hidden]{ display:none !important; }
   </style>
 </head>
 
@@ -69,7 +82,7 @@
       <section class="hero">
         <header class="hero-head">
           <h1 id="pageTitle">Equipment Hub</h1>
-          <!-- Hidden status line; only shown if there's an error or special notice -->
+          <!-- Status line kept for simple notices -->
           <p class="muted" id="status" hidden></p>
         </header>
 
@@ -94,7 +107,18 @@
             <a id="linkPre"   class="btn" href="#">Pre-Season Checklist</a>
           </div>
 
-          <!-- Return links moved to the bottom -->
+          <!-- Minimal: timeout card (shows only if 12s passes with no resolution) -->
+          <div id="timeoutCard" class="state" hidden>
+            <div class="emo">⏱️</div>
+            <h2>Timed out</h2>
+            <p>It’s taking longer than expected to load this equipment.</p>
+            <div class="actions" style="width:min(92vw,460px);">
+              <button id="rescanBtn" class="btn btn-primary" type="button">Rescan</button>
+              <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
+            </div>
+          </div>
+
+          <!-- Return links at the bottom -->
           <div class="actions">
             <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
             <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
@@ -129,12 +153,33 @@
     const last6 = v => String(v||'').slice(-6);
     const capWords = s => String(s||'').replace(/\b\w/g, c=>c.toUpperCase());
 
+    // ---- Minimal timeout watchdog ----
+    const TIMEOUT_MS = 12000;
+    let resolved = false;
+    const resolve = () => { resolved = true; clearTimeout(watchdog); };
+    const showTimeout = () => {
+      if (resolved) return;
+      $('eqCard').hidden = true;
+      $('fnLinks').hidden = true;
+      $('timeoutCard').hidden = false;
+      const s = $('status');
+      s.textContent = 'Timed out waiting for data.';
+      s.hidden = false;
+    };
+    const watchdog = setTimeout(showTimeout, TIMEOUT_MS);
+
+    // Rescan button behavior
+    $('rescanBtn')?.addEventListener('click', ()=>{
+      if (history.length > 1) history.back(); else location.href = '/Farm-vista/index.html';
+    });
+
+    // ----------------------------------
+
     async function resolveIdByToken(db, t){
       if (!t) return '';
       try{
-        // One-shot reverse lookup: equipment where qr.token == t
-        const q = query(collection(db,'equipment'), where('qr.token','==', t), limit(1));
-        const snap = await getDocs(q);
+        const qy = query(collection(db,'equipment'), where('qr.token','==', t), limit(1));
+        const snap = await getDocs(qy);
         if (!snap.empty){
           const docSnap = snap.docs[0];
           return docSnap.id || '';
@@ -156,7 +201,7 @@
       }
 
       if (!eqId){
-        // No way to resolve — keep page functional but show message (no "Linked")
+        resolve();
         const s = $('status');
         s.textContent = 'No equipment found for this code.';
         s.hidden = false;
@@ -164,16 +209,24 @@
       }
 
       const ref = doc(db,'equipment', eqId);
-      const snap = await getDoc(ref);
-
-      if (!snap.exists()){
+      const snap = await getDoc(ref).catch(err=>{
+        console.error(err);
+        // still allow timeout to show if it happens; also show a quick status line
         const s = $('status');
-        s.textContent = 'Not found.';
+        s.textContent = 'Error loading hub.';
+        s.hidden = false;
+      });
+
+      if (!snap || !snap.exists()){
+        resolve();
+        const s = $('status');
+        s.textContent = snap ? 'Not found.' : 'Error loading hub.';
         s.hidden = false;
         return;
       }
 
       const d = snap.data() || {};
+      d.id = eqId;
 
       // Dynamic header: {Type} Hub
       const typeRaw = d.type || 'equipment';
@@ -194,7 +247,7 @@
       if (d.notes) setText('eqNotes', d.notes, {unhide:true});
       $('eqCard').hidden = false;
 
-      // Wire functional links (preserve id/token)
+      // Links
       const base = "/Farm-vista/pages/equipment/actions";
       const tok  = d.qr?.token || token || '';
       const qstr = `?id=${encodeURIComponent(eqId)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
@@ -204,6 +257,8 @@
       $("linkPre").href   = `${base}/pre-check.html${qstr}`;
       $('fnLinks').hidden = false;
 
+      resolve();
+
       // Clear one-shot context
       sessionStorage.removeItem('fv.ctx.eqId');
       sessionStorage.removeItem('fv.ctx.eqTok');
@@ -211,6 +266,7 @@
 
     init().catch(err=>{
       console.error(err);
+      resolve();
       const s = $('status');
       s.textContent = 'Error loading hub.';
       s.hidden = false;
