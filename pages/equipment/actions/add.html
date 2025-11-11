@@ -1,9 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Edits in this version:
-  • Edit modal made scrollable (sheet max-height + ed-list overflow:auto)
-  • Shorter action texts: "Delete" / "Archive"
-  • Visibility rules: show Delete only when UNUSED; Archive only when INACTIVE-ONLY; none when ACTIVE
+Edits in this version (per 2025-11-11 request):
+  • Edit modal: removed top helper UI; Save button moved to bottom footer
+  • Removed status helper tags in rows ("in use / unused")
+  • Visibility rules: Delete only when UNUSED; Archive only when INACTIVE-ONLY; neither when ACTIVE
+  • Added "Show Archived Makes" toggle in modal footer (view-only list)
+  • "Add New…" options no longer bolded in Make/Model dropdowns
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -184,7 +186,7 @@ Edits in this version:
       position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
       border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
       display:flex; flex-direction:column; overflow:hidden;
-      max-height:90vh;   /* ← keep modal on screen */
+      max-height:90vh;   /* keep modal on screen */
     }
     .sheet header{
       padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
@@ -199,19 +201,14 @@ Edits in this version:
 
     /* ===== Edit/New content ===== */
     .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
-    .ed-toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .ed-toolbar .select{ width:auto; min-width:220px; }
     .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
     .ed-row{ display:block; padding:0; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
 
-    .ed-head{
-      display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
-      padding:10px 12px; cursor:pointer; user-select:none;
-    }
+    .ed-head{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
+      padding:10px 12px; cursor:pointer; user-select:none; }
     .ed-name{ display:flex; gap:8px; align-items:center; }
     .ed-name input{ width:100%; }
-    .ed-tag{ display:inline-block; padding:2px 8px; border-radius:10px; border:1px solid var(--border); font-size:12px; color:var(--text); background:var(--card-surface,var(--surface)); }
 
     .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
     .ed-row.open .ed-chevron{ transform:rotate(90deg); }
@@ -241,9 +238,7 @@ Edits in this version:
     .toggle:checked{ background:var(--brand); border-color:transparent; }
     .toggle:checked::after{ left:22px; }
 
-    .ed-footer{
-      display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0;
-    }
+    .ed-footer{ display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0; }
     .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
 
     .mark-danger{
@@ -254,6 +249,17 @@ Edits in this version:
       display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
       border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
+
+    /* Modal bottom bar */
+    .ed-bottom{
+      display:flex; align-items:center; gap:12px; padding:10px 2px 2px; margin-top:6px;
+    }
+    .ed-bottom .grow{ flex:1 1 auto; }
+    .archived-panel{
+      display:none; border:1px dashed var(--border); border-radius:12px; padding:10px; margin-top:8px;
+      max-height:180px; overflow:auto; font-size:14px;
+    }
+    .archived-panel.show{ display:block; }
 
     /* New Make modal */
     .nm-body{ padding:12px; display:grid; gap:12px; }
@@ -357,15 +363,25 @@ Edits in this version:
         <div id="editTitle">Edit</div>
         <button class="close" type="button" data-close>Close</button>
       </header>
+
       <div class="ed-wrap">
-        <div class="ed-toolbar" id="edToolbar">
-          <span id="edContext" class="ed-tag">—</span>
-          <span class="ed-foot-left" id="edHint" style="opacity:.8;">Tap a row to expand. Toggle equipment switches, then Save All.</span>
-          <div style="margin-left:auto;display:flex;gap:10px;">
-            <button id="edSaveAll" class="btn btn-primary" type="button">Save All Changes</button>
-          </div>
+        <!-- When editing MODELS, we'll inject a small make picker bar here -->
+        <div id="edModelsBar" style="display:none; gap:8px; align-items:center;">
+          <label for="edMakeSelect" style="font-weight:800; margin-right:6px;">Make</label>
+          <select id="edMakeSelect" class="select" style="max-width:260px;"></select>
         </div>
+
         <div id="edList" class="ed-list" role="list"></div>
+
+        <!-- Bottom footer -->
+        <div class="ed-bottom">
+          <button id="edToggleArchived" class="btn btn-quiet" type="button">Show Archived Makes</button>
+          <div class="grow"></div>
+          <button id="edSaveAll" class="btn btn-primary" type="button">Save All Changes</button>
+        </div>
+
+        <!-- Archived list (view-only) -->
+        <div id="edArchivedPanel" class="archived-panel"></div>
       </div>
     </div>
   </div>
@@ -514,7 +530,7 @@ Edits in this version:
         const li=document.createElement("li");
         li.textContent=label;
         li.dataset.value=val;
-        if(meta && meta.isAdd){ li.style.fontWeight='800'; }
+        // Removed bolding for "Add New…"
         li.onclick=()=>onPick(val,label,meta);
         listEl.appendChild(li);
       });
@@ -629,6 +645,30 @@ Edits in this version:
       }
       return items;
     }
+
+    async function getArchivedMakes(db){
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','==',true), orderBy('name')));
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name});
+        });
+      }catch{
+        const snap=await getDocs(collection(db,'equipment-makes'));
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(v.archived){
+            const name=String(v.name||'').trim();
+            if(name) items.push({id:d.id,name});
+          }
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+
     async function getModels(db, makeId){
       if(!makeId) return [];
       const items=[];
@@ -809,15 +849,19 @@ Edits in this version:
       validateForm();
     }
 
-    /* ===== Edit modal (collapsed rows + master Save) ===== */
+    /* ===== Edit modal (collapsed rows + bottom Save) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
       list: $("edList"),
       saveAllBtn: $("edSaveAll"),
+      archivedBtn: $("edToggleArchived"),
+      archivedPanel: $("edArchivedPanel"),
+      modelsBar: $("edModelsBar"),
+      modelsMakeSel: $("edMakeSelect"),
       pending: new Map(),
       open(title){ $("editTitle").textContent = title; this.pending.clear(); this.el.classList.add('show'); document.body.style.overflow='hidden'; },
-      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; }
+      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
     };
     document.querySelectorAll('#editModal [data-close]').forEach(el=>el.addEventListener('click', ()=>Edit.close()));
 
@@ -843,24 +887,38 @@ Edits in this version:
       return row;
     }
 
+    async function renderArchivedMakes(db){
+      const panel = Edit.archivedPanel;
+      panel.innerHTML = 'Loading…';
+      const items = await getArchivedMakes(db);
+      if(!items.length){ panel.textContent = 'No archived makes.'; return; }
+      const ul = document.createElement('ul');
+      ul.style.listStyle='none'; ul.style.margin='0'; ul.style.padding='0';
+      items.forEach(m=>{
+        const li=document.createElement('li');
+        li.textContent = m.name;
+        li.style.padding='6px 4px';
+        ul.appendChild(li);
+      });
+      panel.innerHTML = '';
+      panel.appendChild(ul);
+    }
+
     async function loadEditor(db){
       Edit.list.innerHTML = '';
-      const ctx = $("edContext");
-      const toolbar = $("edToolbar");
+      Edit.modelsBar.style.display='none';
 
       if(EDIT_KIND === 'makes'){
-        ctx.textContent = 'Makes';
-
         const makes = await getMakes(db);
         for(const it of makes){
           const row=document.createElement('div'); row.className='ed-row';
+
           // header
           const head=document.createElement('div'); head.className='ed-head';
           const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
           const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
-          const tag=document.createElement('span'); tag.className='ed-tag'; tag.textContent='checking…';
           const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-          nameWrap.append(inp, tag);
+          nameWrap.append(inp);
           head.append(nameWrap, chev);
           row.append(head);
 
@@ -882,19 +940,19 @@ Edits in this version:
           row.append(body);
           Edit.list.append(row);
 
-          // usage → decide which action(s) to show
+          // usage → decide which action(s) to show (no status tags displayed)
           (async ()=>{
             const use = await usageInfo(db, 'makes', it.id);
             if(use.total===0){
-              tag.textContent='unused';
+              // UNUSED → Delete only
               delBtn.hidden = false;
               arcBtn.hidden = true;
             }else if(use.active>0){
-              tag.textContent='in use (active)';
+              // In use (ACTIVE) → no actions
               delBtn.hidden = true;
               arcBtn.hidden = true;
             }else{
-              tag.textContent='in use (inactive only)';
+              // In use (INACTIVE ONLY) → Archive only
               delBtn.hidden = true;
               arcBtn.hidden = false;
             }
@@ -915,16 +973,14 @@ Edits in this version:
         }
 
       }else{
-        ctx.textContent = 'Models (follow Make categories)';
-        const sel = document.createElement('select');
-        sel.id = 'edMakeSelect'; sel.className='select';
-        toolbar.insertBefore(sel, ctx);
+        // MODELS editor
+        Edit.modelsBar.style.display='flex';
+        const sel = Edit.modelsMakeSel;
 
         const makes = await getMakes(db);
         sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
         const cur = $("makeId").value;
         if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
-        const chosen = sel.value || (makes[0]?.id || null);
 
         async function renderModels(makeId){
           Edit.list.innerHTML='';
@@ -938,31 +994,23 @@ Edits in this version:
             const head=document.createElement('div'); head.className='ed-head';
             const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
             const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
-            const tag=document.createElement('span'); tag.className='ed-tag'; tag.textContent='checking…';
             const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-            nameWrap.append(inp, tag);
+            nameWrap.append(inp);
             head.append(nameWrap, chev);
             const body=document.createElement('div'); body.className='ed-body';
-            const note=document.createElement('div'); note.className='ed-tag'; note.style.display='inline-block'; note.textContent='categories inherited from Make';
+            const note=document.createElement('div'); note.className='ed-foot-left'; note.style.padding='8px 0 0'; note.textContent='Categories follow Make';
             body.append(note);
             row.append(head, body);
             Edit.list.append(row);
 
             head.addEventListener('click', ()=> row.classList.toggle('open'));
 
-            (async ()=>{
-              const use = await usageInfo(db, 'models', it.id);
-              if(use.total===0) tag.textContent='unused';
-              else if(use.active>0) tag.textContent='in use (active)';
-              else tag.textContent='in use (inactive only)';
-            })();
-
             inp.addEventListener('input', ()=>{
               Edit.pending.set(it.id, { model:true, name: inp.value.trim() });
             });
           }
         }
-        await renderModels(chosen);
+        await renderModels(sel.value || makes[0]?.id || null);
         sel.onchange = ()=>renderModels(sel.value);
       }
     }
@@ -1206,7 +1254,14 @@ Edits in this version:
       $("openModels").addEventListener('click', async ()=>{
         EDIT_KIND='models'; Edit.open('Edit Models'); await loadEditor(db);
       });
+
+      // Bottom footer actions
       Edit.saveAllBtn.addEventListener('click', ()=>applySaveAll(db));
+      Edit.archivedBtn.addEventListener('click', async ()=>{
+        const isShown = Edit.archivedPanel.classList.toggle('show');
+        Edit.archivedBtn.textContent = isShown ? 'Hide Archived Makes' : 'Show Archived Makes';
+        if(isShown) await renderArchivedMakes(db);
+      });
 
       await populateMakes(db);
 
