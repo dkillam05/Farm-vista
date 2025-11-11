@@ -1,11 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11b
-Fixes:
-  • Prefetch usage for all Makes; render correct action buttons up-front (no flicker)
-  • Delete/Archive/Unarchive queue → applied on Save All (with model cascades)
-  • Save All moved to bottom; helper text removed; archived viewer + Unarchive
-  • "Add New…" options not bold
+Rev: 2025-11-11c
+Changes:
+ • Delete is immediate (confirm + cascade models + live refresh)
+ • Archive visibility fixed (inactive-only ⇒ Archive button shows)
+ • Photos <input type="file"> text vertically centered
+ • Save All kept for queued edits (rename, category edits, Archive/Unarchive)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -106,6 +106,7 @@ Fixes:
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
+    /* Buttons */
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
       display:inline-flex; align-items:center; justify-content:center; min-width:148px;
@@ -177,6 +178,24 @@ Fixes:
     .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
+
+    /* Make the file input contents vertically centered */
+    input[type="file"].input{
+      height:var(--ctl-h);
+      padding:0 12px;         /* remove vertical padding so content centers */
+      line-height:var(--ctl-h);
+    }
+    /* style the button so it centers within the same height */
+    input[type="file"].input::file-selector-button{
+      height:calc(var(--ctl-h) - 10px);
+      margin:0 10px 0 0;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:0 10px;
+      font:inherit;
+      background:var(--card-surface,var(--surface));
+      cursor:pointer;
+    }
 
     /* Modal */
     .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
@@ -615,7 +634,7 @@ Fixes:
       pendingQRBlob = blob;
     }
 
-    /* Data */
+    /* Data helpers */
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
 
     async function getMakes(db){
@@ -828,7 +847,7 @@ Fixes:
       validateForm();
     }
 
-    /* ===== Edit modal (rules + working actions) ===== */
+    /* ===== Edit modal (rules + WORKING actions) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -838,7 +857,7 @@ Fixes:
       archivedPanel: $("edArchivedPanel"),
       modelsBar: $("edModelsBar"),
       modelsMakeSel: $("edMakeSelect"),
-      pending: new Map(), // id -> { name?, categories?, delete?, archive?, unarchive?, model? }
+      pending: new Map(), // id -> { name?, categories?, archive?, unarchive?, model? }
       open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
       close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
     };
@@ -882,7 +901,7 @@ Fixes:
         btn.addEventListener('click', ()=>{
           const cur = Edit.pending.get(m.id) || {};
           if(!cur.unarchive){ bumpPending(+1); }
-          cur.unarchive = true; cur.archive = false; cur.delete = false;
+          cur.unarchive = true; // queued
           Edit.pending.set(m.id, cur);
           showToast(`Unarchive queued: ${m.name}`);
         });
@@ -891,18 +910,46 @@ Fixes:
       });
     }
 
+    /* ----- IMMEDIATE delete (unused only) + queued archive ----- */
+    async function deleteMakeImmediate(db, id, name){
+      // Safety: re-check unused status before deleting
+      const u = await usageInfo(db, 'makes', id);
+      if(u.total !== 0){
+        alert('This make is in use and cannot be deleted.');
+        return;
+      }
+      if(!confirm(`Delete "${name}"? This will remove the make and all its models.`)) return;
+
+      try{
+        // delete make
+        await deleteDoc(doc(db,'equipment-makes', id));
+        // delete models under this make
+        const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+        const dels = [];
+        mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
+        await Promise.all(dels);
+
+        showToast('Make deleted');
+        await refreshDropdowns(db);
+        // remove its row from the UI if still present
+        const row = document.querySelector(`.ed-row[data-id="${id}"]`);
+        if(row) row.remove();
+      }catch(e){
+        console.error(e); alert('Delete failed.');
+      }
+    }
+
     async function loadEditor(db){
       Edit.list.innerHTML = '';
       Edit.modelsBar.style.display='none';
 
       if(EDIT_KIND === 'makes'){
-        // Prefetch usage for ALL makes to render actions deterministically.
         const makes = await getMakes(db);
         const usagePairs = await Promise.all(makes.map(async m => [m.id, await usageInfo(db,'makes',m.id)]));
         const usageMap = new Map(usagePairs);
 
         for(const it of makes){
-          const row=document.createElement('div'); row.className='ed-row';
+          const row=document.createElement('div'); row.className='ed-row'; row.dataset.id = it.id;
 
           // header
           const head=document.createElement('div'); head.className='ed-head';
@@ -931,22 +978,17 @@ Fixes:
           row.append(body);
           Edit.list.append(row);
 
-          // Determine which actions to show based on usage
           const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
           if(act==='delete'){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
           else if(act==='archive'){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
           else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
 
-          // expand/collapse
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
-          // stage edits (name/categories)
+          // stage rename/category (queued)
           const stageBase = ()=>{
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
             const cur = Edit.pending.get(it.id) || {};
-            if(cur.delete || cur.archive || cur.unarchive){
-              // destructive op already chosen; leave flags but allow name/cat updates too
-            }
             const before = JSON.stringify([cur.name||'', cur.categories||[]]);
             cur.name = inp.value.trim();
             cur.categories = cats;
@@ -957,18 +999,14 @@ Fixes:
           inp.addEventListener('input', stageBase);
           switches.addEventListener('change', stageBase);
 
-          // destructive ops
-          delBtn.addEventListener('click', ()=>{
-            const cur = Edit.pending.get(it.id) || {};
-            if(!cur.delete){ bumpPending(+1); }
-            cur.delete = true; cur.archive = false; cur.unarchive = false;
-            Edit.pending.set(it.id, cur);
-            showToast('Delete queued');
-          });
+          // IMMEDIATE DELETE (unused only)
+          delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
+
+          // ARCHIVE (queued; inactive-only)
           arcBtn.addEventListener('click', ()=>{
             const cur = Edit.pending.get(it.id) || {};
             if(!cur.archive){ bumpPending(+1); }
-            cur.archive = true; cur.delete = false; cur.unarchive = false;
+            cur.archive = true;
             Edit.pending.set(it.id, cur);
             showToast('Archive queued');
           });
@@ -1035,16 +1073,7 @@ Fixes:
           continue;
         }
 
-        // Make operations
-        if(change.delete){
-          makeOps.push( deleteDoc(doc(db,'equipment-makes',id)) );
-          cascades.push( (async ()=>{
-            const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-            const dels = [];
-            mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
-            await Promise.all(dels);
-          })() );
-        }else if(change.archive){
+        if(change.archive){
           makeOps.push( updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt: serverTimestamp() }) );
           cascades.push( (async ()=>{
             const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
