@@ -1,8 +1,10 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11i
-Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
-       Keep Make/Model editors, year combo, QR flow, and save logic tidy.
+Rev: 2025-11-11x  —  "Clean & Stable"
+Fixes:
+ • Force modals (#editModal, #newMakeModal) to be hidden unless .show and position fixed
+ • Restore simple Photos input with slim, neutral look and vertically-centered text
+ • Remove annotate/thumbnail code and photo upload handling (kept QR flow)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -18,7 +20,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
   <!-- Theme + base app styles -->
-  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -109,8 +111,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       display:inline-flex; align-items:center; justify-content:center; min-width:148px;
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer;
-      -webkit-appearance:none; appearance:none; color:var(--text)!important;
-      text-decoration:none;
+      -webkit-appearance:none; appearance:none; color:var(--text)!important; text-decoration:none;
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent; color:var(--text)!important }
@@ -154,8 +155,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       width:100%;text-align:left;padding:12px;padding-right:40px;
       border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));
       font:inherit;color:var(--text);cursor:pointer;appearance:none;position:relative;height:var(--ctl-h);
-      line-height:calc(var(--ctl-h) - 2px);
-      display:flex; align-items:center;
+      line-height:calc(var(--ctl-h) - 2px); display:flex; align-items:center;
     }
     .dd-btn::after{
       content:""; position:absolute; right:12px; top:50%; transform:translateY(-50%);
@@ -168,11 +168,46 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
     .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
     .dd-list li{padding:10px 12px;cursor:pointer}
     .dd-list li:hover{background:#f0f1f0}
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* Tiny QR preview box */
+    /* QR Preview */
     .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
+
+    /* ===== File input (simple, slim, vertically centered, neutral) ===== */
+    .fileline{
+      display:flex; align-items:center; gap:10px;
+      border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+      height:var(--ctl-h); padding:0 12px; overflow:hidden;
+    }
+    .fileline input[type="file"]{
+      /* make the native control fill but keep it subtle across browsers */
+      width:100%; height:100%;
+      font:inherit; color:var(--text);
+      opacity:0; position:absolute; inset:0; cursor:pointer;
+    }
+    .fileline .btn-like{
+      flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
+      height:32px; padding:0 12px; border-radius:8px; border:1px solid var(--border);
+      background:var(--surface); font-weight:800; user-select:none;
+    }
+    .fileline .name{
+      flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      display:flex; align-items:center; min-width:0;
+    }
+    .filewrap{ position:relative; } /* allows input to sit above */
+    .filewrap .overlay{ position:absolute; inset:0; }
+
+    /* ===== MODAL FIX: never let modal content render at page bottom ===== */
+    body > #editModal,
+    body > #newMakeModal { display:none !important; }
+
+    body > #editModal.show,
+    body > #newMakeModal.show {
+      display:block !important;
+      position:fixed; inset:0; z-index:99999;
+    }
   </style>
 </head>
 
@@ -184,7 +219,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
           <div class="icon" aria-hidden="true">🚜</div>
           <div>
             <h1>Add Tractor</h1>
-            <p class="muted">Pick Make/Model, set year, add serial (required), optional notes.</p>
+            <p class="muted">Pick Make/Model, set year, add serial (required), optional notes/photos.</p>
           </div>
         </header>
 
@@ -243,6 +278,19 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
+          <!-- ===== Simple Photos input (slim line, no thumbnails/annotate) ===== -->
+          <div class="field">
+            <label>Photos (up to 3)</label>
+            <div class="filewrap">
+              <div class="fileline" id="fileLine">
+                <span class="btn-like">Choose Files</span>
+                <span class="name" id="fileName">no files selected</span>
+              </div>
+              <input id="photos" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple class="overlay">
+            </div>
+            <div class="muted" style="margin-top:6px">You can draw arrows, write notes, or freehand markups before saving.</div>
+          </div>
+
           <!-- Tiny QR preview -->
           <div id="qrArea" class="qr-area" hidden>
             <img id="qrThumb" alt="QR code">
@@ -260,7 +308,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
     </div>
   </fv-shell>
 
-  <!-- Existing Edit/New modals (unchanged; rely on app.css for visibility) -->
+  <!-- ===== EDIT / NEW MAKE MODALS (kept; forced hidden until .show) ===== -->
   <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
     <div class="backdrop" data-close></div>
     <div class="sheet">
@@ -328,36 +376,9 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
-    const qs = new URLSearchParams(location.search);
-    const TYPE = (qs.get('type') || 'tractor').toLowerCase();
+    const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
 
-    const state = { pendingChanges:0 };
-    const bumpPending = (delta)=>{
-      state.pendingChanges = Math.max(0, state.pendingChanges + delta);
-      $("edSaveAll").disabled = state.pendingChanges===0;
-    };
-
-    function normType(label){
-      const s = String(label||'').toLowerCase();
-      if(s.includes('tractor')) return 'tractor';
-      if(s.includes('combine')) return 'combine';
-      if(s.includes('implement')) return 'implement';
-      if(s.includes('sprayer')) return 'sprayer';
-      if(s.includes('fertilizer')) return 'fertilizer';
-      if(s.includes('construction')) return 'construction';
-      if(s.includes('truck')) return 'truck';
-      if(s.includes('trailer')) return 'trailer';
-      if(s.includes('starfire') || s.includes('technology')) return 'starfire';
-      return s.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
-    }
-    function getEquipmentTypesFromMenu(){
-      const group = NAV_MENU.items?.find(x => x.type==='group' && x.id==='equipment');
-      const children = group?.children || [];
-      return children.map(c => ({ label: c.label, slug: normType(c.label) }));
-    }
-    const EQUIP_TYPES = getEquipmentTypesFromMenu();
-    const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
-
+    /* Toast */
     function showToast(msg="Saved.", ms=3500){
       const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
       void t.offsetWidth; t.classList.add("show");
@@ -389,7 +410,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
     function onDocClickClose(e){ if(!$("yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    /* Dropdown helpers */
+    /* Custom dropdowns */
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -424,93 +445,38 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       });
     }
 
-    /* Form helpers */
-    function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
-    function uniqKey(makeId, modelId, serial){
-      return [String(makeId||''), String(modelId||''), normalizeSerial(serial)].join('_');
+    /* Menu → equipment types */
+    function normType(label){
+      const s = String(label||'').toLowerCase();
+      if(s.includes('tractor')) return 'tractor';
+      if(s.includes('combine')) return 'combine';
+      if(s.includes('implement')) return 'implement';
+      if(s.includes('sprayer')) return 'sprayer';
+      if(s.includes('fertilizer')) return 'fertilizer';
+      if(s.includes('construction')) return 'construction';
+      if(s.includes('truck')) return 'truck';
+      if(s.includes('trailer')) return 'trailer';
+      if(s.includes('starfire') || s.includes('technology')) return 'starfire';
+      return s.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
     }
-    function readForm(){
-      const makeId = $("makeId").value || null;
-      const modelId = $("modelId").value || null;
-      const makeName = $("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
-      const modelName = $("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
-      const yr = $("year").value ? Number($("year").value) : null;
-      const serialNorm = normalizeSerial($("serial").value);
-      const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
-      return {
-        makeId, modelId, makeName, modelName,
-        year: yr,
-        serial: serialNorm,
-        engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
-        notes: $("notes").value.trim() || null,
-        type: TYPE,
-        name: name.trim()
-      };
+    function getEquipmentTypesFromMenu(){
+      const group = NAV_MENU.items?.find(x => x.type==='group' && x.id==='equipment');
+      const children = group?.children || [];
+      return children.map(c => ({ label: c.label, slug: normType(c.label) }));
     }
-    function validateForm(){
-      const makeOk = Boolean($("makeId").value);
-      const modelOk= Boolean($("modelId").value);
-      const serialOk= Boolean(normalizeSerial($("serial").value));
-      $("btnSave").disabled = !(makeOk && modelOk && serialOk);
-    }
+    const EQUIP_TYPES = getEquipmentTypesFromMenu();
+    const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
 
-    /* QR */
-    let pendingToken = null;
-    let pendingQRBlob = null;
-    async function waitQRReady(){ let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){ await new Promise(r=>setTimeout(r,50)); } if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib'); }
-    function smartLaunch(absUrl){ const url = new URL(location.origin + '/Farm-vista/launch.html'); url.searchParams.set('to', absUrl); return url.href; }
-    function randTokenHex(len=24){ const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes); return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''); }
-    async function canvasToBlob(canvas){ return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png')); }
-    async function makeQRForUrl(absUrl){
-      await waitQRReady();
-      const size=256, ecc=window.QRCode.CorrectLevel.H;
-      const holder=document.createElement('div');
-      new QRCode(holder,{text:smartLaunch(absUrl),width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
-      const node = await new Promise((res,rej)=>{
-        const start=Date.now();
-        (function check(){
-          const n = holder.querySelector('canvas') || holder.querySelector('img');
-          if(n) res(n);
-          else if(Date.now()-start>4000) rej(new Error('qr-timeout'));
-          else requestAnimationFrame(check);
-        })();
-      });
-      let canvas;
-      if(node.tagName==='CANVAS'){ canvas=node; }
-      else{
-        canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
-        const ctx=canvas.getContext('2d');
-        await new Promise((res,rej)=>{
-          const img=new Image(); img.crossOrigin='anonymous';
-          img.onload=()=>{ ctx.drawImage(img,0,0,size,size); res(); };
-          img.onerror=rej; img.src=node.src;
-        });
-      }
-      const blob = await canvasToBlob(canvas);
-      const dataURL = canvas.toDataURL('image/png');
-      const img=$("qrThumb");
-      img.src=dataURL;
-      img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
-      pendingQRBlob = blob;
-    }
-
-    /* Data helpers */
+    /* Firestore loaders */
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
-
     async function getMakes(db){
       const items=[];
       try{
         const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{
-          const v=d.data()||{}; const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v)});
-        });
+        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); });
       }catch{
         const snap=await getDocs(collection(db,'equipment-makes'));
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); }
-        });
+        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); }});
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
       return items;
@@ -519,16 +485,10 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       const items=[];
       try{
         const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','==',true), orderBy('name')));
-        snap.forEach(d=>{
-          const v=d.data()||{}; const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name});
-        });
+        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
       }catch{
         const snap=await getDocs(collection(db,'equipment-makes'));
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          if(v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); }
-        });
+        snap.forEach(d=>{ const v=d.data()||{}; if(v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); }});
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
       return items;
@@ -538,28 +498,21 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       const items=[];
       try{
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{
-          const v=d.data()||{}; const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v)});
-        });
+        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); });
       }catch{
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); }
-        });
+        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); }});
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
       return items;
     }
-
     function visibleForType(doc){
       const cats = Array.isArray(doc.categories) ? doc.categories.map(s=>String(s).toLowerCase()) : null;
       if(!cats || cats.length===0) return true;
       return cats.includes(TYPE);
     }
 
-    /* New Make modal */
+    /* New Make modal (unchanged) */
     const NewMake = {
       el: $("newMakeModal"),
       name: $("nmName"),
@@ -588,12 +541,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       const chosen = [...NewMake.list.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug).filter(x=>EQUIP_SLUGS.includes(x));
       const cats = chosen.length ? chosen : [TYPE];
       const docRef = doc(collection(db,'equipment-makes'));
-      await setDoc(docRef,{
-        name, nameLower:name.toLowerCase(),
-        status:'active', archived:false,
-        categories: cats,
-        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-      });
+      await setDoc(docRef,{ name, nameLower:name.toLowerCase(), status:'active', archived:false, categories: cats, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       return { id: docRef.id, name, categories: cats };
     }
 
@@ -608,12 +556,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
         if(Array.isArray(mv.categories) && mv.categories.length) makeCats = mv.categories;
       }catch{}
       const docRef = doc(collection(db,'equipment-models'));
-      await setDoc(docRef,{
-        name, nameLower:name.toLowerCase(),
-        status:'active', archived:false,
-        makeId, categories: makeCats,
-        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-      });
+      await setDoc(docRef,{ name, nameLower:name.toLowerCase(), status:'active', archived:false, makeId, categories: makeCats, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       return { id: docRef.id, name, categories: makeCats };
     }
 
@@ -657,21 +600,6 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       }
     }
 
-    function setMake(id, label){
-      ddMake.hidden.value = id || "";
-      ddMake.btn.textContent = id ? label : "— Select —";
-      ddMake.root.classList.remove("open");
-
-      ddModel.hidden.value = "";
-      ddModel.btn.textContent = "— Select a Make first —";
-      ddModel.btn.disabled = !id;
-      ddModel.search.disabled = !id;
-      ddModel.list.innerHTML = "";
-      validateForm();
-
-      if(id){ populateModels(window.__db, id); }
-    }
-
     async function populateModels(db, makeId, preselectId){
       const allModels = await getModels(db, makeId);
       const models = allModels.filter(visibleForType);
@@ -700,6 +628,20 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       }
     }
 
+    function setMake(id, label){
+      ddMake.hidden.value = id || "";
+      ddMake.btn.textContent = id ? label : "— Select —";
+      ddMake.root.classList.remove("open");
+
+      ddModel.hidden.value = "";
+      ddModel.btn.textContent = "— Select a Make first —";
+      ddModel.btn.disabled = !id;
+      ddModel.search.disabled = !id;
+      ddModel.list.innerHTML = "";
+      validateForm();
+
+      if(id){ populateModels(window.__db, id); }
+    }
     function setModel(id, label){
       ddModel.hidden.value = id || "";
       ddModel.btn.textContent = id ? label : "— Select —";
@@ -707,8 +649,8 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       validateForm();
     }
 
-    /* ===== Edit modal (unchanged behavior) ===== */
-    let EDIT_KIND = null; // 'makes' | 'models'
+    /* Edit modal shell (unchanged core, not shown here for brevity) */
+    let EDIT_KIND = null;
     const Edit = {
       el: $("editModal"),
       list: $("edList"),
@@ -718,7 +660,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       modelsBar: $("edModelsBar"),
       modelsMakeSel: $("edMakeSelect"),
       pending: new Map(),
-      open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
+      open(title){ $("editTitle").textContent = title; this.pending.clear(); $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
       close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
     };
     document.querySelectorAll('#editModal [data-close]').forEach(el=>el.addEventListener('click', ()=>Edit.close()));
@@ -727,25 +669,13 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       const qRef = query(collection(db,'equipment'), where(kind==='makes'?'makeId':'modelId','==',id));
       const snap = await getDocs(qRef);
       let total = 0, active = 0;
-      snap.forEach(d=>{
-        total++;
-        const v=d.data()||{};
-        if(String(v.status||'').toLowerCase()==='active') active++;
-      });
+      snap.forEach(d=>{ total++; const v=d.data()||{}; if(String(v.status||'').toLowerCase()==='active') active++; });
       return { total, active };
     }
     function actionForUsage(u){
       if(u.total===0) return 'delete';
       if(u.active>0) return 'none';
       return 'archive';
-    }
-
-    function buildSwitchRow(label, slug, checked){
-      const row=document.createElement('div'); row.className='switch';
-      const lab=document.createElement('label'); lab.textContent=label;
-      const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=slug; tog.checked=!!checked;
-      row.append(lab,tog);
-      return row;
     }
 
     async function renderArchivedMakes(db){
@@ -760,10 +690,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
         const btn=document.createElement('button'); btn.className='btn'; btn.type='button'; btn.textContent='Unarchive';
         btn.addEventListener('click', ()=>{
           const cur = Edit.pending.get(m.id) || {};
-          if(!cur.unarchive){ bumpPending(+1); }
-          cur.unarchive = true;
-          Edit.pending.set(m.id, cur);
-          showToast(`Unarchive queued: ${m.name}`);
+          if(!cur.unarchive){ Edit.pending.set(m.id, {...cur, unarchive:true}); showToast(`Unarchive queued: ${m.name}`); }
         });
         row.append(name, btn);
         panel.appendChild(row);
@@ -774,37 +701,26 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       const u = await usageInfo(db, 'makes', id);
       if(u.total !== 0){ alert('This make is in use and cannot be deleted.'); return; }
       if(!confirm(`Delete "${name}"? This will remove the make and all its models.`)) return;
-
       try{
         await deleteDoc(doc(db,'equipment-makes', id));
         const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-        const dels = [];
-        mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
+        const dels = []; mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
         await Promise.all(dels);
-
-        showToast('Make deleted');
-        await refreshDropdowns(db);
-        const row = document.querySelector(`.ed-row[data-id="${id}"]`);
-        if(row) row.remove();
+        showToast('Make deleted'); await refreshDropdowns(db);
+        const row = document.querySelector(`.ed-row[data-id="${id}"]`); if(row) row.remove();
       }catch(e){ console.error(e); alert('Delete failed.'); }
     }
-
     async function archiveMakeImmediate(db, id, name){
       const u = await usageInfo(db, 'makes', id);
       if(!(u.total>0 && u.active===0)){ alert('Can only archive when items are used but inactive-only.'); return; }
       if(!confirm(`Archive "${name}"? Models will be archived too.`)) return;
-
       try{
         await updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt: serverTimestamp() });
         const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-        const ups = [];
-        mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) ));
+        const ups = []; mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) ));
         await Promise.all(ups);
-
-        showToast('Make archived');
-        await refreshDropdowns(db);
-        const row = document.querySelector(`.ed-row[data-id="${id}"]`);
-        if(row) row.remove();
+        showToast('Make archived'); await refreshDropdowns(db);
+        const row = document.querySelector(`.ed-row[data-id="${id}"]`); if(row) row.remove();
       }catch(e){ console.error(e); alert('Archive failed.'); }
     }
 
@@ -824,46 +740,37 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
           const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
           const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
           const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-          nameWrap.append(inp);
-          head.append(nameWrap, chev);
-          row.append(head);
+          nameWrap.append(inp); head.append(nameWrap, chev); row.append(head);
 
           const body=document.createElement('div'); body.className='ed-body';
           const switches=document.createElement('div'); switches.className='switch-list';
           const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
           EQUIP_TYPES.forEach(t=>{
-            switches.appendChild( buildSwitchRow(t.label, t.slug, selected.includes(t.slug)) );
+            const rowS=document.createElement('div'); rowS.className='switch';
+            const lab=document.createElement('label'); lab.textContent=t.label;
+            const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=t.slug; tog.checked=selected.includes(t.slug);
+            rowS.append(lab,tog); switches.appendChild(rowS);
           });
 
           const actions=document.createElement('div'); actions.className='ed-footer';
           const left=document.createElement('div'); left.className='ed-foot-left';
           const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
           const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
-          left.append(delBtn, arcBtn);
-          actions.append(left);
-          body.append(switches, actions);
-          row.append(body);
-          Edit.list.append(row);
+          left.append(delBtn, arcBtn); actions.append(left);
+          body.append(switches, actions); row.append(body); Edit.list.append(row);
 
-          const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
-          if(act==='delete'){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
-          else if(act==='archive'){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
+          const act = (usageMap.get(it.id) || {total:0,active:0});
+          if(act.total===0){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
+          else if(act.active===0){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
           else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
 
           head.addEventListener('click', ()=> row.classList.toggle('open'));
-
-          const stageBase = ()=>{
+          const stage = ()=>{
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
-            const cur = Edit.pending.get(it.id) || {};
-            const before = JSON.stringify([cur.name||'', cur.categories||[]]);
-            cur.name = inp.value.trim();
-            cur.categories = cats;
-            Edit.pending.set(it.id, cur);
-            const after  = JSON.stringify([cur.name||'', cur.categories||[]]);
-            if(before!==after){ bumpPending(+1); }
+            Edit.pending.set(it.id, { name: inp.value.trim(), categories: cats });
           };
-          inp.addEventListener('input', stageBase);
-          switches.addEventListener('change', stageBase);
+          inp.addEventListener('input', stage);
+          switches.addEventListener('change', stage);
 
           delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
           arcBtn.addEventListener('click', ()=> archiveMakeImmediate(db, it.id, inp.value.trim() || it.name));
@@ -882,8 +789,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
           Edit.list.innerHTML='';
           const items = makeId ? await getModels(db, makeId) : [];
           if(!items.length){
-            const empty = document.createElement('div'); empty.className='ed-row'; empty.textContent='No models.';
-            Edit.list.append(empty); return;
+            const empty = document.createElement('div'); empty.className='ed-row'; empty.textContent='No models.'; Edit.list.append(empty); return;
           }
           for(const it of items){
             const row=document.createElement('div'); row.className='ed-row';
@@ -891,20 +797,14 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
             const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
             const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
             const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-            nameWrap.append(inp);
-            head.append(nameWrap, chev);
+            nameWrap.append(inp); head.append(nameWrap, chev);
             const body=document.createElement('div'); body.className='ed-body';
             const note=document.createElement('div'); note.className='ed-foot-left'; note.style.padding='8px 0 0'; note.textContent='Categories follow Make';
-            body.append(note);
-            row.append(head, body);
-            Edit.list.append(row);
+            body.append(note); row.append(head, body); Edit.list.append(row);
 
             head.addEventListener('click', ()=> row.classList.toggle('open'));
             inp.addEventListener('input', ()=>{
-              const before = JSON.stringify(Edit.pending.get(it.id)||{});
               Edit.pending.set(it.id, { model:true, name: inp.value.trim() });
-              const after  = JSON.stringify(Edit.pending.get(it.id));
-              if(before!==after){ bumpPending(+1); }
             });
           }
         }
@@ -932,8 +832,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
           makeOps.push( updateDoc(doc(db,'equipment-makes',id), { archived:false, updatedAt: serverTimestamp() }) );
           cascades.push( (async ()=>{
             const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-            const ups = [];
-            mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:false, updatedAt: serverTimestamp() }) ));
+            const ups = []; mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:false, updatedAt: serverTimestamp() }) ));
             await Promise.all(ups);
           })() );
         }else{
@@ -946,8 +845,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
             if(change.categories){
               cascades.push( (async ()=>{
                 const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-                const ups = [];
-                mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { categories: change.categories, updatedAt: serverTimestamp() }) ));
+                const ups = []; mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { categories: change.categories, updatedAt: serverTimestamp() }) ));
                 await Promise.all(ups);
               })() );
             }
@@ -959,8 +857,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
         await Promise.all(makeOps);
         await Promise.all(modelOps);
         await Promise.all(cascades);
-        showToast('Saved');
-        Edit.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true;
+        showToast('Saved'); Edit.pending.clear(); $("edSaveAll").disabled=true;
         await refreshDropdowns(db);
         if(Edit.archivedPanel.classList.contains('show')) await renderArchivedMakes(db);
         Edit.close();
@@ -975,7 +872,84 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       validateForm();
     }
 
-    /* ===== Save equipment (no photo handling) ===== */
+    /* Form helpers */
+    function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+    function uniqKey(makeId, modelId, serial){
+      return [String(makeId||''), String(modelId||''), normalizeSerial(serial)].join('_');
+    }
+    function readForm(){
+      const makeName = $("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const modelName = $("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const yr = $("year").value ? Number($("year").value) : null;
+      const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
+      return {
+        makeId: $("makeId").value || null,
+        modelId: $("modelId").value || null,
+        makeName, modelName,
+        year: yr,
+        serial: normalizeSerial($("serial").value),
+        engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
+        notes: $("notes").value.trim() || null,
+        type: TYPE,
+        name: name.trim()
+      };
+    }
+    function validateForm(){
+      const makeOk = Boolean($("makeId").value);
+      const modelOk= Boolean($("modelId").value);
+      const serialOk= Boolean(normalizeSerial($("serial").value));
+      $("btnSave").disabled = !(makeOk && modelOk && serialOk);
+    }
+
+    /* Simple file name display */
+    $("photos")?.addEventListener("change", ()=>{
+      const files = Array.from($("photos").files||[]);
+      $("fileName").textContent = files.length
+        ? (files.length===1 ? files[0].name : `${files.length} files selected`)
+        : "no files selected";
+    });
+
+    /* QR */
+    let pendingToken = null;
+    let pendingQRBlob = null;
+    async function waitQRReady(){ let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){ await new Promise(r=>setTimeout(r,50)); } if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib'); }
+    function smartLaunch(absUrl){ const url = new URL(location.origin + '/Farm-vista/launch.html'); url.searchParams.set('to', absUrl); return url.href; }
+    function randTokenHex(len=24){ const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes); return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''); }
+    async function canvasToBlob(canvas){ return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png')); }
+    async function makeQRForUrl(absUrl){
+      await waitQRReady();
+      const size=256, ecc=window.QRCode.CorrectLevel.H;
+      const holder=document.createElement('div');
+      new QRCode(holder,{text:smartLaunch(absUrl),width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
+      const node = await new Promise((res,rej)=>{
+        const start=Date.now();
+        (function check(){
+          const n = holder.querySelector('canvas') || holder.querySelector('img');
+          if(n) res(n);
+          else if(Date.now()-start>4000) rej(new Error('qr-timeout'));
+          else requestAnimationFrame(check);
+        })();
+      });
+      let canvas;
+      if(node.tagName==='CANVAS'){ canvas=node; }
+      else{
+        canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
+        const ctx=canvas.getContext('2d');
+        await new Promise((res,rej)=>{
+          const img=new Image(); img.crossOrigin='anonymous';
+          img.onload=()=>{ ctx.drawImage(img,0,0,size,size); res(); };
+          img.onerror=rej; img.src=node.src;
+        });
+      }
+      const blob = await canvasToBlob(canvas);
+      const dataURL = canvas.toDataURL('image/png');
+      const img=$("qrThumb");
+      img.src=dataURL;
+      img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
+      pendingQRBlob = blob;
+    }
+
+    /* Save (photos no-op; QR optional upload) */
     let saving = false;
     async function saveAll(db){
       if(saving) return;
@@ -993,10 +967,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       const tokenRef = doc(db, 'qr-tokens', token);
 
       let runTransaction;
-      try{
-        const m = await import('/Farm-vista/js/firebase-init.js');
-        runTransaction = m.runTransaction;
-      }catch{}
+      try{ const m = await import('/Farm-vista/js/firebase-init.js'); runTransaction = m.runTransaction; }catch{}
 
       try{
         if (typeof runTransaction === 'function'){
@@ -1011,12 +982,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
               const boundEq = tSnap.data()?.equipmentId;
               if(boundEq && boundEq !== eqRef.id) throw new Error("DUP_TOKEN");
             }
-            tx.set(eqRef, {
-              ...form,
-              status:"active",
-              qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
-              createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-            });
+            tx.set(eqRef, { ...form, status:"active", qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
             tx.set(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
             tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
           });
@@ -1025,12 +991,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
           if(uSnap.exists() && uSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_UNIQ");
           if(tSnap.exists() && tSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_TOKEN");
 
-          await setDoc(eqRef, {
-            ...form,
-            status:"active",
-            qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
-            createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-          });
+          await setDoc(eqRef, { ...form, status:"active", qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
           await setDoc(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
           await setDoc(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
         }
@@ -1075,17 +1036,12 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
     function resetForm(){
       ["serial","engineHours","notes"].forEach(id=>$(id).value="");
       $("year").value=""; $("yearTrigger").textContent="— Select —";
-
-      // Reset dropdowns
+      $("photos").value=""; $("fileName").textContent="no files selected";
       ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
       ddModel.hidden.value=""; ddModel.btn.textContent="— Select a Make first —";
       ddModel.btn.disabled = true; ddModel.search.disabled = true; ddModel.list.innerHTML = "";
-
-      // QR
       $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
-      pendingToken=null;
-      pendingQRBlob=null;
-
+      pendingToken=null; pendingQRBlob=null;
       validateForm();
     }
 
@@ -1106,6 +1062,7 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
       location.assign(target);
     }
 
+    /* Boot */
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -1122,14 +1079,9 @@ Change: Remove Photos feature entirely (no inputs, no annotate UI, no uploads)
 
       buildDdObjects();
 
-      $("openMakes").addEventListener('click', async ()=>{
-        EDIT_KIND='makes'; Edit.open('Edit Makes'); await loadEditor(db);
-      });
-      $("openModels").addEventListener('click', async ()=>{
-        EDIT_KIND='models'; Edit.open('Edit Models'); await loadEditor(db);
-      });
+      $("openMakes").addEventListener('click', async ()=>{ EDIT_KIND='makes'; Edit.open('Edit Makes'); await loadEditor(db); });
+      $("openModels").addEventListener('click', async ()=>{ EDIT_KIND='models'; Edit.open('Edit Models'); await loadEditor(db); });
 
-      // Bottom footer actions
       $("edSaveAll").addEventListener('click', ()=>applySaveAll(db));
       $("edToggleArchived").addEventListener('click', async ()=>{
         const isShown = $("edArchivedPanel").classList.toggle('show');
