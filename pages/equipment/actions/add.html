@@ -1,10 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11x  —  "Clean & Stable"
-Fixes:
- • Force modals (#editModal, #newMakeModal) to be hidden unless .show and position fixed
- • Restore simple Photos input with slim, neutral look and vertically-centered text
- • Remove annotate/thumbnail code and photo upload handling (kept QR flow)
+Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -175,29 +171,29 @@ Fixes:
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
-    /* ===== File input (simple, slim, vertically centered, neutral) ===== */
+    /* ===== iOS-safe Photos input (no native bubble) ===== */
     .fileline{
       display:flex; align-items:center; gap:10px;
       border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
       height:var(--ctl-h); padding:0 12px; overflow:hidden;
     }
-    .fileline input[type="file"]{
-      /* make the native control fill but keep it subtle across browsers */
-      width:100%; height:100%;
-      font:inherit; color:var(--text);
-      opacity:0; position:absolute; inset:0; cursor:pointer;
-    }
     .fileline .btn-like{
       flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
       height:32px; padding:0 12px; border-radius:8px; border:1px solid var(--border);
-      background:var(--surface); font-weight:800; user-select:none;
+      background:var(--surface); font-weight:800; user-select:none; cursor:pointer;
     }
     .fileline .name{
       flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
       display:flex; align-items:center; min-width:0;
     }
-    .filewrap{ position:relative; } /* allows input to sit above */
-    .filewrap .overlay{ position:absolute; inset:0; }
+    /* Visually hide real input but keep it accessible */
+    .visually-hidden{
+      position:absolute !important;
+      width:1px; height:1px;
+      padding:0; margin:-1px; overflow:hidden;
+      clip: rect(0 0 0 0); clip-path: inset(50%);
+      border:0; white-space:nowrap;
+    }
 
     /* ===== MODAL FIX: never let modal content render at page bottom ===== */
     body > #editModal,
@@ -278,15 +274,13 @@ Fixes:
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
-          <!-- ===== Simple Photos input (slim line, no thumbnails/annotate) ===== -->
+          <!-- ===== Simple Photos input (iOS-safe, no duplicate bubble) ===== -->
           <div class="field">
             <label>Photos (up to 3)</label>
-            <div class="filewrap">
-              <div class="fileline" id="fileLine">
-                <span class="btn-like">Choose Files</span>
-                <span class="name" id="fileName">no files selected</span>
-              </div>
-              <input id="photos" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple class="overlay">
+            <input id="photos" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple class="visually-hidden">
+            <div class="fileline">
+              <label for="photos" class="btn-like">Choose Files</label>
+              <span class="name" id="fileName">no files selected</span>
             </div>
             <div class="muted" style="margin-top:6px">You can draw arrows, write notes, or freehand markups before saving.</div>
           </div>
@@ -649,7 +643,7 @@ Fixes:
       validateForm();
     }
 
-    /* Edit modal shell (unchanged core, not shown here for brevity) */
+    /* Edit modal shell */
     let EDIT_KIND = null;
     const Edit = {
       el: $("editModal"),
@@ -901,7 +895,7 @@ Fixes:
       $("btnSave").disabled = !(makeOk && modelOk && serialOk);
     }
 
-    /* Simple file name display */
+    /* File name display */
     $("photos")?.addEventListener("change", ()=>{
       const files = Array.from($("photos").files||[]);
       $("fileName").textContent = files.length
@@ -949,7 +943,7 @@ Fixes:
       pendingQRBlob = blob;
     }
 
-    /* Save (photos no-op; QR optional upload) */
+    /* Save (photos not uploaded here; QR optional upload) */
     let saving = false;
     async function saveAll(db){
       if(saving) return;
