@@ -1,8 +1,9 @@
 <!-- /Farm-vista/pages/equipment/actions/hub.html — Dynamic {Type} Hub (clean header, returns at bottom)
-     Minimal, safe additions:
+     Adds:
        • Blur loading overlay (min 1.2s)
        • Empty state when not found / no id
        • Archived state when status==='archived' or archived===true
+       • 12s timeout watchdog → "Timed Out" with Rescan + Home
 -->
 <!doctype html>
 <html lang="en">
@@ -66,7 +67,7 @@
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
 
-    /* NEW: loading overlay (blur) */
+    /* Loading overlay (blur) */
     .overlay{
       position:fixed; inset:0; z-index:50; display:none;
       align-items:center; justify-content:center;
@@ -84,7 +85,7 @@
     .overlay-box h3{ margin:6px 0 2px; font-size:18px; font-weight:900; }
     .overlay-box p{ margin:0; color:var(--ink-3,#6c756e); }
 
-    /* NEW: empty + archived states */
+    /* Empty / Archived / Timeout states */
     .state{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
       padding:22px; display:grid; gap:10px; justify-items:center; text-align:center; }
     .state .emo{ font-size:42px; line-height:1; filter:grayscale(.05); }
@@ -125,21 +126,32 @@
             <a id="linkPre"   class="btn" href="#">Pre-Season Checklist</a>
           </div>
 
-          <!-- NEW: Archived state -->
+          <!-- Archived state -->
           <div id="archivedCard" class="state" hidden>
             <div class="emo">📦</div>
             <h2>This equipment is archived</h2>
             <p id="archivedMsg">This item isn’t available for new entries at this time.</p>
           </div>
 
-          <!-- NEW: Empty state -->
+          <!-- Empty state -->
           <div id="emptyCard" class="state" hidden>
             <div class="emo">🛰️</div>
             <h2>We couldn’t load this equipment</h2>
             <p id="emptyMsg">Either this QR isn’t linked yet or the connection hiccupped.</p>
             <div class="actions" style="width:min(92vw,460px);">
               <button id="tryBtn" class="btn btn-primary" type="button">Try Again</button>
-              <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
+              <button id="rescanBtn1" class="btn" type="button">Rescan</button>
+              <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
+            </div>
+          </div>
+
+          <!-- NEW: Timeout state (12s watchdog) -->
+          <div id="timeoutCard" class="state" hidden>
+            <div class="emo">⏱️</div>
+            <h2>Timed out</h2>
+            <p>It’s taking longer than expected to load this equipment.</p>
+            <div class="actions" style="width:min(92vw,460px);">
+              <button id="rescanBtn2" class="btn btn-primary" type="button">Rescan</button>
               <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
             </div>
           </div>
@@ -154,7 +166,7 @@
     </div>
   </fv-shell>
 
-  <!-- NEW: loading overlay -->
+  <!-- Loading overlay -->
   <div class="overlay" id="overlay">
     <div class="overlay-box">
       <div class="spin" aria-hidden="true"></div>
@@ -188,17 +200,85 @@
     const last6 = v => String(v||'').slice(-6);
     const capWords = s => String(s||'').replace(/\b\w/g, c=>c.toUpperCase());
 
-    // NEW: overlay helpers
+    // Overlay helpers
     const OVERLAY_MIN_MS = 1200;
     function showOverlay(on=true){
       $('overlay').classList.toggle('show', !!on);
       document.body.style.overflow = on ? 'hidden' : '';
     }
 
+    // Strong outcomes
+    let resolved = false;
+    function markResolved(){ resolved = true; }
+
+    function showEmpty(reason){
+      if (resolved) return;
+      markResolved();
+      $('fnLinks').hidden = true;
+      $('eqCard').hidden = true;
+      $('archivedCard').hidden = true;
+      if(reason) $('emptyMsg').textContent = reason;
+      $('emptyCard').hidden = false;
+      $('timeoutCard').hidden = true;
+      $('status').hidden = true;
+      showOverlay(false);
+    }
+
+    function showArchived(doc){
+      if (resolved) return;
+      markResolved();
+      $('fnLinks').hidden = true;
+      $('eqCard').hidden = false; // still show summary
+      $('archivedCard').hidden = false;
+      $('emptyCard').hidden = true;
+      $('timeoutCard').hidden = true;
+      const name = [doc.makeName, doc.modelName].filter(Boolean).join(' ');
+      const ls = last6(doc.serial);
+      $('archivedMsg').textContent =
+        `“${name || 'This unit'}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
+      showOverlay(false);
+    }
+
+    function showActiveLinks(doc){
+      if (resolved) return;
+      markResolved();
+      const base = "/Farm-vista/pages/equipment/actions";
+      const tok  = doc.qr?.token || token || '';
+      const qstr = `?id=${encodeURIComponent(doc.id)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
+      $("linkHours").href = `${base}/engine-hours.html${qstr}`;
+      $("linkMaint").href = `${base}/maintenance.html${qstr}`;
+      $("linkReq").href   = `${base}/service-request.html${qstr}`;
+      $("linkPre").href   = `${base}/pre-check.html${qstr}`;
+      $('fnLinks').hidden = false;
+      $('emptyCard').hidden = true;
+      $('archivedCard').hidden = true;
+      $('timeoutCard').hidden = true;
+      showOverlay(false);
+    }
+
+    function showTimeout(){
+      if (resolved) return;
+      // We don’t mark resolved here so a late success can still win and render.
+      $('eqCard').hidden = true;
+      $('fnLinks').hidden = true;
+      $('archivedCard').hidden = true;
+      $('emptyCard').hidden = true;
+      $('timeoutCard').hidden = false;
+      showOverlay(false);
+    }
+
+    function rescan(){
+      if (history.length > 1){
+        history.back();
+      } else {
+        // Fallback if there's no scanner in history
+        location.href = '/Farm-vista/index.html';
+      }
+    }
+
     async function resolveIdByToken(db, t){
       if (!t) return '';
       try{
-        // One-shot reverse lookup: equipment where qr.token == t
         const qy = query(collection(db,'equipment'), where('qr.token','==', t), limit(1));
         const snap = await getDocs(qy);
         if (!snap.empty){
@@ -211,108 +291,87 @@
       return '';
     }
 
-    function showEmpty(reason){
-      $('fnLinks').hidden = true;
-      $('eqCard').hidden = true;
-      $('archivedCard').hidden = true;
-      if(reason) $('emptyMsg').textContent = reason;
-      $('emptyCard').hidden = false;
-      $('status').hidden = true;
-    }
-
-    function showArchived(doc){
-      $('fnLinks').hidden = true;
-      $('eqCard').hidden = false; // still show summary
-      $('archivedCard').hidden = false;
-      const name = [doc.makeName, doc.modelName].filter(Boolean).join(' ');
-      const ls = last6(doc.serial);
-      $('archivedMsg').textContent =
-        `“${name || 'This unit'}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
-    }
-
-    function showActiveLinks(doc){
-      const base = "/Farm-vista/pages/equipment/actions";
-      const tok  = doc.qr?.token || token || '';
-      const qstr = `?id=${encodeURIComponent(doc.id)}${tok ? `&t=${encodeURIComponent(tok)}`:''}&from=hub`;
-      $("linkHours").href = `${base}/engine-hours.html${qstr}`;
-      $("linkMaint").href = `${base}/maintenance.html${qstr}`;
-      $("linkReq").href   = `${base}/service-request.html${qstr}`;
-      $("linkPre").href   = `${base}/pre-check.html${qstr}`;
-      $('fnLinks').hidden = false;
-    }
-
     async function init(){
       await ready;
       const start = performance.now();
       showOverlay(true);
 
+      // 12s timeout watchdog
+      const TIMEOUT_MS = 12000;
+      const timeoutHandle = setTimeout(showTimeout, TIMEOUT_MS);
+
       const db = getFirestore();
 
-      // If id is missing but we have a token, try reverse lookup once
-      if (!eqId && token){
-        eqId = await resolveIdByToken(db, token);
-      }
-
-      if (!eqId){
-        const wait = Math.max(0, OVERLAY_MIN_MS - (performance.now()-start));
-        return setTimeout(()=>{ showOverlay(false); showEmpty('No equipment found for this code.'); }, wait);
-      }
-
-      let snap;
       try{
+        // If id is missing but we have a token, try reverse lookup once
+        if (!eqId && token){
+          eqId = await resolveIdByToken(db, token);
+        }
+
+        if (!eqId){
+          const wait = Math.max(0, OVERLAY_MIN_MS - (performance.now()-start));
+          return setTimeout(()=>{ showEmpty('No equipment found for this code.'); }, wait);
+        }
+
         const ref = doc(db,'equipment', eqId);
-        snap = await getDoc(ref);
+        const snap = await getDoc(ref);
+
+        const wait = Math.max(0, OVERLAY_MIN_MS - (performance.now()-start));
+        setTimeout(()=>{
+          if (!snap.exists()){
+            showEmpty('Not found.');
+            return;
+          }
+
+          const d = snap.data() || {}; d.id = eqId;
+
+          // Dynamic header: {Type} Hub
+          const typeRaw = d.type || 'equipment';
+          const typePretty = capWords(typeRaw);
+          const hubTitle = `${typePretty} Hub`;
+          setText('pageTitle', hubTitle);
+          document.title = `FarmVista • ${hubTitle}`;
+
+          // Render summary
+          const mm = [d.makeName, d.modelName].filter(Boolean).join(' ');
+          const ls = last6(d.serial);
+          const title = mm ? `${mm}${ls ? ` (#${ls})` : ''}` : (d.name || `Unit ${String(eqId).slice(0,6)}`);
+          setText('eqName', title);
+          setText('eqType', typeRaw || 'equipment');
+          setText('eqMakeModel', mm);
+          if (ls) setText('eqSerial', `SN #${ls}`, {unhide:true});
+          if (d.engineHours != null) setText('eqHours', `${d.engineHours} hrs`, {unhide:true});
+          if (d.notes) setText('eqNotes', d.notes, {unhide:true});
+          $('eqCard').hidden = false;
+
+          // Decide state: archived vs active
+          const isArchived = (String(d.status||'').toLowerCase()==='archived') || (d.archived===true);
+          if (isArchived){
+            showArchived(d);
+          } else {
+            showActiveLinks(d);
+          }
+
+          // Clear watchers
+          clearTimeout(timeoutHandle);
+
+          // Clear one-shot context
+          sessionStorage.removeItem('fv.ctx.eqId');
+          sessionStorage.removeItem('fv.ctx.eqTok');
+        }, wait);
+
       }catch(err){
         console.error(err);
+        clearTimeout(timeoutHandle);
         const wait = Math.max(0, OVERLAY_MIN_MS - (performance.now()-start));
-        return setTimeout(()=>{ showOverlay(false); showEmpty('Error loading hub.'); }, wait);
+        setTimeout(()=>{ showEmpty('Error loading hub.'); }, wait);
       }
-
-      const wait = Math.max(0, OVERLAY_MIN_MS - (performance.now()-start));
-      setTimeout(()=>{
-        showOverlay(false);
-
-        if (!snap.exists()){
-          showEmpty('Not found.');
-          return;
-        }
-
-        const d = snap.data() || {}; d.id = eqId;
-
-        // Dynamic header: {Type} Hub
-        const typeRaw = d.type || 'equipment';
-        const typePretty = capWords(typeRaw);
-        const hubTitle = `${typePretty} Hub`;
-        setText('pageTitle', hubTitle);
-        document.title = `FarmVista • ${hubTitle}`;
-
-        // Render summary
-        const mm = [d.makeName, d.modelName].filter(Boolean).join(' ');
-        const ls = last6(d.serial);
-        const title = mm ? `${mm}${ls ? ` (#${ls})` : ''}` : (d.name || `Unit ${String(eqId).slice(0,6)}`);
-        setText('eqName', title);
-        setText('eqType', typeRaw || 'equipment');
-        setText('eqMakeModel', mm);
-        if (ls) setText('eqSerial', `SN #${ls}`, {unhide:true});
-        if (d.engineHours != null) setText('eqHours', `${d.engineHours} hrs`, {unhide:true});
-        if (d.notes) setText('eqNotes', d.notes, {unhide:true});
-        $('eqCard').hidden = false;
-
-        // Decide state: archived vs active
-        const isArchived = (String(d.status||'').toLowerCase()==='archived') || (d.archived===true);
-        if (isArchived){
-          showArchived(d);
-        } else {
-          showActiveLinks(d);
-        }
-
-        // Clear one-shot context
-        sessionStorage.removeItem('fv.ctx.eqId');
-        sessionStorage.removeItem('fv.ctx.eqTok');
-      }, wait);
     }
 
+    // Buttons
     $('tryBtn')?.addEventListener('click', ()=>{ showOverlay(true); setTimeout(()=>location.reload(), 250); });
+    $('rescanBtn1')?.addEventListener('click', rescan);
+    $('rescanBtn2')?.addEventListener('click', rescan);
 
     init().catch(err=>{
       console.error(err);
