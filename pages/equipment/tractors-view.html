@@ -184,7 +184,7 @@
 
         <!-- Compact filter button -->
         <button id="filterBtn" class="icon-btn" aria-label="Filters" aria-haspopup="true" aria-expanded="false">
-          <!-- funnel icon (Sheets-like) -->
+          <!-- funnel icon -->
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
           </svg>
@@ -218,14 +218,15 @@
     <header>
       <strong id="dTitle">Details</strong>
       <div style="display:flex; gap:8px; align-items:center;">
+        <!-- ONLY show when archived -->
         <span id="dStatusBadge" class="badge arch" hidden>Archived</span>
-        <button id="btnUnarchiveHdr" class="btn" type="button" hidden>Unarchive</button>
-        <button id="dClose" class="btn" type="button">Close</button>
+        <button id="btnUnarchiveHdr" class="btn btn-primary" type="button" hidden>Unarchive</button>
       </div>
     </header>
     <div class="body">
       <div class="kv" id="dKV"></div>
 
+      <!-- QR preview -->
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -397,7 +398,6 @@
     const qrLbl = document.getElementById('qrLbl');
 
     const close = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
-    document.getElementById('dClose').addEventListener('click', close);
     document.getElementById('dClose2').addEventListener('click', close);
 
     const has = v => !(v===undefined || v===null || v==='');
@@ -408,6 +408,7 @@
       dKV.append(K,V);
     }
 
+    // Resolve qr.image as string OR {url}
     function getQrUrl(d){
       try{
         if (!d || !d.qr) return '';
@@ -433,11 +434,12 @@
       const archived = isArchived(d);
       dBadge.hidden = !archived;
       btnUnHdr.hidden = !archived;
-      btnUnHdr.onclick = ()=> quickUnarchive(d);
+      btnUnHdr.onclick = archived ? ()=> quickUnarchive(d) : null;
 
       const tok = d.qr && d.qr.token ? d.qr.token : '';
       btnHub.href = hubUrl(d.id, tok);
 
+      // QR preview
       const url = getQrUrl(d);
       const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
       if (url){
@@ -493,9 +495,8 @@
       // Position below & right aligned to the button
       const r = filterBtn.getBoundingClientRect();
       filterPop.style.top = `${r.bottom + window.scrollY + 8}px`;
-      // keep it within viewport right edge
       const maxLeft = window.scrollX + document.documentElement.clientWidth - 12 - 220;
-      const desiredLeft = r.right + window.scrollX - 220; // right align to button
+      const desiredLeft = r.right + window.scrollX - 220; // right align
       filterPop.style.left = `${Math.max(12, Math.min(maxLeft, desiredLeft))}px`;
       filterPop.hidden = false;
       filterBtn.setAttribute('aria-expanded','true');
