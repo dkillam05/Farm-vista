@@ -2,6 +2,8 @@
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
 Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
      with Fields-style custom dropdowns (.dd). Stable metrics from frame 0.
+Adds: Category pill buttons on Make editor; cascade categories to Models;
+      type-aware Make/Model filtering; new docs default categories=[TYPE].
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -209,6 +211,22 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
     .sm.danger{ border-color:#b00020; color:#b00020; }
     .sm[hidden]{ display:none !important; }
 
+    /* Category pills */
+    .pill-group{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .pill{
+      display:inline-flex; align-items:center; justify-content:center;
+      padding:6px 10px; border-radius:999px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:700; font-size:13px; color:var(--text);
+      user-select:none;
+    }
+    .pill[aria-pressed="true"]{
+      background:var(--brand); border-color:transparent; color:#fff;
+    }
+    .pill[disabled]{ opacity:.6; cursor:not-allowed }
+
+    /* In-row pills placement for makes */
+    .ed-row .pill-group{ grid-column: 1 / -1; }
+
     /* ===== VERTICAL CENTERING TWEAKS ===== */
     .combo-trigger.select{ display:flex; align-items:center; }        /* Year trigger */
     .input[type="file"]{
@@ -220,7 +238,7 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
 
 <body>
   <fv-shell>
-    <div class="wrap">
+    <div class="wrap" data-equipment-type="">
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🚜</div>
@@ -342,6 +360,13 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
+    const EQUIP_TYPES = ['tractor','sprayer','combine','truck','implement','trailer'];
+
+    /* stamp the page with type for downstream reads (and for your future CSS if wanted) */
+    document.addEventListener('DOMContentLoaded',()=> {
+      const wrap = document.querySelector('.wrap');
+      if(wrap) wrap.dataset.equipmentType = TYPE;
+    });
 
     /* ===== Toast ===== */
     function showToast(msg="Saved.", ms=3500){
@@ -511,10 +536,20 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
       const items=[];
       try{
         const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+        });
       }catch{
         const snap=await getDocs(collection(db,'equipment-makes'));
-        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(!v.archived){
+            const name=String(v.name||'').trim();
+            if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+          }
+        });
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
       return items;
@@ -524,13 +559,30 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
       const items=[];
       try{
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
-        snap.forEach(d=>{ const v=d.data()||{}; const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); });
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+        });
       }catch{
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
-        snap.forEach(d=>{ const v=d.data()||{}; if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); } });
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(!v.archived){
+            const name=String(v.name||'').trim();
+            if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+          }
+        });
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
       return items;
+    }
+
+    /* Type-aware filter: show item if it has TYPE in categories OR categories is empty/undefined */
+    function visibleForType(doc){
+      const cats = Array.isArray(doc.categories) ? doc.categories.map(s=>String(s).toLowerCase()) : null;
+      if(!cats || cats.length===0) return true; // legacy data visible everywhere
+      return cats.includes(TYPE);
     }
 
     /* ===== Add flows (for dd lists) ===== */
@@ -538,16 +590,40 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
       const name = (prompt("New Make name:")||"").trim();
       if(!name) return null;
       const docRef = doc(collection(db,'equipment-makes'));
-      await setDoc(docRef,{ name, nameLower:name.toLowerCase(), status:'active', archived:false, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      return { id: docRef.id, name };
+      await setDoc(docRef,{
+        name,
+        nameLower:name.toLowerCase(),
+        status:'active',
+        archived:false,
+        categories:[TYPE],               // default to current form type
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      return { id: docRef.id, name, categories:[TYPE] };
     }
     async function addModel(db, makeId){
       if(!makeId){ alert("Pick a Make before adding a Model."); return null; }
       const name = (prompt("New Model name:")||"").trim();
       if(!name) return null;
+
+      // inherit categories from make (models follow make)
+      let makeCats = [TYPE];
+      try{
+        const mSnap = await getDoc(doc(db,'equipment-makes', makeId));
+        const mv = mSnap.data()||{};
+        if(Array.isArray(mv.categories) && mv.categories.length) makeCats = mv.categories;
+      }catch{}
+
       const docRef = doc(collection(db,'equipment-models'));
-      await setDoc(docRef,{ name, nameLower:name.toLowerCase(), status:'active', archived:false, makeId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      return { id: docRef.id, name };
+      await setDoc(docRef,{
+        name,
+        nameLower:name.toLowerCase(),
+        status:'active',
+        archived:false,
+        makeId,
+        categories: makeCats,
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      return { id: docRef.id, name, categories: makeCats };
     }
 
     /* ===== Build & wire custom dropdowns ===== */
@@ -574,10 +650,11 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
     }
 
     async function populateMakes(db, preselectId){
-      const makes = await getMakes(db);
+      const allMakes = await getMakes(db);
+      const makes = allMakes.filter(visibleForType);
       const items = [
         ["__add__", "Add New…", {isAdd:true}],
-        ...makes.map(m=>[m.id, m.name])
+        ...makes.map(m=>[m.id, m.name, {categories:m.categories}])
       ];
       buildList(ddMake.list, items, async (val,label,meta)=>{
         if(meta && meta.isAdd){
@@ -614,10 +691,11 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
     }
 
     async function populateModels(db, makeId, preselectId){
-      const models = await getModels(db, makeId);
+      const allModels = await getModels(db, makeId);
+      const models = allModels.filter(visibleForType);
       const items = [
         ["__add__", "Add New…", {isAdd:true}],
-        ...models.map(m=>[m.id, m.name])
+        ...models.map(m=>[m.id, m.name, {categories:m.categories}])
       ];
       buildList(ddModel.list, items, async (val,label,meta)=>{
         if(meta && meta.isAdd){
@@ -647,7 +725,7 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
       validateForm();
     }
 
-    /* ===== Inline editor modal logic (unchanged, but refresh hooks updated) ===== */
+    /* ===== Inline editor modal logic (with category pills for MAKES) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     function openModal(title){
       $("editTitle").textContent = title;
@@ -679,6 +757,25 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
         if(String(v.status||'').toLowerCase()==='active') active++;
       });
       return { total, active };
+    }
+
+    function makePill(label, active=false, disabled=false){
+      const b=document.createElement('button');
+      b.type='button';
+      b.className='pill';
+      b.textContent=label;
+      b.setAttribute('aria-pressed', active ? 'true' : 'false');
+      if(disabled) b.setAttribute('disabled','');
+      if(!disabled){
+        b.addEventListener('click', ()=>{
+          const cur = b.getAttribute('aria-pressed')==='true';
+          b.setAttribute('aria-pressed', cur ? 'false' : 'true');
+        });
+      }
+      return b;
+    }
+    function readPillValues(groupEl){
+      return [...groupEl.querySelectorAll('.pill[aria-pressed="true"]')].map(b=>b.textContent.toLowerCase());
     }
 
     async function loadEditor(db){
@@ -754,6 +851,28 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
         delBtn.textContent='Delete';
 
         row.append(input, tag, saveBtn, archiveBtn, delBtn);
+
+        /* ===== Category pills ===== */
+        let pillGroup = null;
+        if(kind==='makes'){
+          pillGroup = document.createElement('div');
+          pillGroup.className='pill-group';
+          const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
+          EQUIP_TYPES.forEach(t=>{
+            pillGroup.appendChild( makePill(t[0].toUpperCase()+t.slice(1), selected.includes(t)) );
+          });
+          row.appendChild(pillGroup);
+        }else{
+          // models: show inherited info read-only
+          const inherit = document.createElement('div');
+          inherit.className='pill-group';
+          const note = document.createElement('span');
+          note.className='tag';
+          note.textContent = 'inherits categories from Make';
+          inherit.appendChild(note);
+          row.appendChild(inherit);
+        }
+
         listEl.appendChild(row);
 
         const usage = await usageInfo(db, kind, it.id);
@@ -774,8 +893,33 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
         saveBtn.addEventListener('click', async ()=>{
           const newName = input.value.trim();
           if(!newName) return;
-          const ref = (kind==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
-          await updateDoc(ref, { name:newName, nameLower:newName.toLowerCase(), updatedAt: serverTimestamp() });
+
+          if(kind==='makes'){
+            // collect categories from pills
+            const chosen = pillGroup ? readPillValues(pillGroup) : [];
+            const ref = doc(db,'equipment-makes',it.id);
+            await updateDoc(ref, {
+              name:newName, nameLower:newName.toLowerCase(),
+              categories: chosen,
+              updatedAt: serverTimestamp()
+            });
+
+            // cascade categories to all models of this make
+            try{
+              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',it.id)));
+              const updates = [];
+              mSnap.forEach(md=>{
+                updates.push( updateDoc(doc(db,'equipment-models', md.id), { categories: chosen, updatedAt: serverTimestamp() }) );
+              });
+              await Promise.all(updates);
+            }catch(e){ console.warn('Cascade to models failed:', e); }
+
+          }else{
+            // models: name only (categories follow make)
+            const ref = doc(db,'equipment-models',it.id);
+            await updateDoc(ref, { name:newName, nameLower:newName.toLowerCase(), updatedAt: serverTimestamp() });
+          }
+
           showToast('Saved');
           await refreshDropdowns(db);
         });
@@ -784,6 +928,19 @@ Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
           const ref = (kind==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
           await updateDoc(ref, { archived:true, updatedAt: serverTimestamp() });
           row.remove();
+
+          if(kind==='makes'){
+            // cascade archive to models for consistency (optional but tidy)
+            try{
+              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',it.id)));
+              const updates = [];
+              mSnap.forEach(md=>{
+                updates.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) );
+              });
+              await Promise.all(updates);
+            }catch(e){ console.warn('Cascade archive to models failed:', e); }
+          }
+
           showToast('Archived');
           await refreshDropdowns(db);
         });
