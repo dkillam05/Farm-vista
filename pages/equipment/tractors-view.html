@@ -37,16 +37,28 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
     }
     .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
-    .sub{ margin:0 0 18px; color:var(--muted,#6f7772); }
+    .sub{ margin:0 10px 12px 0; color:var(--muted,#6f7772); }
 
-    /* Search */
+    /* Search + Filter row */
+    .bar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .search{
       display:flex; align-items:center; gap:10px; border:1px solid var(--border);
-      border-radius:12px; background:var(--surface); padding:10px 12px;
+      border-radius:12px; background:var(--surface); padding:10px 12px; flex:1 1 320px;
     }
     .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; color:var(--text); }
 
-    .count{ margin:10px 0; color:var(--muted,#6f7772); font-weight:700; }
+    .filters{
+      display:flex; gap:8px; align-items:center;
+      padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--surface);
+    }
+    .filters label{ font-weight:800; color:var(--muted); }
+    .filters select{
+      appearance:none; -webkit-appearance:none;
+      border:1px solid var(--border); border-radius:10px; background:var(--surface);
+      color:var(--text); padding:8px 10px; font:inherit;
+    }
+
+    .count{ margin:6px 0 10px; color:var(--muted,#6f7772); font-weight:700; }
 
     /* Cards (minimal: make, model, #last6 only) */
     .group{ margin:14px 0; }
@@ -57,11 +69,36 @@
       background:var(--surface);
       color:var(--text);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      padding:14px 16px; display:flex; align-items:center; justify-content:space-between;
+      padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px;
       cursor:pointer;
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
     .card-title{ font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    .badge{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 10px; border-radius:999px; font-weight:800; font-size:12px;
+      border:1px solid var(--border); background:var(--surface);
+      color:var(--muted);
+    }
+    .badge.arch{ border-color:rgba(200,80,80,.35); color:rgba(200,80,80,.9); }
+
+    .btn-mini{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:8px 12px; border-radius:12px; font-weight:800; border:1px solid var(--border);
+      background:var(--surface); color:var(--text); cursor:pointer; text-decoration:none;
+      white-space:nowrap;
+    }
+    .btn-mini.primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
+    .btn-mini[disabled]{ opacity:.55; pointer-events:none; }
+
+    /* Toast */
+    .toast{
+      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 18px);
+      transform:translateX(-50%); background:var(--surface); color:var(--text);
+      border:1px solid var(--border); border-radius:12px; padding:10px 14px;
+      box-shadow:0 10px 24px rgba(0,0,0,.18); z-index:9999; font-weight:800;
+    }
 
     /* Detail modal — dark theme compliant */
     dialog.sheet{
@@ -76,7 +113,7 @@
     .sheet::backdrop{ background:rgba(0,0,0,.55); }
     .sheet header{
       padding:14px 16px; border-bottom:1px solid var(--border);
-      display:flex; justify-content:space-between; align-items:center;
+      display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;
       background:var(--card-surface, var(--surface));
       color:var(--text);
     }
@@ -89,7 +126,7 @@
     .k{ font-weight:800; color:var(--brand-green,#3B7E46); }
     .v{ color:var(--text); }
 
-    /* QR preview block (panel dark; QR stays white for scan reliability) */
+    /* QR preview block */
     .qrbox{
       margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
       display:grid; place-items:center; gap:10px; background:var(--surface);
@@ -97,13 +134,13 @@
     .qrbox h4{ margin:0; font-size:16px; color:var(--text); }
     .qrbox img{
       display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
-      border:1px solid var(--border); background:#fff; /* keep QR white */
+      border:1px solid var(--border); background:#fff;
     }
     .qrnote{ margin:0; color:var(--muted); font-size:13px; }
 
     .sheet footer{
       padding:12px 16px; border-top:1px solid var(--border);
-      display:flex; justify-content:flex-end; gap:8px;
+      display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
       background:var(--card-surface, var(--surface)); color:var(--text);
     }
     .btn{
@@ -118,14 +155,26 @@
   <fv-shell>
     <div class="page">
       <h1 class="title">Tractor Lookup</h1>
-      <p class="sub">Active tractors only. Search by make, model, serial, or year.</p>
+      <p id="subtitle" class="sub">Search by make, model, serial, or year.</p>
 
-      <!-- Search -->
-      <div class="search">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
-        <input id="q" type="search" placeholder="Search" autocomplete="off"/>
+      <div class="bar">
+        <!-- Search -->
+        <div class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
+          <input id="q" type="search" placeholder="Search" autocomplete="off"/>
+        </div>
+
+        <!-- Status filter -->
+        <div class="filters">
+          <label for="statusFilter">Status</label>
+          <select id="statusFilter">
+            <option value="active" selected>Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All</option>
+          </select>
+        </div>
       </div>
 
       <p id="count" class="count">0 entries</p>
@@ -133,11 +182,15 @@
     </div>
   </fv-shell>
 
-  <!-- Detail modal (read-only) -->
+  <!-- Detail modal -->
   <dialog id="detail" class="sheet" aria-modal="true">
     <header>
       <strong id="dTitle">Details</strong>
-      <button id="dClose" class="btn" type="button">Close</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span id="dStatusBadge" class="badge arch" hidden>Archived</span>
+        <button id="btnUnarchiveHdr" class="btn" type="button" hidden>Unarchive</button>
+        <button id="dClose" class="btn" type="button">Close</button>
+      </div>
     </header>
     <div class="body">
       <div class="kv" id="dKV"></div>
@@ -159,13 +212,15 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, query, where, onSnapshot
+      getFirestore, collection, query, where, onSnapshot, doc, updateDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = sel => document.querySelector(sel);
     const list = $('#list');
     const countEl = $('#count');
     const qInput = $('#q');
+    const statusSel = $('#statusFilter');
+    const subtitle = $('#subtitle');
 
     let DATA = [];
     let unsub = null;
@@ -173,11 +228,18 @@
     // Helpers
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
-    const normStatus = v => String(v ?? 'active').toLowerCase();
-    const isActive = d => {
-      const s = normStatus(d.status);
-      return s === 'active' || (d.active === true) || (d.status == null);
-    };
+
+    // Normalize status across old/new docs:
+    // - explicit status: 'active' | 'archived' | 'inactive'
+    // - legacy flag active:false => archived
+    function normStatus(d){
+      const s = String((d && d.status != null ? d.status : '')||'').toLowerCase().trim();
+      if (s === 'archived' || s === 'inactive') return 'archived';
+      if (d && d.active === false) return 'archived';
+      return 'active';
+    }
+    const isArchived = d => normStatus(d) === 'archived';
+
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
     const displayLine = d => {
       const mm = mmText(d);
@@ -205,7 +267,6 @@
         const out = [];
         snap.forEach(docSnap=>{
           const d = docSnap.data() || {};
-          if (!isActive(d)) return;
           out.push({ id: docSnap.id, ...d });
         });
         out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
@@ -217,7 +278,16 @@
 
     function render(){
       const q = (qInput.value || '').toLowerCase().trim();
-      const rows = DATA.filter(d=>{
+      const mode = statusSel.value; // 'active' | 'archived' | 'all'
+
+      // filter by status
+      const statusFiltered = DATA.filter(d=>{
+        if (mode === 'all') return true;
+        return mode === 'archived' ? isArchived(d) : !isArchived(d);
+      });
+
+      // filter by search blob
+      const rows = statusFiltered.filter(d=>{
         if (!q) return true;
         const blob = [
           displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes
@@ -225,7 +295,12 @@
         return blob.includes(q);
       });
 
-      countEl.textContent = `${rows.length}/${DATA.length} entries`;
+      subtitle.textContent =
+        mode === 'all' ? 'Showing Active + Archived. Search by make, model, serial, or year.'
+        : mode === 'archived' ? 'Showing Archived only. Search by make, model, serial, or year.'
+        : 'Showing Active only. Search by make, model, serial, or year.';
+
+      countEl.textContent = `${rows.length}/${statusFiltered.length} entries (${mode})`;
       list.innerHTML = '';
 
       if(!rows.length){
@@ -248,8 +323,28 @@
         const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
         by[letter].forEach(d=>{
           const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
+
+          const left = document.createElement('div'); left.style.display='flex';
+          left.style.alignItems='center'; left.style.gap='10px'; left.style.minWidth='0';
+
           const title = document.createElement('div'); title.className='card-title'; title.textContent = displayLine(d);
-          card.append(title);
+          title.style.minWidth='0';
+
+          left.append(title);
+
+          const right = document.createElement('div'); right.style.display='flex'; right.style.gap='8px'; right.style.alignItems='center';
+
+          if (isArchived(d)) {
+            const badge = document.createElement('span'); badge.className='badge arch'; badge.textContent='Archived';
+            right.append(badge);
+
+            const unbtn = document.createElement('button');
+            unbtn.type='button'; unbtn.className='btn-mini primary'; unbtn.textContent='Unarchive';
+            unbtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); quickUnarchive(d); });
+            right.append(unbtn);
+          }
+
+          card.append(left, right);
           card.addEventListener('click', ()=> openDetail(d));
           wrap.appendChild(card);
         });
@@ -257,11 +352,13 @@
       });
     }
 
-    // Detail modal (read-only)
+    // Detail modal
     const dlg = document.getElementById('detail');
     const dTitle = document.getElementById('dTitle');
     const dKV = document.getElementById('dKV');
     const btnHub = document.getElementById('openHub');
+    const dBadge = document.getElementById('dStatusBadge');
+    const btnUnHdr = document.getElementById('btnUnarchiveHdr');
 
     // QR elements
     const btnPrintQR = document.getElementById('btnPrintQR');
@@ -304,6 +401,11 @@
       addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
       addRow('Notes', d.notes);
 
+      const archived = isArchived(d);
+      dBadge.hidden = !archived;
+      btnUnHdr.hidden = !archived;
+      btnUnHdr.onclick = ()=> quickUnarchive(d);
+
       const tok = d.qr && d.qr.token ? d.qr.token : '';
       btnHub.href = hubUrl(d.id, tok);
 
@@ -329,24 +431,49 @@
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
+    /* ==================== Quick Unarchive ==================== */
+    async function quickUnarchive(d){
+      const name = titleFor(d);
+      if (!confirm(`Unarchive “${name}”?`)) return;
+      try{
+        const db = getFirestore();
+        await updateDoc(doc(db,'equipment', d.id), { status:'active', active:true });
+        toast(`Unarchived: ${name}`);
+        // No manual refresh needed; listener will reflect change.
+      }catch(err){
+        console.error('Unarchive failed', err);
+        toast('Unarchive failed. Check console.');
+      }
+    }
+
+    /* ==================== Toast ==================== */
+    let toastT=null;
+    function toast(msg){
+      if (toastT) { clearTimeout(toastT); toastT=null; }
+      let t = document.querySelector('.toast');
+      if (!t){
+        t = document.createElement('div'); t.className='toast';
+        document.body.appendChild(t);
+      }
+      t.textContent = msg;
+      t.style.opacity='1';
+      toastT = setTimeout(()=>{ t.style.transition='opacity .25s'; t.style.opacity='0'; }, 1800);
+    }
+
     /* ==================== Robust QR Print (new-tab, iOS friendly) ==================== */
     function printQR(url, labelText){
-      // Always open a fresh user-initiated tab; avoids iOS “blocked from automatically printing”.
       const w = window.open('', '_blank');
       if (!w) return;
-
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  /* If the printer supports custom size, this is exact 2in×1in. Otherwise we center on Letter. */
   @page { size: 2in 1in; margin: 0; }
   html, body { margin:0; padding:0; background:#fff; }
-  /* Letter fallback centering */
   body:before{ content:""; display:block; height:0; }
   #wrap{
     width:2in; height:1in; margin:0 auto;
     display:flex; align-items:center; justify-content:center;
-    transform:translateZ(0); /* ensure rasterization on iOS */
+    transform:translateZ(0);
   }
   #card { width:2in; height:1in; display:flex; flex-direction:column; align-items:center; justify-content:center; }
   #qri { max-width: 1.25in; max-height: 0.72in; display:block; image-rendering: pixelated; background:#fff; }
@@ -370,11 +497,9 @@
   if (img.complete) { setTimeout(doPrint, 0); }
   else { img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
   window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
-  // Safety close (e.g., if afterprint doesn't fire on some mobile stacks)
   setTimeout(()=>{ try{ window.close(); }catch(e){} }, 4000);
 <\/script>
 </body></html>`;
-
       w.document.open(); w.document.write(html); w.document.close();
     }
     /* ================================================================================ */
@@ -386,6 +511,7 @@
       await ready;
       attach();
       qInput.addEventListener('input', render);
+      statusSel.addEventListener('change', render);
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
