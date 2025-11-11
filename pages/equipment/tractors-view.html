@@ -39,28 +39,45 @@
     .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
     .sub{ margin:0 10px 12px 0; color:var(--muted,#6f7772); }
 
-    /* Search + Filter row */
-    .bar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    /* Search row */
+    .bar{ display:flex; gap:10px; align-items:center; }
     .search{
       display:flex; align-items:center; gap:10px; border:1px solid var(--border);
-      border-radius:12px; background:var(--surface); padding:10px 12px; flex:1 1 320px;
+      border-radius:12px; background:var(--surface); padding:10px 12px; flex:1 1 auto;
     }
     .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; color:var(--text); }
 
-    .filters{
-      display:flex; gap:8px; align-items:center;
-      padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--surface);
+    /* Filter icon button */
+    .icon-btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      width:42px; height:42px;
+      border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text);
+      cursor:pointer;
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.06));
     }
-    .filters label{ font-weight:800; color:var(--muted); }
-    .filters select{
-      appearance:none; -webkit-appearance:none;
-      border:1px solid var(--border); border-radius:10px; background:var(--surface);
-      color:var(--text); padding:8px 10px; font:inherit;
+    .icon-btn:active{ transform:translateY(1px); }
+    .icon-btn svg{ display:block }
+
+    /* Popover */
+    .popover{
+      position:absolute; z-index:1000; min-width:220px;
+      border:1px solid var(--border); border-radius:14px;
+      background:var(--card-surface, var(--surface)); color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.28);
+      padding:10px;
     }
+    .popover header{ font-weight:800; margin:4px 2px 8px; color:var(--muted); }
+    .opt{
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px; border-radius:10px; cursor:pointer;
+    }
+    .opt:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
+    .opt input{ accent-color:var(--brand-green,#3B7E46); }
 
     .count{ margin:6px 0 10px; color:var(--muted,#6f7772); font-weight:700; }
 
-    /* Cards (minimal: make, model, #last6 only) */
+    /* Cards */
     .group{ margin:14px 0; }
     .group h3{ margin:0 0 8px; color:var(--muted); font-weight:800; letter-spacing:.02em; }
     .card{
@@ -100,7 +117,7 @@
       box-shadow:0 10px 24px rgba(0,0,0,.18); z-index:9999; font-weight:800;
     }
 
-    /* Detail modal — dark theme compliant */
+    /* Detail modal */
     dialog.sheet{
       width:min(740px, 92vw);
       border:1px solid var(--border);
@@ -126,7 +143,6 @@
     .k{ font-weight:800; color:var(--brand-green,#3B7E46); }
     .v{ color:var(--text); }
 
-    /* QR preview block */
     .qrbox{
       margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
       display:grid; place-items:center; gap:10px; background:var(--surface);
@@ -155,7 +171,7 @@
   <fv-shell>
     <div class="page">
       <h1 class="title">Tractor Lookup</h1>
-      <p id="subtitle" class="sub">Search by make, model, serial, or year.</p>
+      <p id="subtitle" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
 
       <div class="bar">
         <!-- Search -->
@@ -166,15 +182,30 @@
           <input id="q" type="search" placeholder="Search" autocomplete="off"/>
         </div>
 
-        <!-- Status filter -->
-        <div class="filters">
-          <label for="statusFilter">Status</label>
-          <select id="statusFilter">
-            <option value="active" selected>Active</option>
-            <option value="archived">Archived</option>
-            <option value="all">All</option>
-          </select>
-        </div>
+        <!-- Compact filter button -->
+        <button id="filterBtn" class="icon-btn" aria-label="Filters" aria-haspopup="true" aria-expanded="false">
+          <!-- funnel icon (Sheets-like) -->
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Popover (hidden by default) -->
+      <div id="filterPop" class="popover" hidden>
+        <header>Status</header>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="active" checked/>
+          <span>Active</span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="archived"/>
+          <span>Archived</span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="all"/>
+          <span>All</span>
+        </label>
       </div>
 
       <p id="count" class="count">0 entries</p>
@@ -195,7 +226,6 @@
     <div class="body">
       <div class="kv" id="dKV"></div>
 
-      <!-- QR preview -->
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -219,19 +249,20 @@
     const list = $('#list');
     const countEl = $('#count');
     const qInput = $('#q');
-    const statusSel = $('#statusFilter');
     const subtitle = $('#subtitle');
+
+    // Filter popover elements
+    const filterBtn = $('#filterBtn');
+    const filterPop = $('#filterPop');
 
     let DATA = [];
     let unsub = null;
+    let mode = 'active'; // 'active' | 'archived' | 'all'
 
     // Helpers
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
 
-    // Normalize status across old/new docs:
-    // - explicit status: 'active' | 'archived' | 'inactive'
-    // - legacy flag active:false => archived
     function normStatus(d){
       const s = String((d && d.status != null ? d.status : '')||'').toLowerCase().trim();
       if (s === 'archived' || s === 'inactive') return 'archived';
@@ -278,7 +309,6 @@
 
     function render(){
       const q = (qInput.value || '').toLowerCase().trim();
-      const mode = statusSel.value; // 'active' | 'archived' | 'all'
 
       // filter by status
       const statusFiltered = DATA.filter(d=>{
@@ -378,7 +408,6 @@
       dKV.append(K,V);
     }
 
-    // Resolve qr.image as string OR {url}
     function getQrUrl(d){
       try{
         if (!d || !d.qr) return '';
@@ -409,7 +438,6 @@
       const tok = d.qr && d.qr.token ? d.qr.token : '';
       btnHub.href = hubUrl(d.id, tok);
 
-      // QR preview
       const url = getQrUrl(d);
       const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
       if (url){
@@ -439,7 +467,6 @@
         const db = getFirestore();
         await updateDoc(doc(db,'equipment', d.id), { status:'active', active:true });
         toast(`Unarchived: ${name}`);
-        // No manual refresh needed; listener will reflect change.
       }catch(err){
         console.error('Unarchive failed', err);
         toast('Unarchive failed. Check console.');
@@ -460,7 +487,49 @@
       toastT = setTimeout(()=>{ t.style.transition='opacity .25s'; t.style.opacity='0'; }, 1800);
     }
 
-    /* ==================== Robust QR Print (new-tab, iOS friendly) ==================== */
+    /* ==================== Filter popover logic ==================== */
+    function openPop(){
+      if (!filterPop.hidden) return;
+      // Position below & right aligned to the button
+      const r = filterBtn.getBoundingClientRect();
+      filterPop.style.top = `${r.bottom + window.scrollY + 8}px`;
+      // keep it within viewport right edge
+      const maxLeft = window.scrollX + document.documentElement.clientWidth - 12 - 220;
+      const desiredLeft = r.right + window.scrollX - 220; // right align to button
+      filterPop.style.left = `${Math.max(12, Math.min(maxLeft, desiredLeft))}px`;
+      filterPop.hidden = false;
+      filterBtn.setAttribute('aria-expanded','true');
+    }
+    function closePop(){
+      if (filterPop.hidden) return;
+      filterPop.hidden = true;
+      filterBtn.setAttribute('aria-expanded','false');
+    }
+    filterBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      if (filterPop.hidden) openPop(); else closePop();
+    });
+    document.addEventListener('click', (e)=>{
+      if (!filterPop.hidden && !filterPop.contains(e.target) && e.target !== filterBtn) closePop();
+    });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
+
+    // Apply mode on radio change (auto-close)
+    filterPop.addEventListener('change', (e)=>{
+      if (e.target && e.target.name === 'statusMode') {
+        mode = e.target.value;
+        render();
+        closePop();
+      }
+    });
+
+    // Initialize radios from default mode
+    function syncRadios(){
+      const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
+      if (r) r.checked = true;
+    }
+
+    /* ==================== QR Print (unchanged) ==================== */
     function printQR(url, labelText){
       const w = window.open('', '_blank');
       if (!w) return;
@@ -502,16 +571,15 @@
 </body></html>`;
       w.document.open(); w.document.write(html); w.document.close();
     }
-    /* ================================================================================ */
 
-    // Resume hooks
+    /* ==================== Lifecycle ==================== */
     function resume(){ if (!unsub) attach(); }
 
     (async()=>{
       await ready;
       attach();
+      syncRadios();
       qInput.addEventListener('input', render);
-      statusSel.addEventListener('change', render);
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
