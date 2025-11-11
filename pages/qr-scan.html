@@ -1,3 +1,7 @@
+<!-- =====================================================================
+/Farm-vista/pages/qr/scan.html
+Fix: unwrap nested launch.html?to=... and guard against double navigation
+===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -36,7 +40,6 @@
     .ok{color:#3B7E46}.bad{color:#b91c1c}
   </style>
 
-  <!-- QR decode lib -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 </head>
 <body>
@@ -62,6 +65,7 @@
 (function(){
   const APP_SCOPE = '/Farm-vista/';
   const LAUNCH = (to) => `${location.origin}${APP_SCOPE}launch.html?to=${encodeURIComponent(to)}`;
+  let didNav = false; // prevent double navigate
 
   const $ = (id)=> document.getElementById(id);
   const video = $('video'), canvas = $('canvas'), status = $('status');
@@ -78,8 +82,19 @@
     }
   }
 
-  // Always go through Launch so auth/context are ready before deep pages
+  function unwrapLaunch(url){
+    try{
+      const u = new URL(url, location.origin);
+      if (u.pathname.includes('/launch.html') && u.searchParams.has('to')){
+        return unwrapLaunch(u.searchParams.get('to'));
+      }
+    }catch{}
+    return url;
+  }
+
   function go(targetAbs){
+    if (didNav) return;
+    didNav = true;
     location.href = LAUNCH(targetAbs);
   }
 
@@ -92,7 +107,6 @@
   async function start(){
     try{
       cleanup();
-      // Try to use rear camera; browser will prompt if needed
       stream = await navigator.mediaDevices.getUserMedia({
         video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }, audio:false
       });
@@ -110,13 +124,13 @@
         ctx.drawImage(video,0,0,canvas.width,canvas.height);
         const img = ctx.getImageData(0,0,canvas.width,canvas.height);
 
-        // More tolerant decode for screens: attemptBoth
         const code = jsQR(img.data, img.width, img.height, { inversionAttempts:'attemptBoth' });
 
         if (code && code.data){
           cleanup();
           setStatus('QR detected. Opening…');
-          const abs = normalize(code.data.trim());
+          let abs = normalize(code.data.trim());
+          abs = unwrapLaunch(abs);
           go(abs);
           return;
         }
@@ -128,14 +142,12 @@
     }
   }
 
-  // Cancel goes back to the previous page if there is one, otherwise home.
   btnCancel.addEventListener('click', ()=>{
     cleanup();
     if (window.history.length > 1) history.back();
     else location.replace(APP_SCOPE);
   });
 
-  // Auto-start
   document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && !running && !stream) start(); });
   start();
 })();
