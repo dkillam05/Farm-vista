@@ -1,9 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Fix: eliminate mobile "blip" by replacing native <select> for Make/Model
-     with Fields-style custom dropdowns (.dd). Stable metrics from frame 0.
-Adds: Category pill buttons on Make editor; cascade categories to Models;
-      type-aware Make/Model filtering; new docs default categories=[TYPE].
+Adds:
+  • Dynamic equipment switches sourced from /Farm-vista/js/menu.js
+  • New Make modal (name + switches) — no prompt()
+  • Edit Makes modal: collapsed rows, same switch UI, one "Save All" button
+  • Models follow Make categories (cascade on save)
+  • Type-aware dropdown filtering; legacy items visible everywhere
+  • No blue font in modals; theme-aware
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -58,7 +61,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
-    /* Center the card & isolate its layout so child reflows can't recenter it */
+    /* Card */
     .hero{
       width:min(720px, calc(100% - 24px));
       margin:0 auto var(--page-bottom-gap);
@@ -94,17 +97,12 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
     .as-label:hover{ text-decoration:underline; }
     .as-label.req::after{ content:" *"; color:var(--brand); }
 
-    /* ---------- Stable base controls ---------- */
+    /* ---------- Base controls ---------- */
     .input,.select,.textarea{
-      width:100%;
-      font:inherit; font-size:16px;
-      color:var(--text);
+      width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:var(--ctl-radius);
-      padding:var(--ctl-pad-y) var(--ctl-pad-x);
-      box-sizing:border-box;
-      outline:none;
+      border:1px solid var(--border); border-radius:var(--ctl-radius);
+      padding:var(--ctl-pad-y) var(--ctl-pad-x); box-sizing:border-box; outline:none;
     }
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
@@ -115,6 +113,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
       background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer;
       -webkit-appearance:none; appearance:none; color:var(--text)!important;
+      text-decoration:none;
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent; color:var(--text)!important }
@@ -131,10 +130,10 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* ===== Year popover (unchanged) ===== */
+    /* ===== Year popover ===== */
     .combo{ position:relative; }
     .combo-trigger{ width:100%; text-align:left; }
-    .combo-trigger.select{ position:relative; }
+    .combo-trigger.select{ position:relative; display:flex; align-items:center; }
     .combo-trigger.select::after{
       content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
       border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
@@ -150,17 +149,16 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       background:transparent; border:none; border-radius:10px;
       padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer; font-weight:400;
     }
-    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
+    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline:none; }
     .combo-hidden{ display:none !important; }
 
-    /* ===== Custom dropdowns (Fields style) ===== */
+    /* ===== Custom dropdowns ===== */
     .dd{position:relative}
     .dd-btn{
       width:100%;text-align:left;padding:12px;padding-right:40px;
       border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));
       font:inherit;color:var(--text);cursor:pointer;appearance:none;position:relative;height:var(--ctl-h);
       line-height:calc(var(--ctl-h) - 2px);
-      /* VERTICAL CENTERING TWEAKS */
       display:flex; align-items:center;
     }
     .dd-btn::after{
@@ -181,7 +179,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
-    /* ===== Inline modal editor ===== */
+    /* ===== Modal base ===== */
     .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
     .modal.show{ display:flex; }
     .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
@@ -192,47 +190,74 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
     }
     .sheet header{
       padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
-      display:flex; align-items:center; justify-content:space-between;
+      display:flex; align-items:center; justify-content:space-between; color:var(--text);
     }
-    .sheet header .close{ border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer; padding:6px 10px; border-radius:10px; }
+    .sheet header .close{
+      border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer;
+      padding:6px 10px; border-radius:10px; color:var(--text);
+    }
     .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
 
+    /* ===== Edit/New content ===== */
     .ed-wrap{ padding:12px; display:grid; gap:12px; }
     .ed-toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .ed-toolbar .select{ width:auto; min-width:220px; }
     .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:hidden; }
-    .ed-row{ display:grid; grid-template-columns:1fr auto auto auto; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); }
+    .ed-row{ display:block; padding:0; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
-    .ed-row input{ width:100%; }
 
-    .tag{ display:inline-block; padding:2px 8px; border-radius:10px; border:1px solid var(--border); font-size:12px; color:var(--text); background:var(--card-surface,var(--surface)); }
-    .sm{ padding:6px 10px; border-radius:10px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:800; color:var(--text); }
-    .sm.primary{ background:var(--brand); border-color:transparent; color:#fff; }
-    .sm.danger{ border-color:#b00020; color:#b00020; }
-    .sm[hidden]{ display:none !important; }
-
-    /* Category pills */
-    .pill-group{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
-    .pill{
-      display:inline-flex; align-items:center; justify-content:center;
-      padding:6px 10px; border-radius:999px; border:1px solid var(--border);
-      background:var(--card-surface,var(--surface)); cursor:pointer; font-weight:700; font-size:13px; color:var(--text);
-      user-select:none;
+    .ed-head{
+      display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
+      padding:10px 12px; cursor:pointer; user-select:none;
     }
-    .pill[aria-pressed="true"]{
-      background:var(--brand); border-color:transparent; color:#fff;
-    }
-    .pill[disabled]{ opacity:.6; cursor:not-allowed }
+    .ed-name{ display:flex; gap:8px; align-items:center; }
+    .ed-name input{ width:100%; }
+    .ed-tag{ display:inline-block; padding:2px 8px; border-radius:10px; border:1px solid var(--border); font-size:12px; color:var(--text); background:var(--card-surface,var(--surface)); }
 
-    /* In-row pills placement for makes */
-    .ed-row .pill-group{ grid-column: 1 / -1; }
+    .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
+    .ed-row.open .ed-chevron{ transform:rotate(90deg); }
 
-    /* ===== VERTICAL CENTERING TWEAKS ===== */
-    .combo-trigger.select{ display:flex; align-items:center; }        /* Year trigger */
-    .input[type="file"]{
-      height:var(--ctl-h); display:flex; align-items:center;         /* Photos picker */
-      padding-top:0; padding-bottom:0; line-height:1;
+    .ed-body{ display:none; padding:0 12px 12px; }
+    .ed-row.open .ed-body{ display:block; }
+
+    .switch-list{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+    @media (max-width:640px){ .switch-list{ grid-template-columns:1fr; } }
+
+    /* Switch */
+    .switch{
+      display:flex; align-items:center; justify-content:space-between; gap:16px;
+      padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
     }
+    .switch label{ font-weight:800; }
+    .toggle{
+      position:relative; width:48px; height:28px; border-radius:999px;
+      background:var(--hover,rgba(0,0,0,.12)); border:1px solid var(--border); cursor:pointer;
+      outline:none; appearance:none;
+    }
+    .toggle::after{
+      content:""; position:absolute; top:50%; left:4px; transform:translateY(-50%);
+      width:22px; height:22px; border-radius:50%; background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.15);
+      transition:left .16s ease;
+    }
+    .toggle:checked{ background:var(--brand); border-color:transparent; }
+    .toggle:checked::after{ left:22px; }
+
+    .ed-footer{
+      display:flex; justify-content:flex-end; gap:10px; padding:10px 12px; border-top:1px solid var(--border);
+    }
+    .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
+
+    .mark-danger{
+      display:inline-flex; align-items:center; gap:10px; padding:10px 12px;
+      border:1px solid #b00020; color:#b00020; border-radius:10px; background:transparent; cursor:pointer;
+    }
+    .mark-warn{
+      display:inline-flex; align-items:center; gap:10px; padding:10px 12px;
+      border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer;
+    }
+
+    /* New Make modal */
+    .nm-body{ padding:12px; display:grid; gap:12px; }
   </style>
 </head>
 
@@ -318,14 +343,14 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
             <button id="btnQR" class="btn" type="button">Create QR Code</button>
-            <button id="btnClear" class="btn btn-quiet" type="button">Cancel</button>
+            <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Inline editor modal -->
+  <!-- Edit modal -->
   <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
     <div class="backdrop" data-close></div>
     <div class="sheet">
@@ -335,10 +360,37 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       </header>
       <div class="ed-wrap">
         <div class="ed-toolbar" id="edToolbar">
-          <!-- For models, we inject a Make filter <select> here -->
-          <span id="edContext" class="tag">—</span>
+          <span id="edContext" class="ed-tag">—</span>
+          <span class="ed-foot-left" id="edHint" style="opacity:.8;">Tap a row to expand. Toggle equipment switches, then Save All.</span>
+          <div style="margin-left:auto;display:flex;gap:10px;">
+            <button id="edSaveAll" class="btn btn-primary" type="button">Save All Changes</button>
+          </div>
         </div>
         <div id="edList" class="ed-list" role="list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Make modal -->
+  <div id="newMakeModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="nmTitle">
+    <div class="backdrop" data-close></div>
+    <div class="sheet">
+      <header>
+        <div id="nmTitle">New Make</div>
+        <button class="close" type="button" data-close>Close</button>
+      </header>
+      <div class="nm-body">
+        <div>
+          <label for="nmName" class="req">Make name</label>
+          <input id="nmName" class="input" placeholder="e.g., John Deere"/>
+        </div>
+        <div>
+          <div style="font-weight:800;margin-bottom:6px;">Available on</div>
+          <div id="nmSwitches" class="switch-list"></div>
+        </div>
+        <div class="ed-footer">
+          <button id="nmCreate" class="btn btn-primary" type="button">Create</button>
+        </div>
       </div>
     </div>
   </div>
@@ -357,12 +409,38 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
+    // Dynamic equipment labels from menu.js
+    import NAV_MENU from '/Farm-vista/js/menu.js';
+
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
-    const EQUIP_TYPES = ['tractor','sprayer','combine','truck','implement','trailer'];
 
-    /* stamp the page with type for downstream reads (and for your future CSS if wanted) */
+    /* normalize label -> slug for categories */
+    function normType(label){
+      const s = String(label||'').toLowerCase();
+      // map common variations to our slugs used on forms
+      if(s.includes('tractor')) return 'tractor';
+      if(s.includes('combine')) return 'combine';
+      if(s.includes('implement')) return 'implement';
+      if(s.includes('sprayer')) return 'sprayer';
+      if(s.includes('fertilizer')) return 'fertilizer';
+      if(s.includes('construction')) return 'construction';
+      if(s.includes('truck')) return 'truck';
+      if(s.includes('trailer')) return 'trailer';
+      if(s.includes('starfire') || s.includes('technology')) return 'starfire';
+      return s.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$|/g,'');
+    }
+
+    function getEquipmentTypesFromMenu(){
+      const group = NAV_MENU.items.find(x => x.type==='group' && x.id==='equipment');
+      const children = group?.children || [];
+      return children.map(c => ({ label: c.label, slug: normType(c.label) }));
+    }
+    const EQUIP_TYPES = getEquipmentTypesFromMenu(); // [{label, slug}, ...]
+    const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
+
+    /* stamp the page with type for downstream reads / CSS */
     document.addEventListener('DOMContentLoaded',()=> {
       const wrap = document.querySelector('.wrap');
       if(wrap) wrap.dataset.equipmentType = TYPE;
@@ -375,7 +453,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* ===== Year options (unchanged) ===== */
+    /* ===== Year options ===== */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -409,7 +487,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
     function onDocClickClose(e){ if(!$("yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    /* ===== Dropdown helpers (copied from Fields pattern) ===== */
+    /* ===== Dropdown helpers ===== */
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -439,9 +517,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
         const li=document.createElement("li");
         li.textContent=label;
         li.dataset.value=val;
-        if(meta && meta.isAdd){
-          li.style.fontWeight='800';
-        }
+        if(meta && meta.isAdd){ li.style.fontWeight='800'; }
         li.onclick=()=>onPick(val,label,meta);
         listEl.appendChild(li);
       });
@@ -532,6 +608,8 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
     }
 
     /* ===== Data ===== */
+    function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
+
     async function getMakes(db){
       const items=[];
       try{
@@ -539,7 +617,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
         snap.forEach(d=>{
           const v=d.data()||{};
           const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
         });
       }catch{
         const snap=await getDocs(collection(db,'equipment-makes'));
@@ -547,7 +625,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
           const v=d.data()||{};
           if(!v.archived){
             const name=String(v.name||'').trim();
-            if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+            if(name) items.push({id:d.id,name, categories:docCats(v)});
           }
         });
         items.sort((a,b)=>a.name.localeCompare(b.name));
@@ -562,7 +640,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
         snap.forEach(d=>{
           const v=d.data()||{};
           const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
         });
       }catch{
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
@@ -570,7 +648,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
           const v=d.data()||{};
           if(!v.archived){
             const name=String(v.name||'').trim();
-            if(name) items.push({id:d.id,name, categories:Array.isArray(v.categories)?v.categories:undefined});
+            if(name) items.push({id:d.id,name, categories:docCats(v)});
           }
         });
         items.sort((a,b)=>a.name.localeCompare(b.name));
@@ -585,42 +663,62 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       return cats.includes(TYPE);
     }
 
-    /* ===== Add flows (for dd lists) ===== */
-    async function addMake(db){
-      const name = (prompt("New Make name:")||"").trim();
-      if(!name) return null;
+    /* ===== New Make modal (build switches dynamically) ===== */
+    const NewMake = {
+      el: $("newMakeModal"),
+      name: $("nmName"),
+      list: $("nmSwitches"),
+      createBtn: $("nmCreate"),
+      open(){
+        this.name.value="";
+        this.list.innerHTML="";
+        EQUIP_TYPES.forEach(t=>{
+          const row=document.createElement('div'); row.className='switch';
+          const lab=document.createElement('label'); lab.textContent=t.label;
+          const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=t.slug;
+          // default to current TYPE
+          if(t.slug===TYPE) tog.checked=true;
+          row.append(lab, tog);
+          this.list.appendChild(row);
+        });
+        this.el.classList.add('show'); document.body.style.overflow='hidden';
+      },
+      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; }
+    };
+    document.querySelectorAll('#newMakeModal [data-close]').forEach(el=>el.addEventListener('click', ()=>NewMake.close()));
+
+    /* ===== Add flows (dropdown “Add New…”) ===== */
+    async function createMakeFromModal(db){
+      const name = (NewMake.name.value||"").trim();
+      if(!name){ alert("Enter a make name."); return null; }
+      const chosen = [...NewMake.list.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug).filter(x=>EQUIP_SLUGS.includes(x));
+      const cats = chosen.length ? chosen : [TYPE]; // safety
       const docRef = doc(collection(db,'equipment-makes'));
       await setDoc(docRef,{
-        name,
-        nameLower:name.toLowerCase(),
-        status:'active',
-        archived:false,
-        categories:[TYPE],               // default to current form type
+        name, nameLower:name.toLowerCase(),
+        status:'active', archived:false,
+        categories: cats,
         createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       });
-      return { id: docRef.id, name, categories:[TYPE] };
+      return { id: docRef.id, name, categories: cats };
     }
+
     async function addModel(db, makeId){
       if(!makeId){ alert("Pick a Make before adding a Model."); return null; }
       const name = (prompt("New Model name:")||"").trim();
       if(!name) return null;
-
-      // inherit categories from make (models follow make)
+      // inherit cats from make
       let makeCats = [TYPE];
       try{
         const mSnap = await getDoc(doc(db,'equipment-makes', makeId));
         const mv = mSnap.data()||{};
         if(Array.isArray(mv.categories) && mv.categories.length) makeCats = mv.categories;
       }catch{}
-
       const docRef = doc(collection(db,'equipment-models'));
       await setDoc(docRef,{
-        name,
-        nameLower:name.toLowerCase(),
-        status:'active',
-        archived:false,
-        makeId,
-        categories: makeCats,
+        name, nameLower:name.toLowerCase(),
+        status:'active', archived:false,
+        makeId, categories: makeCats,
         createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       });
       return { id: docRef.id, name, categories: makeCats };
@@ -629,20 +727,8 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
     /* ===== Build & wire custom dropdowns ===== */
     let ddMake, ddModel;
     function buildDdObjects(){
-      ddMake = {
-        root: $("ddMake"),
-        btn: $("ddMakeBtn"),
-        search: $("ddMakeSearch"),
-        list: $("ddMakeList"),
-        hidden: $("makeId")
-      };
-      ddModel = {
-        root: $("ddModel"),
-        btn: $("ddModelBtn"),
-        search: $("ddModelSearch"),
-        list: $("ddModelList"),
-        hidden: $("modelId")
-      };
+      ddMake = { root: $("ddMake"), btn: $("ddMakeBtn"), search: $("ddMakeSearch"), list: $("ddMakeList"), hidden: $("makeId") };
+      ddModel = { root: $("ddModel"), btn: $("ddModelBtn"), search: $("ddModelSearch"), list: $("ddModelList"), hidden: $("modelId") };
       wireDropdownOpenClose(ddMake.root);
       wireDropdownOpenClose(ddModel.root);
       setupSearch(ddMake.search, ddMake.list);
@@ -658,9 +744,13 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       ];
       buildList(ddMake.list, items, async (val,label,meta)=>{
         if(meta && meta.isAdd){
-          const created = await addMake(db);
-          await populateMakes(db, created ? created.id : "");
-          if(created){ setMake(created.id, created.name); }
+          NewMake.open();
+          const onCreate = async ()=>{
+            NewMake.createBtn.removeEventListener('click', onCreate);
+            const created = await createMakeFromModal(db);
+            if(created){ NewMake.close(); await populateMakes(db, created.id); setMake(created.id, created.name); }
+          };
+          NewMake.createBtn.addEventListener('click', onCreate, { once:true });
           return;
         }
         setMake(val, label);
@@ -725,30 +815,22 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       validateForm();
     }
 
-    /* ===== Inline editor modal logic (with category pills for MAKES) ===== */
+    /* ===== Edit modal (collapsed rows + master Save) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
-    function openModal(title){
-      $("editTitle").textContent = title;
-      $("editModal").classList.add('show');
-      document.body.style.overflow='hidden';
-    }
-    function closeModal(){
-      $("editModal").classList.remove('show');
-      document.body.style.overflow='';
-      $("edList").innerHTML='';
-      const sel = document.getElementById('edMakeSelect');
-      if(sel) sel.remove();
-      EDIT_KIND=null;
-    }
-    document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
+    const Edit = {
+      el: $("editModal"),
+      list: $("edList"),
+      saveAllBtn: $("edSaveAll"),
+      pending: new Map(),   // makeId -> { name, categories, delete, archive }
+      open(title){ $("editTitle").textContent = title; this.pending.clear(); this.el.classList.add('show'); document.body.style.overflow='hidden'; },
+      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; }
+    };
+    document.querySelectorAll('#editModal [data-close]').forEach(el=>el.addEventListener('click', ()=>Edit.close()));
 
     async function usageInfo(db, kind, id){
-      let qRef;
-      if(kind==='makes'){
-        qRef = query(collection(db,'equipment'), where('makeId','==',id));
-      }else{
-        qRef = query(collection(db,'equipment'), where('modelId','==',id));
-      }
+      let qRef = (kind==='makes')
+        ? query(collection(db,'equipment'), where('makeId','==',id))
+        : query(collection(db,'equipment'), where('modelId','==',id));
       const snap = await getDocs(qRef);
       let total = 0, active = 0;
       snap.forEach(d=>{
@@ -759,215 +841,204 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       return { total, active };
     }
 
-    function makePill(label, active=false, disabled=false){
-      const b=document.createElement('button');
-      b.type='button';
-      b.className='pill';
-      b.textContent=label;
-      b.setAttribute('aria-pressed', active ? 'true' : 'false');
-      if(disabled) b.setAttribute('disabled','');
-      if(!disabled){
-        b.addEventListener('click', ()=>{
-          const cur = b.getAttribute('aria-pressed')==='true';
-          b.setAttribute('aria-pressed', cur ? 'false' : 'true');
-        });
-      }
-      return b;
-    }
-    function readPillValues(groupEl){
-      return [...groupEl.querySelectorAll('.pill[aria-pressed="true"]')].map(b=>b.textContent.toLowerCase());
+    function buildSwitchRow(label, slug, checked){
+      const row=document.createElement('div'); row.className='switch';
+      const lab=document.createElement('label'); lab.textContent=label;
+      const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=slug; tog.checked=!!checked;
+      row.append(lab,tog);
+      return row;
     }
 
     async function loadEditor(db){
-      const listEl = $("edList");
-      listEl.innerHTML = '';
+      Edit.list.innerHTML = '';
       const ctx = $("edContext");
       const toolbar = $("edToolbar");
 
-      let items = [];
       if(EDIT_KIND === 'makes'){
         ctx.textContent = 'Makes';
-        items = await getMakes(db);
-      }else{
-        let sel = document.getElementById('edMakeSelect');
-        if(!sel){
-          sel = document.createElement('select');
-          sel.id = 'edMakeSelect';
-          sel.className = 'select';
-          toolbar.insertBefore(sel, ctx);
+
+        const makes = await getMakes(db);
+        for(const it of makes){
+          const row=document.createElement('div'); row.className='ed-row';
+          // header
+          const head=document.createElement('div'); head.className='ed-head';
+          const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
+          const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
+          const tag=document.createElement('span'); tag.className='ed-tag'; tag.textContent='checking…';
+          const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
+          nameWrap.append(inp);
+          head.append(nameWrap, chev);
+          row.append(head);
+
+          // body (switches + marks)
+          const body=document.createElement('div'); body.className='ed-body';
+          const switches=document.createElement('div'); switches.className='switch-list';
+          const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
+          EQUIP_TYPES.forEach(t=>{
+            switches.appendChild( buildSwitchRow(t.label, t.slug, selected.includes(t.slug)) );
+          });
+          const marks=document.createElement('div'); marks.className='ed-footer';
+          const left=document.createElement('div'); left.className='ed-foot-left';
+          const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Mark for Delete (unused only)';
+          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Mark for Archive (no active use)';
+          left.append(delBtn, arcBtn);
+          marks.append(left);
+          body.append(switches, marks);
+          row.append(body);
+          Edit.list.append(row);
+
+          // usage state
+          (async ()=>{
+            const use = await usageInfo(db, 'makes', it.id);
+            if(use.total===0){ tag.textContent='unused'; delBtn.disabled=false; arcBtn.disabled=true; }
+            else if(use.active>0){ tag.textContent='in use (active)'; delBtn.disabled=true; arcBtn.disabled=true; }
+            else { tag.textContent='in use (inactive only)'; delBtn.disabled=true; arcBtn.disabled=false; }
+          })();
+
+          // expand/collapse
+          head.addEventListener('click', ()=> row.classList.toggle('open'));
+
+          // track edits
+          function stage(){
+            const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
+            Edit.pending.set(it.id, { name: inp.value.trim(), categories: cats, delete:false, archive:false });
+          }
+          inp.addEventListener('input', stage);
+          switches.addEventListener('change', stage);
+          delBtn.addEventListener('click', ()=>{ stage(); const cur=Edit.pending.get(it.id)||{}; cur.delete=true; cur.archive=false; Edit.pending.set(it.id, cur); showToast('Will delete on Save (if unused)'); });
+          arcBtn.addEventListener('click', ()=>{ stage(); const cur=Edit.pending.get(it.id)||{}; cur.archive=true; cur.delete=false; Edit.pending.set(it.id, cur); showToast('Will archive on Save (if allowed)'); });
         }
+
+      }else{
+        // models editor remains simple (they follow make); we keep current behavior
+        ctx.textContent = 'Models (follow Make categories)';
+        const sel = document.createElement('select');
+        sel.id = 'edMakeSelect'; sel.className='select';
+        toolbar.insertBefore(sel, ctx);
+
         const makes = await getMakes(db);
         sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
         const cur = $("makeId").value;
         if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
         const chosen = sel.value || (makes[0]?.id || null);
-        ctx.textContent = 'Models';
-        items = chosen ? await getModels(db, chosen) : [];
 
-        sel.onchange = async ()=>{ items = await getModels(db, sel.value); await renderRows(items, db, 'models', sel.value); };
-      }
+        async function renderModels(makeId){
+          Edit.list.innerHTML='';
+          const items = makeId ? await getModels(db, makeId) : [];
+          if(!items.length){
+            const empty = document.createElement('div'); empty.className='ed-row'; empty.textContent='No models.';
+            Edit.list.append(empty); return;
+          }
+          for(const it of items){
+            const row=document.createElement('div'); row.className='ed-row';
+            const head=document.createElement('div'); head.className='ed-head';
+            const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
+            const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
+            const tag=document.createElement('span'); tag.className='ed-tag'; tag.textContent='checking…';
+            const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
+            nameWrap.append(inp);
+            head.append(nameWrap, chev);
+            const body=document.createElement('div'); body.className='ed-body';
+            const note=document.createElement('div'); note.className='ed-tag'; note.style.display='inline-block'; note.textContent='categories inherited from Make';
+            body.append(note);
+            row.append(head, body);
+            Edit.list.append(row);
 
-      await renderRows(items, db, EDIT_KIND, document.getElementById('edMakeSelect')?.value || null);
-    }
+            head.addEventListener('click', ()=> row.classList.toggle('open'));
 
-    async function renderRows(items, db, kind, makeCtx){
-      const listEl = $("edList");
-      listEl.innerHTML = '';
+            (async ()=>{
+              const use = await usageInfo(db, 'models', it.id);
+              if(use.total===0) tag.textContent='unused';
+              else if(use.active>0) tag.textContent='in use (active)';
+              else tag.textContent='in use (inactive only)';
+            })();
 
-      if(!items.length){
-        const empty = document.createElement('div');
-        empty.className = 'ed-row';
-        empty.textContent = 'No items.';
-        listEl.appendChild(empty);
-        return;
-      }
-
-      for(const it of items){
-        const row = document.createElement('div');
-        row.className='ed-row';
-        row.setAttribute('role','listitem');
-
-        const input = document.createElement('input');
-        input.className='input';
-        input.value = it.name;
-
-        const tag = document.createElement('span');
-        tag.className='tag';
-        tag.textContent = 'checking…';
-
-        const saveBtn = document.createElement('button');
-        saveBtn.className='sm primary';
-        saveBtn.type='button';
-        saveBtn.textContent='Save';
-
-        const archiveBtn = document.createElement('button');
-        archiveBtn.className='sm';
-        archiveBtn.type='button';
-        archiveBtn.textContent='Archive';
-
-        const delBtn = document.createElement('button');
-        delBtn.className='sm danger';
-        delBtn.type='button';
-        delBtn.textContent='Delete';
-
-        row.append(input, tag, saveBtn, archiveBtn, delBtn);
-
-        /* ===== Category pills ===== */
-        let pillGroup = null;
-        if(kind==='makes'){
-          pillGroup = document.createElement('div');
-          pillGroup.className='pill-group';
-          const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
-          EQUIP_TYPES.forEach(t=>{
-            pillGroup.appendChild( makePill(t[0].toUpperCase()+t.slice(1), selected.includes(t)) );
-          });
-          row.appendChild(pillGroup);
-        }else{
-          // models: show inherited info read-only
-          const inherit = document.createElement('div');
-          inherit.className='pill-group';
-          const note = document.createElement('span');
-          note.className='tag';
-          note.textContent = 'inherits categories from Make';
-          inherit.appendChild(note);
-          row.appendChild(inherit);
-        }
-
-        listEl.appendChild(row);
-
-        const usage = await usageInfo(db, kind, it.id);
-        if(usage.total === 0){
-          tag.textContent = 'unused';
-          archiveBtn.hidden = true;
-          delBtn.hidden = false;
-        }else if(usage.active > 0){
-          tag.textContent = 'in use (active)';
-          archiveBtn.hidden = true;
-          delBtn.hidden = true;
-        }else{
-          tag.textContent = 'in use (inactive only)';
-          archiveBtn.hidden = false;
-          delBtn.hidden = true;
-        }
-
-        saveBtn.addEventListener('click', async ()=>{
-          const newName = input.value.trim();
-          if(!newName) return;
-
-          if(kind==='makes'){
-            // collect categories from pills
-            const chosen = pillGroup ? readPillValues(pillGroup) : [];
-            const ref = doc(db,'equipment-makes',it.id);
-            await updateDoc(ref, {
-              name:newName, nameLower:newName.toLowerCase(),
-              categories: chosen,
-              updatedAt: serverTimestamp()
+            // stage only name changes for models
+            inp.addEventListener('input', ()=>{
+              Edit.pending.set(it.id, { model:true, name: inp.value.trim() });
             });
-
-            // cascade categories to all models of this make
-            try{
-              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',it.id)));
-              const updates = [];
-              mSnap.forEach(md=>{
-                updates.push( updateDoc(doc(db,'equipment-models', md.id), { categories: chosen, updatedAt: serverTimestamp() }) );
-              });
-              await Promise.all(updates);
-            }catch(e){ console.warn('Cascade to models failed:', e); }
-
-          }else{
-            // models: name only (categories follow make)
-            const ref = doc(db,'equipment-models',it.id);
-            await updateDoc(ref, { name:newName, nameLower:newName.toLowerCase(), updatedAt: serverTimestamp() });
           }
-
-          showToast('Saved');
-          await refreshDropdowns(db);
-        });
-
-        archiveBtn.addEventListener('click', async ()=>{
-          const ref = (kind==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
-          await updateDoc(ref, { archived:true, updatedAt: serverTimestamp() });
-          row.remove();
-
-          if(kind==='makes'){
-            // cascade archive to models for consistency (optional but tidy)
-            try{
-              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',it.id)));
-              const updates = [];
-              mSnap.forEach(md=>{
-                updates.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) );
-              });
-              await Promise.all(updates);
-            }catch(e){ console.warn('Cascade archive to models failed:', e); }
-          }
-
-          showToast('Archived');
-          await refreshDropdowns(db);
-        });
-
-        delBtn.addEventListener('click', async ()=>{
-          if(!confirm('Delete permanently?')) return;
-          const ref = (kind==='makes') ? doc(db,'equipment-makes',it.id) : doc(db,'equipment-models',it.id);
-          await deleteDoc(ref);
-          row.remove();
-          showToast('Deleted');
-          await refreshDropdowns(db);
-        });
+        }
+        await renderModels(chosen);
+        sel.onchange = ()=>renderModels(sel.value);
       }
     }
 
+    async function applySaveAll(db){
+      if(Edit.pending.size===0){ showToast('No changes'); return; }
+
+      // split between make edits and model edits
+      const makeOps = [];
+      const modelOps = [];
+      const cascades = []; // to update models' categories when make categories changed
+
+      for(const [id, change] of Edit.pending.entries()){
+        if(change.model){
+          // model name edit only
+          const ref = doc(db,'equipment-models',id);
+          modelOps.push( updateDoc(ref, { name: change.name, nameLower: change.name.toLowerCase(), updatedAt: serverTimestamp() }) );
+        }else{
+          // make
+          if(change.delete){
+            // check unused (best effort server-side rule should also guard)
+            // we already signaled in UI, just attempt deletion
+            makeOps.push( deleteDoc(doc(db,'equipment-makes',id)) );
+            // cascade delete models of this make
+            cascades.push( (async ()=>{
+              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+              const dels = [];
+              mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
+              await Promise.all(dels);
+            })() );
+          }else if(change.archive){
+            makeOps.push( updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt: serverTimestamp() }) );
+            cascades.push( (async ()=>{
+              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+              const ups = [];
+              mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) ));
+              await Promise.all(ups);
+            })() );
+          }else{
+            // name + categories
+            makeOps.push( updateDoc(doc(db,'equipment-makes',id), {
+              name: change.name, nameLower: change.name.toLowerCase(),
+              categories: change.categories, updatedAt: serverTimestamp()
+            }) );
+            // cascade categories to models
+            cascades.push( (async ()=>{
+              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+              const ups = [];
+              mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { categories: change.categories, updatedAt: serverTimestamp() }) ));
+              await Promise.all(ups);
+            })() );
+          }
+        }
+      }
+
+      try{
+        await Promise.all(makeOps);
+        await Promise.all(modelOps);
+        await Promise.all(cascades);
+        showToast('Saved');
+        Edit.pending.clear();
+        await refreshDropdowns(db);
+        Edit.close();
+      }catch(e){
+        console.error(e);
+        alert('Save failed.');
+      }
+    }
+
+    /* ===== Refresh dropdowns ===== */
     async function refreshDropdowns(db){
-      // Rebuild Make list and re-resolve Model list for current make
       const curMake = $("makeId").value;
       const curModel = $("modelId").value;
       await populateMakes(db, curMake);
-      if(curMake){
-        await populateModels(db, curMake, curModel);
-      }
+      if(curMake){ await populateModels(db, curMake, curModel); }
       validateForm();
     }
 
-    /* ===== Save (transaction if available) ===== */
+    /* ===== Save equipment ===== */
     let saving = false;
     async function saveAll(db){
       if(saving) return;
@@ -1120,6 +1191,7 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
       location.assign(target);
     }
 
+    /* ===== Boot ===== */
     (async()=>{
       const ctx = await ready;
       const db  = getFirestore();
@@ -1140,12 +1212,12 @@ Adds: Category pill buttons on Make editor; cascade categories to Models;
 
       // Label taps -> inline modal
       $("openMakes").addEventListener('click', async ()=>{
-        EDIT_KIND='makes'; openModal('Edit Makes'); await loadEditor(db);
+        EDIT_KIND='makes'; Edit.open('Edit Makes'); await loadEditor(db);
       });
       $("openModels").addEventListener('click', async ()=>{
-        EDIT_KIND='models'; openModal('Edit Models'); await loadEditor(db);
+        EDIT_KIND='models'; Edit.open('Edit Models'); await loadEditor(db);
       });
-      document.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click', closeModal));
+      Edit.saveAllBtn.addEventListener('click', ()=>applySaveAll(db));
 
       // Load lists
       await populateMakes(db);
