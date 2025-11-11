@@ -26,17 +26,24 @@
 
   <!-- Firebase CONFIG FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
-  <!-- Combo upgrader (same look/feel as Add form) -->
-  <script defer src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
-    :root{ --card-max:1100px; }
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --brand: var(--green,#3B7E46);
+      /* Stable control metrics (match Add form) */
+      --ctl-h:48px;
+      --ctl-pad-x:12px;
+      --ctl-pad-y:12px;
+      --ctl-radius:10px;
+    }
     html,body{ max-width:100vw; overflow-x:hidden; }
-    body{ background:var(--app-bg, var(--bg)); color:var(--text); }
+    body{ background:var(--app-bg, var(--bg)); color:var(--text); scrollbar-gutter:stable; }
 
     .page{
       max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
     .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
     .sub{ margin:0 0 18px; color:var(--muted,#6f7772); }
@@ -66,11 +73,11 @@
     .card-title{ font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .badge{ font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; color:var(--muted); }
 
-    /* Edit modal */
+    /* ===== Edit modal (aligned to Add custom dropdown UX) ===== */
     dialog.sheet{
-      width:min(740px, 92vw);
+      width:min(760px, 92vw);
       border:1px solid var(--border);
-      border-radius:16px;
+      border-radius:14px;
       padding:0;
       background:var(--card-surface, var(--surface));
       color:var(--text);
@@ -81,7 +88,6 @@
       padding:14px 16px; border-bottom:1px solid var(--border);
       display:flex; justify-content:space-between; align-items:center; gap:10px;
       background:var(--card-surface, var(--surface));
-      color:var(--text);
     }
     .sheet .body{
       padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
@@ -90,16 +96,22 @@
     .sheet footer{
       padding:12px 16px; border-top:1px solid var(--border);
       display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
-      background:var(--card-surface, var(--surface)); color:var(--text);
+      background:var(--card-surface, var(--surface));
     }
-    .kv{ display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
-    @media(max-width:700px){ .kv{ grid-template-columns:1fr } .kv div{ padding:2px 0 } }
-    label{ font-size:13px; color:var(--muted); margin-bottom:6px; display:block; }
-    input, select, textarea{
-      width:100%; font:inherit; color:inherit; background:var(--surface);
-      border:1px solid var(--border); border-radius:12px; padding:10px 12px;
+
+    .kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media(max-width:700px){ .kv{ grid-template-columns:1fr } }
+
+    label{ display:block; font-size:13px; color:var(--muted); margin:0 0 6px; }
+    .input, .textarea{
+      width:100%;
+      font:inherit; color:inherit; background:var(--card-surface,var(--surface));
+      border:1px solid var(--border); border-radius:var(--ctl-radius);
+      padding:var(--ctl-pad-y) var(--ctl-pad-x);
+      height:var(--ctl-h);
+      line-height:calc(var(--ctl-h) - 2px);
     }
-    textarea{ min-height:110px; resize:vertical; }
+    .textarea{ min-height:110px; height:auto; line-height:1.35; resize:vertical; }
     .tip{ font-size:12px; color:var(--muted); margin-top:6px; }
 
     .btn{
@@ -107,15 +119,60 @@
       background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
     .btn[disabled]{ opacity:.55; pointer-events:none; }
-    .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
+    .btn-primary{ border-color:transparent; background:var(--brand); color:#fff; }
     .btn-warn{ background:var(--brand-gold,#D0C542); color:#2b2b2b; border-color:var(--brand-gold,#D0C542); }
     .btn-danger{ background:#B3261E; color:#fff; border-color:#B3261E; }
+
+    /* ====== Fields-style dropdowns (exact pattern from Add) ====== */
+    .dd{position:relative}
+    .dd-btn{
+      width:100%;text-align:left;padding:12px;padding-right:40px;
+      border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));
+      font:inherit;color:var(--text);cursor:pointer;appearance:none;position:relative;height:var(--ctl-h);
+      line-height:calc(var(--ctl-h) - 2px);display:flex;align-items:center;
+    }
+    .dd-btn::after{
+      content:""; position:absolute; right:12px; top:50%; transform:translateY(-50%);
+      width:18px; height:18px; pointer-events:none; opacity:.7;
+      background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+    }
+    .dd-list{position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
+    .dd.open .dd-list{display:block}
+    .dd-list input{width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);font:inherit;outline:none;background:var(--surface)}
+    .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+    .dd-list li{padding:10px 12px;cursor:pointer}
+    .dd-list li:hover{background:#f0f1f0}
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
+
+    /* Year combo (same as Add) */
+    .combo{ position:relative; }
+    .combo-trigger{ width:100%; text-align:left; }
+    .combo-trigger.select{ position:relative; display:flex; align-items:center;
+      height:var(--ctl-h); border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+      padding:var(--ctl-pad-y) var(--ctl-pad-x); }
+    .combo-trigger.select::after{
+      content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
+      border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
+    }
+    .combo-panel{
+      position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
+    }
+    .combo-item{
+      display:block; width:100%; text-align:left; font:inherit; color:var(--text);
+      background:transparent; border:none; border-radius:10px;
+      padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer;
+    }
+    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline: none; }
+    .combo-hidden{ display:none !important; }
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="page">
-      <h1 class="title">Tractors</h1>
+      <h1 class="title">Edit Tractors</h1>
       <p class="sub">Active tractors only. Search by make, model, serial, or year.</p>
 
       <div class="search">
@@ -135,52 +192,77 @@
     <header>
       <strong id="eTitle">Edit Tractor</strong>
       <div style="display:flex; gap:8px; align-items:center">
-        <span class="badge" title="UI is editable; Firestore still enforces writes.">Editable</span>
+        <span class="badge">Editable</span>
         <button id="eClose" class="btn" type="button">Close</button>
       </div>
     </header>
+
     <div class="body">
       <div class="kv">
+        <!-- Make (custom dropdown) -->
         <div>
-          <label for="mk">Make</label>
-          <!-- same combobox behavior as Add form -->
-          <select id="mk" data-fv-combo></select>
+          <label>Make</label>
+          <input type="hidden" id="mkId"/>
+          <div id="ddMake" class="dd">
+            <button type="button" id="ddMakeBtn" class="dd-btn">— Loading… —</button>
+            <div class="dd-list">
+              <input type="text" id="ddMakeSearch" placeholder="Search make…">
+              <ul id="ddMakeList"></ul>
+            </div>
+          </div>
         </div>
+
+        <!-- Model (custom dropdown depends on make) -->
         <div>
-          <label for="md">Model</label>
-          <select id="md" data-fv-combo></select>
+          <label>Model</label>
+          <input type="hidden" id="mdId"/>
+          <div id="ddModel" class="dd">
+            <button type="button" id="ddModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
+            <div class="dd-list">
+              <input type="text" id="ddModelSearch" placeholder="Search model…" disabled>
+              <ul id="ddModelList"></ul>
+            </div>
+          </div>
           <div class="tip">Models filter by the selected make.</div>
         </div>
 
+        <!-- Year (combo) -->
         <div>
           <label for="yr">Year</label>
-          <select id="yr" data-fv-combo></select>
+          <div class="combo" id="yearCombo">
+            <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+            <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
+            <select id="yr" aria-hidden="true" style="display:none"></select>
+          </div>
         </div>
+
         <div>
           <label for="sn">Serial (full)</label>
-          <input id="sn" type="text" placeholder="Full serial"/>
+          <input id="sn" class="input" placeholder="Full serial"/>
           <div class="tip">Last 6 auto: <strong id="sn6">—</strong></div>
         </div>
 
         <div>
           <label for="st">Status</label>
-          <select id="st">
+          <select id="st" class="input" style="height:var(--ctl-h)">
             <option value="Active">Active</option>
             <option value="Archived">Archived</option>
             <option value="Out of Service">Out of Service</option>
           </select>
         </div>
+
         <div>
           <label for="hrs">Engine Hours</label>
-          <input id="hrs" type="number" min="0" step="1" placeholder="0"/>
+          <input id="hrs" type="number" min="0" step="1" class="input" placeholder="0"/>
         </div>
 
         <div style="grid-column:1/-1">
           <label for="notes">Notes</label>
-          <textarea id="notes" placeholder="Append a quick note… (replaces text notes field)"></textarea>
+          <textarea id="notes" class="textarea" placeholder="Append a quick note… (replaces text notes field)"></textarea>
         </div>
       </div>
     </div>
+
     <footer>
       <button id="archiveBtn" class="btn btn-warn" type="button">Archive</button>
       <button id="deleteBtn" class="btn btn-danger" type="button">Delete</button>
@@ -191,260 +273,255 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, doc, getDoc, getDocs, query, where, orderBy, onSnapshot, setDoc, updateDoc, serverTimestamp, limit
+      getFirestore, collection, doc, getDoc, getDocs, query, where, orderBy, onSnapshot,
+      setDoc, updateDoc, serverTimestamp, limit
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $ = sel => document.querySelector(sel);
+    const $ = s => document.querySelector(s);
 
-    const list = $('#list');
-    const countEl = $('#count');
-    const qInput = $('#q');
+    /* ===== List (same as your view) ===== */
+    const list = $('#list'), countEl = $('#count'), qInput = $('#q');
+    let DATA = [], unsub=null;
 
-    // Modal + form
-    const dlg = $('#edit');
-    const eTitle = $('#eTitle');
-    const eClose = $('#eClose');
-
-    const f = {
-      mk: $('#mk'), md: $('#md'), yr: $('#yr'),
-      sn: $('#sn'), sn6: $('#sn6'),
-      st: $('#st'), hrs: $('#hrs'), notes: $('#notes')
-    };
-    const saveBtn = $('#saveBtn');
-    const archiveBtn = $('#archiveBtn');
-    const deleteBtn = $('#deleteBtn');
-
-    // State
-    let DATA = [];
-    let unsub = null;
-    let currentId = null;
-    let deleteClean = false;
-
-    // Caches for Make/Model lists
-    let MAKES = [];  // [{id,name,active}]
-    let MODELS = []; // [{id,name,makeId?,makeName?,active}]
-
-    // Helpers (kept aligned with your tractors page)
     const last6 = v => String(v||'').slice(-6);
-    const safe = v => (v==null ? '' : String(v));
-    const normStatus = v => String(v ?? 'active').toLowerCase();
+    const safe   = v => (v==null ? '' : String(v));
+    const normStatus=v=> String(v ?? 'active').toLowerCase();
     const isActive = d => {
       const s = normStatus(d.status);
-      return s === 'active' || (d.active === true) || (d.status == null);
+      return s==='active' || (d.active===true) || (d.status==null);
     };
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
     const displayLine = d => {
-      const mm = mmText(d);
-      const ls = last6(d.serial);
+      const mm = mmText(d), ls = last6(d.serial);
       return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : '(tractor)');
     };
     const titleFor = d => {
-      const mm = mmText(d);
-      const ls = last6(d.serial);
+      const mm = mmText(d), ls = last6(d.serial);
       return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || '(tractor)');
     };
 
-    /* --------------------- YEAR LIST --------------------- */
-    function buildYears(){
-      const now = new Date().getFullYear();
-      const years = [];
-      for(let y = now+1; y >= now-40; y--) years.push(String(y));
-      return years;
-    }
-
-    function fillSelect(sel, items, value, placeholder='Select…'){
-      sel.innerHTML = '';
-      const opt0 = document.createElement('option');
-      opt0.value=''; opt0.textContent=placeholder;
-      sel.appendChild(opt0);
-      items.forEach(it=>{
-        const o = document.createElement('option');
-        o.value = it.value; o.textContent = it.label;
-        if(value && value === it.value) o.selected = true;
-        sel.appendChild(o);
-      });
-      // trigger fv-combo upgrade refresh if present
-      sel.dispatchEvent(new Event('change', {bubbles:true}));
-    }
-
-    /* --------------------- MAKES/MODELS --------------------- */
-    async function loadMakes(){
-      const db = getFirestore();
-      try{
-        const qs = await getDocs(query(collection(db,'equipment-makes'), orderBy('name')));
-        MAKES = [];
-        qs.forEach(s=>{
-          const d = s.data()||{};
-          MAKES.push({ id:s.id, name:d.name||d.make||'', active:(d.active!==false) });
-        });
-      }catch(e){ console.error('loadMakes', e); MAKES=[]; }
-    }
-    async function loadModels(){
-      const db = getFirestore();
-      try{
-        const qs = await getDocs(query(collection(db,'equipment-models'), orderBy('name')));
-        MODELS = [];
-        qs.forEach(s=>{
-          const d = s.data()||{};
-          MODELS.push({
-            id:s.id, name:d.name||d.model||'',
-            makeId:d.makeId||d.makeRef||'',
-            makeName:d.makeName||d.make||'',
-            active:(d.active!==false)
-          });
-        });
-      }catch(e){ console.error('loadModels', e); MODELS=[]; }
-    }
-    function currentMakeObj(){
-      const val = f.mk.value;
-      // match by id or by name
-      return MAKES.find(m=>m.id===val || m.name===val) || null;
-    }
-    function filteredModelsByMake(){
-      const mk = currentMakeObj();
-      if(!mk) return MODELS.filter(m=>m.active);
-      return MODELS.filter(m=>{
-        if(!m.active) return false;
-        // allow either linkage style
-        if(m.makeId && mk.id) return m.makeId===mk.id;
-        if(m.makeName && mk.name) return (m.makeName===mk.name);
-        return false;
-      });
-    }
-    function refreshMakeSelect(currentMakeName=''){
-      const list = MAKES.filter(m=>m.active).sort((a,b)=>a.name.localeCompare(b.name))
-        .map(m=>({ value: m.id || m.name, label: m.name }));
-      // prefer match by id; if none, try by name
-      const val = (MAKES.find(m=>m.name===currentMakeName)?.id) || currentMakeName || '';
-      fillSelect(f.mk, list, val, 'Pick a make');
-    }
-    function refreshModelSelect(currentModelName=''){
-      const list = filteredModelsByMake()
-        .sort((a,b)=>a.name.localeCompare(b.name))
-        .map(m=>({ value: m.id || m.name, label: m.name }));
-      const val = (MODELS.find(m=>m.name===currentModelName)?.id) || currentModelName || '';
-      fillSelect(f.md, list, val, 'Pick a model');
-    }
-    function refreshYearSelect(currentYear=''){
-      const list = buildYears().map(y=>({ value:y, label:y }));
-      fillSelect(f.yr, list, String(currentYear||''), 'Pick a year');
-    }
-
-    /* --------------------- LISTENER --------------------- */
     function attach(){
       if (unsub) return;
       const db = getFirestore();
       const qref = query(collection(db,'equipment'), where('type','==','tractor'));
       unsub = onSnapshot(qref, (snap)=>{
-        const out = [];
-        snap.forEach(docSnap=>{
-          const d = docSnap.data() || {};
-          if (!isActive(d)) return;
-          out.push({ id: docSnap.id, ...d });
+        const out=[]; snap.forEach(s=>{
+          const d=s.data()||{}; if(!isActive(d)) return;
+          out.push({ id:s.id, ...d });
         });
-        out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
-        DATA = out;
-        render();
-      }, (err)=> {
-        console.error('Tractors listener error:', err);
-        alert('Error loading tractors. Check Firestore rules or network.');
-      });
+        out.sort((a,b)=>displayLine(a).localeCompare(displayLine(b)));
+        DATA=out; render();
+      }, err=>{ console.error(err); alert('Error loading tractors.'); });
     }
-    function detach(){ if (unsub){ try{ unsub(); }catch{}; unsub = null; } }
+    function detach(){ if (unsub){ try{unsub();}catch{}; unsub=null; } }
 
     function render(){
-      const q = (qInput.value || '').toLowerCase().trim();
+      const q=(qInput.value||'').toLowerCase().trim();
       const rows = DATA.filter(d=>{
-        if (!q) return true;
-        const blob = [
-          displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes
-        ].map(x=>String(x||'').toLowerCase()).join(' ');
+        if(!q) return true;
+        const blob=[displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes]
+          .map(x=>String(x||'').toLowerCase()).join(' ');
         return blob.includes(q);
       });
-
       countEl.textContent = `${rows.length}/${DATA.length} entries`;
-      list.innerHTML = '';
+      list.innerHTML='';
+      if(!rows.length){ const p=document.createElement('p'); p.className='sub'; p.textContent='No matches.'; list.appendChild(p); return; }
 
-      if(!rows.length){
-        const p = document.createElement('p');
-        p.className='sub'; p.textContent='No matches.';
-        list.appendChild(p);
-        return;
-      }
-
-      const by = {};
-      rows.forEach(d=>{
-        const name = displayLine(d);
-        const k = (name || '?').charAt(0).toUpperCase();
-        (by[k] ||= []).push(d);
-      });
-
+      const by={}; rows.forEach(d=>{ const k=(displayLine(d)||'?').charAt(0).toUpperCase(); (by[k] ||= []).push(d); });
       Object.keys(by).sort().forEach(letter=>{
-        const wrap = document.createElement('div'); wrap.className='group';
-        const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
+        const wrap=document.createElement('div'); wrap.className='group';
+        const h=document.createElement('h3'); h.textContent=letter; wrap.appendChild(h);
         by[letter].forEach(d=>{
-          const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
-          const title = document.createElement('div'); title.className='card-title'; title.textContent = displayLine(d);
-          const badge = document.createElement('span'); badge.className='badge'; badge.textContent = d.status||'Active';
-          card.append(title, badge);
-          card.addEventListener('click', ()=> openEditor(d.id));
+          const card=document.createElement('div'); card.className='card'; card.setAttribute('role','button');
+          const ttl=document.createElement('div'); ttl.className='card-title'; ttl.textContent=displayLine(d);
+          const badge=document.createElement('span'); badge.className='badge'; badge.textContent=d.status||'Active';
+          card.append(ttl,badge); card.addEventListener('click',()=>openEditor(d.id));
           wrap.appendChild(card);
         });
         list.appendChild(wrap);
       });
     }
 
-    /* --------------------- MODAL/EDIT --------------------- */
-    function openModal(el){ try{ el.showModal(); }catch{ el.setAttribute('open',''); } }
-    function closeModal(el){ try{ el.close(); }catch{ el.removeAttribute('open'); } }
+    qInput.addEventListener('input', render);
+
+    /* ===== Modal wires ===== */
+    const dlg = $('#edit'), eTitle=$('#eTitle'), eClose=$('#eClose');
+    const f = {
+      mkId: $('#mkId'), mdId: $('#mdId'), yr: $('#yr'),
+      sn: $('#sn'), sn6: $('#sn6'),
+      st: $('#st'), hrs: $('#hrs'), notes: $('#notes')
+    };
+    const saveBtn=$('#saveBtn'), archiveBtn=$('#archiveBtn'), deleteBtn=$('#deleteBtn');
+
+    function openModal(){ try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); } }
+    function closeModal(){ try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } }
+    eClose.addEventListener('click', closeModal);
+
+    /* ======= Custom dropdown helpers (identical UX to Add) ======= */
+    function wireDropdownOpenClose(root){
+      const btn = root.querySelector(".dd-btn");
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+        if(btn.disabled) return;
+        root.classList.toggle("open");
+        const inp = root.querySelector(".dd-list input");
+        if(root.classList.contains("open") && inp){ setTimeout(()=>inp.focus(), 60); }
+      });
+    }
+    document.addEventListener("click",(e)=>{
+      if(!e.target.closest(".dd")){
+        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+      }
+    });
+    function setupSearch(inputEl, listEl){
+      inputEl.addEventListener("input", ()=>{
+        const term=inputEl.value.toLowerCase();
+        listEl.querySelectorAll("li").forEach(li=>{
+          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+        });
+      });
+    }
+    function buildList(listEl, items, onPick){
+      listEl.innerHTML="";
+      items.forEach(([val,label])=>{
+        const li=document.createElement("li");
+        li.textContent=label; li.dataset.value=val;
+        li.onclick=()=>onPick(val,label);
+        listEl.appendChild(li);
+      });
+    }
+
+    // Year combo (same as Add)
+    function buildYearOptions(){
+      const sel=f.yr; const now=new Date().getFullYear();
+      sel.innerHTML='<option value="">— Select —</option>';
+      for(let y=now+1; y>=now-40; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
+      const panel=$("#yearPanel"), trigger=$("#yearTrigger");
+      panel.innerHTML="";
+      [...sel.options].forEach(opt=>{
+        const btn=document.createElement('button');
+        btn.type='button'; btn.className='combo-item'; btn.role='option';
+        btn.dataset.val=opt.value; btn.textContent=opt.textContent;
+        btn.addEventListener('click', ()=>{
+          sel.value = opt.value;
+          trigger.textContent = opt.value ? opt.textContent : "— Select —";
+          closeYearPanel();
+        });
+        panel.appendChild(btn);
+      });
+    }
+    function openYearPanel(){ $("#yearPanel").classList.remove('combo-hidden'); $("#yearTrigger").setAttribute('aria-expanded','true'); document.addEventListener('click', onDocClickClose, { once:true }); document.addEventListener('keydown', onEscClose); }
+    function closeYearPanel(){ $("#yearPanel").classList.add('combo-hidden'); $("#yearTrigger").setAttribute('aria-expanded','false'); document.removeEventListener('keydown', onEscClose); }
+    function onDocClickClose(e){ if(!$("#yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
+    function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
+
+    $("#yearTrigger").addEventListener('click', ()=>{
+      const open = $("#yearTrigger").getAttribute('aria-expanded') === 'true';
+      if(open) closeYearPanel(); else openYearPanel();
+    });
+
+    /* ===== Load Make/Model lists from Firestore ===== */
+    let MAKES=[], MODELS=[];
+    const ddMake = { root: $("#ddMake"), btn: $("#ddMakeBtn"), search: $("#ddMakeSearch"), list: $("#ddMakeList") };
+    const ddModel= { root: $("#ddModel"), btn: $("#ddModelBtn"), search: $("#ddModelSearch"), list: $("#ddModelList") };
+    wireDropdownOpenClose(ddMake.root); wireDropdownOpenClose(ddModel.root);
+    setupSearch(ddMake.search, ddMake.list); setupSearch(ddModel.search, ddModel.list);
+
+    async function loadMakes(){
+      const db = getFirestore();
+      try{
+        const qs = await getDocs(query(collection(db,'equipment-makes'), orderBy('name')));
+        MAKES=[]; qs.forEach(s=>{ const d=s.data()||{}; if(d.archived) return; MAKES.push({id:s.id, name:d.name||d.make||''}); });
+      }catch(e){ console.error('loadMakes',e); MAKES=[]; }
+    }
+    async function loadModels(){
+      const db = getFirestore();
+      try{
+        const qs = await getDocs(query(collection(db,'equipment-models'), orderBy('name')));
+        MODELS=[]; qs.forEach(s=>{ const d=s.data()||{}; if(d.archived) return;
+          MODELS.push({id:s.id, name:d.name||d.model||'', makeId:d.makeId||'', makeName:d.makeName||d.make||''});
+        });
+      }catch(e){ console.error('loadModels',e); MODELS=[]; }
+    }
+    function refreshMakeSelect(preferIdOrName=''){
+      const items = MAKES.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(m=>[m.id, m.name]);
+      buildList(ddMake.list, items, (val,label)=> setMake(val,label));
+      // preselect if possible
+      const byId = MAKES.find(m=>m.id===preferIdOrName);
+      const byNm = MAKES.find(m=>m.name===preferIdOrName);
+      if(byId){ setMake(byId.id, byId.name); }
+      else if(byNm){ setMake(byNm.id, byNm.name); }
+      else { ddMake.btn.textContent="— Select —"; f.mkId.value=""; }
+    }
+    function filteredModels(){
+      const mkId = f.mkId.value;
+      if(!mkId) return [];
+      return MODELS.filter(m=>m.makeId===mkId);
+    }
+    function refreshModelSelect(preferIdOrName=''){
+      const items = filteredModels().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(m=>[m.id, m.name]);
+      buildList(ddModel.list, items, (val,label)=> setModel(val,label));
+      ddModel.btn.disabled = !items.length;
+      ddModel.search.disabled = !items.length;
+      if(!items.length){ ddModel.btn.textContent="— Select a Make first —"; f.mdId.value=""; return; }
+
+      const byId = MODELS.find(m=>m.id===preferIdOrName);
+      const byNm = MODELS.find(m=>m.name===preferIdOrName && m.makeId===f.mkId.value);
+      if(byId && byId.makeId===f.mkId.value){ setModel(byId.id, byId.name); }
+      else if(byNm){ setModel(byNm.id, byNm.name); }
+      else { ddModel.btn.textContent="— Select —"; f.mdId.value=""; }
+    }
+    function setMake(id,label){
+      f.mkId.value=id||""; ddMake.btn.textContent=id?label:"— Select —"; ddMake.root.classList.remove("open");
+      // When make changes, rebuild model list
+      refreshModelSelect('');
+    }
+    function setModel(id,label){
+      f.mdId.value=id||""; ddModel.btn.textContent=id?label:"— Select —"; ddModel.root.classList.remove("open");
+    }
+
+    /* ===== Open + populate editor ===== */
+    let currentId=null, deleteClean=false;
 
     async function openEditor(id){
-      currentId = id;
-      deleteClean = false;
-      deleteBtn.disabled = false; // UI always enabled
+      currentId=id; deleteClean=false;
 
-      const db = getFirestore();
-      const snap = await getDoc(doc(db,'equipment',id));
-      if(!snap.exists()){ alert('Tractor not found'); return; }
-      const d = snap.data() || {};
-
-      // Ensure picklists are ready
+      const db=getFirestore();
+      // Ensure lists ready
       if(!MAKES.length) await loadMakes();
       if(!MODELS.length) await loadModels();
+      // Build year menu
+      buildYearOptions();
 
-      // Populate selects/inputs
-      refreshMakeSelect(d.makeName||'');
-      // If the make value doesn't match an id option, try set value to name
-      if(!f.mk.value && d.makeName) f.mk.value = d.makeName;
+      const snap=await getDoc(doc(db,'equipment',id));
+      if(!snap.exists()){ alert('Tractor not found'); return; }
+      const d=snap.data()||{};
 
-      refreshModelSelect(d.modelName||'');
-      if(!f.md.value && d.modelName) f.md.value = d.modelName;
+      // Preload Make/Model dropdowns (match Add exact UX)
+      refreshMakeSelect(d.makeId || d.makeName || '');
+      refreshModelSelect(d.modelId || d.modelName || '');
 
-      refreshYearSelect(d.year||'');
-      if(!f.yr.value && d.year) f.yr.value = String(d.year);
+      // Year
+      f.yr.value = d.year ? String(d.year) : '';
+      $("#yearTrigger").textContent = f.yr.value ? String(d.year) : '— Select —';
 
-      f.sn.value  = d.serial || '';
+      // Others
+      f.sn.value = d.serial || '';
       f.sn6.textContent = last6(d.serial);
-      f.st.value  = d.status || 'Active';
+      f.st.value = d.status || 'Active';
       f.hrs.value = (d.engineHours ?? '');
       f.notes.value = d.notes || '';
 
-      // Wire dependent model list
-      f.mk.addEventListener('change', ()=> {
-        refreshModelSelect('');
-      }, { once:false });
+      // Dependencies for delete
+      dependencyGuard(id).then(ok=>{ deleteClean=ok; }).catch(()=>{ deleteClean=false; });
 
       // Live last-6
       f.sn.oninput = ()=> (f.sn6.textContent = last6(f.sn.value||''));
 
-      // Reference check for delete; UI stays enabled either way
-      dependencyGuard(id).then(ok=>{ deleteClean = ok; }).catch(()=>{ deleteClean=false; });
-
       eTitle.textContent = titleFor(d);
-      openModal(dlg);
+      openModal();
     }
 
-    // Only allow hard delete when NO references exist (UI shows error if blocked)
     async function dependencyGuard(equipmentId){
       const db = getFirestore();
       const checks = [
@@ -463,33 +540,25 @@
     }
 
     function collectPatch(){
-      // Resolve selected Make/Model display names from option labels
-      const makeVal = f.mk.value;
-      const modelVal = f.md.value;
+      // Resolve names from selections
+      const makeName = (MAKES.find(m=>m.id===f.mkId.value)?.name) || '';
+      const modelName = (MODELS.find(m=>m.id===f.mdId.value)?.name) || '';
 
-      const makeName = (MAKES.find(m=>m.id===makeVal)?.name)
-                    || (MAKES.find(m=>m.name===makeVal)?.name)
-                    || (f.mk.options[f.mk.selectedIndex]?.text || '').trim();
-
-      const modelName = (MODELS.find(m=>m.id===modelVal)?.name)
-                     || (MODELS.find(m=>m.name===modelVal)?.name)
-                     || (f.md.options[f.md.selectedIndex]?.text || '').trim();
-
-      const patch = {
-        makeName,
-        modelName,
-        year: f.yr.value || '',
-        serial: f.sn.value.trim(),
+      return {
+        makeId: f.mkId.value || null,
+        modelId: f.mdId.value || null,
+        makeName, modelName,
+        year: f.yr.value ? Number(f.yr.value) : null,
+        serial: (f.sn.value||'').trim(),
         status: f.st.value || 'Active',
         engineHours: Number(f.hrs.value||0),
-        notes: f.notes.value.trim(),
+        notes: (f.notes.value||'').trim(),
         updatedAt: serverTimestamp()
       };
-      return patch;
     }
     function validate(p){
-      if(!p.makeName) return 'Make is required.';
-      if(!p.modelName) return 'Model is required.';
+      if(!p.makeId) return 'Make is required.';
+      if(!p.modelId) return 'Model is required.';
       if(!p.year) return 'Year is required.';
       if(!p.serial || p.serial.length<6) return 'Serial must be at least 6 characters.';
       if(p.engineHours<0) return 'Engine hours cannot be negative.';
@@ -506,7 +575,7 @@
       try{
         await setDoc(doc(db,'equipment',currentId), patch, { merge:true });
         alert('Saved ✓');
-        closeModal(dlg);
+        closeModal();
       }catch(e){
         console.error(e);
         alert('Save failed by Firestore rules.');
@@ -515,59 +584,44 @@
 
     async function toggleArchive(){
       if(!currentId) return;
-      const db = getFirestore();
+      const db=getFirestore();
       try{
-        const snap = await getDoc(doc(db,'equipment',currentId));
+        const snap=await getDoc(doc(db,'equipment',currentId));
         if(!snap.exists()) return;
-        const now = snap.data() || {};
-        const nextStatus = (now.status==='Archived') ? 'Active' : 'Archived';
-        await updateDoc(doc(db,'equipment',currentId), {
-          status: nextStatus,
-          updatedAt: serverTimestamp()
-        });
-        alert(nextStatus==='Archived' ? 'Archived ✓' : 'Restored ✓');
-        closeModal(dlg);
-      }catch(e){
-        console.error(e);
-        alert('Archive/Unarchive failed by Firestore rules.');
-      }
+        const now=snap.data()||{};
+        const next=(now.status==='Archived')?'Active':'Archived';
+        await updateDoc(doc(db,'equipment',currentId), { status: next, updatedAt: serverTimestamp() });
+        alert(next==='Archived'?'Archived ✓':'Restored ✓');
+        closeModal();
+      }catch(e){ console.error(e); alert('Archive/Unarchive failed.'); }
     }
 
     async function doDelete(){
       if(!currentId) return;
-
-      if(!deleteClean){
-        alert('This tractor is referenced by other data. Delete is blocked. Use Archive instead.');
-        return;
-      }
-      const ok = confirm('Delete this tractor permanently? This cannot be undone.');
-      if(!ok) return;
-
-      const db = getFirestore();
+      if(!deleteClean){ alert('This tractor is referenced by other data. Delete is blocked. Use Archive instead.'); return; }
+      if(!confirm('Delete permanently?')) return;
+      const db=getFirestore();
       try{
         const { deleteDoc } = await import('/Farm-vista/js/firebase-init.js');
         await deleteDoc(doc(db,'equipment',currentId));
-        alert('Deleted ✓');
-        closeModal(dlg);
-      }catch(e){
-        console.error(e);
-        alert('Delete failed by Firestore rules. Try Archiving instead.');
-      }
+        alert('Deleted ✓'); closeModal();
+      }catch(e){ console.error(e); alert('Delete failed by Firestore rules.'); }
     }
 
-    // Wire UI
-    eClose.addEventListener('click', ()=> closeModal(dlg));
+    // Buttons
     saveBtn.addEventListener('click', saveEdits);
     archiveBtn.addEventListener('click', toggleArchive);
     deleteBtn.addEventListener('click', doDelete);
-    qInput.addEventListener('input', render);
 
-    // Resume hooks
-    function resume(){ if (!unsub) attach(); }
+    // Make → refresh models when changed via list pick
+    ddMake.list.addEventListener('click', ()=> refreshModelSelect(''));
+
+    // Boot
+    function resume(){ if(!unsub) attach(); }
     (async()=>{
       await ready;
-      // Preload lists so first open is fast
       await Promise.all([loadMakes(), loadModels()]);
+      buildYearOptions();
       attach();
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
