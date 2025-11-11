@@ -44,31 +44,39 @@
     .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
     .sub{ margin:0 0 18px; color:var(--muted,#6f7772); }
 
-    /* Toolbar (search + filter icon) */
-    .toolbar{ display:flex; align-items:center; gap:10px; }
-    .search{ flex:1; display:flex; align-items:center; gap:10px; border:1px solid var(--border);
-      border-radius:12px; background:var(--surface); padding:10px 12px; }
+    /* ====== SEARCH + FILTER (IDENTICAL TO VIEW) ====== */
+    .bar{ display:flex; gap:10px; align-items:center; }
+    .search{
+      display:flex; align-items:center; gap:10px; border:1px solid var(--border);
+      border-radius:12px; background:var(--surface); padding:10px 12px; flex:1 1 auto;
+    }
     .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; color:var(--text); }
 
-    .filter-wrap{ position:relative; }
-    .filter-btn{
+    .icon-btn{
       display:inline-flex; align-items:center; justify-content:center;
-      width:44px; height:44px; border-radius:12px;
-      border:1px solid var(--border); background:var(--surface); cursor:pointer;
+      width:42px; height:42px;
+      border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text);
+      cursor:pointer;
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.06));
     }
-    .filter-btn svg{ width:20px; height:20px; opacity:.9 }
-    .filter-pop{
-      position:absolute; right:0; top:calc(100% + 8px); z-index:50;
-      min-width:220px; padding:10px; border:1px solid var(--border); border-radius:12px;
-      background:var(--surface); box-shadow:0 12px 28px rgba(0,0,0,.18); display:none;
+    .icon-btn:active{ transform:translateY(1px); }
+    .icon-btn svg{ display:block }
+
+    .popover{
+      position:absolute; z-index:1000; min-width:220px;
+      border:1px solid var(--border); border-radius:14px;
+      background:var(--card-surface, var(--surface)); color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.28);
+      padding:10px;
     }
-    .filter-pop.open{ display:block; }
-    .filter-row{ display:flex; align-items:center; gap:10px; padding:8px; border-radius:10px; cursor:pointer; }
-    .filter-row:hover{ background:var(--hover, rgba(0,0,0,.06)); }
-    .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted,#6f7772); }
-    .dot.active{ background:#3B7E46; }
-    .dot.archived{ background:#7a7a7a; }
-    .dot.oos{ background:#D0C542; }
+    .popover header{ font-weight:800; margin:4px 2px 8px; color:var(--muted); }
+    .opt{
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px; border-radius:10px; cursor:pointer;
+    }
+    .opt:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
+    .opt input{ accent-color:var(--brand-green,#3B7E46); }
 
     .count{ margin:10px 0; color:var(--muted,#6f7772); font-weight:700; }
     .group{ margin:14px 0; }
@@ -163,9 +171,10 @@
   <fv-shell>
     <div class="page">
       <h1 class="title">Edit Tractors</h1>
-      <p id="subline" class="sub">Active tractors only. Search by make, model, serial, or year.</p>
+      <p id="subline" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
 
-      <div class="toolbar">
+      <!-- SEARCH + FILTER (mirror of VIEW) -->
+      <div class="bar">
         <div class="search">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -173,26 +182,30 @@
           <input id="q" type="search" placeholder="Search" autocomplete="off"/>
         </div>
 
-        <!-- Filter icon + popover (same setup as tractor view) -->
-        <div class="filter-wrap">
-          <button id="fltBtn" class="filter-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="fltPop">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5h18v2H3V5zm4 6h10v2H7v-2zm3 6h4v2h-4v-2z"/></svg>
-          </button>
-          <div id="fltPop" class="filter-pop" role="menu" aria-label="Filter tractors by status">
-            <div class="filter-row" data-val="active" role="menuitemradio" aria-checked="true">
-              <span class="dot active"></span><span>Active</span>
-            </div>
-            <div class="filter-row" data-val="archived" role="menuitemradio" aria-checked="false">
-              <span class="dot archived"></span><span>Archived</span>
-            </div>
-            <div class="filter-row" data-val="oos" role="menuitemradio" aria-checked="false">
-              <span class="dot oos"></span><span>Out of Service</span>
-            </div>
-            <div class="filter-row" data-val="all" role="menuitemradio" aria-checked="false">
-              <span class="dot"></span><span>All statuses</span>
-            </div>
-          </div>
-        </div>
+        <!-- Compact filter button -->
+        <button id="filterBtn" class="icon-btn" aria-label="Filters" aria-haspopup="true" aria-expanded="false">
+          <!-- funnel icon -->
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Popover (hidden by default) -->
+      <div id="filterPop" class="popover" hidden>
+        <header>Status</header>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="active" checked/>
+          <span>Active</span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="archived"/>
+          <span>Archived</span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="all"/>
+          <span>All</span>
+        </label>
       </div>
 
       <p id="count" class="count">0 entries</p>
@@ -292,45 +305,47 @@
 
     const $ = s => document.querySelector(s);
 
-    /* ====== FILTER STATE (same as view) ====== */
+    /* ====== FILTER (IDENTICAL LOGIC TO VIEW) ====== */
     const subEl = $('#subline');
-    const fltBtn = $('#fltBtn'), fltPop = $('#fltPop');
-    let statusFilter = 'active'; // 'active' | 'archived' | 'oos' | 'all'
+    const filterBtn = $('#filterBtn');
+    const filterPop = $('#filterPop');
+    let mode = 'active'; // 'active' | 'archived' | 'all'
 
-    function setFilter(v){
-      statusFilter = v;
-      // update ARIA checks
-      fltPop.querySelectorAll('.filter-row').forEach(r=>{
-        r.setAttribute('aria-checked', String(r.dataset.val===v));
-      });
-      // subline text to match
-      const map = {
-        active: 'Active tractors only. Search by make, model, serial, or year.',
-        archived: 'Archived tractors only.',
-        oos: 'Out of Service tractors only.',
-        all: 'All tractors. Use search to narrow.'
-      };
-      subEl.textContent = map[v] || map.active;
-      render();
+    function openPop(){
+      if (!filterPop.hidden) return;
+      const r = filterBtn.getBoundingClientRect();
+      filterPop.style.top = `${r.bottom + window.scrollY + 8}px`;
+      const maxLeft = window.scrollX + document.documentElement.clientWidth - 12 - 220;
+      const desiredLeft = r.right + window.scrollX - 220;
+      filterPop.style.left = `${Math.max(12, Math.min(maxLeft, desiredLeft))}px`;
+      filterPop.hidden = false;
+      filterBtn.setAttribute('aria-expanded','true');
     }
-    fltBtn.addEventListener('click', (e)=>{
-      const open = fltPop.classList.toggle('open');
-      fltBtn.setAttribute('aria-expanded', String(open));
-      if(open){
-        const closeIfOutside = (ev)=>{
-          if(!fltPop.contains(ev.target) && ev.target!==fltBtn){
-            fltPop.classList.remove('open'); fltBtn.setAttribute('aria-expanded','false');
-            document.removeEventListener('click', closeIfOutside);
-          }
-        };
-        setTimeout(()=>document.addEventListener('click', closeIfOutside),0);
+    function closePop(){
+      if (filterPop.hidden) return;
+      filterPop.hidden = true;
+      filterBtn.setAttribute('aria-expanded','false');
+    }
+    filterBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      if (filterPop.hidden) openPop(); else closePop();
+    });
+    document.addEventListener('click', (e)=>{
+      if (!filterPop.hidden && !filterPop.contains(e.target) && e.target !== filterBtn) closePop();
+    });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
+
+    filterPop.addEventListener('change', (e)=>{
+      if (e.target && e.target.name === 'statusMode') {
+        mode = e.target.value;
+        render();
+        closePop();
       }
     });
-    fltPop.addEventListener('click', (e)=>{
-      const row = e.target.closest('.filter-row'); if(!row) return;
-      setFilter(row.dataset.val);
-      fltPop.classList.remove('open'); fltBtn.setAttribute('aria-expanded','false');
-    });
+    function syncRadios(){
+      const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
+      if (r) r.checked = true;
+    }
 
     /* ====== LIST ====== */
     const list = $('#list'), countEl = $('#count'), qInput = $('#q');
@@ -338,13 +353,13 @@
 
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
-    const normStatus=v=> String(v ?? 'active').toLowerCase();
-    const isActive = d => {
-      const s = normStatus(d.status);
-      return s==='active' || (d.active===true) || (d.status==null);
-    };
-    const isArchived = d => normStatus(d.status)==='archived';
-    const isOOS = d => normStatus(d.status)==='out of service' || normStatus(d.status)==='oos';
+    function normStatus(d){
+      const s = String((d && d.status != null ? d.status : '')||'').toLowerCase().trim();
+      if (s === 'archived' || s === 'inactive') return 'archived';
+      if (d && d.active === false) return 'archived';
+      return 'active';
+    }
+    const isArchived = d => normStatus(d) === 'archived';
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
     const displayLine = d => {
       const mm = mmText(d), ls = last6(d.serial);
@@ -362,7 +377,7 @@
       unsub = onSnapshot(qref, (snap)=>{
         const out=[]; snap.forEach(s=>{
           const d=s.data()||{};
-          out.push({ id:s.id, ...d }); // DO NOT filter here; filter in render by statusFilter
+          out.push({ id:s.id, ...d });
         });
         out.sort((a,b)=>displayLine(a).localeCompare(displayLine(b)));
         DATA=out; render();
@@ -372,18 +387,28 @@
 
     function render(){
       const q=(qInput.value||'').toLowerCase().trim();
-      const rows = DATA.filter(d=>{
-        // status filter
-        if(statusFilter==='active' && !isActive(d)) return false;
-        if(statusFilter==='archived' && !isArchived(d)) return false;
-        if(statusFilter==='oos' && !isOOS(d)) return false;
-        // text search
-        if(!q) return true;
+
+      // subline text
+      subEl.textContent =
+        mode === 'all' ? 'Showing Active + Archived. Search by make, model, serial, or year.'
+        : mode === 'archived' ? 'Showing Archived only. Search by make, model, serial, or year.'
+        : 'Showing Active only. Search by make, model, serial, or year.';
+
+      // filter by status to match VIEW
+      const filtered = DATA.filter(d=>{
+        if (mode === 'all') return true;
+        return mode === 'archived' ? isArchived(d) : !isArchived(d);
+      });
+
+      // search
+      const rows = filtered.filter(d=>{
+        if (!q) return true;
         const blob=[displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes, d.status]
           .map(x=>String(x||'').toLowerCase()).join(' ');
         return blob.includes(q);
       });
-      countEl.textContent = `${rows.length}/${DATA.length} entries`;
+
+      countEl.textContent = `${rows.length}/${filtered.length} entries (${mode})`;
       list.innerHTML='';
       if(!rows.length){ const p=document.createElement('p'); p.className='sub'; p.textContent='No matches.'; list.appendChild(p); return; }
 
@@ -532,7 +557,6 @@
 
     /* Engine hours helpers (legacy tolerant) */
     function getHoursFromDoc(d){
-      // Accept legacy shapes but normalize to engineHours
       const cands = [d.engineHours, d.hours, d.engine_hour, d.hourMeter, d.hrs];
       for (const v of cands){ if (v !== undefined && v !== null && !Number.isNaN(Number(v))) return Number(v); }
       return 0;
@@ -545,7 +569,6 @@
       currentId=id; deleteClean=false;
       const db=getFirestore();
 
-      // Lists ready + years
       if(!MAKES.length) await loadMakes();
       if(!MODELS.length) await loadModels();
       buildYearOptions();
@@ -554,26 +577,19 @@
       if(!snap.exists()){ alert('Tractor not found'); return; }
       const d=snap.data()||{};
 
-      // Preselect Make/Model (id first, fallback name)
       refreshMakeSelect(d.makeId || d.makeName || '');
       refreshModelSelect(d.modelId || d.modelName || '');
 
-      // Year
       f.yr.value = d.year ? String(d.year) : '';
       $("#yearTrigger").textContent = f.yr.value ? String(d.year) : '— Select —';
 
-      // Serial + status + notes
       f.sn.value = d.serial || '';
       f.sn6.textContent = (d.serial ? String(d.serial).slice(-6) : '—');
       f.st.value = d.status || 'Active';
       f.notes.value = d.notes || '';
-
-      // Engine Hours (robust read)
       f.hrs.value = getHoursFromDoc(d);
 
       dependencyGuard(id).then(ok=>{ deleteClean=ok; }).catch(()=>{ deleteClean=false; });
-
-      // live last-6
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
       eTitle.textContent = titleFor(d);
@@ -607,7 +623,7 @@
         year: f.yr.value ? Number(f.yr.value) : null,
         serial: (f.sn.value||'').trim(),
         status: f.st.value || 'Active',
-        engineHours: Number(f.hrs.value||0),   // <- canonical write target
+        engineHours: Number(f.hrs.value||0),
         notes: (f.notes.value||'').trim(),
         updatedAt: serverTimestamp()
       };
@@ -675,7 +691,7 @@
       await Promise.all([loadMakes(), loadModels()]);
       buildYearOptions();
       attach();
-      setFilter('active'); // default same as view
+      syncRadios(); // default radios reflect 'active'
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
