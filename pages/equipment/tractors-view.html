@@ -329,55 +329,55 @@
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    /* ==================== Robust QR Print ==================== */
-    let PRINTING = false;
+    /* ==================== Robust QR Print (new-tab, iOS friendly) ==================== */
     function printQR(url, labelText){
-      if (PRINTING) return;
-      PRINTING = true;
+      // Always open a fresh user-initiated tab; avoids iOS “blocked from automatically printing”.
+      const w = window.open('', '_blank');
+      if (!w) return;
 
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
+  /* If the printer supports custom size, this is exact 2in×1in. Otherwise we center on Letter. */
   @page { size: 2in 1in; margin: 0; }
-  html, body { width: 2in; height: 1in; margin: 0; padding: 0; }
-  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  #card { width: 2in; height: 1in; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  #qri { max-width: 1.25in; max-height: 0.72in; display:block; image-rendering: pixelated; }
+  html, body { margin:0; padding:0; background:#fff; }
+  /* Letter fallback centering */
+  body:before{ content:""; display:block; height:0; }
+  #wrap{
+    width:2in; height:1in; margin:0 auto;
+    display:flex; align-items:center; justify-content:center;
+    transform:translateZ(0); /* ensure rasterization on iOS */
+  }
+  #card { width:2in; height:1in; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  #qri { max-width: 1.25in; max-height: 0.72in; display:block; image-rendering: pixelated; background:#fff; }
   #lbl { font:700 10px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height:1; white-space:nowrap; margin-top:2px; }
-  html, body, #card { page-break-inside: avoid; break-inside: avoid; }
+  @media print {
+    html, body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    *, *:before, *:after { box-shadow:none !important; }
+    #wrap, #card { break-inside:avoid; page-break-inside:avoid; }
+  }
 </style>
 </head><body>
-  <div id="card">
-    <img id="qri" src="${url}" alt="QR"/>
-    <div id="lbl">${labelText}</div>
+  <div id="wrap">
+    <div id="card">
+      <img id="qri" src="${url}" alt="QR"/>
+      <div id="lbl">${labelText}</div>
+    </div>
   </div>
 <script>
   const img = document.getElementById('qri');
-  function go(){ try { window.focus(); window.print(); } catch(e){} }
-  if (img.complete) { go(); } else { img.addEventListener('load', go, { once:true }); }
-  window.addEventListener('afterprint', ()=> parent.postMessage({fv:'printed'}, '*'));
-  setTimeout(()=> parent.postMessage({fv:'printed'}, '*'), 1200);
+  function doPrint(){ try{ window.focus(); window.print(); }catch(e){} }
+  if (img.complete) { setTimeout(doPrint, 0); }
+  else { img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
+  window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
+  // Safety close (e.g., if afterprint doesn't fire on some mobile stacks)
+  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 4000);
 <\/script>
 </body></html>`;
 
-      const ifr = document.createElement('iframe');
-      ifr.setAttribute('aria-hidden','true');
-      ifr.style.position='fixed';
-      ifr.style.right='-9999px';
-      ifr.style.bottom='-9999px';
-      document.body.appendChild(ifr);
-
-      const onMsg = (ev)=>{
-        if (!ev || !ev.data || ev.data.fv!=='printed') return;
-        window.removeEventListener('message', onMsg);
-        setTimeout(()=>{ try{ ifr.remove(); }catch{} PRINTING=false; }, 200);
-      };
-      window.addEventListener('message', onMsg);
-
-      const doc = ifr.contentWindow.document;
-      doc.open(); doc.write(html); doc.close();
+      w.document.open(); w.document.write(html); w.document.close();
     }
-    /* ========================================================= */
+    /* ================================================================================ */
 
     // Resume hooks
     function resume(){ if (!unsub) attach(); }
