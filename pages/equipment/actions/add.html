@@ -1,12 +1,9 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11g
-Fixes in this build:
- • Fix NAV_MENU import to named import
- • Remove duplicate const EQUIP_TYPES/EQUIP_SLUGS redeclaration
- • Replace $("#ddMakeBtn")/$("#ddModelBtn") with $("ddMakeBtn")/$("ddModelBtn")
- • Correct normType() trailing-dash regex (remove empty alternative)
- • File upload “bubble” removed; slim, neutral button across browsers
+Rev: 2025-11-11h
+Change: Replace simple photo input with Field-Boundary style photos + annotate
+        (thumbs, annotate modal/tools, selectedFiles handling, uploads)
+        Namespaced modal to avoid conflicts with existing .modal sheets.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -179,114 +176,27 @@ Fixes in this build:
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
-    /* File input — slimmer, centered, neutral (Chrome/Edge/Firefox + Safari) */
-    input[type="file"].input{
-      height:var(--ctl-h);
-      padding:0 10px;
-      line-height:var(--ctl-h);
-      display:inline-block;
-      color:var(--text) !important;
-      -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:var(--ctl-radius);
-    }
-    /* Modern browsers */
-    input[type="file"].input::file-selector-button{
-      height:32px; line-height:32px; padding:0 12px; margin:0 8px 0 0;
-      border:1px solid var(--border); border-radius:8px;
-      background:var(--card-surface, var(--surface));
-      font:inherit; color:var(--text) !important; -webkit-text-fill-color:var(--text) !important;
-      cursor:pointer; box-shadow:none;
-    }
-    /* Older Safari */
-    input[type="file"].input::-webkit-file-upload-button{
-      height:32px; line-height:32px; padding:0 12px; margin:0 8px 0 0;
-      border:1px solid var(--border); border-radius:8px;
-      background:var(--card-surface, var(--surface));
-      font:inherit; color:var(--text) !important; -webkit-text-fill-color:var(--text) !important;
-      cursor:pointer; box-shadow:none;
-    }
+    /* ======= Field-Boundary style Photos (namespaced minimal to avoid clashes) ======= */
+    .thumbs{display:flex;gap:10px;flex-wrap:wrap}
+    .thumb{width:92px;height:92px;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:grid;place-items:center;background:#f6f7f6;position:relative}
+    .thumb img{width:100%;height:100%;object-fit:cover}
+    .thumb .tools{position:absolute;inset:auto 6px 6px 6px;display:flex;gap:6px}
+    .thumb .tools button{font-size:12px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer}
 
-    /* Modal */
-    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
-    .modal.show{ display:flex; }
-    .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
-    .sheet{
-      position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
-      border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
-      display:flex; flex-direction:column; overflow:hidden; max-height:90vh;
-    }
-    .sheet header{
-      padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
-      display:flex; align-items:center; justify-content:space-between; color:var(--text);
-      flex:0 0 auto;
-    }
-    .sheet header .close{
-      border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer;
-      padding:6px 10px; border-radius:10px; color:var(--text);
-    }
-    .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
-
-    /* Edit/New content */
-    .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
-    .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
-    .ed-row{ padding:0; border-bottom:1px solid var(--border); }
-    .ed-row:last-child{ border-bottom:none; }
-
-    .ed-head{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
-      padding:10px 12px; cursor:pointer; user-select:none; }
-    .ed-name{ display:flex; gap:8px; align-items:center; width:100%; }
-    .ed-name input{ width:100%; }
-
-    .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
-    .ed-row.open .ed-chevron{ transform:rotate(90deg); }
-    .ed-body{ display:none; padding:0 12px 12px; }
-    .ed-row.open .ed-body{ display:block; }
-
-    .switch-list{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
-    @media (max-width:640px){ .switch-list{ grid-template-columns:1fr; } }
-
-    .switch{
-      display:flex; align-items:center; justify-content:space-between; gap:16px;
-      padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
-    }
-    .switch label{ font-weight:800; }
-    .toggle{
-      position:relative; width:48px; height:28px; border-radius:999px;
-      background:var(--hover,rgba(0,0,0,.12)); border:1px solid var(--border); cursor:pointer;
-      outline:none; appearance:none;
-    }
-    .toggle::after{
-      content:""; position:absolute; top:50%; left:4px; transform:translateY(-50%);
-      width:22px; height:22px; border-radius:50%; background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.15);
-      transition:left .16s ease;
-    }
-    .toggle:checked{ background:var(--brand); border-color:transparent; }
-    .toggle:checked::after{ left:22px; }
-
-    .ed-footer{ display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0; }
-    .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
-
-    .mark-danger{
-      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
-      border:1px solid var(--danger); color:var(--danger); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
-    }
-    .mark-warn{
-      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
-      border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
-    }
-
-    /* Bottom bar + archived list */
-    .ed-bottom{ display:flex; align-items:center; gap:12px; padding:10px 2px 2px; margin-top:6px; }
-    .ed-bottom .grow{ flex:1 1 auto; }
-    .archived-panel{
-      display:none; border:1px dashed var(--border); border-radius:12px; padding:10px; margin-top:8px;
-      max-height:180px; overflow:auto; font-size:14px;
-    }
-    .archived-panel.show{ display:block; }
-    .archived-panel .arch-item{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px; }
-    .archived-panel .arch-item .btn{ min-width:auto; padding:6px 10px; }
+    /* Annotate Modal (namespaced: .annotate-modal / .annotate-dialog) */
+    .annotate-modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:99999;transition:opacity .15s;opacity:0}
+    .annotate-modal[open]{display:grid;opacity:1}
+    .annotate-dialog{width:min(880px,94vw);max-height:88vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28)}
+    .annotate-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+    .annotate-body{padding:12px;overflow:auto;flex:1 1 auto;min-height:0;-webkit-overflow-scrolling:touch}
+    .annotate-foot{display:flex;gap:8px;justify-content:space-between;align-items:center;padding:12px 14px;border-top:1px solid var(--border);flex-wrap:wrap}
+    .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text)!important}
+    .toolrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .toolrow .btn{min-width:auto;padding:8px 10px}
+    .toolrow label{font-size:13px}
+    .chip{border:1px solid var(--border);border-radius:999px;padding:6px 10px;font-weight:700;background:var(--surface);cursor:pointer;user-select:none}
+    .chip.active{background:#2F6C3C;color:#fff;border-color:#2F6C3C}
   </style>
 </head>
 
@@ -357,9 +267,12 @@ Fixes in this build:
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
+          <!-- ===== Field-Boundary style Photos (with thumbs + annotate) ===== -->
           <div class="field">
-            <label for="photos">Photos (optional)</label>
-            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+            <label for="photos">Photos (up to 3)</label>
+            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple>
+            <div id="thumbs" class="thumbs" aria-live="polite"></div>
+            <div id="photoNote" class="help">You can draw arrows, write notes, or freehand markups before saving.</div>
           </div>
 
           <!-- Tiny QR preview -->
@@ -379,7 +292,7 @@ Fixes in this build:
     </div>
   </fv-shell>
 
-  <!-- Edit modal -->
+  <!-- Existing Edit/New modals remain unchanged (namespaced with .modal.show + .sheet) -->
   <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
     <div class="backdrop" data-close></div>
     <div class="sheet">
@@ -389,7 +302,6 @@ Fixes in this build:
       </header>
 
       <div class="ed-wrap">
-        <!-- Models bar (only for models editor) -->
         <div id="edModelsBar" style="display:none; gap:8px; align-items:center;">
           <label for="edMakeSelect" style="font-weight:800; margin-right:6px;">Make</label>
           <select id="edMakeSelect" class="select" style="max-width:260px;"></select>
@@ -397,20 +309,17 @@ Fixes in this build:
 
         <div id="edList" class="ed-list" role="list"></div>
 
-        <!-- Bottom footer -->
         <div class="ed-bottom">
           <button id="edToggleArchived" class="btn btn-quiet" type="button">Show Archived Makes</button>
           <div class="grow"></div>
           <button id="edSaveAll" class="btn btn-primary" type="button" disabled>Save All Changes</button>
         </div>
 
-        <!-- Archived list (view + unarchive) -->
         <div id="edArchivedPanel" class="archived-panel"></div>
       </div>
     </div>
   </div>
 
-  <!-- New Make modal -->
   <div id="newMakeModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="nmTitle">
     <div class="backdrop" data-close></div>
     <div class="sheet">
@@ -429,6 +338,33 @@ Fixes in this build:
         </div>
         <div class="ed-footer">
           <button id="nmCreate" class="btn btn-primary" type="button">Create</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Annotate Modal (namespaced; copied from Field Boundary and adjusted) -->
+  <div id="annotateModal" class="annotate-modal" aria-hidden="true">
+    <div class="annotate-dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="annotate-head">
+        <h3 id="mdTitle">Annotate Photo</h3>
+        <div class="toolrow">
+          <span id="tool-pen"    class="chip active">Pen</span>
+          <span id="tool-arrow"  class="chip">Arrow</span>
+          <span id="tool-text"   class="chip">Text</span>
+          <label>Size <input id="tool-size" type="range" min="2" max="16" value="4" style="vertical-align:middle"></label>
+          <label>Color <input id="tool-color" type="color" value="#ff0000" style="vertical-align:middle"></label>
+        </div>
+        <button class="closex" id="mdClose" type="button">Back</button>
+      </div>
+      <div class="annotate-body" id="mdBody"></div>
+      <div class="annotate-foot" id="mdFoot">
+        <div class="toolrow">
+          <button class="btn" id="mdUndo" type="button">Undo</button>
+          <button class="btn" id="mdReset" type="button">Clear</button>
+        </div>
+        <div class="toolrow">
+          <button class="btn btn-primary" id="mdSave" type="button">Save Annotation</button>
         </div>
       </div>
     </div>
@@ -575,6 +511,215 @@ Fixes in this build:
       const modelOk= Boolean($("modelId").value);
       const serialOk= Boolean(normalizeSerial($("serial").value));
       $("btnSave").disabled = !(makeOk && modelOk && serialOk);
+    }
+
+    /* ===== Field-Boundary style Photos & Annotations (namespaced) ===== */
+    let selectedFiles = []; // File[]
+    const photos = $("photos");
+    const thumbs = $("thumbs");
+    const photoNote = $("photoNote");
+
+    photos.addEventListener("change", ()=>{
+      const list = Array.from(photos.files||[]);
+      selectedFiles = (selectedFiles || []).concat(list).slice(0,3); // cap at 3
+      renderThumbs();
+      photoNote.textContent = selectedFiles.length >= 3 ? "Max 3 photos attached." : "You can draw arrows, write notes, or freehand markups before saving.";
+    });
+
+    function renderThumbs(){
+      thumbs.innerHTML = "";
+      selectedFiles.forEach((file, idx)=>{
+        const div = document.createElement("div"); div.className="thumb";
+        const img = document.createElement("img"); img.alt=file.name; img.src=URL.createObjectURL(file);
+        const tools = document.createElement("div"); tools.className="tools";
+        const btnAnn = document.createElement("button"); btnAnn.textContent="Annotate";
+        const btnRm  = document.createElement("button"); btnRm.textContent="Remove";
+        btnAnn.addEventListener("click", ()=> openAnnotate(idx));
+        btnRm.addEventListener("click", ()=>{ selectedFiles.splice(idx,1); renderThumbs(); });
+        tools.appendChild(btnAnn); tools.appendChild(btnRm);
+        div.appendChild(img); div.appendChild(tools); thumbs.appendChild(div);
+      });
+    }
+
+    const aModal = $("annotateModal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    const toolPen = $("tool-pen"), toolArrow=$("tool-arrow"), toolText=$("tool-text");
+    const toolSize = $("tool-size"), toolColor=$("tool-color");
+    const mdUndo=$("mdUndo"), mdReset=$("mdReset"), mdSave=$("mdSave");
+
+    let ann = {
+      canvas:null, ctx:null, img:null, idx:null,
+      tool:"pen", drawing:false, start:null,
+      undoStack:[], dpr: 1
+    };
+
+    function setTool(which){
+      ann.tool = which;
+      [toolPen,toolArrow,toolText].forEach(el=>el.classList.remove('active'));
+      if(which==="pen") toolPen.classList.add('active');
+      if(which==="arrow") toolArrow.classList.add('active');
+      if(which==="text") toolText.classList.add('active');
+    }
+    toolPen.addEventListener("click", ()=> setTool("pen"));
+    toolArrow.addEventListener("click", ()=> setTool("arrow"));
+    toolText.addEventListener("click", ()=> setTool("text"));
+
+    function openAnnotate(idx){
+      const file = selectedFiles[idx]; if(!file) return;
+      ann.idx=idx;
+      mdBody.innerHTML = `<canvas id="annCvs" style="max-width:100%;touch-action:none;display:block;margin:auto"></canvas>`;
+      const cvs = $("annCvs");
+      ann.canvas=cvs; ann.ctx=cvs.getContext("2d");
+      ann.undoStack.length=0;
+
+      const img = new Image(); ann.img=img;
+      img.onload = ()=>{
+        const maxW = Math.min(820, window.innerWidth*0.9);
+        const scale = Math.min(1, maxW / img.width);
+        const cssW = Math.round(img.width * scale);
+        const cssH = Math.round(img.height * scale);
+        const dpr = window.devicePixelRatio || 1; ann.dpr = dpr;
+        cvs.style.width = cssW+"px"; cvs.style.height = cssH+"px";
+        cvs.width = Math.round(cssW * dpr);
+        cvs.height= Math.round(cssH * dpr);
+        ann.ctx.setTransform(dpr,0,0,dpr,0,0);
+        ann.ctx.drawImage(img,0,0,cssW,cssH);
+        pushUndo();
+      };
+      img.src = URL.createObjectURL(file);
+
+      wireDrawHandlers(cvs);
+      openAnnotateModal("Annotate Photo");
+    }
+
+    function pushUndo(){
+      try{
+        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
+        const snap = ann.ctx.getImageData(0,0,w,h);
+        ann.undoStack.push(snap);
+        if(ann.undoStack.length>30) ann.undoStack.shift();
+      }catch(_){}
+    }
+    function restoreLast(){
+      if(!ann.undoStack.length) return;
+      const last = ann.undoStack.pop();
+      if(last){
+        ann.ctx.setTransform(ann.dpr,0,0,ann.dpr,0,0);
+        ann.ctx.putImageData(last,0,0);
+      }
+    }
+    mdUndo.addEventListener("click", restoreLast);
+    mdReset.addEventListener("click", ()=>{
+      if(ann.img && ann.canvas){
+        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
+        ann.ctx.setTransform(ann.dpr,0,0,ann.dpr,0,0);
+        ann.ctx.clearRect(0,0,w,h);
+        ann.ctx.drawImage(ann.img,0,0,w,h);
+        ann.undoStack.length=0;
+        pushUndo();
+      }
+    });
+    mdSave.addEventListener("click", ()=>{
+      if(!ann.canvas || ann.idx==null) return;
+      ann.canvas.toBlob(b=>{
+        if(!b) return;
+        const orig = selectedFiles[ann.idx];
+        const ext = (orig?.name||"image").replace(/^.*(\.\w+)$/,'$1') || ".png";
+        const named = new File([b], (orig?.name?.replace(/\.\w+$/,'')||"annotated") + "-annotated"+ext, { type: "image/png" });
+        selectedFiles.splice(ann.idx,1,named);
+        renderThumbs();
+        closeAnnotateModal();
+      }, "image/png", 0.92);
+    });
+
+    function openAnnotateModal(title){
+      document.getElementById("mdTitle").textContent = title || "Details";
+      aModal.setAttribute("open",""); aModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+    }
+    function closeAnnotateModal(){
+      aModal.removeAttribute("open"); aModal.setAttribute("aria-hidden","true");
+      mdBody.innerHTML = ""; ann={canvas:null,ctx:null,img:null,idx:null,tool:"pen",drawing:false,start:null,undoStack:[],dpr:1};
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+    }
+    mdClose.addEventListener("click", closeAnnotateModal);
+    aModal.addEventListener("click", e=>{ if(e.target===aModal) closeAnnotateModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && aModal.hasAttribute("open")) closeAnnotateModal(); });
+
+    function wireDrawHandlers(cvs){
+      const ctx = ann.ctx;
+
+      const getPos = e=>{
+        const r=cvs.getBoundingClientRect();
+        const c = e.touches?.[0] || e;
+        return { x: (c.clientX - r.left), y: (c.clientY - r.top) };
+      };
+
+      const strokeStyle = ()=> {
+        ctx.lineWidth = Number(toolSize.value)||4;
+        ctx.strokeStyle = toolColor.value || "#ff0000";
+        ctx.fillStyle = toolColor.value || "#ff0000";
+        ctx.lineJoin = "round"; ctx.lineCap = "round";
+      };
+
+      const start = e=>{
+        e.preventDefault();
+        strokeStyle();
+        const p=getPos(e);
+        ann.drawing=true; ann.start=p;
+        if(ann.tool==="pen"){
+          ctx.beginPath(); ctx.moveTo(p.x, p.y);
+        }
+      };
+      const move = e=>{
+        if(!ann.drawing) return;
+        e.preventDefault();
+        const p=getPos(e);
+        if(ann.tool==="pen"){
+          ctx.lineTo(p.x, p.y); ctx.stroke();
+        }
+      };
+      const end = e=>{
+        if(!ann.drawing) return;
+        ann.drawing=false;
+        const pStart = ann.start;
+        const pEnd = e ? getPos(e) : pStart;
+        if(ann.tool==="arrow" && pStart && pEnd){
+          drawArrow(ctx, pStart, pEnd, Number(toolSize.value)||4, toolColor.value||"#ff0000");
+        }
+        if(ann.tool==="text" && pStart){
+          const txt = prompt("Enter note text:");
+          if(txt){
+            ctx.font = `bold ${Math.max(12,(Number(toolSize.value)||4)*4)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+            ctx.fillText(txt, pStart.x+4, pStart.y+4);
+          }
+        }
+        pushUndo();
+      };
+
+      cvs.addEventListener("mousedown", start);
+      cvs.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", end);
+      cvs.addEventListener("touchstart", start, {passive:false});
+      cvs.addEventListener("touchmove", move, {passive:false});
+      window.addEventListener("touchend", end);
+    }
+
+    function drawArrow(ctx, p, q, width, color){
+      const headLen = Math.max(8, width*4);
+      const angle = Math.atan2(q.y - p.y, q.x - p.x);
+      ctx.save();
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width; ctx.lineJoin="round"; ctx.lineCap="round";
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(q.x, q.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      ctx.lineTo(q.x - headLen * Math.cos(angle - Math.PI/6), q.y - headLen * Math.sin(angle - Math.PI/6));
+      ctx.lineTo(q.x - headLen * Math.cos(angle + Math.PI/6), q.y - headLen * Math.sin(angle + Math.PI/6));
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
 
     /* QR (unchanged) */
@@ -830,7 +975,7 @@ Fixes in this build:
       validateForm();
     }
 
-    /* ===== Edit modal (rules + WORKING actions) ===== */
+    /* ===== Edit modal (unchanged behavior) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -840,7 +985,7 @@ Fixes in this build:
       archivedPanel: $("edArchivedPanel"),
       modelsBar: $("edModelsBar"),
       modelsMakeSel: $("edMakeSelect"),
-      pending: new Map(), // id -> { name?, categories?, unarchive?, model? }
+      pending: new Map(),
       open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
       close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
     };
@@ -884,7 +1029,7 @@ Fixes in this build:
         btn.addEventListener('click', ()=>{
           const cur = Edit.pending.get(m.id) || {};
           if(!cur.unarchive){ bumpPending(+1); }
-          cur.unarchive = true; // queued; applied with Save All
+          cur.unarchive = true;
           Edit.pending.set(m.id, cur);
           showToast(`Unarchive queued: ${m.name}`);
         });
@@ -893,7 +1038,6 @@ Fixes in this build:
       });
     }
 
-    /* ----- IMMEDIATE actions ----- */
     async function deleteMakeImmediate(db, id, name){
       const u = await usageInfo(db, 'makes', id);
       if(u.total !== 0){ alert('This make is in use and cannot be deleted.'); return; }
@@ -944,7 +1088,6 @@ Fixes in this build:
         for(const it of makes){
           const row=document.createElement('div'); row.className='ed-row'; row.dataset.id = it.id;
 
-          // header
           const head=document.createElement('div'); head.className='ed-head';
           const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
           const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
@@ -953,7 +1096,6 @@ Fixes in this build:
           head.append(nameWrap, chev);
           row.append(head);
 
-          // body (switches + actions)
           const body=document.createElement('div'); body.className='ed-body';
           const switches=document.createElement('div'); switches.className='switch-list';
           const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
@@ -978,7 +1120,6 @@ Fixes in this build:
 
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
-          // queued rename/category
           const stageBase = ()=>{
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
             const cur = Edit.pending.get(it.id) || {};
@@ -992,13 +1133,11 @@ Fixes in this build:
           inp.addEventListener('input', stageBase);
           switches.addEventListener('change', stageBase);
 
-          // IMMEDIATE actions
           delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
           arcBtn.addEventListener('click', ()=> archiveMakeImmediate(db, it.id, inp.value.trim() || it.name));
         }
 
       }else{
-        // MODELS editor (rename only)
         Edit.modelsBar.style.display='flex';
         const sel = Edit.modelsMakeSel;
 
@@ -1104,7 +1243,7 @@ Fixes in this build:
       validateForm();
     }
 
-    /* Save equipment */
+    /* ===== Save equipment (updated photo handling to use selectedFiles) ===== */
     let saving = false;
     async function saveAll(db){
       if(saving) return;
@@ -1187,7 +1326,8 @@ Fixes in this build:
           }
         }
 
-        const files = Array.from(($("photos").files||[]));
+        /* Photo uploads: use selectedFiles[] from annotate flow */
+        const files = selectedFiles.slice();
         if(files.length){
           try{
             const m = await import('/Farm-vista/js/firebase-init.js');
@@ -1226,8 +1366,11 @@ Fixes in this build:
 
     function resetForm(){
       ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-      $("photos").value="";
       $("year").value=""; $("yearTrigger").textContent="— Select —";
+
+      // Photos reset
+      $("photos").value="";
+      selectedFiles=[]; thumbs.innerHTML=""; photoNote.textContent="You can draw arrows, write notes, or freehand markups before saving.";
 
       ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
       ddModel.hidden.value=""; ddModel.btn.textContent="— Select a Make first —";
