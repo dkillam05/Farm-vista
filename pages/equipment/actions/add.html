@@ -1,11 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-12a
-Scope-limited fixes ONLY:
- • Restore working Edit modal for Makes/Models (immediate Delete/Archive + toast)
- • Photos input = native file picker + clean thumbnail strip (no annotations)
- • Move "Create QR Code" to the right of the QR preview (inline)
- • Keep non-blue text for file button in dark mode
+Rev: 2025-11-11f
+Fixes in this build:
+ • Fix NAV_MENU import to named import
+ • Remove duplicate const EQUIP_TYPES/EQUIP_SLUGS redeclaration
+ • Replace $("#ddMakeBtn")/$("#ddModelBtn") with $("ddMakeBtn")/$("ddModelBtn")
+ • Correct normType() trailing-dash regex (remove empty alternative)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -173,34 +173,97 @@ Scope-limited fixes ONLY:
     .dd-list li:hover{background:#f0f1f0}
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* QR preview + button inline */
-    .qr-area{
-      border:1px solid var(--border); border-radius:12px; background:var(--surface);
-      display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px;
-    }
+    /* QR Preview */
+    .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
-    .qr-wrap{ display:flex; align-items:center; gap:12px; }
 
-    /* File input: keep native, non-blue, full width */
+    /* File input — mimic Field Boundary look, but kill iOS blue text
+       Keep it as a normal .input (same padding/height), just force text color. */
     input[type="file"].input{
-      height:var(--ctl-h);
-      padding:0 12px;
-      line-height:var(--ctl-h);
       color:var(--text) !important;
       -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
     }
-    input[type="file"].input::file-selector-button{
-      height:36px; margin:0 10px 0 0; border:1px solid var(--border);
-      border-radius:10px; padding:0 12px; font:inherit; color:var(--text) !important;
-      -webkit-text-fill-color:var(--text) !important; background:var(--card-surface,var(--surface)); cursor:pointer;
-      display:inline-grid; place-items:center;
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
+    .modal.show{ display:flex; }
+    .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
+    .sheet{
+      position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
+      border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
+      display:flex; flex-direction:column; overflow:hidden; max-height:90vh;
+    }
+    .sheet header{
+      padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
+      display:flex; align-items:center; justify-content:space-between; color:var(--text);
+      flex:0 0 auto;
+    }
+    .sheet header .close{
+      border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer;
+      padding:6px 10px; border-radius:10px; color:var(--text);
+    }
+    .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
+
+    /* Edit/New content */
+    .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
+    .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
+    .ed-row{ padding:0; border-bottom:1px solid var(--border); }
+    .ed-row:last-child{ border-bottom:none; }
+
+    .ed-head{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
+      padding:10px 12px; cursor:pointer; user-select:none; }
+    .ed-name{ display:flex; gap:8px; align-items:center; width:100%; }
+    .ed-name input{ width:100%; }
+
+    .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
+    .ed-row.open .ed-chevron{ transform:rotate(90deg); }
+    .ed-body{ display:none; padding:0 12px 12px; }
+    .ed-row.open .ed-body{ display:block; }
+
+    .switch-list{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+    @media (max-width:640px){ .switch-list{ grid-template-columns:1fr; } }
+
+    .switch{
+      display:flex; align-items:center; justify-content:space-between; gap:16px;
+      padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
+    }
+    .switch label{ font-weight:800; }
+    .toggle{
+      position:relative; width:48px; height:28px; border-radius:999px;
+      background:var(--hover,rgba(0,0,0,.12)); border:1px solid var(--border); cursor:pointer;
+      outline:none; appearance:none;
+    }
+    .toggle::after{
+      content:""; position:absolute; top:50%; left:4px; transform:translateY(-50%);
+      width:22px; height:22px; border-radius:50%; background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.15);
+      transition:left .16s ease;
+    }
+    .toggle:checked{ background:var(--brand); border-color:transparent; }
+    .toggle:checked::after{ left:22px; }
+
+    .ed-footer{ display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0; }
+    .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
+
+    .mark-danger{
+      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
+      border:1px solid var(--danger); color:var(--danger); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
+    }
+    .mark-warn{
+      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
+      border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
 
-    /* Simple thumbnails (Field-Boundary feel, no annotate) */
-    .thumbs{ display:flex; gap:10px; flex-wrap:wrap; }
-    .thumb{ width:92px; height:92px; border:1px solid var(--border); border-radius:10px; overflow:hidden;
-            display:grid; place-items:center; background:#f6f7f6; }
-    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+    /* Bottom bar + archived list */
+    .ed-bottom{ display:flex; align-items:center; gap:12px; padding:10px 2px 2px; margin-top:6px; }
+    .ed-bottom .grow{ flex:1 1 auto; }
+    .archived-panel{
+      display:none; border:1px dashed var(--border); border-radius:12px; padding:10px; margin-top:8px;
+      max-height:180px; overflow:auto; font-size:14px;
+    }
+    .archived-panel.show{ display:block; }
+    .archived-panel .arch-item{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px; }
+    .archived-panel .arch-item .btn{ min-width:auto; padding:6px 10px; }
   </style>
 </head>
 
@@ -223,7 +286,7 @@ Scope-limited fixes ONLY:
               <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
               <input type="hidden" id="makeId" value=""/>
               <div id="ddMake" class="dd">
-                <button type="button" id="ddMakeBtn" class="dd-btn">— Select —</button>
+                <button type="button" id="ddMakeBtn" class="dd-btn">— Loading… —</button>
                 <div class="dd-list">
                   <input type="text" id="ddMakeSearch" placeholder="Search make…">
                   <ul id="ddMakeList"></ul>
@@ -271,25 +334,21 @@ Scope-limited fixes ONLY:
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
-          <!-- Photos -->
           <div class="field">
             <label for="photos">Photos (optional)</label>
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
-            <div id="thumbs" class="thumbs" aria-live="polite"></div>
           </div>
 
-          <!-- QR preview + button inline -->
-          <div class="qr-wrap">
-            <div id="qrArea" class="qr-area" hidden>
-              <img id="qrThumb" alt="QR code">
-            </div>
-            <button id="btnQR" class="btn" type="button">Create QR Code</button>
+          <!-- Tiny QR preview -->
+          <div id="qrArea" class="qr-area" hidden>
+            <img id="qrThumb" alt="QR code">
           </div>
 
           <div id="err" class="error" hidden></div>
 
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
+            <button id="btnQR" class="btn" type="button">Create QR Code</button>
             <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
@@ -306,87 +365,9 @@ Scope-limited fixes ONLY:
         <button class="close" type="button" data-close>Close</button>
       </header>
 
-      <style>
-        /* Modal internals (kept local) */
-        .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
-        .modal.show{ display:flex; }
-        .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
-        .sheet{
-          position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
-          border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
-          display:flex; flex-direction:column; overflow:hidden; max-height:90vh;
-        }
-        .sheet header{
-          padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
-          display:flex; align-items:center; justify-content:space-between; color:var(--text);
-          flex:0 0 auto;
-        }
-        .sheet header .close{
-          border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer;
-          padding:6px 10px; border-radius:10px; color:var(--text);
-        }
-        .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
-        .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
-        .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
-        .ed-row{ padding:0; border-bottom:1px solid var(--border); }
-        .ed-row:last-child{ border-bottom:none; }
-        .ed-head{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
-          padding:10px 12px; cursor:pointer; user-select:none; }
-        .ed-name{ display:flex; gap:8px; align-items:center; width:100%; }
-        .ed-name input{ width:100%; }
-        .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
-        .ed-row.open .ed-chevron{ transform:rotate(90deg); }
-        .ed-body{ display:none; padding:0 12px 12px; }
-        .ed-row.open .ed-body{ display:block; }
-
-        .switch-list{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
-        @media (max-width:640px){ .switch-list{ grid-template-columns:1fr; } }
-
-        .switch{
-          display:flex; align-items:center; justify-content:space-between; gap:16px;
-          padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
-        }
-        .switch label{ font-weight:800; }
-
-        .toggle{
-          position:relative; width:48px; height:28px; border-radius:999px;
-          background:var(--hover,rgba(0,0,0,.12)); border:1px solid var(--border); cursor:pointer; outline:none; appearance:none;
-        }
-        .toggle::after{
-          content:""; position:absolute; top:50%; left:4px; transform:translateY(-50%);
-          width:22px; height:22px; border-radius:50%; background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.15);
-          transition:left .16s ease;
-        }
-        .toggle:checked{ background:var(--brand); border-color:transparent; }
-        .toggle:checked::after{ left:22px; }
-
-        .ed-footer{ display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0; }
-        .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
-
-        .mark-danger{
-          display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
-          border:1px solid var(--danger); color:var(--danger); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
-        }
-        .mark-warn{
-          display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
-          border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
-        }
-
-        .ed-bottom{ display:flex; align-items:center; gap:12px; padding:10px 2px 2px; margin-top:6px; }
-        .ed-bottom .grow{ flex:1 1 auto; }
-        .archived-panel{
-          display:none; border:1px dashed var(--border); border-radius:12px; padding:10px; margin-top:8px;
-          max-height:180px; overflow:auto; font-size:14px;
-        }
-        .archived-panel.show{ display:block; }
-        .archived-panel .arch-item{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px; }
-        .archived-panel .arch-item .btn{ min-width:auto; padding:6px 10px; }
-        #edModelsBar{display:none; gap:8px; align-items:center;}
-      </style>
-
       <div class="ed-wrap">
         <!-- Models bar (only for models editor) -->
-        <div id="edModelsBar">
+        <div id="edModelsBar" style="display:none; gap:8px; align-items:center;">
           <label for="edMakeSelect" style="font-weight:800; margin-right:6px;">Make</label>
           <select id="edMakeSelect" class="select" style="max-width:260px;"></select>
         </div>
@@ -414,9 +395,9 @@ Scope-limited fixes ONLY:
         <div id="nmTitle">New Make</div>
         <button class="close" type="button" data-close>Close</button>
       </header>
-      <div class="nm-body" style="padding:12px; display:flex; flex-direction:column; gap:12px;">
+      <div class="nm-body">
         <div>
-          <label for="nmName" class="req" style="display:block; font-weight:800; margin:0 0 6px;">Make name</label>
+          <label for="nmName" class="req">Make name</label>
           <input id="nmName" class="input" placeholder="e.g., John Deere"/>
         </div>
         <div>
@@ -483,7 +464,7 @@ Scope-limited fixes ONLY:
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* Year options */
+    /* Year options (unchanged) */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -573,24 +554,7 @@ Scope-limited fixes ONLY:
       $("btnSave").disabled = !(makeOk && modelOk && serialOk);
     }
 
-    /* Photos: native input + simple thumbs */
-    let selectedFiles = [];
-    const photosInput = $("photos");
-    const thumbs = $("thumbs");
-    photosInput.addEventListener("change", ()=>{
-      selectedFiles = Array.from(photosInput.files||[]);
-      renderThumbs();
-    });
-    function renderThumbs(){
-      thumbs.innerHTML = "";
-      selectedFiles.forEach(file=>{
-        const d = document.createElement("div"); d.className="thumb";
-        const img = document.createElement("img"); img.alt=file.name; img.src=URL.createObjectURL(file);
-        d.appendChild(img); thumbs.appendChild(d);
-      });
-    }
-
-    /* QR */
+    /* QR (unchanged) */
     let pendingToken = null;
     let pendingQRBlob = null;
     async function waitQRReady(){ let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){ await new Promise(r=>setTimeout(r,50)); } if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib'); }
@@ -843,7 +807,7 @@ Scope-limited fixes ONLY:
       validateForm();
     }
 
-    /* ===== Edit modal (restored working build) ===== */
+    /* ===== Edit modal (rules + WORKING actions) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -906,7 +870,7 @@ Scope-limited fixes ONLY:
       });
     }
 
-    /* ----- IMMEDIATE actions for Makes ----- */
+    /* ----- IMMEDIATE actions ----- */
     async function deleteMakeImmediate(db, id, name){
       const u = await usageInfo(db, 'makes', id);
       if(u.total !== 0){ alert('This make is in use and cannot be deleted.'); return; }
@@ -1200,8 +1164,7 @@ Scope-limited fixes ONLY:
           }
         }
 
-        // Upload selected files (use selectedFiles, not input.files directly)
-        const files = selectedFiles.slice();
+        const files = Array.from(($("photos").files||[]));
         if(files.length){
           try{
             const m = await import('/Farm-vista/js/firebase-init.js');
@@ -1240,7 +1203,7 @@ Scope-limited fixes ONLY:
 
     function resetForm(){
       ["serial","engineHours","notes"].forEach(id=>$(id).value="");
-      $("photos").value=""; selectedFiles=[]; renderThumbs();
+      $("photos").value="";
       $("year").value=""; $("yearTrigger").textContent="— Select —";
 
       ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
