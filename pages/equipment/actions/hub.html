@@ -1,14 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/hub.html  (FULL FILE)
-Rev: 2025-11-12b
-Changes in this build (timing-hardening, ID-only):
- • Still requires ?id={documentId}; no token/code lookup.
- • Canonicalize URL: if t/code are present, strip them from the address bar.
- • Wait for Firebase Auth to emit the first state before Firestore call.
- • Add single-run guard so late/duplicate inits don’t override the latest.
- • Add gentle retry (1x) for getDoc with small backoff.
- • Extend watchdog timeout for cold starts.
- • Add preconnect hints and resume listeners (pageshow/visibility).
+Rev: 2025-11-12c
+Focus: kill timing race (auth/user gate) & match tractors' config load
+ • Still ID-only (?id=...), no token lookup.
+ • Loads firebase-config.js explicitly (same as tractors page).
+ • Waits for a REAL user (not just auth event), up to 3s, before getDoc.
+ • Keeps single-run guard, one retry, longer watchdog, resume listeners.
+ • Adds concise console markers for quick diagnosis.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -33,6 +31,9 @@ Changes in this build (timing-hardening, ID-only):
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
+  <!-- IMPORTANT: match tractors — load Firebase CONFIG first -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
   <!-- Ensure fv-shell -->
   <script>
     (function(){
@@ -48,12 +49,8 @@ Changes in this build (timing-hardening, ID-only):
     :root{ --card-max:900px; --brand:var(--green,#3B7E46); }
     body{ background:var(--app-bg,var(--surface)); margin:0; }
 
-    /* Remove blue link font in dark mode */
     .wrap, .wrap * { -webkit-tap-highlight-color: transparent; }
-    .wrap a,
-    .wrap a:visited,
-    .wrap a:active,
-    .wrap a:hover { color:inherit; text-decoration:none; }
+    .wrap a, .wrap a:visited, .wrap a:active, .wrap a:hover { color:inherit; text-decoration:none; }
     .btn { color:var(--ink-1,#0f1a13); }
     :root[data-theme="dark"] .btn { color:var(--ink-1,#eaece9); }
     .btn-primary { color:#fff; }
@@ -170,16 +167,12 @@ Changes in this build (timing-hardening, ID-only):
 
     const $ = id => document.getElementById(id);
 
-    // --- Canonicalize URL (strip legacy t/code); read id
+    // --- Canonical ID
     const qs = new URLSearchParams(location.search);
     const id = qs.get('id') || '';
-    if (qs.has('t') || qs.has('code')) {
-      qs.delete('t'); qs.delete('code');
-      const clean = `${location.pathname}?${qs.toString()}`;
-      history.replaceState(null,'', clean);
-    }
+    console.info('[hub] start; id=', id);
 
-    // --- Utilities
+    // --- UI helpers
     const last6 = v => String(v||'').slice(-6);
     const capWords = s => String(s||'').replace(/\b\w/g, c=>c.toUpperCase());
     const setText = (id, val, opts={})=>{
@@ -189,7 +182,7 @@ Changes in this build (timing-hardening, ID-only):
     };
     function showContent(){ $('fsLoad').hidden=true; $('content').hidden=false; }
 
-    // --- Watchdog (slightly longer for cold starts)
+    // --- Watchdog
     const TIMEOUT_MS = 22000;
     let finished=false;
     const watchdog=setTimeout(()=>{
@@ -197,63 +190,79 @@ Changes in this build (timing-hardening, ID-only):
       showContent();
       $('timeoutCard').hidden=false;
       $('status').textContent='Timed out waiting for data.'; $('status').hidden=false;
+      console.warn('[hub] watchdog fired');
     },TIMEOUT_MS);
 
-    // --- Auth gate: wait for first auth state emission (user or null)
-    const authReady = () => new Promise(resolve=>{
-      try{
-        const auth = getAuth();
-        const off = onAuthStateChanged(auth, ()=>{ try{off();}catch{} resolve(); }, { onlyOnce:true });
-      }catch{ resolve(); } // if auth not available, proceed
-    });
+    // --- Wait for REAL user (not just an auth event). Cap at ~3s.
+    async function userReady(maxMs=3000){
+      const auth = getAuth();
+      // If user already present, done.
+      if (auth.currentUser) { console.info('[hub] userReady: currentUser present'); return; }
+      // Wait for first state change
+      const first = new Promise(res=>{
+        const off = onAuthStateChanged(auth, (u)=>{ try{off();}catch{} res(u); }, { onlyOnce:true });
+      });
+      let u = await first;
+      if (u) { console.info('[hub] userReady: got user from first event'); return; }
+      // Poll briefly (Safari sometimes needs a beat)
+      const t0 = Date.now();
+      while(!auth.currentUser && (Date.now()-t0) < maxMs){
+        await new Promise(r=>setTimeout(r,120));
+      }
+      console.info('[hub] userReady: final user=', !!auth.currentUser);
+    }
 
-    // --- Gentle retry for getDoc (handles transient cold-start failures)
+    // --- Gentle retry
     async function getDocWithRetry(ref){
-      try { return await getDoc(ref); }
-      catch(e){
+      try {
+        console.info('[hub] getDoc attempt #1');
+        return await getDoc(ref);
+      }catch(e){
+        console.warn('[hub] getDoc failed #1; retrying...', e?.code||e);
         await new Promise(r=>setTimeout(r, 600));
+        console.info('[hub] getDoc attempt #2');
         return await getDoc(ref);
       }
     }
 
-    // --- Single-run guard so only the latest init wins
+    // --- Single-run guard
     let runId = 0;
     async function init(){
       const my = ++runId;
-
       await ready;
-      await authReady(); // ensure auth is rehydrated before first read
-      const db=getFirestore();
-
-      if (my !== runId) return; // a newer run started; drop this attempt
+      await userReady(); // ← key change
+      if (my !== runId) return;
 
       if(!id){
         clearTimeout(watchdog); finished=true; showContent();
         $('status').textContent='No equipment id provided.'; $('status').hidden=false;
+        console.warn('[hub] no id');
         return;
       }
 
+      const db=getFirestore();
       let snap;
       try{
         const ref = doc(db,'equipment',id);
         snap = await getDocWithRetry(ref);
       }catch(e){
-        console.error(e);
+        console.error('[hub] getDoc error', e);
         clearTimeout(watchdog); finished=true; showContent();
         $('status').textContent='Error loading hub.'; $('status').hidden=false;
         return;
       }
-
-      if (my !== runId) return; // guard again after await chain
+      if (my !== runId) return;
 
       clearTimeout(watchdog); finished=true; showContent();
 
       if(!snap.exists()){
         $('status').textContent='Not found.'; $('status').hidden=false;
+        console.warn('[hub] snap not exists for id', id);
         return;
       }
 
       const d=snap.data()||{}; d.id=id;
+      console.info('[hub] loaded doc', { id, type:d.type, make:d.makeName, model:d.modelName });
 
       // Title and header
       const typeRaw=d.type||'equipment';
@@ -290,13 +299,13 @@ Changes in this build (timing-hardening, ID-only):
       }
     }
 
-    // Kick once now, and again on true resumes
     init().catch(e=>{
-      console.error(e);
+      console.error('[hub] init fatal', e);
       clearTimeout(watchdog); finished=true; showContent();
       $('status').textContent='Error loading hub.'; $('status').hidden=false;
     });
 
+    // Re-run on true resumes
     window.addEventListener('pageshow', (e)=>{ if(e.persisted) init(); });
     document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') init(); });
   </script>
