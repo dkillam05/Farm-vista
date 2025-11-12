@@ -163,7 +163,7 @@
       display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
       background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
-    .btn[disabled]{ opacity:.55; pointer-events:none; }
+    .btn[disabled], .btn.disabled{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
   </style>
 </head>
@@ -232,7 +232,7 @@
     </div>
     <footer>
       <button id="btnPrintQR" class="btn" type="button" disabled>Reprint QR</button>
-      <a id="openHub" class="btn btn-primary" href="#">Open Hub</a>
+      <a id="openHub" class="btn btn-primary disabled" href="#" aria-disabled="true">Open Hub</a>
       <button id="dClose2" class="btn" type="button">Close</button>
     </footer>
   </dialog>
@@ -280,13 +280,10 @@
       const ls = last6(d.serial);
       return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || '(tractor)');
     };
-    const hubUrl = (id, token) => {
-      const base = `${location.origin}/Farm-vista/pages/equipment/actions/hub.html`;
-      const u = new URL(base);
-      u.searchParams.set('id', id);
-      if (token) u.searchParams.set('t', token);
-      return u.href;
-    };
+
+    // ID-only Hub URL builder (no token)
+    const hubUrl = (id) =>
+      `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`;
 
     function attach(){
       if (unsub) return;
@@ -386,6 +383,14 @@
     const dKV = document.getElementById('dKV');
     const btnHub = document.getElementById('openHub');
 
+    // Prevent accidental open before href is set
+    btnHub.addEventListener('click', (e)=>{
+      const href = btnHub.getAttribute('href') || '';
+      if (!href.includes('id=')){
+        e.preventDefault();
+      }
+    });
+
     // QR elements
     const btnPrintQR = document.getElementById('btnPrintQR');
     const qrSection = document.getElementById('qrSection');
@@ -417,6 +422,11 @@
     }
 
     function openDetail(d){
+      // disable Open Hub until href is set (race-proof)
+      btnHub.classList.add('disabled');
+      btnHub.setAttribute('aria-disabled','true');
+      btnHub.setAttribute('href','#');
+
       dTitle.textContent = titleFor(d);
       dKV.innerHTML = '';
       addRow('Type','Tractor');
@@ -427,8 +437,10 @@
       addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
       addRow('Notes', d.notes);
 
-      const tok = d.qr && d.qr.token ? d.qr.token : '';
-      btnHub.href = hubUrl(d.id, tok);
+      // ID-only handoff to Hub
+      btnHub.href = hubUrl(d.id);
+      btnHub.classList.remove('disabled');
+      btnHub.removeAttribute('aria-disabled');
 
       // QR preview
       const url = getQrUrl(d);
