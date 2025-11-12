@@ -1,6 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
+Rev: 2025-11-11z — Restore native file input (keep it), theme + vertical centering,
+                    remove faux label button, keep modal bottom-junk fix
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -82,15 +83,6 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
 
-    /* Tappable labels (inline editors) */
-    .as-label{
-      display:inline-flex; align-items:center; gap:8px;
-      font:inherit; font-weight:800; background:transparent; border:none; padding:0;
-      color:var(--text); cursor:pointer;
-    }
-    .as-label:hover{ text-decoration:underline; }
-    .as-label.req::after{ content:" *"; color:var(--brand); }
-
     /* Base controls */
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
@@ -171,39 +163,46 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
-    /* ===== iOS-safe Photos input (no native bubble) ===== */
-    .fileline{
-      display:flex; align-items:center; gap:10px;
-      border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
-      height:var(--ctl-h); padding:0 12px; overflow:hidden;
+    /* ===== Native file input theming (keep it, remove faux button) ===== */
+    input[type="file"].file-input{
+      height:var(--ctl-h);
+      width:100%;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--card-surface,var(--surface));
+      padding:0 8px;               /* room for filename */
+      display:flex;                 /* lets us center text line nicely */
+      align-items:center;           /* vertical centering */
+      color:var(--text);
     }
-    .fileline .btn-like{
-      flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
-      height:32px; padding:0 12px; border-radius:8px; border:1px solid var(--border);
-      background:var(--surface); font-weight:800; user-select:none; cursor:pointer;
+    /* Modern browsers */
+    input[type="file"].file-input::file-selector-button{
+      border:1px solid var(--border);
+      border-radius:8px;
+      padding:6px 12px;
+      background:var(--surface);
+      color:var(--text);
+      font-weight:800;
+      margin-right:10px;
+      cursor:pointer;
     }
-    .fileline .name{
-      flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-      display:flex; align-items:center; min-width:0;
-    }
-    /* Visually hide real input but keep it accessible */
-    .visually-hidden{
-      position:absolute !important;
-      width:1px; height:1px;
-      padding:0; margin:-1px; overflow:hidden;
-      clip: rect(0 0 0 0); clip-path: inset(50%);
-      border:0; white-space:nowrap;
+    /* Safari/WebKit fallback */
+    input[type="file"].file-input::-webkit-file-upload-button{
+      border:1px solid var(--border);
+      border-radius:8px;
+      padding:6px 12px;
+      background:var(--surface);
+      color:var(--text);
+      font-weight:800;
+      margin-right:10px;
+      cursor:pointer;
     }
 
     /* ===== MODAL FIX: never let modal content render at page bottom ===== */
     body > #editModal,
     body > #newMakeModal { display:none !important; }
-
     body > #editModal.show,
-    body > #newMakeModal.show {
-      display:block !important;
-      position:fixed; inset:0; z-index:99999;
-    }
+    body > #newMakeModal.show { display:block !important; position:fixed; inset:0; z-index:99999; }
   </style>
 </head>
 
@@ -274,14 +273,10 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
-          <!-- ===== Simple Photos input (iOS-safe, no duplicate bubble) ===== -->
+          <!-- ===== Photos (native input preserved) ===== -->
           <div class="field">
-            <label>Photos (up to 3)</label>
-            <input id="photos" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple class="visually-hidden">
-            <div class="fileline">
-              <label for="photos" class="btn-like">Choose Files</label>
-              <span class="name" id="fileName">no files selected</span>
-            </div>
+            <label for="photos">Photos (up to 3)</label>
+            <input id="photos" class="file-input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple>
             <div class="muted" style="margin-top:6px">You can draw arrows, write notes, or freehand markups before saving.</div>
           </div>
 
@@ -370,9 +365,9 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
-    const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
+    const qs = new URLSearchParams(location.search);
+    const TYPE = (qs.get('type') || 'tractor').toLowerCase();
 
-    /* Toast */
     function showToast(msg="Saved.", ms=3500){
       const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
       void t.offsetWidth; t.classList.add("show");
@@ -404,7 +399,7 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
     function onDocClickClose(e){ if(!$("yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    /* Custom dropdowns */
+    /* Dropdown helpers */
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -643,7 +638,7 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
       validateForm();
     }
 
-    /* Edit modal shell */
+    /* Edit modal (unchanged behaviors) */
     let EDIT_KIND = null;
     const Edit = {
       el: $("editModal"),
@@ -734,7 +729,9 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
           const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
           const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
           const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-          nameWrap.append(inp); head.append(nameWrap, chev); row.append(head);
+          nameWrap.append(inp);
+          head.append(nameWrap, chev);
+          row.append(head);
 
           const body=document.createElement('div'); body.className='ed-body';
           const switches=document.createElement('div'); switches.className='switch-list';
@@ -750,8 +747,11 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
           const left=document.createElement('div'); left.className='ed-foot-left';
           const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
           const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
-          left.append(delBtn, arcBtn); actions.append(left);
-          body.append(switches, actions); row.append(body); Edit.list.append(row);
+          left.append(delBtn, arcBtn);
+          actions.append(left);
+          body.append(switches, actions);
+          row.append(body);
+          Edit.list.append(row);
 
           const act = (usageMap.get(it.id) || {total:0,active:0});
           if(act.total===0){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
@@ -759,6 +759,7 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
           else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
 
           head.addEventListener('click', ()=> row.classList.toggle('open'));
+
           const stage = ()=>{
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
             Edit.pending.set(it.id, { name: inp.value.trim(), categories: cats });
@@ -791,10 +792,13 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
             const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
             const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
             const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-            nameWrap.append(inp); head.append(nameWrap, chev);
+            nameWrap.append(inp);
+            head.append(nameWrap, chev);
             const body=document.createElement('div'); body.className='ed-body';
             const note=document.createElement('div'); note.className='ed-foot-left'; note.style.padding='8px 0 0'; note.textContent='Categories follow Make';
-            body.append(note); row.append(head, body); Edit.list.append(row);
+            body.append(note);
+            row.append(head, body);
+            Edit.list.append(row);
 
             head.addEventListener('click', ()=> row.classList.toggle('open'));
             inp.addEventListener('input', ()=>{
@@ -895,14 +899,6 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
       $("btnSave").disabled = !(makeOk && modelOk && serialOk);
     }
 
-    /* File name display */
-    $("photos")?.addEventListener("change", ()=>{
-      const files = Array.from($("photos").files||[]);
-      $("fileName").textContent = files.length
-        ? (files.length===1 ? files[0].name : `${files.length} files selected`)
-        : "no files selected";
-    });
-
     /* QR */
     let pendingToken = null;
     let pendingQRBlob = null;
@@ -943,7 +939,7 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
       pendingQRBlob = blob;
     }
 
-    /* Save (photos not uploaded here; QR optional upload) */
+    /* Save */
     let saving = false;
     async function saveAll(db){
       if(saving) return;
@@ -1030,7 +1026,7 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
     function resetForm(){
       ["serial","engineHours","notes"].forEach(id=>$(id).value="");
       $("year").value=""; $("yearTrigger").textContent="— Select —";
-      $("photos").value=""; $("fileName").textContent="no files selected";
+      $("photos").value="";
       ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
       ddModel.hidden.value=""; ddModel.btn.textContent="— Select a Make first —";
       ddModel.btn.disabled = true; ddModel.search.disabled = true; ddModel.list.innerHTML = "";
@@ -1056,7 +1052,6 @@ Rev: 2025-11-11y — iOS-safe Photos input + modal placement fix
       location.assign(target);
     }
 
-    /* Boot */
     (async()=>{
       await ready;
       const db  = getFirestore();
