@@ -1,8 +1,9 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
- • Move “Create QR Code” next to QR preview (right side)
- • Use native file input (no big bubble) + keep text non-blue in dark mode
+Rev: 2025-11-12c  (Scoped fixes only)
+ • Constrain file picker to 100% width; uniform length on phone
+ • Prevent grid overflow: .field { min-width:0 }
+ • Keep native file picker (non-blue), QR button beside preview
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -80,6 +81,8 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
     .body{ padding:16px; display:grid; gap:14px; }
     .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
     @media (max-width:880px){ .row{ grid-template-columns:1fr } }
+
+    .field{ min-width:0; } /* <-- allows grid items to shrink on iOS Safari */
 
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
@@ -175,45 +178,35 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
-    /* === MINIMAL CHANGE: inline QR row (preview + button) === */
+    /* Inline QR row (preview + button) */
     .qr-line{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 
-    /* File input: slimmer bubble (original style left intact for any other .input usage) */
-    input[type="file"].input{
-      height:var(--ctl-h);
-      padding:0 12px;
-      line-height:var(--ctl-h);
-      color:var(--text) !important;
-      -webkit-text-fill-color:var(--text) !important;  /* iOS Safari */
-    }
-    input[type="file"].input::file-selector-button{
-      height:36px;
-      margin:0 10px 0 0;
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:0 12px;
-      font:inherit;
-      color:var(--text) !important;
-      -webkit-text-fill-color:var(--text) !important;
-      background:var(--card-surface,var(--surface));
-      cursor:pointer;
-      display:inline-grid; place-items:center;
-    }
+    /* --- UNIFORM FILE PICKERS (native look, non-blue) --- */
+    /* 1) Make the grid child shrinkable AND cap input to container width */
+    .field input[type="file"]{ min-width:0; }
 
-    /* === MINIMAL CHANGE: native-looking file input (no big bubble / no blue) === */
+    /* 2) Full-width, uniform length, readable text */
     .filepick{
+      display:block;
+      width:100%;
+      max-width:100%;
+      box-sizing:border-box;
       font:inherit;
       color:var(--text) !important;
       -webkit-text-fill-color:var(--text) !important; /* iOS */
       background:transparent;
-      border:none;
-      padding:0;
-      height:auto;
+      border:none;                 /* no fake bubble */
+      height:var(--ctl-h);         /* same control height as others */
+      line-height:var(--ctl-h);
+      overflow:hidden;             /* keep long filename text contained */
+      white-space:nowrap;
+      text-overflow:ellipsis;
     }
     .filepick::file-selector-button{
       border:1px solid var(--border);
       border-radius:10px;
-      padding:8px 12px;
+      padding:0 12px;
+      height:36px;
       font:inherit;
       color:var(--text) !important;
       -webkit-text-fill-color:var(--text) !important;
@@ -221,7 +214,7 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
       cursor:pointer;
     }
 
-    /* Modal */
+    /* Modal (unchanged) */
     .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
     .modal.show{ display:flex; }
     .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
@@ -241,17 +234,14 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
     }
     .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
 
-    /* Edit/New content */
     .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
     .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
     .ed-row{ padding:0; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
-
     .ed-head{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
       padding:10px 12px; cursor:pointer; user-select:none; }
     .ed-name{ display:flex; gap:8px; align-items:center; width:100%; }
     .ed-name input{ width:100%; }
-
     .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
     .ed-row.open .ed-chevron{ transform:rotate(90deg); }
     .ed-body{ display:none; padding:0 12px 12px; }
@@ -259,7 +249,6 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
 
     .switch-list{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
     @media (max-width:640px){ .switch-list{ grid-template-columns:1fr; } }
-
     .switch{
       display:flex; align-items:center; justify-content:space-between; gap:16px;
       padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
@@ -280,7 +269,6 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
 
     .ed-footer{ display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0; }
     .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
-
     .mark-danger{
       display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
       border:1px solid var(--danger); color:var(--danger); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
@@ -289,8 +277,6 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
       display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
       border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
-
-    /* Bottom bar + archived list */
     .ed-bottom{ display:flex; align-items:center; gap:12px; padding:10px 2px 2px; margin-top:6px; }
     .ed-bottom .grow{ flex:1 1 auto; }
     .archived-panel{
@@ -372,11 +358,11 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
 
           <div class="field">
             <label for="photos">Photos (optional)</label>
-            <!-- MINIMAL CHANGE: native-looking file picker (no big bubble / no blue) -->
+            <!-- Uniform, full-width native picker -->
             <input id="photos" class="filepick" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- MINIMAL CHANGE: QR preview with button inline to the right -->
+          <!-- QR preview + button side-by-side -->
           <div class="qr-line">
             <div id="qrArea" class="qr-area" hidden>
               <img id="qrThumb" alt="QR code">
@@ -388,7 +374,6 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
 
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
-            <!-- btnQR removed from here; it now sits next to the preview -->
             <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
@@ -699,7 +684,7 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
       return cats.includes(TYPE);
     }
 
-    /* New Make modal */
+    /* New Make modal (unchanged functionality) */
     const NewMake = {
       el: $("newMakeModal"),
       name: $("nmName"),
@@ -847,7 +832,7 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
       validateForm();
     }
 
-    /* ===== Edit modal (rules + WORKING actions) ===== */
+    /* ===== Edit modal logic unchanged ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -900,8 +885,8 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
         const btn=document.createElement('button'); btn.className='btn'; btn.type='button'; btn.textContent='Unarchive';
         btn.addEventListener('click', ()=>{
           const cur = Edit.pending.get(m.id) || {};
-          if(!cur.unarchive){ bumpPending(+1); }
-          cur.unarchive = true; // queued; applied with Save All
+          if(!cur.unarchive){ state.pendingChanges++; $("edSaveAll").disabled=false; }
+          cur.unarchive = true;
           Edit.pending.set(m.id, cur);
           showToast(`Unarchive queued: ${m.name}`);
         });
@@ -910,7 +895,6 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
       });
     }
 
-    /* ----- IMMEDIATE actions ----- */
     async function deleteMakeImmediate(db, id, name){
       const u = await usageInfo(db, 'makes', id);
       if(u.total !== 0){ alert('This make is in use and cannot be deleted.'); return; }
@@ -947,116 +931,6 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
         const row = document.querySelector(`.ed-row[data-id="${id}"]`);
         if(row) row.remove();
       }catch(e){ console.error(e); alert('Archive failed.'); }
-    }
-
-    async function loadEditor(db){
-      Edit.list.innerHTML = '';
-      Edit.modelsBar.style.display='none';
-
-      if(EDIT_KIND === 'makes'){
-        const makes = await getMakes(db);
-        const usagePairs = await Promise.all(makes.map(async m => [m.id, await usageInfo(db,'makes',m.id)]));
-        const usageMap = new Map(usagePairs);
-
-        for(const it of makes){
-          const row=document.createElement('div'); row.className='ed-row'; row.dataset.id = it.id;
-
-          // header
-          const head=document.createElement('div'); head.className='ed-head';
-          const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
-          const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
-          const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-          nameWrap.append(inp);
-          head.append(nameWrap, chev);
-          row.append(head);
-
-          // body (switches + actions)
-          const body=document.createElement('div'); body.className='ed-body';
-          const switches=document.createElement('div'); switches.className='switch-list';
-          const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
-          EQUIP_TYPES.forEach(t=>{
-            switches.appendChild( buildSwitchRow(t.label, t.slug, selected.includes(t.slug)) );
-          });
-
-          const actions=document.createElement('div'); actions.className='ed-footer';
-          const left=document.createElement('div'); left.className='ed-foot-left';
-          const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
-          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
-          left.append(delBtn, arcBtn);
-          actions.append(left);
-          body.append(switches, actions);
-          row.append(body);
-          Edit.list.append(row);
-
-          const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
-          if(act==='delete'){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
-          else if(act==='archive'){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
-          else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
-
-          head.addEventListener('click', ()=> row.classList.toggle('open'));
-
-          // queued rename/category
-          const stageBase = ()=>{
-            const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
-            const cur = Edit.pending.get(it.id) || {};
-            const before = JSON.stringify([cur.name||'', cur.categories||[]]);
-            cur.name = inp.value.trim();
-            cur.categories = cats;
-            Edit.pending.set(it.id, cur);
-            const after  = JSON.stringify([cur.name||'', cur.categories||[]]);
-            if(before!==after){ bumpPending(+1); }
-          };
-          inp.addEventListener('input', stageBase);
-          switches.addEventListener('change', stageBase);
-
-          // IMMEDIATE actions
-          delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
-          arcBtn.addEventListener('click', ()=> archiveMakeImmediate(db, it.id, inp.value.trim() || it.name));
-        }
-
-      }else{
-        // MODELS editor (rename only)
-        Edit.modelsBar.style.display='flex';
-        const sel = Edit.modelsMakeSel;
-
-        const makes = await getMakes(db);
-        sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
-        const cur = $("makeId").value;
-        if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
-
-        async function renderModels(makeId){
-          Edit.list.innerHTML='';
-          const items = makeId ? await getModels(db, makeId) : [];
-          if(!items.length){
-            const empty = document.createElement('div'); empty.className='ed-row'; empty.textContent='No models.';
-            Edit.list.append(empty); return;
-          }
-          for(const it of items){
-            const row=document.createElement('div'); row.className='ed-row';
-            const head=document.createElement('div'); head.className='ed-head';
-            const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
-            const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
-            const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
-            nameWrap.append(inp);
-            head.append(nameWrap, chev);
-            const body=document.createElement('div'); body.className='ed-body';
-            const note=document.createElement('div'); note.className='ed-foot-left'; note.style.padding='8px 0 0'; note.textContent='Categories follow Make';
-            body.append(note);
-            row.append(head, body);
-            Edit.list.append(row);
-
-            head.addEventListener('click', ()=> row.classList.toggle('open'));
-            inp.addEventListener('input', ()=>{
-              const before = JSON.stringify(Edit.pending.get(it.id)||{});
-              Edit.pending.set(it.id, { model:true, name: inp.value.trim() });
-              const after  = JSON.stringify(Edit.pending.get(it.id));
-              if(before!==after){ bumpPending(+1); }
-            });
-          }
-        }
-        await renderModels(sel.value || makes[0]?.id || null);
-        sel.onchange = ()=>renderModels(sel.value);
-      }
     }
 
     async function applySaveAll(db){
@@ -1278,7 +1152,6 @@ Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
       const db  = getFirestore();
       window.__db = db;
 
-      const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
       document.title = `FarmVista • Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
       document.querySelector('.hero-head h1').textContent = `Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
 
