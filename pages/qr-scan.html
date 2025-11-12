@@ -17,13 +17,16 @@
     #view{position:relative;width:100%;height:100%;overflow:hidden;background:#000}
     video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:translateZ(0)}
     .guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-      width:min(70vw,70vh);height:min(70vw,70vh);border:3px solid rgba(255,255,255,.9);
-      border-radius:16px;box-shadow:0 0 0 9999px rgba(0,0,0,.28) inset;pointer-events:none}
-    .hud{position:absolute;left:0;right:0;bottom:0;padding:calc(env(safe-area-inset-bottom,0px)+14px) 16px;
-      display:flex;justify-content:center;gap:12px;background:linear-gradient(to top,rgba(0,0,0,.45),transparent)}
-    .btn{appearance:none;border:0;border-radius:12px;padding:12px 16px;min-width:130px;
-      font-weight:800;color:#fff;background:rgba(255,255,255,.18);-webkit-tap-highlight-color:transparent;text-decoration:none}
-    .btn.primary{background:#3B7E46}
+      width:min(60vw,60vh);height:min(60vw,60vh);
+      border:3px solid rgba(255,255,255,.9);border-radius:16px;
+      box-shadow:0 0 0 9999px rgba(0,0,0,.28) inset;pointer-events:none}
+    .hud{position:absolute;left:0;right:0;bottom:0;padding:calc(env(safe-area-inset-bottom,0px)+18px) 16px;
+      display:flex;justify-content:center;background:linear-gradient(to top,rgba(0,0,0,.5),transparent)}
+    .btn{
+      appearance:none;border:0;border-radius:14px;padding:14px 20px;min-width:160px;
+      font-weight:800;color:#fff;background:#3B7E46;
+      -webkit-tap-highlight-color:transparent;text-decoration:none;font-size:16px;
+    }
     #unsupported{position:absolute;inset:0;display:none;place-items:center;background:#000;color:#fff;padding:24px;text-align:center}
     #unsupported.show{display:grid}
     #unsupported .box{max-width:520px;border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:22px;background:rgba(20,20,20,.9)}
@@ -35,7 +38,6 @@
     <div class="guide" aria-hidden="true"></div>
 
     <div class="hud">
-      <a class="btn" href="/Farm-vista/index.html">Home</a>
       <button id="closeBtn" class="btn" type="button">Close</button>
     </div>
 
@@ -43,25 +45,21 @@
       <div class="box">
         <div style="font-size:22px;font-weight:900;margin-bottom:6px">Camera access not available</div>
         <div>Allow camera access in iOS Settings → Safari → Camera, or open in a camera-capable browser.</div>
-        <div style="margin-top:10px"><a class="btn primary" href="/Farm-vista/index.html">Return to Home</a></div>
+        <div style="margin-top:10px"><a class="btn" href="/Farm-vista/index.html">Return to Home</a></div>
       </div>
     </div>
   </div>
 
-  <!-- ZXing decoder (works on iOS PWAs) -->
+  <!-- ZXing decoder -->
   <script src="https://unpkg.com/@zxing/browser@latest"></script>
   <script>
-    // Minimal ZXing-based scanner: open rear camera, decode, navigate to hub, stop tracks.
     const videoEl = document.getElementById('video');
     const unsupported = document.getElementById('unsupported');
     const closeBtn = document.getElementById('closeBtn');
-
-    let codeReader = null;
-    let stream = null;
-    let navigating = false;
+    let codeReader=null, stream=null, navigating=false;
 
     function go(url){
-      if (navigating) return;
+      if(navigating) return;
       navigating = true;
       stopAll();
       location.replace(url);
@@ -69,53 +67,38 @@
 
     function routeFromQR(text){
       const raw = String(text||'').trim();
-
-      // If it’s already a hub URL, normalize and keep ?id or ?code(?t).
       try{
         const u = new URL(raw, location.origin);
-        if (u.pathname.endsWith('/pages/equipment/actions/hub.html')){
-          const id   = u.searchParams.get('id');
-          const code = u.searchParams.get('code') || u.searchParams.get('t');
-          if (id)   return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
-          if (code) return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(code)}`);
+        if(u.pathname.endsWith('/pages/equipment/actions/hub.html')){
+          const id=u.searchParams.get('id');
+          const code=u.searchParams.get('code')||u.searchParams.get('t');
+          if(id) return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
+          if(code) return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(code)}`);
         }
-      }catch(_){/* not a URL */}
-
-      // Looks like a Firestore-ish id
-      if (/^[A-Za-z0-9_-]{8,}$/.test(raw)){
+      }catch{}
+      if(/^[A-Za-z0-9_-]{8,}$/.test(raw))
         return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(raw)}`);
-      }
-      // Otherwise treat as token
-      return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(raw)}`);
+      go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(raw)}`);
     }
 
     async function start(){
       try{
-        // Prefer a rear camera if we can identify one
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoInputs = devices.filter(d=>d.kind==='videoinput');
         let deviceId = null;
         const back = videoInputs.find(d => /back|rear|environment/i.test(d.label));
-        if (back) deviceId = back.deviceId;
+        if(back) deviceId = back.deviceId;
 
-        // Start stream explicitly so we can stop tracks on leave
         stream = await navigator.mediaDevices.getUserMedia({
-          video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } },
-          audio: false
+          video: deviceId ? { deviceId:{exact:deviceId} } : { facingMode:{ideal:'environment'} },
+          audio:false
         });
         videoEl.srcObject = stream;
         await videoEl.play().catch(()=>{});
 
-        // ZXing reader
         codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-
-        // Use decodeFromVideoDevice so ZXing manages frames efficiently
-        await codeReader.decodeFromVideoDevice(deviceId || null, videoEl, (result, err) => {
-          if (result && result.getText){
-            // small debounce: ZXing fires repeatedly; first good result wins
-            routeFromQR(result.getText());
-          }
-          // ignore errors; ZXing keeps scanning
+        await codeReader.decodeFromVideoDevice(deviceId||null, videoEl, (result,err)=>{
+          if(result && result.getText) routeFromQR(result.getText());
         });
       }catch(e){
         console.error(e);
@@ -125,18 +108,15 @@
 
     function stopAll(){
       try{ codeReader && codeReader.reset(); }catch{}
-      if (stream){
-        for (const t of stream.getTracks()) { try{ t.stop(); }catch{} }
-        stream = null;
-      }
+      if(stream){ for(const t of stream.getTracks()){ try{t.stop();}catch{} } stream=null; }
     }
 
     closeBtn.addEventListener('click', ()=>{ stopAll(); location.href='/Farm-vista/index.html'; });
     window.addEventListener('pagehide', stopAll);
     window.addEventListener('beforeunload', stopAll);
 
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) { start(); }
-    else { unsupported.classList.add('show'); }
+    if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) start();
+    else unsupported.classList.add('show');
   </script>
 </body>
 </html>
