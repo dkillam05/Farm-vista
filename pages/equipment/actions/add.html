@@ -1,11 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11b
-Fixes:
-  • Prefetch usage for all Makes; render correct action buttons up-front (no flicker)
-  • Delete/Archive/Unarchive queue → applied on Save All (with model cascades)
-  • Save All moved to bottom; helper text removed; archived viewer + Unarchive
-  • "Add New…" options not bold
+Rev: 2025-11-11e
+Changes in this build:
+ • DELETE: immediate (confirm, cascade models, refresh) — unchanged from prior rev
+ • ARCHIVE: now immediate too (confirm, cascade archive to models, refresh)
+ • Unarchive remains queued from Archived panel (via Save All)
+ • Photos file input: slimmer button bubble, vertical centering, force non-blue text
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -106,6 +106,7 @@ Fixes:
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
+    /* Buttons */
     .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
       display:inline-flex; align-items:center; justify-content:center; min-width:148px;
@@ -178,6 +179,28 @@ Fixes:
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
+    /* File input: slimmer bubble + centered + not blue */
+    input[type="file"].input{
+      height:var(--ctl-h);
+      padding:0 12px;
+      line-height:var(--ctl-h);
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important;  /* iOS Safari */
+    }
+    input[type="file"].input::file-selector-button{
+      height:36px;
+      margin:0 10px 0 0;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:0 12px;
+      font:inherit;
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      cursor:pointer;
+      display:inline-grid; place-items:center;
+    }
+
     /* Modal */
     .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
     .modal.show{ display:flex; }
@@ -247,7 +270,7 @@ Fixes:
       border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
 
-    /* Modal bottom bar + archived list */
+    /* Bottom bar + archived list */
     .ed-bottom{ display:flex; align-items:center; gap:12px; padding:10px 2px 2px; margin-top:6px; }
     .ed-bottom .grow{ flex:1 1 auto; }
     .archived-panel{
@@ -451,18 +474,13 @@ Fixes:
     const EQUIP_TYPES = getEquipmentTypesFromMenu();
     const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
 
-    document.addEventListener('DOMContentLoaded',()=> {
-      const wrap = document.querySelector('.wrap');
-      if(wrap) wrap.dataset.equipmentType = TYPE;
-    });
-
     function showToast(msg="Saved.", ms=3500){
       const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
       void t.offsetWidth; t.classList.add("show");
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* Year options */
+    /* Year options (unchanged) */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -482,17 +500,8 @@ Fixes:
         panel.appendChild(btn);
       });
     }
-    function openYearPanel(){
-      $("yearPanel").classList.remove('combo-hidden');
-      $("yearTrigger").setAttribute('aria-expanded','true');
-      document.addEventListener('click', onDocClickClose, { once:true });
-      document.addEventListener('keydown', onEscClose);
-    }
-    function closeYearPanel(){
-      $("yearPanel").classList.add('combo-hidden');
-      $("yearTrigger").setAttribute('aria-expanded','false');
-      document.removeEventListener('keydown', onEscClose);
-    }
+    function openYearPanel(){ $("yearPanel").classList.remove('combo-hidden'); $("yearTrigger").setAttribute('aria-expanded','true'); document.addEventListener('click', onDocClickClose, { once:true }); document.addEventListener('keydown', onEscClose); }
+    function closeYearPanel(){ $("yearPanel").classList.add('combo-hidden'); $("yearTrigger").setAttribute('aria-expanded','false'); document.removeEventListener('keydown', onEscClose); }
     function onDocClickClose(e){ if(!$("yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
@@ -561,27 +570,13 @@ Fixes:
       $("btnSave").disabled = !(makeOk && modelOk && serialOk);
     }
 
-    /* QR (client-only until Save) */
+    /* QR (unchanged) */
     let pendingToken = null;
     let pendingQRBlob = null;
-    async function waitQRReady(){
-      let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){
-        await new Promise(r=>setTimeout(r,50));
-      }
-      if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib');
-    }
-    function smartLaunch(absUrl){
-      const url = new URL(location.origin + '/Farm-vista/launch.html');
-      url.searchParams.set('to', absUrl);
-      return url.href;
-    }
-    function randTokenHex(len=24){
-      const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes);
-      return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
-    }
-    async function canvasToBlob(canvas){
-      return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png'));
-    }
+    async function waitQRReady(){ let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){ await new Promise(r=>setTimeout(r,50)); } if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib'); }
+    function smartLaunch(absUrl){ const url = new URL(location.origin + '/Farm-vista/launch.html'); url.searchParams.set('to', absUrl); return url.href; }
+    function randTokenHex(len=24){ const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes); return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''); }
+    async function canvasToBlob(canvas){ return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png')); }
     async function makeQRForUrl(absUrl){
       await waitQRReady();
       const size=256, ecc=window.QRCode.CorrectLevel.H;
@@ -615,7 +610,7 @@ Fixes:
       pendingQRBlob = blob;
     }
 
-    /* Data */
+    /* Data helpers */
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
 
     async function getMakes(db){
@@ -681,6 +676,8 @@ Fixes:
     }
 
     /* New Make modal */
+    const EQUIP_TYPES = getEquipmentTypesFromMenu();
+    const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
     const NewMake = {
       el: $("newMakeModal"),
       name: $("nmName"),
@@ -828,7 +825,7 @@ Fixes:
       validateForm();
     }
 
-    /* ===== Edit modal (rules + working actions) ===== */
+    /* ===== Edit modal (rules + WORKING actions) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -838,7 +835,7 @@ Fixes:
       archivedPanel: $("edArchivedPanel"),
       modelsBar: $("edModelsBar"),
       modelsMakeSel: $("edMakeSelect"),
-      pending: new Map(), // id -> { name?, categories?, delete?, archive?, unarchive?, model? }
+      pending: new Map(), // id -> { name?, categories?, unarchive?, model? }
       open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
       close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
     };
@@ -882,7 +879,7 @@ Fixes:
         btn.addEventListener('click', ()=>{
           const cur = Edit.pending.get(m.id) || {};
           if(!cur.unarchive){ bumpPending(+1); }
-          cur.unarchive = true; cur.archive = false; cur.delete = false;
+          cur.unarchive = true; // queued; applied with Save All
           Edit.pending.set(m.id, cur);
           showToast(`Unarchive queued: ${m.name}`);
         });
@@ -891,18 +888,56 @@ Fixes:
       });
     }
 
+    /* ----- IMMEDIATE actions ----- */
+    async function deleteMakeImmediate(db, id, name){
+      const u = await usageInfo(db, 'makes', id);
+      if(u.total !== 0){ alert('This make is in use and cannot be deleted.'); return; }
+      if(!confirm(`Delete "${name}"? This will remove the make and all its models.`)) return;
+
+      try{
+        await deleteDoc(doc(db,'equipment-makes', id));
+        const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+        const dels = [];
+        mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
+        await Promise.all(dels);
+
+        showToast('Make deleted');
+        await refreshDropdowns(db);
+        const row = document.querySelector(`.ed-row[data-id="${id}"]`);
+        if(row) row.remove();
+      }catch(e){ console.error(e); alert('Delete failed.'); }
+    }
+
+    async function archiveMakeImmediate(db, id, name){
+      const u = await usageInfo(db, 'makes', id);
+      if(!(u.total>0 && u.active===0)){ alert('Can only archive when items are used but inactive-only.'); return; }
+      if(!confirm(`Archive "${name}"? Models will be archived too.`)) return;
+
+      try{
+        await updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt: serverTimestamp() });
+        const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+        const ups = [];
+        mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) ));
+        await Promise.all(ups);
+
+        showToast('Make archived');
+        await refreshDropdowns(db);
+        const row = document.querySelector(`.ed-row[data-id="${id}"]`);
+        if(row) row.remove();
+      }catch(e){ console.error(e); alert('Archive failed.'); }
+    }
+
     async function loadEditor(db){
       Edit.list.innerHTML = '';
       Edit.modelsBar.style.display='none';
 
       if(EDIT_KIND === 'makes'){
-        // Prefetch usage for ALL makes to render actions deterministically.
         const makes = await getMakes(db);
         const usagePairs = await Promise.all(makes.map(async m => [m.id, await usageInfo(db,'makes',m.id)]));
         const usageMap = new Map(usagePairs);
 
         for(const it of makes){
-          const row=document.createElement('div'); row.className='ed-row';
+          const row=document.createElement('div'); row.className='ed-row'; row.dataset.id = it.id;
 
           // header
           const head=document.createElement('div'); head.className='ed-head';
@@ -931,22 +966,17 @@ Fixes:
           row.append(body);
           Edit.list.append(row);
 
-          // Determine which actions to show based on usage
           const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
           if(act==='delete'){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
           else if(act==='archive'){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
           else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
 
-          // expand/collapse
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
-          // stage edits (name/categories)
+          // queued rename/category
           const stageBase = ()=>{
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
             const cur = Edit.pending.get(it.id) || {};
-            if(cur.delete || cur.archive || cur.unarchive){
-              // destructive op already chosen; leave flags but allow name/cat updates too
-            }
             const before = JSON.stringify([cur.name||'', cur.categories||[]]);
             cur.name = inp.value.trim();
             cur.categories = cats;
@@ -957,21 +987,9 @@ Fixes:
           inp.addEventListener('input', stageBase);
           switches.addEventListener('change', stageBase);
 
-          // destructive ops
-          delBtn.addEventListener('click', ()=>{
-            const cur = Edit.pending.get(it.id) || {};
-            if(!cur.delete){ bumpPending(+1); }
-            cur.delete = true; cur.archive = false; cur.unarchive = false;
-            Edit.pending.set(it.id, cur);
-            showToast('Delete queued');
-          });
-          arcBtn.addEventListener('click', ()=>{
-            const cur = Edit.pending.get(it.id) || {};
-            if(!cur.archive){ bumpPending(+1); }
-            cur.archive = true; cur.delete = false; cur.unarchive = false;
-            Edit.pending.set(it.id, cur);
-            showToast('Archive queued');
-          });
+          // IMMEDIATE actions
+          delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
+          arcBtn.addEventListener('click', ()=> archiveMakeImmediate(db, it.id, inp.value.trim() || it.name));
         }
 
       }else{
@@ -1028,31 +1046,13 @@ Fixes:
 
       for(const [id, change] of Edit.pending.entries()){
         if(change.model){
-          const ref = doc(db,'equipment-models',id);
           if(change.name){
-            modelOps.push( updateDoc(ref, { name: change.name, nameLower: change.name.toLowerCase(), updatedAt: serverTimestamp() }) );
+            modelOps.push( updateDoc(doc(db,'equipment-models',id), { name: change.name, nameLower: change.name.toLowerCase(), updatedAt: serverTimestamp() }) );
           }
           continue;
         }
 
-        // Make operations
-        if(change.delete){
-          makeOps.push( deleteDoc(doc(db,'equipment-makes',id)) );
-          cascades.push( (async ()=>{
-            const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-            const dels = [];
-            mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
-            await Promise.all(dels);
-          })() );
-        }else if(change.archive){
-          makeOps.push( updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt: serverTimestamp() }) );
-          cascades.push( (async ()=>{
-            const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-            const ups = [];
-            mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) ));
-            await Promise.all(ups);
-          })() );
-        }else if(change.unarchive){
+        if(change.unarchive){
           makeOps.push( updateDoc(doc(db,'equipment-makes',id), { archived:false, updatedAt: serverTimestamp() }) );
           cascades.push( (async ()=>{
             const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
@@ -1088,10 +1088,7 @@ Fixes:
         await refreshDropdowns(db);
         if(Edit.archivedPanel.classList.contains('show')) await renderArchivedMakes(db);
         Edit.close();
-      }catch(e){
-        console.error(e);
-        alert('Save failed.');
-      }
+      }catch(e){ console.error(e); alert('Save failed.'); }
     }
 
     async function refreshDropdowns(db){
