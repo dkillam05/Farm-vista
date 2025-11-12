@@ -1,12 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/hub.html  (FULL FILE)
-Rev: 2025-11-12c
-Focus: kill timing race (auth/user gate) & match tractors' config load
- • Still ID-only (?id=...), no token lookup.
- • Loads firebase-config.js explicitly (same as tractors page).
- • Waits for a REAL user (not just auth event), up to 3s, before getDoc.
- • Keeps single-run guard, one retry, longer watchdog, resume listeners.
- • Adds concise console markers for quick diagnosis.
+Rev: 2025-11-12d
+Changes vs prior:
+ • Keep ONLY fv-shell loader (removed page-level fs-load block)
+ • ID-only (?id=...) — no token
+ • Same timing hardening: wait for real user, gentle retry, watchdog, guards
+ • Explicit firebase-config.js load (matches tractors page)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -49,6 +48,7 @@ Focus: kill timing race (auth/user gate) & match tractors' config load
     :root{ --card-max:900px; --brand:var(--green,#3B7E46); }
     body{ background:var(--app-bg,var(--surface)); margin:0; }
 
+    /* kill blue links in dark mode */
     .wrap, .wrap * { -webkit-tap-highlight-color: transparent; }
     .wrap a, .wrap a:visited, .wrap a:active, .wrap a:hover { color:inherit; text-decoration:none; }
     .btn { color:var(--ink-1,#0f1a13); }
@@ -75,17 +75,6 @@ Focus: kill timing race (auth/user gate) & match tractors' config load
           background:var(--card-surface,var(--surface)); text-decoration:none }
     .btn-primary{ background:var(--brand); border-color:transparent }
 
-    .fs-load{ position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center;
-              backdrop-filter:blur(6px);
-              background:color-mix(in srgb, var(--page-bg,#F6F7F6) 75%, transparent);
-              padding:calc(env(safe-area-inset-top,0px)+24px) 16px calc(env(safe-area-inset-bottom,0px)+24px); }
-    .fs-card{ width:min(92vw,520px); background:var(--surface,#fff); border-radius:18px; padding:22px 18px;
-              box-shadow:0 14px 36px rgba(0,0,0,.12); text-align:center; border:1px solid var(--border); }
-    .spin{ width:64px; height:64px; border-radius:50%; border:6px solid rgba(0,0,0,.08);
-           border-top-color:var(--brand); margin:12px auto; animation:spin 1s linear infinite; }
-    @keyframes spin{ to{ transform:rotate(360deg) } }
-    .fs-card h3{ margin:0 0 4px; font-size:22px; font-weight:900; color:var(--ink-1,#0f1a13);}
-    .fs-card p{ margin:0; color:var(--muted,#67706B); }
     .state{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
             padding:22px; display:grid; gap:12px; justify-items:center; text-align:center; }
     .state .emo{ font-size:44px; line-height:1; filter:grayscale(.05); }
@@ -152,7 +141,6 @@ Focus: kill timing race (auth/user gate) & match tractors' config load
     </div>
   </fv-shell>
 
-
   <script type="module">
     import {
       ready, getFirestore, doc, getDoc, getAuth, onAuthStateChanged
@@ -173,9 +161,9 @@ Focus: kill timing race (auth/user gate) & match tractors' config load
       if(!val){ if(opts.hideIfEmpty) el.hidden=true; else el.textContent=''; return; }
       el.textContent = val; if(opts.unhide) el.hidden=false;
     };
-    function showContent(){ $('fsLoad').hidden=true; $('content').hidden=false; }
+    function showContent(){ $('content').hidden=false; }
 
-    // --- Watchdog
+    // --- Watchdog (content-only since fv-shell handles splash)
     const TIMEOUT_MS = 22000;
     let finished=false;
     const watchdog=setTimeout(()=>{
@@ -189,15 +177,12 @@ Focus: kill timing race (auth/user gate) & match tractors' config load
     // --- Wait for REAL user (not just an auth event). Cap at ~3s.
     async function userReady(maxMs=3000){
       const auth = getAuth();
-      // If user already present, done.
       if (auth.currentUser) { console.info('[hub] userReady: currentUser present'); return; }
-      // Wait for first state change
       const first = new Promise(res=>{
         const off = onAuthStateChanged(auth, (u)=>{ try{off();}catch{} res(u); }, { onlyOnce:true });
       });
       let u = await first;
       if (u) { console.info('[hub] userReady: got user from first event'); return; }
-      // Poll briefly (Safari sometimes needs a beat)
       const t0 = Date.now();
       while(!auth.currentUser && (Date.now()-t0) < maxMs){
         await new Promise(r=>setTimeout(r,120));
@@ -298,7 +283,7 @@ Focus: kill timing race (auth/user gate) & match tractors' config load
       $('status').textContent='Error loading hub.'; $('status').hidden=false;
     });
 
-    // Re-run on true resumes
+    // Re-run on true resumes (bfcache return / tab re-focus)
     window.addEventListener('pageshow', (e)=>{ if(e.persisted) init(); });
     document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') init(); });
   </script>
