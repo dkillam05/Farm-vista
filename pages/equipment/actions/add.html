@@ -1,11 +1,8 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11f
-Fixes in this build:
- • Fix NAV_MENU import to named import
- • Remove duplicate const EQUIP_TYPES/EQUIP_SLUGS redeclaration
- • Replace $("#ddMakeBtn")/$("#ddModelBtn") with $("ddMakeBtn")/$("ddModelBtn")
- • Correct normType() trailing-dash regex (remove empty alternative)
+Rev: 2025-11-12b  (MINIMAL CHANGE ONLY)
+ • Move “Create QR Code” next to QR preview (right side)
+ • Use native file input (no big bubble) + keep text non-blue in dark mode
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -178,7 +175,10 @@ Fixes in this build:
       display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
-    /* File input: slimmer bubble + centered + not blue */
+    /* === MINIMAL CHANGE: inline QR row (preview + button) === */
+    .qr-line{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+
+    /* File input: slimmer bubble (original style left intact for any other .input usage) */
     input[type="file"].input{
       height:var(--ctl-h);
       padding:0 12px;
@@ -198,6 +198,27 @@ Fixes in this build:
       background:var(--card-surface,var(--surface));
       cursor:pointer;
       display:inline-grid; place-items:center;
+    }
+
+    /* === MINIMAL CHANGE: native-looking file input (no big bubble / no blue) === */
+    .filepick{
+      font:inherit;
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important; /* iOS */
+      background:transparent;
+      border:none;
+      padding:0;
+      height:auto;
+    }
+    .filepick::file-selector-button{
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:8px 12px;
+      font:inherit;
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      cursor:pointer;
     }
 
     /* Modal */
@@ -351,19 +372,23 @@ Fixes in this build:
 
           <div class="field">
             <label for="photos">Photos (optional)</label>
-            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+            <!-- MINIMAL CHANGE: native-looking file picker (no big bubble / no blue) -->
+            <input id="photos" class="filepick" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- Tiny QR preview -->
-          <div id="qrArea" class="qr-area" hidden>
-            <img id="qrThumb" alt="QR code">
+          <!-- MINIMAL CHANGE: QR preview with button inline to the right -->
+          <div class="qr-line">
+            <div id="qrArea" class="qr-area" hidden>
+              <img id="qrThumb" alt="QR code">
+            </div>
+            <button id="btnQR" class="btn" type="button">Create QR Code</button>
           </div>
 
           <div id="err" class="error" hidden></div>
 
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
-            <button id="btnQR" class="btn" type="button">Create QR Code</button>
+            <!-- btnQR removed from here; it now sits next to the preview -->
             <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
@@ -1253,6 +1278,7 @@ Fixes in this build:
       const db  = getFirestore();
       window.__db = db;
 
+      const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
       document.title = `FarmVista • Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
       document.querySelector('.hero-head h1').textContent = `Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
 
