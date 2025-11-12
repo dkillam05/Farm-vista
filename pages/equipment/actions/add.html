@@ -1,11 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11e
-Changes in this build:
- • DELETE: immediate (confirm, cascade models, refresh) — unchanged from prior rev
- • ARCHIVE: now immediate too (confirm, cascade archive to models, refresh)
- • Unarchive remains queued from Archived panel (via Save All)
- • Photos file input: slimmer button bubble, vertical centering, force non-blue text
+Rev: 2025-11-11f
+Fixes in this build:
+ • Fix NAV_MENU import to named import
+ • Remove duplicate const EQUIP_TYPES/EQUIP_SLUGS redeclaration
+ • Replace $("#ddMakeBtn")/$("#ddModelBtn") with $("ddMakeBtn")/$("ddModelBtn")
+ • Correct normType() trailing-dash regex (remove empty alternative)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -140,8 +140,7 @@ Changes in this build:
     }
     .combo-panel{
       position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
-      background:var(--surface); border:1px solid var(--border); border-radius:12px;
-      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 12px 26px rgba(0,0,0,.18);
       --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
     }
     .combo-item{
@@ -441,7 +440,7 @@ Changes in this build:
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
-    import NAV_MENU from '/Farm-vista/js/menu.js';
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
@@ -464,10 +463,10 @@ Changes in this build:
       if(s.includes('truck')) return 'truck';
       if(s.includes('trailer')) return 'trailer';
       if(s.includes('starfire') || s.includes('technology')) return 'starfire';
-      return s.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$|/g,'');
+      return s.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
     }
     function getEquipmentTypesFromMenu(){
-      const group = NAV_MENU.items.find(x => x.type==='group' && x.id==='equipment');
+      const group = NAV_MENU.items?.find(x => x.type==='group' && x.id==='equipment');
       const children = group?.children || [];
       return children.map(c => ({ label: c.label, slug: normType(c.label) }));
     }
@@ -548,8 +547,8 @@ Changes in this build:
     function readForm(){
       const makeId = $("makeId").value || null;
       const modelId = $("modelId").value || null;
-      const makeName = $("#ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
-      const modelName = $("#ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const makeName = $("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const modelName = $("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
       const yr = $("year").value ? Number($("year").value) : null;
       const serialNorm = normalizeSerial($("serial").value);
       const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
@@ -676,8 +675,6 @@ Changes in this build:
     }
 
     /* New Make modal */
-    const EQUIP_TYPES = getEquipmentTypesFromMenu();
-    const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
     const NewMake = {
       el: $("newMakeModal"),
       name: $("nmName"),
@@ -794,7 +791,7 @@ Changes in this build:
       const allModels = await getModels(db, makeId);
       const models = allModels.filter(visibleForType);
       const items = [
-        ["__add__", "Add New…", {isAdd:true}],
+        ["__add__", "Add New…", {isAdd:true} ],
         ...models.map(m=>[m.id, m.name, {categories:m.categories}])
       ];
       buildList(ddModel.list, items, async (val,label,meta)=>{
