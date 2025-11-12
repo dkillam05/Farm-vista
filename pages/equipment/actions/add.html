@@ -1,11 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
-  • Action rules: Unused → Delete only; Active-in-use → none; Inactive-only → Archive only
-  • Delete/Archive queue properly and apply on Save All
-  • Buttons init hidden; revealed post-usage check to avoid flicker
-  • Archived panel: list + per-item Unarchive (queued; cascades to models)
-  • "Add New…" options styled like others (not bold)
+Rev: 2025-11-11b
+Fixes:
+  • Prefetch usage for all Makes; render correct action buttons up-front (no flicker)
+  • Delete/Archive/Unarchive queue → applied on Save All (with model cascades)
+  • Save All moved to bottom; helper text removed; archived viewer + Unarchive
+  • "Add New…" options not bold
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -201,13 +201,14 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
     /* Edit/New content */
     .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
     .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
-    .ed-row{ display:block; padding:0; border-bottom:1px solid var(--border); }
+    .ed-row{ padding:0; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
 
     .ed-head{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
       padding:10px 12px; cursor:pointer; user-select:none; }
-    .ed-name{ display:flex; gap:8px; align-items:center; }
+    .ed-name{ display:flex; gap:8px; align-items:center; width:100%; }
     .ed-name input{ width:100%; }
+
     .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
     .ed-row.open .ed-chevron{ transform:rotate(90deg); }
     .ed-body{ display:none; padding:0 12px 12px; }
@@ -358,7 +359,7 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
       </header>
 
       <div class="ed-wrap">
-        <!-- Injected for models -->
+        <!-- Models bar (only for models editor) -->
         <div id="edModelsBar" style="display:none; gap:8px; align-items:center;">
           <label for="edMakeSelect" style="font-weight:800; margin-right:6px;">Make</label>
           <select id="edMakeSelect" class="select" style="max-width:260px;"></select>
@@ -370,7 +371,7 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
         <div class="ed-bottom">
           <button id="edToggleArchived" class="btn btn-quiet" type="button">Show Archived Makes</button>
           <div class="grow"></div>
-          <button id="edSaveAll" class="btn btn-primary" type="button">Save All Changes</button>
+          <button id="edSaveAll" class="btn btn-primary" type="button" disabled>Save All Changes</button>
         </div>
 
         <!-- Archived list (view + unarchive) -->
@@ -422,6 +423,12 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
+
+    const state = { pendingChanges:0 };
+    const bumpPending = (delta)=>{
+      state.pendingChanges = Math.max(0, state.pendingChanges + delta);
+      $("edSaveAll").disabled = state.pendingChanges===0;
+    };
 
     function normType(label){
       const s = String(label||'').toLowerCase();
@@ -831,16 +838,14 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
       archivedPanel: $("edArchivedPanel"),
       modelsBar: $("edModelsBar"),
       modelsMakeSel: $("edMakeSelect"),
-      pending: new Map(), // key: id -> { name?, categories?, delete?, archive?, unarchive?, model? }
-      open(title){ $("editTitle").textContent = title; this.pending.clear(); this.el.classList.add('show'); document.body.style.overflow='hidden'; },
+      pending: new Map(), // id -> { name?, categories?, delete?, archive?, unarchive?, model? }
+      open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
       close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
     };
     document.querySelectorAll('#editModal [data-close]').forEach(el=>el.addEventListener('click', ()=>Edit.close()));
 
     async function usageInfo(db, kind, id){
-      let qRef = (kind==='makes')
-        ? query(collection(db,'equipment'), where('makeId','==',id))
-        : query(collection(db,'equipment'), where('modelId','==',id));
+      const qRef = query(collection(db,'equipment'), where(kind==='makes'?'makeId':'modelId','==',id));
       const snap = await getDocs(qRef);
       let total = 0, active = 0;
       snap.forEach(d=>{
@@ -849,6 +854,11 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
         if(String(v.status||'').toLowerCase()==='active') active++;
       });
       return { total, active };
+    }
+    function actionForUsage(u){
+      if(u.total===0) return 'delete';
+      if(u.active>0) return 'none';
+      return 'archive';
     }
 
     function buildSwitchRow(label, slug, checked){
@@ -870,8 +880,8 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
         const name=document.createElement('div'); name.textContent=m.name;
         const btn=document.createElement('button'); btn.className='btn'; btn.type='button'; btn.textContent='Unarchive';
         btn.addEventListener('click', ()=>{
-          // queue unarchive
           const cur = Edit.pending.get(m.id) || {};
+          if(!cur.unarchive){ bumpPending(+1); }
           cur.unarchive = true; cur.archive = false; cur.delete = false;
           Edit.pending.set(m.id, cur);
           showToast(`Unarchive queued: ${m.name}`);
@@ -886,7 +896,11 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
       Edit.modelsBar.style.display='none';
 
       if(EDIT_KIND === 'makes'){
+        // Prefetch usage for ALL makes to render actions deterministically.
         const makes = await getMakes(db);
+        const usagePairs = await Promise.all(makes.map(async m => [m.id, await usageInfo(db,'makes',m.id)]));
+        const usageMap = new Map(usagePairs);
+
         for(const it of makes){
           const row=document.createElement('div'); row.className='ed-row';
 
@@ -909,55 +923,51 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
 
           const actions=document.createElement('div'); actions.className='ed-footer';
           const left=document.createElement('div'); left.className='ed-foot-left';
-          const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete'; delBtn.hidden=true;
-          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive'; arcBtn.hidden=true;
+          const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
+          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
           left.append(delBtn, arcBtn);
           actions.append(left);
           body.append(switches, actions);
           row.append(body);
           Edit.list.append(row);
 
-          // Apply rule-based visibility AFTER usage lookup; buttons start hidden (no flicker)
-          (async ()=>{
-            const use = await usageInfo(db, 'makes', it.id);
-            if(use.total===0){
-              // UNUSED → Delete only
-              delBtn.hidden = false;
-              arcBtn.hidden = true;
-            }else if(use.active>0){
-              // In use with ACTIVE → no actions
-              delBtn.hidden = true;
-              arcBtn.hidden = true;
-            }else{
-              // In use but INACTIVE-ONLY → Archive only
-              delBtn.hidden = true;
-              arcBtn.hidden = false;
-            }
-          })();
+          // Determine which actions to show based on usage
+          const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
+          if(act==='delete'){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
+          else if(act==='archive'){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
+          else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
 
           // expand/collapse
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
           // stage edits (name/categories)
-          function stageBase(){
+          const stageBase = ()=>{
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
             const cur = Edit.pending.get(it.id) || {};
+            if(cur.delete || cur.archive || cur.unarchive){
+              // destructive op already chosen; leave flags but allow name/cat updates too
+            }
+            const before = JSON.stringify([cur.name||'', cur.categories||[]]);
             cur.name = inp.value.trim();
             cur.categories = cats;
             Edit.pending.set(it.id, cur);
-          }
+            const after  = JSON.stringify([cur.name||'', cur.categories||[]]);
+            if(before!==after){ bumpPending(+1); }
+          };
           inp.addEventListener('input', stageBase);
           switches.addEventListener('change', stageBase);
 
-          // stage destructive ops
+          // destructive ops
           delBtn.addEventListener('click', ()=>{
             const cur = Edit.pending.get(it.id) || {};
+            if(!cur.delete){ bumpPending(+1); }
             cur.delete = true; cur.archive = false; cur.unarchive = false;
             Edit.pending.set(it.id, cur);
             showToast('Delete queued');
           });
           arcBtn.addEventListener('click', ()=>{
             const cur = Edit.pending.get(it.id) || {};
+            if(!cur.archive){ bumpPending(+1); }
             cur.archive = true; cur.delete = false; cur.unarchive = false;
             Edit.pending.set(it.id, cur);
             showToast('Archive queued');
@@ -997,7 +1007,10 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
 
             head.addEventListener('click', ()=> row.classList.toggle('open'));
             inp.addEventListener('input', ()=>{
+              const before = JSON.stringify(Edit.pending.get(it.id)||{});
               Edit.pending.set(it.id, { model:true, name: inp.value.trim() });
+              const after  = JSON.stringify(Edit.pending.get(it.id));
+              if(before!==after){ bumpPending(+1); }
             });
           }
         }
@@ -1016,7 +1029,9 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
       for(const [id, change] of Edit.pending.entries()){
         if(change.model){
           const ref = doc(db,'equipment-models',id);
-          modelOps.push( updateDoc(ref, { name: change.name, nameLower: change.name.toLowerCase(), updatedAt: serverTimestamp() }) );
+          if(change.name){
+            modelOps.push( updateDoc(ref, { name: change.name, nameLower: change.name.toLowerCase(), updatedAt: serverTimestamp() }) );
+          }
           continue;
         }
 
@@ -1045,19 +1060,21 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
             mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:false, updatedAt: serverTimestamp() }) ));
             await Promise.all(ups);
           })() );
-        }else if(change.name || change.categories){
-          makeOps.push( updateDoc(doc(db,'equipment-makes',id), {
-            ...(change.name?{name:change.name, nameLower:change.name.toLowerCase()}:{}),
-            ...(change.categories?{categories: change.categories}:{}),
-            updatedAt: serverTimestamp()
-          }) );
-          if(change.categories){
-            cascades.push( (async ()=>{
-              const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
-              const ups = [];
-              mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { categories: change.categories, updatedAt: serverTimestamp() }) ));
-              await Promise.all(ups);
-            })() );
+        }else{
+          const base = {};
+          if(change.name){ base.name = change.name; base.nameLower = change.name.toLowerCase(); }
+          if(change.categories){ base.categories = change.categories; }
+          if(Object.keys(base).length){
+            base.updatedAt = serverTimestamp();
+            makeOps.push( updateDoc(doc(db,'equipment-makes',id), base) );
+            if(change.categories){
+              cascades.push( (async ()=>{
+                const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+                const ups = [];
+                mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { categories: change.categories, updatedAt: serverTimestamp() }) ));
+                await Promise.all(ups);
+              })() );
+            }
           }
         }
       }
@@ -1067,7 +1084,7 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
         await Promise.all(modelOps);
         await Promise.all(cascades);
         showToast('Saved');
-        Edit.pending.clear();
+        Edit.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true;
         await refreshDropdowns(db);
         if(Edit.archivedPanel.classList.contains('show')) await renderArchivedMakes(db);
         Edit.close();
@@ -1238,7 +1255,7 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
     }
 
     (async()=>{
-      const ctx = await ready;
+      await ready;
       const db  = getFirestore();
       window.__db = db;
 
@@ -1261,10 +1278,10 @@ Rev: 2025-11-11 — Fix action visibility + behavior; add Unarchive flow
       });
 
       // Bottom footer actions
-      Edit.saveAllBtn.addEventListener('click', ()=>applySaveAll(db));
-      Edit.archivedBtn.addEventListener('click', async ()=>{
-        const isShown = Edit.archivedPanel.classList.toggle('show');
-        Edit.archivedBtn.textContent = isShown ? 'Hide Archived Makes' : 'Show Archived Makes';
+      $("edSaveAll").addEventListener('click', ()=>applySaveAll(db));
+      $("edToggleArchived").addEventListener('click', async ()=>{
+        const isShown = $("edArchivedPanel").classList.toggle('show');
+        $("edToggleArchived").textContent = isShown ? 'Hide Archived Makes' : 'Show Archived Makes';
         if(isShown) await renderArchivedMakes(db);
       });
 
