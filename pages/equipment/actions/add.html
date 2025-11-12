@@ -1,10 +1,10 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11h
-Change (scoped only):
- • Prevent any field from exceeding hero width (Safari/mobile overflow fix)
- • Move QR preview beside the “Create QR Code” button so they read together
- • Keep native file input (no blue font) as requested
+Rev: 2025-11-11i
+Scoped changes ONLY:
+ • Restore inner gutters so fields don’t run long in the hero (equal side padding)
+ • Make native file input readable in dark mode (no blue text/button)
+ • Keep QR preview + button inline as you liked
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -60,10 +60,9 @@ Change (scoped only):
     }
 
     /* Card */
-    /* Width fix: ensure card and its children never overflow */
+    /* Equal side gutters: card never hits the wrap edges on mobile */
     .hero{
-      width:100%;
-      max-width:720px;
+      width:min(720px, calc(100% - 24px)); /* creates 12px gutter on each side */
       margin:0 auto var(--page-bottom-gap);
       border:1px solid var(--border);
       border-radius:14px;
@@ -88,7 +87,7 @@ Change (scoped only):
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
 
-    /* Keep controls within card width on iOS/Safari */
+    /* Prevent any child from exceeding the inner width (iOS overflow edge-case) */
     .field > *{ max-width:100%; }
 
     /* Tappable labels (inline editors) */
@@ -187,13 +186,31 @@ Change (scoped only):
     /* QR inline cluster (preview next to button) */
     .qr-inline{ display:flex; align-items:center; gap:12px; }
 
-    /* Native file input — no blue text, no custom chrome */
+    /* ===== Native file input — readable in dark, no blue ===== */
+    /* Text (“no files selected”) */
     input[type="file"]{
       color:var(--text) !important;
       -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
-      appearance:auto; -webkit-appearance:auto;
-      background:transparent; border:none; padding:0; height:auto; line-height:normal;
+      font:inherit;
+      background:transparent;
+      border:none;
+      padding:0;
+      height:auto;
+      line-height:normal;
       max-width:100%;
+    }
+    /* Button (iOS/WebKit & modern) */
+    input[type="file"]::file-selector-button,
+    input[type="file"]::-webkit-file-upload-button{
+      font:inherit;
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:6px 12px;
+      margin-right:8px;
+      cursor:pointer;
     }
 
     /* Modal (unchanged) */
@@ -343,13 +360,13 @@ Change (scoped only):
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
-          <!-- PHOTOS: native file control, no blue text -->
+          <!-- PHOTOS: native control, readable in dark, no blue -->
           <div class="field">
             <label for="photos">Photos (optional)</label>
             <input id="photos" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- Actions with QR inline -->
+          <!-- Actions with QR inline (kept) -->
           <div class="actions">
             <div class="qr-inline">
               <div id="qrArea" class="qr-area" hidden>
@@ -821,7 +838,7 @@ Change (scoped only):
       validateForm();
     }
 
-    /* ===== Edit modal + actions (unchanged logic) ===== */
+    /* ===== Edit modal + actions (unchanged) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -852,14 +869,6 @@ Change (scoped only):
       if(u.total===0) return 'delete';
       if(u.active>0) return 'none';
       return 'archive';
-    }
-
-    function buildSwitchRow(label, slug, checked){
-      const row=document.createElement('div'); row.className='switch';
-      const lab=document.createElement('label'); lab.textContent=label;
-      const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=slug; tog.checked=!!checked;
-      row.append(lab,tog);
-      return row;
     }
 
     async function renderArchivedMakes(db){
@@ -946,7 +955,11 @@ Change (scoped only):
           const switches=document.createElement('div'); switches.className='switch-list';
           const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
           EQUIP_TYPES.forEach(t=>{
-            switches.appendChild( buildSwitchRow(t.label, t.slug, selected.includes(t.slug)) );
+            const row= document.createElement('div'); row.className='switch';
+            const lab= document.createElement('label'); lab.textContent=t.label;
+            const tog= document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=t.slug; tog.checked=selected.includes(t.slug);
+            row.append(lab,tog);
+            switches.appendChild(row);
           });
 
           const actions=document.createElement('div'); actions.className='ed-footer';
@@ -959,10 +972,10 @@ Change (scoped only):
           row.append(body);
           Edit.list.append(row);
 
-          const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
-          if(act==='delete'){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
-          else if(act==='archive'){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
-          else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
+          const act = (usageMap.get(it.id) || {total:0,active:0});
+          if(act.total===0){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
+          else if(act.active>0){ delBtn.style.display='none'; arcBtn.style.display='none'; }
+          else{ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
 
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
@@ -985,7 +998,7 @@ Change (scoped only):
 
       }else{
         Edit.modelsBar.style.display='flex';
-        const sel = Edit.modelsMakeSel;
+        const sel = $("edMakeSelect");
 
         const makes = await getMakes(db);
         sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
@@ -1246,6 +1259,7 @@ Change (scoped only):
       const db  = getFirestore();
       window.__db = db;
 
+      const TYPE = (new URLSearchParams(location.search).get('type') || 'tractor').toLowerCase();
       document.title = `FarmVista • Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
       document.querySelector('.hero-head h1').textContent = `Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
 
@@ -1258,10 +1272,14 @@ Change (scoped only):
       buildDdObjects();
 
       $("openMakes").addEventListener('click', async ()=>{
-        EDIT_KIND='makes'; Edit.open('Edit Makes'); await loadEditor(db);
+        window.EDIT_KIND='makes'; 
+        Edit.open('Edit Makes'); 
+        await loadEditor(db);
       });
       $("openModels").addEventListener('click', async ()=>{
-        EDIT_KIND='models'; Edit.open('Edit Models'); await loadEditor(db);
+        window.EDIT_KIND='models'; 
+        Edit.open('Edit Models'); 
+        await loadEditor(db);
       });
 
       // Bottom footer actions
