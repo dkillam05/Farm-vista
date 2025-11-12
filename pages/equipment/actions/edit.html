@@ -96,12 +96,12 @@
     .sheet::backdrop{ background:rgba(0,0,0,.55); }
     .sheet header{ padding:14px 16px; border-bottom:1px solid var(--border);
       display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    /* *** CHANGE: lock vertical-only scrolling in modal body *** */
     .sheet .body{
       padding:14px 16px; max-height:70vh;
-      overflow-y:auto; overflow-x:hidden;
+      overflow-y:auto; overflow-x:hidden;           /* vertical-only scroll */
       -webkit-overflow-scrolling:touch;
       touch-action: pan-y;
+      overscroll-behavior: contain;
     }
     .sheet footer{ padding:12px 16px; border-top:1px solid var(--border);
       display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
@@ -416,9 +416,18 @@
 
       countEl.textContent = `${rows.length}/${filtered.length} entries (${mode})`;
       list.innerHTML='';
-      if(!rows.length){ const p=document.createElement('p'); p.className='sub'; p.textContent='No matches.'; list.appendChild(p); return; }
+      if(!rows.length){
+        const p=document.createElement('p'); p.className='sub'; p.textContent='No matches.'; list.appendChild(p); return;
+      }
 
-      const by={}; rows.forEach(d=>{ const k=(displayLine(d)||'?').charAt(0).toUpperCase(); (by[k] ||= []).push(d); });
+      const by={};
+      rows.forEach(d=>{
+        const k=(displayLine(d)||'?').charAt(0).toUpperCase();
+        /* Safari-safe replacement for (by[k] ||= []) */
+        by[k] = by[k] || [];
+        by[k].push(d);
+      });
+
       Object.keys(by).sort().forEach(letter=>{
         const wrap=document.createElement('div'); wrap.className='group';
         const h=document.createElement('h3'); h.textContent=letter; wrap.appendChild(h);
