@@ -1,3 +1,10 @@
+<!-- =====================================================================
+/Farm-vista/pages/equipment/actions/hub.html  (FULL FILE)
+Rev: 2025-11-11s
+Fixes:
+ • Blue font removed in dark mode (force theme colors)
+ • QR lookup now uses Firestore field: token (direct, not nested)
+===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -30,6 +37,17 @@
   <style>
     :root{ --card-max:900px; --brand:var(--green,#3B7E46); }
     body{ background:var(--app-bg,var(--surface)); margin:0; }
+
+    /* Remove blue link font in dark mode */
+    .wrap, .wrap * { -webkit-tap-highlight-color: transparent; }
+    .wrap a,
+    .wrap a:visited,
+    .wrap a:active,
+    .wrap a:hover { color:inherit; text-decoration:none; }
+    .btn { color:var(--ink-1,#0f1a13); }
+    :root[data-theme="dark"] .btn { color:var(--ink-1,#eaece9); }
+    .btn-primary { color:#fff; }
+
     .wrap{ max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
            padding-bottom:calc(env(safe-area-inset-bottom,0px)+72px)!important; }
     .hero{ border:1px solid var(--border); border-radius:14px; background:var(--surface);
@@ -48,10 +66,12 @@
     .btn{ display:inline-flex; align-items:center; justify-content:center; min-height:52px;
           font-weight:800; border-radius:14px; border:1px solid var(--border);
           background:var(--card-surface,var(--surface)); text-decoration:none }
-    .btn-primary{ background:var(--brand); color:#fff; border-color:transparent }
-    /* Fullscreen loader */
+    .btn-primary{ background:var(--brand); border-color:transparent }
+
     .fs-load{ position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center;
-              background:var(--page-bg,#F6F7F6); padding:calc(env(safe-area-inset-top,0px)+24px) 16px calc(env(safe-area-inset-bottom,0px)+24px); }
+              backdrop-filter:blur(6px);
+              background:color-mix(in srgb, var(--page-bg,#F6F7F6) 75%, transparent);
+              padding:calc(env(safe-area-inset-top,0px)+24px) 16px calc(env(safe-area-inset-bottom,0px)+24px); }
     .fs-card{ width:min(92vw,520px); background:var(--surface,#fff); border-radius:18px; padding:22px 18px;
               box-shadow:0 14px 36px rgba(0,0,0,.12); text-align:center; border:1px solid var(--border); }
     .spin{ width:64px; height:64px; border-radius:50%; border:6px solid rgba(0,0,0,.08);
@@ -59,7 +79,6 @@
     @keyframes spin{ to{ transform:rotate(360deg) } }
     .fs-card h3{ margin:0 0 4px; font-size:22px; font-weight:900; color:var(--ink-1,#0f1a13);}
     .fs-card p{ margin:0; color:var(--muted,#67706B); }
-    /* States */
     .state{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
             padding:22px; display:grid; gap:12px; justify-items:center; text-align:center; }
     .state .emo{ font-size:44px; line-height:1; filter:grayscale(.05); }
@@ -79,7 +98,6 @@
         </header>
 
         <div class="body">
-          <!-- Summary -->
           <div class="card" id="eqCard" hidden>
             <h2 id="eqName" style="margin:0"></h2>
             <div class="meta">
@@ -91,7 +109,6 @@
             <p id="eqNotes" class="muted" hidden></p>
           </div>
 
-          <!-- ACTIVE actions -->
           <div class="actions" id="fnLinks" hidden>
             <a id="linkHours" class="btn btn-primary" href="#">Track Engine Hours</a>
             <a id="linkMaint" class="btn" href="#">Service Records</a>
@@ -99,7 +116,6 @@
             <a id="linkPre"   class="btn" href="#">Pre-Season Checklist</a>
           </div>
 
-          <!-- ARCHIVED -->
           <div id="archivedCard" class="state" hidden>
             <div class="emo">📦</div>
             <h2>This equipment is archived</h2>
@@ -110,7 +126,6 @@
             </div>
           </div>
 
-          <!-- TIMEOUT -->
           <div id="timeoutCard" class="state" hidden>
             <div class="emo">⏱️</div>
             <h2>Timed out</h2>
@@ -121,7 +136,6 @@
             </div>
           </div>
 
-          <!-- Always-present returns -->
           <div class="actions">
             <a class="btn" href="/Farm-vista/pages/equipment/tractors-view.html">Return to Tractors</a>
             <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
@@ -131,11 +145,10 @@
     </div>
   </fv-shell>
 
-  <!-- Fullscreen loader -->
   <div class="fs-load" id="fsLoad">
     <div class="fs-card">
       <h3>Connecting…</h3>
-      <div class="spin" aria-hidden="true"></div>
+      <div class="spin"></div>
       <p>Loading data for your farm</p>
     </div>
   </div>
@@ -146,130 +159,117 @@
       collection, query, where, getDocs, limit
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $  = id => document.getElementById(id);
+    const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
-
-    // Accept ?id (fast) OR ?code / ?t (legacy)
-    let id   = qs.get('id')   || '';
-    const code = qs.get('code') || qs.get('t') || '';
+    let id = qs.get('id') || '';
+    let code = qs.get('code') || qs.get('t') || '';
 
     const last6 = v => String(v||'').slice(-6);
     const capWords = s => String(s||'').replace(/\b\w/g, c=>c.toUpperCase());
     const setText = (id, val, opts={})=>{
       const el=$(id); if(!el) return;
-      if(val==null || val===''){ if(opts.hideIfEmpty) el.hidden=true; else el.textContent=''; return; }
-      el.textContent = String(val);
-      if(opts.unhide) el.hidden=false;
+      if(!val){ if(opts.hideIfEmpty) el.hidden=true; else el.textContent=''; return; }
+      el.textContent = val; if(opts.unhide) el.hidden=false;
     };
 
-    function showContent(){ $('fsLoad').hidden = true; $('content').hidden = false; }
-    const TIMEOUT_MS = 12000;
-    let finished = false;
-    const watchdog = setTimeout(()=>{
-      if (finished) return;
+    function showContent(){ $('fsLoad').hidden=true; $('content').hidden=false; }
+    const TIMEOUT_MS=12000; let finished=false;
+    const watchdog=setTimeout(()=>{
+      if(finished) return;
       showContent();
-      $('eqCard').hidden = true;
-      $('fnLinks').hidden = true;
-      $('archivedCard').hidden = true;
-      $('timeoutCard').hidden = false;
-      const s = $('status'); s.textContent = 'Timed out waiting for data.'; s.hidden = false;
-    }, TIMEOUT_MS);
+      $('timeoutCard').hidden=false;
+      $('status').textContent='Timed out waiting for data.'; $('status').hidden=false;
+    },TIMEOUT_MS);
 
-    async function resolveIdByCode(db, token){
-      const qy = query(collection(db,'equipment'), where('qr.token','==', token), limit(1));
-      const snap = await getDocs(qy);
-      if (snap.empty) return '';
-      return snap.docs[0].id || '';
+    async function resolveIdByToken(db, token){
+      const qy=query(collection(db,'equipment'), where('token','==',token), limit(1));
+      const snap=await getDocs(qy);
+      if(snap.empty) return '';
+      return snap.docs[0].id;
     }
 
     async function init(){
       await ready;
-      const db = getFirestore();
+      const db=getFirestore();
 
-      // If we only have a code, resolve it ONCE then hard-redirect to ?id=
-      if (!id && code){
+      if(!id && code){
         try{
-          const foundId = await resolveIdByCode(db, code);
-          if (foundId){
+          const foundId=await resolveIdByToken(db, code.trim());
+          if(foundId){
             location.replace(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(foundId)}`);
-            return; // stop here; next load is fast-path
-          }else{
-            clearTimeout(watchdog); finished = true; showContent();
-            $('status').textContent = 'No equipment found for this code.'; $('status').hidden = false;
+            return;
+          } else {
+            clearTimeout(watchdog); finished=true; showContent();
+            $('status').textContent='No equipment found for this code.'; $('status').hidden=false;
             return;
           }
-        }catch(err){
-          console.error(err);
-          clearTimeout(watchdog); finished = true; showContent();
-          $('status').textContent = 'Error loading hub.'; $('status').hidden = false;
+        }catch(e){
+          console.error(e);
+          clearTimeout(watchdog); finished=true; showContent();
+          $('status').textContent='Error loading hub.'; $('status').hidden=false;
           return;
         }
       }
 
-      if (!id){
-        clearTimeout(watchdog); finished = true; showContent();
-        $('status').textContent = 'No equipment id provided.'; $('status').hidden = false;
+      if(!id){
+        clearTimeout(watchdog); finished=true; showContent();
+        $('status').textContent='No equipment id provided.'; $('status').hidden=false;
         return;
       }
 
       let snap;
-      try{
-        snap = await getDoc(doc(db,'equipment', id));
-      }catch(err){
-        console.error(err);
-        clearTimeout(watchdog); finished = true; showContent();
-        $('status').textContent = 'Error loading hub.'; $('status').hidden = false;
+      try{ snap=await getDoc(doc(db,'equipment',id)); }
+      catch(e){
+        console.error(e);
+        clearTimeout(watchdog); finished=true; showContent();
+        $('status').textContent='Error loading hub.'; $('status').hidden=false;
         return;
       }
 
-      clearTimeout(watchdog); finished = true; showContent();
+      clearTimeout(watchdog); finished=true; showContent();
 
-      if (!snap.exists()){
-        $('status').textContent = 'Not found.'; $('status').hidden = false;
-        return;
+      if(!snap.exists()){
+        $('status').textContent='Not found.'; $('status').hidden=false; return;
       }
 
-      const d = snap.data() || {}; d.id = id;
+      const d=snap.data()||{}; d.id=id;
 
-      // Header
-      const typeRaw = d.type || 'equipment';
-      const hubTitle = `${capWords(typeRaw)} Hub`;
-      setText('pageTitle', hubTitle);
-      document.title = `FarmVista • ${hubTitle}`;
+      const typeRaw=d.type||'equipment';
+      const hubTitle=`${capWords(typeRaw)} Hub`;
+      setText('pageTitle',hubTitle);
+      document.title=`FarmVista • ${hubTitle}`;
 
-      // Summary
-      const mm = [d.makeName, d.modelName].filter(Boolean).join(' ');
-      const ls = last6(d.serial);
-      const title = mm ? `${mm}${ls ? ` (#${ls})` : ''}` : (d.name || `Unit ${String(id).slice(0,6)}`);
-      setText('eqName', title);
-      setText('eqType', typeRaw || 'equipment');
-      setText('eqMakeModel', mm);
-      if (ls) setText('eqSerial', `SN #${ls}`, {unhide:true});
-      if (d.engineHours != null) setText('eqHours', `${d.engineHours} hrs`, {unhide:true});
-      if (d.notes) setText('eqNotes', d.notes, {unhide:true});
-      $('eqCard').hidden = false;
+      const mm=[d.makeName,d.modelName].filter(Boolean).join(' ');
+      const ls=last6(d.serial);
+      const title=mm?`${mm}${ls?` (#${ls})`:''}`:(d.name||`Unit ${id.slice(0,6)}`);
+      setText('eqName',title);
+      setText('eqType',typeRaw);
+      setText('eqMakeModel',mm);
+      if(ls) setText('eqSerial',`SN #${ls}`,{unhide:true});
+      if(d.engineHours!=null) setText('eqHours',`${d.engineHours} hrs`,{unhide:true});
+      if(d.notes) setText('eqNotes',d.notes,{unhide:true});
+      $('eqCard').hidden=false;
 
-      // State: archived vs active
-      const isArchived = (String(d.status||'').toLowerCase()==='archived') || (d.archived===true);
-      if (isArchived){
-        const name = mm || 'This unit';
-        $('archivedMsg').textContent = `“${name}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
-        $('archivedCard').hidden = false; // no action links
+      const isArchived=(String(d.status||'').toLowerCase()==='archived')||(d.archived===true);
+      if(isArchived){
+        const name=mm||'This unit';
+        $('archivedMsg').textContent=`“${name}${ls?' • SN …'+ls:''}” is archived and not available for new entries.`;
+        $('archivedCard').hidden=false;
       }else{
-        const base = "/Farm-vista/pages/equipment/actions";
-        const qstr = `?id=${encodeURIComponent(id)}&from=hub`;
-        $("linkHours").href = `${base}/engine-hours.html${qstr}`;
-        $("linkMaint").href = `${base}/maintenance.html${qstr}`;
-        $("linkReq").href   = `${base}/service-request.html${qstr}`;
-        $("linkPre").href   = `${base}/pre-check.html${qstr}`;
-        $('fnLinks').hidden = false;
+        const base="/Farm-vista/pages/equipment/actions";
+        const qstr=`?id=${encodeURIComponent(id)}&from=hub`;
+        $('linkHours').href=`${base}/engine-hours.html${qstr}`;
+        $('linkMaint').href=`${base}/maintenance.html${qstr}`;
+        $('linkReq').href=`${base}/service-request.html${qstr}`;
+        $('linkPre').href=`${base}/pre-check.html${qstr}`;
+        $('fnLinks').hidden=false;
       }
     }
 
-    init().catch(err=>{
-      console.error(err);
-      clearTimeout(watchdog); finished = true; showContent();
-      $('status').textContent = 'Error loading hub.'; $('status').hidden = false;
+    init().catch(e=>{
+      console.error(e);
+      clearTimeout(watchdog); finished=true; showContent();
+      $('status').textContent='Error loading hub.'; $('status').hidden=false;
     });
   </script>
 </body>
