@@ -1,9 +1,10 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/hub.html  (FULL FILE)
-Rev: 2025-11-11s
-Fixes:
- • Blue font removed in dark mode (force theme colors)
- • QR lookup now uses Firestore field: token (direct, not nested)
+Rev: 2025-11-12a
+Changes in this build:
+ • Remove token-based lookup entirely (no ?t= / ?code= support)
+ • Require ?id={documentId} and load directly from equipment/{id}
+ • Preserve dark-mode non-blue text and existing UI/links/timeout behavior
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -155,14 +156,12 @@ Fixes:
 
   <script type="module">
     import {
-      ready, getFirestore, doc, getDoc,
-      collection, query, where, getDocs, limit
+      ready, getFirestore, doc, getDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
-    let id = qs.get('id') || '';
-    let code = qs.get('code') || qs.get('t') || '';
+    const id = qs.get('id') || '';
 
     const last6 = v => String(v||'').slice(-6);
     const capWords = s => String(s||'').replace(/\b\w/g, c=>c.toUpperCase());
@@ -181,35 +180,9 @@ Fixes:
       $('status').textContent='Timed out waiting for data.'; $('status').hidden=false;
     },TIMEOUT_MS);
 
-    async function resolveIdByToken(db, token){
-      const qy=query(collection(db,'equipment'), where('token','==',token), limit(1));
-      const snap=await getDocs(qy);
-      if(snap.empty) return '';
-      return snap.docs[0].id;
-    }
-
     async function init(){
       await ready;
       const db=getFirestore();
-
-      if(!id && code){
-        try{
-          const foundId=await resolveIdByToken(db, code.trim());
-          if(foundId){
-            location.replace(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(foundId)}`);
-            return;
-          } else {
-            clearTimeout(watchdog); finished=true; showContent();
-            $('status').textContent='No equipment found for this code.'; $('status').hidden=false;
-            return;
-          }
-        }catch(e){
-          console.error(e);
-          clearTimeout(watchdog); finished=true; showContent();
-          $('status').textContent='Error loading hub.'; $('status').hidden=false;
-          return;
-        }
-      }
 
       if(!id){
         clearTimeout(watchdog); finished=true; showContent();
@@ -218,8 +191,9 @@ Fixes:
       }
 
       let snap;
-      try{ snap=await getDoc(doc(db,'equipment',id)); }
-      catch(e){
+      try{
+        snap = await getDoc(doc(db,'equipment',id));
+      }catch(e){
         console.error(e);
         clearTimeout(watchdog); finished=true; showContent();
         $('status').textContent='Error loading hub.'; $('status').hidden=false;
@@ -229,16 +203,19 @@ Fixes:
       clearTimeout(watchdog); finished=true; showContent();
 
       if(!snap.exists()){
-        $('status').textContent='Not found.'; $('status').hidden=false; return;
+        $('status').textContent='Not found.'; $('status').hidden=false;
+        return;
       }
 
       const d=snap.data()||{}; d.id=id;
 
+      // Title and header
       const typeRaw=d.type||'equipment';
       const hubTitle=`${capWords(typeRaw)} Hub`;
       setText('pageTitle',hubTitle);
       document.title=`FarmVista • ${hubTitle}`;
 
+      // Main card
       const mm=[d.makeName,d.modelName].filter(Boolean).join(' ');
       const ls=last6(d.serial);
       const title=mm?`${mm}${ls?` (#${ls})`:''}`:(d.name||`Unit ${id.slice(0,6)}`);
@@ -250,6 +227,7 @@ Fixes:
       if(d.notes) setText('eqNotes',d.notes,{unhide:true});
       $('eqCard').hidden=false;
 
+      // Archived state vs links
       const isArchived=(String(d.status||'').toLowerCase()==='archived')||(d.archived===true);
       if(isArchived){
         const name=mm||'This unit';
