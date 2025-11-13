@@ -1,9 +1,9 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-13c
+Rev: 2025-11-13d
 Changes in this rev:
- • Dynamically set hero emoji icon based on NAV_MENU equipment entry
-   (tractor/combine/implement/etc.) using the current ?type=...
+ • For TYPE=implement: move the "Type" field (implementType) above Make/Model
+ • For TYPE=truck or trailer: relabel Serial # → VIN # (and tweak placeholder)
  • All themes, modules, extras engine, file input, QR flow, etc. unchanged
 ===================================================================== -->
 <!doctype html>
@@ -304,6 +304,8 @@ Changes in this rev:
         </header>
 
         <div class="body">
+          <!-- (for implements, Type field will be moved up here via JS) -->
+
           <!-- 1 & 2: MAKE / MODEL -->
           <div class="row">
             <!-- Make -->
@@ -333,7 +335,7 @@ Changes in this rev:
             </div>
           </div>
 
-          <!-- 3 & 4: YEAR / SERIAL -->
+          <!-- 3 & 4: YEAR / SERIAL (VIN for trucks & trailers) -->
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
@@ -1142,7 +1144,7 @@ Changes in this rev:
       const form = readForm();
       if(!form.makeId){ alert("Please choose a Make."); return; }
       if(!form.modelId){ alert("Please choose a Model."); return; }
-      if(!form.serial){ alert("Serial # is required."); return; }
+      if(!form.serial){ alert("Serial/VIN is required."); return; }
 
       if(!pendingQRBlob){
         const ok = confirm("No QR preview yet. Create it first? (Click Cancel to save without a QR image.)");
@@ -1251,7 +1253,7 @@ Changes in this rev:
 
       }catch(err){
         if(err && err.message === "DUP_UNIQ"){
-          alert("This Make + Model + Serial already exists. Duplicate not allowed.");
+          alert("This Make + Model + Serial/VIN already exists. Duplicate not allowed.");
         }else if(err && err.message === "DUP_TOKEN"){
           alert("This QR token is already bound to another unit. Generate a new QR and try again.");
         }else{
@@ -1322,6 +1324,22 @@ Changes in this rev:
         }
       }
 
+      // For implements: move the "Type" field above Make/Model
+      if(EXTRAS_API && TYPE === 'implement'){
+        try{
+          const typeFieldWrap = host.querySelector('[data-field-id="implementType"]');
+          const firstRow = document.querySelector('.body > .row');
+          if(typeFieldWrap && firstRow && firstRow.parentNode){
+            const typeRow = document.createElement('div');
+            typeRow.className = 'row';
+            typeRow.appendChild(typeFieldWrap);
+            firstRow.parentNode.insertBefore(typeRow, firstRow);
+          }
+        }catch(e){
+          console.warn('Could not move implement Type field:', e);
+        }
+      }
+
       // Fallback so tractors stay exactly like before if JS isn't ready
       if(!EXTRAS_API && TYPE === 'tractor'){
         host.innerHTML = "";
@@ -1348,10 +1366,23 @@ Changes in this rev:
       const wrap = document.querySelector('.wrap');
       if(wrap) wrap.dataset.equipmentType = TYPE;
 
-      // NEW: set hero emoji icon from NAV_MENU equipment icon
+      // Set hero emoji icon from NAV_MENU equipment icon
       const heroIconEl = document.querySelector('.hero-head .icon');
       if(heroIconEl){
         heroIconEl.textContent = lookupEquipIcon(TYPE);
+      }
+
+      // For trucks & trailers: rename Serial # → VIN #
+      const serialLabel = document.querySelector('label[for="serial"]');
+      const serialInput = $("serial");
+      if(serialLabel){
+        if(TYPE === 'truck' || TYPE === 'trailer'){
+          serialLabel.textContent = 'VIN #';
+          serialLabel.classList.add('req'); // keep required styling
+          if(serialInput){
+            serialInput.placeholder = 'VIN (required)';
+          }
+        }
       }
 
       buildYearOptions();
