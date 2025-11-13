@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2025-11-13b
+Rev: 2025-11-13c
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -250,10 +250,55 @@ Usage (from any page):
 
     /* 8) CONSTRUCTION ------------------------------------------------- */
     construction: [
+      // Machine vs Attachment/Implement
+      selectField(
+        'constructionType',
+        'Construction Type',
+        [
+          { value: 'machine',    label: 'Machine' },
+          { value: 'attachment', label: 'Attachment / Implement' }
+        ],
+        { required: true }
+      ),
+
+      // Engine hours only matter for machines
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
-        placeholder: 'e.g. 3200.0'
-      })
+        placeholder: 'e.g. 3200.0',
+        visibleForTypes: ['machine']
+      }),
+
+      // Attachment / Implement dropdown for attachments only
+      selectField(
+        'attachmentType',
+        'Attachment / Implement',
+        [
+          // Skid steer attachments
+          { value: 'skid-bucket',          label: 'Skid Steer — Bucket' },
+          { value: 'skid-forks',           label: 'Skid Steer — Forks' },
+          { value: 'skid-grapple',         label: 'Skid Steer — Grapple' },
+          { value: 'skid-brush-cutter',    label: 'Skid Steer — Brush Cutter' },
+          { value: 'skid-stump-grinder',   label: 'Skid Steer — Stump Grinder' },
+          { value: 'skid-tree-shear',      label: 'Skid Steer — Tree Shear' },
+          { value: 'skid-trencher',        label: 'Skid Steer — Trencher' },
+          { value: 'skid-post-hole',       label: 'Skid Steer — Post Hole Digger' },
+          { value: 'skid-broom',           label: 'Skid Steer — Broom' },
+
+          // Dirt-moving / grading
+          { value: 'dirt-scraper',         label: 'Dirt Scraper' },
+          { value: 'box-blade',            label: 'Box Blade' },
+          { value: 'dozer-blade',          label: 'Dozer Blade' },
+          { value: 'snow-blade',           label: 'Snow Blade' },
+          { value: 'backhoe-3pt',          label: 'Backhoe (3-pt)' },
+
+          // Catch-all
+          { value: 'other',                label: 'Other' }
+        ],
+        {
+          required: true,
+          visibleForTypes: ['attachment']
+        }
+      )
     ],
 
     /* 9) STARFIRE / TECHNOLOGY ---------------------------------------- */
@@ -391,13 +436,18 @@ Usage (from any page):
   function normalizeExtras(fields, controls){
     const out = {};
 
-    const typeEl = controls.get('implementType');
+    // One-of controller for conditional fields (implement OR construction)
+    const typeEl =
+      controls.get('implementType') ||
+      controls.get('constructionType') ||
+      null;
     const currentType = typeEl ? (typeEl.value || '').toLowerCase() : null;
 
     for (const field of fields){
-      // For implement-only conditional fields, skip if not for current type
+      // Skip non-applicable conditional fields (implements + construction)
       if (
         field.id !== 'implementType' &&
+        field.id !== 'constructionType' &&
         field.visibleForTypes &&
         Array.isArray(field.visibleForTypes)
       ){
@@ -437,22 +487,23 @@ Usage (from any page):
     for (const field of fields){
       const el = controls.get(field.id);
       if (!el) continue;
-      if (field.kind === 'select'){
-        el.value = '';
-      }else{
-        el.value = '';
-      }
+      el.value = '';
     }
   }
 
   function validateExtras(fields, controls){
-    const typeEl = controls.get('implementType');
+    // Same controller logic as normalize
+    const typeEl =
+      controls.get('implementType') ||
+      controls.get('constructionType') ||
+      null;
     const currentType = typeEl ? (typeEl.value || '').toLowerCase() : null;
 
     for (const field of fields){
       // Skip required check if field is conditional but not visible
       if (
         field.id !== 'implementType' &&
+        field.id !== 'constructionType' &&
         field.visibleForTypes &&
         Array.isArray(field.visibleForTypes)
       ){
@@ -478,19 +529,18 @@ Usage (from any page):
   }
 
   /** ------------------------------------------------------------------
-   * Implement-specific dynamic visibility
+   * Shared dynamic visibility helper
    * -------------------------------------------------------------------*/
 
-  function setupImplementDynamic(fields, controls, container){
-    const typeEl = controls.get('implementType');
+  function setupDynamic(typeFieldId, fields, controls, container){
+    const typeEl = controls.get(typeFieldId);
     if (!typeEl) return;
 
     function updateVisibility(){
       const currentType = (typeEl.value || '').toLowerCase();
 
-      // For each field wrapper in this container, toggle based on config.visibleForTypes
       fields.forEach(field => {
-        if (field.id === 'implementType') return; // always visible
+        if (field.id === typeFieldId) return; // controller always visible
 
         const wrap = container.querySelector('[data-field-id="' + field.id + '"]');
         if (!wrap) return;
@@ -519,7 +569,7 @@ Usage (from any page):
     }
 
     typeEl.addEventListener('change', updateVisibility);
-    // Initial state (hide everything until a type is chosen)
+    // Initial state (hide conditional stuff until a type is chosen)
     updateVisibility();
   }
 
@@ -553,9 +603,14 @@ Usage (from any page):
       const fields = CONFIG[equipType] || [];
       const controls = buildRows(doc, container, fields);
 
-      // Implement-specific behavior: show/hide extras based on "Type"
+      // Implement-specific dynamic behavior
       if (equipType === 'implement'){
-        setupImplementDynamic(fields, controls, container);
+        setupDynamic('implementType', fields, controls, container);
+      }
+
+      // Construction-specific dynamic behavior
+      if (equipType === 'construction'){
+        setupDynamic('constructionType', fields, controls, container);
       }
 
       return {
