@@ -28,7 +28,6 @@
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
-    /* ——— (UNCHANGED STYLES — FULLY PRESERVED) ——— */
     :root{
       --card-max:1100px;
       --page-bottom-gap:96px;
@@ -175,7 +174,8 @@
 <body>
   <fv-shell>
     <div class="page">
-      <h1 class="title">Edit Tractors</h1>
+      <!-- Initial text is generic; JS will replace with proper plural -->
+      <h1 class="title">Edit Equipment</h1>
       <p id="subline" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
 
       <!-- SEARCH + FILTER -->
@@ -206,10 +206,11 @@
     </div>
   </fv-shell>
 
-  <!-- EDIT MODAL (UNCHANGED ENTIRE SECTION) -->
+  <!-- EDIT MODAL -->
   <dialog id="edit" class="sheet" aria-modal="true">
     <header>
-      <strong id="eTitle">Edit Tractor</strong>
+      <!-- JS will set to "Edit Tractor", "Edit Combine", etc. -->
+      <strong id="eTitle">Edit Equipment</strong>
       <div style="display:flex; gap:8px; align-items:center">
         <button id="eClose" class="btn" type="button">Close</button>
       </div>
@@ -217,7 +218,6 @@
 
     <div class="body">
       <div class="kv">
-        <!-- (UNCHANGED FORM CONTENT — PERFECTLY PRESERVED) -->
         <div>
           <label>Make</label>
           <input type="hidden" id="mkId"/>
@@ -295,16 +295,15 @@
 
     const $ = s => document.querySelector(s);
 
-    /* 
+    /*
     ===================================================================
-    FIXED BLOCK #1 — TYPE RESOLUTION (Correct nouns, no double-S)
+    TYPE RESOLUTION — CORRECT NOUNS + TITLES
     ===================================================================
     */
-
     const qs = new URLSearchParams(location.search);
     const RAW_TYPE = (qs.get('type') || 'tractors').toLowerCase();
 
-    // Normalize to known nouns
+    // Canonical mapping for all 9 types
     const TYPE_MAP = {
       tractors:      { singular:'tractor',      plural:'Tractors' },
       combines:      { singular:'combine',      plural:'Combines' },
@@ -317,14 +316,17 @@
       starfire:      { singular:'starfire',     plural:'StarFire / Technology' }
     };
 
-    const TYPE_INFO = TYPE_MAP[RAW_TYPE] || TYPE_MAP['tractors'];
-    const TYPE_SINGULAR = TYPE_INFO.singular;
-    const TITLE_PLURAL = TYPE_INFO.plural;
-    const TYPE_LABEL = TYPE_INFO.plural.replace(/s$/,'');
+    const TYPE_INFO    = TYPE_MAP[RAW_TYPE] || TYPE_MAP['tractors'];
+    const TYPE_SINGULAR = TYPE_INFO.singular;                // tractor, combine, sprayer, truck, etc.
+    const TITLE_PLURAL  = TYPE_INFO.plural;                  // Tractors, Combines, Fertilizer Equipment, etc.
+    const TYPE_LABEL    = TYPE_INFO.plural.replace(/s$/,''); // Tractor, Combine, Implement, etc.
+    const MODAL_TITLE   = `Edit ${TYPE_LABEL}`;              // Edit Tractor, Edit Combine, Edit Fertilizer Equipment
 
-    /* ================================================================== */
-
-    /* FILTER SYSTEM — UNCHANGED */
+    /*
+    ===================================================================
+    FILTER SYSTEM
+    ===================================================================
+    */
     const subEl = $('#subline');
     const filterBtn = $('#filterBtn');
     const filterPop = $('#filterPop');
@@ -340,16 +342,39 @@
       filterPop.hidden = false;
       filterBtn.setAttribute('aria-expanded','true');
     }
-    function closePop(){ if (!filterPop.hidden){ filterPop.hidden = true; filterBtn.setAttribute('aria-expanded','false'); } }
-    filterBtn.addEventListener('click', (e)=>{ e.stopPropagation(); filterPop.hidden ? openPop() : closePop(); });
-    document.addEventListener('click', (e)=>{ if (!filterPop.hidden && !filterPop.contains(e.target) && e.target !== filterBtn) closePop(); });
+    function closePop(){
+      if (!filterPop.hidden){
+        filterPop.hidden = true;
+        filterBtn.setAttribute('aria-expanded','false');
+      }
+    }
+    filterBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      filterPop.hidden ? openPop() : closePop();
+    });
+    document.addEventListener('click', (e)=>{
+      if (!filterPop.hidden && !filterPop.contains(e.target) && e.target !== filterBtn) closePop();
+    });
     window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
-    filterPop.addEventListener('change', (e)=>{ if (e.target && e.target.name === 'statusMode') { mode = e.target.value; render(); closePop(); }});
-    function syncRadios(){ const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`); if (r) r.checked = true; }
+    filterPop.addEventListener('change', (e)=>{
+      if (e.target && e.target.name === 'statusMode') {
+        mode = e.target.value;
+        render();
+        closePop();
+      }
+    });
+    function syncRadios(){
+      const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
+      if (r) r.checked = true;
+    }
 
-    /* LIST, SNAPSHOTS, RENDERING — UNCHANGED */
+    /*
+    ===================================================================
+    LIST, SNAPSHOTS, RENDERING
+    ===================================================================
+    */
     const list = $('#list'), countEl = $('#count'), qInput = $('#q');
-    let DATA = [], unsub=null;
+    let DATA = [], unsub = null;
 
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
@@ -388,6 +413,7 @@
           const qIn = query(collection(db,'equipment'), where('type','in', [TYPE_SINGULAR, TYPE_SINGULAR+'s']));
           unsub = onSnapshot(qIn, snapHandler, errHandler);
         }catch{
+          // fallback: pull everything and filter manually by type
           unsub = onSnapshot(collection(db,'equipment'), (snap)=>{
             const out=[]; snap.forEach(s=>{
               const d=s.data()||{};
@@ -411,7 +437,12 @@
       rows.sort((a,b)=>displayLine(a).localeCompare(displayLine(b)));
       DATA = rows; render();
     }
-    function detach(){ if (unsub){ try{unsub();}catch{}; unsub=null; } }
+    function detach(){
+      if (unsub){
+        try{unsub();}catch{}
+        unsub=null;
+      }
+    }
 
     function render(){
       const q=(qInput.value||'').toLowerCase().trim();
@@ -465,6 +496,9 @@
           card.appendChild(ttl);
           if (badge) card.appendChild(badge);
 
+          // Full hover title so you can see make/model/serial on desktop
+          card.title = titleFor(d);
+
           card.addEventListener('click',()=>openEditor(d.id));
           wrap.appendChild(card);
         });
@@ -474,7 +508,11 @@
     }
     qInput.addEventListener('input', render);
 
-    /* MODAL + FORM LOGIC — UNCHANGED */
+    /*
+    ===================================================================
+    MODAL + FORM LOGIC
+    ===================================================================
+    */
     const dlg = $('#edit'), eTitle=$('#eTitle'), eClose=$('#eClose');
     const f = {
       mkId: $('#mkId'), mdId: $('#mdId'), yr: $('#yr'),
@@ -523,7 +561,11 @@
     function buildYearOptions(){
       const sel=f.yr; const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
-      for(let y=now+1; y>=now-40; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
+      for(let y=now+1; y>=now-40; y--){
+        const o=document.createElement('option');
+        o.value=String(y); o.textContent=String(y);
+        sel.appendChild(o);
+      }
       const panel=$("#yearPanel"), trigger=$("#yearTrigger");
       panel.innerHTML="";
       [...sel.options].forEach(opt=>{
@@ -538,9 +580,21 @@
         panel.appendChild(btn);
       });
     }
-    function openYearPanel(){ $("#yearPanel").classList.remove('combo-hidden'); $("#yearTrigger").setAttribute('aria-expanded','true'); document.addEventListener('click', onDocClickClose, { once:true }); document.addEventListener('keydown', onEscClose); }
-    function closeYearPanel(){ $("#yearPanel").classList.add('combo-hidden'); $("#yearTrigger").setAttribute('aria-expanded','false'); document.removeEventListener('keydown', onEscClose); }
-    function onDocClickClose(e){ if(!$("#yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
+    function openYearPanel(){
+      $("#yearPanel").classList.remove('combo-hidden');
+      $("#yearTrigger").setAttribute('aria-expanded','true');
+      document.addEventListener('click', onDocClickClose, { once:true });
+      document.addEventListener('keydown', onEscClose);
+    }
+    function closeYearPanel(){
+      $("#yearPanel").classList.add('combo-hidden');
+      $("#yearTrigger").setAttribute('aria-expanded','false');
+      document.removeEventListener('keydown', onEscClose);
+    }
+    function onDocClickClose(e){
+      if(!$("#yearCombo").contains(e.target)) closeYearPanel();
+      else document.addEventListener('click', onDocClickClose, { once:true });
+    }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
     $("#yearTrigger").addEventListener('click', ()=>{
       const open = $("#yearTrigger").getAttribute('aria-expanded') === 'true';
@@ -557,14 +611,22 @@
       const db = getFirestore();
       try{
         const qs = await getDocs(query(collection(db,'equipment-makes'), orderBy('name')));
-        MAKES=[]; qs.forEach(s=>{ const d=s.data()||{}; if(d.archived) return; MAKES.push({id:s.id, name:d.name||d.make||''}); });
+        MAKES=[];
+        qs.forEach(s=>{
+          const d=s.data()||{};
+          if(d.archived) return;
+          MAKES.push({id:s.id, name:d.name||d.make||''});
+        });
       }catch(e){ console.error('loadMakes',e); MAKES=[]; }
     }
     async function loadModels(){
       const db = getFirestore();
       try{
         const qs = await getDocs(query(collection(db,'equipment-models'), orderBy('name')));
-        MODELS=[]; qs.forEach(s=>{ const d=s.data()||{}; if(d.archived) return;
+        MODELS=[];
+        qs.forEach(s=>{
+          const d=s.data()||{};
+          if(d.archived) return;
           MODELS.push({id:s.id, name:d.name||d.model||'', makeId:d.makeId||'', makeName:d.makeName||d.make||''});
         });
       }catch(e){ console.error('loadModels',e); MODELS=[]; }
@@ -576,38 +638,60 @@
       const byNm = MAKES.find(m=>m.name===preferIdOrName);
       if(byId){ setMake(byId.id, byId.name); }
       else if(byNm){ setMake(byNm.id, byNm.name); }
-      else { ddMake.btn.textContent="— Select —"; f.mkId.value=""; }
+      else {
+        ddMake.btn.textContent="— Select —";
+        f.mkId.value="";
+      }
     }
-    function filteredModels(){ const mkId=f.mkId.value; if(!mkId) return []; return MODELS.filter(m=>m.makeId===mkId); }
+    function filteredModels(){
+      const mkId=f.mkId.value;
+      if(!mkId) return [];
+      return MODELS.filter(m=>m.makeId===mkId);
+    }
     function refreshModelSelect(preferIdOrName=''){
       const items = filteredModels().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(m=>[m.id, m.name]);
       buildList(ddModel.list, items, (val,label)=> setModel(val,label));
-      ddModel.btn.disabled = !items.length; ddModel.search.disabled = !items.length;
-      if(!items.length){ ddModel.btn.textContent="— Select a Make first —"; f.mdId.value=""; return; }
+      ddModel.btn.disabled = !items.length;
+      ddModel.search.disabled = !items.length;
+      if(!items.length){
+        ddModel.btn.textContent="— Select a Make first —";
+        f.mdId.value="";
+        return;
+      }
       const byId = MODELS.find(m=>m.id===preferIdOrName);
       const byNm = MODELS.find(m=>m.name===preferIdOrName && m.makeId===f.mkId.value);
       if(byId && byId.makeId===f.mkId.value){ setModel(byId.id, byId.name); }
       else if(byNm){ setModel(byNm.id, byNm.name); }
-      else { ddModel.btn.textContent="— Select —"; f.mdId.value=""; }
+      else {
+        ddModel.btn.textContent="— Select —";
+        f.mdId.value="";
+      }
     }
     function setMake(id,label){
-      f.mkId.value=id||""; ddMake.btn.textContent=id?label:"— Select —"; ddMake.root.classList.remove("open");
+      f.mkId.value=id||"";
+      ddMake.btn.textContent=id?label:"— Select —";
+      ddMake.root.classList.remove("open");
       refreshModelSelect('');
     }
     function setModel(id,label){
-      f.mdId.value=id||""; ddModel.btn.textContent=id?label:"— Select —"; ddModel.root.classList.remove("open");
+      f.mdId.value=id||"";
+      ddModel.btn.textContent=id?label:"— Select —";
+      ddModel.root.classList.remove("open");
     }
 
     function getHoursFromDoc(d){
       const cands = [d.engineHours, d.hours, d.engine_hour, d.hourMeter, d.hrs];
-      for (const v of cands){ if (v !== undefined && v !== null && !Number.isNaN(Number(v))) return Number(v); }
+      for (const v of cands){
+        if (v !== undefined && v !== null && !Number.isNaN(Number(v))) return Number(v);
+      }
       return 0;
     }
 
     let currentId=null, deleteClean=false;
 
     async function openEditor(id){
-      currentId=id; deleteClean=false;
+      currentId=id;
+      deleteClean=false;
       const db=getFirestore();
 
       if(!MAKES.length) await loadMakes();
@@ -615,7 +699,10 @@
       buildYearOptions();
 
       const snap=await getDoc(doc(db,'equipment',id));
-      if(!snap.exists()){ alert(`${TYPE_SINGULAR} not found`); return; }
+      if(!snap.exists()){
+        alert(`${TYPE_SINGULAR} not found`);
+        return;
+      }
       const d=snap.data()||{};
 
       refreshMakeSelect(d.makeId || d.makeName || '');
@@ -641,7 +728,9 @@
       dependencyGuard(id).then(ok=>{ deleteClean=ok; }).catch(()=>{ deleteClean=false; });
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
-      eTitle.textContent = titleFor(d);
+      // Modal heading uses singular type ("Edit Tractor", etc.)
+      eTitle.textContent = MODAL_TITLE;
+
       openModal();
     }
 
@@ -691,12 +780,19 @@
       const db = getFirestore();
       const patch = collectPatch();
       const err = validate(patch);
-      if(err){ alert(err); return; }
+      if(err){
+        alert(err);
+        return;
+      }
 
       try{
         await setDoc(doc(db,'equipment',currentId), patch, { merge:true });
-        alert('Saved ✓'); closeModal();
-      }catch(e){ console.error(e); alert('Save failed by Firestore rules.'); }
+        alert('Saved ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Save failed by Firestore rules.');
+      }
     }
     async function toggleArchive(){
       if(!currentId) return;
@@ -707,8 +803,12 @@
         const now=snap.data()||{};
         const next=(now.status==='Archived')?'Active':'Archived';
         await updateDoc(doc(db,'equipment',currentId), { status: next, updatedAt: serverTimestamp() });
-        alert(next==='Archived'?'Archived ✓':'Restored ✓'); closeModal();
-      }catch(e){ console.error(e); alert('Archive/Unarchive failed.'); }
+        alert(next==='Archived'?'Archived ✓':'Restored ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Archive/Unarchive failed.');
+      }
     }
     async function doDelete(){
       if(!currentId) return;
@@ -721,8 +821,12 @@
       try{
         const { deleteDoc } = await import('/Farm-vista/js/firebase-init.js');
         await deleteDoc(doc(db,'equipment',currentId));
-        alert('Deleted ✓'); closeModal();
-      }catch(e){ console.error(e); alert('Delete failed by Firestore rules.'); }
+        alert('Deleted ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Delete failed by Firestore rules.');
+      }
     }
 
     saveBtn.addEventListener('click', saveEdits);
@@ -731,19 +835,21 @@
 
     ddMake.list.addEventListener('click', ()=> refreshModelSelect(''));
 
-    /* 
+    /*
     ===================================================================
-    FIXED BLOCK #2 — DYNAMIC PAGE TITLE & HEADER
+    DYNAMIC PAGE TITLE & HEADER
     ===================================================================
     */
-
     function updateHeader(){
       const pageTitle = document.querySelector('.title');
       if(pageTitle) pageTitle.textContent = `Edit ${TITLE_PLURAL}`;
       document.title = `FarmVista • Edit ${TITLE_PLURAL}`;
+      // Also make sure modal title default matches type if opened before load
+      eTitle.textContent = MODAL_TITLE;
     }
 
     function resume(){ if(!unsub) attach(); }
+
     (async()=>{
       await ready;
 
