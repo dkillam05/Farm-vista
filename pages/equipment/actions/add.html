@@ -1,11 +1,9 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-11f
-Fixes in this build:
- • Fix NAV_MENU import to named import
- • Remove duplicate const EQUIP_TYPES/EQUIP_SLUGS redeclaration
- • Replace $("#ddMakeBtn")/$("#ddModelBtn") with $("ddMakeBtn")/$("ddModelBtn")
- • Correct normType() trailing-dash regex (remove empty alternative)
+Rev: 2025-11-11g
+Scoped changes from last rev:
+ • Move QR preview + Create QR Code into one row (button to the right)
+ • Adjust file input height so native "Choose Files" looks vertically centered
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -173,14 +171,29 @@ Fixes in this build:
     .dd-list li:hover{background:#f0f1f0}
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* QR Preview */
-    .qr-area{ border:1px solid var(--border); border-radius:12px; background:var(--surface);
-      display:flex; align-items:center; justify-content:center; padding:10px; width:112px; height:112px; }
+    /* QR Preview + row */
+    .qr-area{
+      border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      display:flex; align-items:center; justify-content:center; padding:10px;
+      width:112px; height:112px;
+    }
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
 
-    /* File input — mimic Field Boundary look, but kill iOS blue text
-       Keep it as a normal .input (same padding/height), just force text color. */
+    .qr-row{
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+    .qr-row .btn{
+      min-width:160px;
+    }
+
+    /* File input — let it size naturally like Field Boundary,
+       but keep dark-mode text (no iOS blue). */
     input[type="file"].input{
+      height:auto;
+      line-height:normal;
+      padding:8px 12px;
       color:var(--text) !important;
       -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
     }
@@ -339,16 +352,18 @@ Fixes in this build:
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- Tiny QR preview -->
-          <div id="qrArea" class="qr-area" hidden>
-            <img id="qrThumb" alt="QR code">
+          <!-- QR row: preview + button -->
+          <div class="field qr-row">
+            <div id="qrArea" class="qr-area" hidden>
+              <img id="qrThumb" alt="QR code">
+            </div>
+            <button id="btnQR" class="btn" type="button">Create QR Code</button>
           </div>
 
           <div id="err" class="error" hidden></div>
 
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
-            <button id="btnQR" class="btn" type="button">Create QR Code</button>
             <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
@@ -368,7 +383,7 @@ Fixes in this build:
       <div class="ed-wrap">
         <!-- Models bar (only for models editor) -->
         <div id="edModelsBar" style="display:none; gap:8px; align-items:center;">
-          <label for="edMakeSelect" style="font-weight:800; margin-right:6px;">Make</label>
+          <label for="edMakeSelect" style="font-weight:800;margin-right:6px;">Make</label>
           <select id="edMakeSelect" class="select" style="max-width:260px;"></select>
         </div>
 
@@ -464,7 +479,7 @@ Fixes in this build:
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    /* Year options (unchanged) */
+    /* Year options */
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -554,7 +569,7 @@ Fixes in this build:
       $("btnSave").disabled = !(makeOk && modelOk && serialOk);
     }
 
-    /* QR (unchanged) */
+    /* QR */
     let pendingToken = null;
     let pendingQRBlob = null;
     async function waitQRReady(){ let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){ await new Promise(r=>setTimeout(r,50)); } if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib'); }
@@ -807,7 +822,7 @@ Fixes in this build:
       validateForm();
     }
 
-    /* ===== Edit modal (rules + WORKING actions) ===== */
+    /* ===== Edit modal (rules + actions) ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -817,7 +832,7 @@ Fixes in this build:
       archivedPanel: $("edArchivedPanel"),
       modelsBar: $("edModelsBar"),
       modelsMakeSel: $("edMakeSelect"),
-      pending: new Map(), // id -> { name?, categories?, unarchive?, model? }
+      pending: new Map(),
       open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
       close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
     };
@@ -861,7 +876,7 @@ Fixes in this build:
         btn.addEventListener('click', ()=>{
           const cur = Edit.pending.get(m.id) || {};
           if(!cur.unarchive){ bumpPending(+1); }
-          cur.unarchive = true; // queued; applied with Save All
+          cur.unarchive = true;
           Edit.pending.set(m.id, cur);
           showToast(`Unarchive queued: ${m.name}`);
         });
@@ -870,7 +885,6 @@ Fixes in this build:
       });
     }
 
-    /* ----- IMMEDIATE actions ----- */
     async function deleteMakeImmediate(db, id, name){
       const u = await usageInfo(db, 'makes', id);
       if(u.total !== 0){ alert('This make is in use and cannot be deleted.'); return; }
@@ -921,7 +935,6 @@ Fixes in this build:
         for(const it of makes){
           const row=document.createElement('div'); row.className='ed-row'; row.dataset.id = it.id;
 
-          // header
           const head=document.createElement('div'); head.className='ed-head';
           const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
           const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
@@ -930,7 +943,6 @@ Fixes in this build:
           head.append(nameWrap, chev);
           row.append(head);
 
-          // body (switches + actions)
           const body=document.createElement('div'); body.className='ed-body';
           const switches=document.createElement('div'); switches.className='switch-list';
           const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
@@ -955,7 +967,6 @@ Fixes in this build:
 
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
-          // queued rename/category
           const stageBase = ()=>{
             const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
             const cur = Edit.pending.get(it.id) || {};
@@ -969,13 +980,11 @@ Fixes in this build:
           inp.addEventListener('input', stageBase);
           switches.addEventListener('change', stageBase);
 
-          // IMMEDIATE actions
           delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
           arcBtn.addEventListener('click', ()=> archiveMakeImmediate(db, it.id, inp.value.trim() || it.name));
         }
 
       }else{
-        // MODELS editor (rename only)
         Edit.modelsBar.style.display='flex';
         const sel = Edit.modelsMakeSel;
 
@@ -1216,7 +1225,6 @@ Fixes in this build:
       validateForm();
     }
 
-    // Cancel => tractors list (.HTML or .html)
     async function pathExists(url, ms=2500){
       try{
         const ctrl=new AbortController();
@@ -1256,7 +1264,6 @@ Fixes in this build:
         EDIT_KIND='models'; Edit.open('Edit Models'); await loadEditor(db);
       });
 
-      // Bottom footer actions
       $("edSaveAll").addEventListener('click', ()=>applySaveAll(db));
       $("edToggleArchived").addEventListener('click', async ()=>{
         const isShown = $("edArchivedPanel").classList.toggle('show');
