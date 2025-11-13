@@ -304,6 +304,25 @@
 
     const $ = s => document.querySelector(s);
 
+    // ===== TYPE RESOLUTION (tractor/combine/implement) =====
+    const qs = new URLSearchParams(location.search);
+    const RAW_TYPE = (qs.get('type') || 'tractor').toLowerCase();
+    const TYPE_SINGULAR = (function(t){
+      if (t === 'combines') return 'combine';
+      if (t === 'implements') return 'implement';
+      return t;
+    })(RAW_TYPE);
+
+    const TYPE_LABEL =
+      TYPE_SINGULAR === 'combine'   ? 'Combine'   :
+      TYPE_SINGULAR === 'implement' ? 'Implement' :
+      TYPE_SINGULAR.charAt(0).toUpperCase() + TYPE_SINGULAR.slice(1);
+
+    const TITLE_PLURAL =
+      TYPE_SINGULAR === 'combine'   ? 'Combines'   :
+      TYPE_SINGULAR === 'implement' ? 'Implements' :
+      TYPE_LABEL + 's';
+
     /* ===== FILTER ===== */
     const subEl = $('#subline');
     const filterBtn = $('#filterBtn');
@@ -343,34 +362,47 @@
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
     const displayLine = d => {
       const mm = mmText(d), ls = last6(d.serial);
-      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : '(tractor)');
+      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : `(${TYPE_LABEL.toLowerCase()})`);
     };
     const titleFor = d => {
       const mm = mmText(d), ls = last6(d.serial);
-      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || '(tractor)');
+      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || `(${TYPE_LABEL.toLowerCase()})`);
     };
 
-    function looksLikeTractor(d){
+    function looksLikeType(d){
       const v = String(d?.type ?? '').toLowerCase();
-      return v === 'tractor' || v === 'tractors';
+      if (!v) return false;
+      if (v === TYPE_SINGULAR) return true;
+      if (v === TYPE_SINGULAR + 's') return true;
+      return false;
     }
 
     function attach(){
       if (unsub) return;
       const db = getFirestore();
 
-      // Try IN query (covers case differences), then fallbacks
+      // Prefer simple == query by normalized type
       try{
-        const qIn = query(collection(db,'equipment'), where('type','in',['tractor','Tractor','tractors','Tractors']));
-        unsub = onSnapshot(qIn, snapHandler, errHandler);
+        const qEq = query(collection(db,'equipment'), where('type','==', TYPE_SINGULAR));
+        unsub = onSnapshot(qEq, snapHandler, errHandler);
       }catch(_e1){
+        // Fallback to small IN set (singular/plural/cased)
         try{
-          const qEq = query(collection(db,'equipment'), where('type','==','tractor'));
-          unsub = onSnapshot(qEq, snapHandler, errHandler);
+          const variants = [
+            TYPE_SINGULAR,
+            TYPE_SINGULAR + 's',
+            TYPE_LABEL,
+            TITLE_PLURAL
+          ];
+          const qIn = query(collection(db,'equipment'), where('type','in', variants));
+          unsub = onSnapshot(qIn, snapHandler, errHandler);
         }catch(_e2){
-          // Last resort: whole collection then filter client-side
+          // Last resort: all equipment then filter client-side
           unsub = onSnapshot(collection(db,'equipment'), (snap)=>{
-            const out=[]; snap.forEach(s=>{ const d=s.data()||{}; if (looksLikeTractor(d)) out.push({ id:s.id, ...d }); });
+            const out=[]; snap.forEach(s=>{
+              const d=s.data()||{};
+              if (looksLikeType(d)) out.push({ id:s.id, ...d });
+            });
             finishRows(out);
           }, errHandler);
         }
@@ -383,7 +415,7 @@
     }
     function errHandler(err){
       console.error('equip attach error', err);
-      alert('Error loading tractors.');
+      alert(`Error loading ${TITLE_PLURAL.toLowerCase()}.`);
     }
     function finishRows(rows){
       rows.sort((a,b)=>displayLine(a).localeCompare(displayLine(b)));
@@ -411,12 +443,18 @@
 
       countEl.textContent = `${rows.length} entries`;
       list.innerHTML='';
-      if(!rows.length){ const p=document.createElement('p'); p.className='sub'; p.textContent='No matches.'; list.appendChild(p); return; }
+      if(!rows.length){
+        const p=document.createElement('p');
+        p.className='sub';
+        p.textContent='No matches.';
+        list.appendChild(p);
+        return;
+      }
 
       const by={};
       rows.forEach(d=>{
         const k=(displayLine(d)||'?').charAt(0).toUpperCase();
-        by[k] = by[k] || [];   // Safari-safe (no ||=)
+        by[k] = by[k] || [];
         by[k].push(d);
       });
       Object.keys(by).sort().forEach(letter=>{
@@ -580,7 +618,7 @@
       buildYearOptions();
 
       const snap=await getDoc(doc(db,'equipment',id));
-      if(!snap.exists()){ alert('Tractor not found'); return; }
+      if(!snap.exists()){ alert(`${TYPE_LABEL} not found`); return; }
       const d=snap.data()||{};
 
       refreshMakeSelect(d.makeId || d.makeName || '');
@@ -669,7 +707,10 @@
     }
     async function doDelete(){
       if(!currentId) return;
-      if(!deleteClean){ alert('This tractor is referenced by other data. Delete is blocked. Use Archive instead.'); return; }
+      if(!deleteClean){
+        alert(`This ${TYPE_LABEL.toLowerCase()} is referenced by other data. Delete is blocked. Use Archive instead.`);
+        return;
+      }
       if(!confirm('Delete permanently?')) return;
       const db=getFirestore();
       try{
@@ -689,6 +730,12 @@
     function resume(){ if(!unsub) attach(); }
     (async()=>{
       await ready;
+
+      // Dynamic page chrome: title + H1
+      document.title = `FarmVista • Edit ${TITLE_PLURAL}`;
+      const h1 = document.querySelector('.title');
+      if (h1) h1.textContent = `Edit ${TITLE_PLURAL}`;
+
       await Promise.all([loadMakes(), loadModels()]);
       buildYearOptions();
       attach();
