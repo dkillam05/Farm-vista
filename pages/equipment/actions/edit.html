@@ -297,14 +297,14 @@
 
     /* 
     ===================================================================
-    FIXED BLOCK #1 — TYPE RESOLUTION (singular & plural safe)
+    FIXED BLOCK #1 — TYPE RESOLUTION (Correct nouns, no double-S)
     ===================================================================
     */
 
     const qs = new URLSearchParams(location.search);
     const RAW_TYPE = (qs.get('type') || 'tractors').toLowerCase();
 
-    // Canonical config keyed by plural-ish slug
+    // Normalize to known nouns
     const TYPE_MAP = {
       tractors:      { singular:'tractor',      plural:'Tractors' },
       combines:      { singular:'combine',      plural:'Combines' },
@@ -317,29 +317,10 @@
       starfire:      { singular:'starfire',     plural:'StarFire / Technology' }
     };
 
-    function resolveTypeKey(raw){
-      let key = raw || 'tractors';
-
-      // exact match first
-      if (TYPE_MAP[key]) return key;
-
-      // common singular → plural forms
-      if (TYPE_MAP[key + 's'])   return key + 's';   // tractor → tractors, combine → combines, implement → implements, sprayer → sprayers
-      if (TYPE_MAP[key + 'es'])  return key + 'es';  // (kept for future oddballs)
-
-      // special cases that already match keys as-is
-      if (key === 'fertilizer')  return 'fertilizer';
-      if (key === 'starfire')    return 'starfire';
-
-      // last-resort fallback
-      return 'tractors';
-    }
-
-    const TYPE_KEY      = resolveTypeKey(RAW_TYPE);
-    const TYPE_INFO     = TYPE_MAP[TYPE_KEY];
+    const TYPE_INFO = TYPE_MAP[RAW_TYPE] || TYPE_MAP['tractors'];
     const TYPE_SINGULAR = TYPE_INFO.singular;
-    const TITLE_PLURAL  = TYPE_INFO.plural;
-    const TYPE_LABEL    = TYPE_INFO.plural.replace(/s$/,'');
+    const TITLE_PLURAL = TYPE_INFO.plural;
+    const TYPE_LABEL = TYPE_INFO.plural.replace(/s$/,'');
 
     /* ================================================================== */
 
@@ -494,7 +475,7 @@
     qInput.addEventListener('input', render);
 
     /* MODAL + FORM LOGIC — UNCHANGED */
-    const dlg = $('#edit'), eTitle=$('#eTitle'), eClose=$('#eClose']);
+    const dlg = $('#edit'), eTitle=$('#eTitle'), eClose=$('#eClose');
     const f = {
       mkId: $('#mkId'), mdId: $('#mdId'), yr: $('#yr'),
       sn: $('#sn'), sn6: $('#sn6'),
