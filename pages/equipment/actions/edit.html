@@ -100,7 +100,7 @@
     }
     .sheet .body{
       padding:14px 16px; max-height:70vh;
-      overflow-y:auto; overflow-x:hidden;              /* vertical only */
+      overflow-y:auto; overflow-x:hidden;
       -webkit-overflow-scrolling:touch;
       touch-action: pan-y; overscroll-behavior: contain;
     }
@@ -457,16 +457,30 @@
         by[k] = by[k] || [];
         by[k].push(d);
       });
+
       Object.keys(by).sort().forEach(letter=>{
         const wrap=document.createElement('div'); wrap.className='group';
         const h=document.createElement('h3'); h.textContent=letter; wrap.appendChild(h);
+
         by[letter].forEach(d=>{
           const card=document.createElement('div'); card.className='card'; card.setAttribute('role','button');
           const ttl=document.createElement('div'); ttl.className='card-title'; ttl.textContent=displayLine(d);
-          const badge=document.createElement('span'); badge.className='badge'; badge.textContent=d.status||'Active';
-          card.append(ttl,badge); card.addEventListener('click',()=>openEditor(d.id));
+
+          // Only show helper badge for archived items
+          let badge=null;
+          if (isArchived(d)){
+            badge=document.createElement('span');
+            badge.className='badge';
+            badge.textContent='Archived';
+          }
+
+          card.appendChild(ttl);
+          if (badge) card.appendChild(badge);
+
+          card.addEventListener('click',()=>openEditor(d.id));
           wrap.appendChild(card);
         });
+
         list.appendChild(wrap);
       });
     }
@@ -630,6 +644,15 @@
       f.sn.value = d.serial || '';
       f.sn6.textContent = (d.serial ? String(d.serial).slice(-6) : '—');
       f.st.value = d.status || 'Active';
+
+      // Update Archive/Unarchive button label based on current status
+      const normalizedStatus = d.status || 'Active';
+      if (normalizedStatus === 'Archived') {
+        archiveBtn.textContent = 'Unarchive';
+      } else {
+        archiveBtn.textContent = 'Archive';
+      }
+
       f.notes.value = d.notes || '';
       f.hrs.value = getHoursFromDoc(d);
 
