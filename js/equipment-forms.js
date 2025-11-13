@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2025-11-13a
+Rev: 2025-11-13b
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -120,42 +120,69 @@ Usage (from any page):
 
     /* 4) IMPLEMENTS --------------------------------------------------- */
     implement: [
+      // Type picker drives which extra fields show
       selectField(
         'implementType',
         'Type',
         [
-          { value: 'planter',           label: 'Planter' },
-          { value: 'tillage',           label: 'Tillage' },
-          { value: 'grain-carts',       label: 'Grain Carts' },
-          { value: 'headers',           label: 'Headers' },
-          { value: 'augers-conveyors',  label: 'Augers/Conveyors' },
-          { value: 'other',             label: 'Other' }
+          { value: 'planter',      label: 'Planter' },
+          { value: 'tillage',      label: 'Tillage' },
+          { value: 'grain-cart',   label: 'Grain Cart' },
+          { value: 'corn-head',    label: 'Corn Head' },
+          { value: 'draper-head',  label: 'Draper Head' },
+          { value: 'auger',        label: 'Auger' },
+          { value: 'conveyor',     label: 'Conveyor' },
+          { value: 'other',        label: 'Other' }
         ],
         { required: true }
       ),
 
+      // Working width is important for planters, tillage, and heads
       numField('workingWidthFt', 'Working Width (ft)', {
         step: '0.1',
         inputmode: 'decimal',
-        placeholder: 'e.g. 40'
+        placeholder: 'e.g. 40',
+        // Planter, tillage, corn head, draper head
+        visibleForTypes: ['planter', 'tillage', 'corn-head', 'draper-head']
       }),
 
+      // Row count for planters and corn heads
       numField('numRows', 'Number of Rows', {
         step: '1',
         inputmode: 'numeric',
-        placeholder: 'e.g. 24'
+        placeholder: 'e.g. 24',
+        visibleForTypes: ['planter', 'corn-head']
       }),
 
+      // Row spacing (inches) for planters / corn heads
+      numField('rowSpacingIn', 'Row Spacing (in)', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 30',
+        visibleForTypes: ['planter', 'corn-head']
+      }),
+
+      // Capacity for grain carts (no working width / rows required)
+      numField('bushelCapacityBu', 'Capacity (bu)', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 1100',
+        visibleForTypes: ['grain-cart']
+      }),
+
+      // Auger-specific fields: diameter + length
       numField('augerDiameterIn', 'Auger Diameter (in)', {
         step: '1',
         inputmode: 'numeric',
-        placeholder: 'e.g. 10'
+        placeholder: 'e.g. 10',
+        visibleForTypes: ['auger']
       }),
 
       numField('augerLengthFt', 'Auger Length (ft)', {
         step: '0.1',
         inputmode: 'decimal',
-        placeholder: 'e.g. 72'
+        placeholder: 'e.g. 72',
+        visibleForTypes: ['auger']
       })
     ],
 
@@ -260,6 +287,11 @@ Usage (from any page):
   function createFieldElement(doc, field){
     const wrap = doc.createElement('div');
     wrap.className = 'field';
+    wrap.dataset.fieldId = field.id;
+
+    if (field.visibleForTypes && Array.isArray(field.visibleForTypes)){
+      wrap.dataset.visibleForTypes = field.visibleForTypes.join(',');
+    }
 
     const label = doc.createElement('label');
     label.textContent = field.label || field.id;
@@ -359,7 +391,23 @@ Usage (from any page):
   function normalizeExtras(fields, controls){
     const out = {};
 
+    const typeEl = controls.get('implementType');
+    const currentType = typeEl ? (typeEl.value || '').toLowerCase() : null;
+
     for (const field of fields){
+      // For implement-only conditional fields, skip if not for current type
+      if (
+        field.id !== 'implementType' &&
+        field.visibleForTypes &&
+        Array.isArray(field.visibleForTypes)
+      ){
+        const list = field.visibleForTypes.map(v => String(v).toLowerCase());
+        if (!currentType || !list.includes(currentType)){
+          out[field.id] = null;
+          continue;
+        }
+      }
+
       const el = controls.get(field.id);
       if (!el) continue;
 
@@ -398,7 +446,22 @@ Usage (from any page):
   }
 
   function validateExtras(fields, controls){
+    const typeEl = controls.get('implementType');
+    const currentType = typeEl ? (typeEl.value || '').toLowerCase() : null;
+
     for (const field of fields){
+      // Skip required check if field is conditional but not visible
+      if (
+        field.id !== 'implementType' &&
+        field.visibleForTypes &&
+        Array.isArray(field.visibleForTypes)
+      ){
+        const list = field.visibleForTypes.map(v => String(v).toLowerCase());
+        if (!currentType || !list.includes(currentType)){
+          continue;
+        }
+      }
+
       if (!field.required) continue;
       const el = controls.get(field.id);
       if (!el) continue;
@@ -412,6 +475,52 @@ Usage (from any page):
       }
     }
     return { ok: true, message: null };
+  }
+
+  /** ------------------------------------------------------------------
+   * Implement-specific dynamic visibility
+   * -------------------------------------------------------------------*/
+
+  function setupImplementDynamic(fields, controls, container){
+    const typeEl = controls.get('implementType');
+    if (!typeEl) return;
+
+    function updateVisibility(){
+      const currentType = (typeEl.value || '').toLowerCase();
+
+      // For each field wrapper in this container, toggle based on config.visibleForTypes
+      fields.forEach(field => {
+        if (field.id === 'implementType') return; // always visible
+
+        const wrap = container.querySelector('[data-field-id="' + field.id + '"]');
+        if (!wrap) return;
+
+        const list = field.visibleForTypes && Array.isArray(field.visibleForTypes)
+          ? field.visibleForTypes.map(v => String(v).toLowerCase())
+          : null;
+
+        if (!list || !list.length){
+          // No visibility rules: always show
+          wrap.style.display = '';
+          return;
+        }
+
+        if (!currentType || !list.includes(currentType)){
+          // Hide and clear value when not applicable
+          const input = controls.get(field.id);
+          if (input){
+            input.value = '';
+          }
+          wrap.style.display = 'none';
+        }else{
+          wrap.style.display = '';
+        }
+      });
+    }
+
+    typeEl.addEventListener('change', updateVisibility);
+    // Initial state (hide everything until a type is chosen)
+    updateVisibility();
   }
 
   /** ------------------------------------------------------------------
@@ -443,6 +552,11 @@ Usage (from any page):
 
       const fields = CONFIG[equipType] || [];
       const controls = buildRows(doc, container, fields);
+
+      // Implement-specific behavior: show/hide extras based on "Type"
+      if (equipType === 'implement'){
+        setupImplementDynamic(fields, controls, container);
+      }
 
       return {
         /** Read current values as a plain object */
