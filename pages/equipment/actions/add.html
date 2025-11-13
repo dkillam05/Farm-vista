@@ -1,11 +1,10 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-13b
+Rev: 2025-11-13c
 Changes in this rev:
- • Wire Add page to shared /Farm-vista/js/equipment-forms.js "extras" engine
- • Keep 1–4 (Make, Model, Year, Serial) on top and Notes/Photos/QR at bottom
- • Insert dynamic extras region between Serial and Notes
- • Fallback: if shared JS is missing, tractor still shows Engine Hours field
+ • Dynamically set hero emoji icon based on NAV_MENU equipment entry
+   (tractor/combine/implement/etc.) using the current ?type=...
+ • All themes, modules, extras engine, file input, QR flow, etc. unchanged
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -489,6 +488,20 @@ Changes in this rev:
     }
     const EQUIP_TYPES = getEquipmentTypesFromMenu();
     const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
+
+    // NEW: look up the correct emoji icon for this equipment TYPE from NAV_MENU
+    function lookupEquipIcon(typeSlug){
+      try{
+        const group = NAV_MENU.items?.find(x => x.type === 'group' && x.id === 'equipment');
+        const children = group?.children || [];
+        const target = normType(typeSlug);
+        const hit = children.find(c => normType(c.label) === target);
+        const iconVal = (hit && typeof hit.icon === 'string') ? hit.icon.trim() : null;
+        return iconVal || '🚜';
+      }catch(_){
+        return '🚜';
+      }
+    }
 
     function showToast(msg="Saved.", ms=3500){
       const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
@@ -985,8 +998,7 @@ Changes in this rev:
           const actions=document.createElement('div'); actions.className='ed-footer';
           const left=document.createElement('div'); left.className='ed-foot-left';
           const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
-          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; textContent='Archive';
-          arcBtn.textContent='Archive';
+          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
           left.append(delBtn, arcBtn);
           actions.append(left);
           body.append(switches, actions);
@@ -1329,12 +1341,18 @@ Changes in this rev:
       const db  = getFirestore();
       window.__db = db;
 
-      // Update title + heading + wrapper attribute based on TYPE
+      // Update title + heading + wrapper attribute based on TYPE (unchanged behavior)
       const niceType = TYPE[0].toUpperCase()+TYPE.slice(1);
       document.title = `FarmVista • Add ${niceType}`;
       document.querySelector('.hero-head h1').textContent = `Add ${niceType}`;
       const wrap = document.querySelector('.wrap');
       if(wrap) wrap.dataset.equipmentType = TYPE;
+
+      // NEW: set hero emoji icon from NAV_MENU equipment icon
+      const heroIconEl = document.querySelector('.hero-head .icon');
+      if(heroIconEl){
+        heroIconEl.textContent = lookupEquipIcon(TYPE);
+      }
 
       buildYearOptions();
       $("yearTrigger").addEventListener('click', ()=>{
