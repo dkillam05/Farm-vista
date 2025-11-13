@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Tractors</title>
+  <title>FarmVista • Equipment Lookup</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -170,7 +170,7 @@
 <body>
   <fv-shell>
     <div class="page">
-      <h1 class="title">Tractor Lookup</h1>
+      <h1 id="pageTitle" class="title">Equipment Lookup</h1>
       <p id="subtitle" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
 
       <div class="bar">
@@ -248,6 +248,40 @@
     const countEl = $('#count');
     const qInput = $('#q');
     const subtitle = $('#subtitle');
+    const pageTitleEl = $('#pageTitle');
+
+    // Read type from ?type= (default tractor)
+    const qs = new URLSearchParams(location.search);
+    const TYPE = (qs.get('type') || 'tractor').toLowerCase();
+
+    const TYPE_LABELS = {
+      tractor:     { sing:'Tractor',        plural:'Tractors' },
+      combine:     { sing:'Combine',        plural:'Combines' },
+      sprayer:     { sing:'Sprayer',        plural:'Sprayers' },
+      implement:   { sing:'Implement',      plural:'Implements' },
+      fertilizer:  { sing:'Fertilizer',     plural:'Fertilizer Equipment' },
+      truck:       { sing:'Truck',          plural:'Trucks' },
+      trailer:     { sing:'Trailer',        plural:'Trailers' },
+      construction:{ sing:'Construction',   plural:'Construction Equipment' },
+      starfire:    { sing:'StarFire',       plural:'StarFire Receivers' }
+    };
+
+    function getTypeMeta(type){
+      const meta = TYPE_LABELS[type] || {};
+      const proper = type ? type.charAt(0).toUpperCase()+type.slice(1) : 'Equipment';
+      return {
+        type,
+        sing: meta.sing   || proper,
+        plural: meta.plural || (proper.endsWith('s') ? proper : proper+'s')
+      };
+    }
+    const TYPE_META = getTypeMeta(TYPE);
+
+    // Set page title + H1 dynamically
+    document.title = `FarmVista • ${TYPE_META.plural}`;
+    if (pageTitleEl){
+      pageTitleEl.textContent = `${TYPE_META.sing} Lookup`;
+    }
 
     // Filter popover elements
     const filterBtn = $('#filterBtn');
@@ -273,12 +307,14 @@
     const displayLine = d => {
       const mm = mmText(d);
       const ls = last6(d.serial);
-      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : '(tractor)');
+      const fallback = `(${TYPE_META.sing.toLowerCase()})`;
+      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : fallback);
     };
     const titleFor = d => {
       const mm = mmText(d);
       const ls = last6(d.serial);
-      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || '(tractor)');
+      const fallback = `(${TYPE_META.sing})`;
+      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || fallback);
     };
 
     // ID-only Hub URL builder (no token)
@@ -288,7 +324,7 @@
     function attach(){
       if (unsub) return;
       const db = getFirestore();
-      const qref = query(collection(db,'equipment'), where('type','==','tractor'));
+      const qref = query(collection(db,'equipment'), where('type','==', TYPE));
       unsub = onSnapshot(qref, (snap)=>{
         const out = [];
         snap.forEach(docSnap=>{
@@ -298,7 +334,7 @@
         out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
         DATA = out;
         render();
-      }, (err)=> console.error('Tractors listener error:', err));
+      }, (err)=> console.error(`${TYPE_META.plural} listener error:`, err));
     }
     function detach(){ if (unsub){ try{ unsub(); }catch{}; unsub = null; } }
 
@@ -321,9 +357,11 @@
       });
 
       subtitle.textContent =
-        mode === 'all' ? 'Showing Active + Archived. Search by make, model, serial, or year.'
-        : mode === 'archived' ? 'Showing Archived only. Search by make, model, serial, or year.'
-        : 'Showing Active only. Search by make, model, serial, or year.';
+        mode === 'all'
+          ? `Showing Active + Archived. Search by make, model, serial, or year.`
+        : mode === 'archived'
+          ? `Showing Archived only. Search by make, model, serial, or year.`
+          : `Showing Active only. Search by make, model, serial, or year.`;
 
       countEl.textContent = `${rows.length}/${statusFiltered.length} entries (${mode})`;
       list.innerHTML = '';
@@ -429,12 +467,26 @@
 
       dTitle.textContent = titleFor(d);
       dKV.innerHTML = '';
-      addRow('Type','Tractor');
+      addRow('Type', TYPE_META.sing);
       addRow('Make', d.makeName);
       addRow('Model', d.modelName);
       addRow('Year', d.year);
       const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
-      addRow('Engine Hours', has(d.engineHours) ? d.engineHours : '');
+
+      // Extra info (generic; tractors/combines/etc. will still show these if present)
+      if (has(d.engineHours))     addRow('Engine Hours', d.engineHours);
+      if (has(d.separatorHours))  addRow('Separator Hours', d.separatorHours);
+      if (has(d.boomWidthFt))     addRow('Boom Width (ft)', d.boomWidthFt);
+      if (has(d.tankSizeGal))     addRow('Tank Size (gal)', d.tankSizeGal);
+      if (has(d.odometerMiles))   addRow('Odometer (miles)', d.odometerMiles);
+      if (has(d.licensePlate))    addRow('License Plate #', d.licensePlate);
+      if (has(d.unitNumber))      addRow('Unit #', d.unitNumber);
+      if (has(d.trailerType))     addRow('Trailer Type', d.trailerType);
+      if (has(d.gvwrLb))          addRow('GVWR (lb)', d.gvwrLb);
+      if (has(d.starfireSerial))  addRow('StarFire Serial #', d.starfireSerial);
+      if (has(d.activationLevel)) addRow('Activation Level', d.activationLevel);
+      if (has(d.firmwareVersion)) addRow('Firmware Version', d.firmwareVersion);
+
       addRow('Notes', d.notes);
 
       // ID-only handoff to Hub
@@ -448,11 +500,11 @@
       if (url){
         const bust = (url.includes('?') ? '&' : '?') + '_=' + Date.now();
         qrImg.src = url + bust;
-        qrImg.alt = `QR for ${labelText}`;
-        qrLbl.textContent = labelText;
+        qrImg.alt = `QR for ${labelText || TYPE_META.sing}`;
+        qrLbl.textContent = labelText || TYPE_META.sing;
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
-        btnPrintQR.onclick = ()=> printQR(url, labelText);
+        btnPrintQR.onclick = ()=> printQR(url, labelText || TYPE_META.sing);
       } else {
         qrImg.removeAttribute('src');
         qrLbl.textContent = 'No QR image saved for this equipment.';
