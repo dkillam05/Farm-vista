@@ -1,9 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-13a
-Scoped change from previous rev:
- • Fix dark-mode font color for "no files selected" text while keeping
-   dark text on the white "Choose Files" pill.
+Rev: 2025-11-13b
+Changes in this rev:
+ • Wire Add page to shared /Farm-vista/js/equipment-forms.js "extras" engine
+ • Keep 1–4 (Make, Model, Year, Serial) on top and Notes/Photos/QR at bottom
+ • Insert dynamic extras region between Serial and Notes
+ • Fallback: if shared JS is missing, tractor still shows Engine Hours field
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -22,6 +24,9 @@ Scoped change from previous rev:
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Shared equipment form layouts (extras per category) -->
+  <script src="/Farm-vista/js/equipment-forms.js"></script>
 
   <!-- Ensure fv-shell -->
   <script>
@@ -288,6 +293,7 @@ Scoped change from previous rev:
 
 <body>
   <fv-shell>
+    <!-- TYPE will be written into data-equipment-type by JS -->
     <div class="wrap" data-equipment-type="">
       <section class="hero">
         <header class="hero-head">
@@ -299,6 +305,7 @@ Scoped change from previous rev:
         </header>
 
         <div class="body">
+          <!-- 1 & 2: MAKE / MODEL -->
           <div class="row">
             <!-- Make -->
             <div class="field">
@@ -327,6 +334,7 @@ Scoped change from previous rev:
             </div>
           </div>
 
+          <!-- 3 & 4: YEAR / SERIAL -->
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
@@ -343,22 +351,22 @@ Scoped change from previous rev:
             </div>
           </div>
 
-          <div class="field">
-            <label for="engineHours">Engine Hours</label>
-            <input id="engineHours" type="number" class="input" inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
-          </div>
+          <!-- MIDDLE: dynamic extras (engine hours, acres, miles, implement type, etc.) -->
+          <div id="equipExtras"></div>
 
+          <!-- 5: NOTES -->
           <div class="field">
             <label for="notes">Notes</label>
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
+          <!-- 6: PHOTOS -->
           <div class="field">
             <label for="photos">Photos (optional)</label>
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- QR row: preview + button -->
+          <!-- 7: QR row: preview + button -->
           <div class="field qr-row">
             <div id="qrArea" class="qr-area" hidden>
               <img id="qrThumb" alt="QR code">
@@ -451,6 +459,9 @@ Scoped change from previous rev:
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
+
+    // Will hold whatever the shared equipment-forms.js returns for this form
+    let EXTRAS_API = null;
 
     const state = { pendingChanges:0 };
     const bumpPending = (delta)=>{
@@ -558,15 +569,30 @@ Scoped change from previous rev:
       const yr = $("year").value ? Number($("year").value) : null;
       const serialNorm = normalizeSerial($("serial").value);
       const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
-      return {
+
+      // Core fields
+      const base = {
         makeId, modelId, makeName, modelName,
         year: yr,
         serial: serialNorm,
-        engineHours: $("engineHours").value ? Number($("engineHours").value) : null,
         notes: $("notes").value.trim() || null,
         type: TYPE,
         name: name.trim()
       };
+
+      // Extras (engineHours, acres, miles, implementType, etc.)
+      let extras = {};
+      if(EXTRAS_API && typeof EXTRAS_API.read === 'function'){
+        try{ extras = EXTRAS_API.read() || {}; }catch{ extras = {}; }
+      }else{
+        // Backwards-compatible fallback for tractors (original engineHours field)
+        const engEl = $("engineHours");
+        if(engEl && engEl.value){
+          extras.engineHours = Number(engEl.value);
+        }
+      }
+
+      return { ...base, ...extras };
     }
     function validateForm(){
       const makeOk = Boolean($("makeId").value);
@@ -959,7 +985,8 @@ Scoped change from previous rev:
           const actions=document.createElement('div'); actions.className='ed-footer';
           const left=document.createElement('div'); left.className='ed-foot-left';
           const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
-          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
+          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; textContent='Archive';
+          arcBtn.textContent='Archive';
           left.append(delBtn, arcBtn);
           actions.append(left);
           body.append(switches, actions);
@@ -1110,6 +1137,15 @@ Scoped change from previous rev:
         if(ok) return;
       }
 
+      // Optional: extras validation hook
+      if(EXTRAS_API && typeof EXTRAS_API.validate === 'function'){
+        const v = EXTRAS_API.validate(form);
+        if(v && v.ok === false){
+          alert(v.message || "Please check the extra fields.");
+          return;
+        }
+      }
+
       saving = true; $("btnSave").disabled = true;
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
@@ -1217,9 +1253,17 @@ Scoped change from previous rev:
     }
 
     function resetForm(){
-      ["serial","engineHours","notes"].forEach(id=>$(id).value="");
+      ["serial","notes"].forEach(id=>$(id).value="");
       $("photos").value="";
       $("year").value=""; $("yearTrigger").textContent="— Select —";
+
+      // Clear extras via shared API if present
+      if(EXTRAS_API && typeof EXTRAS_API.reset === 'function'){
+        try{ EXTRAS_API.reset(); }catch{}
+      }else{
+        const eng = $("engineHours");
+        if(eng) eng.value="";
+      }
 
       ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
       ddModel.hidden.value=""; ddModel.btn.textContent="— Select a Make first —";
@@ -1247,13 +1291,50 @@ Scoped change from previous rev:
       location.assign(target);
     }
 
+    // ===== Shared extras init (middle fields) =====
+    function initExtras(){
+      const host = $("equipExtras");
+      if(!host) return;
+
+      // If shared layout engine exists, let it render the middle section
+      if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === 'function'){
+        try{
+          EXTRAS_API = window.FVEquipForms.initExtras({
+            equipType: TYPE,
+            container: host,
+            document
+          }) || null;
+        }catch(e){
+          console.warn("extras init failed, falling back:", e);
+          EXTRAS_API = null;
+        }
+      }
+
+      // Fallback so tractors stay exactly like before if JS isn't ready
+      if(!EXTRAS_API && TYPE === 'tractor'){
+        host.innerHTML = "";
+        const fld = document.createElement('div');
+        fld.className = 'field';
+        fld.innerHTML = `
+          <label for="engineHours">Engine Hours</label>
+          <input id="engineHours" type="number" class="input"
+                 inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
+        `;
+        host.appendChild(fld);
+      }
+    }
+
     (async()=>{
       await ready;
       const db  = getFirestore();
       window.__db = db;
 
-      document.title = `FarmVista • Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
-      document.querySelector('.hero-head h1').textContent = `Add ${TYPE[0].toUpperCase()+TYPE.slice(1)}`;
+      // Update title + heading + wrapper attribute based on TYPE
+      const niceType = TYPE[0].toUpperCase()+TYPE.slice(1);
+      document.title = `FarmVista • Add ${niceType}`;
+      document.querySelector('.hero-head h1').textContent = `Add ${niceType}`;
+      const wrap = document.querySelector('.wrap');
+      if(wrap) wrap.dataset.equipmentType = TYPE;
 
       buildYearOptions();
       $("yearTrigger").addEventListener('click', ()=>{
@@ -1262,6 +1343,9 @@ Scoped change from previous rev:
       });
 
       buildDdObjects();
+
+      // Init shared extras (middle section)
+      initExtras();
 
       $("openMakes").addEventListener('click', async ()=>{
         EDIT_KIND='makes'; Edit.open('Edit Makes'); await loadEditor(db);
