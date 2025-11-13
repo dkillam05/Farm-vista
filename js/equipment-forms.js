@@ -1,11 +1,12 @@
 // =====================================================================
 // /Farm-vista/js/equipment-forms.js
 // Shared equipment field + layout engine for Add / Edit / View / Hub
-// Rev: 2025-11-13a
-// NOTE:
-//  • This file DOES NOT modify any DOM by itself unless you call its APIs.
-//  • Photos + QR rows are treated as "special" and are expected to be
-//    handled by your existing Tractor layout code for now.
+// Rev: 2025-11-13b
+//
+// Ordering rules (DANE RULE):
+//  1–4 always on top:  Make, Model, Year, Serial
+//  5–7 always at end: Notes, Photos, QR
+//  All type-specific extras fall in the middle.
 // =====================================================================
 (function (window) {
   'use strict';
@@ -103,48 +104,30 @@
     // Future: add more here (DEF level, GPS receiver, PTO hours, etc.)
   };
 
+  // Top + bottom anchors for ALL equipment
+  const CORE_TOP = ['make', 'model', 'year', 'serial'];
+  const CORE_BOTTOM = ['notes', 'photos', 'qr'];
+
   // ------------------------------------------------------------
-  // Layouts: which fields belong to which equipment category
+  // Layouts: define extras; system will assemble full field order
+  //   Final order for Add/Edit:
+  //     [make, model, year, serial, ...extras..., notes, photos, qr]
+  //   Final order for View:
+  //     [make, model, year, serial, ...extras..., notes]
   // ------------------------------------------------------------
   const EQUIP_LAYOUTS = {
     tractor: {
       label: 'Tractor',
       slug: 'tractor',
-      addFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'engineHours'
-      ],
-      editFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'engineHours'
-      ],
-      viewFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'engineHours'
-      ],
+      extras: ['engineHours'], // middle
       hubBadges: ['engineHours'],
-      hubActions: ['updateHours'] // text mapped later
+      hubActions: ['updateHours']
     },
 
     combine: {
       label: 'Combine',
       slug: 'combine',
-      addFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'engineHours', 'sepHours'
-      ],
-      editFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'engineHours', 'sepHours'
-      ],
-      viewFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'engineHours', 'sepHours'
-      ],
+      extras: ['engineHours', 'sepHours'],
       hubBadges: ['engineHours', 'sepHours'],
       hubActions: ['updateHours']
     },
@@ -152,20 +135,7 @@
     sprayer: {
       label: 'Sprayer',
       slug: 'sprayer',
-      addFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'engineHours', 'acres'
-      ],
-      editFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'engineHours', 'acres'
-      ],
-      viewFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'engineHours', 'acres'
-      ],
+      extras: ['engineHours', 'acres'],
       hubBadges: ['engineHours', 'acres'],
       hubActions: ['updateHours', 'updateAcres']
     },
@@ -173,20 +143,7 @@
     truck: {
       label: 'Truck',
       slug: 'truck',
-      addFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'miles'
-      ],
-      editFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'miles'
-      ],
-      viewFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'miles'
-      ],
+      extras: ['miles'],
       hubBadges: ['miles'],
       hubActions: ['updateMiles']
     },
@@ -194,26 +151,27 @@
     implement: {
       label: 'Implement',
       slug: 'implement',
-      addFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'implType'
-      ],
-      editFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'photos', 'qr',
-        'implType'
-      ],
-      viewFields: [
-        'make', 'model', 'year', 'serial', 'notes',
-        'implType'
-      ],
+      extras: ['implType'],
       hubBadges: ['implType'],
       hubActions: []
     }
 
     // Future: add 'trailer', 'construction', 'rtkBase', etc. here.
   };
+
+  // Build addFields/editFields/viewFields for each layout
+  Object.keys(EQUIP_LAYOUTS).forEach(key => {
+    const layout = EQUIP_LAYOUTS[key];
+    const extras = layout.extras || [];
+
+    // 1–4 top, extras middle, 5–7 bottom (for add/edit)
+    layout.addFields = [...CORE_TOP, ...extras, ...CORE_BOTTOM];
+    layout.editFields = [...CORE_TOP, ...extras, ...CORE_BOTTOM];
+
+    // View: same rule, but we only need up through Notes
+    // (photos & QR are special and not rendered for view)
+    layout.viewFields = [...CORE_TOP, ...extras, 'notes'];
+  });
 
   // ------------------------------------------------------------
   // Helpers: type detection, query param parsing, etc.
@@ -249,11 +207,6 @@
 
   // ------------------------------------------------------------
   // DOM builders: form fields + hub card
-  // NOTE: Uses generic structure with class hooks like:
-  //  • .fv-field-row
-  //  • .fv-field-label
-  //  • .fv-field-input
-  // Adjust CSS to match Tractor hero look if needed.
   // ------------------------------------------------------------
   function buildFieldRow(def, mode, doc) {
     const isView = mode === 'view';
@@ -274,7 +227,7 @@
     let inputEl;
 
     if (isView) {
-      // Simple read-only span for view mode
+      // Simple read-only value
       const span = document.createElement('div');
       span.className = 'fv-field-value';
       span.textContent = value == null || value === '' ? '—' : String(value);
@@ -282,14 +235,14 @@
       return row;
     }
 
-    // Editable (add / edit)
+    // Editable (add/edit)
     switch (def.type) {
       case 'text':
       case 'number':
       case 'date': {
         const input = document.createElement('input');
         input.className = 'fv-field-input';
-        input.type = def.type === 'textarea' ? 'text' : def.type;
+        input.type = def.type;
         input.id = def.id;
         input.name = def.id;
         if (value != null && value !== '') input.value = value;
@@ -339,7 +292,7 @@
       case 'qr':
         // Special fields (photos/qr) are currently handled elsewhere.
         // We skip auto-building these to avoid clashing with your existing
-        // Tractor layout. This row can be ignored or used later if needed.
+        // Tractor layout. This row can be used later if needed.
         return null;
 
       default:
