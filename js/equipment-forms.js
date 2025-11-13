@@ -1,11 +1,11 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2025-11-13c
+Rev: 2025-11-13d
 
 Purpose:
   Shared "extras" engine for equipment forms.
 
-  • Top of form (in HTML):  Make / Model / Year / Serial #
+  • Top of form (in HTML):  Make / Model / Year / Serial#/VIN
   • Middle of form (here):  Per-category extra fields
   • Bottom of form (in HTML):  Notes / Photos / QR
 
@@ -220,8 +220,26 @@ Usage (from any page):
       textField('licensePlate', 'License Plate #', {
         placeholder: 'e.g. ABC 1234'
       }),
-      textField('unitNumber', 'Unit #', {
-        placeholder: 'e.g. Truck 07'
+      dateField('licensePlateExp', 'License Plate Expiration'),
+      dateField('insuranceExp', 'Insurance Expiration'),
+      textField('tireSizes', 'Tire Sizes', {
+        placeholder: 'e.g. 295/75R22.5'
+      }),
+      // DOT toggle + expiration; date required only if DOT is on
+      selectField(
+        'dotRequired',
+        'DOT Inspection',
+        [
+          { value: 'no',  label: 'No' },
+          { value: 'yes', label: 'Yes' }
+        ],
+        { required: false }
+      ),
+      dateField('dotExpiration', 'DOT Expiration Date', {
+        requiredWhen(controls){
+          const v = (controls.get('dotRequired')?.value || '').toLowerCase();
+          return v === 'yes';
+        }
       })
     ],
 
@@ -240,7 +258,26 @@ Usage (from any page):
         ],
         { required: false }
       ),
-      dateField('lastDotInspection', 'Last DOT Inspection'),
+      textField('trailerPlate', 'Plate Number', {
+        placeholder: 'e.g. 123 456T'
+      }),
+      dateField('trailerPlateExp', 'Plate Expiration'),
+      // DOT toggle + expiration; date required only if DOT is on
+      selectField(
+        'trailerDotRequired',
+        'DOT Inspection',
+        [
+          { value: 'no',  label: 'No' },
+          { value: 'yes', label: 'Yes' }
+        ],
+        { required: false }
+      ),
+      dateField('lastDotInspection', 'DOT Expiration Date', {
+        requiredWhen(controls){
+          const v = (controls.get('trailerDotRequired')?.value || '').toLowerCase();
+          return v === 'yes';
+        }
+      }),
       numField('gvwrLb', 'GVWR (lb)', {
         step: '100',
         inputmode: 'numeric',
@@ -303,9 +340,7 @@ Usage (from any page):
 
     /* 9) STARFIRE / TECHNOLOGY ---------------------------------------- */
     starfire: [
-      textField('starfireSerial', 'StarFire Serial #', {
-        placeholder: 'Optional (can match JD label)'
-      }),
+      // Serial/VIN is handled in the top form; no extra serial here.
       selectField(
         'activationLevel',
         'Activation Level',
@@ -492,7 +527,7 @@ Usage (from any page):
   }
 
   function validateExtras(fields, controls){
-    // Same controller logic as normalize
+    // Same controller logic as normalize for visibleForTypes
     const typeEl =
       controls.get('implementType') ||
       controls.get('constructionType') ||
@@ -513,7 +548,13 @@ Usage (from any page):
         }
       }
 
-      if (!field.required) continue;
+      const hasConditionalReq =
+        typeof field.requiredWhen === 'function' &&
+        field.requiredWhen(controls);
+
+      const isRequired = field.required || hasConditionalReq;
+      if (!isRequired) continue;
+
       const el = controls.get(field.id);
       if (!el) continue;
 
