@@ -297,50 +297,46 @@
 
     /* 
     ===================================================================
-    FIXED BLOCK #1 — TYPE RESOLUTION (Correct nouns, no double-S)
+    FIXED BLOCK #1 — TYPE RESOLUTION (singular & plural safe)
     ===================================================================
     */
 
     const qs = new URLSearchParams(location.search);
     const RAW_TYPE = (qs.get('type') || 'tractors').toLowerCase();
 
-    // Normalize to known nouns — supports BOTH singular and plural
+    // Canonical config keyed by plural-ish slug
     const TYPE_MAP = {
-      // Tractors
       tractors:      { singular:'tractor',      plural:'Tractors' },
-      tractor:       { singular:'tractor',      plural:'Tractors' },
-
-      // Combines
       combines:      { singular:'combine',      plural:'Combines' },
-      combine:       { singular:'combine',      plural:'Combines' },
-
-      // Implements
       implements:    { singular:'implement',    plural:'Implements' },
-      implement:     { singular:'implement',    plural:'Implements' },
-
-      // Sprayers
       sprayers:      { singular:'sprayer',      plural:'Sprayers' },
-      sprayer:       { singular:'sprayer',      plural:'Sprayers' },
-
-      // Fertilizer (already works as-is)
       fertilizer:    { singular:'fertilizer',   plural:'Fertilizer Equipment' },
-
-      // Construction
       construction:  { singular:'construction', plural:'Construction' },
-
-      // Trucks
       trucks:        { singular:'truck',        plural:'Trucks' },
-      truck:         { singular:'truck',        plural:'Trucks' },
-
-      // Trailers
       trailers:      { singular:'trailer',      plural:'Trailers' },
-      trailer:       { singular:'trailer',      plural:'Trailers' },
-
-      // StarFire / Technology
       starfire:      { singular:'starfire',     plural:'StarFire / Technology' }
     };
 
-    const TYPE_INFO     = TYPE_MAP[RAW_TYPE] || TYPE_MAP['tractors'];
+    function resolveTypeKey(raw){
+      let key = raw || 'tractors';
+
+      // exact match first
+      if (TYPE_MAP[key]) return key;
+
+      // common singular → plural forms
+      if (TYPE_MAP[key + 's'])   return key + 's';   // tractor → tractors, combine → combines, implement → implements, sprayer → sprayers
+      if (TYPE_MAP[key + 'es'])  return key + 'es';  // (kept for future oddballs)
+
+      // special cases that already match keys as-is
+      if (key === 'fertilizer')  return 'fertilizer';
+      if (key === 'starfire')    return 'starfire';
+
+      // last-resort fallback
+      return 'tractors';
+    }
+
+    const TYPE_KEY      = resolveTypeKey(RAW_TYPE);
+    const TYPE_INFO     = TYPE_MAP[TYPE_KEY];
     const TYPE_SINGULAR = TYPE_INFO.singular;
     const TITLE_PLURAL  = TYPE_INFO.plural;
     const TYPE_LABEL    = TYPE_INFO.plural.replace(/s$/,'');
