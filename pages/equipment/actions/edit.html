@@ -174,8 +174,7 @@
 <body>
   <fv-shell>
     <div class="page">
-      <!-- Initial text is generic; JS will replace with proper plural -->
-      <h1 class="title">Edit Equipment</h1>
+      <h1 class="title">Edit Tractors</h1>
       <p id="subline" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
 
       <!-- SEARCH + FILTER -->
@@ -209,7 +208,6 @@
   <!-- EDIT MODAL -->
   <dialog id="edit" class="sheet" aria-modal="true">
     <header>
-      <!-- JS will set to "Edit Tractor", "Edit Combine", etc. -->
       <strong id="eTitle">Edit Equipment</strong>
       <div style="display:flex; gap:8px; align-items:center">
         <button id="eClose" class="btn" type="button">Close</button>
@@ -297,13 +295,56 @@
 
     /*
     ===================================================================
-    TYPE RESOLUTION — CORRECT NOUNS + TITLES
+    TYPE RESOLUTION — handle singular + plural for all 9 categories
     ===================================================================
     */
     const qs = new URLSearchParams(location.search);
     const RAW_TYPE = (qs.get('type') || 'tractors').toLowerCase();
 
-    // Canonical mapping for all 9 types
+    // Map any incoming type to a canonical key used in TYPE_MAP
+    const TYPE_NORMALIZE = {
+      // Tractors
+      tractor: 'tractors',
+      tractors: 'tractors',
+
+      // Combines
+      combine: 'combines',
+      combines: 'combines',
+
+      // Implements
+      implement: 'implements',
+      implements: 'implements',
+
+      // Sprayers
+      sprayer: 'sprayers',
+      sprayers: 'sprayers',
+
+      // Fertilizer equipment
+      fertilizer: 'fertilizer',
+      'fertilizer-equipment': 'fertilizer',
+      'fertilizer equipment': 'fertilizer',
+
+      // Construction
+      construction: 'construction',
+
+      // Trucks
+      truck: 'trucks',
+      trucks: 'trucks',
+
+      // Trailers
+      trailer: 'trailers',
+      trailers: 'trailers',
+
+      // StarFire / Technology
+      starfire: 'starfire',
+      'starfire-technology': 'starfire',
+      'starfire / technology': 'starfire',
+      technology: 'starfire'
+    };
+
+    const TYPE_KEY = TYPE_NORMALIZE[RAW_TYPE] || RAW_TYPE;
+
+    // Canonical noun mapping (keys are the canonical TYPE_KEY values)
     const TYPE_MAP = {
       tractors:      { singular:'tractor',      plural:'Tractors' },
       combines:      { singular:'combine',      plural:'Combines' },
@@ -316,11 +357,11 @@
       starfire:      { singular:'starfire',     plural:'StarFire / Technology' }
     };
 
-    const TYPE_INFO    = TYPE_MAP[RAW_TYPE] || TYPE_MAP['tractors'];
-    const TYPE_SINGULAR = TYPE_INFO.singular;                // tractor, combine, sprayer, truck, etc.
+    const TYPE_INFO     = TYPE_MAP[TYPE_KEY] || TYPE_MAP['tractors'];
+    const TYPE_SINGULAR = TYPE_INFO.singular;                // tractor, combine, sprayer, etc.
     const TITLE_PLURAL  = TYPE_INFO.plural;                  // Tractors, Combines, Fertilizer Equipment, etc.
     const TYPE_LABEL    = TYPE_INFO.plural.replace(/s$/,''); // Tractor, Combine, Implement, etc.
-    const MODAL_TITLE   = `Edit ${TYPE_LABEL}`;              // Edit Tractor, Edit Combine, Edit Fertilizer Equipment
+    const MODAL_TITLE   = `Edit ${TYPE_LABEL}`;              // Edit Tractor, Edit Combine, etc.
 
     /*
     ===================================================================
@@ -374,7 +415,7 @@
     ===================================================================
     */
     const list = $('#list'), countEl = $('#count'), qInput = $('#q');
-    let DATA = [], unsub = null;
+    let DATA = [], unsub=null;
 
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
@@ -413,7 +454,6 @@
           const qIn = query(collection(db,'equipment'), where('type','in', [TYPE_SINGULAR, TYPE_SINGULAR+'s']));
           unsub = onSnapshot(qIn, snapHandler, errHandler);
         }catch{
-          // fallback: pull everything and filter manually by type
           unsub = onSnapshot(collection(db,'equipment'), (snap)=>{
             const out=[]; snap.forEach(s=>{
               const d=s.data()||{};
@@ -495,9 +535,6 @@
 
           card.appendChild(ttl);
           if (badge) card.appendChild(badge);
-
-          // Full hover title so you can see make/model/serial on desktop
-          card.title = titleFor(d);
 
           card.addEventListener('click',()=>openEditor(d.id));
           wrap.appendChild(card);
@@ -728,7 +765,7 @@
       dependencyGuard(id).then(ok=>{ deleteClean=ok; }).catch(()=>{ deleteClean=false; });
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
-      // Modal heading uses singular type ("Edit Tractor", etc.)
+      // Modal heading uses singular type (Edit Tractor, Edit Combine, etc.)
       eTitle.textContent = MODAL_TITLE;
 
       openModal();
@@ -844,8 +881,6 @@
       const pageTitle = document.querySelector('.title');
       if(pageTitle) pageTitle.textContent = `Edit ${TITLE_PLURAL}`;
       document.title = `FarmVista • Edit ${TITLE_PLURAL}`;
-      // Also make sure modal title default matches type if opened before load
-      eTitle.textContent = MODAL_TITLE;
     }
 
     function resume(){ if(!unsub) attach(); }
