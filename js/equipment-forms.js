@@ -1,514 +1,472 @@
-// =====================================================================
-// /Farm-vista/js/equipment-forms.js
-// Shared equipment field + layout engine for Add / Edit / View / Hub
-// Rev: 2025-11-13b
-//
-// Ordering rules (DANE RULE):
-//  1–4 always on top:  Make, Model, Year, Serial
-//  5–7 always at end: Notes, Photos, QR
-//  All type-specific extras fall in the middle.
-// =====================================================================
-(function (window) {
-  'use strict';
+/* =======================================================================
+/Farm-vista/js/equipment-forms.js  (FULL FILE)
+Rev: 2025-11-13a
 
-  // ------------------------------------------------------------
-  // Field library: define each possible field ONCE
-  // ------------------------------------------------------------
-  const EQUIP_FIELDS = {
-    // Core common fields
-    make: {
-      id: 'make',
-      label: 'Make',
-      type: 'text',
-      required: true
-    },
-    model: {
-      id: 'model',
-      label: 'Model',
-      type: 'text',
-      required: true
-    },
-    year: {
-      id: 'year',
-      label: 'Year',
-      type: 'number'
-    },
-    serial: {
-      id: 'serial',
-      label: 'Serial #',
-      type: 'text'
-    },
-    notes: {
-      id: 'notes',
-      label: 'Notes',
-      type: 'textarea'
-    },
+Purpose:
+  Shared "extras" engine for equipment forms.
 
-    // Special rows that your current layout already handles
-    photos: {
-      id: 'photos',
-      label: 'Photos',
-      type: 'file-multi',
-      special: true // handled by existing UI
-    },
-    qr: {
-      id: 'qr',
-      label: 'QR Code',
-      type: 'qr',
-      special: true // handled by existing UI
-    },
+  • Top of form (in HTML):  Make / Model / Year / Serial #
+  • Middle of form (here):  Per-category extra fields
+  • Bottom of form (in HTML):  Notes / Photos / QR
 
-    // Service / usage metrics
-    engineHours: {
-      id: 'engineHours',
-      label: 'Engine Hours',
-      type: 'number'
-    },
-    sepHours: {
-      id: 'sepHours',
-      label: 'Separator Hours',
-      type: 'number'
-    },
-    miles: {
-      id: 'miles',
-      label: 'Miles',
-      type: 'number'
-    },
-    serviceDate: {
-      id: 'serviceDate',
-      label: 'Date of Service',
-      type: 'date'
-    },
-    acres: {
-      id: 'acres',
-      label: 'Acres',
-      type: 'number'
-    },
-
-    // Implement "Type" (hard-coded dropdown)
-    implType: {
-      id: 'implType',
-      label: 'Type',
-      type: 'select',
-      options: [
-        'Planter',
-        'Tillage',
-        'Grain Cart',
-        'Header',
-        'Auger / Conveyor',
-        'Other'
-      ],
-      required: true
-    }
-
-    // Future: add more here (DEF level, GPS receiver, PTO hours, etc.)
-  };
-
-  // Top + bottom anchors for ALL equipment
-  const CORE_TOP = ['make', 'model', 'year', 'serial'];
-  const CORE_BOTTOM = ['notes', 'photos', 'qr'];
-
-  // ------------------------------------------------------------
-  // Layouts: define extras; system will assemble full field order
-  //   Final order for Add/Edit:
-  //     [make, model, year, serial, ...extras..., notes, photos, qr]
-  //   Final order for View:
-  //     [make, model, year, serial, ...extras..., notes]
-  // ------------------------------------------------------------
-  const EQUIP_LAYOUTS = {
-    tractor: {
-      label: 'Tractor',
-      slug: 'tractor',
-      extras: ['engineHours'], // middle
-      hubBadges: ['engineHours'],
-      hubActions: ['updateHours']
-    },
-
-    combine: {
-      label: 'Combine',
-      slug: 'combine',
-      extras: ['engineHours', 'sepHours'],
-      hubBadges: ['engineHours', 'sepHours'],
-      hubActions: ['updateHours']
-    },
-
-    sprayer: {
-      label: 'Sprayer',
-      slug: 'sprayer',
-      extras: ['engineHours', 'acres'],
-      hubBadges: ['engineHours', 'acres'],
-      hubActions: ['updateHours', 'updateAcres']
-    },
-
-    truck: {
-      label: 'Truck',
-      slug: 'truck',
-      extras: ['miles'],
-      hubBadges: ['miles'],
-      hubActions: ['updateMiles']
-    },
-
-    implement: {
-      label: 'Implement',
-      slug: 'implement',
-      extras: ['implType'],
-      hubBadges: ['implType'],
-      hubActions: []
-    }
-
-    // Future: add 'trailer', 'construction', 'rtkBase', etc. here.
-  };
-
-  // Build addFields/editFields/viewFields for each layout
-  Object.keys(EQUIP_LAYOUTS).forEach(key => {
-    const layout = EQUIP_LAYOUTS[key];
-    const extras = layout.extras || [];
-
-    // 1–4 top, extras middle, 5–7 bottom (for add/edit)
-    layout.addFields = [...CORE_TOP, ...extras, ...CORE_BOTTOM];
-    layout.editFields = [...CORE_TOP, ...extras, ...CORE_BOTTOM];
-
-    // View: same rule, but we only need up through Notes
-    // (photos & QR are special and not rendered for view)
-    layout.viewFields = [...CORE_TOP, ...extras, 'notes'];
+Usage (from any page):
+  const extras = window.FVEquipForms.initExtras({
+    equipType: 'tractor',       // or from ?type=
+    container: document.getElementById('equipExtras'),
+    document
   });
 
-  // ------------------------------------------------------------
-  // Helpers: type detection, query param parsing, etc.
-  // ------------------------------------------------------------
-  function getQueryParam(name) {
-    if (typeof window === 'undefined' || !window.location) return null;
-    const params = new URLSearchParams(window.location.search || '');
-    return params.get(name);
+  // Later, when saving:
+  const extraData = extras.read();  // { engineHours: 1234.5, ... }
+
+  // When resetting:
+  extras.reset();
+
+  // Optional validation:
+  const v = extras.validate();
+  if (!v.ok) { alert(v.message); return; }
+
+======================================================================= */
+(function(global){
+  'use strict';
+
+  /** ------------------------------------------------------------------
+   * Field configuration helpers
+   * -------------------------------------------------------------------*/
+
+  function numField(id, label, opts){
+    return Object.assign({
+      id,
+      label,
+      kind: 'number',
+      step: '1',
+      inputmode: 'decimal',
+      placeholder: '',
+      required: false
+    }, opts || {});
   }
 
-  /**
-   * Get equipment type from page:
-   *  • Prefer data-equip-type on a root element (like #equip-form-root)
-   *  • Fallback to ?type= in the URL
-   *  • Fallback to 'tractor'
-   */
-  function detectEquipType(rootSelector) {
-    rootSelector = rootSelector || '#equip-form-root';
-    const root = document.querySelector(rootSelector);
-    const fromAttr = root && root.dataset && root.dataset.equipType;
-    const fromQuery = getQueryParam('type');
-    const candidate = (fromAttr || fromQuery || 'tractor').toLowerCase();
-    return EQUIP_LAYOUTS[candidate] ? candidate : 'tractor';
+  function textField(id, label, opts){
+    return Object.assign({
+      id,
+      label,
+      kind: 'text',
+      placeholder: '',
+      required: false
+    }, opts || {});
   }
 
-  function getLayout(equipType) {
-    return EQUIP_LAYOUTS[equipType] || null;
+  function selectField(id, label, options, opts){
+    return Object.assign({
+      id,
+      label,
+      kind: 'select',
+      options: options || [],
+      required: false
+    }, opts || {});
   }
 
-  function getField(fieldId) {
-    return EQUIP_FIELDS[fieldId] || null;
+  function dateField(id, label, opts){
+    return Object.assign({
+      id,
+      label,
+      kind: 'date',
+      required: false
+    }, opts || {});
   }
 
-  // ------------------------------------------------------------
-  // DOM builders: form fields + hub card
-  // ------------------------------------------------------------
-  function buildFieldRow(def, mode, doc) {
-    const isView = mode === 'view';
-    const value = doc && Object.prototype.hasOwnProperty.call(doc, def.id)
-      ? doc[def.id]
-      : '';
+  /** ------------------------------------------------------------------
+   * Per-category field config
+   * -------------------------------------------------------------------*/
 
-    const row = document.createElement('div');
-    row.className = 'fv-field-row';
-    row.dataset.fieldId = def.id;
+  const CONFIG = {
+    /* 1) TRACTORS ----------------------------------------------------- */
+    tractor: [
+      numField('engineHours', 'Engine Hours', {
+        step: '0.1',
+        placeholder: 'e.g. 1250.5'
+      })
+    ],
 
-    const label = document.createElement('label');
-    label.className = 'fv-field-label';
-    label.setAttribute('for', def.id);
-    label.textContent = def.label;
-    row.appendChild(label);
+    /* 2) COMBINES ----------------------------------------------------- */
+    combine: [
+      numField('engineHours', 'Engine Hours', {
+        step: '0.1',
+        placeholder: 'e.g. 2100.5'
+      }),
+      numField('separatorHours', 'Separator Hours', {
+        step: '0.1',
+        placeholder: 'e.g. 1550.0'
+      })
+    ],
 
-    let inputEl;
+    /* 3) SPRAYERS ----------------------------------------------------- */
+    sprayer: [
+      numField('engineHours', 'Engine Hours', {
+        step: '0.1',
+        placeholder: 'e.g. 1800.0'
+      }),
+      numField('boomWidthFt', 'Boom Width (ft)', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 120'
+      }),
+      numField('tankSizeGal', 'Tank Size (gal)', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 1000'
+      })
+    ],
 
-    if (isView) {
-      // Simple read-only value
-      const span = document.createElement('div');
-      span.className = 'fv-field-value';
-      span.textContent = value == null || value === '' ? '—' : String(value);
-      row.appendChild(span);
-      return row;
-    }
+    /* 4) IMPLEMENTS --------------------------------------------------- */
+    implement: [
+      selectField(
+        'implementType',
+        'Type',
+        [
+          { value: 'planter',           label: 'Planter' },
+          { value: 'tillage',           label: 'Tillage' },
+          { value: 'grain-carts',       label: 'Grain Carts' },
+          { value: 'headers',           label: 'Headers' },
+          { value: 'augers-conveyors',  label: 'Augers/Conveyors' },
+          { value: 'other',             label: 'Other' }
+        ],
+        { required: true }
+      ),
 
-    // Editable (add/edit)
-    switch (def.type) {
-      case 'text':
-      case 'number':
-      case 'date': {
-        const input = document.createElement('input');
-        input.className = 'fv-field-input';
-        input.type = def.type;
-        input.id = def.id;
-        input.name = def.id;
-        if (value != null && value !== '') input.value = value;
-        if (def.required) input.required = true;
-        inputEl = input;
-        break;
-      }
+      numField('workingWidthFt', 'Working Width (ft)', {
+        step: '0.1',
+        inputmode: 'decimal',
+        placeholder: 'e.g. 40'
+      }),
 
-      case 'textarea': {
-        const ta = document.createElement('textarea');
-        ta.className = 'fv-field-input fv-field-textarea';
-        ta.id = def.id;
-        ta.name = def.id;
-        if (value != null && value !== '') ta.value = value;
-        if (def.required) ta.required = true;
-        inputEl = ta;
-        break;
-      }
+      numField('numRows', 'Number of Rows', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 24'
+      }),
 
-      case 'select': {
-        const sel = document.createElement('select');
-        sel.className = 'fv-field-input fv-field-select';
-        sel.id = def.id;
-        sel.name = def.id;
-        if (def.required) sel.required = true;
+      numField('augerDiameterIn', 'Auger Diameter (in)', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 10'
+      }),
 
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = 'Select...';
-        sel.appendChild(placeholder);
+      numField('augerLengthFt', 'Auger Length (ft)', {
+        step: '0.1',
+        inputmode: 'decimal',
+        placeholder: 'e.g. 72'
+      })
+    ],
 
-        (def.options || []).forEach(optVal => {
-          const opt = document.createElement('option');
-          opt.value = optVal;
-          opt.textContent = optVal;
-          if (String(value) === String(optVal)) {
-            opt.selected = true;
-          }
-          sel.appendChild(opt);
-        });
+    /* 5) FERTILIZER EQUIPMENT ---------------------------------------- */
+    fertilizer: [
+      numField('engineHours', 'Engine Hours', {
+        step: '0.1',
+        placeholder: 'e.g. 1200.0'
+      }),
+      selectField(
+        'applicationType',
+        'Application Type',
+        [
+          { value: 'dry',        label: 'Dry' },
+          { value: 'liquid',     label: 'Liquid' },
+          { value: 'anhydrous',  label: 'Anhydrous' },
+          { value: 'manure',     label: 'Manure' },
+          { value: 'other',      label: 'Other' }
+        ],
+        { required: false }
+      )
+    ],
 
-        inputEl = sel;
-        break;
-      }
+    /* 6) TRUCKS ------------------------------------------------------- */
+    truck: [
+      numField('odometerMiles', 'Odometer (miles)', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 256000'
+      }),
+      numField('engineHours', 'Engine Hours', {
+        step: '0.1',
+        placeholder: 'e.g. 5400.5'
+      }),
+      textField('licensePlate', 'License Plate #', {
+        placeholder: 'e.g. ABC 1234'
+      }),
+      textField('unitNumber', 'Unit #', {
+        placeholder: 'e.g. Truck 07'
+      })
+    ],
 
-      case 'file-multi':
-      case 'qr':
-        // Special fields (photos/qr) are currently handled elsewhere.
-        // We skip auto-building these to avoid clashing with your existing
-        // Tractor layout. This row can be used later if needed.
-        return null;
+    /* 7) TRAILERS ----------------------------------------------------- */
+    trailer: [
+      selectField(
+        'trailerType',
+        'Trailer Type',
+        [
+          { value: 'grain',   label: 'Grain' },
+          { value: 'flatbed', label: 'Flatbed' },
+          { value: 'tanker',  label: 'Tanker' },
+          { value: 'lowboy',  label: 'Lowboy' },
+          { value: 'utility', label: 'Utility' },
+          { value: 'other',   label: 'Other' }
+        ],
+        { required: false }
+      ),
+      dateField('lastDotInspection', 'Last DOT Inspection'),
+      numField('gvwrLb', 'GVWR (lb)', {
+        step: '100',
+        inputmode: 'numeric',
+        placeholder: 'e.g. 80000'
+      })
+    ],
 
-      default:
-        // Unknown type – skip
-        return null;
-    }
+    /* 8) CONSTRUCTION ------------------------------------------------- */
+    construction: [
+      numField('engineHours', 'Engine Hours', {
+        step: '0.1',
+        placeholder: 'e.g. 3200.0'
+      })
+    ],
 
-    if (inputEl) {
-      row.appendChild(inputEl);
-    }
-    return row;
-  }
-
-  /**
-   * Render form fields into a container for a given mode:
-   *  • mode: 'add' | 'edit' | 'view'
-   *  • equipType: 'tractor' | 'combine' | 'sprayer' | 'truck' | 'implement' | ...
-   *  • container: element that will hold the rows
-   *  • doc: optional object with existing values (for edit/view)
-   */
-  function renderForm(options) {
-    const mode = options.mode || 'add';
-    const equipType = options.equipType || detectEquipType(options.rootSelector);
-    const container = options.container;
-    const doc = options.doc || null;
-
-    if (!container) {
-      console.warn('[FVEquipForms] renderForm: container is required');
-      return;
-    }
-
-    const layout = getLayout(equipType);
-    if (!layout) {
-      console.warn('[FVEquipForms] No layout for type:', equipType);
-      return;
-    }
-
-    const fieldList =
-      mode === 'edit' ? layout.editFields :
-      mode === 'view' ? layout.viewFields :
-      layout.addFields;
-
-    container.innerHTML = '';
-
-    fieldList.forEach(fieldId => {
-      const def = getField(fieldId);
-      if (!def) return;
-
-      // Skip special fields (photos, qr) – handled by existing UI
-      if (def.special) return;
-
-      const row = buildFieldRow(def, mode, doc);
-      if (row) {
-        container.appendChild(row);
-      }
-    });
-  }
-
-  // ------------------------------------------------------------
-  // Payload builder – for Add/Edit saves
-  // ------------------------------------------------------------
-  function buildPayload(equipType, formEl) {
-    const layout = getLayout(equipType);
-    if (!layout || !formEl) return {};
-
-    const doc = {
-      type: equipType
-    };
-
-    const allFieldIds = new Set([
-      ...layout.addFields,
-      ...layout.editFields
-    ]);
-
-    allFieldIds.forEach(fieldId => {
-      const def = getField(fieldId);
-      if (!def) return;
-
-      // Special fields (photos/qr) are handled elsewhere
-      if (def.type === 'file-multi' || def.type === 'qr' || def.special) {
-        return;
-      }
-
-      const input = formEl.querySelector(`[name="${def.id}"]`);
-      if (!input) return;
-
-      let val = input.value;
-      if (def.type === 'number') {
-        val = val === '' ? null : Number(val);
-      }
-      doc[def.id] = val === '' ? null : val;
-    });
-
-    return doc;
-  }
-
-  // ------------------------------------------------------------
-  // Hub card builder – returns a DOM element
-  // ------------------------------------------------------------
-  function hubActionLabel(actionId) {
-    switch (actionId) {
-      case 'updateHours': return 'Update Hours';
-      case 'updateMiles': return 'Update Miles';
-      case 'updateAcres': return 'Update Acres';
-      default: return actionId;
-    }
-  }
-
-  /**
-   * Build a hub card DOM node for a given equipment doc.
-   *  • equipType: used to decide which badges/actions to show
-   *  • doc: Firestore document data (must include make/model/year/etc.)
-   *  • options:
-   *      - onAction(actionId, doc): click handler for hub buttons
-   */
-  function buildHubCard(equipType, doc, options) {
-    const layout = getLayout(equipType);
-    if (!layout) return null;
-
-    const onAction = options && options.onAction;
-
-    const card = document.createElement('article');
-    card.className = 'equip-card';
-
-    // Title: "Year Make Model"
-    const title = document.createElement('h3');
-    title.className = 'equip-card-title';
-    const year = doc.year || '';
-    const make = doc.make || '';
-    const model = doc.model || '';
-    const titleParts = [year, make, model].filter(Boolean);
-    title.textContent = titleParts.join(' ') || (doc.displayName || 'Unnamed Equipment');
-    card.appendChild(title);
-
-    // Subtitle / serial
-    if (doc.serial) {
-      const sub = document.createElement('div');
-      sub.className = 'equip-card-subtitle';
-      sub.textContent = `Serial: ${doc.serial}`;
-      card.appendChild(sub);
-    }
-
-    // Badges row
-    if (layout.hubBadges && layout.hubBadges.length) {
-      const badgesRow = document.createElement('div');
-      badgesRow.className = 'equip-badges-row';
-
-      layout.hubBadges.forEach(fieldId => {
-        const def = getField(fieldId);
-        if (!def) return;
-        const val = doc[fieldId];
-        if (val === null || val === undefined || val === '') return;
-
-        const badge = document.createElement('span');
-        badge.className = 'equip-badge';
-        badge.textContent = `${def.label}: ${val}`;
-        badgesRow.appendChild(badge);
-      });
-
-      card.appendChild(badgesRow);
-    }
-
-    // Actions row
-    if (layout.hubActions && layout.hubActions.length) {
-      const actionsRow = document.createElement('div');
-      actionsRow.className = 'equip-hub-actions';
-
-      layout.hubActions.forEach(actionId => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'equip-hub-btn';
-        btn.textContent = hubActionLabel(actionId);
-
-        if (typeof onAction === 'function') {
-          btn.addEventListener('click', () => {
-            onAction(actionId, doc);
-          });
-        }
-
-        actionsRow.appendChild(btn);
-      });
-
-      card.appendChild(actionsRow);
-    }
-
-    return card;
-  }
-
-  // ------------------------------------------------------------
-  // Public API
-  // ------------------------------------------------------------
-  const FVEquipForms = {
-    // Raw configs
-    EQUIP_FIELDS,
-    EQUIP_LAYOUTS,
-
-    // Helpers
-    detectEquipType,
-    getLayout,
-    getField,
-
-    // Form rendering
-    renderForm,
-
-    // Data helpers
-    buildPayload,
-
-    // Hub helpers
-    buildHubCard
+    /* 9) STARFIRE / TECHNOLOGY ---------------------------------------- */
+    starfire: [
+      textField('starfireSerial', 'StarFire Serial #', {
+        placeholder: 'Optional (can match JD label)'
+      }),
+      selectField(
+        'activationLevel',
+        'Activation Level',
+        [
+          { value: 'rtk',   label: 'RTK' },
+          { value: 'sf3',   label: 'SF3' },
+          { value: 'sf2',   label: 'SF2' },
+          { value: 'waas',  label: 'WAAS' },
+          { value: 'none',  label: 'None' },
+          { value: 'other', label: 'Other' }
+        ],
+        { required: false }
+      ),
+      textField('firmwareVersion', 'Firmware Version', {
+        placeholder: 'e.g. 23-2.0'
+      })
+    ]
   };
 
-  // Attach to window (merge if already present)
-  if (!window.FVEquipForms) {
-    window.FVEquipForms = FVEquipForms;
-  } else {
-    Object.assign(window.FVEquipForms, FVEquipForms);
+  /** ------------------------------------------------------------------
+   * Render helpers
+   * -------------------------------------------------------------------*/
+
+  function createFieldElement(doc, field){
+    const wrap = doc.createElement('div');
+    wrap.className = 'field';
+
+    const label = doc.createElement('label');
+    label.textContent = field.label || field.id;
+    if (field.required){
+      label.classList.add('req');
+    }
+
+    const id = 'extra-' + field.id;
+    label.setAttribute('for', id);
+
+    let input;
+
+    if (field.kind === 'number'){
+      input = doc.createElement('input');
+      input.type = 'number';
+      input.className = 'input';
+      if (field.step) input.step = String(field.step);
+      if (field.inputmode) input.inputMode = field.inputmode;
+      if (field.placeholder) input.placeholder = field.placeholder;
+
+    }else if (field.kind === 'text'){
+      input = doc.createElement('input');
+      input.type = 'text';
+      input.className = 'input';
+      if (field.placeholder) input.placeholder = field.placeholder;
+
+    }else if (field.kind === 'select'){
+      input = doc.createElement('select');
+      input.className = 'select';
+
+      // Placeholder option
+      const opt0 = doc.createElement('option');
+      opt0.value = '';
+      opt0.textContent = '— Select —';
+      input.appendChild(opt0);
+
+      (field.options || []).forEach(o=>{
+        const opt = doc.createElement('option');
+        opt.value = String(o.value);
+        opt.textContent = String(o.label);
+        input.appendChild(opt);
+      });
+
+    }else if (field.kind === 'date'){
+      input = doc.createElement('input');
+      input.type = 'date';
+      input.className = 'input';
+
+    }else{
+      // Fallback to simple text input
+      input = doc.createElement('input');
+      input.type = 'text';
+      input.className = 'input';
+    }
+
+    input.id = id;
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    return { wrap, input };
   }
+
+  function buildRows(doc, container, fields){
+    container.innerHTML = '';
+    const controls = new Map();
+
+    if (!fields || !fields.length){
+      return controls; // empty map
+    }
+
+    // Group fields 2 per row to match existing layout
+    for (let i = 0; i < fields.length; i += 2){
+      const row = doc.createElement('div');
+      row.className = 'row';
+
+      const f1 = fields[i];
+      const el1 = createFieldElement(doc, f1);
+      row.appendChild(el1.wrap);
+      controls.set(f1.id, el1.input);
+
+      const f2 = fields[i + 1];
+      if (f2){
+        const el2 = createFieldElement(doc, f2);
+        row.appendChild(el2.wrap);
+        controls.set(f2.id, el2.input);
+      }
+
+      container.appendChild(row);
+    }
+
+    return controls;
+  }
+
+  /** ------------------------------------------------------------------
+   * Normalization & validation
+   * -------------------------------------------------------------------*/
+
+  function normalizeExtras(fields, controls){
+    const out = {};
+
+    for (const field of fields){
+      const el = controls.get(field.id);
+      if (!el) continue;
+
+      let raw = (el.value ?? '').trim();
+
+      if (raw === ''){
+        out[field.id] = null;
+        continue;
+      }
+
+      if (field.kind === 'number'){
+        const num = Number(raw);
+        out[field.id] = Number.isFinite(num) ? num : null;
+      }else if (field.kind === 'select'){
+        out[field.id] = raw || null;
+      }else if (field.kind === 'date'){
+        out[field.id] = raw || null; // ISO yyyy-mm-dd
+      }else{
+        out[field.id] = raw;
+      }
+    }
+
+    return out;
+  }
+
+  function resetExtras(fields, controls){
+    for (const field of fields){
+      const el = controls.get(field.id);
+      if (!el) continue;
+      if (field.kind === 'select'){
+        el.value = '';
+      }else{
+        el.value = '';
+      }
+    }
+  }
+
+  function validateExtras(fields, controls){
+    for (const field of fields){
+      if (!field.required) continue;
+      const el = controls.get(field.id);
+      if (!el) continue;
+
+      const raw = (el.value ?? '').trim();
+      if (raw === ''){
+        return {
+          ok: false,
+          message: `${field.label || field.id} is required.`
+        };
+      }
+    }
+    return { ok: true, message: null };
+  }
+
+  /** ------------------------------------------------------------------
+   * Public API
+   * -------------------------------------------------------------------*/
+
+  const FVEquipForms = {
+    /**
+     * Initialize extra fields for a given equipment type.
+     *
+     * @param {Object} opts
+     * @param {string} opts.equipType   e.g. 'tractor', 'sprayer'
+     * @param {HTMLElement} opts.container  The element where fields should render
+     * @param {Document} opts.document  The document object (usually window.document)
+     */
+    initExtras(opts){
+      const equipType = (opts && opts.equipType || '').toLowerCase();
+      const container = opts && opts.container;
+      const doc = opts && opts.document || global.document;
+
+      if (!container || !doc){
+        // Return no-op API so callers don't explode if mis-wired
+        return {
+          read(){ return {}; },
+          reset(){},
+          validate(){ return { ok: true, message: null }; }
+        };
+      }
+
+      const fields = CONFIG[equipType] || [];
+      const controls = buildRows(doc, container, fields);
+
+      return {
+        /** Read current values as a plain object */
+        read(){
+          return normalizeExtras(fields, controls);
+        },
+
+        /** Clear extra fields back to blank */
+        reset(){
+          resetExtras(fields, controls);
+        },
+
+        /**
+         * Validate required extras.
+         * Returns { ok: boolean, message: string|null }
+         */
+        validate(){
+          return validateExtras(fields, controls);
+        }
+      };
+    }
+  };
+
+  // Attach to global
+  global.FVEquipForms = FVEquipForms;
 
 })(window);
