@@ -1,11 +1,13 @@
 <!-- =====================================================================
-/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html
-(FULL FILE – FONT WEIGHT FIX)
+/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE – FIXED LOAD + OVERLAY)
 
-Changes in this build vs your last:
- • Force normal font weight on all .select/.input/.textarea with !important.
- • Force normal font weight on #farmSelectOverlay with !important.
-   (So Farm text visually matches Field / Topic everywhere.)
+Changes in this build:
+ • Keep Farm auto-link to Field (and vice versa) with overlay workaround.
+ • Make Farm overlay text normal-weight so it visually matches Field.
+ • "Submitted by" and "Date submitted" as full-width readonly inputs
+   matching Farm / Field / Topic boxes.
+ • Make data boot sequential (loadFarms → loadFields → loadTopics)
+   to avoid any race killing farms/fields loading.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -91,7 +93,7 @@ Changes in this build vs your last:
       width:100%;
       font:inherit;
       font-size:16px;
-      font-weight:400 !important;   /* FORCE regular weight everywhere */
+      font-weight:400;             /* keep all form text regular weight */
       color:var(--text);
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
@@ -248,7 +250,7 @@ Changes in this build vs your last:
       transition:opacity .12s ease-out;
       font-size:16px;
       line-height:1.2;
-      font-weight:400 !important;   /* FORCE overlay to regular weight */
+      font-weight:400;               /* normal weight to match Field */
       font-family:inherit;
       color:var(--text);
       -webkit-font-smoothing:antialiased;
@@ -623,6 +625,7 @@ Changes in this build vs your last:
         const farmId = fld.farmId || null;
         if(!farmId) return;
 
+        // Filter fields down to that farm and keep the same field selected
         populateFieldSelect(farmId);
         $("fieldSelect").value = fieldId;
         selectFarmById(farmId);
@@ -797,7 +800,10 @@ Changes in this build vs your last:
       setupFiles();
       setupActions();
       try{
-        await Promise.all([loadFarms(), loadFields(), loadTopics()]);
+        // Sequential instead of Promise.all to be extra safe
+        await loadFarms();
+        await loadFields();
+        await loadTopics();
         updateFarmOverlay();
       }catch(e){
         console.error("Initial data load failed", e);
