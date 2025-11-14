@@ -10,6 +10,7 @@ Purpose:
  • Priority 1–10, with live readout + reason required for 7+.
  • Notes with mic/dictation (same pattern as Ideas page).
  • Photos: lazy file input for now (no Storage uploads yet).
+ • Field→Farm debug text is shown on-screen to help verify linking.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -278,6 +279,9 @@ Purpose:
             </div>
           </div>
 
+          <!-- Tiny debug line so we can see the link behavior on phone -->
+          <div id="linkDebug" class="muted-line"></div>
+
           <!-- Topic + Priority -->
           <div class="row">
             <div class="field">
@@ -380,6 +384,10 @@ Purpose:
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
+    const farmDebugEl  = () => $("farmDebug");
+    const fieldDebugEl = () => $("fieldDebug");
+    const linkDebugEl  = () => $("linkDebug");
+
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
@@ -394,8 +402,7 @@ Purpose:
         opt.textContent = f.name;
         sel.appendChild(opt);
       });
-      const dbg = $("farmDebug");
-      if (dbg) dbg.textContent = `Farms loaded: ${state.farms.length}`;
+      if (farmDebugEl()) farmDebugEl().textContent = `Farms loaded: ${state.farms.length}`;
     }
 
     async function loadFields(){
@@ -424,13 +431,9 @@ Purpose:
       });
       if(list.some(f=>f.id===prev)) sel.value = prev;
 
-      const dbg = $("fieldDebug");
-      if (dbg) {
-        if (farmId) {
-          dbg.textContent = `Fields shown: ${list.length} (farmId=${farmId})`;
-        } else {
-          dbg.textContent = `Fields shown: ${list.length} (all farms)`;
-        }
+      if (fieldDebugEl()) {
+        const label = farmId ? `farmId=${farmId}` : "all farms";
+        fieldDebugEl().textContent = `Fields shown: ${list.length} (${label})`;
       }
     }
 
@@ -459,7 +462,7 @@ Purpose:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (copying Ideas pattern)
+    // Submitted by (copying Ideas pattern: FVUserContext + firebaseAuth fallback)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -545,62 +548,84 @@ Purpose:
       sync();
     }
 
-    function autoSelectFarmFromField(fieldId){
-      const dbg = $("fieldDebug");
-      const farmDbg = $("farmDebug");
-      const fieldObj = state.fields.find(f => f.id === fieldId);
-
-      if (!fieldId) {
-        if (dbg) dbg.textContent = "Field→Farm debug: no field selected.";
-        return;
-      }
-      if (!fieldObj) {
-        if (dbg) dbg.textContent = `Field→Farm debug: no field object for id=${fieldId}`;
-        return;
-      }
-
-      const farmId = fieldObj.farmId || "";
-      if (dbg) dbg.textContent = `Field→Farm debug: fieldId=${fieldId} → farmId=${farmId || "(missing)"}`;
-
-      if (!farmId) return;
-
+    function selectFarmById(farmId, fromFieldId){
       const farmSel = $("farmSelect");
-      let matched = false;
-      Array.from(farmSel.options).forEach(opt => {
-        if (opt.value === farmId) {
-          opt.selected = true;
-          matched = true;
-        } else {
-          opt.selected = false;
+      const options = Array.from(farmSel.options || []);
+      const idx = options.findIndex(o => o.value === farmId);
+      if(idx >= 0){
+        farmSel.selectedIndex = idx;
+        if (farmDebugEl()) {
+          const label = options[idx].textContent || "(no label)";
+          farmDebugEl().textContent = `Farm auto-selected from field: ${farmId} ("${label}")`;
         }
-      });
-
-      if (matched) {
-        if (farmDbg) farmDbg.textContent = `Farm auto-selected from field: ${farmId}`;
-        // Now lock fields list to this farm, but keep the same field selected.
-        populateFieldSelect(farmId);
-        $("fieldSelect").value = fieldId;
-      } else {
-        if (farmDbg) farmDbg.textContent = `Farm auto-select FAILED: no option with value=${farmId}`;
+        if (linkDebugEl()) {
+          linkDebugEl().textContent =
+            `Field→Farm debug: fieldId=${fromFieldId} → farmId=${farmId} (matched option #${idx})`;
+        }
+      }else{
+        if (farmDebugEl()) {
+          farmDebugEl().textContent = `Farm auto-select failed: no option with value=${farmId}`;
+        }
+        if (linkDebugEl()) {
+          linkDebugEl().textContent =
+            `Field→Farm debug: fieldId=${fromFieldId} → farmId=${farmId} (NO matching option)`;
+        }
       }
     }
 
     function setupFarmFieldLinking(){
-      const farmSel = $("farmSelect");
+      const farmSel  = $("farmSelect");
       const fieldSel = $("fieldSelect");
+
+      if (linkDebugEl()) {
+        linkDebugEl().textContent = "Field→Farm debug: ready. Pick a field and we’ll log what happens.";
+      }
 
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
         populateFieldSelect(farmId);
+        if (farmDebugEl()) {
+          farmDebugEl().textContent = farmId
+            ? `Farm selected: ${farmId}`
+            : "Farm cleared.";
+        }
+        if (linkDebugEl()) {
+          linkDebugEl().textContent = farmId
+            ? `Field→Farm debug: farm changed to ${farmId}`
+            : "Field→Farm debug: farm cleared.";
+        }
       });
 
       fieldSel.addEventListener("change", ()=>{
         const fieldId = fieldSel.value;
-        autoSelectFarmFromField(fieldId);
-      });
+        if(!fieldId){
+          if (linkDebugEl()) {
+            linkDebugEl().textContent = "Field→Farm debug: field cleared.";
+          }
+          return;
+        }
+        const fld = state.fields.find(f=>f.id === fieldId);
+        if(!fld){
+          if (linkDebugEl()) {
+            linkDebugEl().textContent = `Field→Farm debug: fieldId=${fieldId} not found in state.fields`;
+          }
+          return;
+        }
+        const farmId = fld.farmId || null;
+        if(!farmId){
+          if (linkDebugEl()) {
+            linkDebugEl().textContent = `Field→Farm debug: fieldId=${fieldId} has no farmId`;
+          }
+          return;
+        }
 
-      const dbg = $("fieldDebug");
-      if (dbg) dbg.textContent = "Field→Farm debug: ready. Pick a field and we’ll log what happens.";
+        // Filter fields to that farm and keep the same field selected.
+        populateFieldSelect(farmId);
+        $("fieldSelect").value = fieldId;
+
+        // Now force the Farm <select> to visually pick the correct option.
+        selectFarmById(farmId, fieldId);
+      });
     }
 
     function setupMic(){
