@@ -100,7 +100,6 @@
 
     .hist-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border); }
     .hist-title{ font-size:clamp(18px, 2.6vw, 22px); font-weight:800; }
-    .hist-clear{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important; }
     .hist{ padding:14px 16px; display:grid; gap:12px; }
     .hist-item{
       border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
@@ -128,47 +127,6 @@
     .kv .val{ font-weight:800; }
 
     html.no-scroll, body.no-scroll{ overflow:hidden; }
-
-    /* Diagnostics */
-    .diag-wrap{
-      border-top:1px dashed var(--border);
-      margin:10px 16px 4px;
-      padding-top:8px;
-      font-size:13px;
-      color:var(--muted,#67706B);
-    }
-    .diag-header{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
-    }
-    .diag-header-title{
-      font-weight:700;
-    }
-    .diag-toggle{
-      padding:6px 10px;
-      min-width:auto;
-      font-size:12px;
-      border-radius:10px;
-    }
-    .diag-body{
-      margin-top:6px;
-      display:grid;
-      gap:2px;
-    }
-    .diag-body div{
-      display:flex;
-      justify-content:space-between;
-      gap:8px;
-    }
-    .diag-key{
-      opacity:0.85;
-    }
-    .diag-val{
-      font-weight:600;
-      text-align:right;
-    }
   </style>
 </head>
 <body>
@@ -294,34 +252,11 @@
           </div>
 
           <div id="summary" class="summary" hidden></div>
-
-          <!-- Diagnostics -->
-          <div class="diag-wrap">
-            <div class="diag-header">
-              <div class="diag-header-title">Diagnostics</div>
-              <button id="diagToggle" type="button" class="btn diag-toggle">Show</button>
-            </div>
-            <div id="diagBody" class="diag-body" hidden>
-              <div><span class="diag-key">Firestore status</span><span id="diagFvdata" class="diag-val">—</span></div>
-              <div><span class="diag-key">Error</span><span id="diagError" class="diag-val">—</span></div>
-              <div><span class="diag-key">Equipment rows</span><span id="diagTotal" class="diag-val">0</span></div>
-              <div><span class="diag-key">Type=truck seen</span><span id="diagRawTrucks" class="diag-val">0</span></div>
-              <div><span class="diag-key">Type=trailer seen</span><span id="diagRawTrailers" class="diag-val">0</span></div>
-              <div><span class="diag-key">Dropped (no type)</span><span id="diagNoType" class="diag-val">0</span></div>
-              <div><span class="diag-key">Dropped (inactive)</span><span id="diagInactive" class="diag-val">0</span></div>
-              <div><span class="diag-key">Dropped (other type)</span><span id="diagOtherType" class="diag-val">0</span></div>
-              <div><span class="diag-key">Active trucks/trailers kept</span><span id="diagKept" class="diag-val">0</span></div>
-              <div><span class="diag-key">ALL_ASSETS length</span><span id="diagAssets" class="diag-val">0</span></div>
-              <div><span class="diag-key">Current Type filter</span><span id="diagCurType" class="diag-val">—</span></div>
-              <div><span class="diag-key">Assets matching Type</span><span id="diagCurFiltered" class="diag-val">0</span></div>
-            </div>
-          </div>
         </div>
 
         <!-- History -->
         <div class="hist-head">
           <div class="hist-title">Previous Registrations</div>
-          <button id="clearHist" class="hist-clear" type="button" title="Clears local fallback only">Clear Local History</button>
         </div>
         <div id="history" class="hist">
           <div class="muted">No previous registrations.</div>
@@ -357,8 +292,6 @@
 
     const COLL = "vehicleRegistrations";
     const MAX_RET = 50;
-    const LS_KEY = "fv_vehicle_regs_v1";
-    const MAX_LS  = 10;
 
     let DB = null;
     let ALL_ASSETS = [];
@@ -379,57 +312,14 @@
     };
 
     const showToast = (msg="Saved.")=>{
-      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      void toast.offsetWidth;
+      toast.classList.add("show");
     };
-
-    // Diagnostics
-    const DIAG = {
-      fvdataLoaded: false,
-      fvdataError: null,
-      totalRows: 0,
-      rawTrucks: 0,
-      rawTrailers: 0,
-      droppedNoType: 0,
-      droppedInactive: 0,
-      droppedOtherType: 0,
-      keptAssets: 0,
-      currentType: "",
-      currentFiltered: 0
-    };
-
-    function updateDiagnosticsUI(){
-      $("diagFvdata").textContent = DIAG.fvdataError ? "Error" : (DIAG.fvdataLoaded ? "OK" : "Not loaded");
-      $("diagError").textContent = DIAG.fvdataError ? String(DIAG.fvdataError) : "—";
-      $("diagTotal").textContent = DIAG.totalRows;
-      $("diagRawTrucks").textContent = DIAG.rawTrucks;
-      $("diagRawTrailers").textContent = DIAG.rawTrailers;
-      $("diagNoType").textContent = DIAG.droppedNoType;
-      $("diagInactive").textContent = DIAG.droppedInactive;
-      $("diagOtherType").textContent = DIAG.droppedOtherType;
-      $("diagKept").textContent = DIAG.keptAssets;
-      $("diagAssets").textContent = ALL_ASSETS.length;
-      $("diagCurType").textContent = DIAG.currentType || "—";
-      $("diagCurFiltered").textContent = DIAG.currentFiltered;
-    }
-
-    (function setupDiagToggle(){
-      const btn = $("diagToggle");
-      const body = $("diagBody");
-      if(!btn || !body) return;
-      btn.addEventListener("click", ()=>{
-        const hide = !body.hidden;
-        body.hidden = hide;
-        btn.textContent = hide ? "Show" : "Hide";
-      });
-    })();
 
     async function loadAssets(){
       if(!DB) DB = getFirestore();
-      DIAG.fvdataLoaded = false;
-      DIAG.fvdataError = null;
-      DIAG.totalRows = DIAG.rawTrucks = DIAG.rawTrailers = 0;
-      DIAG.droppedNoType = DIAG.droppedInactive = DIAG.droppedOtherType = 0;
-      DIAG.keptAssets = 0;
 
       let rows = [];
       try{
@@ -438,13 +328,10 @@
           const d = docSnap.data() || {};
           rows.push({ id: docSnap.id, ...d });
         });
-        DIAG.totalRows = rows.length;
-        DIAG.fvdataLoaded = true;
       }catch(e){
         console.warn("equipment load error:", e);
-        DIAG.fvdataError = e && e.message ? e.message : String(e);
         ALL_ASSETS = [];
-        updateDiagnosticsUI();
+        $("type").disabled = false;  // allow manual type if equipment fails
         return;
       }
 
@@ -453,27 +340,19 @@
         if(!o) return;
         const rawField = (o.type || o.Type || o.equipType || "");
         const rawType = String(rawField).toLowerCase().trim();
-        if(!rawType){
-          DIAG.droppedNoType++;
-          return;
-        }
+        if(!rawType) return;
+
         let t = "";
         if(rawType.startsWith("truck")){
           t = "truck";
-          DIAG.rawTrucks++;
         }else if(rawType.startsWith("trailer")){
           t = "trailer";
-          DIAG.rawTrailers++;
         }else{
-          DIAG.droppedOtherType++;
           return;
         }
 
         const status = o.status ? String(o.status).toLowerCase() : "";
-        if(status && status !== "active"){
-          DIAG.droppedInactive++;
-          return;
-        }
+        if(status && status !== "active") return;
 
         assets.push({
           id: o.id || o.uid || o.unit || o.serial || `${t}_${Math.random().toString(36).slice(2)}`,
@@ -486,13 +365,9 @@
           plate: o.plate || "",
           state: (o.state||"").toUpperCase()
         });
-        DIAG.keptAssets++;
       });
 
       ALL_ASSETS = assets;
-      updateDiagnosticsUI();
-
-      // enable Type select once assets are loaded (even if zero)
       $("type").disabled = false;
       applyAssetFilter();
     }
@@ -506,9 +381,6 @@
 
       if(type !== "truck" && type !== "trailer"){
         sel.disabled = true;
-        DIAG.currentType = type || "";
-        DIAG.currentFiltered = 0;
-        updateDiagnosticsUI();
         return;
       }
 
@@ -519,7 +391,11 @@
       );
 
       filtered.forEach(a=>{
-        const label = `${String(a.type).toLowerCase()==="truck"?"Truck":"Trailer"} • ${a.unit || `${a.make||""} ${a.model||""}`.trim()}`.trim();
+        const mm = `${a.make||""} ${a.model||""}`.trim();
+        const vin6 = (a.vin || "").slice(-6);
+        const labelLeft = mm || (type==="truck" ? "Truck" : "Trailer");
+        const labelRight = vin6 || (a.unit || "").trim() || "No VIN";
+        const label = `${labelLeft} • ${labelRight}`;
         const opt = document.createElement("option");
         opt.value = a.id;
         opt.textContent = label;
@@ -532,10 +408,6 @@
       }else{
         sel.value = "";
       }
-
-      DIAG.currentType = type;
-      DIAG.currentFiltered = filtered.length;
-      updateDiagnosticsUI();
     }
 
     $("asset").addEventListener("change", function(){
@@ -568,13 +440,6 @@
         $("asset").disabled = true;
       }
     });
-
-    // Registrations (LS fallback only for history/save errors)
-    function lsLoad(){
-      try{ const arr = JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(arr)?arr:[]; }
-      catch(e){ return []; }
-    }
-    function lsSave(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,MAX_LS))); }
 
     function collect(){
       return {
@@ -619,17 +484,7 @@
 
     async function saveRegistration(it){
       if(!DB) DB = getFirestore();
-      try{
-        await addDoc(collection(DB, COLL), {
-          ...it,
-          createdAt: serverTimestamp()
-        });
-        return true;
-      }catch(e){
-        console.warn("Firestore save failed, using local fallback:", e);
-        const h = lsLoad(); h.unshift(it); lsSave(h);
-        return false;
-      }
+      await addDoc(collection(DB, COLL), { ...it, createdAt: serverTimestamp() });
     }
 
     function lineForHist(it){
@@ -644,41 +499,31 @@
       const box = $("history");
       if(!DB) DB = getFirestore();
       try{
-        let rows = [];
         const qy = query(collection(DB, COLL), orderBy("t", "desc"));
         const snap = await getDocs(qy);
+        const items = [];
         snap.forEach(docSnap=>{
-          rows.push({ id: docSnap.id, ...docSnap.data() });
+          const d = docSnap.data()||{};
+          items.push({ id: docSnap.id, ...d });
         });
+        const rows = items.sort((a,b)=> (b.t||0) - (a.t||0)).slice(0, MAX_RET);
 
-        const items = rows.sort((a,b)=> (b.t||0) - (a.t||0));
-        if(!items.length){
+        if(!rows.length){
           box.innerHTML = '<div class="muted">No previous registrations.</div>';
           return;
         }
         box.innerHTML = "";
-        items.forEach(it=>{
+        rows.forEach(it=>{
           const div = document.createElement("div");
           div.className = "hist-item";
           div.innerHTML = `<div class="hline">${esc(lineForHist(it))}</div><button class="view" type="button">View</button>`;
           div.querySelector(".view").addEventListener("click", ()=> openDetail(it));
           box.appendChild(div);
         });
-        return;
       }catch(e){
-        console.warn("History load failed, using LS fallback:", e);
+        console.error("History load failed:", e);
+        box.innerHTML = `<div class="muted">Unable to load history.</div>`;
       }
-
-      const h = lsLoad();
-      if(!h.length){ box.innerHTML = '<div class="muted">No previous registrations.</div>'; return; }
-      box.innerHTML = "";
-      h.forEach(it=>{
-        const div = document.createElement("div");
-        div.className = "hist-item";
-        div.innerHTML = `<div class="hline">${esc(lineForHist(it))}</div><button class="view" type="button">View</button>`;
-        div.querySelector(".view").addEventListener("click", ()=> openDetail(it));
-        box.appendChild(div);
-      });
     }
 
     // Modal
@@ -726,11 +571,16 @@
       const it = collect();
       const err = validate(it);
       if(err){ alert(err); return; }
-      const usedFirestore = await saveRegistration(it);
-      showToast(usedFirestore ? "Registration saved to Firestore." : "Saved locally (offline).");
-      showSummary(it);
-      await renderHistory();
-      window.scrollTo({top:0, behavior:"smooth"});
+      try{
+        await saveRegistration(it);
+        showToast("Registration saved.");
+        showSummary(it);
+        await renderHistory();
+        window.scrollTo({top:0, behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        alert("Save failed: " + (e?.message || e));
+      }
     });
 
     $("clear").addEventListener("click", ()=>{
@@ -738,15 +588,8 @@
         const el=$(id); if(!el) return;
         if(el.tagName==="SELECT") el.selectedIndex = 0; else el.value = "";
       });
-      $("type").disabled = ALL_ASSETS.length === 0;
       $("asset").disabled = true;
-      applyAssetFilter();
       $("summary").hidden = true;
-    });
-
-    $("clearHist").addEventListener("click", ()=>{
-      if(!confirm("Clear local fallback history? (This does not delete Firestore records.)")) return;
-      lsSave([]); renderHistory();
     });
 
     // Boot
