@@ -548,7 +548,8 @@ Purpose:
       sync();
     }
 
-    // *** Key piece: force the Farm select to actually show the chosen farm ***
+    // Stronger: force the farm select to behave like a user picked it,
+    // and report value + index + label.
     function selectFarmById(farmId, fromFieldId){
       const farmSel = $("farmSelect");
       if (!farmSel || !farmId) return;
@@ -557,13 +558,24 @@ Purpose:
       const idx = options.findIndex(o => o.value === farmId);
 
       if(idx >= 0){
-        // Set both value and selectedIndex so iOS Safari can't be stubborn
+        // Set both ways
         farmSel.value = farmId;
         farmSel.selectedIndex = idx;
 
-        const label = options[idx].textContent || "(no label)";
+        // Fire a real 'change' so iOS Safari repaints like a user action.
+        try{
+          farmSel.dispatchEvent(new Event('change', { bubbles:true }));
+        }catch{}
+
+        const opt = options[idx];
+        const label = opt ? (opt.textContent || "(no label)") : "(no label)";
+
         if (farmDebugEl()) {
-          farmDebugEl().textContent = `Farm auto-selected from field: ${farmId} ("${label}")`;
+          const valNow = farmSel.value || "(empty)";
+          const idxNow = farmSel.selectedIndex;
+          const lblNow = farmSel.options[idxNow] ? farmSel.options[idxNow].textContent : "(none)";
+          farmDebugEl().textContent =
+            `Farm auto-selected from field: ${farmId} ("${label}") · select.value=${valNow}, idx=${idxNow}, label="${lblNow}"`;
         }
         if (linkDebugEl()) {
           linkDebugEl().textContent =
@@ -591,11 +603,17 @@ Purpose:
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
         populateFieldSelect(farmId);
+
         if (farmDebugEl()) {
+          const idx = farmSel.selectedIndex;
+          const lbl = idx >= 0 && farmSel.options[idx]
+            ? farmSel.options[idx].textContent
+            : "(none)";
           farmDebugEl().textContent = farmId
-            ? `Farm selected: ${farmId}`
+            ? `Farm selected: ${farmId} ("${lbl}")`
             : "Farm cleared.";
         }
+
         if (linkDebugEl()) {
           linkDebugEl().textContent = farmId
             ? `Field→Farm debug: farm changed to ${farmId}`
