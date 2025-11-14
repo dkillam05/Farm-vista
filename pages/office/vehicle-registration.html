@@ -317,28 +317,20 @@
       if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
       await FVData.ready();
 
-      // equipment collection; filter by type & status
-      const trucksPromise = FVData.list
+      // Load active equipment, then filter to truck / trailer
+      const rows = await (FVData.list
         ? FVData.list("equipment", {
-            where: [["type","==","trucks"],["status","==","active"]],
+            where: [["status","==","active"]],
             limit: 2000
           })
-        : FVData.loadAll("equipment");
-      const trailersPromise = FVData.list
-        ? FVData.list("equipment", {
-            where: [["type","==","trailers"],["status","==","active"]],
-            limit: 2000
-          })
-        : FVData.loadAll("equipment");
+        : FVData.loadAll("equipment"));
 
-      const [trucksRaw, trailersRaw] = await Promise.all([trucksPromise, trailersPromise]);
-
-      const norm = (rows, typeFilter, uiType) => (rows||[])
+      return (rows || [])
         .map(r => r.data ? ({ id:r.id, ...r.data }) : r)
-        .filter(o => !typeFilter || o.type === typeFilter)
+        .filter(o => o.type === "truck" || o.type === "trailer")
         .map(o => ({
-          id: o.id || o.uid || o.unit || o.serial || `${uiType}_${Math.random().toString(36).slice(2)}`,
-          type: uiType, // "truck" or "trailer" for UI
+          id: o.id || o.uid || o.unit || o.serial || `${o.type}_${Math.random().toString(36).slice(2)}`,
+          type: o.type, // "truck" or "trailer"
           unit: String(o.unit || o.nickname || o.serial || o.name || "").trim(),
           year: o.year || "",
           make: o.make || "",
@@ -347,11 +339,6 @@
           plate: o.plate || "",
           state: (o.state||"").toUpperCase()
         }));
-
-      return [
-        ...norm(trucksRaw, "trucks", "truck"),
-        ...norm(trailersRaw, "trailers", "trailer")
-      ];
     }
 
     // local fallback (legacy)
