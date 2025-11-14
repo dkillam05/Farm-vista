@@ -341,8 +341,7 @@ Purpose:
       getFirestore,
       collection, getDocs, addDoc,
       serverTimestamp,
-      getAuth, onAuthStateChanged,
-      doc, getDoc
+      getAuth, onAuthStateChanged
     } from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
@@ -379,12 +378,11 @@ Purpose:
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
-    /* -------- Farms -------- */
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
-      state.farms = snap.docs.map(docSnap => {
-        const data = docSnap.data() || {};
-        return { id: String(docSnap.id), name: inferName(data) };
+      state.farms = snap.docs.map(doc => {
+        const data = doc.data() || {};
+        return { id: doc.id, name: inferName(data) };
       }).sort((a,b)=>a.name.localeCompare(b.name));
       const sel = $("farmSelect");
       sel.innerHTML = '<option value="">Select farm…</option>';
@@ -396,22 +394,14 @@ Purpose:
       });
     }
 
-    /* -------- Fields -------- */
     async function loadFields(){
       const snap = await getDocs(collection(DB, "fields"));
-      state.fields = snap.docs.map(docSnap => {
-        const data = docSnap.data() || {};
-        const farmId =
-          (typeof data.farmId === "string" && data.farmId) ||
-          (typeof data.farm === "string" && data.farm) ||
-          (typeof data.farmDocId === "string" && data.farmDocId) ||
-          (data.farm && typeof data.farm.id === "string" && data.farm.id) ||
-          null;
-        return {
-          id: String(docSnap.id),
-          name: inferName(data),
-          farmId: farmId ? String(farmId) : null
-        };
+      state.fields = snap.docs.map(doc => {
+        const data = doc.data() || {};
+        // *** normalize farmId so it matches farmSelect option values ***
+        const farmIdRaw = data.farmId || data.farm || data.farmDocId || "";
+        const farmId = typeof farmIdRaw === "string" ? farmIdRaw.trim() : farmIdRaw || null;
+        return { id: doc.id, name: inferName(data), farmId };
       }).sort((a,b)=>a.name.localeCompare(b.name));
       populateFieldSelect();
     }
@@ -422,8 +412,7 @@ Purpose:
       sel.innerHTML = '<option value="">Select field…</option>';
       let list = state.fields;
       if(farmId){
-        const fId = String(farmId);
-        list = list.filter(f=>f.farmId === fId);
+        list = list.filter(f=>f.farmId === farmId);
       }
       list.forEach(f=>{
         const opt = document.createElement("option");
@@ -434,13 +423,12 @@ Purpose:
       if(list.some(f=>f.id===prev)) sel.value = prev;
     }
 
-    /* -------- Topics -------- */
     async function loadTopics(){
       try{
         const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
-        state.topics = snap.docs.map(docSnap=>{
-          const data = docSnap.data() || {};
-          return { id: docSnap.id, label: inferName(data), archived: !!data.isArchived };
+        state.topics = snap.docs.map(doc=>{
+          const data = doc.data() || {};
+          return { id: doc.id, label: inferName(data), archived: !!data.isArchived };
         }).filter(t=>!t.archived).sort((a,b)=>a.label.localeCompare(b.label));
         const sel = $("topicSelect");
         sel.innerHTML = '<option value="">Select topic…</option>';
@@ -460,7 +448,7 @@ Purpose:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (Ideas pattern)
+    // Submitted by (copying Ideas pattern: FVUserContext + firebaseAuth fallback)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -546,44 +534,34 @@ Purpose:
       sync();
     }
 
-    /* -------- Farm/Field linking (both directions) -------- */
     function setupFarmFieldLinking(){
       const farmSel = $("farmSelect");
       const fieldSel = $("fieldSelect");
 
-      // Farm → filter fields (this one already worked)
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
         populateFieldSelect(farmId);
       });
 
-      // Field → look up its farm in Firestore, then set farm + refilter
-      fieldSel.addEventListener("change", async ()=>{
+      fieldSel.addEventListener("change", ()=>{
         const fieldId = fieldSel.value;
-        if(!fieldId || !DB) return;
+        if(!fieldId) return;
 
-        try{
-          const ref = doc(DB, "fields", fieldId);
-          const snap = await getDoc(ref);
-          if(!snap.exists()) return;
-          const data = snap.data() || {};
+        const fld = state.fields.find(f=>f.id===fieldId);
+        if(!fld || !fld.farmId) return;
 
-          const farmIdRaw =
-            (typeof data.farmId === "string" && data.farmId) ||
-            (typeof data.farm === "string" && data.farm) ||
-            (typeof data.farmDocId === "string" && data.farmDocId) ||
-            (data.farm && typeof data.farm.id === "string" && data.farm.id) ||
-            null;
+        // set farm based on field’s farmId
+        farmSel.value = fld.farmId;
 
-          if(!farmIdRaw) return;
-          const farmId = String(farmIdRaw);
-
-          farmSel.value = farmId;
-          populateFieldSelect(farmId);
-          fieldSel.value = String(fieldId);
-        }catch(e){
-          console.warn("Field→Farm link failed", e);
+        // if for some reason there is no matching option, log it (dev only)
+        if (farmSel.value !== fld.farmId) {
+          console.warn("No farm option matching farmId on field", { fieldId, farmId: fld.farmId });
+          return;
         }
+
+        // re-filter fields to that farm and keep this field selected
+        populateFieldSelect(fld.farmId);
+        fieldSel.value = fieldId;
       });
     }
 
@@ -745,7 +723,7 @@ Purpose:
       }
     }
 
-    // Boot
+    // Boot (same pattern as vehicle registration: await ready; then init)
     (async function boot(){
       await ready;
       DB = getFirestore();
