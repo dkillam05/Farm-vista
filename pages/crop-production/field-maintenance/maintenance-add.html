@@ -348,6 +348,7 @@ Purpose:
     const $ = id => document.getElementById(id);
     const state = { farms: [], fields: [], topics: [] };
     let DB = null;
+    const DEBUG_FM_LINK = true; // farm/field linking diagnostics
 
     const showErr = msg => {
       const box = $("err");
@@ -384,6 +385,11 @@ Purpose:
         const data = doc.data() || {};
         return { id: doc.id, name: inferName(data) };
       }).sort((a,b)=>a.name.localeCompare(b.name));
+
+      if (DEBUG_FM_LINK) {
+        console.log("[FM] loadFarms =", state.farms);
+      }
+
       const sel = $("farmSelect");
       sel.innerHTML = '<option value="">Select farm…</option>';
       state.farms.forEach(f=>{
@@ -398,11 +404,14 @@ Purpose:
       const snap = await getDocs(collection(DB, "fields"));
       state.fields = snap.docs.map(doc => {
         const data = doc.data() || {};
-        // *** normalize farmId so it matches farmSelect option values ***
-        const farmIdRaw = data.farmId || data.farm || data.farmDocId || "";
-        const farmId = typeof farmIdRaw === "string" ? farmIdRaw.trim() : farmIdRaw || null;
+        const farmId = data.farmId || data.farm || data.farmDocId || null;
         return { id: doc.id, name: inferName(data), farmId };
       }).sort((a,b)=>a.name.localeCompare(b.name));
+
+      if (DEBUG_FM_LINK) {
+        console.log("[FM] loadFields =", state.fields);
+      }
+
       populateFieldSelect();
     }
 
@@ -421,6 +430,10 @@ Purpose:
         sel.appendChild(opt);
       });
       if(list.some(f=>f.id===prev)) sel.value = prev;
+
+      if (DEBUG_FM_LINK) {
+        console.log("[FM] populateFieldSelect", { farmId, count: list.length });
+      }
     }
 
     async function loadTopics(){
@@ -448,7 +461,7 @@ Purpose:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (copying Ideas pattern: FVUserContext + firebaseAuth fallback)
+    // Submitted by (copying Ideas pattern)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -479,16 +492,16 @@ Purpose:
         }
       }catch{}
 
-      if(!label){
-        try{
+      try{
+        if(!label){
           const u = window.firebaseAuth && window.firebaseAuth.currentUser;
           if(u){
             label = u.displayName || u.email || "";
             if(u.uid && !hidUid.value) hidUid.value = u.uid;
             if(u.email && !hidEmail.value) hidEmail.value = u.email;
           }
-        }catch{}
-      }
+        }
+      }catch{}
 
       if(label && label.includes("@")) label = nameFromEmail(label);
       label = titleCase(label || "");
@@ -535,33 +548,54 @@ Purpose:
     }
 
     function setupFarmFieldLinking(){
-      const farmSel = $("farmSelect");
-      const fieldSel = $("fieldSelect");
+      const farmSelect = $("farmSelect");
+      const fieldSelect = $("fieldSelect");
 
-      farmSel.addEventListener("change", ()=>{
-        const farmId = farmSel.value || null;
+      farmSelect.addEventListener("change", ()=>{
+        const farmId = farmSelect.value || null;
+        if (DEBUG_FM_LINK) {
+          console.log("[FM] farmSelect change ->", farmId);
+        }
         populateFieldSelect(farmId);
       });
 
-      fieldSel.addEventListener("change", ()=>{
-        const fieldId = fieldSel.value;
-        if(!fieldId) return;
-
-        const fld = state.fields.find(f=>f.id===fieldId);
-        if(!fld || !fld.farmId) return;
-
-        // set farm based on field’s farmId
-        farmSel.value = fld.farmId;
-
-        // if for some reason there is no matching option, log it (dev only)
-        if (farmSel.value !== fld.farmId) {
-          console.warn("No farm option matching farmId on field", { fieldId, farmId: fld.farmId });
+      fieldSelect.addEventListener("change", ()=>{
+        const fieldId = fieldSelect.value;
+        if(!fieldId){
+          if (DEBUG_FM_LINK) console.log("[FM] fieldSelect change (cleared)");
           return;
         }
 
-        // re-filter fields to that farm and keep this field selected
-        populateFieldSelect(fld.farmId);
-        fieldSel.value = fieldId;
+        const field = state.fields.find(f=>f.id === fieldId) || null;
+        const farmSel = $("farmSelect");
+
+        const farmOptionValues = Array.from(farmSel.options).map(o => o.value);
+        const farmId = field ? field.farmId || null : null;
+
+        if (DEBUG_FM_LINK) {
+          console.log("[FM] fieldSelect change", {
+            fieldId,
+            field,
+            farmId,
+            farmOptionValues
+          });
+        }
+
+        // Only try to select farm if we actually have a farmId that exists in options
+        if (farmId && farmOptionValues.includes(farmId)) {
+          farmSel.value = farmId;
+          if (DEBUG_FM_LINK) {
+            console.log("[FM] fieldSelect change -> farmSelect set to", farmSel.value);
+          }
+        } else {
+          if (DEBUG_FM_LINK) {
+            console.warn("[FM] fieldSelect change -> farmId not found in farmSelect options", { farmId });
+          }
+        }
+
+        // Re-filter fields for that farm so list stays tight
+        populateFieldSelect(farmId || null);
+        fieldSelect.value = fieldId;
       });
     }
 
@@ -723,7 +757,7 @@ Purpose:
       }
     }
 
-    // Boot (same pattern as vehicle registration: await ready; then init)
+    // Boot
     (async function boot(){
       await ready;
       DB = getFirestore();
