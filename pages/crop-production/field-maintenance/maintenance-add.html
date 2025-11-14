@@ -341,7 +341,8 @@ Purpose:
       getFirestore,
       collection, getDocs, addDoc,
       serverTimestamp,
-      getAuth, onAuthStateChanged
+      getAuth, onAuthStateChanged,
+      doc, getDoc
     } from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
@@ -381,9 +382,9 @@ Purpose:
     /* -------- Farms -------- */
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
-      state.farms = snap.docs.map(doc => {
-        const data = doc.data() || {};
-        return { id: String(doc.id), name: inferName(data) };
+      state.farms = snap.docs.map(docSnap => {
+        const data = docSnap.data() || {};
+        return { id: String(docSnap.id), name: inferName(data) };
       }).sort((a,b)=>a.name.localeCompare(b.name));
       const sel = $("farmSelect");
       sel.innerHTML = '<option value="">Select farm…</option>';
@@ -398,8 +399,8 @@ Purpose:
     /* -------- Fields -------- */
     async function loadFields(){
       const snap = await getDocs(collection(DB, "fields"));
-      state.fields = snap.docs.map(doc => {
-        const data = doc.data() || {};
+      state.fields = snap.docs.map(docSnap => {
+        const data = docSnap.data() || {};
         const farmId =
           (typeof data.farmId === "string" && data.farmId) ||
           (typeof data.farm === "string" && data.farm) ||
@@ -407,7 +408,7 @@ Purpose:
           (data.farm && typeof data.farm.id === "string" && data.farm.id) ||
           null;
         return {
-          id: String(doc.id),
+          id: String(docSnap.id),
           name: inferName(data),
           farmId: farmId ? String(farmId) : null
         };
@@ -437,9 +438,9 @@ Purpose:
     async function loadTopics(){
       try{
         const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
-        state.topics = snap.docs.map(doc=>{
-          const data = doc.data() || {};
-          return { id: doc.id, label: inferName(data), archived: !!data.isArchived };
+        state.topics = snap.docs.map(docSnap=>{
+          const data = docSnap.data() || {};
+          return { id: docSnap.id, label: inferName(data), archived: !!data.isArchived };
         }).filter(t=>!t.archived).sort((a,b)=>a.label.localeCompare(b.label));
         const sel = $("topicSelect");
         sel.innerHTML = '<option value="">Select topic…</option>';
@@ -550,24 +551,39 @@ Purpose:
       const farmSel = $("farmSelect");
       const fieldSel = $("fieldSelect");
 
+      // Farm → filter fields (this one already worked)
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
         populateFieldSelect(farmId);
       });
 
-      fieldSel.addEventListener("change", ()=>{
+      // Field → look up its farm in Firestore, then set farm + refilter
+      fieldSel.addEventListener("change", async ()=>{
         const fieldId = fieldSel.value;
-        if(!fieldId) return;
-        const fld = state.fields.find(f => String(f.id) === String(fieldId));
-        if(!fld || !fld.farmId) return;
+        if(!fieldId || !DB) return;
 
-        const farmSelEl = $("farmSelect");
-        const targetFarmId = String(fld.farmId);
-        farmSelEl.value = targetFarmId;
+        try{
+          const ref = doc(DB, "fields", fieldId);
+          const snap = await getDoc(ref);
+          if(!snap.exists()) return;
+          const data = snap.data() || {};
 
-        // Re-filter fields to that farm and re-select the same field
-        populateFieldSelect(targetFarmId);
-        fieldSel.value = String(fieldId);
+          const farmIdRaw =
+            (typeof data.farmId === "string" && data.farmId) ||
+            (typeof data.farm === "string" && data.farm) ||
+            (typeof data.farmDocId === "string" && data.farmDocId) ||
+            (data.farm && typeof data.farm.id === "string" && data.farm.id) ||
+            null;
+
+          if(!farmIdRaw) return;
+          const farmId = String(farmIdRaw);
+
+          farmSel.value = farmId;
+          populateFieldSelect(farmId);
+          fieldSel.value = String(fieldId);
+        }catch(e){
+          console.warn("Field→Farm link failed", e);
+        }
       });
     }
 
