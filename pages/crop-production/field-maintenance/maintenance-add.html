@@ -11,6 +11,8 @@ Purpose:
  • Notes with mic/dictation (same pattern as Ideas page).
  • Photos: lazy file input for now (no Storage uploads yet).
  • Field→Farm debug text is shown on-screen to help verify linking.
+ • NEW: Farm select overlay so the chosen farm name always shows,
+        even if iOS doesn’t repaint the native <select> label.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -226,6 +228,30 @@ Purpose:
     }
     .toast.show{ display:block; animation:fadeout 3.2s forwards; }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* Farm select overlay (to beat iOS not repainting label) */
+    .select-shell{
+      position:relative;
+    }
+    #farmSelectOverlay{
+      position:absolute;
+      left:12px;
+      right:32px;
+      top:50%;
+      transform:translateY(-50%);
+      pointer-events:none;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      opacity:0;
+      transition:opacity .12s ease-out;
+      font-size:16px;
+      line-height:1.2;
+      color:var(--text);
+    }
+    #farmSelectOverlay.show{
+      opacity:1;
+    }
   </style>
 </head>
 <body>
@@ -247,9 +273,13 @@ Purpose:
           <div class="row">
             <div class="field">
               <label for="farmSelect">Farm <span class="req">*</span></label>
-              <select id="farmSelect" class="select" required>
-                <option value="">Select farm…</option>
-              </select>
+              <div class="select-shell">
+                <select id="farmSelect" class="select" required>
+                  <option value="">Select farm…</option>
+                </select>
+                <!-- Overlay label that always shows the chosen farm -->
+                <div id="farmSelectOverlay" aria-hidden="true"></div>
+              </div>
               <div id="farmDebug" class="muted-line"></div>
             </div>
             <div class="field">
@@ -388,6 +418,21 @@ Purpose:
     const fieldDebugEl = () => $("fieldDebug");
     const linkDebugEl  = () => $("linkDebug");
 
+    function updateFarmOverlay(){
+      const sel = $("farmSelect");
+      const ov  = $("farmSelectOverlay");
+      if(!sel || !ov) return;
+      const opt = sel.options[sel.selectedIndex] || null;
+      const label = (opt && opt.value) ? (opt.textContent || "").trim() : "";
+      if(label){
+        ov.textContent = label;
+        ov.classList.add("show");
+      }else{
+        ov.textContent = "";
+        ov.classList.remove("show");
+      }
+    }
+
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
@@ -403,6 +448,7 @@ Purpose:
         sel.appendChild(opt);
       });
       if (farmDebugEl()) farmDebugEl().textContent = `Farms loaded: ${state.farms.length}`;
+      updateFarmOverlay();
     }
 
     async function loadFields(){
@@ -548,41 +594,24 @@ Purpose:
       sync();
     }
 
-    // *** UPDATED: also flips .selected on each option ***
     function selectFarmById(farmId, fromFieldId){
       const farmSel = $("farmSelect");
-      if (!farmSel || !farmId) return;
-
       const options = Array.from(farmSel.options || []);
       const idx = options.findIndex(o => o.value === farmId);
-
       if(idx >= 0){
-        // Mark only the matching option as selected
-        options.forEach(o => { o.selected = (o.value === farmId); });
-
-        // Also set the select's value and index
-        farmSel.value = farmId;
         farmSel.selectedIndex = idx;
+        farmSel.value = farmId;
 
-        // Try to force repaint like a user change
-        try{
-          farmSel.dispatchEvent(new Event('change', { bubbles:true }));
-        }catch{}
-
-        const opt = options[idx];
-        const label = opt ? (opt.textContent || "(no label)") : "(no label)";
-
+        const label = options[idx].textContent || "(no label)";
         if (farmDebugEl()) {
-          const valNow = farmSel.value || "(empty)";
-          const idxNow = farmSel.selectedIndex;
-          const lblNow = farmSel.options[idxNow] ? farmSel.options[idxNow].textContent : "(none)";
           farmDebugEl().textContent =
-            `Farm auto-selected from field: ${farmId} ("${label}") · select.value=${valNow}, idx=${idxNow}, label="${lblNow}"`;
+            `Farm auto-selected from field: ${farmId} ("${label}") · select.value=${farmSel.value}, idx=${idx}`;
         }
         if (linkDebugEl()) {
           linkDebugEl().textContent =
             `Field→Farm debug: fieldId=${fromFieldId} → farmId=${farmId} (matched option #${idx})`;
         }
+        updateFarmOverlay();
       }else{
         if (farmDebugEl()) {
           farmDebugEl().textContent = `Farm auto-select failed: no option with value=${farmId}`;
@@ -605,17 +634,12 @@ Purpose:
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
         populateFieldSelect(farmId);
-
+        updateFarmOverlay();
         if (farmDebugEl()) {
-          const idx = farmSel.selectedIndex;
-          const lbl = idx >= 0 && farmSel.options[idx]
-            ? farmSel.options[idx].textContent
-            : "(none)";
           farmDebugEl().textContent = farmId
-            ? `Farm selected: ${farmId} ("${lbl}")`
+            ? `Farm selected: ${farmId}`
             : "Farm cleared.";
         }
-
         if (linkDebugEl()) {
           linkDebugEl().textContent = farmId
             ? `Field→Farm debug: farm changed to ${farmId}`
@@ -650,7 +674,7 @@ Purpose:
         populateFieldSelect(farmId);
         $("fieldSelect").value = fieldId;
 
-        // Now force the Farm <select> to visually pick the correct option.
+        // Now force the Farm <select> to visually pick the correct option + overlay.
         selectFarmById(farmId, fieldId);
       });
     }
@@ -827,6 +851,7 @@ Purpose:
       setupActions();
       try{
         await Promise.all([loadFarms(), loadFields(), loadTopics()]);
+        updateFarmOverlay();
       }catch(e){
         console.error("Initial data load failed", e);
         showErr("Unable to load farms/fields. Check Firestore or network.");
