@@ -8,13 +8,7 @@ Purpose:
  • Date Submitted = today (display) + serverTimestamp() (stored).
  • Topic (category) comes from Firestore collection.
  • Priority 1–10, with reason required for 7+.
- • Notes + photo uploads (annotation module can be wired in later).
-
-Collections assumed (adjust as needed):
- • farms                → { name, ... }
- • fields               → { name, farmId, ... }
- • fieldMaintenanceTopics → { label, isArchived, ... }
- • fieldMaintenance     → main records written here
+ • Notes + lazy photo uploads (upload on save, with previews).
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -32,7 +26,7 @@ Collections assumed (adjust as needed):
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Ensure fv-shell + form button available if needed -->
+  <!-- Ensure fv-shell -->
   <script>
     (function () {
       if (!customElements.get('fv-shell')) {
@@ -45,226 +39,311 @@ Collections assumed (adjust as needed):
   </script>
 
   <style>
-    /* Keep everything comfortably inside the hero card on phones */
-    .fm-hero {
-      max-width: 960px;
-      margin-inline: auto;
-      padding: clamp(12px, 3vw, 20px);
-      border-radius: 18px;
-      background: var(--card-bg, var(--surface-1));
-      box-shadow: var(--card-shadow-soft);
+    .page{
+      max-width:1100px;
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
     }
-    .fm-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 12px;
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    /* Hero card */
+    .fm-hero{
+      width:min(720px, calc(100% - 24px));
+      margin:0 auto;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
     }
-    @media (min-width: 768px) {
-      .fm-grid.two-col {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
+    .fm-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .fm-row-label {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--text-subtle);
-      margin-bottom: 4px;
+    .fm-head-icon{
+      width:24px;height:24px;display:grid;place-items:center;color:#2F6C3C;
     }
-    .fm-inline {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
+    .fm-head h2{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2;}
+    .fm-body{
+      padding:16px;
+      display:grid;
+      gap:14px;
     }
-    .fm-inline span.value-pill {
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: var(--chip-bg, rgba(255,255,255,0.04));
-      border: 1px solid var(--border-subtle);
-      font-size: 0.85rem;
+
+    .fm-grid{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
     }
-    .fm-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 16px;
-      flex-wrap: wrap;
+    .fm-grid-1{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr;
     }
-    .fm-actions button {
-      min-width: 100px;
+    @media(max-width:880px){
+      .fm-grid{grid-template-columns:1fr;}
     }
-    .priority-readout {
-      font-size: 0.85rem;
-      color: var(--text-subtle);
-      margin-left: 4px;
+
+    .fm-label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px 0;
     }
-    .priority-slider {
-      width: 100%;
+    .text-required::after{
+      content:" *";
+      color:var(--green,#3B7E46);
     }
-    .priority-reason {
-      margin-top: 8px;
+
+    .input,.select,.textarea{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      box-sizing:border-box;
+      outline:none;
     }
-    .priority-reason textarea {
-      min-height: 80px;
-      resize: vertical;
+    .textarea{
+      min-height:120px;
+      resize:vertical;
+      padding-right:52px; /* room for mic */
     }
-    .fm-note textarea {
-      min-height: 120px;
-      resize: vertical;
+    .input[readonly]{opacity:1}
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-size:14px;
     }
-    input[type="file"].file-input {
-      width: 100%;
-      padding: 8px 10px;
-      border-radius: 10px;
-      border: 1px solid var(--border-subtle);
-      background: transparent;
-      font-size: 0.9rem;
-      color: var(--text-color);
+
+    .priority-slider{width:100%;}
+    .priority-readout{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin-top:4px;
     }
-    input[type="file"].file-input::file-selector-button {
-      border: none;
-      border-radius: 999px;
-      padding: 4px 12px;
-      margin-right: 10px;
-      background: var(--btn-secondary-bg);
-      color: var(--btn-secondary-fg);
-      font-size: 0.85rem;
-      cursor: pointer;
+
+    .actions{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      margin-top:8px;
     }
-    input[type="file"].file-input:focus-visible {
-      outline: 2px solid var(--focus-ring);
-      outline-offset: 2px;
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:148px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      cursor:pointer;
+      color:var(--text);
+      text-decoration:none;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff;
+    }
+    .btn[disabled]{opacity:.6;cursor:not-allowed;}
+
+    /* Mic-in-textarea (from Ideas page) */
+    .ta-wrap{position:relative;}
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:36px;
+      height:36px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+    }
+    .mic-btn[disabled]{opacity:.6;cursor:not-allowed;}
+    .mic-svg{width:18px;height:18px;display:block;}
+    .mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
+
+    /* Lazy file upload thumbnails (from Ideas page) */
+    .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
+    .thumb{
+      width:72px;
+      height:72px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      overflow:hidden;
+      display:grid;
+      place-items:center;
+      background:var(--surface);
+      font-size:11px;
+    }
+    .thumb img{max-width:100%;max-height:100%;display:block;}
+    .muted-line{font-size:13px;color:var(--muted);margin-top:4px;}
+    #uploadNote{margin-top:4px;}
+
+    /* File input style (dark-mode friendly) */
+    input[type="file"].input{
+      height:auto;
+      line-height:normal;
+      padding:8px 12px;
+      color:var(--text)!important;
+      -webkit-text-fill-color:var(--text)!important;
+    }
+    input[type="file"].input::-webkit-file-upload-button{
+      color:#111111!important;
+      -webkit-text-fill-color:#111111!important;
+      background-color:#ffffff;
     }
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="page container">
-      <header class="page-header">
-        <h1 class="page-title">Add Field Maintenance</h1>
-        <p class="page-sub">
-          Log field maintenance or repair needs by farm and field so they can be tracked, prioritized, and completed.
-        </p>
-      </header>
+      <h1 class="page-title">Add Field Maintenance</h1>
+      <p class="page-sub">
+        Log field maintenance or repair needs by farm and field so they can be tracked, prioritized, and completed.
+      </p>
 
       <section class="fm-hero">
-        <form id="fmForm" autocomplete="off">
-          <!-- Farm + Field + Submitted By + Date -->
-          <div class="fm-grid two-col">
-            <!-- Farm -->
-            <div>
-              <div class="fm-row-label">Farm<span class="text-required"> *</span></div>
-              <select id="farmSelect" name="farm" required>
-                <option value="">Select farm…</option>
-                <!-- Populated from Firestore -->
-              </select>
-            </div>
-
-            <!-- Field -->
-            <div>
-              <div class="fm-row-label">Field<span class="text-required"> *</span></div>
-              <select id="fieldSelect" name="field" required>
-                <option value="">Select field…</option>
-                <!-- Populated from Firestore -->
-              </select>
-            </div>
-
-            <!-- Submitted By (auto = logged-in user) -->
-            <div>
-              <div class="fm-row-label">Submitted by</div>
-              <div class="fm-inline">
-                <span id="submittedByDisplay" class="value-pill">Detecting user…</span>
-                <input type="hidden" id="submittedBy" name="submittedBy" />
-              </div>
-            </div>
-
-            <!-- Date Submitted (today, read-only display) -->
-            <div>
-              <div class="fm-row-label">Date submitted</div>
-              <div class="fm-inline">
-                <span id="dateSubmittedDisplay" class="value-pill"></span>
-              </div>
-            </div>
+        <header class="fm-head">
+          <div class="fm-head-icon" aria-hidden="true">🧰</div>
+          <div>
+            <h2>Add Maintenance Request</h2>
+            <p class="page-sub" style="margin:2px 0 0 0;">Choose farm and field, set priority, add notes and optional photos.</p>
           </div>
+        </header>
 
-          <hr class="section-divider" />
+        <div class="fm-body">
+          <form id="fmForm" autocomplete="off">
+            <!-- Top: Farm / Field / Submitted By / Date -->
+            <div class="fm-grid">
+              <div class="field">
+                <label for="farmSelect" class="fm-label text-required">Farm</label>
+                <select id="farmSelect" class="select" required>
+                  <option value="">Select farm…</option>
+                </select>
+              </div>
 
-          <!-- Topic + Priority -->
-          <div class="fm-grid two-col">
-            <!-- Topic/category -->
-            <div>
-              <div class="fm-row-label">Topic / Category<span class="text-required"> *</span></div>
-              <select id="topicSelect" name="topic" required>
-                <option value="">Select topic…</option>
-                <!-- Populated from Firestore (fieldMaintenanceTopics) -->
-              </select>
-              <!-- In the future we can add "Manage topics" / modal just like vehicle makes -->
-              <small class="hint">Examples: Repair Needed, Tile Blowout, Washout, Fence, Tree Removal, etc.</small>
+              <div class="field">
+                <label for="fieldSelect" class="fm-label text-required">Field</label>
+                <select id="fieldSelect" class="select" required>
+                  <option value="">Select field…</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label class="fm-label">Submitted by</label>
+                <span id="submittedByDisplay" class="pill">Detecting user…</span>
+                <input id="submittedBy" type="hidden" />
+              </div>
+
+              <div class="field">
+                <label class="fm-label">Date submitted</label>
+                <span id="dateSubmittedDisplay" class="pill"></span>
+              </div>
             </div>
 
-            <!-- Priority (1–10) -->
-            <div>
-              <div class="fm-row-label">Priority (1 = low, 10 = high)<span class="text-required"> *</span></div>
-              <input
-                id="priority"
-                name="priority"
-                class="priority-slider"
-                type="range"
-                min="1"
-                max="10"
-                step="1"
-                value="5"
-              />
-              <div>
-                <span class="priority-readout">
+            <!-- Topic + Priority -->
+            <div class="fm-grid">
+              <div class="field">
+                <label for="topicSelect" class="fm-label text-required">Topic / Category</label>
+                <select id="topicSelect" class="select" required>
+                  <option value="">Select topic…</option>
+                </select>
+                <div class="muted-line">
+                  Examples: Repair Needed, Washout, Tile Blowout, Fence, Tree Removal, etc.
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="priority" class="fm-label text-required">Priority (1 = low, 10 = high)</label>
+                <input
+                  id="priority"
+                  class="priority-slider"
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="1"
+                  value="5"
+                />
+                <div class="priority-readout">
                   Priority: <strong><span id="priorityValue">5</span>/10</strong>
-                </span>
+                </div>
+
+                <div id="priorityReasonBlock" style="margin-top:8px;display:none;">
+                  <label for="priorityReason" class="fm-label">Why is this a high priority? (7–10)</label>
+                  <textarea id="priorityReason" class="textarea" placeholder="Explain why this needs urgent attention…"></textarea>
+                </div>
               </div>
+            </div>
 
-              <div id="priorityReasonBlock" class="priority-reason" hidden>
-                <div class="fm-row-label">Why is this a high priority? (7–10)</div>
-                <textarea id="priorityReason" name="priorityReason" placeholder="Explain why this needs urgent attention…"></textarea>
+            <!-- Notes with dictation mic -->
+            <div class="fm-grid-1">
+              <div class="field">
+                <label for="notes" class="fm-label text-required">Details / Notes</label>
+                <div class="ta-wrap">
+                  <textarea
+                    id="notes"
+                    class="textarea"
+                    placeholder="Describe the issue, location in the field, severity, equipment needed, etc."
+                    required
+                  ></textarea>
+                  <button id="mic" type="button" class="mic-btn" aria-label="Start dictation">
+                    <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- Notes -->
-          <div class="fm-grid" style="margin-top: 12px;">
-            <div class="fm-note">
-              <div class="fm-row-label">Details / Notes<span class="text-required"> *</span></div>
-              <textarea
-                id="notes"
-                name="notes"
-                placeholder="Describe the issue, location in the field, severity, any equipment needed, etc."
-                required
-              ></textarea>
+            <!-- Photos with lazy upload + thumbs -->
+            <div class="fm-grid-1">
+              <div class="field">
+                <label for="photos" class="fm-label">Photos (optional)</label>
+                <input
+                  id="photos"
+                  class="input"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                />
+                <div id="thumbs" class="thumbs" aria-hidden="true"></div>
+                <div id="fileHint" class="muted-line" aria-hidden="true"></div>
+                <div id="uploadNote" class="muted-line" style="display:none"></div>
+              </div>
             </div>
-          </div>
 
-          <!-- Photos -->
-          <div class="fm-grid" style="margin-top: 12px;">
-            <div>
-              <div class="fm-row-label">Photos (optional)</div>
-              <input
-                id="photos"
-                name="photos"
-                class="file-input"
-                type="file"
-                accept="image/*"
-                multiple
-              />
-              <small class="hint">
-                Attach photos or screenshots. Annotation tools can be tied in here later (similar to boundary fix / other pages).
-              </small>
+            <div class="actions">
+              <button type="button" id="btnCancel" class="btn">Cancel</button>
+              <button type="submit" id="btnSave" class="btn btn-primary">Save</button>
             </div>
-          </div>
-
-          <!-- Actions -->
-          <div class="fm-actions">
-            <button type="button" id="btnCancel" class="btn-secondary">Cancel</button>
-            <button type="submit" id="btnSave" class="btn-primary">Save</button>
-          </div>
-        </form>
+          </form>
+        </div>
       </section>
     </div>
   </fv-shell>
@@ -276,15 +355,20 @@ Collections assumed (adjust as needed):
       collection,
       getDocs,
       addDoc,
+      updateDoc,
       serverTimestamp,
       getAuth,
-      onAuthStateChanged
+      onAuthStateChanged,
+      getStorage,
+      ref as storageRef,
+      uploadBytes,
+      getDownloadURL
     } from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const $ = (id) => document.getElementById(id);
 
-    const db = getFirestore();
+    const db   = getFirestore();
     const auth = getAuth();
 
     const state = {
@@ -294,13 +378,15 @@ Collections assumed (adjust as needed):
     };
 
     function formatLocalDate(d = new Date()) {
-      // Simple date display; Firestore will store serverTimestamp instead
+      const t = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+      return t.toISOString().slice(0, 10); // yyyy-mm-dd if needed
+    }
+    function formatDisplayDate(d = new Date()) {
       const opts = { year: 'numeric', month: 'short', day: 'numeric' };
       return d.toLocaleDateString(undefined, opts);
     }
 
     function inferName(docData) {
-      // Try multiple common field names for "name" without crashing if different
       return docData.name || docData.farmName || docData.fieldName || docData.label || 'Unnamed';
     }
 
@@ -309,18 +395,16 @@ Collections assumed (adjust as needed):
         const snap = await getDocs(collection(db, 'farms'));
         state.farms = snap.docs.map((doc) => {
           const data = doc.data() || {};
-          return {
-            id: doc.id,
-            name: inferName(data)
-          };
-        });
+          return { id: doc.id, name: inferName(data) };
+        }).sort((a,b)=>a.name.localeCompare(b.name));
+
         const farmSelect = $('farmSelect');
-        for (const f of state.farms) {
+        state.farms.forEach((f) => {
           const opt = document.createElement('option');
           opt.value = f.id;
           opt.textContent = f.name;
           farmSelect.appendChild(opt);
-        }
+        });
       } catch (err) {
         console.error('Error loading farms:', err);
         alert('Error loading farms. Check console for details.');
@@ -344,8 +428,9 @@ Collections assumed (adjust as needed):
             name: inferName(data),
             farmId
           };
-        });
-        populateFieldSelect(); // initial (unfiltered) list
+        }).sort((a,b)=>a.name.localeCompare(b.name));
+
+        populateFieldSelect(); // initial
       } catch (err) {
         console.error('Error loading fields:', err);
         alert('Error loading fields. Check console for details.');
@@ -354,7 +439,7 @@ Collections assumed (adjust as needed):
 
     function populateFieldSelect(filteredFarmId = null) {
       const select = $('fieldSelect');
-      const currentValue = select.value;
+      const prev = select.value;
       select.innerHTML = '<option value="">Select field…</option>';
 
       let fieldsToShow = state.fields;
@@ -362,89 +447,82 @@ Collections assumed (adjust as needed):
         fieldsToShow = state.fields.filter((f) => f.farmId === filteredFarmId);
       }
 
-      for (const f of fieldsToShow) {
+      fieldsToShow.forEach((f) => {
         const opt = document.createElement('option');
         opt.value = f.id;
         opt.textContent = f.name;
         select.appendChild(opt);
-      }
+      });
 
-      // Try to keep previous value if it still exists after filtering
-      if (fieldsToShow.some((f) => f.id === currentValue)) {
-        select.value = currentValue;
+      if (fieldsToShow.some((f) => f.id === prev)) {
+        select.value = prev;
       }
     }
 
     async function loadTopics() {
       try {
         const snap = await getDocs(collection(db, 'fieldMaintenanceTopics'));
-        state.topics = snap.docs
-          .map((doc) => {
-            const data = doc.data() || {};
-            return {
-              id: doc.id,
-              label: inferName(data),
-              isArchived: !!data.isArchived
-            };
-          })
-          .filter((t) => !t.isArchived);
+        state.topics = snap.docs.map((doc) => {
+          const data = doc.data() || {};
+          return {
+            id: doc.id,
+            label: inferName(data),
+            isArchived: !!data.isArchived
+          };
+        }).filter(t => !t.isArchived)
+          .sort((a,b)=>a.label.localeCompare(b.label));
 
-        const select = $('topicSelect');
-        for (const t of state.topics) {
+        const sel = $('topicSelect');
+        state.topics.forEach((t) => {
           const opt = document.createElement('option');
           opt.value = t.id;
           opt.textContent = t.label;
-          select.appendChild(opt);
-        }
+          sel.appendChild(opt);
+        });
       } catch (err) {
         console.error('Error loading topics:', err);
-        // Not fatal; you can still create maintenance items and add topics later
       }
     }
 
     function setupAuth() {
       const display = $('submittedByDisplay');
-      const hidden = $('submittedBy');
+      const hidden  = $('submittedBy');
 
       onAuthStateChanged(auth, (user) => {
         if (!user) {
           display.textContent = 'Not signed in';
           hidden.value = '';
-          // Optionally redirect to login:
-          // location.href = '/Farm-vista/auth/';
           return;
         }
-
         const who = user.displayName || user.email || 'Unknown user';
         display.textContent = who;
-        hidden.value = user.email || who;
+        hidden.value = who;
       });
     }
 
     function setupDate() {
-      $('dateSubmittedDisplay').textContent = formatLocalDate(new Date());
+      $('dateSubmittedDisplay').textContent = formatDisplayDate(new Date());
     }
 
     function setupPriority() {
       const slider = $('priority');
       const valueSpan = $('priorityValue');
-      const reasonBlock = $('priorityReasonBlock');
-      const reasonInput = $('priorityReason');
+      const block = $('priorityReasonBlock');
+      const reason = $('priorityReason');
 
-      function updatePriorityUI() {
-        const val = Number(slider.value || 5);
-        valueSpan.textContent = val;
-
-        if (val >= 7) {
-          reasonBlock.hidden = false;
+      const updateUI = () => {
+        const v = Number(slider.value || 5);
+        valueSpan.textContent = v;
+        if (v >= 7) {
+          block.style.display = '';
         } else {
-          reasonBlock.hidden = true;
-          reasonInput.value = '';
+          block.style.display = 'none';
+          reason.value = '';
         }
-      }
+      };
 
-      slider.addEventListener('input', updatePriorityUI);
-      updatePriorityUI();
+      slider.addEventListener('input', updateUI);
+      updateUI(); // initial
     }
 
     function setupFarmFieldLinking() {
@@ -462,19 +540,145 @@ Collections assumed (adjust as needed):
         const field = state.fields.find((f) => f.id === fieldId);
         if (!field || !field.farmId) return;
 
-        // Auto-select farm based on the selected field's farmId
-        const farmSelectEl = $('farmSelect');
-        farmSelectEl.value = field.farmId;
-        // And re-filter fields to that farm so list stays tight
+        farmSelect.value = field.farmId;
         populateFieldSelect(field.farmId);
         fieldSelect.value = fieldId;
       });
     }
 
+    /* Thumbs + lazy upload (Ideas pattern) */
+    function setupFilePreview() {
+      const input = $('photos');
+      const thumbs = $('thumbs');
+      const fileHint = $('fileHint');
+
+      if (!input) return;
+
+      input.addEventListener('change', () => {
+        const files = Array.from(input.files || []);
+        thumbs.innerHTML = '';
+        if (!files.length) {
+          thumbs.setAttribute('aria-hidden', 'true');
+          fileHint.textContent = '';
+          return;
+        }
+        files.forEach((f) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'thumb';
+          if (f.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.alt = f.name;
+            wrap.appendChild(img);
+            const reader = new FileReader();
+            reader.onload = (e) => { img.src = e.target.result; };
+            reader.readAsDataURL(f);
+          } else {
+            wrap.textContent = (f.name || '').split('.').pop().toUpperCase();
+          }
+          thumbs.appendChild(wrap);
+        });
+        thumbs.removeAttribute('aria-hidden');
+        fileHint.textContent = files.length + (files.length === 1 ? ' file selected' : ' files selected');
+        fileHint.removeAttribute('aria-hidden');
+      });
+    }
+
+    async function uploadPhotos(docId) {
+      const input = $('photos');
+      const uploadNote = $('uploadNote');
+      uploadNote.style.display = 'none';
+      uploadNote.textContent = '';
+
+      const files = Array.from(input?.files || []);
+      if (!files.length) return { ok:true, meta:[], note:'' };
+
+      const store = getStorage();
+      const meta = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const safeName = (Date.now() + '-' + i + '-' + (f.name || 'photo')).replace(/[^a-zA-Z0-9._-]+/g, '_');
+        const path = `fieldMaintenance/${docId}/photos/${safeName}`;
+        try {
+          const ref = storageRef(store, path);
+          await uploadBytes(ref, f, { contentType: f.type || 'application/octet-stream' });
+          const url = await getDownloadURL(ref);
+          meta.push({
+            name: f.name || safeName,
+            path,
+            url,
+            contentType: f.type || '',
+            size: f.size || 0
+          });
+        } catch (e) {
+          console.warn('[FieldMaintenance] upload error for', path, e);
+          return {
+            ok:false,
+            meta,
+            note:'Saved main record. Photo upload failed (check Storage / network).'
+          };
+        }
+      }
+
+      return { ok:true, meta, note:'' };
+    }
+
+    /* Dictation (mic) from Ideas page */
+    function setupSpeech() {
+      const mic = $('mic');
+      const notes = $('notes');
+      if (!mic || !notes) return;
+
+      const hasSpeech = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if (!hasSpeech) {
+        mic.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on) => {
+        mic.classList.toggle('mic-active', on);
+        mic.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+      };
+
+      mic.addEventListener('click', () => {
+        if (!active) {
+          baseText = notes.value ? notes.value + ' ' : '';
+          try {
+            rec.start();
+            active = true;
+            setMic(true);
+          } catch {}
+        } else {
+          try { rec.stop(); rec.abort(); } catch {}
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev) => {
+        let txt = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          txt += ev.results[i][0].transcript;
+        }
+        notes.value = baseText + txt;
+      };
+      rec.onend = () => { active = false; setMic(false); };
+      rec.onerror = () => { active = false; setMic(false); };
+    }
+
     function setupActions() {
       $('btnCancel').addEventListener('click', () => {
-        // Simple behavior: return to maintenance portal
-        window.location.href = './field-maintenance.html';
+        // Adjust path if your portal file name differs
+        window.location.href = './maintenance.html';
       });
 
       $('fmForm').addEventListener('submit', async (evt) => {
@@ -496,20 +700,18 @@ Collections assumed (adjust as needed):
             btnSave.disabled = false;
             return;
           }
-
           if (!priority || priority < 1 || priority > 10) {
             alert('Priority must be between 1 and 10.');
             btnSave.disabled = false;
             return;
           }
-
           if (priority >= 7 && !priorityReason) {
             alert('Please explain why this is a high-priority (7–10) item.');
             btnSave.disabled = false;
             return;
           }
 
-          const farm = state.farms.find((f) => f.id === farmId) || null;
+          const farm  = state.farms.find((f) => f.id === farmId) || null;
           const field = state.fields.find((f) => f.id === fieldId) || null;
           const topic = state.topics.find((t) => t.id === topicId) || null;
 
@@ -525,17 +727,26 @@ Collections assumed (adjust as needed):
             priority,
             priorityReason: priority >= 7 ? priorityReason : null,
             notes,
-            // Photos: actual uploads can be wired in later; for now we just note count
-            photoCount: $('photos').files?.length || 0,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
-            status: 'open' // default status for future workflows
+            status: 'open'
           };
 
-          await addDoc(collection(db, 'fieldMaintenance'), payload);
+          const docRef = await addDoc(collection(db, 'fieldMaintenance'), payload);
+
+          // Lazy upload photos AFTER main record exists
+          const up = await uploadPhotos(docRef.id);
+          if (up.meta.length) {
+            await updateDoc(docRef, { photos: up.meta, updatedAt: serverTimestamp() });
+          }
+          if (!up.ok && up.note) {
+            const n = $('uploadNote');
+            n.textContent = up.note;
+            n.style.display = 'block';
+          }
 
           alert('Field maintenance item saved.');
-          window.location.href = './field-maintenance.html';
+          window.location.href = './maintenance.html';
         } catch (err) {
           console.error('Error saving maintenance item:', err);
           alert('There was an error saving this maintenance item. Check console for details.');
@@ -552,9 +763,10 @@ Collections assumed (adjust as needed):
       setupDate();
       setupPriority();
       setupFarmFieldLinking();
+      setupFilePreview();
+      setupSpeech();
       setupActions();
 
-      // Load Firestore-backed dropdown data
       loadFarms();
       loadFields();
       loadTopics();
