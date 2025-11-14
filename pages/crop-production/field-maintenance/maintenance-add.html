@@ -1,13 +1,6 @@
 <!-- =====================================================================
-/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE – FIXED LOAD + OVERLAY)
-
-Changes in this build:
- • Keep Farm auto-link to Field (and vice versa) with overlay workaround.
- • Make Farm overlay text normal-weight so it visually matches Field.
- • "Submitted by" and "Date submitted" as full-width readonly inputs
-   matching Farm / Field / Topic boxes.
- • Make data boot sequential (loadFarms → loadFields → loadTopics)
-   to avoid any race killing farms/fields loading.
+/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html
+FULL FILE – overlay removed so Farm text matches Field
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -93,7 +86,7 @@ Changes in this build:
       width:100%;
       font:inherit;
       font-size:16px;
-      font-weight:400;             /* keep all form text regular weight */
+      font-weight:400;             /* regular for all values */
       color:var(--text);
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
@@ -102,21 +95,6 @@ Changes in this build:
       outline:none;
     }
     .textarea{ min-height:110px; resize:vertical; }
-
-    .fm-inline{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-
-    .value-pill{
-      padding:4px 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      font-size:0.85rem;
-    }
 
     .input-readonly[readonly]{
       cursor:default;
@@ -231,37 +209,6 @@ Changes in this build:
     }
     .toast.show{ display:block; animation:fadeout 3.2s forwards; }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
-
-    /* Farm select overlay (beats iOS label repaint bug) */
-    .select-shell{
-      position:relative;
-    }
-    #farmSelectOverlay{
-      position:absolute;
-      left:12px;
-      right:32px;
-      top:50%;
-      transform:translateY(-50%);
-      pointer-events:none;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      opacity:0;
-      transition:opacity .12s ease-out;
-      font-size:16px;
-      line-height:1.2;
-      font-weight:400;               /* normal weight to match Field */
-      font-family:inherit;
-      color:var(--text);
-      -webkit-font-smoothing:antialiased;
-    }
-    #farmSelectOverlay.show{
-      opacity:1;
-    }
-    .select.overlay-active{
-      color:transparent;
-      text-shadow:none;
-    }
   </style>
 </head>
 <body>
@@ -283,12 +230,9 @@ Changes in this build:
           <div class="row">
             <div class="field">
               <label for="farmSelect">Farm <span class="req">*</span></label>
-              <div class="select-shell">
-                <select id="farmSelect" class="select" required>
-                  <option value="">Select farm…</option>
-                </select>
-                <div id="farmSelectOverlay" aria-hidden="true"></div>
-              </div>
+              <select id="farmSelect" class="select" required>
+                <option value="">Select farm…</option>
+              </select>
             </div>
             <div class="field">
               <label for="fieldSelect">Field <span class="req">*</span></label>
@@ -424,23 +368,6 @@ Changes in this build:
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
-    function updateFarmOverlay(){
-      const sel = $("farmSelect");
-      const ov  = $("farmSelectOverlay");
-      if(!sel || !ov) return;
-      const opt = sel.options[sel.selectedIndex] || null;
-      const label = (opt && opt.value) ? (opt.textContent || "").trim() : "";
-      if(label){
-        ov.textContent = label;
-        ov.classList.add("show");
-        sel.classList.add("overlay-active");
-      }else{
-        ov.textContent = "";
-        ov.classList.remove("show");
-        sel.classList.remove("overlay-active");
-      }
-    }
-
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
@@ -455,7 +382,6 @@ Changes in this build:
         opt.textContent = f.name;
         sel.appendChild(opt);
       });
-      updateFarmOverlay();
     }
 
     async function loadFields(){
@@ -510,7 +436,7 @@ Changes in this build:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (same logic as before, now writing into readonly input)
+    // Submitted by (same logic as before)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -596,6 +522,14 @@ Changes in this build:
       sync();
     }
 
+    function repaintSelect(sel){
+      // Force iOS/WebKit to repaint the native text
+      const prevDisplay = sel.style.display;
+      sel.style.display = "none";
+      void sel.offsetHeight;
+      sel.style.display = prevDisplay || "";
+    }
+
     function selectFarmById(farmId){
       const farmSel = $("farmSelect");
       const options = Array.from(farmSel.options || []);
@@ -603,7 +537,7 @@ Changes in this build:
       if(idx >= 0){
         farmSel.selectedIndex = idx;
         farmSel.value = farmId;
-        updateFarmOverlay();
+        repaintSelect(farmSel);
       }
     }
 
@@ -614,7 +548,6 @@ Changes in this build:
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
         populateFieldSelect(farmId);
-        updateFarmOverlay();
       });
 
       fieldSel.addEventListener("change", ()=>{
@@ -625,7 +558,6 @@ Changes in this build:
         const farmId = fld.farmId || null;
         if(!farmId) return;
 
-        // Filter fields down to that farm and keep the same field selected
         populateFieldSelect(farmId);
         $("fieldSelect").value = fieldId;
         selectFarmById(farmId);
@@ -800,11 +732,7 @@ Changes in this build:
       setupFiles();
       setupActions();
       try{
-        // Sequential instead of Promise.all to be extra safe
-        await loadFarms();
-        await loadFields();
-        await loadTopics();
-        updateFarmOverlay();
+        await Promise.all([loadFarms(), loadFields(), loadTopics()]);
       }catch(e){
         console.error("Initial data load failed", e);
         showErr("Unable to load farms/fields. Check Firestore or network.");
