@@ -132,6 +132,47 @@
     .kv .val{ font-weight:800; }
 
     html.no-scroll, body.no-scroll{ overflow:hidden; }
+
+    /* Diagnostics */
+    .diag-wrap{
+      border-top:1px dashed var(--border);
+      margin:10px 16px 4px;
+      padding-top:8px;
+      font-size:13px;
+      color:var(--muted,#67706B);
+    }
+    .diag-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .diag-header-title{
+      font-weight:700;
+    }
+    .diag-toggle{
+      padding:6px 10px;
+      min-width:auto;
+      font-size:12px;
+      border-radius:10px;
+    }
+    .diag-body{
+      margin-top:6px;
+      display:grid;
+      gap:2px;
+    }
+    .diag-body div{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .diag-key{
+      opacity:0.85;
+    }
+    .diag-val{
+      font-weight:600;
+      text-align:right;
+    }
   </style>
 </head>
 <body>
@@ -257,6 +298,28 @@
           </div>
 
           <div id="summary" class="summary" hidden></div>
+
+          <!-- Diagnostics -->
+          <div class="diag-wrap">
+            <div class="diag-header">
+              <div class="diag-header-title">Diagnostics</div>
+              <button id="diagToggle" type="button" class="btn diag-toggle">Show</button>
+            </div>
+            <div id="diagBody" class="diag-body" hidden>
+              <div><span class="diag-key">FVData status</span><span id="diagFvdata" class="diag-val">—</span></div>
+              <div><span class="diag-key">Error</span><span id="diagError" class="diag-val">—</span></div>
+              <div><span class="diag-key">Equipment rows</span><span id="diagTotal" class="diag-val">0</span></div>
+              <div><span class="diag-key">Type=truck seen</span><span id="diagRawTrucks" class="diag-val">0</span></div>
+              <div><span class="diag-key">Type=trailer seen</span><span id="diagRawTrailers" class="diag-val">0</span></div>
+              <div><span class="diag-key">Dropped (no type)</span><span id="diagNoType" class="diag-val">0</span></div>
+              <div><span class="diag-key">Dropped (inactive)</span><span id="diagInactive" class="diag-val">0</span></div>
+              <div><span class="diag-key">Dropped (other type)</span><span id="diagOtherType" class="diag-val">0</span></div>
+              <div><span class="diag-key">Active trucks/trailers kept</span><span id="diagKept" class="diag-val">0</span></div>
+              <div><span class="diag-key">ALL_ASSETS length</span><span id="diagAssets" class="diag-val">0</span></div>
+              <div><span class="diag-key">Current Type filter</span><span id="diagCurType" class="diag-val">—</span></div>
+              <div><span class="diag-key">Assets matching Type</span><span id="diagCurFiltered" class="diag-val">0</span></div>
+            </div>
+          </div>
         </div>
 
         <!-- History from FVData -->
@@ -303,95 +366,151 @@
       sel.innerHTML = '<option value="">—</option>' + STATES.map(s=>`<option value="${s}">${s}</option>`).join("");
     })();
 
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":">&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const fmtComma = v => {
       if(v==null || v==="") return "";
       const n = Number(String(v).replace(/,/g,"").trim());
       return isFinite(n) ? n.toLocaleString() : "";
     };
 
+    // ========== Diagnostics state ==========
+    const DIAG = {
+      fvdataLoaded: false,
+      fvdataError: null,
+      totalRows: 0,
+      rawTrucks: 0,
+      rawTrailers: 0,
+      droppedNoType: 0,
+      droppedInactive: 0,
+      droppedOtherType: 0,
+      keptAssets: 0,
+      currentType: "",
+      currentFiltered: 0
+    };
+
+    function updateDiagnosticsUI(){
+      const body = $("diagBody");
+      if(!body) return;
+
+      $("diagFvdata").textContent = DIAG.fvdataError ? "Error" : (DIAG.fvdataLoaded ? "OK" : "Not loaded");
+      $("diagError").textContent = DIAG.fvdataError ? String(DIAG.fvdataError) : "—";
+      $("diagTotal").textContent = DIAG.totalRows;
+      $("diagRawTrucks").textContent = DIAG.rawTrucks;
+      $("diagRawTrailers").textContent = DIAG.rawTrailers;
+      $("diagNoType").textContent = DIAG.droppedNoType;
+      $("diagInactive").textContent = DIAG.droppedInactive;
+      $("diagOtherType").textContent = DIAG.droppedOtherType;
+      $("diagKept").textContent = DIAG.keptAssets;
+      $("diagAssets").textContent = ALL_ASSETS.length;
+      $("diagCurType").textContent = DIAG.currentType || "—";
+      $("diagCurFiltered").textContent = DIAG.currentFiltered;
+    }
+
+    // Diagnostics toggle
+    (function setupDiagToggle(){
+      const btn = $("diagToggle");
+      const body = $("diagBody");
+      if(!btn || !body) return;
+      btn.addEventListener("click", ()=>{
+        const nowHidden = !body.hidden;
+        body.hidden = nowHidden;
+        btn.textContent = nowHidden ? "Show" : "Hide";
+      });
+    })();
+
     // ========== Assets (FVData first) ==========
     let ALL_ASSETS = [];
 
     async function waitForFVDataReady(){
       if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
-      // Handle both "ready is a Promise" and "ready is a function returning a Promise"
       if(typeof FVData.ready === "function"){
         await FVData.ready();
-      }else if(typeof FVData.ready.then === "function"){
+      }else if(FVData.ready && typeof FVData.ready.then === "function"){
         await FVData.ready;
       }
     }
 
     async function listAssetsFV(){
       await waitForFVDataReady();
+      DIAG.fvdataLoaded = true;
+      DIAG.fvdataError = null;
 
       let rows = await (FVData.list
         ? FVData.list("equipment", { limit: 2000 })
         : FVData.loadAll("equipment"));
 
-      // Be defensive about the shape
       if(!Array.isArray(rows) && rows && Array.isArray(rows.items)) rows = rows.items;
       if(!Array.isArray(rows)) rows = rows || [];
 
-      const mapped = rows
-        .map(r => r && r.data ? ({ id:r.id, ...r.data }) : r)
-        .filter(o => !!o && (o.type || o.Type || o.equipType))
-        .map(o => {
-          const rawType = String(o.type || o.Type || o.equipType || "").toLowerCase();
-          const t = rawType.startsWith("truck") ? "truck"
-                  : rawType.startsWith("trailer") ? "trailer"
-                  : "";
-          if(!t) return null;
+      DIAG.totalRows = rows.length;
+      DIAG.rawTrucks = 0;
+      DIAG.rawTrailers = 0;
+      DIAG.droppedNoType = 0;
+      DIAG.droppedInactive = 0;
+      DIAG.droppedOtherType = 0;
+      DIAG.keptAssets = 0;
 
-          if(o.status && String(o.status).toLowerCase() !== "active") return null;
+      const assets = [];
 
-          return {
-            id: o.id || o.uid || o.unit || o.serial || `${t}_${Math.random().toString(36).slice(2)}`,
-            type: t,
-            unit: String(o.unit || o.nickname || o.serial || o.name || "").trim(),
-            year: o.year || "",
-            make: o.make || "",
-            model: o.model || "",
-            vin:  String(o.vin||"").toUpperCase().slice(0,17),
-            plate: o.plate || "",
-            state: (o.state||"").toUpperCase()
-          };
-        })
-        .filter(Boolean);
+      rows.forEach(r=>{
+        const o = r && r.data ? ({ id:r.id, ...r.data }) : r;
+        if(!o){ return; }
 
-      // If for some reason nothing comes back, let caller decide to fallback
-      return mapped;
-    }
+        const rawField = (o.type || o.Type || o.equipType || "");
+        const rawType = String(rawField).toLowerCase().trim();
+        if(!rawType){
+          DIAG.droppedNoType++;
+          return;
+        }
 
-    // local fallback (legacy)
-    function listAssetsLocal(){
-      let trucks=[], trailers=[];
-      try{ trucks = JSON.parse(localStorage.getItem("fv_trucks_v1")||"[]"); }catch(e){}
-      try{ trailers = JSON.parse(localStorage.getItem("fv_trailers_v1")||"[]"); }catch(e){}
-      let assets = []
-        .concat((Array.isArray(trucks)?trucks:[]).map(t => ({...t, type:"truck"})))
-        .concat((Array.isArray(trailers)?trailers:[]).map(t => ({...t, type:"trailer"})));
+        let t = "";
+        if(rawType.startsWith("truck")){
+          t = "truck";
+          DIAG.rawTrucks++;
+        }else if(rawType.startsWith("trailer")){
+          t = "trailer";
+          DIAG.rawTrailers++;
+        }else{
+          DIAG.droppedOtherType++;
+          return;
+        }
 
-      if(!assets.length){
-        assets = [
-          { id:"trk1", type:"truck", unit:"Pete 579 #12", year:2021, make:"Peterbilt", model:"579", vin:"1XPBDP9X1MD123456", plate:"123456", state:"IL" },
-          { id:"trl1", type:"trailer", unit:"Wilson 43' Hopper", year:2018, make:"Wilson", model:"PSAG", vin:"1W1MAFZA0J1234567", plate:"T123456", state:"IL" }
-        ];
-      }
+        const status = o.status ? String(o.status).toLowerCase() : "";
+        if(status && status !== "active"){
+          DIAG.droppedInactive++;
+          return;
+        }
+
+        const asset = {
+          id: o.id || o.uid || o.unit || o.serial || `${t}_${Math.random().toString(36).slice(2)}`,
+          type: t,
+          unit: String(o.unit || o.nickname || o.serial || o.name || "").trim(),
+          year: o.year || "",
+          make: o.make || "",
+          model: o.model || "",
+          vin:  String(o.vin||"").toUpperCase().slice(0,17),
+          plate: o.plate || "",
+          state: (o.state||"").toUpperCase()
+        };
+        assets.push(asset);
+        DIAG.keptAssets++;
+      });
+
       return assets;
     }
 
     function applyAssetFilter(){
       const sel = $("asset");
-      const type = $("type").value;  // "truck" / "trailer" / "" / "other"
+      const type = $("type").value;
       const prev = sel.value;
 
       sel.innerHTML = '<option value="">Select asset…</option>';
 
-      // Only trucks & trailers are asset-linked
       if(type !== "truck" && type !== "trailer"){
         sel.disabled = true;
+        DIAG.currentType = type || "";
+        DIAG.currentFiltered = 0;
+        updateDiagnosticsUI();
         return;
       }
 
@@ -415,6 +534,10 @@
       }else{
         sel.value = "";
       }
+
+      DIAG.currentType = type;
+      DIAG.currentFiltered = filtered.length;
+      updateDiagnosticsUI();
     }
 
     async function fillAssetSelect(){
@@ -422,15 +545,11 @@
       try{
         assets = await listAssetsFV();
       }catch(e){
-        console.warn("FVData asset load error, falling back to local:", e);
+        console.warn("FVData asset load error:", e);
+        DIAG.fvdataError = e && e.message ? e.message : String(e);
+        assets = [];
       }
-
-      if(!Array.isArray(assets) || !assets.length){
-        console.warn("No FVData trucks/trailers found, using local/demo assets.");
-        assets = listAssetsLocal();
-      }
-
-      ALL_ASSETS = assets;
+      ALL_ASSETS = Array.isArray(assets) ? assets : [];
       applyAssetFilter();
     }
 
