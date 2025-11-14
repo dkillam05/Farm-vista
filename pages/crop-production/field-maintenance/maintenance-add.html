@@ -1,17 +1,11 @@
 <!-- =====================================================================
-/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE – CLEANED)
+/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE – UI TWEAK)
 
-Purpose:
- • Add new field maintenance / repair requests.
- • Farm + Field are linked (either can drive the other).
- • Submitted By = logged-in user (read-only).
- • Date Submitted = today (display) + serverTimestamp() (stored).
- • Topic (category) comes from Firestore collection.
- • Priority 1–10, with live readout + reason required for 7+.
- • Notes with mic/dictation (same pattern as Ideas page).
- • Photos: lazy file input for now (no Storage uploads yet).
- • Farm select overlay so the chosen farm name always shows,
-   even on iOS where the native <select> label can be stubborn.
+Changes in this build:
+ • Keep Farm auto-link to Field (and vice versa) with overlay workaround.
+ • Make Farm overlay text normal-weight so it visually matches Field.
+ • Change "Submitted by" and "Date submitted" to full-width readonly inputs
+   that match the look of Farm / Field / Topic boxes.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -94,7 +88,11 @@ Purpose:
     .fm-row-label .req{ color:var(--accent); }
 
     .input, .select, .textarea{
-      width:100%; font:inherit; font-size:16px; color:var(--text);
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      font-weight:400;             /* keep all form text regular weight */
+      color:var(--text);
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
       border-radius:10px;
@@ -109,12 +107,18 @@ Purpose:
       gap:10px;
       flex-wrap:wrap;
     }
+
     .value-pill{
       padding:4px 10px;
       border-radius:999px;
       border:1px solid var(--border);
       background:var(--card-surface,var(--surface));
       font-size:0.85rem;
+    }
+
+    .input-readonly[readonly]{
+      cursor:default;
+      background:var(--card-surface,var(--surface));
     }
 
     .actions{
@@ -244,15 +248,14 @@ Purpose:
       transition:opacity .12s ease-out;
       font-size:16px;
       line-height:1.2;
-      font-weight:400;        /* match normal select text */
+      font-weight:400;               /* normal weight to match Field */
       font-family:inherit;
       color:var(--text);
+      -webkit-font-smoothing:antialiased;
     }
     #farmSelectOverlay.show{
       opacity:1;
     }
-    /* When overlay is showing, hide the native select text so
-       “Select farm…” doesn’t sit behind our label. */
     .select.overlay-active{
       color:transparent;
       text-shadow:none;
@@ -274,7 +277,7 @@ Purpose:
         <div class="body">
           <div id="err" class="error"></div>
 
-          <!-- Farm / Field / Submitted By / Date -->
+          <!-- Farm / Field -->
           <div class="row">
             <div class="field">
               <label for="farmSelect">Farm <span class="req">*</span></label>
@@ -282,7 +285,6 @@ Purpose:
                 <select id="farmSelect" class="select" required>
                   <option value="">Select farm…</option>
                 </select>
-                <!-- Overlay label that always shows the chosen farm -->
                 <div id="farmSelectOverlay" aria-hidden="true"></div>
               </div>
             </div>
@@ -294,21 +296,27 @@ Purpose:
             </div>
           </div>
 
+          <!-- Submitted by / Date -->
           <div class="row">
             <div class="field">
               <div class="fm-row-label">Submitted by</div>
-              <div class="fm-inline">
-                <span id="submittedByDisplay" class="value-pill">Detecting user…</span>
-                <input id="submittedBy" type="hidden">
-                <input id="submittedUid" type="hidden">
-                <input id="submittedEmail" type="hidden">
-              </div>
+              <input
+                id="submittedByDisplay"
+                class="input input-readonly"
+                type="text"
+                readonly
+                value="Detecting user…">
+              <input id="submittedBy" type="hidden">
+              <input id="submittedUid" type="hidden">
+              <input id="submittedEmail" type="hidden">
             </div>
             <div class="field">
               <div class="fm-row-label">Date submitted</div>
-              <div class="fm-inline">
-                <span id="dateSubmittedDisplay" class="value-pill"></span>
-              </div>
+              <input
+                id="dateSubmittedDisplay"
+                class="input input-readonly"
+                type="text"
+                readonly>
             </div>
           </div>
 
@@ -500,7 +508,7 @@ Purpose:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (copying Ideas pattern)
+    // Submitted by (same logic as before, now writing into readonly input)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -545,7 +553,7 @@ Purpose:
       if(label && label.includes("@")) label = nameFromEmail(label);
       label = titleCase(label || "");
       if(label){
-        disp.textContent = label;
+        disp.value = label;
         hidName.value = label;
         return true;
       }
@@ -563,7 +571,7 @@ Purpose:
 
     function setupDate(){
       const todayIso = formatLocalDate();
-      $("dateSubmittedDisplay").textContent = prettyDate(todayIso);
+      $("dateSubmittedDisplay").value = prettyDate(todayIso);
     }
 
     function setupPriority(){
@@ -615,11 +623,8 @@ Purpose:
         const farmId = fld.farmId || null;
         if(!farmId) return;
 
-        // Filter fields to that farm and keep the same field selected.
         populateFieldSelect(farmId);
         $("fieldSelect").value = fieldId;
-
-        // Now force the Farm <select> to visually pick the correct option + overlay.
         selectFarmById(farmId);
       });
     }
@@ -780,7 +785,6 @@ Purpose:
       }
     }
 
-    // Boot
     (async function boot(){
       await ready;
       DB = getFirestore();
