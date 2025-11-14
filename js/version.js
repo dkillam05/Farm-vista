@@ -2,7 +2,7 @@
    Bump these fields for each release. Everything else reads from here. */
 
 const FV_NUMBER  = "11.14.01";                 // ← edit this when releasing
-const FV_DATE    = "2025-11-01";            // ← optional, informational
+const FV_DATE    = "2025-11-02";            // ← optional, informational
 const FV_TAGLINE = "Farm Data - Simplified";
 
 /* ===== DO NOT EDIT BELOW ===== */
