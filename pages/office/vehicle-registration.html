@@ -167,7 +167,7 @@
             <div class="field">
               <label for="asset">Asset (filtered by type)</label>
               <select id="asset" class="select" disabled>
-                <option value="">Manual entry…</option>
+                <option value="">Select asset…</option>
               </select>
             </div>
           </div>
@@ -293,8 +293,8 @@
     };
 
     const COLL = "vehicleRegistrations";
-    const MAX_RET = 50;       // how many to show from FVData
-    const LS_KEY = "fv_vehicle_regs_v1"; // local fallback history
+    const MAX_RET = 50;
+    const LS_KEY = "fv_vehicle_regs_v1";
     const MAX_LS  = 10;
 
     const STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
@@ -317,20 +317,26 @@
       if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
       await FVData.ready();
 
-      // Load active equipment, then filter to truck / trailer
+      // Load equipment; filter in JS for truck / trailer + active-ish
       const rows = await (FVData.list
-        ? FVData.list("equipment", {
-            where: [["status","==","active"]],
-            limit: 2000
-          })
+        ? FVData.list("equipment", { limit: 2000 })
         : FVData.loadAll("equipment"));
 
       return (rows || [])
         .map(r => r.data ? ({ id:r.id, ...r.data }) : r)
-        .filter(o => o.type === "truck" || o.type === "trailer")
+        .filter(o => {
+          const rawType = String(o.type || "").toLowerCase();
+          const t = rawType.startsWith("truck") ? "truck"
+                  : rawType.startsWith("trailer") ? "trailer"
+                  : "";
+          if(!t) return false;
+          if(o.status && String(o.status).toLowerCase() !== "active") return false;
+          o._uiType = t;
+          return true;
+        })
         .map(o => ({
-          id: o.id || o.uid || o.unit || o.serial || `${o.type}_${Math.random().toString(36).slice(2)}`,
-          type: o.type, // "truck" or "trailer"
+          id: o.id || o.uid || o.unit || o.serial || `${o._uiType}_${Math.random().toString(36).slice(2)}`,
+          type: o._uiType, // normalized "truck"/"trailer"
           unit: String(o.unit || o.nickname || o.serial || o.name || "").trim(),
           year: o.year || "",
           make: o.make || "",
@@ -364,7 +370,7 @@
       const type = $("type").value;
       const prev = sel.value;
 
-      sel.innerHTML = '<option value="">Manual entry…</option>';
+      sel.innerHTML = '<option value="">Select asset…</option>';
 
       // Only trucks & trailers are asset-linked
       if(type !== "truck" && type !== "trailer"){
@@ -384,7 +390,6 @@
         sel.appendChild(opt);
       });
 
-      // Try to restore previous selection if still valid
       if(prev && filtered.some(a => a.id === prev)){
         sel.value = prev;
       }else{
@@ -409,11 +414,9 @@
       if(!opt || !opt.dataset.payload) return;
       const a = JSON.parse(opt.dataset.payload);
 
-      // Ensure type matches the selected asset
       if(a.type && $("type").value !== a.type){
         $("type").value = a.type;
         applyAssetFilter();
-        // re-select the same asset after options rebuilt
         $("asset").value = a.id;
       }
 
@@ -427,7 +430,6 @@
     });
 
     $("type").addEventListener("change", () => {
-      // When type changes, re-filter assets and clear current asset selection
       applyAssetFilter();
       if($("type").value === "" || $("type").value === "other"){
         $("asset").value = "";
@@ -484,12 +486,11 @@
     }
 
     async function saveRegistration(it){
-      // FVData primary
       try{
         if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
         await FVData.ready();
         await (FVData.save
-          ? FVData.save(COLL, it)      // FVData adds timestamps internally
+          ? FVData.save(COLL, it)
           : FVData.add(COLL, it));
         return true;
       }catch(e){
@@ -509,7 +510,6 @@
 
     async function renderHistory(){
       const box = $("history");
-      // Try FVData first
       try{
         if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
         await FVData.ready();
@@ -533,7 +533,6 @@
         console.warn("FVData history failed, using local fallback:", e);
       }
 
-      // Fallback to local history
       const h = lsLoad();
       if(!h.length){ box.innerHTML = '<div class="muted">No previous registrations.</div>'; return; }
       box.innerHTML = "";
@@ -603,11 +602,10 @@
         const el=$(id); if(!el) return;
         if(el.tagName==="SELECT") el.selectedIndex = 0; else el.value = "";
       });
-      applyAssetFilter(); // re-disable asset until type is chosen again
+      applyAssetFilter();
       $("summary").hidden = true;
     });
 
-    // Local history clear (does not touch FVData)
     $("clearHist").addEventListener("click", ()=>{
       if(!confirm("Clear local fallback history? (This does not delete FVData records.)")) return;
       lsSave([]); renderHistory();
