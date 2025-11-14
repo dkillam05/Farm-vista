@@ -148,34 +148,35 @@
           </div>
           <div>
             <h1>Vehicle Registration</h1>
-            <p class="muted">Pick an asset (truck or trailer) from FVData or enter details manually, then save. History shows the latest registrations.</p>
+            <p class="muted">Choose a type, pick a truck or trailer asset from FVData, or enter details manually, then save. History shows the latest registrations.</p>
           </div>
         </header>
 
         <div class="body">
-          <!-- Asset selection -->
+          <!-- Asset selection (Type first, then filtered assets) -->
           <div class="row">
             <div class="field">
-              <label for="asset">Asset</label>
-              <select id="asset" class="select">
-                <option value="">Manual entry…</option>
+              <label for="type">Type</label>
+              <select id="type" class="select">
+                <option value="">Select type…</option>
+                <option value="truck">Truck</option>
+                <option value="trailer">Trailer</option>
+                <option value="other">Other</option>
               </select>
             </div>
             <div class="field">
-              <label for="unit">Unit ID / Nickname</label>
-              <input id="unit" class="input" placeholder="e.g., Pete 579 #12">
+              <label for="asset">Asset (filtered by type)</label>
+              <select id="asset" class="select" disabled>
+                <option value="">Manual entry…</option>
+              </select>
             </div>
           </div>
 
           <!-- Identity -->
           <div class="row-4">
             <div class="field">
-              <label for="type">Type</label>
-              <select id="type" class="select">
-                <option value="truck">Truck</option>
-                <option value="trailer">Trailer</option>
-                <option value="other">Other</option>
-              </select>
+              <label for="unit">Unit ID / Nickname</label>
+              <input id="unit" class="input" placeholder="e.g., Pete 579 #12">
             </div>
             <div class="field">
               <label for="year">Year</label>
@@ -310,29 +311,47 @@
     };
 
     // ========== Assets (FVData first) ==========
+    let ALL_ASSETS = [];
+
     async function listAssetsFV(){
       if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
       await FVData.ready();
-      // Try standard collections used in the app
-      const [trucks, trailers] = await Promise.all([
-        (FVData.list ? FVData.list("equipmentTrucks", { limit: 2000 }) : FVData.loadAll("equipmentTrucks")),
-        (FVData.list ? FVData.list("equipmentTrailers", { limit: 2000 }) : FVData.loadAll("equipmentTrailers"))
-      ]);
-      const norm = (rows, type) => (rows||[]).map(r=>{
-        const o = r.data ? ({ id:r.id, ...r.data }) : r;
-        return {
-          id: o.id || o.uid || o.unit || `${type}_${Math.random().toString(36).slice(2)}`,
-          type,
-          unit: String(o.unit || o.nickname || o.name || "").trim(),
+
+      // equipment collection; filter by type & status
+      const trucksPromise = FVData.list
+        ? FVData.list("equipment", {
+            where: [["type","==","trucks"],["status","==","active"]],
+            limit: 2000
+          })
+        : FVData.loadAll("equipment");
+      const trailersPromise = FVData.list
+        ? FVData.list("equipment", {
+            where: [["type","==","trailers"],["status","==","active"]],
+            limit: 2000
+          })
+        : FVData.loadAll("equipment");
+
+      const [trucksRaw, trailersRaw] = await Promise.all([trucksPromise, trailersPromise]);
+
+      const norm = (rows, typeFilter, uiType) => (rows||[])
+        .map(r => r.data ? ({ id:r.id, ...r.data }) : r)
+        .filter(o => !typeFilter || o.type === typeFilter)
+        .map(o => ({
+          id: o.id || o.uid || o.unit || o.serial || `${uiType}_${Math.random().toString(36).slice(2)}`,
+          type: uiType, // "truck" or "trailer" for UI
+          unit: String(o.unit || o.nickname || o.serial || o.name || "").trim(),
           year: o.year || "",
           make: o.make || "",
           model: o.model || "",
           vin:  String(o.vin||"").toUpperCase().slice(0,17),
           plate: o.plate || "",
           state: (o.state||"").toUpperCase()
-        };
-      });
-      return [...norm(trucks,"truck"), ...norm(trailers,"trailer")];
+        }));
+
+      return [
+        ...norm(trucksRaw, "trucks", "truck"),
+        ...norm(trailersRaw, "trailers", "trailer")
+      ];
     }
 
     // local fallback (legacy)
@@ -353,17 +372,23 @@
       return assets;
     }
 
-    async function fillAssetSelect(){
+    function applyAssetFilter(){
       const sel = $("asset");
+      const type = $("type").value;
+      const prev = sel.value;
+
       sel.innerHTML = '<option value="">Manual entry…</option>';
-      let assets = [];
-      try{
-        assets = await listAssetsFV();
-      }catch(e){
-        console.warn("FVData asset load failed, falling back to local:", e);
-        assets = listAssetsLocal();
+
+      // Only trucks & trailers are asset-linked
+      if(type !== "truck" && type !== "trailer"){
+        sel.disabled = true;
+        return;
       }
-      assets.forEach(a=>{
+
+      sel.disabled = false;
+
+      const filtered = (ALL_ASSETS || []).filter(a => a.type === type);
+      filtered.forEach(a=>{
         const label = `${a.type==="truck"?"Truck":"Trailer"} • ${a.unit || `${a.make||""} ${a.model||""}`.trim()}`.trim();
         const opt = document.createElement("option");
         opt.value = a.id;
@@ -371,20 +396,56 @@
         opt.dataset.payload = JSON.stringify(a);
         sel.appendChild(opt);
       });
+
+      // Try to restore previous selection if still valid
+      if(prev && filtered.some(a => a.id === prev)){
+        sel.value = prev;
+      }else{
+        sel.value = "";
+      }
+    }
+
+    async function fillAssetSelect(){
+      let assets = [];
+      try{
+        assets = await listAssetsFV();
+      }catch(e){
+        console.warn("FVData asset load failed, falling back to local:", e);
+        assets = listAssetsLocal();
+      }
+      ALL_ASSETS = assets;
+      applyAssetFilter();
     }
 
     $("asset").addEventListener("change", function(){
       const opt = this.selectedOptions[0];
       if(!opt || !opt.dataset.payload) return;
       const a = JSON.parse(opt.dataset.payload);
+
+      // Ensure type matches the selected asset
+      if(a.type && $("type").value !== a.type){
+        $("type").value = a.type;
+        applyAssetFilter();
+        // re-select the same asset after options rebuilt
+        $("asset").value = a.id;
+      }
+
       $("unit").value = a.unit || "";
-      $("type").value = (a.type||"other");
       $("year").value = a.year || "";
       $("make").value = a.make || "";
       $("model").value = a.model || "";
       $("vin").value = (a.vin||"").toUpperCase().slice(0,17);
       $("plate").value = a.plate || "";
       $("state").value = (a.state||"").toUpperCase();
+    });
+
+    $("type").addEventListener("change", () => {
+      // When type changes, re-filter assets and clear current asset selection
+      applyAssetFilter();
+      if($("type").value === "" || $("type").value === "other"){
+        $("asset").value = "";
+        $("asset").disabled = true;
+      }
     });
 
     // ========== Registrations (FVData first) ==========
@@ -555,6 +616,7 @@
         const el=$(id); if(!el) return;
         if(el.tagName==="SELECT") el.selectedIndex = 0; else el.value = "";
       });
+      applyAssetFilter(); // re-disable asset until type is chosen again
       $("summary").hidden = true;
     });
 
