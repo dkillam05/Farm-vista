@@ -101,16 +101,6 @@ Purpose:
     }
     .textarea{ min-height:110px; resize:vertical; }
 
-    /* Small inline filter inputs for farm/field dropdowns */
-    .filter-input{
-      font-size:14px;
-      padding:8px 10px;
-      margin-bottom:6px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-    }
-
     .fm-inline{
       display:flex;
       align-items:center;
@@ -256,14 +246,12 @@ Purpose:
           <div class="row">
             <div class="field">
               <label for="farmSelect">Farm <span class="req">*</span></label>
-              <input id="farmFilter" class="filter-input" type="text" placeholder="Search farms…">
               <select id="farmSelect" class="select" required>
                 <option value="">Select farm…</option>
               </select>
             </div>
             <div class="field">
               <label for="fieldSelect">Field <span class="req">*</span></label>
-              <input id="fieldFilter" class="filter-input" type="text" placeholder="Search fields…">
               <select id="fieldSelect" class="select" required>
                 <option value="">Select field…</option>
               </select>
@@ -395,27 +383,16 @@ Purpose:
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
         const data = doc.data() || {};
-        return { id: doc.id, name: inferName(data) };
+        return { id: String(doc.id), name: inferName(data) };
       }).sort((a,b)=>a.name.localeCompare(b.name));
-      populateFarmSelect();
-    }
-
-    function populateFarmSelect(filterText = ""){
       const sel = $("farmSelect");
-      const prev = sel.value;
-      const q = String(filterText || "").toLowerCase();
       sel.innerHTML = '<option value="">Select farm…</option>';
-      state.farms
-        .filter(f => !q || String(f.name || "").toLowerCase().includes(q))
-        .forEach(f=>{
-          const opt = document.createElement("option");
-          opt.value = f.id;
-          opt.textContent = f.name;
-          sel.appendChild(opt);
-        });
-      if (state.farms.some(f => f.id === prev)) {
-        sel.value = prev;
-      }
+      state.farms.forEach(f=>{
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = f.name;
+        sel.appendChild(opt);
+      });
     }
 
     /* -------- Fields -------- */
@@ -423,33 +400,36 @@ Purpose:
       const snap = await getDocs(collection(DB, "fields"));
       state.fields = snap.docs.map(doc => {
         const data = doc.data() || {};
-        const farmId = data.farmId || data.farm || data.farmDocId || null;
-        return { id: doc.id, name: inferName(data), farmId };
+        const farmId =
+          (typeof data.farmId === "string" && data.farmId) ||
+          (typeof data.farm === "string" && data.farm) ||
+          (typeof data.farmDocId === "string" && data.farmDocId) ||
+          (data.farm && typeof data.farm.id === "string" && data.farm.id) ||
+          null;
+        return {
+          id: String(doc.id),
+          name: inferName(data),
+          farmId: farmId ? String(farmId) : null
+        };
       }).sort((a,b)=>a.name.localeCompare(b.name));
       populateFieldSelect();
     }
 
-    function populateFieldSelect(farmId=null, filterText=""){
+    function populateFieldSelect(farmId=null){
       const sel = $("fieldSelect");
       const prev = sel.value;
-      const q = String(filterText || "").toLowerCase();
-
       sel.innerHTML = '<option value="">Select field…</option>';
       let list = state.fields;
       if(farmId){
-        list = list.filter(f=>f.farmId === farmId);
+        const fId = String(farmId);
+        list = list.filter(f=>f.farmId === fId);
       }
-      if (q) {
-        list = list.filter(f => String(f.name || "").toLowerCase().includes(q));
-      }
-
       list.forEach(f=>{
         const opt = document.createElement("option");
         opt.value = f.id;
         opt.textContent = f.name;
         sel.appendChild(opt);
       });
-
       if(list.some(f=>f.id===prev)) sel.value = prev;
     }
 
@@ -479,7 +459,7 @@ Purpose:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (copying Ideas pattern: FVUserContext + firebaseAuth fallback)
+    // Submitted by (Ideas pattern)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -565,52 +545,30 @@ Purpose:
       sync();
     }
 
-    /* Farm/Field linking + search */
+    /* -------- Farm/Field linking (both directions) -------- */
     function setupFarmFieldLinking(){
       const farmSel = $("farmSelect");
       const fieldSel = $("fieldSelect");
-      const fieldFilter = $("fieldFilter");
 
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
-        const q = fieldFilter ? fieldFilter.value.trim() : "";
-        populateFieldSelect(farmId, q);
+        populateFieldSelect(farmId);
       });
 
       fieldSel.addEventListener("change", ()=>{
         const fieldId = fieldSel.value;
         if(!fieldId) return;
-        const fld = state.fields.find(f=>f.id===fieldId);
+        const fld = state.fields.find(f => String(f.id) === String(fieldId));
         if(!fld || !fld.farmId) return;
-        // Auto-select farm for this field
+
         const farmSelEl = $("farmSelect");
-        farmSelEl.value = fld.farmId;
-        const q = fieldFilter ? fieldFilter.value.trim() : "";
-        populateFieldSelect(fld.farmId, q);
-        fieldSel.value = fieldId;
+        const targetFarmId = String(fld.farmId);
+        farmSelEl.value = targetFarmId;
+
+        // Re-filter fields to that farm and re-select the same field
+        populateFieldSelect(targetFarmId);
+        fieldSel.value = String(fieldId);
       });
-    }
-
-    function setupFilters(){
-      const farmFilter = $("farmFilter");
-      const fieldFilter = $("fieldFilter");
-
-      if (farmFilter) {
-        farmFilter.addEventListener("input", ()=>{
-          populateFarmSelect(farmFilter.value.trim());
-          // When farms list changes, keep fields filtered to selected farm + current field query
-          const farmId = $("farmSelect").value || null;
-          const fq = fieldFilter ? fieldFilter.value.trim() : "";
-          populateFieldSelect(farmId, fq);
-        });
-      }
-
-      if (fieldFilter) {
-        fieldFilter.addEventListener("input", ()=>{
-          const farmId = $("farmSelect").value || null;
-          populateFieldSelect(farmId, fieldFilter.value.trim());
-        });
-      }
     }
 
     function setupMic(){
@@ -771,7 +729,7 @@ Purpose:
       }
     }
 
-    // Boot (same pattern as vehicle registration: await ready; then init)
+    // Boot
     (async function boot(){
       await ready;
       DB = getFirestore();
@@ -780,7 +738,6 @@ Purpose:
       setupDate();
       setupPriority();
       setupFarmFieldLinking();
-      setupFilters();
       setupMic();
       setupFiles();
       setupActions();
