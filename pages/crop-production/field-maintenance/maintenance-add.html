@@ -10,7 +10,6 @@ Purpose:
  • Priority 1–10, with live readout + reason required for 7+.
  • Notes with mic/dictation (same pattern as Ideas page).
  • Photos: lazy file input for now (no Storage uploads yet).
- • TEMP: On-screen diagnostics for Farm/Field linking so we can debug from phone.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -250,16 +249,14 @@ Purpose:
               <select id="farmSelect" class="select" required>
                 <option value="">Select farm…</option>
               </select>
-              <!-- On-screen diagnostics for farms -->
-              <div id="farmDiag" class="muted-line" aria-live="polite"></div>
+              <div id="farmDebug" class="muted-line"></div>
             </div>
             <div class="field">
               <label for="fieldSelect">Field <span class="req">*</span></label>
               <select id="fieldSelect" class="select" required>
                 <option value="">Select field…</option>
               </select>
-              <!-- On-screen diagnostics for fields -->
-              <div id="fieldDiag" class="muted-line" aria-live="polite"></div>
+              <div id="fieldDebug" class="muted-line"></div>
             </div>
           </div>
 
@@ -278,13 +275,6 @@ Purpose:
               <div class="fm-inline">
                 <span id="dateSubmittedDisplay" class="value-pill"></span>
               </div>
-            </div>
-          </div>
-
-          <!-- Link debug line (field → farm) -->
-          <div class="row-1">
-            <div class="field">
-              <div id="linkDiag" class="muted-line" aria-live="polite"></div>
             </div>
           </div>
 
@@ -361,16 +351,6 @@ Purpose:
     const state = { farms: [], fields: [], topics: [] };
     let DB = null;
 
-    const diag = {
-      farm:  () => $("farmDiag"),
-      field: () => $("fieldDiag"),
-      link:  () => $("linkDiag")
-    };
-    const setDiag = (key, msg) => {
-      const el = diag[key] && diag[key]();
-      if (el) el.textContent = msg || "";
-    };
-
     const showErr = msg => {
       const box = $("err");
       box.textContent = msg || "";
@@ -401,7 +381,6 @@ Purpose:
     }
 
     async function loadFarms(){
-      setDiag("farm", "Loading farms…");
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
         const data = doc.data() || {};
@@ -415,11 +394,11 @@ Purpose:
         opt.textContent = f.name;
         sel.appendChild(opt);
       });
-      setDiag("farm", `Farms loaded: ${state.farms.length}`);
+      const dbg = $("farmDebug");
+      if (dbg) dbg.textContent = `Farms loaded: ${state.farms.length}`;
     }
 
     async function loadFields(){
-      setDiag("field", "Loading fields…");
       const snap = await getDocs(collection(DB, "fields"));
       state.fields = snap.docs.map(doc => {
         const data = doc.data() || {};
@@ -445,8 +424,14 @@ Purpose:
       });
       if(list.some(f=>f.id===prev)) sel.value = prev;
 
-      const labelFarm = farmId ? `farmId=${farmId}` : "all farms";
-      setDiag("field", `Fields shown: ${list.length} (${labelFarm})`);
+      const dbg = $("fieldDebug");
+      if (dbg) {
+        if (farmId) {
+          dbg.textContent = `Fields shown: ${list.length} (farmId=${farmId})`;
+        } else {
+          dbg.textContent = `Fields shown: ${list.length} (all farms)`;
+        }
+      }
     }
 
     async function loadTopics(){
@@ -474,7 +459,7 @@ Purpose:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (copying Ideas pattern: FVUserContext + firebaseAuth fallback)
+    // Submitted by (copying Ideas pattern)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -483,7 +468,7 @@ Purpose:
       const local = String(email||"").split("@")[0]||"";
       if(!local) return "";
       if(/[._-]/.test(local)){
-        return titleCase(local.replace(/[0-9]+/g," ").split(/[0-9._-]+/).join(" "));
+        return titleCase(local.replace(/[0-9]+/g," ").split(/[._-]+/).join(" "));
       }
       const spaced = local.replace(/([a-z])([A-Z])/g,"$1 $2");
       return titleCase(spaced || local);
@@ -560,55 +545,62 @@ Purpose:
       sync();
     }
 
+    function autoSelectFarmFromField(fieldId){
+      const dbg = $("fieldDebug");
+      const farmDbg = $("farmDebug");
+      const fieldObj = state.fields.find(f => f.id === fieldId);
+
+      if (!fieldId) {
+        if (dbg) dbg.textContent = "Field→Farm debug: no field selected.";
+        return;
+      }
+      if (!fieldObj) {
+        if (dbg) dbg.textContent = `Field→Farm debug: no field object for id=${fieldId}`;
+        return;
+      }
+
+      const farmId = fieldObj.farmId || "";
+      if (dbg) dbg.textContent = `Field→Farm debug: fieldId=${fieldId} → farmId=${farmId || "(missing)"}`;
+
+      if (!farmId) return;
+
+      const farmSel = $("farmSelect");
+      let matched = false;
+      Array.from(farmSel.options).forEach(opt => {
+        if (opt.value === farmId) {
+          opt.selected = true;
+          matched = true;
+        } else {
+          opt.selected = false;
+        }
+      });
+
+      if (matched) {
+        if (farmDbg) farmDbg.textContent = `Farm auto-selected from field: ${farmId}`;
+        // Now lock fields list to this farm, but keep the same field selected.
+        populateFieldSelect(farmId);
+        $("fieldSelect").value = fieldId;
+      } else {
+        if (farmDbg) farmDbg.textContent = `Farm auto-select FAILED: no option with value=${farmId}`;
+      }
+    }
+
     function setupFarmFieldLinking(){
       const farmSel = $("farmSelect");
       const fieldSel = $("fieldSelect");
 
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
-        setDiag("farm", farmId ? `Farm selected: ${farmId}` : "No farm selected");
         populateFieldSelect(farmId);
-        setDiag("link", "Field→Farm debug: waiting for field selection…");
       });
 
       fieldSel.addEventListener("change", ()=>{
         const fieldId = fieldSel.value;
-        setDiag("field", fieldId ? `Field selected: ${fieldId}` : "No field selected");
-
-        if(!fieldId){
-          setDiag("link", "Field→Farm debug: no field chosen.");
-          return;
-        }
-
-        const fld = state.fields.find(f => f.id === fieldId);
-        if(!fld){
-          setDiag("link", `Field→Farm debug: fieldId=${fieldId} NOT found in state.fields`);
-          return;
-        }
-
-        const farmId = fld.farmId || null;
-        if(!farmId){
-          setDiag("link", `Field→Farm debug: fieldId=${fieldId} found, but farmId is missing/null`);
-          return;
-        }
-
-        // Try to select the farm in the dropdown
-        const farmSelEl = $("farmSelect");
-        farmSelEl.value = farmId;
-
-        // If no option matches that value, note it
-        if (farmSelEl.value !== farmId) {
-          setDiag("link", `Field→Farm debug: farmId=${farmId} not found in Farm dropdown options`);
-          return;
-        }
-
-        // Re-filter fields to that farm so list stays tight, then restore selected field
-        populateFieldSelect(farmId);
-        $("fieldSelect").value = fieldId;
-
-        setDiag("farm", `Farm auto-selected from field: ${farmId}`);
-        setDiag("link", `Field→Farm debug: fieldId=${fieldId} → farmId=${farmId} (OK)`);
+        autoSelectFarmFromField(fieldId);
       });
+
+      const dbg = $("fieldDebug");
+      if (dbg) dbg.textContent = "Field→Farm debug: ready. Pick a field and we’ll log what happens.";
     }
 
     function setupMic(){
@@ -628,7 +620,7 @@ Purpose:
       let active = false;
       let baseText = "";
 
-      const setMicBtn = on=>{
+      const setMic = on=>{
         btn.classList.toggle("mic-active", on);
         btn.setAttribute("aria-label", on ? "Stop dictation" : "Start dictation");
       };
@@ -636,10 +628,10 @@ Purpose:
       btn.addEventListener("click", ()=>{
         if(!active){
           baseText = ta.value ? (ta.value + " ") : "";
-          try{ rec.start(); active=true; setMicBtn(true); }catch{}
+          try{ rec.start(); active=true; setMic(true); }catch{}
         }else{
           try{ rec.stop(); rec.abort(); }catch{}
-          active=false; setMicBtn(false);
+          active=false; setMic(false);
         }
       });
 
@@ -650,8 +642,8 @@ Purpose:
         }
         ta.value = baseText + txt;
       };
-      rec.onend = ()=>{ active=false; setMicBtn(false); };
-      rec.onerror = ()=>{ active=false; setMicBtn(false); };
+      rec.onend = ()=>{ active=false; setMic(false); };
+      rec.onerror = ()=>{ active=false; setMic(false); };
     }
 
     function setupFiles(){
@@ -783,12 +775,9 @@ Purpose:
       setupActions();
       try{
         await Promise.all([loadFarms(), loadFields(), loadTopics()]);
-        setDiag("link", "Field→Farm debug: ready. Pick a field and we’ll log what happens.");
       }catch(e){
         console.error("Initial data load failed", e);
         showErr("Unable to load farms/fields. Check Firestore or network.");
-        setDiag("farm", "Farm load failed.");
-        setDiag("field", "Field load failed.");
       }
     })();
   </script>
