@@ -1,5 +1,5 @@
 <!-- =====================================================================
-/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE)
+/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE – CLEANED)
 
 Purpose:
  • Add new field maintenance / repair requests.
@@ -10,9 +10,8 @@ Purpose:
  • Priority 1–10, with live readout + reason required for 7+.
  • Notes with mic/dictation (same pattern as Ideas page).
  • Photos: lazy file input for now (no Storage uploads yet).
- • Field→Farm debug text is shown on-screen to help verify linking.
  • Farm select overlay so the chosen farm name always shows,
-   even if iOS doesn’t repaint the native <select> label.
+   even on iOS where the native <select> label can be stubborn.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -140,7 +139,6 @@ Purpose:
       resize:vertical;
     }
 
-    /* Mic-in-textarea (from Ideas) */
     .ta-wrap{ position:relative; }
     .textarea.fm-notes{ padding-right:52px; }
     .mic-btn{
@@ -164,7 +162,6 @@ Purpose:
       border-color:#2F6C3C;
     }
 
-    /* Lazy file input */
     input[type="file"].file-input{
       width:100%;
       padding:8px 10px;
@@ -229,7 +226,7 @@ Purpose:
     .toast.show{ display:block; animation:fadeout 3.2s forwards; }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* Farm select overlay (to beat iOS not repainting label) */
+    /* Farm select overlay (beats iOS label repaint bug) */
     .select-shell{
       position:relative;
     }
@@ -247,6 +244,8 @@ Purpose:
       transition:opacity .12s ease-out;
       font-size:16px;
       line-height:1.2;
+      font-weight:400;        /* match normal select text */
+      font-family:inherit;
       color:var(--text);
     }
     #farmSelectOverlay.show{
@@ -286,14 +285,12 @@ Purpose:
                 <!-- Overlay label that always shows the chosen farm -->
                 <div id="farmSelectOverlay" aria-hidden="true"></div>
               </div>
-              <div id="farmDebug" class="muted-line"></div>
             </div>
             <div class="field">
               <label for="fieldSelect">Field <span class="req">*</span></label>
               <select id="fieldSelect" class="select" required>
                 <option value="">Select field…</option>
               </select>
-              <div id="fieldDebug" class="muted-line"></div>
             </div>
           </div>
 
@@ -314,9 +311,6 @@ Purpose:
               </div>
             </div>
           </div>
-
-          <!-- Tiny debug line so we can see the link behavior on phone -->
-          <div id="linkDebug" class="muted-line"></div>
 
           <!-- Topic + Priority -->
           <div class="row">
@@ -420,10 +414,6 @@ Purpose:
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
-    const farmDebugEl  = () => $("farmDebug");
-    const fieldDebugEl = () => $("fieldDebug");
-    const linkDebugEl  = () => $("linkDebug");
-
     function updateFarmOverlay(){
       const sel = $("farmSelect");
       const ov  = $("farmSelectOverlay");
@@ -455,7 +445,6 @@ Purpose:
         opt.textContent = f.name;
         sel.appendChild(opt);
       });
-      if (farmDebugEl()) farmDebugEl().textContent = `Farms loaded: ${state.farms.length}`;
       updateFarmOverlay();
     }
 
@@ -484,11 +473,6 @@ Purpose:
         sel.appendChild(opt);
       });
       if(list.some(f=>f.id===prev)) sel.value = prev;
-
-      if (fieldDebugEl()) {
-        const label = farmId ? `farmId=${farmId}` : "all farms";
-        fieldDebugEl().textContent = `Fields shown: ${list.length} (${label})`;
-      }
     }
 
     async function loadTopics(){
@@ -516,7 +500,7 @@ Purpose:
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (copying Ideas pattern: FVUserContext + firebaseAuth fallback)
+    // Submitted by (copying Ideas pattern)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -602,32 +586,14 @@ Purpose:
       sync();
     }
 
-    function selectFarmById(farmId, fromFieldId){
+    function selectFarmById(farmId){
       const farmSel = $("farmSelect");
       const options = Array.from(farmSel.options || []);
       const idx = options.findIndex(o => o.value === farmId);
       if(idx >= 0){
         farmSel.selectedIndex = idx;
         farmSel.value = farmId;
-
-        const label = options[idx].textContent || "(no label)";
-        if (farmDebugEl()) {
-          farmDebugEl().textContent =
-            `Farm auto-selected from field: ${farmId} ("${label}") · select.value=${farmSel.value}, idx=${idx}`;
-        }
-        if (linkDebugEl()) {
-          linkDebugEl().textContent =
-            `Field→Farm debug: fieldId=${fromFieldId} → farmId=${farmId} (matched option #${idx})`;
-        }
         updateFarmOverlay();
-      }else{
-        if (farmDebugEl()) {
-          farmDebugEl().textContent = `Farm auto-select failed: no option with value=${farmId}`;
-        }
-        if (linkDebugEl()) {
-          linkDebugEl().textContent =
-            `Field→Farm debug: fieldId=${fromFieldId} → farmId=${farmId} (NO matching option)`;
-        }
       }
     }
 
@@ -635,55 +601,26 @@ Purpose:
       const farmSel  = $("farmSelect");
       const fieldSel = $("fieldSelect");
 
-      if (linkDebugEl()) {
-        linkDebugEl().textContent = "Field→Farm debug: ready. Pick a field and we’ll log what happens.";
-      }
-
       farmSel.addEventListener("change", ()=>{
         const farmId = farmSel.value || null;
         populateFieldSelect(farmId);
         updateFarmOverlay();
-        if (farmDebugEl()) {
-          farmDebugEl().textContent = farmId
-            ? `Farm selected: ${farmId}`
-            : "Farm cleared.";
-        }
-        if (linkDebugEl()) {
-          linkDebugEl().textContent = farmId
-            ? `Field→Farm debug: farm changed to ${farmId}`
-            : "Field→Farm debug: farm cleared.";
-        }
       });
 
       fieldSel.addEventListener("change", ()=>{
         const fieldId = fieldSel.value;
-        if(!fieldId){
-          if (linkDebugEl()) {
-            linkDebugEl().textContent = "Field→Farm debug: field cleared.";
-          }
-          return;
-        }
+        if(!fieldId) return;
         const fld = state.fields.find(f=>f.id === fieldId);
-        if(!fld){
-          if (linkDebugEl()) {
-            linkDebugEl().textContent = `Field→Farm debug: fieldId=${fieldId} not found in state.fields`;
-          }
-          return;
-        }
+        if(!fld) return;
         const farmId = fld.farmId || null;
-        if(!farmId){
-          if (linkDebugEl()) {
-            linkDebugEl().textContent = `Field→Farm debug: fieldId=${fieldId} has no farmId`;
-          }
-          return;
-        }
+        if(!farmId) return;
 
         // Filter fields to that farm and keep the same field selected.
         populateFieldSelect(farmId);
         $("fieldSelect").value = fieldId;
 
         // Now force the Farm <select> to visually pick the correct option + overlay.
-        selectFarmById(farmId, fieldId);
+        selectFarmById(farmId);
       });
     }
 
@@ -767,10 +704,8 @@ Purpose:
 
     function setupActions(){
       $("btnCancel").addEventListener("click", ()=>{
-        // Back to portal under Crop Production
         location.href = "/Farm-vista/pages/crop-production/field-maintenance/maintenance.html";
       });
-
       $("btnSave").addEventListener("click", saveMaintenance);
     }
 
