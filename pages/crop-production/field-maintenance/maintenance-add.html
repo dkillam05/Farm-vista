@@ -1,12 +1,20 @@
 <!-- =====================================================================
 /Farm-vista/pages/field-maintenance/maintenance-add.html  (FULL FILE)
 
-Enhancements in this build:
- • Farm + Field: searchable dropdowns with farm/field linking
- • Choosing a Field auto-populates Farm (and re-filters fields)
- • Topic / Category: add/manage modal (archive, edit) like make/model
- • Photos: thumbs + Annotate / Remove, with in-place annotation modal
- • Notes: dictation mic, matching Ideas page behavior
+Purpose:
+ • Add new field maintenance / repair requests.
+ • Farm + Field are linked (either can drive the other).
+ • Submitted By = logged-in user (read-only).
+ • Date Submitted = today (display) + serverTimestamp() (stored).
+ • Topic (category) comes from Firestore collection.
+ • Priority 1–10, with reason required for 7+.
+ • Notes + photo uploads (annotation module can be wired in later).
+
+Collections assumed (adjust as needed):
+ • farms                → { name, ... }
+ • fields               → { name, farmId, ... }
+ • fieldMaintenanceTopics → { label, isArchived, ... }
+ • fieldMaintenance     → main records written here
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -24,7 +32,7 @@ Enhancements in this build:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Ensure fv-shell -->
+  <!-- Ensure fv-shell + form button available if needed -->
   <script>
     (function () {
       if (!customElements.get('fv-shell')) {
@@ -62,10 +70,6 @@ Enhancements in this build:
       color: var(--text-subtle);
       margin-bottom: 4px;
     }
-    .fm-row-label .text-required {
-      color: #b3261e;
-      margin-left: 4px;
-    }
     .fm-inline {
       display: flex;
       align-items: center;
@@ -89,8 +93,6 @@ Enhancements in this build:
     .fm-actions button {
       min-width: 100px;
     }
-
-    /* Priority */
     .priority-readout {
       font-size: 0.85rem;
       color: var(--text-subtle);
@@ -106,45 +108,10 @@ Enhancements in this build:
       min-height: 80px;
       resize: vertical;
     }
-
-    /* Notes + mic */
     .fm-note textarea {
       min-height: 120px;
       resize: vertical;
-      padding-right: 52px; /* room for mic */
     }
-    .ta-wrap {
-      position: relative;
-    }
-    .mic-btn {
-      position: absolute;
-      right: 10px;
-      bottom: 10px;
-      width: 36px;
-      height: 36px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      display: grid;
-      place-items: center;
-      cursor: pointer;
-    }
-    .mic-btn[disabled] {
-      opacity: .6;
-      cursor: not-allowed;
-    }
-    .mic-svg {
-      width: 18px;
-      height: 18px;
-      display: block;
-    }
-    .mic-active {
-      background: #2F6C3C;
-      color: #fff;
-      border-color: #2F6C3C;
-    }
-
-    /* Native file input (dark-mode safe) */
     input[type="file"].file-input {
       width: 100%;
       padding: 8px 10px;
@@ -152,320 +119,21 @@ Enhancements in this build:
       border: 1px solid var(--border-subtle);
       background: transparent;
       font-size: 0.9rem;
-      color: var(--text-color, var(--text));
+      color: var(--text-color);
     }
     input[type="file"].file-input::file-selector-button {
       border: none;
       border-radius: 999px;
       padding: 4px 12px;
       margin-right: 10px;
-      background: var(--btn-secondary-bg, var(--surface-2));
-      color: var(--btn-secondary-fg, var(--text));
+      background: var(--btn-secondary-bg);
+      color: var(--btn-secondary-fg);
       font-size: 0.85rem;
       cursor: pointer;
     }
     input[type="file"].file-input:focus-visible {
-      outline: 2px solid var(--focus-ring, #2F6C3C);
+      outline: 2px solid var(--focus-ring);
       outline-offset: 2px;
-    }
-
-    /* Thumbs + annotate */
-    .thumbs {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-    .thumb {
-      width: 92px;
-      height: 92px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      overflow: hidden;
-      display: grid;
-      place-items: center;
-      background: #f6f7f6;
-      position: relative;
-    }
-    .thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .thumb .tools {
-      position: absolute;
-      inset: auto 6px 6px 6px;
-      display: flex;
-      gap: 6px;
-    }
-    .thumb .tools button {
-      font-size: 12px;
-      padding: 4px 6px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      cursor: pointer;
-    }
-
-    /* Searchable combo for Farm / Field */
-    .combo-wrap {
-      position: relative;
-    }
-    .combo-display {
-      width: 100%;
-      text-align: left;
-      font: inherit;
-      font-size: 16px;
-      color: var(--text);
-      background: var(--card-surface, var(--surface));
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 12px;
-      outline: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-    .combo-display span.combo-label {
-      flex: 1 1 auto;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .combo-display span.combo-caret {
-      font-size: 11px;
-      opacity: .7;
-    }
-    .combo-dropdown {
-      position: absolute;
-      inset-inline: 0;
-      margin-top: 4px;
-      background: var(--surface);
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      box-shadow: 0 16px 36px rgba(0,0,0,.28);
-      z-index: 5000;
-    }
-    .combo-inner {
-      padding: 8px;
-      display: grid;
-      gap: 6px;
-    }
-    .combo-search {
-      width: 100%;
-      font: inherit;
-      font-size: 15px;
-      padding: 6px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--border-subtle);
-      background: var(--surface-1, var(--surface));
-      outline: none;
-    }
-    .combo-list {
-      max-height: 260px;
-      overflow: auto;
-      -webkit-overflow-scrolling: touch;
-      margin-top: 4px;
-    }
-    .combo-option {
-      width: 100%;
-      text-align: left;
-      border: none;
-      background: transparent;
-      padding: 6px 8px;
-      border-radius: 8px;
-      font: inherit;
-      font-size: 15px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-    }
-    .combo-option:hover,
-    .combo-option:focus-visible {
-      background: rgba(47,108,60,.08);
-      outline: none;
-    }
-    .combo-option .muted-pill {
-      font-size: 11px;
-      border-radius: 999px;
-      border: 1px solid var(--border-subtle);
-      padding: 2px 6px;
-      color: var(--muted, #67706B);
-    }
-    .combo-empty {
-      padding: 6px 8px;
-      font-size: 13px;
-      color: var(--muted, #67706B);
-    }
-
-    /* Topic manager */
-    .topic-label {
-      cursor: pointer;
-    }
-    .topic-label:hover {
-      text-decoration: underline;
-    }
-    .topic-inline-actions {
-      margin-top: 4px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
-    }
-    .chip-btn {
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      padding: 4px 10px;
-      font-size: 12px;
-      background: var(--surface);
-      cursor: pointer;
-      font-weight: 600;
-    }
-
-    /* Shared modal shell (used for Topic manager + Photo annotate) */
-    .modal {
-      position: fixed;
-      inset: 0;
-      display: none;
-      place-items: center;
-      background: rgba(0,0,0,.42);
-      z-index: 9999;
-      transition: opacity .15s;
-      opacity: 0;
-    }
-    .modal[open] {
-      display: grid;
-      opacity: 1;
-    }
-    .dialog {
-      width: min(880px, 94vw);
-      max-height: 88vh;
-      display: flex;
-      flex-direction: column;
-      background: var(--surface);
-      color: var(--text);
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      box-shadow: 0 16px 36px rgba(0,0,0,.28);
-    }
-    .dialog-head {
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .dialog-body {
-      padding: 12px 14px;
-      overflow: auto;
-      flex: 1 1 auto;
-      min-height: 0;
-      -webkit-overflow-scrolling: touch;
-    }
-    .dialog-foot {
-      padding: 12px 14px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .closex {
-      border: 1px solid var(--border);
-      background: var(--surface);
-      border-radius: 10px;
-      padding: 8px 12px;
-      cursor: pointer;
-      font-weight: 700;
-      color: var(--text) !important;
-    }
-
-    html.no-scroll,
-    body.no-scroll {
-      overflow: hidden;
-    }
-
-    /* Topic manager specifics */
-    .topic-add-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-    .topic-add-row .input {
-      flex: 1 1 180px;
-    }
-    .topic-toggle-row {
-      font-size: 13px;
-      color: var(--muted, #67706B);
-      margin-bottom: 10px;
-    }
-    .topic-list {
-      display: grid;
-      gap: 8px;
-    }
-    .topic-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
-      align-items: center;
-      border-radius: 10px;
-      border: 1px solid var(--border-subtle);
-      padding: 8px 10px;
-      background: var(--card-surface, var(--surface));
-    }
-    .topic-row .input {
-      width: 100%;
-      font-size: 15px;
-      padding: 8px 10px;
-    }
-    .topic-row-actions {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    .topic-pill {
-      font-size: 11px;
-      border-radius: 999px;
-      border: 1px solid var(--border-subtle);
-      padding: 2px 6px;
-      color: var(--muted, #67706B);
-    }
-
-    /* Annotate tools */
-    .toolrow {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .toolrow .btn {
-      min-width: auto;
-      padding: 8px 10px;
-    }
-    .chip {
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 6px 10px;
-      font-weight: 700;
-      background: var(--surface);
-      cursor: pointer;
-      user-select: none;
-      font-size: 13px;
-    }
-    .chip.active {
-      background: #2F6C3C;
-      color: #fff;
-      border-color: #2F6C3C;
     }
   </style>
 </head>
@@ -485,39 +153,20 @@ Enhancements in this build:
           <div class="fm-grid two-col">
             <!-- Farm -->
             <div>
-              <div id="farmLabel" class="fm-row-label">Farm<span class="text-required">*</span></div>
-              <div class="combo-wrap">
-                <button type="button" id="farmCombo" class="combo-display">
-                  <span id="farmComboLabel" class="combo-label">Select farm…</span>
-                  <span class="combo-caret">▾</span>
-                </button>
-                <div id="farmDropdown" class="combo-dropdown" hidden>
-                  <div class="combo-inner">
-                    <input id="farmSearch" class="combo-search" type="text" placeholder="Search farms…">
-                    <div id="farmList" class="combo-list"></div>
-                  </div>
-                </div>
-              </div>
-              <!-- Hidden backing select (no native required; we validate in JS) -->
-              <select id="farmSelect" name="farm" style="display:none"></select>
+              <div class="fm-row-label">Farm<span class="text-required"> *</span></div>
+              <select id="farmSelect" name="farm" required>
+                <option value="">Select farm…</option>
+                <!-- Populated from Firestore -->
+              </select>
             </div>
 
             <!-- Field -->
             <div>
-              <div id="fieldLabel" class="fm-row-label">Field<span class="text-required">*</span></div>
-              <div class="combo-wrap">
-                <button type="button" id="fieldCombo" class="combo-display">
-                  <span id="fieldComboLabel" class="combo-label">Select field…</span>
-                  <span class="combo-caret">▾</span>
-                </button>
-                <div id="fieldDropdown" class="combo-dropdown" hidden>
-                  <div class="combo-inner">
-                    <input id="fieldSearch" class="combo-search" type="text" placeholder="Search fields…">
-                    <div id="fieldList" class="combo-list"></div>
-                  </div>
-                </div>
-              </div>
-              <select id="fieldSelect" name="field" style="display:none"></select>
+              <div class="fm-row-label">Field<span class="text-required"> *</span></div>
+              <select id="fieldSelect" name="field" required>
+                <option value="">Select field…</option>
+                <!-- Populated from Firestore -->
+              </select>
             </div>
 
             <!-- Submitted By (auto = logged-in user) -->
@@ -544,23 +193,18 @@ Enhancements in this build:
           <div class="fm-grid two-col">
             <!-- Topic/category -->
             <div>
-              <div id="topicLabel" class="fm-row-label topic-label">
-                Topic / Category<span class="text-required">*</span>
-              </div>
-              <select id="topicSelect" name="topic">
+              <div class="fm-row-label">Topic / Category<span class="text-required"> *</span></div>
+              <select id="topicSelect" name="topic" required>
                 <option value="">Select topic…</option>
+                <!-- Populated from Firestore (fieldMaintenanceTopics) -->
               </select>
-              <div class="topic-inline-actions">
-                <button type="button" id="topicAddBtn" class="chip-btn">+ Add topic</button>
-              </div>
-              <small class="hint">
-                Examples: Repair Needed, Tile Blowout, Washout, Fence, Tree Removal, etc.
-              </small>
+              <!-- In the future we can add "Manage topics" / modal just like vehicle makes -->
+              <small class="hint">Examples: Repair Needed, Tile Blowout, Washout, Fence, Tree Removal, etc.</small>
             </div>
 
             <!-- Priority (1–10) -->
             <div>
-              <div class="fm-row-label">Priority (1 = low, 10 = high)<span class="text-required">*</span></div>
+              <div class="fm-row-label">Priority (1 = low, 10 = high)<span class="text-required"> *</span></div>
               <input
                 id="priority"
                 name="priority"
@@ -587,20 +231,13 @@ Enhancements in this build:
           <!-- Notes -->
           <div class="fm-grid" style="margin-top: 12px;">
             <div class="fm-note">
-              <div class="fm-row-label">Details / Notes<span class="text-required">*</span></div>
-              <div class="ta-wrap">
-                <textarea
-                  id="notes"
-                  name="notes"
-                  placeholder="Describe the issue, location in the field, severity, any equipment needed, etc."
-                  required
-                ></textarea>
-                <button id="mic" type="button" class="mic-btn" aria-label="Start dictation">
-                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
-                  </svg>
-                </button>
-              </div>
+              <div class="fm-row-label">Details / Notes<span class="text-required"> *</span></div>
+              <textarea
+                id="notes"
+                name="notes"
+                placeholder="Describe the issue, location in the field, severity, any equipment needed, etc."
+                required
+              ></textarea>
             </div>
           </div>
 
@@ -613,12 +250,11 @@ Enhancements in this build:
                 name="photos"
                 class="file-input"
                 type="file"
-                accept="image/*,.jpg,.jpeg,.png,.heic"
+                accept="image/*"
                 multiple
               />
-              <div id="photoThumbs" class="thumbs" aria-live="polite"></div>
-              <small id="photoNote" class="hint">
-                Attach up to 3 photos. You can draw arrows, write notes, or freehand markups before saving.
+              <small class="hint">
+                Attach photos or screenshots. Annotation tools can be tied in here later (similar to boundary fix / other pages).
               </small>
             </div>
           </div>
@@ -633,67 +269,16 @@ Enhancements in this build:
     </div>
   </fv-shell>
 
-  <!-- Topic Manager Modal -->
-  <div id="topicModal" class="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="topicModalTitle">
-      <div class="dialog-head">
-        <h3 id="topicModalTitle">Manage Topics / Categories</h3>
-        <button class="closex" id="topicModalClose" type="button">Back</button>
-      </div>
-      <div class="dialog-body">
-        <div class="topic-add-row">
-          <input id="topicNewInput" class="input" type="text" placeholder="New topic name…">
-          <button id="topicNewSave" type="button" class="btn btn-primary">Add</button>
-        </div>
-        <div class="topic-toggle-row">
-          <label>
-            <input id="topicShowArchived" type="checkbox">
-            Show archived
-          </label>
-        </div>
-        <div id="topicList" class="topic-list"></div>
-      </div>
-      <div class="dialog-foot">
-        <div class="muted">Tap a topic to edit, archive, or unarchive.</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Photo Annotate Modal -->
-  <div id="photoModal" class="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="photoModalTitle">
-      <div class="dialog-head">
-        <h3 id="photoModalTitle">Annotate Photo</h3>
-        <div class="toolrow">
-          <span id="tool-pen" class="chip active">Pen</span>
-          <span id="tool-arrow" class="chip">Arrow</span>
-          <span id="tool-text" class="chip">Text</span>
-          <label>Size <input id="tool-size" type="range" min="2" max="16" value="4" style="vertical-align:middle"></label>
-          <label>Color <input id="tool-color" type="color" value="#ff0000" style="vertical-align:middle"></label>
-        </div>
-        <button class="closex" id="photoModalClose" type="button">Back</button>
-      </div>
-      <div class="dialog-body" id="photoModalBody"></div>
-      <div class="dialog-foot">
-        <div class="toolrow">
-          <button class="btn" id="mdUndo" type="button">Undo</button>
-          <button class="btn" id="mdReset" type="button">Clear</button>
-        </div>
-        <div class="toolrow">
-          <button class="btn btn-primary" id="mdSave" type="button">Save Annotation</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <script type="module">
     import {
       ready,
       getFirestore,
-      collection, getDocs, addDoc,
-      doc, updateDoc,
+      collection,
+      getDocs,
+      addDoc,
       serverTimestamp,
-      getAuth, onAuthStateChanged
+      getAuth,
+      onAuthStateChanged
     } from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
@@ -708,60 +293,34 @@ Enhancements in this build:
       topics: []
     };
 
-    /* ---------- Helpers ---------- */
     function formatLocalDate(d = new Date()) {
+      // Simple date display; Firestore will store serverTimestamp instead
       const opts = { year: 'numeric', month: 'short', day: 'numeric' };
       return d.toLocaleDateString(undefined, opts);
     }
 
     function inferName(docData) {
+      // Try multiple common field names for "name" without crashing if different
       return docData.name || docData.farmName || docData.fieldName || docData.label || 'Unnamed';
     }
 
-    function safeName(name) {
-      return (Date.now() + '-' + String(name || 'image')).replace(/[^\w.\-]+/g, '_');
-    }
-
-    async function loadStorageFns() {
-      try {
-        const m = await import('/Farm-vista/js/firebase-init.js');
-        const fns = {
-          getStorage: m.getStorage,
-          ref: m.ref,
-          uploadBytes: m.uploadBytes,
-          getDownloadURL: m.getDownloadURL
-        };
-        if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) {
-          return fns;
-        }
-      } catch (e) {
-        console.error('Storage import failed', e);
-      }
-      throw new Error('Storage functions are not exported by /Farm-vista/js/firebase-init.js.');
-    }
-
-    /* ---------- Firestore loading ---------- */
     async function loadFarms() {
       try {
         const snap = await getDocs(collection(db, 'farms'));
-        state.farms = snap.docs.map((docSnap) => {
-          const data = docSnap.data() || {};
+        state.farms = snap.docs.map((doc) => {
+          const data = doc.data() || {};
           return {
-            id: docSnap.id,
+            id: doc.id,
             name: inferName(data)
           };
-        }).sort((a, b) => a.name.localeCompare(b.name));
-
+        });
         const farmSelect = $('farmSelect');
-        farmSelect.innerHTML = '';
         for (const f of state.farms) {
           const opt = document.createElement('option');
           opt.value = f.id;
           opt.textContent = f.name;
           farmSelect.appendChild(opt);
         }
-        updateFarmComboLabel();
-        renderFarmList('');
       } catch (err) {
         console.error('Error loading farms:', err);
         alert('Error loading farms. Check console for details.');
@@ -771,8 +330,8 @@ Enhancements in this build:
     async function loadFields() {
       try {
         const snap = await getDocs(collection(db, 'fields'));
-        state.fields = snap.docs.map((docSnap) => {
-          const data = docSnap.data() || {};
+        state.fields = snap.docs.map((doc) => {
+          const data = doc.data() || {};
           const farmId =
             data.farmId ||
             data.farm ||
@@ -781,56 +340,68 @@ Enhancements in this build:
             null;
 
           return {
-            id: docSnap.id,
+            id: doc.id,
             name: inferName(data),
             farmId
           };
-        }).sort((a, b) => a.name.localeCompare(b.name));
-
-        populateFieldSelect(); // initial all-fields list
+        });
+        populateFieldSelect(); // initial (unfiltered) list
       } catch (err) {
         console.error('Error loading fields:', err);
         alert('Error loading fields. Check console for details.');
       }
     }
 
-    async function loadTopics() {
-      try {
-        const snap = await getDocs(collection(db, 'fieldMaintenanceTopics'));
-        const all = snap.docs.map((docSnap) => {
-          const data = docSnap.data() || {};
-          return {
-            id: docSnap.id,
-            label: inferName(data),
-            isArchived: !!data.isArchived
-          };
-        });
+    function populateFieldSelect(filteredFarmId = null) {
+      const select = $('fieldSelect');
+      const currentValue = select.value;
+      select.innerHTML = '<option value="">Select field…</option>';
 
-        state.topics = all;
+      let fieldsToShow = state.fields;
+      if (filteredFarmId) {
+        fieldsToShow = state.fields.filter((f) => f.farmId === filteredFarmId);
+      }
 
-        const select = $('topicSelect');
-        const current = select.value;
-        select.innerHTML = '<option value="">Select topic…</option>';
-        all
-          .filter((t) => !t.isArchived)
-          .sort((a, b) => a.label.localeCompare(b.label))
-          .forEach((t) => {
-            const opt = document.createElement('option');
-            opt.value = t.id;
-            opt.textContent = t.label;
-            select.appendChild(opt);
-          });
+      for (const f of fieldsToShow) {
+        const opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = f.name;
+        select.appendChild(opt);
+      }
 
-        if (current && all.some((t) => t.id === current && !t.isArchived)) {
-          select.value = current;
-        }
-        renderTopicList();
-      } catch (err) {
-        console.error('Error loading topics:', err);
+      // Try to keep previous value if it still exists after filtering
+      if (fieldsToShow.some((f) => f.id === currentValue)) {
+        select.value = currentValue;
       }
     }
 
-    /* ---------- Auth + Date ---------- */
+    async function loadTopics() {
+      try {
+        const snap = await getDocs(collection(db, 'fieldMaintenanceTopics'));
+        state.topics = snap.docs
+          .map((doc) => {
+            const data = doc.data() || {};
+            return {
+              id: doc.id,
+              label: inferName(data),
+              isArchived: !!data.isArchived
+            };
+          })
+          .filter((t) => !t.isArchived);
+
+        const select = $('topicSelect');
+        for (const t of state.topics) {
+          const opt = document.createElement('option');
+          opt.value = t.id;
+          opt.textContent = t.label;
+          select.appendChild(opt);
+        }
+      } catch (err) {
+        console.error('Error loading topics:', err);
+        // Not fatal; you can still create maintenance items and add topics later
+      }
+    }
+
     function setupAuth() {
       const display = $('submittedByDisplay');
       const hidden = $('submittedBy');
@@ -839,6 +410,8 @@ Enhancements in this build:
         if (!user) {
           display.textContent = 'Not signed in';
           hidden.value = '';
+          // Optionally redirect to login:
+          // location.href = '/Farm-vista/auth/';
           return;
         }
 
@@ -852,7 +425,6 @@ Enhancements in this build:
       $('dateSubmittedDisplay').textContent = formatLocalDate(new Date());
     }
 
-    /* ---------- Priority slider ---------- */
     function setupPriority() {
       const slider = $('priority');
       const valueSpan = $('priorityValue');
@@ -862,6 +434,7 @@ Enhancements in this build:
       function updatePriorityUI() {
         const val = Number(slider.value || 5);
         valueSpan.textContent = val;
+
         if (val >= 7) {
           reasonBlock.hidden = false;
         } else {
@@ -874,707 +447,33 @@ Enhancements in this build:
       updatePriorityUI();
     }
 
-    /* ---------- Farm / Field combo helpers ---------- */
-    function getVisibleFields() {
-      const farmId = $('farmSelect').value || null;
-      if (!farmId) return state.fields;
-      return state.fields.filter((f) => f.farmId === farmId);
-    }
-
-    function populateFieldSelect() {
-      const select = $('fieldSelect');
-      const currentValue = select.value;
-      select.innerHTML = '';
-
-      const fieldsToShow = getVisibleFields();
-      for (const f of fieldsToShow) {
-        const opt = document.createElement('option');
-        opt.value = f.id;
-        opt.textContent = f.name;
-        select.appendChild(opt);
-      }
-
-      if (fieldsToShow.some((f) => f.id === currentValue)) {
-        select.value = currentValue;
-      } else {
-        select.value = '';
-      }
-
-      updateFieldComboLabel();
-      // When data reloads, refresh list with empty search term
-      renderFieldList($('fieldSearch') ? $('fieldSearch').value || '' : '');
-    }
-
-    function updateFarmComboLabel() {
-      const farmId = $('farmSelect').value;
-      const farm = state.farms.find((f) => f.id === farmId);
-      $('farmComboLabel').textContent = farm ? farm.name : 'Select farm…';
-    }
-
-    function updateFieldComboLabel() {
-      const fieldId = $('fieldSelect').value;
-      const field = state.fields.find((f) => f.id === fieldId);
-      $('fieldComboLabel').textContent = field ? field.name : 'Select field…';
-    }
-
-    function renderFarmList(searchTerm) {
-      const listEl = $('farmList');
-      const term = (searchTerm || '').trim().toLowerCase();
-      let items = state.farms;
-      if (term) {
-        items = items.filter((f) => f.name.toLowerCase().includes(term));
-      }
-      listEl.innerHTML = '';
-      if (!items.length) {
-        const empty = document.createElement('div');
-        empty.className = 'combo-empty';
-        empty.textContent = 'No farms match.';
-        listEl.appendChild(empty);
-        return;
-      }
-      items.forEach((f) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'combo-option';
-        btn.dataset.id = f.id;
-        btn.innerHTML = `<span>${f.name}</span>`;
-        btn.addEventListener('click', () => {
-          $('farmSelect').value = f.id;
-          updateFarmComboLabel();
-          populateFieldSelect(); // filters fields for this farm
-          // Reset field selection when farm changes
-          $('fieldSelect').value = '';
-          updateFieldComboLabel();
-          closeFarmDropdown();
-        });
-        listEl.appendChild(btn);
-      });
-    }
-
-    function renderFieldList(searchTerm) {
-      const listEl = $('fieldList');
-      const term = (searchTerm || '').trim().toLowerCase();
-      const fieldsBase = getVisibleFields();
-      let items = fieldsBase;
-      if (term) {
-        items = items.filter((f) => f.name.toLowerCase().includes(term));
-      }
-      listEl.innerHTML = '';
-      if (!items.length) {
-        const empty = document.createElement('div');
-        empty.className = 'combo-empty';
-        empty.textContent = 'No fields match.';
-        listEl.appendChild(empty);
-        return;
-      }
-      items.forEach((f) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'combo-option';
-        btn.dataset.id = f.id;
-
-        const farm = state.farms.find((x) => x.id === f.farmId);
-        const farmLabel = farm ? farm.name : '';
-        btn.innerHTML = `
-          <span>${f.name}</span>
-          ${farmLabel ? `<span class="muted-pill">${farmLabel}</span>` : ''}
-        `;
-        btn.addEventListener('click', () => {
-          $('fieldSelect').value = f.id;
-          updateFieldComboLabel();
-          onFieldChanged(); // ensure farm auto-populates
-          closeFieldDropdown();
-        });
-        listEl.appendChild(btn);
-      });
-    }
-
-    function openFarmDropdown() {
-      $('farmDropdown').hidden = false;
-      $('farmSearch').value = '';
-      renderFarmList('');
-      $('farmSearch').focus();
-      closeFieldDropdown();
-    }
-
-    function closeFarmDropdown() {
-      $('farmDropdown').hidden = true;
-    }
-
-    function openFieldDropdown() {
-      $('fieldDropdown').hidden = false;
-      $('fieldSearch').value = '';
-      renderFieldList('');
-      $('fieldSearch').focus();
-      closeFarmDropdown();
-    }
-
-    function closeFieldDropdown() {
-      $('fieldDropdown').hidden = true;
-    }
-
-    function setupCombos() {
-      $('farmCombo').addEventListener('click', () => {
-        const dd = $('farmDropdown');
-        if (dd.hidden) openFarmDropdown(); else closeFarmDropdown();
-      });
-      $('fieldCombo').addEventListener('click', () => {
-        const dd = $('fieldDropdown');
-        if (dd.hidden) openFieldDropdown(); else closeFieldDropdown();
-      });
-
-      $('farmSearch').addEventListener('input', (e) => {
-        renderFarmList(e.target.value || '');
-      });
-      $('fieldSearch').addEventListener('input', (e) => {
-        renderFieldList(e.target.value || '');
-      });
-
-      document.addEventListener('click', (e) => {
-        const farmWrap = $('farmCombo').closest('.combo-wrap');
-        const fieldWrap = $('fieldCombo').closest('.combo-wrap');
-        if (!farmWrap.contains(e.target)) closeFarmDropdown();
-        if (!fieldWrap.contains(e.target)) closeFieldDropdown();
-      });
-    }
-
-    /* ---------- Farm/Field linking ---------- */
-    function onFarmChanged() {
-      populateFieldSelect();
-    }
-
-    function onFieldChanged() {
-      const fieldId = $('fieldSelect').value;
-      if (!fieldId) return;
-      const field = state.fields.find((f) => f.id === fieldId);
-      if (!field || !field.farmId) return;
-
-      const farmSelect = $('farmSelect');
-      if (farmSelect.value !== field.farmId) {
-        farmSelect.value = field.farmId;
-        updateFarmComboLabel();
-        populateFieldSelect(); // will keep selected field, but filtered to that farm
-        $('fieldSelect').value = fieldId;
-        updateFieldComboLabel();
-      }
-    }
-
     function setupFarmFieldLinking() {
-      $('farmSelect').addEventListener('change', onFarmChanged);
-      $('fieldSelect').addEventListener('change', onFieldChanged);
-    }
+      const farmSelect = $('farmSelect');
+      const fieldSelect = $('fieldSelect');
 
-    /* ---------- Topic manager ---------- */
-    function openTopicModal() {
-      const modal = $('topicModal');
-      modal.setAttribute('open', '');
-      modal.setAttribute('aria-hidden', 'false');
-      document.documentElement.classList.add('no-scroll');
-      document.body.classList.add('no-scroll');
-      $('topicNewInput').value = '';
-      $('topicShowArchived').checked = false;
-      renderTopicList();
-      $('topicNewInput').focus();
-    }
+      farmSelect.addEventListener('change', () => {
+        const farmId = farmSelect.value || null;
+        populateFieldSelect(farmId);
+      });
 
-    function closeTopicModal() {
-      const modal = $('topicModal');
-      modal.removeAttribute('open');
-      modal.setAttribute('aria-hidden', 'true');
-      document.documentElement.classList.remove('no-scroll');
-      document.body.classList.remove('no-scroll');
-    }
+      fieldSelect.addEventListener('change', () => {
+        const fieldId = fieldSelect.value;
+        if (!fieldId) return;
+        const field = state.fields.find((f) => f.id === fieldId);
+        if (!field || !field.farmId) return;
 
-    function renderTopicList() {
-      const listEl = $('topicList');
-      if (!listEl) return;
-
-      const showArchived = $('topicShowArchived')?.checked || false;
-      let items = state.topics.slice();
-      if (!showArchived) {
-        items = items.filter((t) => !t.isArchived);
-      }
-      items.sort((a, b) => a.label.localeCompare(b.label));
-
-      listEl.innerHTML = '';
-      if (!items.length) {
-        const empty = document.createElement('div');
-        empty.className = 'combo-empty';
-        empty.textContent = 'No topics yet.';
-        listEl.appendChild(empty);
-        return;
-      }
-
-      items.forEach((t) => {
-        const row = document.createElement('div');
-        row.className = 'topic-row';
-        row.dataset.id = t.id;
-
-        const input = document.createElement('input');
-        input.className = 'input';
-        input.type = 'text';
-        input.value = t.label;
-
-        const actions = document.createElement('div');
-        actions.className = 'topic-row-actions';
-
-        const pill = document.createElement('span');
-        pill.className = 'topic-pill';
-        pill.textContent = t.isArchived ? 'Archived' : 'Active';
-
-        const saveBtn = document.createElement('button');
-        saveBtn.type = 'button';
-        saveBtn.className = 'chip-btn';
-        saveBtn.textContent = 'Save';
-
-        const toggleBtn = document.createElement('button');
-        toggleBtn.type = 'button';
-        toggleBtn.className = 'chip-btn';
-        toggleBtn.textContent = t.isArchived ? 'Unarchive' : 'Archive';
-
-        saveBtn.addEventListener('click', async () => {
-          const label = input.value.trim();
-          if (!label) {
-            alert('Topic name cannot be empty.');
-            return;
-          }
-          try {
-            await updateDoc(doc(db, 'fieldMaintenanceTopics', t.id), { label });
-            await loadTopics();
-          } catch (e) {
-            console.error(e);
-            alert('Save failed: ' + (e?.message || e));
-          }
-        });
-
-        toggleBtn.addEventListener('click', async () => {
-          try {
-            await updateDoc(doc(db, 'fieldMaintenanceTopics', t.id), { isArchived: !t.isArchived });
-            await loadTopics();
-          } catch (e) {
-            console.error(e);
-            alert('Update failed: ' + (e?.message || e));
-          }
-        });
-
-        actions.appendChild(pill);
-        actions.appendChild(saveBtn);
-        actions.appendChild(toggleBtn);
-
-        row.appendChild(input);
-        row.appendChild(actions);
-        listEl.appendChild(row);
+        // Auto-select farm based on the selected field's farmId
+        const farmSelectEl = $('farmSelect');
+        farmSelectEl.value = field.farmId;
+        // And re-filter fields to that farm so list stays tight
+        populateFieldSelect(field.farmId);
+        fieldSelect.value = fieldId;
       });
     }
 
-    function setupTopicManager() {
-      $('topicLabel').addEventListener('click', openTopicModal);
-      $('topicAddBtn').addEventListener('click', openTopicModal);
-      $('topicModalClose').addEventListener('click', closeTopicModal);
-      $('topicShowArchived').addEventListener('change', renderTopicList);
-      $('topicNewSave').addEventListener('click', async () => {
-        const input = $('topicNewInput');
-        const label = input.value.trim();
-        if (!label) return;
-        try {
-          await addDoc(collection(db, 'fieldMaintenanceTopics'), {
-            label,
-            isArchived: false,
-            createdAt: serverTimestamp()
-          });
-          input.value = '';
-          await loadTopics();
-          renderTopicList();
-        } catch (e) {
-          console.error(e);
-          alert('Add topic failed: ' + (e?.message || e));
-        }
-      });
-
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && $('topicModal').hasAttribute('open')) {
-          e.preventDefault();
-          closeTopicModal();
-        }
-      });
-      $('topicModal').addEventListener('click', (e) => {
-        if (e.target === $('topicModal')) closeTopicModal();
-      });
-    }
-
-    /* ---------- Photos + Annotate ---------- */
-    let selectedFiles = [];
-
-    const photosInput = $('photos');
-    const photoThumbs = $('photoThumbs');
-    const photoNote = $('photoNote');
-
-    photosInput.addEventListener('change', () => {
-      const files = Array.from(photosInput.files || []);
-      selectedFiles = (selectedFiles || []).concat(files).slice(0, 3); // cap at 3
-      renderThumbs();
-      photoNote.textContent = selectedFiles.length >= 3
-        ? 'Max 3 photos attached.'
-        : 'Attach up to 3 photos. You can draw arrows, write notes, or freehand markups before saving.';
-      // clear native input so we don't double-count
-      photosInput.value = '';
-    });
-
-    function renderThumbs() {
-      photoThumbs.innerHTML = '';
-      selectedFiles.forEach((file, idx) => {
-        const div = document.createElement('div');
-        div.className = 'thumb';
-        const img = document.createElement('img');
-        img.alt = file.name;
-        img.src = URL.createObjectURL(file);
-        const tools = document.createElement('div');
-        tools.className = 'tools';
-
-        const btnAnn = document.createElement('button');
-        btnAnn.type = 'button';
-        btnAnn.textContent = 'Annotate';
-
-        const btnRm = document.createElement('button');
-        btnRm.type = 'button';
-        btnRm.textContent = 'Remove';
-
-        btnAnn.addEventListener('click', () => openAnnotate(idx));
-        btnRm.addEventListener('click', () => {
-          selectedFiles.splice(idx, 1);
-          renderThumbs();
-        });
-
-        tools.appendChild(btnAnn);
-        tools.appendChild(btnRm);
-        div.appendChild(img);
-        div.appendChild(tools);
-        photoThumbs.appendChild(div);
-      });
-    }
-
-    const photoModal = $('photoModal');
-    const photoModalBody = $('photoModalBody');
-    const photoModalClose = $('photoModalClose');
-    const toolPen = $('tool-pen');
-    const toolArrow = $('tool-arrow');
-    const toolText = $('tool-text');
-    const toolSize = $('tool-size');
-    const toolColor = $('tool-color');
-    const mdUndo = $('mdUndo');
-    const mdReset = $('mdReset');
-    const mdSave = $('mdSave');
-
-    let ann = {
-      canvas: null,
-      ctx: null,
-      img: null,
-      idx: null,
-      tool: 'pen',
-      drawing: false,
-      start: null,
-      undoStack: [],
-      dpr: 1
-    };
-
-    function setTool(which) {
-      ann.tool = which;
-      [toolPen, toolArrow, toolText].forEach((el) => el.classList.remove('active'));
-      if (which === 'pen') toolPen.classList.add('active');
-      if (which === 'arrow') toolArrow.classList.add('active');
-      if (which === 'text') toolText.classList.add('active');
-    }
-    toolPen.addEventListener('click', () => setTool('pen'));
-    toolArrow.addEventListener('click', () => setTool('arrow'));
-    toolText.addEventListener('click', () => setTool('text'));
-
-    function openAnnotate(idx) {
-      const file = selectedFiles[idx];
-      if (!file) return;
-      ann.idx = idx;
-      photoModalBody.innerHTML = '<canvas id="annCvs" style="max-width:100%;touch-action:none;display:block;margin:auto"></canvas>';
-      const cvs = $('annCvs');
-      ann.canvas = cvs;
-      ann.ctx = cvs.getContext('2d');
-      ann.undoStack.length = 0;
-
-      const img = new Image();
-      ann.img = img;
-      img.onload = () => {
-        const maxW = Math.min(820, window.innerWidth * 0.9);
-        const scale = Math.min(1, maxW / img.width);
-        const cssW = Math.round(img.width * scale);
-        const cssH = Math.round(img.height * scale);
-        const dpr = window.devicePixelRatio || 1;
-        ann.dpr = dpr;
-        cvs.style.width = cssW + 'px';
-        cvs.style.height = cssH + 'px';
-        cvs.width = Math.round(cssW * dpr);
-        cvs.height = Math.round(cssH * dpr);
-        ann.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ann.ctx.drawImage(img, 0, 0, cssW, cssH);
-        pushUndo();
-      };
-      img.src = URL.createObjectURL(file);
-
-      wireDrawHandlers(cvs);
-      openPhotoModal();
-    }
-
-    function pushUndo() {
-      try {
-        const w = ann.canvas.width / ann.dpr;
-        const h = ann.canvas.height / ann.dpr;
-        const snap = ann.ctx.getImageData(0, 0, w, h);
-        ann.undoStack.push(snap);
-        if (ann.undoStack.length > 30) ann.undoStack.shift();
-      } catch (_) {}
-    }
-
-    function restoreLast() {
-      if (!ann.undoStack.length) return;
-      const last = ann.undoStack.pop();
-      if (last) {
-        ann.ctx.setTransform(ann.dpr, 0, 0, ann.dpr, 0, 0);
-        ann.ctx.putImageData(last, 0, 0);
-      }
-    }
-    mdUndo.addEventListener('click', restoreLast);
-
-    mdReset.addEventListener('click', () => {
-      if (ann.img && ann.canvas) {
-        const w = ann.canvas.width / ann.dpr;
-        const h = ann.canvas.height / ann.dpr;
-        ann.ctx.setTransform(ann.dpr, 0, 0, ann.dpr, 0, 0);
-        ann.ctx.clearRect(0, 0, w, h);
-        ann.ctx.drawImage(ann.img, 0, 0, w, h);
-        ann.undoStack.length = 0;
-        pushUndo();
-      }
-    });
-
-    mdSave.addEventListener('click', () => {
-      if (!ann.canvas || ann.idx == null) return;
-      ann.canvas.toBlob((b) => {
-        if (!b) return;
-        const orig = selectedFiles[ann.idx];
-        const extMatch = (orig?.name || 'image').match(/(\.\w+)$/);
-        const ext = extMatch ? extMatch[1] : '.png';
-        const named = new File(
-          [b],
-          (orig?.name?.replace(/\.\w+$/, '') || 'annotated') + '-annotated' + ext,
-          { type: 'image/png' }
-        );
-        selectedFiles.splice(ann.idx, 1, named);
-        renderThumbs();
-        closePhotoModal();
-      }, 'image/png', 0.92);
-    });
-
-    function openPhotoModal() {
-      photoModal.setAttribute('open', '');
-      photoModal.setAttribute('aria-hidden', 'false');
-      document.documentElement.classList.add('no-scroll');
-      document.body.classList.add('no-scroll');
-    }
-    function closePhotoModal() {
-      photoModal.removeAttribute('open');
-      photoModal.setAttribute('aria-hidden', 'true');
-      photoModalBody.innerHTML = '';
-      ann = {
-        canvas: null,
-        ctx: null,
-        img: null,
-        idx: null,
-        tool: 'pen',
-        drawing: false,
-        start: null,
-        undoStack: [],
-        dpr: 1
-      };
-      document.documentElement.classList.remove('no-scroll');
-      document.body.classList.remove('no-scroll');
-    }
-    photoModalClose.addEventListener('click', closePhotoModal);
-    photoModal.addEventListener('click', (e) => {
-      if (e.target === photoModal) closePhotoModal();
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && photoModal.hasAttribute('open')) {
-        closePhotoModal();
-      }
-    });
-
-    function wireDrawHandlers(cvs) {
-      const ctx = ann.ctx;
-
-      const getPos = (e) => {
-        const r = cvs.getBoundingClientRect();
-        const c = e.touches?.[0] || e;
-        return { x: c.clientX - r.left, y: c.clientY - r.top };
-      };
-
-      const strokeStyle = () => {
-        ctx.lineWidth = Number(toolSize.value) || 4;
-        ctx.strokeStyle = toolColor.value || '#ff0000';
-        ctx.fillStyle = toolColor.value || '#ff0000';
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-      };
-
-      const start = (e) => {
-        e.preventDefault();
-        strokeStyle();
-        const p = getPos(e);
-        ann.drawing = true;
-        ann.start = p;
-        if (ann.tool === 'pen') {
-          ctx.beginPath();
-          ctx.moveTo(p.x, p.y);
-        }
-      };
-      const move = (e) => {
-        if (!ann.drawing) return;
-        e.preventDefault();
-        const p = getPos(e);
-        if (ann.tool === 'pen') {
-          ctx.lineTo(p.x, p.y);
-          ctx.stroke();
-        }
-      };
-      const end = (e) => {
-        if (!ann.drawing) return;
-        ann.drawing = false;
-        const pStart = ann.start;
-        const pEnd = e ? getPos(e) : pStart;
-        if (ann.tool === 'arrow' && pStart && pEnd) {
-          drawArrow(ctx, pStart, pEnd, Number(toolSize.value) || 4, toolColor.value || '#ff0000');
-        }
-        if (ann.tool === 'text' && pStart) {
-          const txt = prompt('Enter note text:');
-          if (txt) {
-            ctx.font = `bold ${Math.max(12, (Number(toolSize.value) || 4) * 4)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-            ctx.fillText(txt, pStart.x + 4, pStart.y + 4);
-          }
-        }
-        pushUndo();
-      };
-
-      cvs.addEventListener('mousedown', start);
-      cvs.addEventListener('mousemove', move);
-      window.addEventListener('mouseup', end);
-      cvs.addEventListener('touchstart', start, { passive: false });
-      cvs.addEventListener('touchmove', move, { passive: false });
-      window.addEventListener('touchend', end);
-    }
-
-    function drawArrow(ctx, p, q, width, color) {
-      const headLen = Math.max(8, width * 4);
-      const angle = Math.atan2(q.y - p.y, q.x - p.x);
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = width;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(q.x, q.y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(q.x, q.y);
-      ctx.lineTo(
-        q.x - headLen * Math.cos(angle - Math.PI / 6),
-        q.y - headLen * Math.sin(angle - Math.PI / 6)
-      );
-      ctx.lineTo(
-        q.x - headLen * Math.cos(angle + Math.PI / 6),
-        q.y - headLen * Math.sin(angle + Math.PI / 6)
-      );
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
-
-    async function uploadPhotosLazy(docId) {
-      if (!selectedFiles || !selectedFiles.length) return [];
-      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
-      const st = getStorage();
-      const out = [];
-      for (const f of selectedFiles) {
-        const safe = safeName(f.name);
-        const path = `field-maintenance/${docId}/${safe}`;
-        const r = ref(st, path);
-        await uploadBytes(r, f, { contentType: f.type || 'image/png' });
-        const url = await getDownloadURL(r);
-        out.push({ name: f.name, url, path, contentType: f.type || '', size: f.size || 0 });
-      }
-      return out;
-    }
-
-    /* ---------- Dictation (mic) ---------- */
-    function speechSetup() {
-      const mic = $('mic');
-      const notes = $('notes');
-      if (!mic || !notes) return;
-
-      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
-      if (!ok) {
-        mic.style.display = 'none';
-        return;
-      }
-      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const rec = new Rec();
-      rec.lang = 'en-US';
-      rec.interimResults = true;
-      rec.continuous = false;
-
-      let active = false;
-      let baseText = '';
-
-      const setMic = (on) => {
-        mic.classList.toggle('mic-active', on);
-        mic.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
-      };
-
-      mic.addEventListener('click', () => {
-        if (!active) {
-          baseText = notes.value ? notes.value + ' ' : '';
-          try {
-            rec.start();
-            active = true;
-            setMic(true);
-          } catch (_) {}
-        } else {
-          try {
-            rec.stop();
-            rec.abort();
-          } catch (_) {}
-          active = false;
-          setMic(false);
-        }
-      });
-
-      rec.onresult = (ev) => {
-        let txt = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          txt += ev.results[i][0].transcript;
-        }
-        notes.value = baseText + txt;
-      };
-      rec.onend = () => {
-        active = false;
-        setMic(false);
-      };
-      rec.onerror = () => {
-        active = false;
-        setMic(false);
-      };
-    }
-
-    /* ---------- Form actions ---------- */
     function setupActions() {
       $('btnCancel').addEventListener('click', () => {
+        // Simple behavior: return to maintenance portal
         window.location.href = './field-maintenance.html';
       });
 
@@ -1626,29 +525,14 @@ Enhancements in this build:
             priority,
             priorityReason: priority >= 7 ? priorityReason : null,
             notes,
-            photoCount: selectedFiles.length || 0,
+            // Photos: actual uploads can be wired in later; for now we just note count
+            photoCount: $('photos').files?.length || 0,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
-            status: 'open'
+            status: 'open' // default status for future workflows
           };
 
-          const docRef = await addDoc(collection(db, 'fieldMaintenance'), payload);
-          let uploaded = [];
-          if (selectedFiles.length) {
-            try {
-              uploaded = await uploadPhotosLazy(docRef.id);
-              if (uploaded.length) {
-                await updateDoc(docRef, {
-                  photos: uploaded,
-                  photoCount: uploaded.length,
-                  updatedAt: serverTimestamp()
-                });
-              }
-            } catch (stErr) {
-              console.error(stErr);
-              alert('Saved maintenance item, but photo upload failed:\n\n' + (stErr?.message || stErr));
-            }
-          }
+          await addDoc(collection(db, 'fieldMaintenance'), payload);
 
           alert('Field maintenance item saved.');
           window.location.href = './field-maintenance.html';
@@ -1660,7 +544,6 @@ Enhancements in this build:
       });
     }
 
-    /* ---------- Boot ---------- */
     ready().then(() => {
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -1669,11 +552,9 @@ Enhancements in this build:
       setupDate();
       setupPriority();
       setupFarmFieldLinking();
-      setupCombos();
-      setupTopicManager();
-      speechSetup();
       setupActions();
 
+      // Load Firestore-backed dropdown data
       loadFarms();
       loadFields();
       loadTopics();
