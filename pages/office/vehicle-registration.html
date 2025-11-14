@@ -313,38 +313,55 @@
     // ========== Assets (FVData first) ==========
     let ALL_ASSETS = [];
 
-    async function listAssetsFV(){
+    async function waitForFVDataReady(){
       if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
-      await FVData.ready();
+      // Handle both "ready is a Promise" and "ready is a function returning a Promise"
+      if(typeof FVData.ready === "function"){
+        await FVData.ready();
+      }else if(typeof FVData.ready.then === "function"){
+        await FVData.ready;
+      }
+    }
 
-      // Load equipment; filter in JS for truck / trailer + active-ish
-      const rows = await (FVData.list
+    async function listAssetsFV(){
+      await waitForFVDataReady();
+
+      let rows = await (FVData.list
         ? FVData.list("equipment", { limit: 2000 })
         : FVData.loadAll("equipment"));
 
-      return (rows || [])
-        .map(r => r.data ? ({ id:r.id, ...r.data }) : r)
-        .filter(o => {
-          const rawType = String(o.type || "").toLowerCase();
+      // Be defensive about the shape
+      if(!Array.isArray(rows) && rows && Array.isArray(rows.items)) rows = rows.items;
+      if(!Array.isArray(rows)) rows = rows || [];
+
+      const mapped = rows
+        .map(r => r && r.data ? ({ id:r.id, ...r.data }) : r)
+        .filter(o => !!o && (o.type || o.Type || o.equipType))
+        .map(o => {
+          const rawType = String(o.type || o.Type || o.equipType || "").toLowerCase();
           const t = rawType.startsWith("truck") ? "truck"
                   : rawType.startsWith("trailer") ? "trailer"
                   : "";
-          if(!t) return false;
-          if(o.status && String(o.status).toLowerCase() !== "active") return false;
-          o._uiType = t;
-          return true;
+          if(!t) return null;
+
+          if(o.status && String(o.status).toLowerCase() !== "active") return null;
+
+          return {
+            id: o.id || o.uid || o.unit || o.serial || `${t}_${Math.random().toString(36).slice(2)}`,
+            type: t,
+            unit: String(o.unit || o.nickname || o.serial || o.name || "").trim(),
+            year: o.year || "",
+            make: o.make || "",
+            model: o.model || "",
+            vin:  String(o.vin||"").toUpperCase().slice(0,17),
+            plate: o.plate || "",
+            state: (o.state||"").toUpperCase()
+          };
         })
-        .map(o => ({
-          id: o.id || o.uid || o.unit || o.serial || `${o._uiType}_${Math.random().toString(36).slice(2)}`,
-          type: o._uiType, // normalized "truck"/"trailer"
-          unit: String(o.unit || o.nickname || o.serial || o.name || "").trim(),
-          year: o.year || "",
-          make: o.make || "",
-          model: o.model || "",
-          vin:  String(o.vin||"").toUpperCase().slice(0,17),
-          plate: o.plate || "",
-          state: (o.state||"").toUpperCase()
-        }));
+        .filter(Boolean);
+
+      // If for some reason nothing comes back, let caller decide to fallback
+      return mapped;
     }
 
     // local fallback (legacy)
@@ -367,7 +384,7 @@
 
     function applyAssetFilter(){
       const sel = $("asset");
-      const type = $("type").value;
+      const type = $("type").value;  // "truck" / "trailer" / "" / "other"
       const prev = sel.value;
 
       sel.innerHTML = '<option value="">Select asset…</option>';
@@ -380,9 +397,12 @@
 
       sel.disabled = false;
 
-      const filtered = (ALL_ASSETS || []).filter(a => a.type === type);
+      const filtered = (ALL_ASSETS || []).filter(a =>
+        String(a.type || "").toLowerCase() === type
+      );
+
       filtered.forEach(a=>{
-        const label = `${a.type==="truck"?"Truck":"Trailer"} • ${a.unit || `${a.make||""} ${a.model||""}`.trim()}`.trim();
+        const label = `${String(a.type).toLowerCase()==="truck"?"Truck":"Trailer"} • ${a.unit || `${a.make||""} ${a.model||""}`.trim()}`.trim();
         const opt = document.createElement("option");
         opt.value = a.id;
         opt.textContent = label;
@@ -402,9 +422,14 @@
       try{
         assets = await listAssetsFV();
       }catch(e){
-        console.warn("FVData asset load failed, falling back to local:", e);
+        console.warn("FVData asset load error, falling back to local:", e);
+      }
+
+      if(!Array.isArray(assets) || !assets.length){
+        console.warn("No FVData trucks/trailers found, using local/demo assets.");
         assets = listAssetsLocal();
       }
+
       ALL_ASSETS = assets;
       applyAssetFilter();
     }
@@ -414,10 +439,13 @@
       if(!opt || !opt.dataset.payload) return;
       const a = JSON.parse(opt.dataset.payload);
 
-      if(a.type && $("type").value !== a.type){
-        $("type").value = a.type;
-        applyAssetFilter();
-        $("asset").value = a.id;
+      if(a.type){
+        const tNorm = String(a.type).toLowerCase();
+        if($("type").value !== tNorm){
+          $("type").value = tNorm;
+          applyAssetFilter();
+          $("asset").value = a.id;
+        }
       }
 
       $("unit").value = a.unit || "";
@@ -487,8 +515,7 @@
 
     async function saveRegistration(it){
       try{
-        if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
-        await FVData.ready();
+        await waitForFVDataReady();
         await (FVData.save
           ? FVData.save(COLL, it)
           : FVData.add(COLL, it));
@@ -511,9 +538,11 @@
     async function renderHistory(){
       const box = $("history");
       try{
-        if(!window.FVData || !FVData.ready) throw new Error("FVData not loaded");
-        await FVData.ready();
-        const rows = await (FVData.list ? FVData.list(COLL, { limit: MAX_RET, orderBy:"t", desc:true }) : FVData.loadAll(COLL));
+        await waitForFVDataReady();
+        let rows = await (FVData.list ? FVData.list(COLL, { limit: MAX_RET, orderBy:"t", desc:true }) : FVData.loadAll(COLL));
+        if(!Array.isArray(rows) && rows && Array.isArray(rows.items)) rows = rows.items;
+        if(!Array.isArray(rows)) rows = rows || [];
+
         const items = (rows||[]).map(r => r.data ? ({ id:r.id, ...r.data }) : r)
                                 .sort((a,b)=> (b.updatedAt||b.t||0) - (a.updatedAt||a.t||0));
         if(!items.length){
