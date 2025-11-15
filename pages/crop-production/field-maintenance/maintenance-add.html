@@ -5,8 +5,8 @@ Changes in this build:
  • Farm / Field / Topic use fv-combo.js (searchable combos).
  • Farm↔Field auto-link with overlay workaround kept.
  • Topic Manager + New Topic modals.
- • NEW: combo helper so only one combo panel stays open at a time
-        (matches behavior on your equipment forms).
+ • Combo helper now correctly keeps ONLY one fv-combo panel open at a time
+   by mapping each <select> to its panel.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -1390,20 +1390,46 @@ Changes in this build:
       });
     }
 
+    // ---- Build a map: select[data-fv-combo] -> its fv-panel ----
+    function buildComboMap(){
+      const selects = Array.from(document.querySelectorAll('select[data-fv-combo]'));
+      const panels  = Array.from(document.querySelectorAll('.fv-panel'));
+      const map = new Map();
+      selects.forEach((sel, idx)=>{
+        if (panels[idx]) map.set(sel, panels[idx]);
+      });
+      return map;
+    }
+
     // ---- Combo helper: keep only the LAST-opened panel visible ----
-    function wireComboHelpers(){
+    function wireComboHelpers(comboMap){
       document.addEventListener(
         "click",
         (evt)=>{
           const btn = evt.target.closest(".fv-buttonish");
           if (!btn) return;
-          // After fv-combo has opened its panel, trim extras
-          setTimeout(()=>{
-            const openPanels = Array.from(document.querySelectorAll(".fv-panel.show"));
-            if (openPanels.length <= 1) return;
-            // Close all except the last opened one
-            openPanels.slice(0, -1).forEach(p => p.classList.remove("show"));
-          }, 0);
+
+          // find the select behind this button
+          const wrapper = btn.closest(".fv-combo");
+          if (!wrapper) return;
+          const sel = wrapper.querySelector('select[data-fv-combo]');
+          if (!sel) return;
+
+          const panel = comboMap.get(sel);
+          if (!panel) return;
+
+          const isOpen = panel.classList.contains("show");
+
+          if (!isOpen){
+            // We are about to open THIS combo.
+            // Close all other open panels first so only one can be open.
+            document.querySelectorAll(".fv-panel.show").forEach(p => {
+              if (p !== panel) p.classList.remove("show");
+            });
+            // fv-combo's own click handler will then open `panel`.
+          } else {
+            // Panel already open; let fv-combo toggle it closed normally.
+          }
         },
         { capture:true }
       );
@@ -1429,7 +1455,9 @@ Changes in this build:
           window.FVCombo.upgrade(document);
         }
 
-        wireComboHelpers();   // keep only one combo open at a time
+        const comboMap = buildComboMap();
+        wireComboHelpers(comboMap);
+
         updateFarmOverlay();
       }catch(e){
         console.error("Initial data load failed", e);
