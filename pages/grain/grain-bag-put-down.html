@@ -114,6 +114,17 @@
       z-index:99999; display:none }
     .toast.show{ display:block; animation:fadeout 5s forwards }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* Priority slider styles (match maintenance-add) */
+    .priority-readout{
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+    }
+    .priority-reason textarea{
+      min-height:80px;
+      resize:vertical;
+    }
   </style>
 </head>
 
@@ -203,15 +214,17 @@
 
             <!-- 5) Pickup Priority | 6) Bag Brand & Size -->
             <div class="row">
-              <div class="field combo" id="prioCombo">
-                <label for="prioBtn">Pickup Priority (1–10)</label>
-                <div class="combo-anchor">
-                  <button id="prioBtn" class="buttonish has-caret" type="button">— Select —</button>
-                  <div class="combo-panel" id="prioPanel" role="listbox" aria-label="Priority list">
-                    <div class="list" id="prioList"></div>
-                  </div>
+              <!-- Priority slider (replaces dropdown) -->
+              <div class="field">
+                <label for="priority">Pickup Priority (1–10)</label>
+                <input id="priority" class="input" type="range" min="1" max="10" step="1" value="5">
+                <div class="priority-readout">
+                  Priority: <strong><span id="priorityValue">5</span>/10</strong> · 1 = low urgency · 10 = high urgency
                 </div>
-                <div class="help">1 = low urgency · 10 = high urgency</div>
+                <div id="priorityReasonBlock" class="priority-reason" hidden>
+                  <label for="priorityReason">Why is this a high-priority (7–10) pickup?</label>
+                  <textarea id="priorityReason" class="textarea" placeholder="Explain why this needs urgent attention…"></textarea>
+                </div>
               </div>
 
               <div class="field combo" id="bagComboField">
@@ -284,8 +297,19 @@
     const esc = s => String(s ?? "").replace(/[&<>"']/g, m => (
       {"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]
     ));
-    const toast = (msg="Bag Entry Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),ms); };
-    const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
+    const toast = (msg="Bag Entry Saved.", ms=4200)=>{
+      const t=$("toast");
+      t.textContent=msg;
+      t.classList.remove("show");
+      void t.offsetWidth;
+      t.classList.add("show");
+      setTimeout(()=>t.classList.remove("show"),ms);
+    };
+    const todayISO = ()=>{
+      const d=new Date();
+      const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${da}`;
+    };
 
     /* ---------- state ---------- */
     let FIELD_INDEX=[], EMPLOYEES=[], BAG_SKUS=[];
@@ -294,7 +318,9 @@
 
     /* ---------- global combo manager (one open at a time) ---------- */
     function closeAllCombos(exceptPanel=null){
-      document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==exceptPanel) p.classList.remove('show'); });
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==exceptPanel) p.classList.remove('show');
+      });
     }
     // Close on outside click / Esc
     document.addEventListener('click', ()=> closeAllCombos());
@@ -381,7 +407,7 @@
         {id:'new',       label:'Start of a new bag',            value:'new'}
       ];
       makeCombo({
-        btn: useBtn, panel: usePanel, list: useList, items: USAGE_ITEMS,
+        btn: useBtn, panel: usePanel, list: useList, items:USAGE_ITEMS,
         searchable:false, formatter:x=>x.label,
         onPick: it => { useBtn.textContent = it.label; useBtn.dataset.value = it.value; }
       });
@@ -415,9 +441,37 @@
       return ok;
     }
 
+    /* ---------- priority slider setup ---------- */
+    function setupPriority(){
+      const slider = $("priority");
+      const valSpan = $("priorityValue");
+      const block = $("priorityReasonBlock");
+      const reason = $("priorityReason");
+      if(!slider || !valSpan || !block || !reason) return;
+
+      const sync = ()=>{
+        const v = Number(slider.value || 5);
+        valSpan.textContent = v;
+        if(v>=7){
+          block.hidden = false;
+        }else{
+          block.hidden = true;
+          reason.value = "";
+        }
+        chosen.prio = v;
+      };
+      slider.addEventListener("input", sync);
+      sync();
+    }
+
     /* ---------- formatting ---------- */
     function bagLabel(b){
-      const parts=[`${b.brand} — ${b.sizeFeet} ft`, b.diameterFt?`Ø${b.diameterFt}'`:null, b.location||null, (b.onHand!=null)?`on hand: ${b.onHand}`:null].filter(Boolean);
+      const parts=[
+        `${b.brand} — ${b.sizeFeet} ft`,
+        b.diameterFt?`Ø${b.diameterFt}'`:null,
+        b.location||null,
+        (b.onHand!=null)?`on hand: ${b.onHand}`:null
+      ].filter(Boolean);
       return parts.join(' • ');
     }
 
@@ -430,8 +484,29 @@
       if(!chosen.crop){ alert("Please choose Crop Type."); return; }
       const datePlaced=$("datePlaced").value; if(!datePlaced){ alert("Please set the Date placed."); return; }
 
+      // Priority validation + high-priority reason
+      const sliderEl = $("priority");
+      const priority = Number(sliderEl?.value || chosen.prio || 5);
+      if(!priority || priority<1 || priority>10){
+        alert("Pickup priority must be between 1 and 10.");
+        return;
+      }
+      let priorityReason = null;
+      if(priority>=7){
+        priorityReason = ($("priorityReason").value || "").trim();
+        if(!priorityReason){
+          alert("Please explain why this is a high-priority (7–10) pickup.");
+          return;
+        }
+      }
+      chosen.prio = priority;
+
       const partialCount=Math.max(0,Number($("partialBags").value||0));
-      if(partialCount>0 && !validatePartials()){ $("err").hidden=false; $("err").textContent="One or more partial lengths are outside the allowed range."; return; }
+      if(partialCount>0 && !validatePartials()){
+        $("err").hidden=false;
+        $("err").textContent="One or more partial lengths are outside the allowed range.";
+        return;
+      }
 
       const rows=[...$("partialsList").querySelectorAll('.partial-row')];
       const partialFeet=[], partialUsage=[];
@@ -440,7 +515,10 @@
         const useVal=r.querySelector('.buttonish').dataset.value || 'carryover';
         if(len>0){ partialFeet.push(len); partialUsage.push(useVal); }
       }
-      if(partialCount>0 && partialFeet.length!==partialCount){ alert("Please complete each partial row."); return; }
+      if(partialCount>0 && partialFeet.length!==partialCount){
+        alert("Please complete each partial row.");
+        return;
+      }
 
       const fullBags=Math.max(0,Number($("fullBags").value||0));
 
@@ -455,10 +533,16 @@
         cropType:chosen.crop,
         cropMoisture: ($("cropMoisture").value===""? null : Number($("cropMoisture").value)),
         datePlaced,
-        bagSku:{ id:chosen.bag.id, brand:chosen.bag.brand, sizeFeet:Number(chosen.bag.sizeFeet||0),
-                 diameterFt:chosen.bag.diameterFt||null, location:chosen.bag.location||null },
+        bagSku:{
+          id:chosen.bag.id,
+          brand:chosen.bag.brand,
+          sizeFeet:Number(chosen.bag.sizeFeet||0),
+          diameterFt:chosen.bag.diameterFt||null,
+          location:chosen.bag.location||null
+        },
         counts:{ full:fullBags, partial:partialCount, partialFeet, partialUsage },
-        priority:Number(chosen.prio||5),
+        priority,
+        priorityReason,
         notes:$("notes").value.trim(),
         submittedBy:{ employeeId:sub?.id||null, name:subName, email:subEmail },
         createdAt:serverTimestamp(), updatedAt:serverTimestamp()
@@ -480,7 +564,10 @@
             uploaded.push({name:f.name, url:await url(stRef(st,path)), path});
           }
           await updateDoc(doc(db,'grain_bag_events',ref.id), { files:uploaded, updatedAt:serverTimestamp() });
-        }catch(err){ $("err").hidden=false; $("err").textContent=`Saved, but photo upload failed: ${err.message}`; }
+        }catch(err){
+          $("err").hidden=false;
+          $("err").textContent=`Saved, but photo upload failed: ${err.message}`;
+        }
       }
 
       // Inventory decrement: +1 if ANY partial is "new"
@@ -490,7 +577,9 @@
         try{
           const next=Math.max(0,Number(chosen.bag.onHand)-debit);
           await updateDoc(doc(db,'inventoryGrainBagMovements',chosen.bag.id), { onHand:next, updatedAt:serverTimestamp() });
-        }catch(err){ console.warn("Inventory decrement failed:", err); }
+        }catch(err){
+          console.warn("Inventory decrement failed:", err);
+        }
       }
 
       // Success UX
@@ -513,8 +602,22 @@
       $("notes").value=""; $("files").value="";
       $("partialsRangeHelp").textContent="";
 
+      // Reset priority slider to default 5
+      chosen.prio = 5;
+      const pSlider = $("priority");
+      const pVal = $("priorityValue");
+      const pBlock = $("priorityReasonBlock");
+      const pReason = $("priorityReason");
+      if(pSlider) pSlider.value = "5";
+      if(pVal) pVal.textContent = "5";
+      if(pBlock) pBlock.hidden = true;
+      if(pReason) pReason.value = "";
+
       // Focus the Field picker for quick re-entry
-      setTimeout(()=>{ const fb = document.getElementById('fieldBtn'); if(fb) fb.focus(); }, 350);
+      setTimeout(()=>{
+        const fb = document.getElementById('fieldBtn');
+        if(fb) fb.focus();
+      }, 350);
     }
 
     /* ---------- boot ---------- */
@@ -523,18 +626,26 @@
       const db=getFirestore(); const auth=getAuth();
       $("datePlaced").value = todayISO();
 
-      /* Years / Priority / Crops */
+      /* Years / Crops */
       const y=new Date().getFullYear();
       const YEARS=[y-1,y,y+1].map(v=>({id:String(v), value:v, label:String(v)}));
-      const PRIO=[1,2,3,4,5,6,7,8,9,10].map(n=>({id:String(n), value:n, label:(n===1?"1 — Low":n===10?"10 — High":String(n))}));
-      const CROPS=[{id:"Corn",value:"Corn",label:"Corn"},{id:"Soybeans",value:"Soybeans",label:"Soybeans"}];
+      const CROPS=[
+        {id:"Corn",value:"Corn",label:"Corn"},
+        {id:"Soybeans",value:"Soybeans",label:"Soybeans"}
+      ];
+
+      // Priority slider
+      setupPriority();
 
       const fieldCombo = makeCombo({
         btn: document.getElementById("fieldBtn"),
         panel: document.getElementById("fieldPanel"),
         list: document.getElementById("fieldList"),
         items:[], searchable:true, formatter:(x)=>x.name,
-        onPick:(it)=>{ chosen.field=it; document.getElementById("fieldBtn").textContent=it.name; }
+        onPick:(it)=>{
+          chosen.field=it;
+          document.getElementById("fieldBtn").textContent=it.name;
+        }
       });
 
       const yearCombo = makeCombo({
@@ -542,16 +653,23 @@
         panel: document.getElementById("yearPanel"),
         list: document.getElementById("yearList"),
         items:YEARS, searchable:false, formatter:x=>x.label,
-        onPick:(it)=>{ chosen.year=Number(it.value); document.getElementById("yearBtn").textContent=it.label; }
+        onPick:(it)=>{
+          chosen.year=Number(it.value);
+          document.getElementById("yearBtn").textContent=it.label;
+        }
       });
-      chosen.year = y; document.getElementById("yearBtn").textContent=String(y);
+      chosen.year = y;
+      document.getElementById("yearBtn").textContent=String(y);
 
       const subCombo = makeCombo({
         btn: document.getElementById("subBtn"),
         panel: document.getElementById("subPanel"),
         list: document.getElementById("subList"),
         items:[], searchable:false, formatter:x=>x.name,
-        onPick:(it)=>{ chosen.sub=it; document.getElementById("subBtn").textContent=it.name; }
+        onPick:(it)=>{
+          chosen.sub=it;
+          document.getElementById("subBtn").textContent=it.name;
+        }
       });
 
       const cropCombo = makeCombo({
@@ -559,45 +677,67 @@
         panel: document.getElementById("cropPanel"),
         list: document.getElementById("cropList"),
         items:CROPS, searchable:false, formatter:x=>x.label,
-        onPick:(it)=>{ chosen.crop=it.value; document.getElementById("cropBtn").textContent=it.label; }
+        onPick:(it)=>{
+          chosen.crop=it.value;
+          document.getElementById("cropBtn").textContent=it.label;
+        }
       });
-
-      const prioCombo = makeCombo({
-        btn: document.getElementById("prioBtn"),
-        panel: document.getElementById("prioPanel"),
-        list: document.getElementById("prioList"),
-        items:PRIO, searchable:false, formatter:x=>x.label,
-        onPick:(it)=>{ chosen.prio=Number(it.value); document.getElementById("prioBtn").textContent=it.label; }
-      });
-      chosen.prio=5; document.getElementById("prioBtn").textContent="5";
 
       const bagCombo = makeCombo({
         btn: document.getElementById("bagBtn"),
         panel: document.getElementById("bagPanel"),
         list: document.getElementById("bagList"),
         items:[], searchable:true, formatter:(x)=>bagLabel(x),
-        onPick:(it)=>{ chosen.bag=it; document.getElementById("bagBtn").textContent=bagLabel(it); updatePartialRangeHelp(); schedulePartialValidate(); }
+        onPick:(it)=>{
+          chosen.bag=it;
+          document.getElementById("bagBtn").textContent=bagLabel(it);
+          updatePartialRangeHelp();
+          schedulePartialValidate();
+        }
       });
 
       /* Load Firestore data */
       async function loadFields(){
         try{
           const snap=await getDocs(query(collection(db,'fields'),orderBy('name')));
-          const arr=[]; snap.forEach(d=>{const x=d.data()||{}; if(x.name) arr.push({id:d.id,name:String(x.name)})});
+          const arr=[];
+          snap.forEach(d=>{
+            const x=d.data()||{};
+            if(x.name) arr.push({id:d.id,name:String(x.name)});
+          });
           arr.sort((a,b)=>a.name.localeCompare(b.name));
-          FIELD_INDEX=arr; fieldCombo.setItems(arr);
-        }catch(e){ console.warn("Fields load error:", e); fieldCombo.setItems([]); }
+          FIELD_INDEX=arr;
+          fieldCombo.setItems(arr);
+        }catch(e){
+          console.warn("Fields load error:", e);
+          fieldCombo.setItems([]);
+        }
       }
       async function loadEmployees(){
         try{
           const snap=await getDocs(collection(db,'employees'));
-          const list=[]; snap.forEach(d=>{const x=d.data()||{}; list.push({id:d.id,name:x.name||x.displayName||x.fullName||x.email||d.id,email:x.email||d.id})});
+          const list=[];
+          snap.forEach(d=>{
+            const x=d.data()||{};
+            list.push({
+              id:d.id,
+              name:x.name||x.displayName||x.fullName||x.email||d.id,
+              email:x.email||d.id
+            });
+          });
           list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-          EMPLOYEES=list; subCombo.setItems(list);
+          EMPLOYEES=list;
+          subCombo.setItems(list);
           const me=(auth.currentUser?.email||"").toLowerCase();
           const mine=list.find(e=>(e.email||"").toLowerCase()===me) || list[0];
-          if(mine){ chosen.sub=mine; document.getElementById("subBtn").textContent=mine.name; }
-        }catch(e){ console.warn("Employees load error:", e); subCombo.setItems([]); }
+          if(mine){
+            chosen.sub=mine;
+            document.getElementById("subBtn").textContent=mine.name;
+          }
+        }catch(e){
+          console.warn("Employees load error:", e);
+          subCombo.setItems([]);
+        }
       }
       async function loadBags(){
         try{
@@ -608,12 +748,22 @@
             const brand=String(x.brand||"Bag");
             const sizeFeet=Number(x.lengthFt||x.length||0);
             if(sizeFeet<=0) return;
-            list.push({ id:d.id, brand, sizeFeet,
+            list.push({
+              id:d.id,
+              brand,
+              sizeFeet,
               diameterFt:Number(x.diameterFt||x.diameter||0)||null,
-              location:x.location||null, onHand:(x.onHand!==undefined?Number(x.onHand):null) });
+              location:x.location||null,
+              onHand:(x.onHand!==undefined?Number(x.onHand):null)
+            });
           });
-          list.sort((a,b)=>(`${a.brand} ${a.sizeFeet}`).localeCompare(`${b.brand} ${b.sizeFeet}`,undefined,{numeric:true}));
-          BAG_SKUS=list; bagCombo.setItems(list);
+          list.sort((a,b)=>(`${a.brand} ${a.sizeFeet}`).localeCompare(
+            `${b.brand} ${b.sizeFeet}`,
+            undefined,
+            {numeric:true}
+          ));
+          BAG_SKUS=list;
+          bagCombo.setItems(list);
 
           // Default to the single bag if only one SKU exists
           if(list.length===1){
@@ -621,7 +771,10 @@
             document.getElementById("bagBtn").textContent=bagLabel(list[0]);
             updatePartialRangeHelp();
           }
-        }catch(e){ console.warn("Bags load error:", e); bagCombo.setItems([]); }
+        }catch(e){
+          console.warn("Bags load error:", e);
+          bagCombo.setItems([]);
+        }
       }
 
       await Promise.all([loadFields(), loadEmployees(), loadBags()]);
@@ -630,7 +783,8 @@
       document.getElementById("addBag").addEventListener("click", ()=>{
         if(!chosen.field) return alert("Choose a Field first.");
         if(!chosen.year)  return alert("Choose Crop Year.");
-        document.getElementById("bagForm").hidden=false; toast("Bag form ready.", 2200);
+        document.getElementById("bagForm").hidden=false;
+        toast("Bag form ready.", 2200);
       });
 
       // Cancel (top) -> go back to previous page
@@ -654,9 +808,24 @@
         document.getElementById("partialsList").innerHTML=""; document.getElementById("partialsBlock").hidden=true;
         document.getElementById("notes").value=""; document.getElementById("files").value="";
         document.getElementById("partialsRangeHelp").textContent="";
+
+        // Reset priority slider + reason
+        chosen.prio = 5;
+        const pSlider = $("priority");
+        const pVal = $("priorityValue");
+        const pBlock = $("priorityReasonBlock");
+        const pReason = $("priorityReason");
+        if(pSlider) pSlider.value = "5";
+        if(pVal) pVal.textContent = "5";
+        if(pBlock) pBlock.hidden = true;
+        if(pReason) pReason.value = "";
+
         const me=(getAuth().currentUser?.email||"").toLowerCase();
         const mine=EMPLOYEES.find(e=>(e.email||"").toLowerCase()===me) || EMPLOYEES[0];
-        if(mine){ chosen.sub=mine; document.getElementById("subBtn").textContent=mine.name; }
+        if(mine){
+          chosen.sub=mine;
+          document.getElementById("subBtn").textContent=mine.name;
+        }
       });
     })();
   </script>
