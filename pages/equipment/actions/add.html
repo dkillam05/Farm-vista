@@ -1,37 +1,39 @@
 <!-- =====================================================================
-/Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE)
-
-Changes in this build:
- • Keep Farm↔Field auto-link with overlay workaround (working both directions).
- • Submitted by / Date submitted use full-width readonly inputs to match other boxes.
- • Topic / Category gets:
-      - "Topic / Category" label as a tappable button to open a Topic Manager modal.
-      - Topic Manager modal: rename topics, archive, unarchive, delete.
-      - "Add new topic…" option inside the Topic dropdown, opening a New Topic modal.
+/Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
+Rev: 2025-11-13d
+Changes in this rev:
+ • For TYPE=implement: move the "Type" field (implementType) above Make/Model
+ • For TYPE=truck or trailer: relabel Serial # → VIN # (and tweak placeholder)
+ • All themes, modules, extras engine, file input, QR flow, etc. unchanged
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>FarmVista • Add Field Maintenance</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#3B7E46" />
+  <meta charset="utf-8"/>
+  <title>FarmVista • Add Tractor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
 
   <!-- ABSOLUTE PATHS -->
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Shared equipment form layouts (extras per category) -->
+  <script src="/Farm-vista/js/equipment-forms.js"></script>
 
   <!-- Ensure fv-shell -->
   <script>
-    (function () {
-      if (!customElements.get('fv-shell')) {
-        const s = document.createElement('script');
-        s.src = '/Farm-vista/js/fv-shell.js';
-        s.defer = true;
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
         document.head.appendChild(s);
       }
     })();
@@ -39,591 +41,401 @@ Changes in this build:
 
   <style>
     :root{
-      --card-max: 1100px;
-      --page-bottom-gap: 96px;
-      --accent: #2F6C3C;
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --brand: var(--green,#3B7E46);
+      --danger:#b00020;
+
+      --ctl-h:48px;
+      --ctl-pad-x:12px;
+      --ctl-pad-y:12px;
+      --ctl-radius:10px;
     }
-    html{-webkit-text-size-adjust:100%}
-    body{ background: var(--app-bg, var(--surface)); }
+
+    html, body { min-height:100%; }
+    body { scrollbar-gutter:stable; }
 
     .wrap{
-      max-width: var(--card-max);
-      margin: 0 auto;
-      padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
+    /* Card */
     .hero{
+      width:min(720px, calc(100% - 24px));
+      margin:0 auto var(--page-bottom-gap);
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
-      margin-bottom: var(--page-bottom-gap);
+      contain:layout paint;
     }
+
     .hero-head{
-      display:grid;
-      grid-template-columns:36px 1fr;
-      gap:12px;
-      align-items:center;
-      padding:14px 16px;
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
-      border-bottom:1px solid var(--border);
+      display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border); background:var(--surface);
     }
-    .hero-head .icon{
-      width:24px;
-      height:24px;
-      color:var(--accent);
-      display:grid;
-      place-items:center;
-    }
+    .hero-head .icon{ width:24px; height:24px; display:grid; place-items:center; color:var(--brand); }
     .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
-    .muted{ color:var(--muted,#67706B); }
+    .muted{ color:var(--muted,#67706B) }
 
     .body{ padding:16px; display:grid; gap:14px; }
-    .row{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
-    .row-1{ display:grid; gap:10px; grid-template-columns: 1fr; }
-    @media (max-width:880px){ .row{ grid-template-columns: 1fr; } }
+    .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
+    @media (max-width:880px){ .row{ grid-template-columns:1fr } }
 
-    .field label,
-    .fm-row-label{ display:block; font-weight:800; margin:0 0 6px 0; }
-    .fm-row-label .req{ color:var(--accent); }
+    .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
+    .req::after{ content:" *"; color:var(--brand); }
 
-    .input, .select, .textarea{
-      width:100%;
-      font:inherit;
-      font-size:16px;
-      font-weight:400;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:12px 12px;
-      outline:none;
-    }
-    .textarea{ min-height:110px; resize:vertical; }
-
-    /* Tappable labels (reuse pattern from Makes editor) */
+    /* Tappable labels (inline editors) */
     .as-label{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      font:inherit;
-      font-weight:800;
-      background:transparent;
-      border:none;
-      padding:0;
-      color:var(--text);
-      cursor:pointer;
+      display:inline-flex; align-items:center; gap:8px;
+      font:inherit; font-weight:800; background:transparent; border:none; padding:0;
+      color:var(--text); cursor:pointer;
     }
     .as-label:hover{ text-decoration:underline; }
-    .as-label.req::after{
-      content:" *";
-      color:var(--accent);
-    }
+    .as-label.req::after{ content:" *"; color:var(--brand); }
 
-    .fm-inline{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-
-    .value-pill{
-      padding:4px 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
+    /* Base controls */
+    .input,.select,.textarea{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface));
-      font-size:0.85rem;
+      border:1px solid var(--border); border-radius:var(--ctl-radius);
+      padding:var(--ctl-pad-y) var(--ctl-pad-x); box-sizing:border-box; outline:none;
     }
+    .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
+    .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
-    .input-readonly[readonly]{
-      cursor:default;
-      background:var(--card-surface,var(--surface));
-    }
-
-    .actions{
-      display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px;
-      justify-content:flex-end;
-    }
+    /* Buttons */
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      min-width:148px; padding:12px 16px; border-radius:12px; border:1px solid var(--border);
-      font-weight:800; text-decoration:none; cursor:pointer; user-select:none;
-      color:var(--text) !important; background:var(--card-surface,var(--surface));
+      display:inline-flex; align-items:center; justify-content:center; min-width:148px;
+      padding:10px 14px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer;
+      -webkit-appearance:none; appearance:none; color:var(--text)!important;
+      text-decoration:none;
     }
-    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff !important; }
-    .btn-quiet{ background:transparent; }
+    .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
+    .btn-quiet{ background:transparent; color:var(--text)!important }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
 
-    .priority-readout{
-      font-size:0.9rem;
-      color:var(--muted,#67706B);
-      margin-top:4px;
-    }
-    .priority-reason textarea{
-      min-height:80px;
-      resize:vertical;
-    }
-
-    .ta-wrap{ position:relative; }
-    .textarea.fm-notes{ padding-right:52px; }
-    .mic-btn{
-      position:absolute;
-      right:10px;
-      bottom:10px;
-      width:36px;
-      height:36px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      display:grid;
-      place-items:center;
-      cursor:pointer;
-    }
-    .mic-btn[disabled]{ opacity:.6; cursor:not-allowed; }
-    .mic-svg{ width:18px; height:18px; display:block; }
-    .mic-active{
-      background:#2F6C3C;
-      color:#fff;
-      border-color:#2F6C3C;
-    }
-
-    input[type="file"].file-input{
-      width:100%;
-      padding:8px 10px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      font-size:0.9rem;
-      color:var(--text);
-    }
-    input[type="file"].file-input::file-selector-button{
-      border:none;
-      border-radius:999px;
-      padding:4px 12px;
-      margin-right:10px;
-      background:var(--surface);
-      color:var(--text);
-      font-size:0.85rem;
-      cursor:pointer;
-    }
-
-    .thumbs{ display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
-    .thumb{
-      width:72px; height:72px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      display:grid;
-      place-items:center;
-      overflow:hidden;
-    }
-    .thumb img{ max-width:100%; max-height:100%; display:block; }
-    .muted-line{ font-size:13px; color:var(--muted,#67706B); margin-top:4px; }
-
-    .error{
-      border:1px solid #b3261e;
-      background:#fff;
-      color:#b3261e;
-      border-radius:10px;
-      padding:10px 12px;
-      display:none;
-      margin-bottom:8px;
-    }
-    .error.show{ display:block; }
+    .error{ color:var(--danger); font-weight:700 }
 
     .toast{
-      position:fixed;
-      left:50%;
-      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
       transform:translateX(-50%);
-      background:#2F6C3C;
-      color:#fff;
-      padding:10px 14px;
-      border-radius:10px;
-      box-shadow:0 6px 20px rgba(0,0,0,.25);
-      z-index:99999;
-      display:none;
-      white-space:nowrap;
-      max-width:92vw;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      background:var(--brand); color:#fff; padding:10px 14px; border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none;
     }
-    .toast.show{ display:block; animation:fadeout 3.2s forwards; }
-    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+    .toast.show{ display:block; animation:fadeout 5s forwards }
+    @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* Farm select overlay (beats iOS label repaint bug) */
-    .select-shell{
-      position:relative;
+    /* Year popover */
+    .combo{ position:relative; }
+    .combo-trigger{ width:100%; text-align:left; }
+    .combo-trigger.select{ position:relative; display:flex; align-items:center; }
+    .combo-trigger.select::after{
+      content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
+      border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
     }
-    #farmSelectOverlay{
-      position:absolute;
-      left:12px;
-      right:32px;
-      top:50%;
-      transform:translateY(-50%);
-      pointer-events:none;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      opacity:0;
-      transition:opacity .12s ease-out;
-      font-size:16px;
-      line-height:1.2;
-      font-weight:400;
-      font-family:inherit;
-      color:var(--text);
-      -webkit-font-smoothing:antialiased;
+    .combo-panel{
+      position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
+      background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 12px 26px rgba(0,0,0,.18);
+      --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
     }
-    #farmSelectOverlay.show{
-      opacity:1;
+    .combo-item{
+      display:block; width:100%; text-align:left; font:inherit; color:var(--text);
+      background:transparent; border:none; border-radius:10px;
+      padding:10px 12px; height:var(--row-h); line-height:16px; cursor:pointer; font-weight:400;
     }
-    .select.overlay-active{
-      color:transparent;
-      text-shadow:none;
-    }
+    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline:none; }
+    .combo-hidden{ display:none !important; }
 
-    /* Modal + Topic editor styling (trimmed version of Makes editor styles) */
-    .modal{
-      position:fixed;
-      inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      z-index:100000;
+    /* Custom dropdowns */
+    .dd{position:relative}
+    .dd-btn{
+      width:100%;text-align:left;padding:12px;padding-right:40px;
+      border:1px solid var(--border);border-radius:10px;background:var(--card-surface,var(--surface));
+      font:inherit;color:var(--text);cursor:pointer;appearance:none;position:relative;height:var(--ctl-h);
+      line-height:calc(var(--ctl-h) - 2px);
+      display:flex; align-items:center;
     }
-    .modal.show{ display:flex; }
-    .backdrop{
-      position:absolute;
-      inset:0;
-      background:rgba(0,0,0,.45);
+    .dd-btn::after{
+      content:""; position:absolute; right:12px; top:50%; transform:translateY(-50%);
+      width:18px; height:18px; pointer-events:none; opacity:.7;
+      background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
     }
-    .sheet{
-      position:relative;
-      width:min(100vw, 760px);
-      max-width:90vw;
-      background:var(--surface);
-      border:1px solid var(--border);
-      border-radius:14px;
-      box-shadow:0 20px 40px rgba(0,0,0,.35);
+    .dd-list{position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
+    .dd.open .dd-list{display:block}
+    .dd-list input{width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);font:inherit;outline:none;background:var(--surface)}
+    .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+    .dd-list li{padding:10px 12px;cursor:pointer}
+    .dd-list li:hover{background:#f0f1f0}
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
+
+    /* QR Preview + row */
+    .qr-area{
+      border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      display:flex; align-items:center; justify-content:center; padding:10px;
+      width:112px; height:112px;
+    }
+    #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
+
+    .qr-row{
       display:flex;
-      flex-direction:column;
-      overflow:hidden;
-      max-height:90vh;
+      align-items:center;
+      gap:12px;
+    }
+    .qr-row .btn{
+      min-width:160px;
+    }
+
+    /* File input — match Field Boundary behavior & make text readable */
+    input[type="file"].input{
+      height:auto;
+      line-height:normal;
+      padding:8px 12px;
+      /* This controls the "no files selected" text */
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
+    }
+    /* This targets ONLY the white pill button ("Choose Files") */
+    input[type="file"].input::-webkit-file-upload-button{
+      color:#111111 !important;
+      -webkit-text-fill-color:#111111 !important;
+      background-color:#ffffff;
+    }
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
+    .modal.show{ display:flex; }
+    .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
+    .sheet{
+      position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
+      border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
+      display:flex; flex-direction:column; overflow:hidden; max-height:90vh;
     }
     .sheet header{
-      padding:12px 14px;
-      border-bottom:1px solid var(--border);
-      font-weight:800;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      color:var(--text);
+      padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
+      display:flex; align-items:center; justify-content:space-between; color:var(--text);
       flex:0 0 auto;
     }
     .sheet header .close{
-      border:none;
-      background:transparent;
-      font:inherit;
-      font-weight:800;
-      cursor:pointer;
-      padding:6px 10px;
-      border-radius:10px;
-      color:var(--text);
+      border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer;
+      padding:6px 10px; border-radius:10px; color:var(--text);
     }
-    .sheet header .close:hover{
-      background:var(--hover,rgba(0,0,0,.06));
-    }
+    .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
 
-    .ed-wrap{
-      padding:12px;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-      flex:1 1 auto;
-      min-height:0;
-    }
-    .ed-list{
-      border:1px solid var(--border);
-      border-radius:12px;
-      overflow:auto;
-      flex:1 1 auto;
-      min-height:0;
-    }
-    .ed-row{
-      padding:0;
-      border-bottom:1px solid var(--border);
-    }
+    /* Edit/New content */
+    .ed-wrap{ padding:12px; display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; }
+    .ed-list{ border:1px solid var(--border); border-radius:12px; overflow:auto; flex:1 1 auto; min-height:0; }
+    .ed-row{ padding:0; border-bottom:1px solid var(--border); }
     .ed-row:last-child{ border-bottom:none; }
 
-    .ed-head{
-      display:grid;
-      grid-template-columns:1fr auto;
-      gap:8px;
-      align-items:center;
-      padding:10px 12px;
-      cursor:pointer;
-      user-select:none;
-    }
-    .ed-name{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      width:100%;
-    }
-    .ed-name input{
-      width:100%;
-    }
-    .ed-chevron{
-      opacity:.7;
-      transform:rotate(0deg);
-      transition:transform .18s ease;
-    }
-    .ed-row.open .ed-chevron{
-      transform:rotate(90deg);
-    }
-    .ed-body{
-      display:none;
-      padding:0 12px 12px;
-    }
-    .ed-row.open .ed-body{
-      display:block;
-    }
+    .ed-head{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
+      padding:10px 12px; cursor:pointer; user-select:none; }
+    .ed-name{ display:flex; gap:8px; align-items:center; width:100%; }
+    .ed-name input{ width:100%; }
 
-    .ed-footer{
-      display:flex;
-      justify-content:flex-end;
-      gap:10px;
-      padding:10px 0 0;
+    .ed-chevron{ opacity:.7; transform:rotate(0deg); transition:transform .18s ease; }
+    .ed-row.open .ed-chevron{ transform:rotate(90deg); }
+    .ed-body{ display:none; padding:0 12px 12px; }
+    .ed-row.open .ed-body{ display:block; }
+
+    .switch-list{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+    @media (max-width:640px){ .switch-list{ grid-template-columns:1fr; } }
+
+    .switch{
+      display:flex; align-items:center; justify-content:space-between; gap:16px;
+      padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
     }
-    .ed-foot-left{
-      margin-right:auto;
-      display:flex;
-      align-items:center;
-      gap:10px;
+    .switch label{ font-weight:800; }
+    .toggle{
+      position:relative; width:48px; height:28px; border-radius:999px;
+      background:var(--hover,rgba(0,0,0,.12)); border:1px solid var(--border); cursor:pointer;
+      outline:none; appearance:none;
     }
+    .toggle::after{
+      content:""; position:absolute; top:50%; left:4px; transform:translateY(-50%);
+      width:22px; height:22px; border-radius:50%; background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.15);
+      transition:left .16s ease;
+    }
+    .toggle:checked{ background:var(--brand); border-color:transparent; }
+    .toggle:checked::after{ left:22px; }
+
+    .ed-footer{ display:flex; justify-content:flex-end; gap:10px; padding:10px 0 0; }
+    .ed-foot-left{ margin-right:auto; display:flex; align-items:center; gap:10px; }
 
     .mark-danger{
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      padding:8px 12px;
-      border:1px solid #b00020;
-      color:#b00020;
-      border-radius:10px;
-      background:transparent;
-      cursor:pointer;
-      font-weight:800;
+      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
+      border:1px solid var(--danger); color:var(--danger); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
     .mark-warn{
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      padding:8px 12px;
-      border:1px solid var(--border);
-      color:var(--text);
-      border-radius:10px;
-      background:transparent;
-      cursor:pointer;
-      font-weight:800;
+      display:inline-flex; align-items:center; gap:10px; padding:8px 12px;
+      border:1px solid var(--border); color:var(--text); border-radius:10px; background:transparent; cursor:pointer; font-weight:800;
     }
 
-    .ed-bottom{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      padding:10px 2px 2px;
-      margin-top:6px;
-    }
+    /* Bottom bar + archived list */
+    .ed-bottom{ display:flex; align-items:center; gap:12px; padding:10px 2px 2px; margin-top:6px; }
     .ed-bottom .grow{ flex:1 1 auto; }
-
     .archived-panel{
-      display:none;
-      border:1px dashed var(--border);
-      border-radius:12px;
-      padding:10px;
-      margin-top:8px;
-      max-height:180px;
-      overflow:auto;
-      font-size:14px;
+      display:none; border:1px dashed var(--border); border-radius:12px; padding:10px; margin-top:8px;
+      max-height:180px; overflow:auto; font-size:14px;
     }
     .archived-panel.show{ display:block; }
-    .archived-panel .arch-item{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      padding:6px 4px;
-    }
-    .archived-panel .arch-item .btn{
-      min-width:auto;
-      padding:6px 10px;
-    }
-
-    .nm-body{
-      padding:12px;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-    }
+    .archived-panel .arch-item{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px; }
+    .archived-panel .arch-item .btn{ min-width:auto; padding:6px 10px; }
   </style>
 </head>
+
 <body>
   <fv-shell>
-    <div class="wrap">
+    <!-- TYPE will be written into data-equipment-type by JS -->
+    <div class="wrap" data-equipment-type="">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon" aria-hidden="true">🛠️</div>
+          <div class="icon" aria-hidden="true">🚜</div>
           <div>
-            <h1>Add Field Maintenance</h1>
-            <p class="muted">Log field repairs and maintenance by farm and field, set priority, and capture notes/photos.</p>
+            <h1>Add Tractor</h1>
+            <p class="muted">Pick Make/Model, set year, add serial (required), optional notes/photos.</p>
           </div>
         </header>
 
         <div class="body">
-          <div id="err" class="error"></div>
+          <!-- (for implements, Type field will be moved up here via JS) -->
 
-          <!-- Farm / Field -->
+          <!-- 1 & 2: MAKE / MODEL -->
+          <div class="row">
+            <!-- Make -->
+            <div class="field">
+              <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
+              <input type="hidden" id="makeId" value=""/>
+              <div id="ddMake" class="dd">
+                <button type="button" id="ddMakeBtn" class="dd-btn">— Loading… —</button>
+                <div class="dd-list">
+                  <input type="text" id="ddMakeSearch" placeholder="Search make…">
+                  <ul id="ddMakeList"></ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- Model -->
+            <div class="field">
+              <button id="openModels" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Model</button>
+              <input type="hidden" id="modelId" value=""/>
+              <div id="ddModel" class="dd">
+                <button type="button" id="ddModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
+                <div class="dd-list">
+                  <input type="text" id="ddModelSearch" placeholder="Search model…" disabled>
+                  <ul id="ddModelList"></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3 & 4: YEAR / SERIAL (VIN for trucks & trailers) -->
           <div class="row">
             <div class="field">
-              <label for="farmSelect">Farm <span class="req">*</span></label>
-              <div class="select-shell">
-                <select id="farmSelect" class="select" required>
-                  <option value="">Select farm…</option>
-                </select>
-                <div id="farmSelectOverlay" aria-hidden="true"></div>
+              <label for="year">Year</label>
+              <div class="combo" id="yearCombo">
+                <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+                <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
+                <select id="year" class="select" aria-hidden="true" style="display:none"></select>
               </div>
             </div>
+
             <div class="field">
-              <label for="fieldSelect">Field <span class="req">*</span></label>
-              <select id="fieldSelect" class="select" required>
-                <option value="">Select field…</option>
-              </select>
+              <label for="serial" class="req">Serial #</label>
+              <input id="serial" class="input" placeholder="Required">
             </div>
           </div>
 
-          <!-- Submitted by / Date -->
-          <div class="row">
-            <div class="field">
-              <div class="fm-row-label">Submitted by</div>
-              <input
-                id="submittedByDisplay"
-                class="input input-readonly"
-                type="text"
-                readonly
-                value="Detecting user…">
-              <input id="submittedBy" type="hidden">
-              <input id="submittedUid" type="hidden">
-              <input id="submittedEmail" type="hidden">
-            </div>
-            <div class="field">
-              <div class="fm-row-label">Date submitted</div>
-              <input
-                id="dateSubmittedDisplay"
-                class="input input-readonly"
-                type="text"
-                readonly>
-            </div>
+          <!-- MIDDLE: dynamic extras (engine hours, acres, miles, implement type, etc.) -->
+          <div id="equipExtras"></div>
+
+          <!-- 5: NOTES -->
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
-          <!-- Topic + Priority -->
-          <div class="row">
-            <div class="field">
-              <button
-                id="openTopics"
-                type="button"
-                class="as-label req"
-                aria-haspopup="dialog"
-                aria-controls="topicEditModal">
-                Topic / Category
-              </button>
-              <select id="topicSelect" class="select" required>
-                <option value="">Select topic…</option>
-              </select>
-              <div class="muted-line">Examples: Repair Needed, Washout, Tile Blowout, Fence, Tree Removal, etc.</div>
-            </div>
-            <div class="field">
-              <label for="priority">Priority (1 = low, 10 = high) <span class="req">*</span></label>
-              <input id="priority" class="input" type="range" min="1" max="10" step="1" value="5">
-              <div class="priority-readout">
-                Priority: <strong><span id="priorityValue">5</span>/10</strong>
-              </div>
-              <div id="priorityReasonBlock" class="priority-reason" hidden>
-                <label for="priorityReason">Why is this a high priority? (7–10)</label>
-                <textarea id="priorityReason" class="textarea" placeholder="Explain why this needs urgent attention…"></textarea>
-              </div>
-            </div>
+          <!-- 6: PHOTOS -->
+          <div class="field">
+            <label for="photos">Photos (optional)</label>
+            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- Notes (with mic) -->
-          <div class="row-1">
-            <div class="field">
-              <label for="notes">Details / Notes <span class="req">*</span></label>
-              <div class="ta-wrap">
-                <textarea id="notes" class="textarea fm-notes" placeholder="Describe the issue, location in the field, severity, equipment needed, etc."></textarea>
-                <button id="mic" type="button" class="mic-btn" aria-label="Start dictation">
-                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
-                  </svg>
-                </button>
-              </div>
+          <!-- 7: QR row: preview + button -->
+          <div class="field qr-row">
+            <div id="qrArea" class="qr-area" hidden>
+              <img id="qrThumb" alt="QR code">
             </div>
+            <button id="btnQR" class="btn" type="button">Create QR Code</button>
           </div>
 
-          <!-- Photos (lazy upload) -->
-          <div class="row-1">
-            <div class="field">
-              <label for="photos">Photos (optional)</label>
-              <input id="photos" class="file-input" type="file" accept="image/*" multiple>
-              <div id="thumbs" class="thumbs" aria-hidden="true"></div>
-              <div id="fileHint" class="muted-line" aria-hidden="true"></div>
-            </div>
-          </div>
+          <div id="err" class="error" hidden></div>
 
-          <!-- Actions -->
           <div class="actions">
-            <button id="btnCancel" type="button" class="btn">Cancel</button>
-            <button id="btnSave" type="button" class="btn btn-primary">Save</button>
+            <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
+            <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Topic Manager modal (edit / archive / delete) -->
-  <div id="topicEditModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="topicEditTitle">
+  <!-- Edit modal -->
+  <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
     <div class="backdrop" data-close></div>
     <div class="sheet">
       <header>
-        <div id="topicEditTitle">Edit Topics / Categories</div>
+        <div id="editTitle">Edit</div>
         <button class="close" type="button" data-close>Close</button>
       </header>
+
       <div class="ed-wrap">
-        <div id="topicEdList" class="ed-list" role="list"></div>
-        <div class="ed-bottom">
-          <button id="topicShowArchived" class="btn btn-quiet" type="button">Show Archived Topics</button>
-          <div class="grow"></div>
-          <button id="topicSaveAll" class="btn btn-primary" type="button" disabled>Save All Changes</button>
+        <!-- Models bar (only for models editor) -->
+        <div id="edModelsBar" style="display:none; gap:8px; align-items:center;">
+          <label for="edMakeSelect" style="font-weight:800;margin-right:6px;">Make</label>
+          <select id="edMakeSelect" class="select" style="max-width:260px;"></select>
         </div>
-        <div id="topicArchivedPanel" class="archived-panel"></div>
+
+        <div id="edList" class="ed-list" role="list"></div>
+
+        <!-- Bottom footer -->
+        <div class="ed-bottom">
+          <button id="edToggleArchived" class="btn btn-quiet" type="button">Show Archived Makes</button>
+          <div class="grow"></div>
+          <button id="edSaveAll" class="btn btn-primary" type="button" disabled>Save All Changes</button>
+        </div>
+
+        <!-- Archived list (view + unarchive) -->
+        <div id="edArchivedPanel" class="archived-panel"></div>
       </div>
     </div>
   </div>
 
-  <!-- New Topic modal -->
-  <div id="newTopicModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="ntTitle">
+  <!-- New Make modal -->
+  <div id="newMakeModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="nmTitle">
     <div class="backdrop" data-close></div>
     <div class="sheet">
       <header>
-        <div id="ntTitle">New Topic / Category</div>
+        <div id="nmTitle">New Make</div>
         <button class="close" type="button" data-close>Close</button>
       </header>
       <div class="nm-body">
         <div>
-          <label for="ntName" class="req">Topic / Category name</label>
-          <input id="ntName" class="input" placeholder="e.g., Washout, Tile Blowout"/>
+          <label for="nmName" class="req">Make name</label>
+          <input id="nmName" class="input" placeholder="e.g., John Deere"/>
+        </div>
+        <div>
+          <div style="font-weight:800;margin-bottom:6px;">Available on</div>
+          <div id="nmSwitches" class="switch-list"></div>
         </div>
         <div class="ed-footer">
-          <button id="ntCreate" class="btn btn-primary" type="button">Create</button>
+          <button id="nmCreate" class="btn btn-primary" type="button">Create</button>
         </div>
       </div>
     </div>
@@ -631,751 +443,987 @@ Changes in this build:
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- QR library -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
+
   <script type="module">
     import {
       ready,
       getFirestore,
-      collection, getDocs, addDoc, updateDoc, deleteDoc,
-      serverTimestamp,
-      getAuth, onAuthStateChanged,
-      doc
+      collection, setDoc, doc, updateDoc, deleteDoc, getDocs, getDoc,
+      query, orderBy, where,
+      serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
+
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
-    const state = { farms: [], fields: [], topics: [] };
-    let DB = null;
+    const qs = new URLSearchParams(location.search);
+    const TYPE = (qs.get('type') || 'tractor').toLowerCase();
 
-    const showErr = msg => {
-      const box = $("err");
-      box.textContent = msg || "";
-      box.classList.toggle("show", !!msg);
+    // Will hold whatever the shared equipment-forms.js returns for this form
+    let EXTRAS_API = null;
+
+    const state = { pendingChanges:0 };
+    const bumpPending = (delta)=>{
+      state.pendingChanges = Math.max(0, state.pendingChanges + delta);
+      $("edSaveAll").disabled = state.pendingChanges===0;
     };
 
-    const showToast = (msg="Saved.")=>{
-      const t = $("toast");
-      t.textContent = msg;
-      t.classList.remove("show");
-      t.style.display = 'block';
-      void t.offsetWidth;
-      t.classList.add("show");
-      setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, 3200);
-    };
-
-    function formatLocalDate(d = new Date()){
-      const dt = new Date(d.getTime() - d.getTimezoneOffset()*60000);
-      return dt.toISOString().slice(0,10);
+    function normType(label){
+      const s = String(label||'').toLowerCase();
+      if(s.includes('tractor')) return 'tractor';
+      if(s.includes('combine')) return 'combine';
+      if(s.includes('implement')) return 'implement';
+      if(s.includes('sprayer')) return 'sprayer';
+      if(s.includes('fertilizer')) return 'fertilizer';
+      if(s.includes('construction')) return 'construction';
+      if(s.includes('truck')) return 'truck';
+      if(s.includes('trailer')) return 'trailer';
+      if(s.includes('starfire') || s.includes('technology')) return 'starfire';
+      return s.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
     }
-    function prettyDate(dStr){
-      if(!dStr) return "";
-      const d = new Date(dStr);
-      if(Number.isNaN(d.getTime())) return dStr;
-      return d.toLocaleDateString();
+    function getEquipmentTypesFromMenu(){
+      const group = NAV_MENU.items?.find(x => x.type==='group' && x.id==='equipment');
+      const children = group?.children || [];
+      return children.map(c => ({ label: c.label, slug: normType(c.label) }));
     }
+    const EQUIP_TYPES = getEquipmentTypesFromMenu();
+    const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
 
-    function inferName(data){
-      return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
-    }
-
-    function updateFarmOverlay(){
-      const sel = $("farmSelect");
-      const ov  = $("farmSelectOverlay");
-      if(!sel || !ov) return;
-      const opt = sel.options[sel.selectedIndex] || null;
-      const label = (opt && opt.value) ? (opt.textContent || "").trim() : "";
-      if(label){
-        ov.textContent = label;
-        ov.classList.add("show");
-        sel.classList.add("overlay-active");
-      }else{
-        ov.textContent = "";
-        ov.classList.remove("show");
-        sel.classList.remove("overlay-active");
-      }
-    }
-
-    async function loadFarms(){
-      const snap = await getDocs(collection(DB, "farms"));
-      state.farms = snap.docs.map(doc => {
-        const data = doc.data() || {};
-        return { id: doc.id, name: inferName(data) };
-      }).sort((a,b)=>a.name.localeCompare(b.name));
-      const sel = $("farmSelect");
-      sel.innerHTML = '<option value="">Select farm…</option>';
-      state.farms.forEach(f=>{
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        opt.textContent = f.name;
-        sel.appendChild(opt);
-      });
-      updateFarmOverlay();
-    }
-
-    async function loadFields(){
-      const snap = await getDocs(collection(DB, "fields"));
-      state.fields = snap.docs.map(doc => {
-        const data = doc.data() || {};
-        const farmId = data.farmId || data.farm || data.farmDocId || null;
-        return { id: doc.id, name: inferName(data), farmId };
-      }).sort((a,b)=>a.name.localeCompare(b.name));
-      populateFieldSelect();
-    }
-
-    function populateFieldSelect(farmId=null){
-      const sel = $("fieldSelect");
-      const prev = sel.value;
-      sel.innerHTML = '<option value="">Select field…</option>';
-      let list = state.fields;
-      if(farmId){
-        list = list.filter(f=>f.farmId === farmId);
-      }
-      list.forEach(f=>{
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        opt.textContent = f.name;
-        sel.appendChild(opt);
-      });
-      if(list.some(f=>f.id===prev)) sel.value = prev;
-    }
-
-    async function loadTopics(){
+    // NEW: look up the correct emoji icon for this equipment TYPE from NAV_MENU
+    function lookupEquipIcon(typeSlug){
       try{
-        const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
-        state.topics = snap.docs.map(doc=>{
-          const data = doc.data() || {};
-          return {
-            id: doc.id,
-            label: inferName(data),
-            isArchived: !!(data.isArchived || data.archived)
-          };
-        }).sort((a,b)=>a.label.localeCompare(b.label));
-
-        const sel = $("topicSelect");
-        const prev = sel.value;
-        sel.innerHTML = '<option value="">Select topic…</option>' +
-                        '<option value="__add__">➕ Add new topic…</option>';
-        state.topics
-          .filter(t=>!t.isArchived)
-          .forEach(t=>{
-            const opt = document.createElement("option");
-            opt.value = t.id;
-            opt.textContent = t.label;
-            sel.appendChild(opt);
-          });
-
-        if(prev && sel.querySelector(`option[value="${prev}"]`)){
-          sel.value = prev;
-        }else{
-          sel.value = "";
-        }
-      }catch(e){
-        console.warn("loadTopics error", e);
+        const group = NAV_MENU.items?.find(x => x.type === 'group' && x.id === 'equipment');
+        const children = group?.children || [];
+        const target = normType(typeSlug);
+        const hit = children.find(c => normType(c.label) === target);
+        const iconVal = (hit && typeof hit.icon === 'string') ? hit.icon.trim() : null;
+        return iconVal || '🚜';
+      }catch(_){
+        return '🚜';
       }
     }
 
-    function setupShellNav(){
-      const shell = document.querySelector("fv-shell");
-      if(shell && NAV_MENU) shell.nav = NAV_MENU;
+    function showToast(msg="Saved.", ms=3500){
+      const t=$("toast"); t.textContent=msg; t.classList.remove("show"); t.style.display='block';
+      void t.offsetWidth; t.classList.add("show");
+      setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
     }
 
-    // Submitted by helpers
-    function titleCase(s){
-      return String(s||"").replace(/\s+/g," ").trim().split(" ")
-        .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
-    }
-    function nameFromEmail(email){
-      const local = String(email||"").split("@")[0]||"";
-      if(!local) return "";
-      if(/[._-]/.test(local)){
-        return titleCase(local.replace(/[0-9]+/g," ").split(/[._-]+/).join(" "));
-      }
-      const spaced = local.replace(/([a-z])([A-Z])/g,"$1 $2");
-      return titleCase(spaced || local);
-    }
-
-    function setSubmittedByNow(){
-      const disp = $("submittedByDisplay");
-      const hidName = $("submittedBy");
-      const hidUid = $("submittedUid");
-      const hidEmail = $("submittedEmail");
-      let label = "";
-
-      try{
-        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
-        if(ctx){
-          if(ctx.displayName || ctx.email) label = ctx.displayName || ctx.email || "";
-          if(ctx.uid && !hidUid.value) hidUid.value = ctx.uid;
-          if(ctx.email && !hidEmail.value) hidEmail.value = ctx.email;
-        }
-      }catch{}
-
-      if(!label){
-        try{
-          const u = window.firebaseAuth && window.firebaseAuth.currentUser;
-          if(u){
-            label = u.displayName || u.email || "";
-            if(u.uid && !hidUid.value) hidUid.value = u.uid;
-            if(u.email && !hidEmail.value) hidEmail.value = u.email;
-          }
-        }catch{}
-      }
-
-      if(label && label.includes("@")) label = nameFromEmail(label);
-      label = titleCase(label || "");
-      if(label){
-        disp.value = label;
-        hidName.value = label;
-        return true;
-      }
-      return false;
-    }
-
-    function setupAuth(){
-      const auth = getAuth();
-      onAuthStateChanged(auth, () => { setSubmittedByNow(); });
-      let tries = 30;
-      const timer = setInterval(()=>{
-        if(setSubmittedByNow() || --tries<=0) clearInterval(timer);
-      }, 200);
-    }
-
-    function setupDate(){
-      const todayIso = formatLocalDate();
-      $("dateSubmittedDisplay").value = prettyDate(todayIso);
-    }
-
-    function setupPriority(){
-      const slider = $("priority");
-      const valSpan = $("priorityValue");
-      const block = $("priorityReasonBlock");
-      const reason = $("priorityReason");
-
-      const sync = ()=>{
-        const v = Number(slider.value || 5);
-        valSpan.textContent = v;
-        if(v>=7){
-          block.hidden = false;
-        }else{
-          block.hidden = true;
-          reason.value = "";
-        }
-      };
-      slider.addEventListener("input", sync);
-      sync();
-    }
-
-    function selectFarmById(farmId){
-      const farmSel = $("farmSelect");
-      const options = Array.from(farmSel.options || []);
-      const idx = options.findIndex(o => o.value === farmId);
-      if(idx >= 0){
-        farmSel.selectedIndex = idx;
-        farmSel.value = farmId;
-        updateFarmOverlay();
-      }
-    }
-
-    function setupFarmFieldLinking(){
-      const farmSel  = $("farmSelect");
-      const fieldSel = $("fieldSelect");
-
-      farmSel.addEventListener("change", ()=>{
-        const farmId = farmSel.value || null;
-        populateFieldSelect(farmId);
-        updateFarmOverlay();
-      });
-
-      fieldSel.addEventListener("change", ()=>{
-        const fieldId = fieldSel.value;
-        if(!fieldId) return;
-        const fld = state.fields.find(f=>f.id === fieldId);
-        if(!fld) return;
-        const farmId = fld.farmId || null;
-        if(!farmId) return;
-
-        populateFieldSelect(farmId);
-        $("fieldSelect").value = fieldId;
-        selectFarmById(farmId);
-      });
-    }
-
-    function setupMic(){
-      const btn = $("mic");
-      const ta = $("notes");
-      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
-      if(!ok){
-        btn.style.display = "none";
-        return;
-      }
-      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const rec = new Rec();
-      rec.lang = "en-US";
-      rec.interimResults = true;
-      rec.continuous = false;
-
-      let active = false;
-      let baseText = "";
-
-      const setMic = on=>{
-        btn.classList.toggle("mic-active", on);
-        btn.setAttribute("aria-label", on ? "Stop dictation" : "Start dictation");
-      };
-
-      btn.addEventListener("click", ()=>{
-        if(!active){
-          baseText = ta.value ? (ta.value + " ") : "";
-          try{ rec.start(); active=true; setMic(true); }catch{}
-        }else{
-          try{ rec.stop(); rec.abort(); }catch{}
-          active=false; setMic(false);
-        }
-      });
-
-      rec.onresult = ev=>{
-        let txt = "";
-        for(let i=ev.resultIndex;i<ev.results.length;i++){
-          txt += ev.results[i][0].transcript;
-        }
-        ta.value = baseText + txt;
-      };
-      rec.onend = ()=>{ active=false; setMic(false); };
-      rec.onerror = ()=>{ active=false; setMic(false); };
-    }
-
-    function setupFiles(){
-      const inp = $("photos");
-      const thumbs = $("thumbs");
-      const hint = $("fileHint");
-      if(!inp) return;
-      inp.addEventListener("change", ()=>{
-        const files = Array.from(inp.files || []);
-        thumbs.innerHTML = "";
-        if(!files.length){
-          thumbs.setAttribute("aria-hidden","true");
-          hint.textContent = "";
-          hint.setAttribute("aria-hidden","true");
-          return;
-        }
-        files.forEach(f=>{
-          const wrap = document.createElement("div");
-          wrap.className = "thumb";
-          if(f.type && f.type.startsWith("image/")){
-            const img = document.createElement("img");
-            img.alt = f.name;
-            wrap.appendChild(img);
-            const reader = new FileReader();
-            reader.onload = e=>{ img.src = e.target.result; };
-            reader.readAsDataURL(f);
-          }else{
-            wrap.textContent = (f.name.split(".").pop() || "").toUpperCase();
-          }
-          thumbs.appendChild(wrap);
+    /* Year options */
+    function buildYearOptions(){
+      const sel=$("year"); const now=new Date().getFullYear();
+      sel.innerHTML='<option value="">— Select —</option>';
+      for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
+      const panel=$("yearPanel"), trigger=$("yearTrigger");
+      panel.innerHTML="";
+      [...sel.options].forEach(opt=>{
+        const btn=document.createElement('button');
+        btn.type='button'; btn.className='combo-item'; btn.role='option';
+        btn.dataset.val=opt.value; btn.textContent=opt.textContent;
+        btn.addEventListener('click', ()=>{
+          sel.value = opt.value;
+          trigger.textContent = opt.value ? opt.textContent : "— Select —";
+          closeYearPanel();
+          validateForm();
         });
-        thumbs.removeAttribute("aria-hidden");
-        hint.textContent = files.length === 1 ? "1 file selected" : `${files.length} files selected`;
-        hint.removeAttribute("aria-hidden");
+        panel.appendChild(btn);
       });
     }
+    function openYearPanel(){ $("yearPanel").classList.remove('combo-hidden'); $("yearTrigger").setAttribute('aria-expanded','true'); document.addEventListener('click', onDocClickClose, { once:true }); document.addEventListener('keydown', onEscClose); }
+    function closeYearPanel(){ $("yearPanel").classList.add('combo-hidden'); $("yearTrigger").setAttribute('aria-expanded','false'); document.removeEventListener('keydown', onEscClose); }
+    function onDocClickClose(e){ if(!$("yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
+    function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    function setupActions(){
-      $("btnCancel").addEventListener("click", ()=>{
-        // Back to portal under Crop Production
-        location.href = "/Farm-vista/pages/crop-production/field-maintenance/maintenance.html";
+    /* Dropdown helpers */
+    function wireDropdownOpenClose(root){
+      const btn = root.querySelector(".dd-btn");
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+        if(btn.disabled) return;
+        root.classList.toggle("open");
+        const inp = root.querySelector(".dd-list input");
+        if(root.classList.contains("open") && inp){ setTimeout(()=>inp.focus(), 60); }
       });
-
-      $("btnSave").addEventListener("click", saveMaintenance);
     }
-
-    async function saveMaintenance(){
-      showErr("");
-      const btn = $("btnSave");
-      btn.disabled = true;
-
-      try{
-        const farmId = $("farmSelect").value;
-        const fieldId = $("fieldSelect").value;
-        const topicId = $("topicSelect").value;
-        const priority = Number($("priority").value || 0);
-        const notes = $("notes").value.trim();
-        const priorityReason = $("priorityReason").value.trim();
-
-        if(!farmId || !fieldId || !topicId || !notes){
-          showErr("Farm, Field, Topic, and Notes are required.");
-          btn.disabled = false;
-          return;
-        }
-        if(!priority || priority<1 || priority>10){
-          showErr("Priority must be between 1 and 10.");
-          btn.disabled = false;
-          return;
-        }
-        if(priority>=7 && !priorityReason){
-          showErr("Please explain why this is a high-priority (7–10) item.");
-          btn.disabled = false;
-          return;
-        }
-        if(!$("submittedBy").value){
-          showErr("Unable to detect user. Please re-login.");
-          btn.disabled = false;
-          return;
-        }
-
-        const farm = state.farms.find(f=>f.id===farmId) || null;
-        const field = state.fields.find(f=>f.id===fieldId) || null;
-        const topic = state.topics.find(t=>t.id===topicId) || null;
-
-        const payload = {
-          farmId,
-          farmName: farm?.name || null,
-          fieldId,
-          fieldName: field?.name || null,
-          topicId,
-          topicLabel: topic?.label || null,
-          priority,
-          priorityReason: priority>=7 ? priorityReason : null,
-          notes,
-          submittedBy: {
-            uid: $("submittedUid").value || null,
-            name: $("submittedBy").value || null,
-            email: $("submittedEmail").value || null
-          },
-          dateSubmitted: serverTimestamp(),
-          photoCount: $("photos").files ? $("photos").files.length : 0,
-          status: "open",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-
-        await addDoc(collection(DB, "fieldMaintenance"), payload);
-
-        showToast("Field maintenance saved.");
-        setTimeout(()=>{ location.href="/Farm-vista/pages/crop-production/field-maintenance/maintenance.html"; }, 800);
-      }catch(e){
-        console.error("saveMaintenance error", e);
-        showErr("Save failed. Check permissions or network.");
-        btn.disabled = false;
+    document.addEventListener("click",(e)=>{
+      if(!e.target.closest(".dd")){
+        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
       }
-    }
-
-    // ===== Topic Manager logic (copying pattern from Makes editor, simplified) =====
-    const TopicEdit = {
-      el: $("topicEditModal"),
-      list: $("topicEdList"),
-      saveBtn: $("topicSaveAll"),
-      archivedBtn: $("topicShowArchived"),
-      archivedPanel: $("topicArchivedPanel"),
-      pending: new Map(),
-      pendingCount: 0,
-      open(){
-        this.pending.clear();
-        this.pendingCount = 0;
-        this.saveBtn.disabled = true;
-        this.archivedPanel.classList.remove("show");
-        this.archivedPanel.innerHTML = "";
-        $("topicShowArchived").textContent = "Show Archived Topics";
-        this.el.classList.add("show");
-        document.body.style.overflow = "hidden";
-      },
-      close(){
-        this.el.classList.remove("show");
-        document.body.style.overflow = "";
-        this.list.innerHTML = "";
-      }
-    };
-
-    document.querySelectorAll('#topicEditModal [data-close]').forEach(el=>{
-      el.addEventListener('click', ()=>TopicEdit.close());
     });
+    function setupSearch(inputEl, listEl){
+      inputEl.addEventListener("input", ()=>{
+        const term=inputEl.value.toLowerCase();
+        listEl.querySelectorAll("li").forEach(li=>{
+          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+        });
+      });
+    }
+    function buildList(listEl, items, onPick){
+      listEl.innerHTML="";
+      items.forEach(([val,label,meta])=>{
+        const li=document.createElement("li");
+        li.textContent=label;
+        li.dataset.value=val;
+        li.onclick=()=>onPick(val,label,meta);
+        listEl.appendChild(li);
+      });
+    }
 
-    const TopicNew = {
-      el: $("newTopicModal"),
-      name: $("ntName"),
-      createBtn: $("ntCreate"),
+    /* Form helpers */
+    function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+    function uniqKey(makeId, modelId, serial){
+      return [String(makeId||''), String(modelId||''), normalizeSerial(serial)].join('_');
+    }
+    function readForm(){
+      const makeId = $("makeId").value || null;
+      const modelId = $("modelId").value || null;
+      const makeName = $("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const modelName = $("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const yr = $("year").value ? Number($("year").value) : null;
+      const serialNorm = normalizeSerial($("serial").value);
+      const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
+
+      // Core fields
+      const base = {
+        makeId, modelId, makeName, modelName,
+        year: yr,
+        serial: serialNorm,
+        notes: $("notes").value.trim() || null,
+        type: TYPE,
+        name: name.trim()
+      };
+
+      // Extras (engineHours, acres, miles, implementType, etc.)
+      let extras = {};
+      if(EXTRAS_API && typeof EXTRAS_API.read === 'function'){
+        try{ extras = EXTRAS_API.read() || {}; }catch{ extras = {}; }
+      }else{
+        // Backwards-compatible fallback for tractors (original engineHours field)
+        const engEl = $("engineHours");
+        if(engEl && engEl.value){
+          extras.engineHours = Number(engEl.value);
+        }
+      }
+
+      return { ...base, ...extras };
+    }
+    function validateForm(){
+      const makeOk = Boolean($("makeId").value);
+      const modelOk= Boolean($("modelId").value);
+      const serialOk= Boolean(normalizeSerial($("serial").value));
+      $("btnSave").disabled = !(makeOk && modelOk && serialOk);
+    }
+
+    /* QR */
+    let pendingToken = null;
+    let pendingQRBlob = null;
+    async function waitQRReady(){ let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){ await new Promise(r=>setTimeout(r,50)); } if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib'); }
+    function smartLaunch(absUrl){ const url = new URL(location.origin + '/Farm-vista/launch.html'); url.searchParams.set('to', absUrl); return url.href; }
+    function randTokenHex(len=24){ const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes); return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''); }
+    async function canvasToBlob(canvas){ return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png')); }
+    async function makeQRForUrl(absUrl){
+      await waitQRReady();
+      const size=256, ecc=window.QRCode.CorrectLevel.H;
+      const holder=document.createElement('div');
+      new QRCode(holder,{text:smartLaunch(absUrl),width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
+      const node = await new Promise((res,rej)=>{
+        const start=Date.now();
+        (function check(){
+          const n = holder.querySelector('canvas') || holder.querySelector('img');
+          if(n) res(n);
+          else if(Date.now()-start>4000) rej(new Error('qr-timeout'));
+          else requestAnimationFrame(check);
+        })();
+      });
+      let canvas;
+      if(node.tagName==='CANVAS'){ canvas=node; }
+      else{
+        canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
+        const ctx=canvas.getContext('2d');
+        await new Promise((res,rej)=>{
+          const img=new Image(); img.crossOrigin='anonymous';
+          img.onload=()=>{ ctx.drawImage(img,0,0,size,size); res(); };
+          img.onerror=rej; img.src=node.src;
+        });
+      }
+      const blob = await canvasToBlob(canvas);
+      const dataURL = canvas.toDataURL('image/png');
+      const img=$("qrThumb");
+      img.src=dataURL;
+      img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
+      pendingQRBlob = blob;
+    }
+
+    /* Data helpers */
+    function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
+
+    async function getMakes(db){
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        snap.forEach(d=>{
+          const v=d.data()||{}; const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
+        });
+      }catch{
+        const snap=await getDocs(collection(db,'equipment-makes'));
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); }
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+    async function getArchivedMakes(db){
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','==',true), orderBy('name')));
+        snap.forEach(d=>{
+          const v=d.data()||{}; const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name});
+        });
+      }catch{
+        const snap=await getDocs(collection(db,'equipment-makes'));
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name}); }
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+    async function getModels(db, makeId){
+      if(!makeId) return [];
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        snap.forEach(d=>{
+          const v=d.data()||{}; const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
+        });
+      }catch{
+        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(!v.archived){ const name=String(v.name||'').trim(); if(name) items.push({id:d.id,name, categories:docCats(v)}); }
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+
+    function visibleForType(doc){
+      const cats = Array.isArray(doc.categories) ? doc.categories.map(s=>String(s).toLowerCase()) : null;
+      if(!cats || cats.length===0) return true;
+      return cats.includes(TYPE);
+    }
+
+    /* New Make modal */
+    const NewMake = {
+      el: $("newMakeModal"),
+      name: $("nmName"),
+      list: $("nmSwitches"),
+      createBtn: $("nmCreate"),
       open(){
         this.name.value="";
-        this.el.classList.add("show");
-        document.body.style.overflow = "hidden";
-        setTimeout(()=>{ this.name.focus(); }, 80);
+        this.list.innerHTML="";
+        EQUIP_TYPES.forEach(t=>{
+          const row=document.createElement('div'); row.className='switch';
+          const lab=document.createElement('label'); lab.textContent=t.label;
+          const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=t.slug;
+          if(t.slug===TYPE) tog.checked=true;
+          row.append(lab, tog);
+          this.list.appendChild(row);
+        });
+        this.el.classList.add('show'); document.body.style.overflow='hidden';
       },
-      close(){
-        this.el.classList.remove("show");
-        document.body.style.overflow = "";
-      }
+      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; }
     };
-    document.querySelectorAll('#newTopicModal [data-close]').forEach(el=>{
-      el.addEventListener('click', ()=>TopicNew.close());
-    });
+    document.querySelectorAll('#newMakeModal [data-close]').forEach(el=>el.addEventListener('click', ()=>NewMake.close()));
 
-    function bumpTopicPending(delta){
-      TopicEdit.pendingCount = Math.max(0, TopicEdit.pendingCount + delta);
-      TopicEdit.saveBtn.disabled = TopicEdit.pendingCount === 0;
-    }
-
-    async function fetchAllTopics(){
-      const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
-      const all = snap.docs.map(d=>{
-        const data = d.data() || {};
-        return {
-          id: d.id,
-          name: inferName(data),
-          isArchived: !!(data.isArchived || data.archived)
-        };
-      }).sort((a,b)=>a.name.localeCompare(b.name));
-      return all;
-    }
-
-    async function renderTopicEditor(){
-      TopicEdit.list.innerHTML = "Loading…";
-      const all = await fetchAllTopics();
-      const active = all.filter(t=>!t.isArchived);
-
-      if(!active.length){
-        TopicEdit.list.innerHTML = '<div class="ed-row" style="padding:10px 12px;">No topics yet. Use "Add new topic…" or create from here.</div>';
-        return;
-      }
-
-      TopicEdit.list.innerHTML = "";
-      active.forEach(t=>{
-        const row = document.createElement("div");
-        row.className = "ed-row";
-        row.dataset.id = t.id;
-
-        const head = document.createElement("div");
-        head.className = "ed-head";
-
-        const nameWrap = document.createElement("div");
-        nameWrap.className = "ed-name";
-
-        const inp = document.createElement("input");
-        inp.className = "input";
-        inp.value = t.name;
-
-        const chev = document.createElement("div");
-        chev.className = "ed-chevron";
-        chev.textContent = "›";
-
-        nameWrap.appendChild(inp);
-        head.append(nameWrap, chev);
-        row.appendChild(head);
-
-        const body = document.createElement("div");
-        body.className = "ed-body";
-
-        const actions = document.createElement("div");
-        actions.className = "ed-footer";
-
-        const left = document.createElement("div");
-        left.className = "ed-foot-left";
-
-        const delBtn = document.createElement("button");
-        delBtn.className = "mark-danger";
-        delBtn.type = "button";
-        delBtn.textContent = "Delete";
-
-        const arcBtn = document.createElement("button");
-        arcBtn.className = "mark-warn";
-        arcBtn.type = "button";
-        arcBtn.textContent = "Archive";
-
-        left.append(delBtn, arcBtn);
-        actions.append(left);
-        body.append(actions);
-        row.append(body);
-
-        TopicEdit.list.append(row);
-
-        head.addEventListener("click", ()=>{
-          row.classList.toggle("open");
-        });
-
-        inp.addEventListener("input", ()=>{
-          const before = JSON.stringify(TopicEdit.pending.get(t.id) || {});
-          const cur = TopicEdit.pending.get(t.id) || {};
-          cur.name = inp.value.trim();
-          TopicEdit.pending.set(t.id, cur);
-          const after = JSON.stringify(cur);
-          if(before !== after){
-            bumpTopicPending(+1);
-          }
-        });
-
-        delBtn.addEventListener("click", ()=>deleteTopicImmediate(t.id, inp.value.trim() || t.name));
-        arcBtn.addEventListener("click", ()=>archiveTopicImmediate(t.id, inp.value.trim() || t.name));
+    async function createMakeFromModal(db){
+      const name = (NewMake.name.value||"").trim();
+      if(!name){ alert("Enter a make name."); return null; }
+      const chosen = [...NewMake.list.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug).filter(x=>EQUIP_SLUGS.includes(x));
+      const cats = chosen.length ? chosen : [TYPE];
+      const docRef = doc(collection(db,'equipment-makes'));
+      await setDoc(docRef,{
+        name, nameLower:name.toLowerCase(),
+        status:'active', archived:false,
+        categories: cats,
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       });
+      return { id: docRef.id, name, categories: cats };
     }
 
-    async function renderArchivedTopics(){
-      const panel = TopicEdit.archivedPanel;
-      panel.innerHTML = "Loading…";
-      const all = await fetchAllTopics();
-      const archived = all.filter(t=>t.isArchived);
-      if(!archived.length){
-        panel.textContent = "No archived topics.";
-        return;
+    async function addModel(db, makeId){
+      if(!makeId){ alert("Pick a Make before adding a Model."); return null; }
+      const name = (prompt("New Model name:")||"").trim();
+      if(!name) return null;
+      let makeCats = [TYPE];
+      try{
+        const mSnap = await getDoc(doc(db,'equipment-makes', makeId));
+        const mv = mSnap.data()||{};
+        if(Array.isArray(mv.categories) && mv.categories.length) makeCats = mv.categories;
+      }catch{}
+      const docRef = doc(collection(db,'equipment-models'));
+      await setDoc(docRef,{
+        name, nameLower:name.toLowerCase(),
+        status:'active', archived:false,
+        makeId, categories: makeCats,
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      return { id: docRef.id, name, categories: makeCats };
+    }
+
+    /* Build & wire dropdowns */
+    let ddMake, ddModel;
+    function buildDdObjects(){
+      ddMake = { root: $("ddMake"), btn: $("ddMakeBtn"), search: $("ddMakeSearch"), list: $("ddMakeList"), hidden: $("makeId") };
+      ddModel = { root: $("ddModel"), btn: $("ddModelBtn"), search: $("ddModelSearch"), list: $("ddModelList"), hidden: $("modelId") };
+      wireDropdownOpenClose(ddMake.root);
+      wireDropdownOpenClose(ddModel.root);
+      setupSearch(ddMake.search, ddMake.list);
+      setupSearch(ddModel.search, ddModel.list);
+    }
+
+    async function populateMakes(db, preselectId){
+      const allMakes = await getMakes(db);
+      const makes = allMakes.filter(visibleForType);
+      const items = [
+        ["__add__", "Add New…", {isAdd:true}],
+        ...makes.map(m=>[m.id, m.name, {categories:m.categories}])
+      ];
+      buildList(ddMake.list, items, async (val,label,meta)=>{
+        if(meta && meta.isAdd){
+          NewMake.open();
+          const onCreate = async ()=>{
+            NewMake.createBtn.removeEventListener('click', onCreate);
+            const created = await createMakeFromModal(db);
+            if(created){ NewMake.close(); await populateMakes(db, created.id); setMake(created.id, created.name); }
+          };
+          NewMake.createBtn.addEventListener('click', onCreate, { once:true });
+          return;
+        }
+        setMake(val, label);
+      });
+      if(preselectId && makes.find(m=>m.id===preselectId)){
+        const name = makes.find(m=>m.id===preselectId).name;
+        setMake(preselectId, name);
+      }else{
+        ddMake.hidden.value = "";
+        ddMake.btn.textContent = "— Select —";
       }
-      panel.innerHTML = "";
-      archived.forEach(t=>{
-        const row = document.createElement("div");
-        row.className = "arch-item";
-        const name = document.createElement("div");
-        name.textContent = t.name;
-        const btn = document.createElement("button");
-        btn.className = "btn";
-        btn.type = "button";
-        btn.textContent = "Unarchive";
-        btn.addEventListener("click", ()=>{
-          const cur = TopicEdit.pending.get(t.id) || {};
-          if(!cur.unarchive){
-            bumpTopicPending(+1);
-          }
+    }
+
+    async function populateModels(db, makeId, preselectId){
+      const allModels = await getModels(db, makeId);
+      const models = allModels.filter(visibleForType);
+      const items = [
+        ["__add__", "Add New…", {isAdd:true} ],
+        ...models.map(m=>[m.id, m.name, {categories:m.categories}])
+      ];
+      buildList(ddModel.list, items, async (val,label,meta)=>{
+        if(meta && meta.isAdd){
+          const created = await addModel(db, ddMake.hidden.value);
+          await populateModels(db, ddMake.hidden.value, created ? created.id : "");
+          if(created){ setModel(created.id, created.name); }
+          return;
+        }
+        setModel(val, label);
+      });
+      ddModel.btn.disabled = false;
+      ddModel.search.disabled = false;
+
+      if(preselectId && models.find(m=>m.id===preselectId)){
+        const name = models.find(m=>m.id===preselectId).name;
+        setModel(preselectId, name);
+      }else{
+        ddModel.hidden.value = "";
+        ddModel.btn.textContent = "— Select —";
+      }
+    }
+
+    function setMake(id, label){
+      ddMake.hidden.value = id || "";
+      ddMake.btn.textContent = id ? label : "— Select —";
+      ddMake.root.classList.remove("open");
+
+      ddModel.hidden.value = "";
+      ddModel.btn.textContent = "— Select a Make first —";
+      ddModel.btn.disabled = !id;
+      ddModel.search.disabled = !id;
+      ddModel.list.innerHTML = "";
+      validateForm();
+
+      if(id){ populateModels(window.__db, id); }
+    }
+
+    function setModel(id, label){
+      ddModel.hidden.value = id || "";
+      ddModel.btn.textContent = id ? label : "— Select —";
+      ddModel.root.classList.remove("open");
+      validateForm();
+    }
+
+    /* ===== Edit modal (rules + actions) ===== */
+    let EDIT_KIND = null; // 'makes' | 'models'
+    const Edit = {
+      el: $("editModal"),
+      list: $("edList"),
+      saveAllBtn: $("edSaveAll"),
+      archivedBtn: $("edToggleArchived"),
+      archivedPanel: $("edArchivedPanel"),
+      modelsBar: $("edModelsBar"),
+      modelsMakeSel: $("edMakeSelect"),
+      pending: new Map(),
+      open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
+      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
+    };
+    document.querySelectorAll('#editModal [data-close]').forEach(el=>el.addEventListener('click', ()=>Edit.close()));
+
+    async function usageInfo(db, kind, id){
+      const qRef = query(collection(db,'equipment'), where(kind==='makes'?'makeId':'modelId','==',id));
+      const snap = await getDocs(qRef);
+      let total = 0, active = 0;
+      snap.forEach(d=>{
+        total++;
+        const v=d.data()||{};
+        if(String(v.status||'').toLowerCase()==='active') active++;
+      });
+      return { total, active };
+    }
+    function actionForUsage(u){
+      if(u.total===0) return 'delete';
+      if(u.active>0) return 'none';
+      return 'archive';
+    }
+
+    function buildSwitchRow(label, slug, checked){
+      const row=document.createElement('div'); row.className='switch';
+      const lab=document.createElement('label'); lab.textContent=label;
+      const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=slug; tog.checked=!!checked;
+      row.append(lab,tog);
+      return row;
+    }
+
+    async function renderArchivedMakes(db){
+      const panel = Edit.archivedPanel;
+      panel.innerHTML = 'Loading…';
+      const items = await getArchivedMakes(db);
+      if(!items.length){ panel.textContent = 'No archived makes.'; return; }
+      panel.innerHTML = '';
+      items.forEach(m=>{
+        const row=document.createElement('div'); row.className='arch-item';
+        const name=document.createElement('div'); name.textContent=m.name;
+        const btn=document.createElement('button'); btn.className='btn'; btn.type='button'; btn.textContent='Unarchive';
+        btn.addEventListener('click', ()=>{
+          const cur = Edit.pending.get(m.id) || {};
+          if(!cur.unarchive){ bumpPending(+1); }
           cur.unarchive = true;
-          TopicEdit.pending.set(t.id, cur);
-          showToast(`Unarchive queued: ${t.name}`);
+          Edit.pending.set(m.id, cur);
+          showToast(`Unarchive queued: ${m.name}`);
         });
         row.append(name, btn);
         panel.appendChild(row);
       });
     }
 
-    async function deleteTopicImmediate(id, name){
-      if(!confirm(`Delete topic "${name}"? This will not change existing maintenance records, but they may show "Unknown topic".`)) return;
+    async function deleteMakeImmediate(db, id, name){
+      const u = await usageInfo(db, 'makes', id);
+      if(u.total !== 0){ alert('This make is in use and cannot be deleted.'); return; }
+      if(!confirm(`Delete "${name}"? This will remove the make and all its models.`)) return;
+
       try{
-        await deleteDoc(doc(DB, "fieldMaintenanceTopics", id));
-        showToast("Topic deleted");
-        await loadTopics();
-        await renderTopicEditor();
-      }catch(e){
-        console.error(e);
-        alert("Delete failed.");
-      }
+        await deleteDoc(doc(db,'equipment-makes', id));
+        const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+        const dels = [];
+        mSnap.forEach(md=>dels.push( deleteDoc(doc(db,'equipment-models', md.id)) ));
+        await Promise.all(dels);
+
+        showToast('Make deleted');
+        await refreshDropdowns(db);
+        const row = document.querySelector(`.ed-row[data-id="${id}"]`);
+        if(row) row.remove();
+      }catch(e){ console.error(e); alert('Delete failed.'); }
     }
 
-    async function archiveTopicImmediate(id, name){
-      if(!confirm(`Archive topic "${name}"? It will be hidden from the dropdown but stay on old records.`)) return;
+    async function archiveMakeImmediate(db, id, name){
+      const u = await usageInfo(db, 'makes', id);
+      if(!(u.total>0 && u.active===0)){ alert('Can only archive when items are used but inactive-only.'); return; }
+      if(!confirm(`Archive "${name}"? Models will be archived too.`)) return;
+
       try{
-        await updateDoc(doc(DB, "fieldMaintenanceTopics", id), {
-          isArchived: true,
-          updatedAt: serverTimestamp()
-        });
-        showToast("Topic archived");
-        await loadTopics();
-        await renderTopicEditor();
-      }catch(e){
-        console.error(e);
-        alert("Archive failed.");
-      }
+        await updateDoc(doc(db,'equipment-makes',id), { archived:true, updatedAt: serverTimestamp() });
+        const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+        const ups = [];
+        mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:true, updatedAt: serverTimestamp() }) ));
+        await Promise.all(ups);
+
+        showToast('Make archived');
+        await refreshDropdowns(db);
+        const row = document.querySelector(`.ed-row[data-id="${id}"]`);
+        if(row) row.remove();
+      }catch(e){ console.error(e); alert('Archive failed.'); }
     }
 
-    async function applyTopicSaveAll(){
-      if(TopicEdit.pending.size === 0){
-        showToast("No changes");
-        return;
-      }
-      const ops = [];
-      for(const [id, change] of TopicEdit.pending.entries()){
-        const base = {};
-        if(change.name){
-          base.name = change.name;
-          base.label = change.name;
-          base.nameLower = change.name.toLowerCase();
+    async function loadEditor(db){
+      Edit.list.innerHTML = '';
+      Edit.modelsBar.style.display='none';
+
+      if(EDIT_KIND === 'makes'){
+        const makes = await getMakes(db);
+        const usagePairs = await Promise.all(makes.map(async m => [m.id, await usageInfo(db,'makes',m.id)]));
+        const usageMap = new Map(usagePairs);
+
+        for(const it of makes){
+          const row=document.createElement('div'); row.className='ed-row'; row.dataset.id = it.id;
+
+          const head=document.createElement('div'); head.className='ed-head';
+          const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
+          const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
+          const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
+          nameWrap.append(inp);
+          head.append(nameWrap, chev);
+          row.append(head);
+
+          const body=document.createElement('div'); body.className='ed-body';
+          const switches=document.createElement('div'); switches.className='switch-list';
+          const selected = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
+          EQUIP_TYPES.forEach(t=>{
+            switches.appendChild( buildSwitchRow(t.label, t.slug, selected.includes(t.slug)) );
+          });
+
+          const actions=document.createElement('div'); actions.className='ed-footer';
+          const left=document.createElement('div'); left.className='ed-foot-left';
+          const delBtn=document.createElement('button'); delBtn.className='mark-danger'; delBtn.type='button'; delBtn.textContent='Delete';
+          const arcBtn=document.createElement('button'); arcBtn.className='mark-warn'; arcBtn.type='button'; arcBtn.textContent='Archive';
+          left.append(delBtn, arcBtn);
+          actions.append(left);
+          body.append(switches, actions);
+          row.append(body);
+          Edit.list.append(row);
+
+          const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
+          if(act==='delete'){ arcBtn.style.display='none'; delBtn.style.display='inline-flex'; }
+          else if(act==='archive'){ delBtn.style.display='none'; arcBtn.style.display='inline-flex'; }
+          else{ delBtn.style.display='none'; arcBtn.style.display='none'; }
+
+          head.addEventListener('click', ()=> row.classList.toggle('open'));
+
+          const stageBase = ()=>{
+            const cats = [...switches.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug);
+            const cur = Edit.pending.get(it.id) || {};
+            const before = JSON.stringify([cur.name||'', cur.categories||[]]);
+            cur.name = inp.value.trim();
+            cur.categories = cats;
+            Edit.pending.set(it.id, cur);
+            const after  = JSON.stringify([cur.name||'', cur.categories||[]]);
+            if(before!==after){ bumpPending(+1); }
+          };
+          inp.addEventListener('input', stageBase);
+          switches.addEventListener('change', stageBase);
+
+          delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
+          arcBtn.addEventListener('click', ()=> archiveMakeImmediate(db, it.id, inp.value.trim() || it.name));
         }
+
+      }else{
+        Edit.modelsBar.style.display='flex';
+        const sel = Edit.modelsMakeSel;
+
+        const makes = await getMakes(db);
+        sel.innerHTML = makes.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+        const cur = $("makeId").value;
+        if(cur && makes.find(m=>m.id===cur)) sel.value = cur;
+
+        async function renderModels(makeId){
+          Edit.list.innerHTML='';
+          const items = makeId ? await getModels(db, makeId) : [];
+          if(!items.length){
+            const empty = document.createElement('div'); empty.className='ed-row'; empty.textContent='No models.';
+            Edit.list.append(empty); return;
+          }
+          for(const it of items){
+            const row=document.createElement('div'); row.className='ed-row';
+            const head=document.createElement('div'); head.className='ed-head';
+            const nameWrap=document.createElement('div'); nameWrap.className='ed-name';
+            const inp=document.createElement('input'); inp.className='input'; inp.value=it.name;
+            const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
+            nameWrap.append(inp);
+            head.append(nameWrap, chev);
+            const body=document.createElement('div'); body.className='ed-body';
+            const note=document.createElement('div'); note.className='ed-foot-left'; note.style.padding='8px 0 0'; note.textContent='Categories follow Make';
+            body.append(note);
+            row.append(head, body);
+            Edit.list.append(row);
+
+            head.addEventListener('click', ()=> row.classList.toggle('open'));
+            inp.addEventListener('input', ()=>{
+              const before = JSON.stringify(Edit.pending.get(it.id)||{});
+              Edit.pending.set(it.id, { model:true, name: inp.value.trim() });
+              const after  = JSON.stringify(Edit.pending.get(it.id));
+              if(before!==after){ bumpPending(+1); }
+            });
+          }
+        }
+        await renderModels(sel.value || makes[0]?.id || null);
+        sel.onchange = ()=>renderModels(sel.value);
+      }
+    }
+
+    async function applySaveAll(db){
+      if(Edit.pending.size===0){ showToast('No changes'); return; }
+
+      const makeOps = [];
+      const modelOps = [];
+      const cascades = [];
+
+      for(const [id, change] of Edit.pending.entries()){
+        if(change.model){
+          if(change.name){
+            modelOps.push( updateDoc(doc(db,'equipment-models',id), { name: change.name, nameLower: change.name.toLowerCase(), updatedAt: serverTimestamp() }) );
+          }
+          continue;
+        }
+
         if(change.unarchive){
-          base.isArchived = false;
-        }
-        if(Object.keys(base).length){
-          base.updatedAt = serverTimestamp();
-          ops.push( updateDoc(doc(DB, "fieldMaintenanceTopics", id), base) );
+          makeOps.push( updateDoc(doc(db,'equipment-makes',id), { archived:false, updatedAt: serverTimestamp() }) );
+          cascades.push( (async ()=>{
+            const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+            const ups = [];
+            mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { archived:false, updatedAt: serverTimestamp() }) ));
+            await Promise.all(ups);
+          })() );
+        }else{
+          const base = {};
+          if(change.name){ base.name = change.name; base.nameLower = change.name.toLowerCase(); }
+          if(change.categories){ base.categories = change.categories; }
+          if(Object.keys(base).length){
+            base.updatedAt = serverTimestamp();
+            makeOps.push( updateDoc(doc(db,'equipment-makes',id), base) );
+            if(change.categories){
+              cascades.push( (async ()=>{
+                const mSnap = await getDocs(query(collection(db,'equipment-models'), where('makeId','==',id)));
+                const ups = [];
+                mSnap.forEach(md=>ups.push( updateDoc(doc(db,'equipment-models', md.id), { categories: change.categories, updatedAt: serverTimestamp() }) ));
+                await Promise.all(ups);
+              })() );
+            }
+          }
         }
       }
+
       try{
-        await Promise.all(ops);
+        await Promise.all(makeOps);
+        await Promise.all(modelOps);
+        await Promise.all(cascades);
+        showToast('Saved');
+        Edit.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true;
+        await refreshDropdowns(db);
+        if(Edit.archivedPanel.classList.contains('show')) await renderArchivedMakes(db);
+        Edit.close();
+      }catch(e){ console.error(e); alert('Save failed.'); }
+    }
+
+    async function refreshDropdowns(db){
+      const curMake = $("makeId").value;
+      const curModel = $("modelId").value;
+      await populateMakes(db, curMake);
+      if(curMake){ await populateModels(db, curMake, curModel); }
+      validateForm();
+    }
+
+    /* Save equipment */
+    let saving = false;
+    async function saveAll(db){
+      if(saving) return;
+      const form = readForm();
+      if(!form.makeId){ alert("Please choose a Make."); return; }
+      if(!form.modelId){ alert("Please choose a Model."); return; }
+      if(!form.serial){ alert("Serial/VIN is required."); return; }
+
+      if(!pendingQRBlob){
+        const ok = confirm("No QR preview yet. Create it first? (Click Cancel to save without a QR image.)");
+        if(ok) return;
+      }
+
+      // Optional: extras validation hook
+      if(EXTRAS_API && typeof EXTRAS_API.validate === 'function'){
+        const v = EXTRAS_API.validate(form);
+        if(v && v.ok === false){
+          alert(v.message || "Please check the extra fields.");
+          return;
+        }
+      }
+
+      saving = true; $("btnSave").disabled = true;
+
+      const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
+      const eqRef = doc(collection(db,'equipment'));
+      const token = pendingToken || randTokenHex(24);
+      const uniqRef = doc(db, 'equipment-uniq', uniqDocId);
+      const tokenRef = doc(db, 'qr-tokens', token);
+
+      let runTransaction;
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js');
+        runTransaction = m.runTransaction;
+      }catch{}
+
+      try{
+        if (typeof runTransaction === 'function'){
+          await runTransaction(db, async (tx)=>{
+            const uSnap = await tx.get(uniqRef);
+            if(uSnap.exists()){
+              const existingEq = uSnap.data()?.equipmentId;
+              if(existingEq && existingEq !== eqRef.id) throw new Error("DUP_UNIQ");
+            }
+            const tSnap = await tx.get(tokenRef);
+            if(tSnap.exists()){
+              const boundEq = tSnap.data()?.equipmentId;
+              if(boundEq && boundEq !== eqRef.id) throw new Error("DUP_TOKEN");
+            }
+            tx.set(eqRef, {
+              ...form,
+              status:"active",
+              qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+              createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+            });
+            tx.set(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
+            tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+          });
+        } else {
+          const [uSnap, tSnap] = await Promise.all([getDoc(uniqRef), getDoc(tokenRef)]);
+          if(uSnap.exists() && uSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_UNIQ");
+          if(tSnap.exists() && tSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_TOKEN");
+
+          await setDoc(eqRef, {
+            ...form,
+            status:"active",
+            qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+            createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+          });
+          await setDoc(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
+          await setDoc(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+        }
+
+        if(pendingQRBlob){
+          try{
+            const m = await import('/Farm-vista/js/firebase-init.js');
+            const st = m.getStorage();
+            const qrPath = `equipment/${eqRef.id}/qr.png`;
+            const r = m.ref(st, qrPath);
+            await m.uploadBytes(r, pendingQRBlob, { contentType: 'image/png' });
+            const url = await m.getDownloadURL(r);
+            await updateDoc(eqRef, {
+              qr: { token, image: { path: qrPath, url }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+              updatedAt: serverTimestamp()
+            });
+          }catch(qe){
+            console.warn('QR upload failed:', qe);
+            $("err").hidden=false; $("err").textContent = `Saved but QR image upload failed: ${qe.message}`;
+          }
+        }
+
+        const files = Array.from(($("photos").files||[]));
+        if(files.length){
+          try{
+            const m = await import('/Farm-vista/js/firebase-init.js');
+            const st = m.getStorage(); const out=[];
+            for(const f of files){
+              const safe = (Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+              const r = m.ref(st, `equipment/${eqRef.id}/${safe}`);
+              await m.uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+              const url = await m.getDownloadURL(r);
+              out.push({name:f.name, url, path:`equipment/${eqRef.id}/${safe}`});
+            }
+            await updateDoc(eqRef, { photos: out, updatedAt: serverTimestamp() });
+          }catch(stErr){
+            $("err").hidden=false; $("err").textContent = `Saved but photo upload failed: ${stErr.message}`;
+          }
+        }
+
         showToast("Saved");
-        TopicEdit.pending.clear();
-        TopicEdit.pendingCount = 0;
-        TopicEdit.saveBtn.disabled = true;
-        await loadTopics();
-        await renderTopicEditor();
-        if(TopicEdit.archivedPanel.classList.contains("show")){
-          await renderArchivedTopics();
+        resetForm();
+        window.scrollTo({ top:0, behavior:'smooth' });
+
+      }catch(err){
+        if(err && err.message === "DUP_UNIQ"){
+          alert("This Make + Model + Serial/VIN already exists. Duplicate not allowed.");
+        }else if(err && err.message === "DUP_TOKEN"){
+          alert("This QR token is already bound to another unit. Generate a new QR and try again.");
+        }else{
+          console.error(err);
+          alert("Save failed.");
         }
-        TopicEdit.close();
-      }catch(e){
-        console.error(e);
-        alert("Save failed.");
+      }finally{
+        saving = false;
+        validateForm();
       }
     }
 
-    async function createTopicFromModal(){
-      const name = (TopicNew.name.value || "").trim();
-      if(!name){
-        alert("Enter a topic / category name.");
-        return;
+    function resetForm(){
+      ["serial","notes"].forEach(id=>$(id).value="");
+      $("photos").value="";
+      $("year").value=""; $("yearTrigger").textContent="— Select —";
+
+      // Clear extras via shared API if present
+      if(EXTRAS_API && typeof EXTRAS_API.reset === 'function'){
+        try{ EXTRAS_API.reset(); }catch{}
+      }else{
+        const eng = $("engineHours");
+        if(eng) eng.value="";
       }
+
+      ddMake.hidden.value=""; ddMake.btn.textContent="— Select —";
+      ddModel.hidden.value=""; ddModel.btn.textContent="— Select a Make first —";
+      ddModel.btn.disabled = true; ddModel.search.disabled = true; ddModel.list.innerHTML = "";
+
+      $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
+      pendingToken=null;
+      pendingQRBlob=null;
+      validateForm();
+    }
+
+    async function pathExists(url, ms=2500){
       try{
-        const ref = await addDoc(collection(DB, "fieldMaintenanceTopics"), {
-          name,
-          label: name,
-          nameLower: name.toLowerCase(),
-          isArchived: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        showToast("Topic created");
-        TopicNew.close();
-        await loadTopics();
-        $("topicSelect").value = ref.id;
-      }catch(e){
-        console.error(e);
-        alert("Create failed.");
+        const ctrl=new AbortController();
+        const t=setTimeout(()=>ctrl.abort(), ms);
+        const res=await fetch(url, { method:'HEAD', cache:'no-store', signal: ctrl.signal });
+        clearTimeout(t);
+        return res.ok;
+      }catch{ return false; }
+    }
+    async function goToTractors(){
+      const p1 = '/Farm-vista/pages/equipment/equipment-tractors.HTML';
+      const p2 = '/Farm-vista/pages/equipment/equipment-tractors.html';
+      const target = (await pathExists(p1)) ? p1 : p2;
+      location.assign(target);
+    }
+
+    // ===== Shared extras init (middle fields) =====
+    function initExtras(){
+      const host = $("equipExtras");
+      if(!host) return;
+
+      // If shared layout engine exists, let it render the middle section
+      if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === 'function'){
+        try{
+          EXTRAS_API = window.FVEquipForms.initExtras({
+            equipType: TYPE,
+            container: host,
+            document
+          }) || null;
+        }catch(e){
+          console.warn("extras init failed, falling back:", e);
+          EXTRAS_API = null;
+        }
+      }
+
+      // For implements: move the "Type" field above Make/Model
+      if(EXTRAS_API && TYPE === 'implement'){
+        try{
+          const typeFieldWrap = host.querySelector('[data-field-id="implementType"]');
+          const firstRow = document.querySelector('.body > .row');
+          if(typeFieldWrap && firstRow && firstRow.parentNode){
+            const typeRow = document.createElement('div');
+            typeRow.className = 'row';
+            typeRow.appendChild(typeFieldWrap);
+            firstRow.parentNode.insertBefore(typeRow, firstRow);
+          }
+        }catch(e){
+          console.warn('Could not move implement Type field:', e);
+        }
+      }
+
+      // Fallback so tractors stay exactly like before if JS isn't ready
+      if(!EXTRAS_API && TYPE === 'tractor'){
+        host.innerHTML = "";
+        const fld = document.createElement('div');
+        fld.className = 'field';
+        fld.innerHTML = `
+          <label for="engineHours">Engine Hours</label>
+          <input id="engineHours" type="number" class="input"
+                 inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
+        `;
+        host.appendChild(fld);
       }
     }
 
-    function setupTopicUI(){
-      $("openTopics").addEventListener("click", async ()=>{
-        TopicEdit.open();
-        await renderTopicEditor();
-      });
-
-      $("topicShowArchived").addEventListener("click", async ()=>{
-        const panel = TopicEdit.archivedPanel;
-        const isShown = panel.classList.toggle("show");
-        $("topicShowArchived").textContent = isShown ? "Hide Archived Topics" : "Show Archived Topics";
-        if(isShown){
-          await renderArchivedTopics();
-        }
-      });
-
-      $("topicSaveAll").addEventListener("click", applyTopicSaveAll);
-      TopicNew.createBtn.addEventListener("click", createTopicFromModal);
-
-      const topicSel = $("topicSelect");
-      topicSel.addEventListener("change", ()=>{
-        if(topicSel.value === "__add__"){
-          topicSel.value = "";
-          TopicNew.open();
-        }
-      });
-    }
-
-    (async function boot(){
+    (async()=>{
       await ready;
-      DB = getFirestore();
-      setupShellNav();
-      setupAuth();
-      setupDate();
-      setupPriority();
-      setupFarmFieldLinking();
-      setupMic();
-      setupFiles();
-      setupActions();
-      setupTopicUI();
-      try{
-        await Promise.all([loadFarms(), loadFields(), loadTopics()]);
-        updateFarmOverlay();
-      }catch(e){
-        console.error("Initial data load failed", e);
-        showErr("Unable to load farms/fields. Check Firestore or network.");
+      const db  = getFirestore();
+      window.__db = db;
+
+      // Update title + heading + wrapper attribute based on TYPE (unchanged behavior)
+      const niceType = TYPE[0].toUpperCase()+TYPE.slice(1);
+      document.title = `FarmVista • Add ${niceType}`;
+      document.querySelector('.hero-head h1').textContent = `Add ${niceType}`;
+      const wrap = document.querySelector('.wrap');
+      if(wrap) wrap.dataset.equipmentType = TYPE;
+
+      // Set hero emoji icon from NAV_MENU equipment icon
+      const heroIconEl = document.querySelector('.hero-head .icon');
+      if(heroIconEl){
+        heroIconEl.textContent = lookupEquipIcon(TYPE);
       }
+
+      // For trucks & trailers: rename Serial # → VIN #
+      const serialLabel = document.querySelector('label[for="serial"]');
+      const serialInput = $("serial");
+      if(serialLabel){
+        if(TYPE === 'truck' || TYPE === 'trailer'){
+          serialLabel.textContent = 'VIN #';
+          serialLabel.classList.add('req'); // keep required styling
+          if(serialInput){
+            serialInput.placeholder = 'VIN (required)';
+          }
+        }
+      }
+
+      buildYearOptions();
+      $("yearTrigger").addEventListener('click', ()=>{
+        const open = $("yearTrigger").getAttribute('aria-expanded') === 'true';
+        if(open) closeYearPanel(); else openYearPanel();
+      });
+
+      buildDdObjects();
+
+      // Init shared extras (middle section)
+      initExtras();
+
+      $("openMakes").addEventListener('click', async ()=>{
+        EDIT_KIND='makes'; Edit.open('Edit Makes'); await loadEditor(db);
+      });
+      $("openModels").addEventListener('click', async ()=>{
+        EDIT_KIND='models'; Edit.open('Edit Models'); await loadEditor(db);
+      });
+
+      $("edSaveAll").addEventListener('click', ()=>applySaveAll(db));
+      $("edToggleArchived").addEventListener('click', async ()=>{
+        const isShown = $("edArchivedPanel").classList.toggle('show');
+        $("edToggleArchived").textContent = isShown ? 'Hide Archived Makes' : 'Show Archived Makes';
+        if(isShown) await renderArchivedMakes(db);
+      });
+
+      await populateMakes(db);
+
+      $("serial").addEventListener("input", validateForm);
+
+      $("btnQR").addEventListener("click", async ()=>{
+        if(!pendingToken) pendingToken = randTokenHex(24);
+        const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?t=${encodeURIComponent(pendingToken)}`;
+        try{ await makeQRForUrl(hubAbs); }catch(e){ console.error(e); alert("Could not create QR code."); }
+      });
+
+      $("btnSave").addEventListener("click", ()=> saveAll(db));
+      $("btnClear").addEventListener("click", goToTractors);
+
+      validateForm();
     })();
   </script>
 </body>
