@@ -2,13 +2,11 @@
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE)
 
 Changes in this build:
- • Keep Farm↔Field auto-link with overlay workaround (working both directions).
- • Submitted by / Date submitted use full-width readonly inputs to match other boxes.
- • Topic / Category:
-      - Uses fv-combo.js (searchable combo) on Farm, Field, and Topic.
-      - "Topic / Category" label is a tappable button to open a Topic Manager modal.
-      - Topic Manager modal: rename topics, archive, unarchive, delete.
-      - "Add new topic…" option inside the Topic dropdown, opening a New Topic modal.
+ • Farm / Field / Topic use fv-combo.js (searchable combos).
+ • Farm↔Field auto-link with overlay workaround kept.
+ • Topic Manager + New Topic modals.
+ • NEW: combo helper so only one combo panel stays open at a time
+        (matches behavior on your equipment forms).
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -1392,6 +1390,25 @@ Changes in this build:
       });
     }
 
+    // ---- Combo helper: keep only the LAST-opened panel visible ----
+    function wireComboHelpers(){
+      document.addEventListener(
+        "click",
+        (evt)=>{
+          const btn = evt.target.closest(".fv-buttonish");
+          if (!btn) return;
+          // After fv-combo has opened its panel, trim extras
+          setTimeout(()=>{
+            const openPanels = Array.from(document.querySelectorAll(".fv-panel.show"));
+            if (openPanels.length <= 1) return;
+            // Close all except the last opened one
+            openPanels.slice(0, -1).forEach(p => p.classList.remove("show"));
+          }, 0);
+        },
+        { capture:true }
+      );
+    }
+
     (async function boot(){
       await ready;
       DB = getFirestore();
@@ -1412,6 +1429,7 @@ Changes in this build:
           window.FVCombo.upgrade(document);
         }
 
+        wireComboHelpers();   // keep only one combo open at a time
         updateFarmOverlay();
       }catch(e){
         console.error("Initial data load failed", e);
