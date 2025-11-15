@@ -4,8 +4,9 @@
 Changes in this build:
  • Keep Farm↔Field auto-link with overlay workaround (working both directions).
  • Submitted by / Date submitted use full-width readonly inputs to match other boxes.
- • Topic / Category gets:
-      - "Topic / Category" label as a tappable button to open a Topic Manager modal.
+ • Topic / Category:
+      - Uses fv-combo.js (searchable combo) on Farm, Field, and Topic.
+      - "Topic / Category" label is a tappable button to open a Topic Manager modal.
       - Topic Manager modal: rename topics, archive, unarchive, delete.
       - "Add new topic…" option inside the Topic dropdown, opening a New Topic modal.
 ===================================================================== -->
@@ -24,6 +25,9 @@ Changes in this build:
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <!-- Searchable combo (Farm / Field / Topic) -->
+  <script src="/Farm-vista/js/fv-combo.js"></script>
 
   <!-- Ensure fv-shell -->
   <script>
@@ -252,7 +256,8 @@ Changes in this build:
     .toast.show{ display:block; animation:fadeout 3.2s forwards; }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* Farm select overlay (beats iOS label repaint bug) */
+    /* Farm select overlay (beats iOS label repaint bug).
+       NOTE: when fv-combo is active on #farmSelect, JS hides this overlay. */
     .select-shell{
       position:relative;
     }
@@ -487,7 +492,14 @@ Changes in this build:
             <div class="field">
               <label for="farmSelect">Farm <span class="req">*</span></label>
               <div class="select-shell">
-                <select id="farmSelect" class="select" required>
+                <select
+                  id="farmSelect"
+                  class="select"
+                  required
+                  data-fv-combo
+                  data-fv-search="true"
+                  data-fv-placeholder="Search farms…"
+                  placeholder="Select farm…">
                   <option value="">Select farm…</option>
                 </select>
                 <div id="farmSelectOverlay" aria-hidden="true"></div>
@@ -495,7 +507,14 @@ Changes in this build:
             </div>
             <div class="field">
               <label for="fieldSelect">Field <span class="req">*</span></label>
-              <select id="fieldSelect" class="select" required>
+              <select
+                id="fieldSelect"
+                class="select"
+                required
+                data-fv-combo
+                data-fv-search="true"
+                data-fv-placeholder="Search fields…"
+                placeholder="Select field…">
                 <option value="">Select field…</option>
               </select>
             </div>
@@ -536,7 +555,14 @@ Changes in this build:
                 aria-controls="topicEditModal">
                 Topic / Category
               </button>
-              <select id="topicSelect" class="select" required>
+              <select
+                id="topicSelect"
+                class="select"
+                required
+                data-fv-combo
+                data-fv-search="true"
+                data-fv-placeholder="Search topics…"
+                placeholder="Select topic…">
                 <option value="">Select topic…</option>
               </select>
               <div class="muted-line">Examples: Repair Needed, Washout, Tile Blowout, Fence, Tree Removal, etc.</div>
@@ -681,6 +707,14 @@ Changes in this build:
       const sel = $("farmSelect");
       const ov  = $("farmSelectOverlay");
       if(!sel || !ov) return;
+
+      // If fv-combo is active, hide the overlay entirely (combo button handles the label)
+      if (sel.hasAttribute("data-fv-combo")) {
+        ov.style.display = "none";
+        sel.classList.remove("overlay-active");
+        return;
+      }
+
       const opt = sel.options[sel.selectedIndex] || null;
       const label = (opt && opt.value) ? (opt.textContent || "").trim() : "";
       if(label){
@@ -872,6 +906,7 @@ Changes in this build:
         farmSel.selectedIndex = idx;
         farmSel.value = farmId;
         updateFarmOverlay();
+        farmSel.dispatchEvent(new Event("change", { bubbles:true }));
       }
     }
 
