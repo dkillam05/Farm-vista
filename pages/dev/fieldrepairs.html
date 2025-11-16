@@ -2,7 +2,8 @@
 /Farm-vista/pages/dev/dev.html  (FULL FILE)
 Dev page:
  • 3 Firestore-backed combos: Farm, Field, Topic
- • Farm/Field inflow both directions (mirrors maintenance-add.html):
+ • Uses same DB pattern as maintenance-add.html (global DB + loaders)
+ • Farm/Field inflow both directions:
       - Choosing a farm filters fields
       - Choosing a field auto-selects its farm and re-filters fields
 ===================================================================== -->
@@ -261,6 +262,8 @@ Dev page:
       topic: null
     };
 
+    let DB = null;  // match maintenance-add pattern
+
     /* ---------- global combo closer (same pattern as maintenance/bag) ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
@@ -327,46 +330,48 @@ Dev page:
       };
     }
 
-    /* ---------- helpers (same inferName pattern as maintenance-add) ---------- */
+    /* ---------- shared name helper (same idea as maintenance-add) ---------- */
     function inferName(data){
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
-    /* ---------- Firestore loaders ---------- */
-    async function loadFarms(db){
-      const snap = await getDocs(collection(db, "farms"));
-      const farms = snap.docs.map(doc=>{
+    /* ---------- Firestore loaders (use global DB like maintenance-add) ---------- */
+    async function loadFarms(){
+      const snap = await getDocs(collection(DB, "farms"));
+      state.farms = snap.docs.map(doc => {
         const data = doc.data() || {};
         return { id: doc.id, name: inferName(data) };
       }).sort((a,b)=>a.name.localeCompare(b.name));
-      state.farms = farms;
-      return farms;
+      return state.farms;
     }
 
-    async function loadFields(db){
-      const snap = await getDocs(collection(db, "fields"));
-      const fields = snap.docs.map(doc=>{
-        const data   = doc.data() || {};
+    async function loadFields(){
+      const snap = await getDocs(collection(DB, "fields"));
+      state.fields = snap.docs.map(doc => {
+        const data = doc.data() || {};
         const farmId = data.farmId || data.farm || data.farmDocId || null;
         return { id: doc.id, name: inferName(data), farmId };
       }).sort((a,b)=>a.name.localeCompare(b.name));
-      state.fields = fields;
-      return fields;
+      return state.fields;
     }
 
-    async function loadTopics(db){
-      const snap = await getDocs(collection(db, "fieldMaintenanceTopics"));
-      const topics = snap.docs.map(doc=>{
-        const data = doc.data() || {};
-        return {
-          id: doc.id,
-          name: inferName(data),
-          isArchived: !!data.isArchived
-        };
-      }).filter(t=>!t.isArchived)
-        .sort((a,b)=>a.name.localeCompare(b.name));
-      state.topics = topics;
-      return topics;
+    async function loadTopics(){
+      try{
+        const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
+        state.topics = snap.docs.map(doc=>{
+          const data = doc.data() || {};
+          return {
+            id: doc.id,
+            name: inferName(data),
+            isArchived: !!data.isArchived
+          };
+        }).filter(t=>!t.isArchived)
+          .sort((a,b)=>a.name.localeCompare(b.name));
+        return state.topics;
+      }catch(e){
+        console.warn("loadTopics error", e);
+        return [];
+      }
     }
 
     /* ---------- farm ⇄ field inflow ---------- */
@@ -396,65 +401,66 @@ Dev page:
 
     /* ---------- boot ---------- */
     (async()=>{
-      await ready;
-      const db = getFirestore();
       const status = $("devStatus");
-
-      // Create combos
-      const farmCombo = makeCombo({
-        btn: $("farmBtn"),
-        panel: $("farmPanel"),
-        list: $("farmList"),
-        searchInput: $("farmSearch"),
-        searchable: true,
-        formatter: x => x.name,
-        onPick: it=>{
-          state.farm = it;
-          $("farmBtn").textContent = it.name;
-          // farm -> field
-          refreshFieldComboForFarm(fieldCombo, it.id);
-        }
-      });
-
-      const fieldCombo = makeCombo({
-        btn: $("fieldBtn"),
-        panel: $("fieldPanel"),
-        list: $("fieldList"),
-        searchInput: $("fieldSearch"),
-        searchable: true,
-        formatter: x => x.name,
-        onPick: it=>{
-          state.field = it;
-          $("fieldBtn").textContent = it.name;
-
-          // field -> farm
-          if(it.farmId){
-            selectFarmById(it.farmId);
-            refreshFieldComboForFarm(fieldCombo, it.farmId);
-          }
-        }
-      });
-
-      const topicCombo = makeCombo({
-        btn: $("topicBtn"),
-        panel: $("topicPanel"),
-        list: $("topicList"),
-        searchInput: $("topicSearch"),
-        searchable: true,
-        formatter: x => x.name,
-        onPick: it=>{
-          state.topic = it;
-          $("topicBtn").textContent = it.name;
-        }
-      });
-
       try{
+        status.textContent = "Waiting for Firebase…";
+        await ready;                 // same usage as maintenance-add
+
+        DB = getFirestore();
         status.textContent = "Loading farms, fields, topics…";
 
+        // Create combos
+        const farmCombo = makeCombo({
+          btn: $("farmBtn"),
+          panel: $("farmPanel"),
+          list: $("farmList"),
+          searchInput: $("farmSearch"),
+          searchable: true,
+          formatter: x => x.name,
+          onPick: it=>{
+            state.farm = it;
+            $("farmBtn").textContent = it.name;
+            // farm -> field
+            refreshFieldComboForFarm(fieldCombo, it.id);
+          }
+        });
+
+        const fieldCombo = makeCombo({
+          btn: $("fieldBtn"),
+          panel: $("fieldPanel"),
+          list: $("fieldList"),
+          searchInput: $("fieldSearch"),
+          searchable: true,
+          formatter: x => x.name,
+          onPick: it=>{
+            state.field = it;
+            $("fieldBtn").textContent = it.name;
+
+            // field -> farm
+            if(it.farmId){
+              selectFarmById(it.farmId);
+              refreshFieldComboForFarm(fieldCombo, it.farmId);
+            }
+          }
+        });
+
+        const topicCombo = makeCombo({
+          btn: $("topicBtn"),
+          panel: $("topicPanel"),
+          list: $("topicList"),
+          searchInput: $("topicSearch"),
+          searchable: true,
+          formatter: x => x.name,
+          onPick: it=>{
+            state.topic = it;
+            $("topicBtn").textContent = it.name;
+          }
+        });
+
         const [farms, fields, topics] = await Promise.all([
-          loadFarms(db),
-          loadFields(db),
-          loadTopics(db)
+          loadFarms(),
+          loadFields(),
+          loadTopics()
         ]);
 
         farmCombo && farmCombo.setItems(farms);
@@ -465,7 +471,7 @@ Dev page:
         status.textContent = `Loaded ${farms.length} farms, ${fields.length} fields, ${topics.length} topics. (All combos ready.)`;
       }catch(err){
         console.error("Dev combo init error:", err);
-        status.textContent = "Error initializing dev combos — see console.";
+        if(status) status.textContent = "Error initializing dev combos — see console.";
       }
     })();
   </script>
