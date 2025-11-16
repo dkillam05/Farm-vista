@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html
-FULL FILE – overlay removed so Farm text matches Field
+FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field inflow
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -35,6 +35,14 @@ FULL FILE – overlay removed so Farm text matches Field
       --card-max: 1100px;
       --page-bottom-gap: 96px;
       --accent: #2F6C3C;
+
+      /* combo vars (match dev + grain bags) */
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
@@ -44,6 +52,7 @@ FULL FILE – overlay removed so Farm text matches Field
       margin: 0 auto;
       padding: clamp(14px,3vw,22px);
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
     }
 
     .hero{
@@ -86,7 +95,7 @@ FULL FILE – overlay removed so Farm text matches Field
       width:100%;
       font:inherit;
       font-size:16px;
-      font-weight:400;             /* regular for all values */
+      font-weight:400;
       color:var(--text);
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
@@ -209,6 +218,85 @@ FULL FILE – overlay removed so Farm text matches Field
     }
     .toast.show{ display:block; animation:fadeout 3.2s forwards; }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* === DEV-STYLE INLINE COMBOS (Farm / Field / Topic) === */
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:12px;
+      padding-right:42px;
+      outline:none;
+      text-align:left;
+      cursor:pointer;
+      position:relative;
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0; right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      padding:8px;
+      display:none;
+      z-index:9999;
+    }
+    .combo-panel.show{ display:block; }
+
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+    }
+
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{ background:rgba(0,0,0,.04); }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+    }
   </style>
 </head>
 <body>
@@ -226,19 +314,27 @@ FULL FILE – overlay removed so Farm text matches Field
         <div class="body">
           <div id="err" class="error"></div>
 
-          <!-- Farm / Field -->
+          <!-- Farm / Field (DEV-STYLE COMBOS) -->
           <div class="row">
-            <div class="field">
-              <label for="farmSelect">Farm <span class="req">*</span></label>
-              <select id="farmSelect" class="select" required>
-                <option value="">Select farm…</option>
-              </select>
+            <div class="field combo">
+              <label for="farmBtn">Farm <span class="req">*</span></label>
+              <div class="combo-anchor">
+                <button id="farmBtn" class="buttonish has-caret" type="button">Select farm…</button>
+                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                  <div class="search"><input id="farmSearch" type="search" placeholder="Search farms…"></div>
+                  <div class="list" id="farmList"></div>
+                </div>
+              </div>
             </div>
-            <div class="field">
-              <label for="fieldSelect">Field <span class="req">*</span></label>
-              <select id="fieldSelect" class="select" required>
-                <option value="">Select field…</option>
-              </select>
+            <div class="field combo">
+              <label for="fieldBtn">Field <span class="req">*</span></label>
+              <div class="combo-anchor">
+                <button id="fieldBtn" class="buttonish has-caret" type="button">Select field…</button>
+                <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                  <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"></div>
+                  <div class="list" id="fieldList"></div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -266,13 +362,17 @@ FULL FILE – overlay removed so Farm text matches Field
             </div>
           </div>
 
-          <!-- Topic + Priority -->
+          <!-- Topic + Priority (Topic is DEV-STYLE COMBO) -->
           <div class="row">
-            <div class="field">
-              <label for="topicSelect">Topic / Category <span class="req">*</span></label>
-              <select id="topicSelect" class="select" required>
-                <option value="">Select topic…</option>
-              </select>
+            <div class="field combo">
+              <label for="topicBtn">Topic / Category <span class="req">*</span></label>
+              <div class="combo-anchor">
+                <button id="topicBtn" class="buttonish has-caret" type="button">Select topic…</button>
+                <div class="combo-panel" id="topicPanel" role="listbox" aria-label="Topic list">
+                  <div class="search"><input id="topicSearch" type="search" placeholder="Search topics…"></div>
+                  <div class="list" id="topicList"></div>
+                </div>
+              </div>
               <div class="muted-line">Examples: Repair Needed, Washout, Tile Blowout, Fence, Tree Removal, etc.</div>
             </div>
             <div class="field">
@@ -336,8 +436,20 @@ FULL FILE – overlay removed so Farm text matches Field
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
-    const state = { farms: [], fields: [], topics: [] };
+
+    const state = {
+      farms: [],
+      fields: [],
+      topics: [],
+      farm: null,
+      field: null,
+      topic: null
+    };
+
     let DB = null;
+    let farmCombo = null;
+    let fieldCombo = null;
+    let topicCombo = null;
 
     const showErr = msg => {
       const box = $("err");
@@ -352,6 +464,10 @@ FULL FILE – overlay removed so Farm text matches Field
       void t.offsetWidth;
       t.classList.add("show");
     };
+
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, m =>
+      ({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m])
+    );
 
     function formatLocalDate(d = new Date()){
       const dt = new Date(d.getTime() - d.getTimezoneOffset()*60000);
@@ -368,20 +484,103 @@ FULL FILE – overlay removed so Farm text matches Field
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
+    /* ---------- global combo closer (from dev file) ---------- */
+    function closeAllCombos(exceptPanel=null){
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==exceptPanel) p.classList.remove('show');
+      });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+    function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x.label||x.name||x), onPick }) {
+      if(!btn || !panel || !list) return;
+
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+      let DATA = items || [];
+
+      function render(q=""){
+        const qq = (q||"").toLowerCase();
+        const rows = (DATA || []).filter(x=>{
+          const label = formatter(x).toLowerCase();
+          return !qq || label.includes(qq);
+        });
+        list.innerHTML = rows.length
+          ? rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('')
+          : `<div class="combo-empty">(no matches)</div>`;
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable && searchInput){
+          searchInput.value="";
+          searchInput.focus();
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item');
+        if(!row) return;
+        const it = (DATA || []).find(x => String(x.id) === row.dataset.id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable && searchInput){
+        searchInput.addEventListener('input', e=>render(e.target.value));
+      }
+
+      return {
+        setItems(arr){
+          DATA = arr || [];
+          render("");
+        }
+      };
+    }
+
+    /* ---------- farm ⇄ field inflow helpers ---------- */
+    function refreshFieldComboForFarm(farmId){
+      let list = state.fields;
+      if(farmId){
+        list = list.filter(f=>f.farmId === farmId);
+      }
+      fieldCombo && fieldCombo.setItems(list);
+
+      if(state.field && farmId && state.field.farmId !== farmId){
+        state.field = null;
+        const fb = $("fieldBtn");
+        if(fb) fb.textContent = "Select field…";
+      }
+    }
+
+    function selectFarmById(farmId){
+      if(!farmId) return;
+      const farm = state.farms.find(f=>f.id === farmId);
+      if(!farm) return;
+      state.farm = farm;
+      const btn = $("farmBtn");
+      if(btn) btn.textContent = farm.name;
+    }
+
+    /* ---------- Firestore loaders (adapted from dev) ---------- */
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
         const data = doc.data() || {};
         return { id: doc.id, name: inferName(data) };
       }).sort((a,b)=>a.name.localeCompare(b.name));
-      const sel = $("farmSelect");
-      sel.innerHTML = '<option value="">Select farm…</option>';
-      state.farms.forEach(f=>{
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        opt.textContent = f.name;
-        sel.appendChild(opt);
-      });
+      farmCombo && farmCombo.setItems(state.farms);
     }
 
     async function loadFields(){
@@ -391,24 +590,7 @@ FULL FILE – overlay removed so Farm text matches Field
         const farmId = data.farmId || data.farm || data.farmDocId || null;
         return { id: doc.id, name: inferName(data), farmId };
       }).sort((a,b)=>a.name.localeCompare(b.name));
-      populateFieldSelect();
-    }
-
-    function populateFieldSelect(farmId=null){
-      const sel = $("fieldSelect");
-      const prev = sel.value;
-      sel.innerHTML = '<option value="">Select field…</option>';
-      let list = state.fields;
-      if(farmId){
-        list = list.filter(f=>f.farmId === farmId);
-      }
-      list.forEach(f=>{
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        opt.textContent = f.name;
-        sel.appendChild(opt);
-      });
-      if(list.some(f=>f.id===prev)) sel.value = prev;
+      refreshFieldComboForFarm(state.farm ? state.farm.id : null);
     }
 
     async function loadTopics(){
@@ -416,27 +598,25 @@ FULL FILE – overlay removed so Farm text matches Field
         const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
         state.topics = snap.docs.map(doc=>{
           const data = doc.data() || {};
-          return { id: doc.id, label: inferName(data), archived: !!data.isArchived };
-        }).filter(t=>!t.archived).sort((a,b)=>a.label.localeCompare(b.label));
-        const sel = $("topicSelect");
-        sel.innerHTML = '<option value="">Select topic…</option>';
-        state.topics.forEach(t=>{
-          const opt = document.createElement("option");
-          opt.value = t.id;
-          opt.textContent = t.label;
-          sel.appendChild(opt);
-        });
+          return {
+            id: doc.id,
+            label: inferName(data),
+            archived: !!data.isArchived
+          };
+        }).filter(t=>!t.archived)
+          .sort((a,b)=>a.label.localeCompare(b.label));
+        topicCombo && topicCombo.setItems(state.topics);
       }catch(e){
         console.warn("loadTopics error", e);
       }
     }
 
+    /* ---------- shell / auth / date / priority ---------- */
     function setupShellNav(){
       const shell = document.querySelector("fv-shell");
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
-    // Submitted by (same logic as before)
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -522,48 +702,7 @@ FULL FILE – overlay removed so Farm text matches Field
       sync();
     }
 
-    function repaintSelect(sel){
-      // Force iOS/WebKit to repaint the native text
-      const prevDisplay = sel.style.display;
-      sel.style.display = "none";
-      void sel.offsetHeight;
-      sel.style.display = prevDisplay || "";
-    }
-
-    function selectFarmById(farmId){
-      const farmSel = $("farmSelect");
-      const options = Array.from(farmSel.options || []);
-      const idx = options.findIndex(o => o.value === farmId);
-      if(idx >= 0){
-        farmSel.selectedIndex = idx;
-        farmSel.value = farmId;
-        repaintSelect(farmSel);
-      }
-    }
-
-    function setupFarmFieldLinking(){
-      const farmSel  = $("farmSelect");
-      const fieldSel = $("fieldSelect");
-
-      farmSel.addEventListener("change", ()=>{
-        const farmId = farmSel.value || null;
-        populateFieldSelect(farmId);
-      });
-
-      fieldSel.addEventListener("change", ()=>{
-        const fieldId = fieldSel.value;
-        if(!fieldId) return;
-        const fld = state.fields.find(f=>f.id === fieldId);
-        if(!fld) return;
-        const farmId = fld.farmId || null;
-        if(!farmId) return;
-
-        populateFieldSelect(farmId);
-        $("fieldSelect").value = fieldId;
-        selectFarmById(farmId);
-      });
-    }
-
+    /* ---------- mic + files + actions ---------- */
     function setupMic(){
       const btn = $("mic");
       const ta = $("notes");
@@ -649,15 +788,16 @@ FULL FILE – overlay removed so Farm text matches Field
       $("btnSave").addEventListener("click", saveMaintenance);
     }
 
+    /* ---------- Save using combo state ---------- */
     async function saveMaintenance(){
       showErr("");
       const btn = $("btnSave");
       btn.disabled = true;
 
       try{
-        const farmId = $("farmSelect").value;
-        const fieldId = $("fieldSelect").value;
-        const topicId = $("topicSelect").value;
+        const farmId = state.farm?.id || "";
+        const fieldId = state.field?.id || "";
+        const topicId = state.topic?.id || "";
         const priority = Number($("priority").value || 0);
         const notes = $("notes").value.trim();
         const priorityReason = $("priorityReason").value.trim();
@@ -683,9 +823,9 @@ FULL FILE – overlay removed so Farm text matches Field
           return;
         }
 
-        const farm = state.farms.find(f=>f.id===farmId) || null;
-        const field = state.fields.find(f=>f.id===fieldId) || null;
-        const topic = state.topics.find(t=>t.id===topicId) || null;
+        const farm = state.farm;
+        const field = state.field;
+        const topic = state.topic;
 
         const payload = {
           farmId,
@@ -693,7 +833,7 @@ FULL FILE – overlay removed so Farm text matches Field
           fieldId,
           fieldName: field?.name || null,
           topicId,
-          topicLabel: topic?.label || null,
+          topicLabel: topic?.label || topic?.name || null,
           priority,
           priorityReason: priority>=7 ? priorityReason : null,
           notes,
@@ -723,14 +863,60 @@ FULL FILE – overlay removed so Farm text matches Field
     (async function boot(){
       await ready;
       DB = getFirestore();
+
       setupShellNav();
       setupAuth();
       setupDate();
       setupPriority();
-      setupFarmFieldLinking();
       setupMic();
       setupFiles();
       setupActions();
+
+      /* set up combos BEFORE loading data (same as dev) */
+      farmCombo = makeCombo({
+        btn: $("farmBtn"),
+        panel: $("farmPanel"),
+        list: $("farmList"),
+        searchInput: $("farmSearch"),
+        searchable: true,
+        formatter: x => x.name,
+        onPick: it=>{
+          state.farm = it;
+          $("farmBtn").textContent = it.name;
+          refreshFieldComboForFarm(it.id);
+        }
+      });
+
+      fieldCombo = makeCombo({
+        btn: $("fieldBtn"),
+        panel: $("fieldPanel"),
+        list: $("fieldList"),
+        searchInput: $("fieldSearch"),
+        searchable: true,
+        formatter: x => x.name,
+        onPick: it=>{
+          state.field = it;
+          $("fieldBtn").textContent = it.name;
+          if(it.farmId){
+            selectFarmById(it.farmId);
+            refreshFieldComboForFarm(it.farmId);
+          }
+        }
+      });
+
+      topicCombo = makeCombo({
+        btn: $("topicBtn"),
+        panel: $("topicPanel"),
+        list: $("topicList"),
+        searchInput: $("topicSearch"),
+        searchable: true,
+        formatter: x => x.label || x.name,
+        onPick: it=>{
+          state.topic = it;
+          $("topicBtn").textContent = it.label || it.name;
+        }
+      });
+
       try{
         await Promise.all([loadFarms(), loadFields(), loadTopics()]);
       }catch(e){
