@@ -1,0 +1,260 @@
+<!-- =====================================================================
+/Farm-vista/pages/dev/dev.html  (FULL FILE)
+Simple dev page:
+ • Three Firestore-backed dropdowns: Farm, Field, Topic
+ • Each has a search box that filters the <option>s client-side
+ • No modals, no extra bells/whistles — just basic testing
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Dev Combos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS (standard FarmVista includes) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + app CSS -->
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Shell -->
+  <script defer src="/Farm-vista/js/fv-shell.js"></script>
+
+  <style>
+    /* Tiny bit of layout so it looks decent, but keep it simple */
+    .dev-page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 12px 16px 72px;
+      box-sizing: border-box;
+    }
+    .dev-card {
+      background: var(--card-bg, #1f1f1f);
+      border-radius: 16px;
+      padding: 16px 16px 20px;
+      box-shadow: var(--card-shadow, 0 2px 6px rgba(0,0,0,0.35));
+    }
+    .dev-card h1 {
+      font-size: 1.2rem;
+      margin: 0 0 8px;
+    }
+    .dev-card p {
+      margin: 0 0 16px;
+      font-size: .9rem;
+      opacity: .8;
+    }
+    .dev-group {
+      margin-bottom: 16px;
+    }
+    .dev-group label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: .9rem;
+    }
+    .dev-search {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.25);
+      font-size: .9rem;
+      margin-bottom: 6px;
+    }
+    .dev-select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(0,0,0,0.4);
+      font-size: .9rem;
+    }
+    .dev-status {
+      margin-top: 8px;
+      font-size: .8rem;
+      opacity: .75;
+    }
+  </style>
+</head>
+<body>
+  <fv-shell app-title="Dev • Firestore Combos" data-page-id="dev-combos">
+    <main class="dev-page">
+      <section class="dev-card">
+        <h1>Dev — Firestore Dropdowns</h1>
+        <p>
+          Simple test page with three dropdowns wired to Firestore (Farm, Field, Topic),
+          each with a basic search box. No modals on this page.
+        </p>
+
+        <!-- FARM -->
+        <div class="dev-group">
+          <label for="farmSearch">Farm</label>
+          <input id="farmSearch" class="dev-search" type="search" placeholder="Search farms…">
+          <select id="farmSelect" class="dev-select">
+            <option value="">Loading farms…</option>
+          </select>
+        </div>
+
+        <!-- FIELD -->
+        <div class="dev-group">
+          <label for="fieldSearch">Field</label>
+          <input id="fieldSearch" class="dev-search" type="search" placeholder="Search fields…">
+          <select id="fieldSelect" class="dev-select">
+            <option value="">Loading fields…</option>
+          </select>
+        </div>
+
+        <!-- TOPIC -->
+        <div class="dev-group">
+          <label for="topicSearch">Topic</label>
+          <input id="topicSearch" class="dev-search" type="search" placeholder="Search topics…">
+          <select id="topicSelect" class="dev-select">
+            <option value="">Loading topics…</option>
+          </select>
+        </div>
+
+        <div id="devStatus" class="dev-status">
+          Initializing…
+        </div>
+      </section>
+    </main>
+  </fv-shell>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      query,
+      orderBy
+    } from '/Farm-vista/js/firebase-init.js';
+
+    // If you need NAV_MENU, it will be picked up by fv-shell via other scripts.
+    // Keeping this page minimal, so we don't import menu.js here.
+
+    const $ = (id) => document.getElementById(id);
+
+    // ---- CONFIG: update these if your collection/field names are different ----
+    const FS_CONFIG = {
+      farm:  { coll: 'farms',   labelField: 'name'  }, // e.g. doc.data().name
+      field: { coll: 'fields',  labelField: 'name'  },
+      topic: { coll: 'topics',  labelField: 'name'  }  // dev test collection
+    };
+
+    function attachSearch(searchId, selectId) {
+      const searchEl = $(searchId);
+      const selectEl = $(selectId);
+      if (!searchEl || !selectEl) return;
+
+      searchEl.addEventListener('input', () => {
+        const term = searchEl.value.trim().toLowerCase();
+        const options = Array.from(selectEl.options);
+        options.forEach(opt => {
+          if (!opt.dataset.label) return; // keep placeholder alone
+          const match = opt.dataset.label.includes(term);
+          opt.hidden = !match;
+        });
+
+        // If the currently selected option is hidden by filter, clear select
+        const selected = selectEl.selectedOptions[0];
+        if (selected && selected.hidden) {
+          selectEl.value = '';
+        }
+      });
+    }
+
+    async function loadCollection({ collName, labelField, selectId, statusKey }) {
+      const selectEl = $(selectId);
+      const statusEl = $('devStatus');
+
+      if (!selectEl) return;
+      try {
+        statusEl.textContent = `Loading ${statusKey}…`;
+
+        const db = getFirestore();
+        const qRef = query(collection(db, collName), orderBy(labelField));
+        const snap = await getDocs(qRef);
+
+        // Clear existing options
+        selectEl.innerHTML = '';
+        let count = 0;
+
+        // Placeholder
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = `Select a ${statusKey}…`;
+        placeholder.dataset.label = '';
+        selectEl.appendChild(placeholder);
+
+        snap.forEach(doc => {
+          const data = doc.data();
+          const label = (data && data[labelField]) ? String(data[labelField]) : doc.id;
+          const opt = document.createElement('option');
+          opt.value = doc.id;
+          opt.textContent = label;
+          opt.dataset.label = label.toLowerCase();
+          selectEl.appendChild(opt);
+          count++;
+        });
+
+        statusEl.textContent = `Loaded ${count} ${statusKey}${count === 1 ? '' : 's'}.`;
+      } catch (err) {
+        console.error(`Error loading ${statusKey}:`, err);
+        const statusEl = $('devStatus');
+        if (statusEl) {
+          statusEl.textContent = `Error loading ${statusKey} — see console.`;
+        }
+      }
+    }
+
+    (async () => {
+      try {
+        await ready();
+
+        // Attach search filtering
+        attachSearch('farmSearch', 'farmSelect');
+        attachSearch('fieldSearch', 'fieldSelect');
+        attachSearch('topicSearch', 'topicSelect');
+
+        // Load all three collections
+        await Promise.all([
+          loadCollection({
+            collName: FS_CONFIG.farm.coll,
+            labelField: FS_CONFIG.farm.labelField,
+            selectId: 'farmSelect',
+            statusKey: 'farm'
+          }),
+          loadCollection({
+            collName: FS_CONFIG.field.coll,
+            labelField: FS_CONFIG.field.labelField,
+            selectId: 'fieldSelect',
+            statusKey: 'field'
+          }),
+          loadCollection({
+            collName: FS_CONFIG.topic.coll,
+            labelField: FS_CONFIG.topic.labelField,
+            selectId: 'topicSelect',
+            statusKey: 'topic'
+          })
+        ]);
+
+        const s = $('devStatus');
+        if (s) s.textContent += '  (All dropdowns ready.)';
+      } catch (err) {
+        console.error('Dev combo init error:', err);
+        const s = $('devStatus');
+        if (s) s.textContent = 'Error initializing page — see console.';
+      }
+    })();
+  </script>
+</body>
+</html>
