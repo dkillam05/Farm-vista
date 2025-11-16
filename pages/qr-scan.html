@@ -56,67 +56,129 @@
     const videoEl = document.getElementById('video');
     const unsupported = document.getElementById('unsupported');
     const closeBtn = document.getElementById('closeBtn');
-    let codeReader=null, stream=null, navigating=false;
+    let codeReader = null, stream = null, navigating = false;
+
+    // Build hub URL EXACTLY like the lookup "Open Hub" button does
+    function hubUrlFromId(id){
+      return `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`;
+    }
 
     function go(url){
-      if(navigating) return;
+      if (navigating) return;
       navigating = true;
       stopAll();
       location.replace(url);
     }
 
     function routeFromQR(text){
-      const raw = String(text||'').trim();
-      try{
+      const raw = String(text || '').trim();
+      if (!raw) return;
+
+      let id = '';
+
+      // Try to interpret as URL first (full hub URL or legacy URL)
+      try {
         const u = new URL(raw, location.origin);
-        if(u.pathname.endsWith('/pages/equipment/actions/hub.html')){
-          const id=u.searchParams.get('id');
-          const code=u.searchParams.get('code')||u.searchParams.get('t');
-          if(id) return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`);
-          if(code) return go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(code)}`);
+        const path = u.pathname || '';
+        const searchId   = u.searchParams.get('id');
+        const searchCode = u.searchParams.get('code') || u.searchParams.get('t');
+
+        // 1) Direct hit: our current hub path with id / code
+        if (path.endsWith('/pages/equipment/actions/hub.html')) {
+          if (searchId) {
+            id = searchId;
+          } else if (searchCode) {
+            // Treat legacy ?code=/ ?t= as the id so hub sees ?id=
+            id = searchCode;
+          }
         }
-      }catch{}
-      if(/^[A-Za-z0-9_-]{8,}$/.test(raw))
-        return go(`/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(raw)}`);
-      go(`/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(raw)}`);
+
+        // 2) Legacy paths like /pages/equipment/hub.html with ?id= or ?t=
+        if (!id && path.includes('/pages/equipment/')) {
+          if (searchId) {
+            id = searchId;
+          } else if (searchCode) {
+            id = searchCode;
+          }
+        }
+
+        // 3) Last URL segment as an ID (e.g. .../equipment/{id})
+        if (!id) {
+          const segs = path.split('/').filter(Boolean);
+          const lastSeg = segs[segs.length - 1] || '';
+          if (/^[A-Za-z0-9_-]{8,}$/.test(lastSeg) && !lastSeg.endsWith('.html')) {
+            id = lastSeg;
+          }
+        }
+
+        if (id) {
+          return go(hubUrlFromId(id));
+        }
+
+        // If it was a URL but nothing looked like an id, fall through to "raw as id"
+      } catch (e) {
+        // Not a URL, we'll treat it as a bare value below
+      }
+
+      // 4) Raw string looks like an ID or token (alphanumeric)
+      if (/^[A-Za-z0-9_-]{8,}$/.test(raw)) {
+        return go(hubUrlFromId(raw));
+      }
+
+      // 5) Absolute last-resort: send as code param
+      // (hub currently ignores ?code, but at least the path won’t 404)
+      go(`${location.origin}/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(raw)}`);
     }
 
     async function start(){
-      try{
+      try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter(d=>d.kind==='videoinput');
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
         let deviceId = null;
         const back = videoInputs.find(d => /back|rear|environment/i.test(d.label));
-        if(back) deviceId = back.deviceId;
+        if (back) deviceId = back.deviceId;
 
         stream = await navigator.mediaDevices.getUserMedia({
-          video: deviceId ? { deviceId:{exact:deviceId} } : { facingMode:{ideal:'environment'} },
-          audio:false
+          video: deviceId ? { deviceId:{ exact: deviceId } } : { facingMode:{ ideal: 'environment' } },
+          audio: false
         });
         videoEl.srcObject = stream;
         await videoEl.play().catch(()=>{});
 
         codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-        await codeReader.decodeFromVideoDevice(deviceId||null, videoEl, (result,err)=>{
-          if(result && result.getText) routeFromQR(result.getText());
+        await codeReader.decodeFromVideoDevice(deviceId || null, videoEl, (result, err)=>{
+          if (result && result.getText) {
+            routeFromQR(result.getText());
+          }
         });
-      }catch(e){
+      } catch(e){
         console.error(e);
         unsupported.classList.add('show');
       }
     }
 
     function stopAll(){
-      try{ codeReader && codeReader.reset(); }catch{}
-      if(stream){ for(const t of stream.getTracks()){ try{t.stop();}catch{} } stream=null; }
+      try { codeReader && codeReader.reset(); } catch {}
+      if (stream){
+        for (const t of stream.getTracks()){
+          try { t.stop(); } catch {}
+        }
+        stream = null;
+      }
     }
 
-    closeBtn.addEventListener('click', ()=>{ stopAll(); location.href='/Farm-vista/index.html'; });
+    closeBtn.addEventListener('click', ()=>{
+      stopAll();
+      location.href = '/Farm-vista/index.html';
+    });
     window.addEventListener('pagehide', stopAll);
     window.addEventListener('beforeunload', stopAll);
 
-    if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) start();
-    else unsupported.classList.add('show');
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      start();
+    } else {
+      unsupported.classList.add('show');
+    }
   </script>
 </body>
 </html>
