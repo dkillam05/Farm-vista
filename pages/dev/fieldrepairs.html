@@ -1,9 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/dev.html  (FULL FILE)
 Dev page:
- • 3 Firestore-backed fv-combos: Farm, Field, Topic
- • Uses fv-combo.js (data-fv-combo + data-fv-search="true")
- • Topics pulled from fieldMaintenanceTopics (label field)
+ • 3 Firestore-backed combos: Farm, Field, Topic
+ • Uses same combo pattern as Grain Bag — Put Down
+ • Collections:
+      farms  -> name
+      fields -> name
+      fieldMaintenanceTopics -> label / nameLower
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -13,101 +16,230 @@ Dev page:
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- ABSOLUTE PATHS -->
+  <!-- Absolute paths (required) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
   <!-- Theme + app CSS -->
-  <script defer src="/Farm-vista/js/theme-boot.js"></script>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- fv-shell + fv-combo -->
-  <script defer src="/Farm-vista/js/fv-shell.js"></script>
-  <script defer src="/Farm-vista/js/fv-combo.js"></script>
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 
   <style>
-    .dev-page{
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 12px 16px 80px;
-      box-sizing: border-box;
+    :root{
+      --card-max:900px;
+      --page-bottom-gap:72px;
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
     }
-    .dev-card{
-      background: var(--card-bg,var(--surface));
-      border-radius: 16px;
-      padding: 16px 16px 20px;
-      box-shadow: var(--card-shadow,0 2px 6px rgba(0,0,0,0.35));
+
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+      box-sizing:border-box;
     }
-    .dev-card h1{
-      font-size: 1.2rem;
-      margin: 0 0 8px;
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
     }
-    .dev-card p{
-      margin: 0 0 16px;
-      font-size: .9rem;
-      opacity: .8;
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .dev-group{
-      margin-bottom: 16px;
+    .hero-head .icon{
+      width:24px;height:24px;
+      display:grid;place-items:center;
     }
-    .dev-group label{
-      display: block;
-      font-weight: 600;
-      margin-bottom: 4px;
-      font-size: .9rem;
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
     }
-    .dev-status{
-      margin-top: 8px;
-      font-size: .8rem;
-      opacity: .75;
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:16px;
+    }
+
+    .field{ position:relative; }
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:12px;
+      padding-right:42px;
+      outline:none;
+      text-align:left;
+      cursor:pointer;
+      position:relative;
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    /* Standardized inline combo (same pattern as Grain Bag page) */
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0; right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      padding:8px;
+      display:none;
+      z-index:9999;
+    }
+    .combo-panel.show{ display:block; }
+
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+    }
+
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{ background:rgba(0,0,0,.04); }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+    }
+
+    .status{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+      margin-top:4px;
     }
   </style>
 </head>
+
 <body>
-  <fv-shell app-title="Dev • FV Combos" data-page-id="dev-combos">
-    <main class="dev-page">
-      <section class="dev-card">
-        <h1>Dev — Firestore FV Combos</h1>
-        <p>Three fv-combos wired to Firestore: Farm, Field, Topic. Search lives inside the dropdown panel.</p>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧪</div>
+          <div>
+            <h1>Dev • Farm / Field / Topic</h1>
+            <p class="muted">Simple Firestore-backed combos using the same pattern as Grain Bag Put Down.</p>
+          </div>
+        </header>
 
-        <!-- FARM -->
-        <div class="dev-group">
-          <label for="farmSelect">Farm</label>
-          <select id="farmSelect"
-                  name="farmId"
-                  data-fv-combo
-                  data-fv-search="true"
-                  placeholder="Select farm…">
-          </select>
+        <div class="body">
+          <!-- FARM -->
+          <div class="field combo">
+            <label for="farmBtn">Farm</label>
+            <div class="combo-anchor">
+              <button id="farmBtn" class="buttonish has-caret" type="button">— Select farm —</button>
+              <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                <div class="search"><input id="farmSearch" type="search" placeholder="Search farms…"></div>
+                <div class="list" id="farmList"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- FIELD -->
+          <div class="field combo">
+            <label for="fieldBtn">Field</label>
+            <div class="combo-anchor">
+              <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
+              <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"></div>
+                <div class="list" id="fieldList"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TOPIC -->
+          <div class="field combo">
+            <label for="topicBtn">Topic</label>
+            <div class="combo-anchor">
+              <button id="topicBtn" class="buttonish has-caret" type="button">— Select topic —</button>
+              <div class="combo-panel" id="topicPanel" role="listbox" aria-label="Topic list">
+                <div class="search"><input id="topicSearch" type="search" placeholder="Search topics…"></div>
+                <div class="list" id="topicList"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="devStatus" class="status">Initializing…</div>
         </div>
-
-        <!-- FIELD -->
-        <div class="dev-group">
-          <label for="fieldSelect">Field</label>
-          <select id="fieldSelect"
-                  name="fieldId"
-                  data-fv-combo
-                  data-fv-search="true"
-                  placeholder="Select field…">
-          </select>
-        </div>
-
-        <!-- TOPIC -->
-        <div class="dev-group">
-          <label for="topicSelect">Topic</label>
-          <select id="topicSelect"
-                  name="topicId"
-                  data-fv-combo
-                  data-fv-search="true"
-                  placeholder="Select topic…">
-          </select>
-        </div>
-
-        <div id="devStatus" class="dev-status">Initializing…</div>
       </section>
-    </main>
+    </div>
   </fv-shell>
 
   <script type="module">
@@ -120,80 +252,189 @@ Dev page:
       orderBy
     } from '/Farm-vista/js/firebase-init.js';
 
-    const $ = (id) => document.getElementById(id);
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, m =>
+      ({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m])
+    );
 
-    // Adjust these if needed to match your collections/fields
-    const FS_CONFIG = {
-      farm:  { coll: 'farms',                  labelField: 'name',  selectId: 'farmSelect',  statusKey: 'farm'  },
-      field: { coll: 'fields',                 labelField: 'name',  selectId: 'fieldSelect', statusKey: 'field' },
-      topic: { coll: 'fieldMaintenanceTopics', labelField: 'label', selectId: 'topicSelect', statusKey: 'topic' }
-    };
+    /* ---------- global combo closer (same pattern as grain bag page) ---------- */
+    function closeAllCombos(exceptPanel=null){
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==exceptPanel) p.classList.remove('show');
+      });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
-    async function loadCollection(cfg){
-      const selectEl = $(cfg.selectId);
-      const statusEl = $('devStatus');
-      if (!selectEl) return;
+    /* ---------- generic combo helper ---------- */
+    function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x.label||x.name||x), onPick }) {
+      if(!btn || !panel || !list) return;
 
-      try {
-        statusEl.textContent = `Loading ${cfg.statusKey}s…`;
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
 
-        const db = getFirestore();
-        const qRef = query(
-          collection(db, cfg.coll),
-          orderBy(cfg.labelField)
+      let DATA = items || [];
+
+      function render(q=""){
+        const qq = (q||"").toLowerCase();
+        const rows = (DATA || []).filter(x=>{
+          const label = formatter(x).toLowerCase();
+          return !qq || label.includes(qq);
+        });
+        list.innerHTML = rows.length
+          ? rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('')
+          : `<div class="combo-empty">(no matches)</div>`;
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable && searchInput){
+          searchInput.value="";
+          searchInput.focus();
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      // mousedown so selection happens before outside-click handler
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item');
+        if(!row) return;
+        const it = (DATA || []).find(x => String(x.id) === row.dataset.id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable && searchInput){
+        searchInput.addEventListener('input', e=>render(e.target.value));
+      }
+
+      return {
+        setItems(arr){
+          DATA = arr || [];
+          render("");
+        }
+      };
+    }
+
+    /* ---------- Firestore loaders ---------- */
+    async function loadCollection(db, cfg){
+      const status = $('devStatus');
+      try{
+        status.textContent = `Loading ${cfg.statusKey}s…`;
+        const snap = await getDocs(
+          cfg.orderField
+            ? query(collection(db, cfg.coll), orderBy(cfg.orderField))
+            : collection(db, cfg.coll)
         );
-        const snap = await getDocs(qRef);
 
-        // Clear & add placeholder
-        selectEl.innerHTML = '';
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = `Select ${cfg.statusKey}…`;
-        placeholder.disabled = true;
-        placeholder.selected = true;
-        selectEl.appendChild(placeholder);
-
-        let count = 0;
-        snap.forEach(doc => {
-          const data = doc.data();
-          const label = (data && data[cfg.labelField]) ? String(data[cfg.labelField]) : doc.id;
-          const opt = document.createElement('option');
-          opt.value = doc.id;
-          opt.textContent = label;
-          selectEl.appendChild(opt);
-          count++;
+        const out = [];
+        snap.forEach(docSnap=>{
+          const d = docSnap.data() || {};
+          const label =
+            d[cfg.labelField] ||
+            d.name ||
+            d.label ||
+            docSnap.id;
+          if(!label) return;
+          out.push({
+            id: docSnap.id,
+            name: String(label)
+          });
         });
 
-        statusEl.textContent = `Loaded ${count} ${cfg.statusKey}${count === 1 ? '' : 's'}.`;
-
-        // Make sure fv-combo decorates it (safe even if already upgraded)
-        if (window.FVCombo && window.FVCombo.upgradeSelect) {
-          window.FVCombo.upgradeSelect(selectEl);
-        }
-      } catch (err) {
-        console.error(`Error loading ${cfg.statusKey}:`, err);
-        const statusEl = $('devStatus');
-        if (statusEl) statusEl.textContent = `Error loading ${cfg.statusKey} — see console.`;
+        out.sort((a,b)=>a.name.localeCompare(b.name));
+        status.textContent = `Loaded ${out.length} ${cfg.statusKey}${out.length===1?'':'s'}.`;
+        return out;
+      }catch(err){
+        console.error(`Error loading ${cfg.statusKey}s:`, err);
+        status.textContent = `Error loading ${cfg.statusKey}s — see console.`;
+        return [];
       }
     }
 
-    (async () => {
-      try {
-        await ready();
+    /* ---------- boot ---------- */
+    (async()=>{
+      await ready;                 // match pattern from Grain Bag — Put Down
+      const db = getFirestore();
 
-        await Promise.all([
-          loadCollection(FS_CONFIG.farm),
-          loadCollection(FS_CONFIG.field),
-          loadCollection(FS_CONFIG.topic)
-        ]);
+      const state = { farm:null, field:null, topic:null };
 
-        const s = $('devStatus');
-        if (s) s.textContent += '  (All combos ready.)';
-      } catch (err) {
-        console.error('Dev combo init error:', err);
-        const s = $('devStatus');
-        if (s) s.textContent = 'Error initializing page — see console.';
-      }
+      // Create combos
+      const farmCombo = makeCombo({
+        btn: $("farmBtn"),
+        panel: $("farmPanel"),
+        list: $("farmList"),
+        searchInput: $("farmSearch"),
+        searchable: true,
+        formatter: x => x.name,
+        onPick: it=>{
+          state.farm = it;
+          $("farmBtn").textContent = it.name;
+        }
+      });
+
+      const fieldCombo = makeCombo({
+        btn: $("fieldBtn"),
+        panel: $("fieldPanel"),
+        list: $("fieldList"),
+        searchInput: $("fieldSearch"),
+        searchable: true,
+        formatter: x => x.name,
+        onPick: it=>{
+          state.field = it;
+          $("fieldBtn").textContent = it.name;
+        }
+      });
+
+      const topicCombo = makeCombo({
+        btn: $("topicBtn"),
+        panel: $("topicPanel"),
+        list: $("topicList"),
+        searchInput: $("topicSearch"),
+        searchable: true,
+        formatter: x => x.name,
+        onPick: it=>{
+          state.topic = it;
+          $("topicBtn").textContent = it.name;
+        }
+      });
+
+      // Load data
+      const [farms, fields, topics] = await Promise.all([
+        loadCollection(db, {
+          coll:'farms',
+          labelField:'name',
+          orderField:'name',
+          statusKey:'farm'
+        }),
+        loadCollection(db, {
+          coll:'fields',
+          labelField:'name',
+          orderField:'name',
+          statusKey:'field'
+        }),
+        loadCollection(db, {
+          coll:'fieldMaintenanceTopics',
+          labelField:'label',
+          orderField:'nameLower',
+          statusKey:'topic'
+        })
+      ]);
+
+      farmCombo && farmCombo.setItems(farms);
+      fieldCombo && fieldCombo.setItems(fields);
+      topicCombo && topicCombo.setItems(topics);
+
+      const s = $('devStatus');
+      if(s) s.textContent += '  (All combos ready.)';
     })();
   </script>
 </body>
