@@ -2,11 +2,9 @@
 /Farm-vista/pages/dev/dev.html  (FULL FILE)
 Dev page:
  • 3 Firestore-backed combos: Farm, Field, Topic
- • Uses same combo pattern as Grain Bag — Put Down
- • Collections:
-      farms  -> name
-      fields -> name
-      fieldMaintenanceTopics -> label / nameLower
+ • Farm/Field inflow both directions (mirrors maintenance-add.html):
+      - Choosing a farm filters fields
+      - Choosing a field auto-selects its farm and re-filters fields
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -65,7 +63,6 @@ Dev page:
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:visible;
     }
     .hero-head{
       display:grid;
@@ -129,7 +126,7 @@ Dev page:
       pointer-events:none;
     }
 
-    /* Standardized inline combo (same pattern as Grain Bag page) */
+    /* Standard inline combo (same pattern as Grain Bag / Maintenance) */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative;
@@ -195,7 +192,7 @@ Dev page:
           <div class="icon" aria-hidden="true">🧪</div>
           <div>
             <h1>Dev • Farm / Field / Topic</h1>
-            <p class="muted">Simple Firestore-backed combos using the same pattern as Grain Bag Put Down.</p>
+            <p class="muted">Simple Firestore-backed combos with farm ⇄ field inflow.</p>
           </div>
         </header>
 
@@ -247,9 +244,7 @@ Dev page:
       ready,
       getFirestore,
       collection,
-      getDocs,
-      query,
-      orderBy
+      getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -257,7 +252,16 @@ Dev page:
       ({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m])
     );
 
-    /* ---------- global combo closer (same pattern as grain bag page) ---------- */
+    const state = {
+      farms: [],
+      fields: [],
+      topics: [],
+      farm: null,
+      field: null,
+      topic: null
+    };
+
+    /* ---------- global combo closer (same pattern as maintenance/bag) ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==exceptPanel) p.classList.remove('show');
@@ -302,7 +306,6 @@ Dev page:
         panel.classList.contains('show') ? close() : open();
       });
 
-      // mousedown so selection happens before outside-click handler
       list.addEventListener('mousedown', e=>{
         const row = e.target.closest('.combo-item');
         if(!row) return;
@@ -324,48 +327,78 @@ Dev page:
       };
     }
 
+    /* ---------- helpers (same inferName pattern as maintenance-add) ---------- */
+    function inferName(data){
+      return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
+    }
+
     /* ---------- Firestore loaders ---------- */
-    async function loadCollection(db, cfg){
-      const status = $('devStatus');
-      try{
-        status.textContent = `Loading ${cfg.statusKey}s…`;
-        const snap = await getDocs(
-          cfg.orderField
-            ? query(collection(db, cfg.coll), orderBy(cfg.orderField))
-            : collection(db, cfg.coll)
-        );
+    async function loadFarms(db){
+      const snap = await getDocs(collection(db, "farms"));
+      const farms = snap.docs.map(doc=>{
+        const data = doc.data() || {};
+        return { id: doc.id, name: inferName(data) };
+      }).sort((a,b)=>a.name.localeCompare(b.name));
+      state.farms = farms;
+      return farms;
+    }
 
-        const out = [];
-        snap.forEach(docSnap=>{
-          const d = docSnap.data() || {};
-          const label =
-            d[cfg.labelField] ||
-            d.name ||
-            d.label ||
-            docSnap.id;
-          if(!label) return;
-          out.push({
-            id: docSnap.id,
-            name: String(label)
-          });
-        });
+    async function loadFields(db){
+      const snap = await getDocs(collection(db, "fields"));
+      const fields = snap.docs.map(doc=>{
+        const data   = doc.data() || {};
+        const farmId = data.farmId || data.farm || data.farmDocId || null;
+        return { id: doc.id, name: inferName(data), farmId };
+      }).sort((a,b)=>a.name.localeCompare(b.name));
+      state.fields = fields;
+      return fields;
+    }
 
-        out.sort((a,b)=>a.name.localeCompare(b.name));
-        status.textContent = `Loaded ${out.length} ${cfg.statusKey}${out.length===1?'':'s'}.`;
-        return out;
-      }catch(err){
-        console.error(`Error loading ${cfg.statusKey}s:`, err);
-        status.textContent = `Error loading ${cfg.statusKey}s — see console.`;
-        return [];
+    async function loadTopics(db){
+      const snap = await getDocs(collection(db, "fieldMaintenanceTopics"));
+      const topics = snap.docs.map(doc=>{
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          name: inferName(data),
+          isArchived: !!data.isArchived
+        };
+      }).filter(t=>!t.isArchived)
+        .sort((a,b)=>a.name.localeCompare(b.name));
+      state.topics = topics;
+      return topics;
+    }
+
+    /* ---------- farm ⇄ field inflow ---------- */
+    function refreshFieldComboForFarm(fieldCombo, farmId){
+      let list = state.fields;
+      if(farmId){
+        list = list.filter(f=>f.farmId === farmId);
       }
+      fieldCombo && fieldCombo.setItems(list);
+
+      // If a field is selected that doesn't belong to this farm, clear it
+      if(state.field && farmId && state.field.farmId !== farmId){
+        state.field = null;
+        const fb = $("fieldBtn");
+        if(fb) fb.textContent = "— Select field —";
+      }
+    }
+
+    function selectFarmById(farmId){
+      if(!farmId) return;
+      const farm = state.farms.find(f=>f.id === farmId);
+      if(!farm) return;
+      state.farm = farm;
+      const btn = $("farmBtn");
+      if(btn) btn.textContent = farm.name;
     }
 
     /* ---------- boot ---------- */
     (async()=>{
-      await ready;                 // match pattern from Grain Bag — Put Down
+      await ready;
       const db = getFirestore();
-
-      const state = { farm:null, field:null, topic:null };
+      const status = $("devStatus");
 
       // Create combos
       const farmCombo = makeCombo({
@@ -378,6 +411,8 @@ Dev page:
         onPick: it=>{
           state.farm = it;
           $("farmBtn").textContent = it.name;
+          // farm -> field
+          refreshFieldComboForFarm(fieldCombo, it.id);
         }
       });
 
@@ -391,6 +426,12 @@ Dev page:
         onPick: it=>{
           state.field = it;
           $("fieldBtn").textContent = it.name;
+
+          // field -> farm
+          if(it.farmId){
+            selectFarmById(it.farmId);
+            refreshFieldComboForFarm(fieldCombo, it.farmId);
+          }
         }
       });
 
@@ -407,34 +448,25 @@ Dev page:
         }
       });
 
-      // Load data
-      const [farms, fields, topics] = await Promise.all([
-        loadCollection(db, {
-          coll:'farms',
-          labelField:'name',
-          orderField:'name',
-          statusKey:'farm'
-        }),
-        loadCollection(db, {
-          coll:'fields',
-          labelField:'name',
-          orderField:'name',
-          statusKey:'field'
-        }),
-        loadCollection(db, {
-          coll:'fieldMaintenanceTopics',
-          labelField:'label',
-          orderField:'nameLower',
-          statusKey:'topic'
-        })
-      ]);
+      try{
+        status.textContent = "Loading farms, fields, topics…";
 
-      farmCombo && farmCombo.setItems(farms);
-      fieldCombo && fieldCombo.setItems(fields);
-      topicCombo && topicCombo.setItems(topics);
+        const [farms, fields, topics] = await Promise.all([
+          loadFarms(db),
+          loadFields(db),
+          loadTopics(db)
+        ]);
 
-      const s = $('devStatus');
-      if(s) s.textContent += '  (All combos ready.)';
+        farmCombo && farmCombo.setItems(farms);
+        // Initially show all fields until a farm is chosen
+        fieldCombo && fieldCombo.setItems(fields);
+        topicCombo && topicCombo.setItems(topics);
+
+        status.textContent = `Loaded ${farms.length} farms, ${fields.length} fields, ${topics.length} topics. (All combos ready.)`;
+      }catch(err){
+        console.error("Dev combo init error:", err);
+        status.textContent = "Error initializing dev combos — see console.";
+      }
     })();
   </script>
 </body>
