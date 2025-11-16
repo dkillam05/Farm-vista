@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html
-FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field inflow
+FULL FILE – dev-style combos + Topic editor modal
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -36,7 +36,7 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       --page-bottom-gap: 96px;
       --accent: #2F6C3C;
 
-      /* combo vars (match dev + grain bags) */
+      /* combo + modal vars */
       --combo-gap:4px;
       --combo-radius:12px;
       --combo-btn-radius:10px;
@@ -121,6 +121,7 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       color:var(--text) !important; background:var(--card-surface,var(--surface));
     }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff !important; }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed; }
 
     .priority-readout{
       font-size:0.9rem;
@@ -297,6 +298,172 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       padding:var(--combo-item-pad);
       color:#67706B;
     }
+
+    /* === Tappable label like equipment makes/models === */
+    .as-label{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      font:inherit;
+      font-weight:800;
+      background:transparent;
+      border:none;
+      padding:0;
+      color:var(--text);
+      cursor:pointer;
+    }
+    .as-label:hover{ text-decoration:underline; }
+    .as-label .req,
+    .as-label.req::after{
+      color:var(--accent);
+    }
+    .as-label.req::after{
+      content:" *";
+    }
+
+    /* === Topic editor modal (simplified version of equipment modal) === */
+    .modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+    }
+    .modal.show{ display:flex; }
+    .backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.45);
+    }
+    .sheet{
+      position:relative;
+      width:min(100vw,760px);
+      max-width:90vw;
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:0 20px 40px rgba(0,0,0,.35);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      max-height:90vh;
+    }
+    .sheet header{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border);
+      font-weight:800;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      color:var(--text);
+      flex:0 0 auto;
+    }
+    .sheet header .close{
+      border:none;
+      background:transparent;
+      font:inherit;
+      font-weight:800;
+      cursor:pointer;
+      padding:6px 10px;
+      border-radius:10px;
+      color:var(--text);
+    }
+    .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
+
+    .ed-wrap{
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      flex:1 1 auto;
+      min-height:0;
+    }
+    .ed-list{
+      border:1px solid var(--border);
+      border-radius:12px;
+      overflow:auto;
+      flex:1 1 auto;
+      min-height:0;
+      background:var(--card-surface,var(--surface));
+    }
+    .ed-row{ border-bottom:1px solid var(--border); }
+    .ed-row:last-child{ border-bottom:none; }
+
+    .ed-head{
+      display:grid;
+      grid-template-columns:1fr auto;
+      gap:8px;
+      align-items:center;
+      padding:10px 12px;
+      cursor:pointer;
+      user-select:none;
+    }
+    .ed-name{ display:flex; gap:8px; align-items:center; width:100%; }
+    .ed-name input{ width:100%; }
+
+    .ed-chevron{
+      opacity:.7;
+      transform:rotate(0deg);
+      transition:transform .18s ease;
+    }
+    .ed-row.open .ed-chevron{ transform:rotate(90deg); }
+    .ed-body{
+      display:none;
+      padding:0 12px 12px;
+    }
+    .ed-row.open .ed-body{ display:block; }
+
+    .switch{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card-surface,var(--surface));
+    }
+    .switch label{ font-weight:800; }
+
+    .toggle{
+      position:relative;
+      width:48px;
+      height:28px;
+      border-radius:999px;
+      background:var(--hover,rgba(0,0,0,.12));
+      border:1px solid var(--border);
+      cursor:pointer;
+      outline:none;
+      appearance:none;
+    }
+    .toggle::after{
+      content:"";
+      position:absolute;
+      top:50%;
+      left:4px;
+      transform:translateY(-50%);
+      width:22px;
+      height:22px;
+      border-radius:50%;
+      background:var(--surface);
+      box-shadow:0 1px 2px rgba(0,0,0,.15);
+      transition:left .16s ease;
+    }
+    .toggle:checked{
+      background:var(--accent);
+      border-color:transparent;
+    }
+    .toggle:checked::after{ left:22px; }
+
+    .ed-bottom{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding:10px 2px 2px;
+      margin-top:6px;
+    }
+    .ed-bottom .grow{ flex:1 1 auto; }
   </style>
 </head>
 <body>
@@ -314,7 +481,7 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
         <div class="body">
           <div id="err" class="error"></div>
 
-          <!-- Farm / Field (DEV-STYLE COMBOS) -->
+          <!-- Farm / Field combos -->
           <div class="row">
             <div class="field combo">
               <label for="farmBtn">Farm <span class="req">*</span></label>
@@ -362,10 +529,17 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
             </div>
           </div>
 
-          <!-- Topic + Priority (Topic is DEV-STYLE COMBO) -->
+          <!-- Topic + Priority -->
           <div class="row">
             <div class="field combo">
-              <label for="topicBtn">Topic / Category <span class="req">*</span></label>
+              <button
+                id="openTopics"
+                type="button"
+                class="as-label req"
+                aria-haspopup="dialog"
+                aria-controls="topicModal">
+                Topic / Category
+              </button>
               <div class="combo-anchor">
                 <button id="topicBtn" class="buttonish has-caret" type="button">Select topic…</button>
                 <div class="combo-panel" id="topicPanel" role="listbox" aria-label="Topic list">
@@ -423,6 +597,27 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
     </div>
   </fv-shell>
 
+  <!-- Topic editor modal -->
+  <div id="topicModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="topicModalTitle">
+    <div class="backdrop" data-close></div>
+    <div class="sheet">
+      <header>
+        <div id="topicModalTitle">Edit Topics</div>
+        <button class="close" type="button" data-close>Close</button>
+      </header>
+      <div class="ed-wrap">
+        <div id="topicEdList" class="ed-list" role="list">
+          <!-- rows injected via JS -->
+        </div>
+        <div class="ed-bottom">
+          <button id="topicAdd" class="btn" type="button">Add Topic</button>
+          <div class="grow"></div>
+          <button id="topicSaveAll" class="btn btn-primary" type="button" disabled>Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <script type="module">
@@ -430,13 +625,14 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       ready,
       getFirestore,
       collection, getDocs, addDoc,
+      updateDoc,
       serverTimestamp,
-      getAuth, onAuthStateChanged
+      getAuth, onAuthStateChanged,
+      doc
     } from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const $ = id => document.getElementById(id);
-
     const state = {
       farms: [],
       fields: [],
@@ -445,11 +641,7 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       field: null,
       topic: null
     };
-
     let DB = null;
-    let farmCombo = null;
-    let fieldCombo = null;
-    let topicCombo = null;
 
     const showErr = msg => {
       const box = $("err");
@@ -461,8 +653,8 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       const t = $("toast");
       t.textContent = msg;
       t.classList.remove("show");
-      void t.offsetWidth;
       t.classList.add("show");
+      setTimeout(()=>t.classList.remove("show"), 3200);
     };
 
     const esc = s => String(s ?? "").replace(/[&<>"']/g, m =>
@@ -484,7 +676,7 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
-    /* ---------- global combo closer (from dev file) ---------- */
+    /* ---------- global combo closer ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==exceptPanel) p.classList.remove('show');
@@ -549,7 +741,7 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       };
     }
 
-    /* ---------- farm ⇄ field inflow helpers ---------- */
+    /* ---------- farm ⇄ field inflow ---------- */
     function refreshFieldComboForFarm(farmId){
       let list = state.fields;
       if(farmId){
@@ -573,7 +765,6 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       if(btn) btn.textContent = farm.name;
     }
 
-    /* ---------- Firestore loaders (adapted from dev) ---------- */
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
@@ -596,27 +787,27 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
     async function loadTopics(){
       try{
         const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
-        state.topics = snap.docs.map(doc=>{
+        const all = snap.docs.map(doc=>{
           const data = doc.data() || {};
           return {
             id: doc.id,
             label: inferName(data),
-            archived: !!data.isArchived
+            isArchived: !!data.isArchived
           };
-        }).filter(t=>!t.archived)
-          .sort((a,b)=>a.label.localeCompare(b.label));
-        topicCombo && topicCombo.setItems(state.topics);
+        }).sort((a,b)=>a.label.localeCompare(b.label));
+        state.topics = all.filter(t=>!t.isArchived);
+        topicCombo && topicCombo.setItems(state.topics.map(t=>({id:t.id,name:t.label})));
       }catch(e){
         console.warn("loadTopics error", e);
       }
     }
 
-    /* ---------- shell / auth / date / priority ---------- */
     function setupShellNav(){
       const shell = document.querySelector("fv-shell");
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
     }
 
+    // Submitted by helpers
     function titleCase(s){
       return String(s||"").replace(/\s+/g," ").trim().split(" ")
         .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
@@ -702,7 +893,6 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       sync();
     }
 
-    /* ---------- mic + files + actions ---------- */
     function setupMic(){
       const btn = $("mic");
       const ta = $("notes");
@@ -788,7 +978,6 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       $("btnSave").addEventListener("click", saveMaintenance);
     }
 
-    /* ---------- Save using combo state ---------- */
     async function saveMaintenance(){
       showErr("");
       const btn = $("btnSave");
@@ -860,6 +1049,184 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       }
     }
 
+    /* ---------- Topic editor modal ---------- */
+    const TopicEditor = {
+      el: $("topicModal"),
+      list: $("topicEdList"),
+      saveBtn: $("topicSaveAll"),
+      addBtn: $("topicAdd"),
+      dirty: false
+    };
+
+    function topicMarkDirty(){
+      if(!TopicEditor.dirty){
+        TopicEditor.dirty = true;
+        TopicEditor.saveBtn.disabled = false;
+      }
+    }
+
+    async function renderTopicEditor(){
+      if(!DB) return;
+      TopicEditor.list.innerHTML = "Loading…";
+
+      try{
+        const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
+        const items = snap.docs.map(doc=>{
+          const data = doc.data() || {};
+          return {
+            id: doc.id,
+            name: inferName(data),
+            isArchived: !!data.isArchived
+          };
+        }).sort((a,b)=>a.name.localeCompare(b.name));
+
+        if(!items.length){
+          TopicEditor.list.textContent = "No topics yet. Use “Add Topic” to create one.";
+          return;
+        }
+
+        TopicEditor.list.innerHTML = "";
+        items.forEach(it=>{
+          const row = document.createElement("div");
+          row.className = "ed-row";
+          row.dataset.id = it.id;
+          row.dataset.origName = it.name;
+          row.dataset.origArchived = it.isArchived ? "1" : "0";
+
+          const head = document.createElement("div");
+          head.className = "ed-head";
+          const nameWrap = document.createElement("div");
+          nameWrap.className = "ed-name";
+          const inp = document.createElement("input");
+          inp.className = "input";
+          inp.value = it.name;
+          const chev = document.createElement("div");
+          chev.className = "ed-chevron";
+          chev.textContent = "›";
+          nameWrap.appendChild(inp);
+          head.append(nameWrap, chev);
+
+          const body = document.createElement("div");
+          body.className = "ed-body";
+          const sw = document.createElement("div");
+          sw.className = "switch";
+          const lab = document.createElement("label");
+          lab.textContent = "Archived";
+          const tog = document.createElement("input");
+          tog.type = "checkbox";
+          tog.className = "toggle";
+          tog.checked = it.isArchived;
+          sw.append(lab, tog);
+          body.append(sw);
+
+          row.append(head, body);
+          TopicEditor.list.append(row);
+
+          head.addEventListener("click", ()=> row.classList.toggle("open"));
+          inp.addEventListener("input", topicMarkDirty);
+          tog.addEventListener("change", topicMarkDirty);
+        });
+      }catch(e){
+        console.error("renderTopicEditor error", e);
+        TopicEditor.list.textContent = "Unable to load topics.";
+      }
+    }
+
+    async function saveAllTopics(){
+      if(!TopicEditor.dirty){
+        TopicEditor.el.classList.remove("show");
+        document.body.style.overflow = "";
+        return;
+      }
+
+      const rows = TopicEditor.list.querySelectorAll(".ed-row");
+      const ops = [];
+
+      rows.forEach(row=>{
+        const id = row.dataset.id;
+        const nameInput = row.querySelector(".input");
+        const toggle = row.querySelector(".toggle");
+        if(!id || !nameInput || !toggle) return;
+
+        const name = nameInput.value.trim();
+        const archived = toggle.checked;
+        const origName = row.dataset.origName || "";
+        const origArchived = row.dataset.origArchived === "1";
+
+        if(!name) return;
+        if(name === origName && archived === origArchived) return;
+
+        const ref = doc(DB, "fieldMaintenanceTopics", id);
+        ops.push(
+          updateDoc(ref, {
+            name,
+            nameLower: name.toLowerCase(),
+            isArchived: archived,
+            updatedAt: serverTimestamp()
+          })
+        );
+      });
+
+      if(!ops.length){
+        TopicEditor.dirty = false;
+        TopicEditor.saveBtn.disabled = true;
+        TopicEditor.el.classList.remove("show");
+        document.body.style.overflow = "";
+        return;
+      }
+
+      try{
+        await Promise.all(ops);
+        TopicEditor.dirty = false;
+        TopicEditor.saveBtn.disabled = true;
+        showToast("Topics updated.");
+        await loadTopics();
+        await renderTopicEditor();
+        TopicEditor.el.classList.remove("show");
+        document.body.style.overflow = "";
+      }catch(e){
+        console.error("saveAllTopics error", e);
+        showErr("Failed to save topics. Try again.");
+      }
+    }
+
+    async function addNewTopic(){
+      const nameRaw = window.prompt("New topic name:");
+      const name = (nameRaw || "").trim();
+      if(!name) return;
+
+      try{
+        await addDoc(collection(DB, "fieldMaintenanceTopics"), {
+          name,
+          nameLower: name.toLowerCase(),
+          isArchived: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        showToast("Topic added.");
+        await loadTopics();
+        await renderTopicEditor();
+        TopicEditor.dirty = false;
+        TopicEditor.saveBtn.disabled = true;
+      }catch(e){
+        console.error("addNewTopic error", e);
+        showErr("Failed to add topic.");
+      }
+    }
+
+    function openTopicModal(){
+      TopicEditor.dirty = false;
+      TopicEditor.saveBtn.disabled = true;
+      TopicEditor.el.classList.add("show");
+      document.body.style.overflow = "hidden";
+      renderTopicEditor();
+    }
+
+    /* ---------- boot ---------- */
+    let farmCombo = null;
+    let fieldCombo = null;
+    let topicCombo = null;
+
     (async function boot(){
       await ready;
       DB = getFirestore();
@@ -872,7 +1239,7 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
       setupFiles();
       setupActions();
 
-      /* set up combos BEFORE loading data (same as dev) */
+      // Combos first
       farmCombo = makeCombo({
         btn: $("farmBtn"),
         panel: $("farmPanel"),
@@ -910,11 +1277,26 @@ FULL FILE – uses dev-style combos for Farm / Field / Topic with farm ⇄ field
         list: $("topicList"),
         searchInput: $("topicSearch"),
         searchable: true,
-        formatter: x => x.label || x.name,
+        formatter: x => x.name,
         onPick: it=>{
-          state.topic = it;
-          $("topicBtn").textContent = it.label || it.name;
+          state.topic = { id: it.id, name: it.name, label: it.name };
+          $("topicBtn").textContent = it.name;
         }
+      });
+
+      // Topic modal wiring
+      $("openTopics").addEventListener("click", openTopicModal);
+      TopicEditor.saveBtn.addEventListener("click", saveAllTopics);
+      TopicEditor.addBtn.addEventListener("click", addNewTopic);
+      document.querySelectorAll('#topicModal [data-close]').forEach(el=>{
+        el.addEventListener("click", ()=>{
+          TopicEditor.el.classList.remove("show");
+          document.body.style.overflow = "";
+        });
+      });
+      TopicEditor.el.querySelector(".backdrop").addEventListener("click", ()=>{
+        TopicEditor.el.classList.remove("show");
+        document.body.style.overflow = "";
       });
 
       try{
