@@ -1,0 +1,220 @@
+<!-- =====================================================================
+/Farm-vista/pages/dev/map-pin-dev.html
+Dev page to test fv-map.js pin-drop picker
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Map Picker Dev</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Leaflet CSS/JS (required for fv-map.js) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin="">
+  </script>
+
+  <!-- Map picker module -->
+  <script src="/Farm-vista/js/fv-map.js"></script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+    }
+    html{-webkit-text-size-adjust:100%}
+    body{
+      background:var(--app-bg,var(--surface));
+    }
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+      box-sizing:border-box;
+    }
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      display:grid;
+      place-items:center;
+      color:var(--green,#3B7E46);
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{color:var(--muted,#67706B);}
+
+    .body{padding:16px;display:grid;gap:16px;}
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr;}
+    @media(max-width:880px){.row{grid-template-columns:1fr;}}
+
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+    .input{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 12px;
+      outline:none;
+    }
+    .input[readonly]{
+      background:var(--card-surface,var(--surface));
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:10px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      cursor:pointer;
+      text-decoration:none;
+      color:var(--text)!important;
+      min-width:160px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:var(--green,#3B7E46);
+      color:#fff!important;
+    }
+    .summary{
+      font-size:14px;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+    }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">📍</div>
+          <div>
+            <h1>Map Picker Dev</h1>
+            <p class="muted">
+              Test the reusable map pin drop component (fv-map.js). Tap “Drop pin location”, pick a point, and save.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="row">
+            <div class="field">
+              <label for="lat">Latitude</label>
+              <input id="lat" class="input" type="text" readonly placeholder="No location yet">
+            </div>
+            <div class="field">
+              <label for="lng">Longitude</label>
+              <input id="lng" class="input" type="text" readonly placeholder="No location yet">
+            </div>
+          </div>
+
+          <div class="field">
+            <button id="btnDropPin" class="btn btn-primary" type="button">Drop pin location</button>
+            <div id="coordSummary" class="summary">No location chosen.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <script type="module">
+    import { NAV_MENU } from "/Farm-vista/js/menu.js";
+
+    const shell = document.querySelector("fv-shell");
+    if (shell && NAV_MENU) shell.nav = NAV_MENU;
+
+    const $ = id => document.getElementById(id);
+    const btn = $("btnDropPin");
+    const latInput = $("lat");
+    const lngInput = $("lng");
+    const summary = $("coordSummary");
+
+    function updateSummary(){
+      const lat = latInput.value.trim();
+      const lng = lngInput.value.trim();
+      if(lat && lng){
+        summary.textContent = `Pinned at ${lat}, ${lng}`;
+      }else{
+        summary.textContent = "No location chosen.";
+      }
+    }
+
+    btn.addEventListener("click", async () => {
+      if (!window.FVMapPicker || typeof window.FVMapPicker.pickFor !== "function") {
+        alert("Map picker script not loaded.");
+        return;
+      }
+
+      try{
+        await window.FVMapPicker.pickFor({
+          latInput,
+          lngInput,
+          title: "Drop pin for test location",
+          onPicked: ({ lat, lng })=>{
+            updateSummary();
+            console.log("Picked:", lat, lng);
+          },
+          onCancel: () => {
+            console.log("Map picker cancelled");
+          }
+        });
+      }catch(err){
+        if(!err || !err.cancelled){
+          console.error("Map picker error", err);
+        }
+      }
+    });
+
+    updateSummary();
+  </script>
+</body>
+</html>
