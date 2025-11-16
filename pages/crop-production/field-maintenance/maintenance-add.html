@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html
-FULL FILE – dev-style combos + Topic editor modal
+FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -557,7 +557,14 @@ FULL FILE – dev-style combos + Topic editor modal
               </div>
               <div id="priorityReasonBlock" class="priority-reason" hidden>
                 <label for="priorityReason">Why is this a high priority? (7–10)</label>
-                <textarea id="priorityReason" class="textarea" placeholder="Explain why this needs urgent attention…"></textarea>
+                <div class="ta-wrap">
+                  <textarea id="priorityReason" class="textarea fm-notes" placeholder="Explain why this needs urgent attention…"></textarea>
+                  <button id="micPriority" type="button" class="mic-btn" aria-label="Start dictation for priority reason">
+                    <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -685,7 +692,19 @@ FULL FILE – dev-style combos + Topic editor modal
     document.addEventListener('click', ()=> closeAllCombos());
     document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
-    function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x.label||x.name||x), onPick }) {
+    function makeCombo({
+      btn,
+      panel,
+      list,
+      searchInput=null,
+      items=[],
+      searchable=false,
+      formatter=x=>String(x.label||x.name||x),
+      onPick,
+      hasAddNew=false,
+      addNewLabel="Add New",
+      onAddNew=null
+    }) {
       if(!btn || !panel || !list) return;
 
       panel.addEventListener('click', e=> e.stopPropagation());
@@ -699,9 +718,20 @@ FULL FILE – dev-style combos + Topic editor modal
           const label = formatter(x).toLowerCase();
           return !qq || label.includes(qq);
         });
-        list.innerHTML = rows.length
-          ? rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('')
-          : `<div class="combo-empty">(no matches)</div>`;
+
+        let html = "";
+
+        if(hasAddNew){
+          html += `<div class="combo-item combo-add-new" data-id="__add__">${esc(addNewLabel)}</div>`;
+        }
+
+        if(rows.length){
+          html += rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('');
+        }else{
+          html += `<div class="combo-empty">(no matches)</div>`;
+        }
+
+        list.innerHTML = html;
       }
 
       function open(){
@@ -723,7 +753,18 @@ FULL FILE – dev-style combos + Topic editor modal
       list.addEventListener('mousedown', e=>{
         const row = e.target.closest('.combo-item');
         if(!row) return;
-        const it = (DATA || []).find(x => String(x.id) === row.dataset.id);
+
+        const id = row.dataset.id;
+
+        if(hasAddNew && id === "__add__"){
+          if(typeof onAddNew === "function"){
+            onAddNew();
+          }
+          close();
+          return;
+        }
+
+        const it = (DATA || []).find(x => String(x.id) === id);
         if(!it) return;
         onPick?.(it);
         close();
@@ -893,9 +934,12 @@ FULL FILE – dev-style combos + Topic editor modal
       sync();
     }
 
-    function setupMic(){
-      const btn = $("mic");
-      const ta = $("notes");
+    /* --- mic dictation for both Notes + Priority Reason --- */
+    function wireMic(buttonId, textareaId){
+      const btn = $(buttonId);
+      const ta  = $(textareaId);
+      if(!btn || !ta) return;
+
       const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
       if(!ok){
         btn.style.display = "none";
@@ -934,6 +978,11 @@ FULL FILE – dev-style combos + Topic editor modal
       };
       rec.onend = ()=>{ active=false; setMic(false); };
       rec.onerror = ()=>{ active=false; setMic(false); };
+    }
+
+    function setupMic(){
+      wireMic("mic", "notes");
+      wireMic("micPriority", "priorityReason");
     }
 
     function setupFiles(){
@@ -1190,7 +1239,7 @@ FULL FILE – dev-style combos + Topic editor modal
       }
     }
 
-    async function addNewTopic(){
+    async function addNewTopicModal(){
       const nameRaw = window.prompt("New topic name:");
       const name = (nameRaw || "").trim();
       if(!name) return;
@@ -1281,13 +1330,38 @@ FULL FILE – dev-style combos + Topic editor modal
         onPick: it=>{
           state.topic = { id: it.id, name: it.name, label: it.name };
           $("topicBtn").textContent = it.name;
+        },
+        hasAddNew: true,
+        addNewLabel: "Add new",
+        onAddNew: async ()=>{
+          const nameRaw = window.prompt("New topic name:");
+          const name = (nameRaw || "").trim();
+          if(!name) return;
+
+          try{
+            const ref = await addDoc(collection(DB,"fieldMaintenanceTopics"),{
+              name,
+              nameLower: name.toLowerCase(),
+              isArchived:false,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            });
+            // Set current topic to the newly created one
+            state.topic = { id: ref.id, name, label: name };
+            $("topicBtn").textContent = name;
+            await loadTopics();
+            showToast("Topic added.");
+          }catch(e){
+            console.error("addNew topic from combo error", e);
+            showErr("Failed to add topic.");
+          }
         }
       });
 
       // Topic modal wiring
       $("openTopics").addEventListener("click", openTopicModal);
       TopicEditor.saveBtn.addEventListener("click", saveAllTopics);
-      TopicEditor.addBtn.addEventListener("click", addNewTopic);
+      TopicEditor.addBtn.addEventListener("click", addNewTopicModal);
       document.querySelectorAll('#topicModal [data-close]').forEach(el=>{
         el.addEventListener("click", ()=>{
           TopicEditor.el.classList.remove("show");
