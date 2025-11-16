@@ -2,11 +2,17 @@
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html  (FULL FILE)
 
 Changes in this build:
- • Farm / Field / Topic use fv-combo.js (searchable combos).
- • Farm↔Field auto-link with overlay workaround kept.
- • Topic Manager + New Topic modals.
- • Combo helper now correctly keeps ONLY one fv-combo panel open at a time
-   by mapping each <select> to its panel.
+ • Keep Farm↔Field auto-link with overlay workaround (working both directions).
+ • Submitted by / Date submitted use full-width readonly inputs to match other boxes.
+ • Topic / Category gets:
+      - "Topic / Category" label as a tappable button to open a Topic Manager modal.
+      - Topic Manager modal: rename topics, archive, unarchive, delete.
+      - "Add new topic…" option inside the Topic dropdown, opening a New Topic modal.
+ • NEW (combo tweaks):
+      - Farm, Field, Topic selects upgraded with fv-combo (searchable).
+      - Load /Farm-vista/js/fv-combo.js on this page.
+      - Shim so only one combo panel (.fv-panel) can be open at a time
+        (mirrors Grain Bag behavior).
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -24,9 +30,6 @@ Changes in this build:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Searchable combo (Farm / Field / Topic) -->
-  <script defer src="/Farm-vista/js/fv-combo.js"></script>
-
   <!-- Ensure fv-shell -->
   <script>
     (function () {
@@ -37,6 +40,22 @@ Changes in this build:
         document.head.appendChild(s);
       }
     })();
+  </script>
+
+  <!-- fv-combo (shared combo upgrader) -->
+  <script src="/Farm-vista/js/fv-combo.js"></script>
+  <script>
+    // Combo manager shim — make sure only ONE fv-combo panel is open at a time,
+    // similar to the Grain Bag combo behavior.
+    document.addEventListener('click', function (e) {
+      const trigger = e.target.closest('.fv-buttonish');
+      if (!trigger) return;
+      // Close any currently open panels; fv-combo's own click handler will
+      // then open the panel for this trigger.
+      document.querySelectorAll('.fv-panel.show').forEach(p => {
+        p.classList.remove('show');
+      });
+    }, true);
   </script>
 
   <style>
@@ -254,8 +273,7 @@ Changes in this build:
     .toast.show{ display:block; animation:fadeout 3.2s forwards; }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* Farm select overlay (beats iOS label repaint bug).
-       NOTE: when fv-combo is active on #farmSelect, JS hides this overlay. */
+    /* Farm select overlay (beats iOS label repaint bug) */
     .select-shell{
       position:relative;
     }
@@ -490,13 +508,13 @@ Changes in this build:
             <div class="field">
               <label for="farmSelect">Farm <span class="req">*</span></label>
               <div class="select-shell">
+                <!-- Upgraded by fv-combo -->
                 <select
                   id="farmSelect"
                   class="select"
                   required
                   data-fv-combo
                   data-fv-search="true"
-                  data-fv-placeholder="Search farms…"
                   placeholder="Select farm…">
                   <option value="">Select farm…</option>
                 </select>
@@ -505,13 +523,13 @@ Changes in this build:
             </div>
             <div class="field">
               <label for="fieldSelect">Field <span class="req">*</span></label>
+              <!-- Upgraded by fv-combo -->
               <select
                 id="fieldSelect"
                 class="select"
                 required
                 data-fv-combo
                 data-fv-search="true"
-                data-fv-placeholder="Search fields…"
                 placeholder="Select field…">
                 <option value="">Select field…</option>
               </select>
@@ -553,13 +571,13 @@ Changes in this build:
                 aria-controls="topicEditModal">
                 Topic / Category
               </button>
+              <!-- Upgraded by fv-combo -->
               <select
                 id="topicSelect"
                 class="select"
                 required
                 data-fv-combo
                 data-fv-search="true"
-                data-fv-placeholder="Search topics…"
                 placeholder="Select topic…">
                 <option value="">Select topic…</option>
               </select>
@@ -705,14 +723,6 @@ Changes in this build:
       const sel = $("farmSelect");
       const ov  = $("farmSelectOverlay");
       if(!sel || !ov) return;
-
-      // If fv-combo is active, hide the overlay entirely (combo button handles the label)
-      if (sel.hasAttribute("data-fv-combo")) {
-        ov.style.display = "none";
-        sel.classList.remove("overlay-active");
-        return;
-      }
-
       const opt = sel.options[sel.selectedIndex] || null;
       const label = (opt && opt.value) ? (opt.textContent || "").trim() : "";
       if(label){
@@ -821,7 +831,7 @@ Changes in this build:
       if(/[._-]/.test(local)){
         return titleCase(local.replace(/[0-9]+/g," ").split(/[._-]+/).join(" "));
       }
-      const spaced = local.replace(/([a-z])([A-z])/g,"$1 $2");
+      const spaced = local.replace(/([a-z])([A-Z])/g,"$1 $2");
       return titleCase(spaced || local);
     }
 
@@ -904,7 +914,6 @@ Changes in this build:
         farmSel.selectedIndex = idx;
         farmSel.value = farmId;
         updateFarmOverlay();
-        farmSel.dispatchEvent(new Event("change", { bubbles:true }));
       }
     }
 
@@ -1390,51 +1399,6 @@ Changes in this build:
       });
     }
 
-    // ---- Build a map: select[data-fv-combo] -> its fv-panel ----
-    function buildComboMap(){
-      const selects = Array.from(document.querySelectorAll('select[data-fv-combo]'));
-      const panels  = Array.from(document.querySelectorAll('.fv-panel'));
-      const map = new Map();
-      selects.forEach((sel, idx)=>{
-        if (panels[idx]) map.set(sel, panels[idx]);
-      });
-      return map;
-    }
-
-    // ---- Combo helper: keep only the LAST-opened panel visible ----
-    function wireComboHelpers(comboMap){
-      document.addEventListener(
-        "click",
-        (evt)=>{
-          const btn = evt.target.closest(".fv-buttonish");
-          if (!btn) return;
-
-          // find the select behind this button
-          const wrapper = btn.closest(".fv-combo");
-          if (!wrapper) return;
-          const sel = wrapper.querySelector('select[data-fv-combo]');
-          if (!sel) return;
-
-          const panel = comboMap.get(sel);
-          if (!panel) return;
-
-          const isOpen = panel.classList.contains("show");
-
-          if (!isOpen){
-            // We are about to open THIS combo.
-            // Close all other open panels first so only one can be open.
-            document.querySelectorAll(".fv-panel.show").forEach(p => {
-              if (p !== panel) p.classList.remove("show");
-            });
-            // fv-combo's own click handler will then open `panel`.
-          } else {
-            // Panel already open; let fv-combo toggle it closed normally.
-          }
-        },
-        { capture:true }
-      );
-    }
-
     (async function boot(){
       await ready;
       DB = getFirestore();
@@ -1449,15 +1413,6 @@ Changes in this build:
       setupTopicUI();
       try{
         await Promise.all([loadFarms(), loadFields(), loadTopics()]);
-
-        // Force-upgrade combos AFTER options are populated
-        if (window.FVCombo && typeof window.FVCombo.upgrade === "function") {
-          window.FVCombo.upgrade(document);
-        }
-
-        const comboMap = buildComboMap();
-        wireComboHelpers(comboMap);
-
         updateFarmOverlay();
       }catch(e){
         console.error("Initial data load failed", e);
