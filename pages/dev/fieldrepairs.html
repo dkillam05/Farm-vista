@@ -8,6 +8,8 @@ Dev page:
  • Related Work Orders hero:
       - Reads fieldMaintenance for the selected fieldId
       - Filters to status "needs approved" or "pending" IN JS (no composite index)
+ • NEW: Click a work-order card to open a read-only detail modal
+      - Shows full notes, photos (if any), and map preview if location is present
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -210,6 +212,10 @@ Dev page:
       padding:10px 12px;
       display:grid;
       gap:4px;
+      cursor:pointer;
+    }
+    .wo-item:hover{
+      background:rgba(0,0,0,.04);
     }
     .wo-header{
       display:flex;
@@ -257,6 +263,180 @@ Dev page:
       font-size:0.9rem;
       color:var(--muted,#67706B);
       padding:6px 0 2px;
+    }
+
+    /* === Detail modal === */
+    .modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+    }
+    .modal.show{ display:flex; }
+    .modal .backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.45);
+    }
+    .modal .sheet{
+      position:relative;
+      width:min(100vw,780px);
+      max-width:92vw;
+      max-height:90vh;
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:0 20px 40px rgba(0,0,0,.35);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    .modal header{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border);
+      font-weight:800;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .modal header .title-wrap{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .modal header h2{
+      margin:0;
+      font-size:1.05rem;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .modal header .subtitle{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .modal .close-btn{
+      border:none;
+      background:transparent;
+      font:inherit;
+      font-weight:800;
+      cursor:pointer;
+      padding:6px 10px;
+      border-radius:10px;
+      color:var(--text);
+    }
+    .modal .close-btn:hover{
+      background:var(--hover,rgba(0,0,0,.06));
+    }
+    .modal-body{
+      padding:12px 14px 14px;
+      overflow:auto;
+      display:grid;
+      gap:10px;
+    }
+    .detail-grid{
+      display:grid;
+      gap:8px;
+      font-size:0.9rem;
+    }
+    .detail-row{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .detail-label{
+      font-weight:800;
+    }
+    .detail-value{
+      font-weight:400;
+    }
+    .detail-notes{
+      margin-top:6px;
+      padding-top:6px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      line-height:1.4;
+      white-space:pre-wrap;
+    }
+    .detail-notes h3{
+      margin:0 0 4px;
+      font-size:0.9rem;
+    }
+
+    .detail-photos{
+      margin-top:6px;
+      padding-top:6px;
+      border-top:1px solid var(--border);
+    }
+    .detail-photos h3{
+      margin:0 0 4px;
+      font-size:0.9rem;
+    }
+    .photo-strip{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .photo-thumb{
+      width:80px;
+      height:80px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      background:var(--card-surface,var(--surface));
+      display:grid;
+      place-items:center;
+    }
+    .photo-thumb img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
+
+    .detail-map{
+      margin-top:6px;
+      padding-top:6px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+      display:grid;
+      gap:6px;
+    }
+    .detail-map h3{
+      margin:0;
+      font-size:0.9rem;
+    }
+    .map-embed{
+      border-radius:10px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      height:220px;
+    }
+    .map-embed iframe{
+      width:100%;
+      height:100%;
+      border:0;
+      display:block;
+    }
+    .map-meta{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .map-meta a{
+      text-decoration:none;
+      font-weight:800;
+      color:var(--text);
     }
   </style>
 </head>
@@ -336,6 +516,23 @@ Dev page:
     </div>
   </fv-shell>
 
+  <!-- Read-only Work Order Detail modal -->
+  <div id="woDetailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="woDetailTitle">
+    <div class="backdrop" data-close></div>
+    <div class="sheet">
+      <header>
+        <div class="title-wrap">
+          <h2 id="woDetailTitle">Work Order Details</h2>
+          <div id="woDetailSubtitle" class="subtitle"></div>
+        </div>
+        <button type="button" class="close-btn" data-close>Close</button>
+      </header>
+      <div class="modal-body">
+        <div id="woDetailContent">Loading…</div>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import {
       ready,
@@ -361,15 +558,36 @@ Dev page:
     };
 
     let DB = null;
+    const woCache = new Map();  // id -> row for detail view
 
-    /* ---------- global combo closer ---------- */
+    const WoDetail = {
+      el: $("woDetailModal"),
+      get content(){ return $("woDetailContent"); },
+      get title(){ return $("woDetailTitle"); },
+      get subtitle(){ return $("woDetailSubtitle"); }
+    };
+
+    /* ---------- global combo closer + Esc handling ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==exceptPanel) p.classList.remove('show');
       });
     }
+
+    function closeWorkOrderDetail(){
+      if(WoDetail.el){
+        WoDetail.el.classList.remove("show");
+        document.body.style.overflow = "";
+      }
+    }
+
     document.addEventListener('click', ()=> closeAllCombos());
-    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+    document.addEventListener('keydown', e=>{
+      if(e.key==='Escape'){
+        closeAllCombos();
+        closeWorkOrderDetail();
+      }
+    });
 
     /* ---------- generic combo helper ---------- */
     function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x.label||x.name||x), onPick }) {
@@ -496,6 +714,31 @@ Dev page:
       const statusEl = $("woStatus");
       if(statusEl) statusEl.textContent = message || "No field selected yet.";
       if(listEl) listEl.innerHTML = "";
+      woCache.clear();
+    }
+
+    function normalizeLocation(data){
+      // Support several shapes: locationLat/locationLng, location {lat,lng}, GeoPoint
+      let lat = null, lng = null;
+
+      if(typeof data.locationLat === "number" && typeof data.locationLng === "number"){
+        lat = data.locationLat;
+        lng = data.locationLng;
+      }else if(data.location && typeof data.location.lat === "number" && typeof data.location.lng === "number"){
+        lat = data.location.lat;
+        lng = data.location.lng;
+      }else if(data.location && typeof data.location.latitude === "number" && typeof data.location.longitude === "number"){
+        lat = data.location.latitude;
+        lng = data.location.longitude;
+      }else if(data.locationGeoPoint && typeof data.locationGeoPoint.latitude === "number"){
+        lat = data.locationGeoPoint.latitude;
+        lng = data.locationGeoPoint.longitude;
+      }
+
+      if(typeof lat === "number" && typeof lng === "number"){
+        return { lat, lng };
+      }
+      return null;
     }
 
     async function loadRelatedWorkOrders(fieldId){
@@ -512,10 +755,11 @@ Dev page:
 
       statusEl.textContent = "Loading related work orders…";
       listEl.innerHTML = "";
+      woCache.clear();
 
       try{
         const ref = collection(DB, "fieldMaintenance");
-        // Simple query: ONLY where fieldId == ...  (no composite index needed)
+        // Simple query: ONLY where fieldId == ...  (no composite index)
         const q = query(ref, where("fieldId", "==", fieldId));
         const snap = await getDocs(q);
 
@@ -538,6 +782,14 @@ Dev page:
               createdMillis = Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
             }
           }
+
+          const loc = normalizeLocation(data);
+          const photos =
+            Array.isArray(data.photoUrls) ? data.photoUrls :
+            Array.isArray(data.photos) ? data.photos :
+            Array.isArray(data.images) ? data.images :
+            [];
+
           return {
             id: d.id,
             topic: data.topicLabel || data.topic || "Untitled",
@@ -546,7 +798,11 @@ Dev page:
             notes: data.notes || "",
             createdAt: createdRaw,
             createdMillis,
-            submittedBy: (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || ""
+            submittedBy: (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || "",
+            farmName: data.farmName || "",
+            fieldName: data.fieldName || "",
+            location: loc,
+            photos
           };
         });
 
@@ -561,8 +817,12 @@ Dev page:
           return;
         }
 
-        // Sort newest first by createdMillis
+        // Sort newest first
         rows.sort((a,b)=> (b.createdMillis||0) - (a.createdMillis||0));
+
+        // Cache for detail view
+        woCache.clear();
+        rows.forEach(r => woCache.set(r.id, r));
 
         listEl.innerHTML = rows.map(row=>{
           const topic = esc(row.topic);
@@ -572,7 +832,7 @@ Dev page:
           const who = row.submittedBy ? esc(row.submittedBy) : "";
           const notes = esc(row.notes || "");
           return `
-            <div class="wo-item">
+            <div class="wo-item" data-id="${esc(row.id)}">
               <div class="wo-header">
                 <div class="wo-topic">${topic}</div>
                 <div class="wo-pill">${status}</div>
@@ -596,6 +856,94 @@ Dev page:
         console.error("loadRelatedWorkOrders error", e);
         clearWorkOrders("Error loading related work orders. See console.");
       }
+    }
+
+    /* ---------- Detail modal rendering ---------- */
+    function openWorkOrderDetail(row){
+      if(!row || !WoDetail.el || !WoDetail.content) return;
+
+      const topic = row.topic || "Work Order";
+      const status = row.status || "";
+      const pr = row.priority != null ? `P${row.priority}` : "";
+      const when = prettyDate(row.createdAt);
+      const who = row.submittedBy || "";
+      const farm = row.farmName || "";
+      const field = row.fieldName || "";
+      const loc = row.location;
+      const photos = Array.isArray(row.photos) ? row.photos.filter(Boolean) : [];
+
+      WoDetail.title.textContent = topic;
+      const subBits = [];
+      if(farm || field) subBits.push([farm, field].filter(Boolean).join(" • "));
+      if(when) subBits.push(when);
+      if(who) subBits.push(who);
+      WoDetail.subtitle.textContent = subBits.join(" • ");
+
+      let html = `<div class="detail-grid">`;
+
+      html += `<div class="detail-row">
+        <div><span class="detail-label">Status:</span> <span class="detail-value">${esc(status)}</span></div>
+        <div><span class="detail-label">Priority:</span> <span class="detail-value">${pr ? esc(pr) : "—"}</span></div>
+      </div>`;
+
+      if(farm || field){
+        html += `<div class="detail-row">
+          <div><span class="detail-label">Farm:</span> <span class="detail-value">${esc(farm || "—")}</span></div>
+          <div><span class="detail-label">Field:</span> <span class="detail-value">${esc(field || "—")}</span></div>
+        </div>`;
+      }
+
+      if(when || who){
+        html += `<div class="detail-row">
+          <div><span class="detail-label">Submitted:</span> <span class="detail-value">${esc(when || "—")}</span></div>
+          <div><span class="detail-label">By:</span> <span class="detail-value">${esc(who || "—")}</span></div>
+        </div>`;
+      }
+
+      html += `</div>`;
+
+      // Notes
+      html += `<div class="detail-notes">
+        <h3>Details / Notes</h3>
+        <div>${row.notes ? esc(row.notes) : "<span class='wo-empty'>No notes entered.</span>"}</div>
+      </div>`;
+
+      // Photos
+      if(photos.length){
+        html += `<div class="detail-photos">
+          <h3>Photos (${photos.length})</h3>
+          <div class="photo-strip">
+            ${photos.map((url,idx)=>`
+              <a class="photo-thumb" href="${esc(url)}" target="_blank" rel="noopener">
+                <img src="${esc(url)}" alt="Photo ${idx+1}">
+              </a>
+            `).join("")}
+          </div>
+        </div>`;
+      }
+
+      // Map
+      if(loc && typeof loc.lat === "number" && typeof loc.lng === "number"){
+        const lat = loc.lat.toFixed(6);
+        const lng = loc.lng.toFixed(6);
+        const mapsUrl = `https://www.google.com/maps?q=${encodeURIComponent(lat)},${encodeURIComponent(lng)}&z=18`;
+        const embedUrl = `${mapsUrl}&output=embed`;
+
+        html += `<div class="detail-map">
+          <h3>Map location</h3>
+          <div class="map-embed">
+            <iframe src="${embedUrl}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+          </div>
+          <div class="map-meta">
+            <span>Lat: ${lat}, Lng: ${lng}</span>
+            <a href="${mapsUrl}" target="_blank" rel="noopener">Open in Google Maps</a>
+          </div>
+        </div>`;
+      }
+
+      WoDetail.content.innerHTML = html;
+      WoDetail.el.classList.add("show");
+      document.body.style.overflow = "hidden";
     }
 
     /* ---------- farm ⇄ field inflow ---------- */
@@ -632,6 +980,25 @@ Dev page:
 
         DB = getFirestore();
         status.textContent = "Loading farms, fields, topics…";
+
+        // Wire modal close buttons/backdrop
+        if(WoDetail.el){
+          WoDetail.el.querySelectorAll('[data-close]').forEach(el=>{
+            el.addEventListener('click', closeWorkOrderDetail);
+          });
+        }
+
+        // Click handler for work-order list (open modal)
+        const woListEl = $("woList");
+        if(woListEl){
+          woListEl.addEventListener('click', e=>{
+            const card = e.target.closest('.wo-item');
+            if(!card) return;
+            const id = card.dataset.id;
+            const row = woCache.get(id);
+            openWorkOrderDetail(row);
+          });
+        }
 
         // Create combos
         const farmCombo = makeCombo({
