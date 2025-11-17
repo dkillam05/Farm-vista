@@ -1,55 +1,40 @@
-<!-- =====================================================================
-/Farm-vista/pages/dev/map-pin-dev.html  (FULL FILE)
-Dev map pin tester:
- • Uses /Farm-vista/js/map-pin.js for reusable picker
- • Base map + Satellite (ESRI World Imagery) toggle
- • Inline status instead of alert() so "Suppress dialogs" can't break it
-===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>FarmVista • Dev Map Pin Picker</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <meta name="theme-color" content="#3B7E46"/>
+  <meta charset="utf-8" />
+  <title>FarmVista • Map Dev</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
 
-  <!-- PWA + icons -->
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-
-  <!-- Theme + app CSS -->
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
   <script src="/Farm-vista/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
   <!-- Ensure fv-shell -->
   <script>
-    (function(){
-      if(!customElements.get('fv-shell')){
-        const s=document.createElement('script');
-        s.src='/Farm-vista/js/fv-shell.js';
-        s.defer=true;
+    (function () {
+      if (!customElements.get('fv-shell')) {
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/fv-shell.js';
+        s.defer = true;
         document.head.appendChild(s);
       }
     })();
   </script>
 
-  <!-- Leaflet CSS (map engine) -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
+  <!-- Map helper -->
+  <script src="/Farm-vista/js/fv-map.js"></script>
 
   <style>
     :root{
-      --card-max: 1100px;
-      --page-bottom-gap: 96px;
-      --accent: #2F6C3C;
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
     }
-
     body{ background:var(--app-bg,var(--surface)); }
 
     .wrap{
@@ -66,8 +51,8 @@ Dev map pin tester:
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
     }
-
     .hero-head{
       display:grid;
       grid-template-columns:36px 1fr;
@@ -78,8 +63,10 @@ Dev map pin tester:
       border-bottom:1px solid var(--border);
     }
     .hero-head .icon{
-      width:24px; height:24px;
-      display:grid; place-items:center;
+      width:24px;
+      height:24px;
+      display:grid;
+      place-items:center;
       color:var(--accent);
     }
     .hero-head h1{
@@ -90,139 +77,143 @@ Dev map pin tester:
     .muted{ color:var(--muted,#67706B); }
 
     .body{
-      padding:12px 16px 16px;
+      padding:16px;
       display:grid;
-      gap:12px;
+      gap:14px;
     }
 
-    .top-bar{
+    .mode-row{
       display:flex;
       flex-wrap:wrap;
-      gap:8px;
+      gap:10px;
       align-items:center;
-      justify-content:space-between;
     }
-
-    .btn{
+    .mode-pill{
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      padding:8px 16px;
+      padding:10px 18px;
       border-radius:999px;
       border:1px solid var(--border);
       background:var(--card-surface,var(--surface));
-      font-weight:700;
+      font-weight:800;
       cursor:pointer;
-      text-decoration:none;
-      color:var(--text);
-      min-height:36px;
     }
-    .btn-primary{
+    .mode-pill.mode-active{
       background:#2F6C3C;
-      border-color:transparent;
-      color:#fff;
+      color:#fff !important;
+      border-color:#2F6C3C;
     }
-    .btn[disabled]{ opacity:.6; cursor:not-allowed; }
 
-    .hint{
+    .map-help{
       font-size:0.9rem;
       color:var(--muted,#67706B);
+      margin-top:6px;
     }
 
-    #map{
-      width:100%;
-      height:440px;
-      border-radius:12px;
-      overflow:hidden;
+    .map-frame{
+      border-radius:14px;
       border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      overflow:hidden;
+    }
+    #mapCanvas{
+      width:100%;
+      height:360px;
+      background:#111;
     }
 
-    .coords-row{
+    .status-line{
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+      margin-top:6px;
+    }
+
+    .row{
       display:grid;
       grid-template-columns:1fr 1fr;
       gap:10px;
     }
-    @media (max-width:720px){
-      .coords-row{ grid-template-columns:1fr; }
+    @media (max-width:800px){
+      .row{ grid-template-columns:1fr; }
     }
 
     .field label{
       display:block;
       font-weight:800;
-      margin:6px 0 4px;
+      margin-bottom:4px;
     }
     .input{
       width:100%;
       font:inherit;
-      font-size:15px;
-      background:var(--card-surface,var(--surface));
+      font-size:16px;
       color:var(--text);
+      background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
       border-radius:10px;
-      padding:8px 10px;
+      padding:10px 12px;
     }
-
-    #mapStatus{
-      font-size:0.85rem;
-      color:var(--muted,#67706B);
-      margin-top:4px;
-      min-height:1.2em;
-    }
-
-    .pill-toggle{
-      display:inline-flex;
-      gap:4px;
-      padding:2px;
-      border-radius:999px;
-      border:1px solid var(--border);
+    .input[readonly]{
       background:var(--card-surface,var(--surface));
     }
-    .pill-toggle button{
-      border:none;
-      background:transparent;
-      padding:4px 10px;
-      border-radius:999px;
-      font:inherit;
-      font-size:0.85rem;
-      cursor:pointer;
-      color:var(--muted,#67706B);
-    }
-    .pill-toggle button.active{
-      background:#2F6C3C;
-      color:#fff;
-    }
   </style>
+
+  <!-- Init callback for Google Maps -->
+  <script>
+    function initMapDev() {
+      if (!window.FVMap || !window.FVMap.initPicker) {
+        console.error("FVMap helper not loaded.");
+        return;
+      }
+      window.FVMap.initPicker({
+        containerId: 'mapCanvas',
+        latInputId: 'lat',
+        lngInputId: 'lng',
+        zoomInputId: 'zoom',
+        statusId: 'statusLine',
+        useLocationBtnId: 'btnUseLocation',
+        mapBtnId: 'btnMap',
+        satBtnId: 'btnSat',
+        initialCenter: { lat: 39.8283, lng: -98.5795 } // center of US
+      });
+    }
+  </script>
+
+  <!-- Google Maps JS (uses your API key) -->
+  <script async
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB3sLBWFDsoZRLmfQ19hKLoH_nMrHEFQME&callback=initMapDev">
+  </script>
 </head>
 <body>
   <fv-shell>
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon">📍</div>
+          <div class="icon" aria-hidden="true">📍</div>
           <div>
-            <h1>Dev • Map Pin Picker</h1>
-            <p class="muted">Drop a pin on the map or use your location. This will become the shared map component for other forms.</p>
+            <h1>Map Dev — Pin Drop</h1>
+            <p class="muted">Test dropping a pin, using your location, and switching between map and satellite.</p>
           </div>
         </header>
 
         <div class="body">
-          <div class="top-bar">
-            <button id="btnUseLocation" class="btn btn-primary" type="button">
-              Use my location
-            </button>
-
-            <div class="pill-toggle" aria-label="Base map style">
-              <button id="styleRoad" class="active" type="button">Map</button>
-              <button id="styleSat" type="button">Satellite</button>
-            </div>
+          <div class="mode-row">
+            <button id="btnUseLocation" type="button" class="mode-pill">Use my location</button>
+            <button id="btnMap" type="button" class="mode-pill mode-active">Map</button>
+            <button id="btnSat" type="button" class="mode-pill">Satellite</button>
           </div>
-          <div class="hint">Tap anywhere on the map to drop a pin. Drag to move the map.</div>
+          <div class="map-help">
+            Tap anywhere on the map to drop a pin. Drag the map to move around.  
+            If “Use my location” doesn’t work, check Safari → Settings → Location for dkillam05.github.io.
+          </div>
 
-          <div id="map"></div>
+          <div class="map-frame">
+            <div id="mapCanvas"></div>
+          </div>
 
-          <div id="mapStatus">Waiting for pin…</div>
+          <div id="statusLine" class="status-line">Waiting for pin…</div>
 
-          <div class="coords-row">
+          <div class="row">
             <div class="field">
               <label for="lat">Latitude</label>
               <input id="lat" class="input" type="text" readonly>
@@ -232,39 +223,12 @@ Dev map pin tester:
               <input id="lng" class="input" type="text" readonly>
             </div>
           </div>
+
+          <!-- Hidden zoom, just in case we want it later -->
+          <input id="zoom" type="hidden">
         </div>
       </section>
     </div>
   </fv-shell>
-
-  <!-- Leaflet JS -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin="">
-  </script>
-
-  <!-- Shared map picker logic -->
-  <script type="module" src="/Farm-vista/js/map-pin.js"></script>
-
-  <script>
-    // Hook up the dev page once DOM + Leaflet are ready.
-    document.addEventListener('DOMContentLoaded', ()=>{
-      if(!window.FVMapPin || typeof window.FVMapPin.initPicker !== 'function'){
-        console.error('FVMapPin.initPicker missing');
-        return;
-      }
-
-      window.FVMapPin.initPicker({
-        mapId: 'map',
-        latInputId: 'lat',
-        lngInputId: 'lng',
-        statusId: 'mapStatus',
-        useLocationBtnId: 'btnUseLocation',
-        styleRoadBtnId: 'styleRoad',
-        styleSatBtnId: 'styleSat'
-      });
-    });
-  </script>
 </body>
 </html>
