@@ -1,6 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/map-pin-dev.html
-Dev page – Google Maps pin-drop tester using fv-map.js
+Dev page – Map pin tester using modal + fv-map.js
+Flow:
+ • Button: "Mark Location (Optional)"
+ • Opens modal with satellite map + "Use my location"
+ • Tap to drop pin, then "Save location" closes modal + shows toast
+ • Lat/long stored in hidden inputs for future Firestore save
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -87,53 +92,97 @@ Dev page – Google Maps pin-drop tester using fv-map.js
       gap:14px;
     }
 
-    .controls-row{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:center;
-      margin-bottom:4px;
-    }
-
-    .btn-chip{
+    .btn{
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      padding:10px 18px;
-      border-radius:999px;
+      min-width:160px;
+      padding:12px 18px;
+      border-radius:12px;
       border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
       font-weight:800;
+      text-decoration:none;
       cursor:pointer;
       user-select:none;
-      text-decoration:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
       -webkit-appearance:none;
       appearance:none;
     }
-    .btn-chip:focus-visible{
-      outline:2px solid var(--accent);
-      outline-offset:2px;
-    }
-
-    .btn-primary-chip{
+    .btn-primary{
       background:#2F6C3C;
       border-color:#2F6C3C;
-      color:#fff;
+      color:#fff !important;
+    }
+    .btn-quiet{
+      background:transparent;
+    }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed; }
+
+    .muted-line{
+      font-size:13px;
+      color:var(--muted,#67706B);
     }
 
-    .mode-toggle{
-      border-radius:999px;
-      padding:8px 16px;
+    /* Modal shell – same pattern as other pages */
+    .modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+    }
+    .modal.show{ display:flex; }
+    .backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.45);
+    }
+    .sheet{
+      position:relative;
+      width:min(100vw,760px);
+      max-width:90vw;
+      background:var(--surface);
       border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      font-weight:700;
-      cursor:pointer;
+      border-radius:14px;
+      box-shadow:0 20px 40px rgba(0,0,0,.35);
+      display:flex;
+      flex-direction:column;
+      max-height:90vh;
+      overflow:hidden;
     }
-    .mode-toggle.mode-active{
-      background:#2F6C3C;
-      border-color:#2F6C3C;
-      color:#fff;
+    .sheet header{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border);
+      font-weight:800;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      color:var(--text);
+      flex:0 0 auto;
+    }
+    .sheet header .close{
+      border:none;
+      background:transparent;
+      font:inherit;
+      font-weight:800;
+      cursor:pointer;
+      padding:6px 10px;
+      border-radius:10px;
+      color:var(--text);
+    }
+    .sheet header .close:hover{
+      background:var(--hover,rgba(0,0,0,.06));
+    }
+
+    .map-modal-body{
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      flex:1 1 auto;
+      min-height:0;
     }
 
     .map-shell{
@@ -142,57 +191,56 @@ Dev page – Google Maps pin-drop tester using fv-map.js
       overflow:hidden;
       background:#111;
     }
-
     #fvMap{
       width:100%;
       height:360px;
       background:#111;
     }
-
     .map-footer{
-      padding:10px 12px;
+      padding:8px 10px;
       background:var(--surface);
       border-top:1px solid var(--border);
-      font-size:14px;
-    }
-
-    .coord-line{
-      font-weight:700;
-      margin-bottom:4px;
-    }
-
-    .muted-line{
       font-size:13px;
-      color:var(--muted,#67706B);
     }
 
-    .field{
-      margin-top:8px;
-    }
-    .field label{
-      display:block;
-      font-weight:800;
-      margin-bottom:4px;
-    }
-    .input{
-      width:100%;
-      font:inherit;
-      font-size:16px;
-      padding:10px 12px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-    }
-    .input[readonly]{
-      opacity:0.9;
-      cursor:default;
+    .sheet footer{
+      padding:10px 12px 12px;
+      border-top:1px solid var(--border);
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      flex:0 0 auto;
     }
 
     @media (max-width:640px){
-      #fvMap{
-        height:320px;
-      }
+      #fvMap{ height:320px; }
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:110000;
+      display:none;
+      white-space:nowrap;
+      max-width:92vw;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .toast.show{
+      display:block;
+      animation:fadeout 3.0s forwards;
+    }
+    @keyframes fadeout{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
     }
   </style>
 </head>
@@ -204,61 +252,153 @@ Dev page – Google Maps pin-drop tester using fv-map.js
           <div class="icon" aria-hidden="true">📍</div>
           <div>
             <h1>Map Pin Dev</h1>
-            <p class="muted">Test dropping a map pin, using your current location, and saving latitude / longitude values.</p>
+            <p class="muted">
+              Use this page to test dropping a satellite map pin inside a modal.
+              Later, these coordinates will be saved with your field maintenance forms.
+            </p>
           </div>
         </header>
 
         <div class="body">
-          <div class="controls-row">
-            <button id="btnUseLocation" type="button" class="btn-chip btn-primary-chip">
-              Use my location
-            </button>
-            <button id="btnMapTypeMap" type="button" class="mode-toggle mode-active">Map</button>
-            <button id="btnMapTypeSat" type="button" class="mode-toggle">Satellite</button>
-          </div>
-
-          <div class="muted-line" id="mapHelp">
-            Tap anywhere on the map to drop a pin. Drag the map to move around.
-          </div>
-
-          <div class="map-shell">
-            <div id="fvMap"></div>
-            <div class="map-footer">
-              <div id="coordLine" class="coord-line">Waiting for pin…</div>
-              <div id="locationStatus" class="muted-line"></div>
-            </div>
-          </div>
-
-          <div class="field">
-            <label for="latField">Latitude</label>
-            <input id="latField" class="input" type="text" readonly value="0.000000">
-          </div>
-
-          <div class="field">
-            <label for="lngField">Longitude</label>
-            <input id="lngField" class="input" type="text" readonly value="0.000000">
-          </div>
+          <button id="btnOpenMap" type="button" class="btn btn-primary">
+            Mark Location (Optional)
+          </button>
+          <p class="muted-line">
+            When you tap “Mark Location (Optional)”, a full-screen map will open.
+            Drop a pin, hit “Save location”, and then continue filling out your form.
+          </p>
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Map helper (must load before Google Maps script so callback exists) -->
+  <!-- Hidden storage for coordinates (for future Firestore save) -->
+  <input id="latHidden" type="hidden" value="" />
+  <input id="lngHidden" type="hidden" value="" />
+
+  <!-- Map modal -->
+  <div id="mapModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mapModalTitle">
+    <div class="backdrop" data-close></div>
+    <div class="sheet">
+      <header>
+        <div id="mapModalTitle">Mark Location</div>
+        <button class="close" type="button" data-close>Close</button>
+      </header>
+
+      <div class="map-modal-body">
+        <button id="btnUseLocation" type="button" class="btn">
+          Use my location
+        </button>
+        <div id="mapHelp" class="muted-line">
+          Loading map…
+        </div>
+        <div class="map-shell">
+          <div id="fvMap"></div>
+          <div class="map-footer">
+            <span id="locationStatus" class="muted-line"></span>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        <button id="btnCancelLocation" type="button" class="btn btn-quiet">
+          Cancel
+        </button>
+        <button id="btnSaveLocation" type="button" class="btn btn-primary">
+          Save location
+        </button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Location saved.</div>
+
+  <!-- Map helper (must be before Google script so callback exists) -->
   <script src="/Farm-vista/js/fv-map.js"></script>
 
   <!-- Google Maps JavaScript API
-       NOTE: this key is public; keep it locked down to your GitHub Pages domain in Google Cloud. -->
+       NOTE: key is public; keep it restricted to your GitHub Pages domain. -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&callback=fvMapInit"
     async
     defer>
   </script>
 
-  <!-- Wire fv-shell nav -->
+  <!-- Page wiring -->
   <script type="module">
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
     const shell = document.querySelector('fv-shell');
     if (shell && NAV_MENU) shell.nav = NAV_MENU;
+
+    const $ = (id) => document.getElementById(id);
+    const modal = $("mapModal");
+    const toast = $("toast");
+    const latHidden = $("latHidden");
+    const lngHidden = $("lngHidden");
+
+    function showModal() {
+      if (!modal) return;
+      modal.classList.add("show");
+      document.body.style.overflow = "hidden";
+    }
+    function hideModal() {
+      if (!modal) return;
+      modal.classList.remove("show");
+      document.body.style.overflow = "";
+    }
+
+    function showToast(msg = "Location saved.") {
+      if (!toast) return;
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      // force reflow
+      void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(() => {
+        toast.classList.remove("show");
+      }, 3000);
+    }
+
+    // Open modal
+    $("btnOpenMap").addEventListener("click", () => {
+      showModal();
+    });
+
+    // Close modal (X or backdrop or Cancel)
+    modal.querySelectorAll("[data-close], #btnCancelLocation").forEach((el) => {
+      el.addEventListener("click", () => {
+        hideModal();
+      });
+    });
+    modal.querySelector(".backdrop").addEventListener("click", () => {
+      hideModal();
+    });
+
+    // Use my location
+    $("btnUseLocation").addEventListener("click", () => {
+      if (window.FVMap && typeof window.FVMap.useMyLocation === "function") {
+        window.FVMap.useMyLocation();
+      }
+    });
+
+    // Save location from modal
+    $("btnSaveLocation").addEventListener("click", () => {
+      if (!(window.FVMap && typeof window.FVMap.getLastLatLng === "function")) {
+        showToast("Map not ready yet.");
+        return;
+      }
+      const ll = window.FVMap.getLastLatLng();
+      if (!ll) {
+        showToast("Tap on the map to drop a pin first.");
+        return;
+      }
+
+      // Hidden fields already updated by fv-map.js; just close + toast
+      console.log("Saved map location:", latHidden.value, lngHidden.value);
+      hideModal();
+      showToast("Location saved.");
+    });
   </script>
 </body>
 </html>
