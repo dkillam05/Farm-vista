@@ -1,175 +1,181 @@
-// /Farm-vista/js/fv-map.js
-// Simple helper for Google Maps pin-drop + "Use my location"
-// Exposes: window.FVMap.initPicker(options)
-
+/* ====================================================================
+/Farm-vista/js/fv-map.js
+Google Maps helper for FarmVista – drop a pin + use my location
+Exports:
+ • window.FVMap   – small helper object
+ • window.fvMapInit – callback used by Google Maps script tag
+==================================================================== */
 (function () {
-  if (window.FVMap) return; // don't double-define
+  "use strict";
 
-  function toNumber(v, fallback) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : fallback;
+  const MapState = {
+    map: null,
+    marker: null,
+    lastLatLng: null
+  };
+
+  function $(id) {
+    return document.getElementById(id);
   }
 
-  function setStatus(el, msg) {
-    if (!el) return;
-    el.textContent = msg || "";
+  function updateOutputs(latLng) {
+    if (!latLng) return;
+
+    const lat = latLng.lat();
+    const lng = latLng.lng();
+    const latStr = lat.toFixed(6);
+    const lngStr = lng.toFixed(6);
+
+    const coordLine = $("coordLine");
+    const latField = $("latField");
+    const lngField = $("lngField");
+    const help = $("mapHelp");
+
+    if (coordLine) {
+      coordLine.textContent = `${latStr}, ${lngStr}`;
+    }
+    if (latField) latField.value = latStr;
+    if (lngField) lngField.value = lngStr;
+    if (help) help.textContent = "Pin set. Tap again to move it.";
   }
 
-  function initPicker(opts) {
-    opts = opts || {};
-    const container = document.getElementById(opts.containerId);
-    if (!container || !window.google || !google.maps) {
-      console.error("FVMap.initPicker: container or google.maps missing");
+  function setPin(latLng) {
+    if (!MapState.marker) return;
+    MapState.marker.setPosition(latLng);
+    MapState.lastLatLng = latLng;
+    updateOutputs(latLng);
+  }
+
+  function wireButtons() {
+    const btnUseLoc = $("btnUseLocation");
+    const btnMap = $("btnMapTypeMap");
+    const btnSat = $("btnMapTypeSat");
+    const status = $("locationStatus");
+
+    if (btnUseLoc) {
+      btnUseLoc.addEventListener("click", () => {
+        if (!navigator.geolocation) {
+          if (status) {
+            status.textContent = "Geolocation not supported on this device.";
+          }
+          return;
+        }
+
+        if (status) {
+          status.textContent = "Getting current location…";
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const ll = new google.maps.LatLng(
+              pos.coords.latitude,
+              pos.coords.longitude
+            );
+            MapState.map.setCenter(ll);
+            MapState.map.setZoom(17);
+            setPin(ll);
+            if (status) {
+              status.textContent = "";
+            }
+          },
+          (err) => {
+            console.warn("geolocation error", err);
+            if (status) {
+              if (err && err.code === 1) {
+                status.textContent =
+                  "Location permission denied. Check Safari → Settings → Location for dkillam05.github.io.";
+              } else {
+                status.textContent = "Could not get current location.";
+              }
+            }
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 60000,
+            timeout: 10000
+          }
+        );
+      });
+    }
+
+    function setMode(active) {
+      if (!MapState.map) return;
+      if (active === "sat") {
+        MapState.map.setMapTypeId(google.maps.MapTypeId.SATELLITE);
+        btnSat && btnSat.classList.add("mode-active");
+        btnMap && btnMap.classList.remove("mode-active");
+      } else {
+        MapState.map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+        btnMap && btnMap.classList.add("mode-active");
+        btnSat && btnSat.classList.remove("mode-active");
+      }
+    }
+
+    if (btnMap) {
+      btnMap.addEventListener("click", () => setMode("map"));
+    }
+    if (btnSat) {
+      btnSat.addEventListener("click", () => setMode("sat"));
+    }
+
+    // Default -> map
+    setMode("map");
+  }
+
+  function init() {
+    const mapEl = $("fvMap");
+    const help = $("mapHelp");
+    if (!mapEl) {
+      console.error("fv-map.js: #fvMap element not found.");
+      return;
+    }
+    if (!(window.google && google.maps)) {
+      console.error("fv-map.js: Google Maps JS not loaded.");
+      if (help) help.textContent = "Google Maps failed to load.";
       return;
     }
 
-    const latInput   = opts.latInputId   ? document.getElementById(opts.latInputId)   : null;
-    const lngInput   = opts.lngInputId   ? document.getElementById(opts.lngInputId)   : null;
-    const zoomInput  = opts.zoomInputId  ? document.getElementById(opts.zoomInputId)  : null;
-    const statusEl   = opts.statusId     ? document.getElementById(opts.statusId)     : null;
-    const locBtn     = opts.useLocationBtnId ? document.getElementById(opts.useLocationBtnId) : null;
-    const mapBtn     = opts.mapBtnId     ? document.getElementById(opts.mapBtnId)     : null;
-    const satBtn     = opts.satBtnId     ? document.getElementById(opts.satBtnId)     : null;
+    const centerUSA = { lat: 39.8283, lng: -98.5795 };
 
-    const defaultCenter = opts.initialCenter || { lat: 39.8283, lng: -98.5795 }; // center of US
-
-    const startLat = latInput ? toNumber(latInput.value, defaultCenter.lat) : defaultCenter.lat;
-    const startLng = lngInput ? toNumber(lngInput.value, defaultCenter.lng) : defaultCenter.lng;
-    const startZoom = zoomInput ? toNumber(zoomInput.value, 17) : 17;
-
-    const map = new google.maps.Map(container, {
-      center: { lat: startLat, lng: startLng },
-      zoom: startZoom,
+    MapState.map = new google.maps.Map(mapEl, {
+      center: centerUSA,
+      zoom: 5,
       mapTypeId: google.maps.MapTypeId.ROADMAP,
-      gestureHandling: "greedy"
+      streetViewControl: false,
+      fullscreenControl: false,
+      mapTypeControl: false
     });
 
-    let marker = null;
-
-    function updateInputs(pos, zoom) {
-      if (latInput) latInput.value = pos.lat.toFixed(6);
-      if (lngInput) lngInput.value = pos.lng.toFixed(6);
-      if (zoomInput && typeof zoom === "number") zoomInput.value = String(zoom);
-      setStatus(statusEl, pos.lat.toFixed(6) + ", " + pos.lng.toFixed(6));
-    }
-
-    function placeMarker(pos, zoomOverride) {
-      const latLng = new google.maps.LatLng(pos.lat, pos.lng);
-      if (!marker) {
-        marker = new google.maps.Marker({
-          map,
-          position: latLng
-        });
-      } else {
-        marker.setPosition(latLng);
-      }
-      if (typeof zoomOverride === "number") {
-        map.setZoom(zoomOverride);
-      }
-      map.panTo(latLng);
-      updateInputs({ lat: latLng.lat(), lng: latLng.lng() }, map.getZoom());
-    }
-
-    // If we already had lat/lng in the inputs, show that marker.
-    if (latInput && lngInput && latInput.value && lngInput.value) {
-      const lat = toNumber(latInput.value, defaultCenter.lat);
-      const lng = toNumber(lngInput.value, defaultCenter.lng);
-      placeMarker({ lat, lng }, startZoom);
-    } else {
-      updateInputs({ lat: startLat, lng: startLng }, startZoom);
-    }
-
-    // Clicking on map drops/moves the pin
-    map.addListener("click", (e) => {
-      if (!e || !e.latLng) return;
-      const pos = e.latLng.toJSON ? e.latLng.toJSON() : { lat: e.latLng.lat(), lng: e.latLng.lng() };
-      placeMarker(pos);
+    MapState.marker = new google.maps.Marker({
+      map: MapState.map,
+      draggable: false
     });
 
-    // Watch zoom changes
-    map.addListener("zoom_changed", () => {
-      if (!marker) return;
-      const pos = marker.getPosition();
-      if (!pos) return;
-      updateInputs({ lat: pos.lat(), lng: pos.lng() }, map.getZoom());
+    MapState.map.addListener("click", (e) => {
+      setPin(e.latLng);
     });
 
-    // "Use my location" button
-    if (locBtn) {
-      if (!("geolocation" in navigator)) {
-        locBtn.disabled = true;
-        setStatus(statusEl, "Geolocation not supported on this device.");
-      } else {
-        locBtn.disabled = false;
-        locBtn.addEventListener("click", () => {
-          setStatus(statusEl, "Getting current location…");
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              const coords = {
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude
-              };
-              placeMarker(coords, 18);
-            },
-            (err) => {
-              console.warn("Geo error", err);
-              if (err && err.code === 1) {
-                setStatus(
-                  statusEl,
-                  "Location blocked. Check Safari/Browser location settings for dkillam05.github.io."
-                );
-              } else if (err && err.message) {
-                setStatus(statusEl, "Could not get current location: " + err.message);
-              } else {
-                setStatus(statusEl, "Could not get current location.");
-              }
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 15000,
-              maximumAge: 0
-            }
-          );
-        });
-      }
+    if (help) {
+      help.textContent = "Tap anywhere on the map to drop a pin. Drag the map to move around.";
     }
 
-    // Map / Satellite toggle
-    if (mapBtn && satBtn) {
-      const ACTIVE = "mode-active";
-
-      function setMode(mode) {
-        if (mode === "sat") {
-          map.setMapTypeId(google.maps.MapTypeId.SATELLITE);
-          satBtn.classList.add(ACTIVE);
-          mapBtn.classList.remove(ACTIVE);
-        } else {
-          map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
-          mapBtn.classList.add(ACTIVE);
-          satBtn.classList.remove(ACTIVE);
-        }
-      }
-
-      mapBtn.addEventListener("click", () => setMode("map"));
-      satBtn.addEventListener("click", () => setMode("map"));
-
-      satBtn.addEventListener("click", () => setMode("sat"));
-
-      // default mode
-      setMode("map");
+    const coordLine = $("coordLine");
+    if (coordLine) {
+      coordLine.textContent = "Waiting for pin…";
     }
 
-    return {
-      getMap() {
-        return map;
-      },
-      getMarker() {
-        return marker;
-      }
-    };
+    wireButtons();
   }
 
+  // Expose to global for Google callback + future forms
   window.FVMap = {
-    initPicker
+    init,
+    setPin,
+    getLastLatLng() {
+      return MapState.lastLatLng;
+    }
   };
+
+  // This is the callback Google Maps will call.
+  window.fvMapInit = init;
 })();
