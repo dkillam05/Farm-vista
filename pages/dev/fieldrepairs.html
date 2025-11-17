@@ -2,11 +2,10 @@
 /Farm-vista/pages/dev/dev.html  (FULL FILE)
 Dev page:
  • 3 Firestore-backed combos: Farm, Field, Topic
+ • Uses same DB pattern as maintenance-add.html (global DB + loaders)
  • Farm/Field inflow both directions:
       - Choosing a farm filters fields
       - Choosing a field auto-selects its farm and re-filters fields
- • NEW: Related Work Orders hero showing "needs approved" + "pending" WOs
-   for the selected field (read-only, for testing)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -58,8 +57,6 @@ Dev page:
       padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
       box-sizing:border-box;
-      display:grid;
-      gap:16px;
     }
 
     .hero{
@@ -130,7 +127,7 @@ Dev page:
       pointer-events:none;
     }
 
-    /* Standard inline combo (same pattern as Grain Bag / Maintenance) */
+    /* Standard inline combo (same pattern as Maintenance) */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative;
@@ -185,85 +182,12 @@ Dev page:
       color:var(--muted,#67706B);
       margin-top:4px;
     }
-
-    /* === Related Work Orders hero === */
-    .wo-body{
-      padding:16px;
-      display:grid;
-      gap:8px;
-    }
-    .wo-help{
-      font-size:0.9rem;
-      color:var(--muted,#67706B);
-      margin-bottom:4px;
-    }
-    .wo-list{
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-    .wo-item{
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      padding:10px 12px;
-      display:grid;
-      gap:4px;
-    }
-    .wo-header{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
-      font-size:0.9rem;
-      font-weight:800;
-    }
-    .wo-topic{
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-    .wo-pill{
-      font-size:0.75rem;
-      padding:2px 8px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      text-transform:uppercase;
-      letter-spacing:0.03em;
-      white-space:nowrap;
-    }
-    .wo-priority{
-      font-size:0.8rem;
-      color:var(--muted,#67706B);
-    }
-    .wo-notes{
-      font-size:0.9rem;
-      line-height:1.3;
-      max-height:4.2em;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .wo-meta{
-      font-size:0.78rem;
-      color:var(--muted,#67706B);
-      display:flex;
-      justify-content:space-between;
-      gap:8px;
-      flex-wrap:wrap;
-    }
-    .wo-empty{
-      font-size:0.9rem;
-      color:var(--muted,#67706B);
-      padding:6px 0 2px;
-    }
   </style>
 </head>
 
 <body>
   <fv-shell>
     <div class="wrap">
-      <!-- Hero 1: Dev combos -->
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧪</div>
@@ -313,25 +237,6 @@ Dev page:
           <div id="devStatus" class="status">Initializing…</div>
         </div>
       </section>
-
-      <!-- Hero 2: Related Work Orders for selected field -->
-      <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">📋</div>
-          <div>
-            <h1>Related Work Orders</h1>
-            <p class="muted">Needs-approved & pending requests for the selected field (dev view only).</p>
-          </div>
-        </header>
-        <div class="wo-body">
-          <div class="wo-help">
-            Select a <strong>Field</strong> above to see any work orders with status
-            <strong>needs approved</strong> or <strong>pending</strong> for that field.
-          </div>
-          <div id="woStatus" class="status">No field selected yet.</div>
-          <div id="woList" class="wo-list"></div>
-        </div>
-      </section>
     </div>
   </fv-shell>
 
@@ -340,11 +245,7 @@ Dev page:
       ready,
       getFirestore,
       collection,
-      getDocs,
-      query,
-      where,
-      orderBy,
-      limit
+      getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -372,7 +273,7 @@ Dev page:
     document.addEventListener('click', ()=> closeAllCombos());
     document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
-    /* ---------- generic combo helper ---------- */
+    /* ---------- generic combo helper (no Add New on dev page) ---------- */
     function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x.label||x.name||x), onPick }) {
       if(!btn || !panel || !list) return;
 
@@ -405,7 +306,11 @@ Dev page:
 
       btn.addEventListener('click', e=>{
         e.stopPropagation();
-        panel.classList.contains('show') ? close() : open();
+        if(panel.classList.contains('show')){
+          close();
+        }else{
+          open();
+        }
       });
 
       list.addEventListener('mousedown', e=>{
@@ -473,111 +378,6 @@ Dev page:
       }
     }
 
-    /* ---------- Related Work Orders (read-only dev view) ---------- */
-    function prettyDate(ts){
-      if(!ts) return "";
-      try{
-        // handle Firestore Timestamp or JS Date/string
-        let d;
-        if(ts.toDate){
-          d = ts.toDate();
-        }else if(ts instanceof Date){
-          d = ts;
-        }else{
-          d = new Date(ts);
-        }
-        if(Number.isNaN(d.getTime())) return "";
-        return d.toLocaleDateString();
-      }catch{
-        return "";
-      }
-    }
-
-    function clearWorkOrders(message){
-      const listEl = $("woList");
-      const statusEl = $("woStatus");
-      if(statusEl) statusEl.textContent = message || "No field selected yet.";
-      if(listEl) listEl.innerHTML = "";
-    }
-
-    async function loadRelatedWorkOrders(fieldId){
-      const listEl = $("woList");
-      const statusEl = $("woStatus");
-      if(!listEl || !statusEl){
-        return;
-      }
-
-      if(!fieldId){
-        clearWorkOrders("Select a field to see related work orders.");
-        return;
-      }
-
-      statusEl.textContent = "Loading related work orders…";
-      listEl.innerHTML = "";
-
-      try{
-        const ref = collection(DB, "fieldMaintenance");
-        const q = query(
-          ref,
-          where("fieldId", "==", fieldId),
-          where("status", "in", ["needs approved", "pending"]),
-          orderBy("createdAt", "desc"),
-          limit(10)
-        );
-        const snap = await getDocs(q);
-
-        if(snap.empty){
-          clearWorkOrders("No needs-approved or pending work orders for this field.");
-          return;
-        }
-
-        const docs = snap.docs.map(d => {
-          const data = d.data() || {};
-          return {
-            id: d.id,
-            topic: data.topicLabel || data.topic || "Untitled",
-            status: data.status || "unknown",
-            priority: typeof data.priority === "number" ? data.priority : null,
-            notes: data.notes || "",
-            createdAt: data.createdAt || data.dateSubmitted || null,
-            submittedBy: (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || ""
-          };
-        });
-
-        listEl.innerHTML = docs.map(row=>{
-          const topic = esc(row.topic);
-          const status = esc((row.status || "").toString());
-          const pr = row.priority != null ? `P${row.priority}` : "";
-          const when = prettyDate(row.createdAt);
-          const who = row.submittedBy ? esc(row.submittedBy) : "";
-          const notes = esc(row.notes || "");
-          return `
-            <div class="wo-item">
-              <div class="wo-header">
-                <div class="wo-topic">${topic}</div>
-                <div class="wo-pill">${status}</div>
-              </div>
-              <div class="wo-priority">
-                ${pr ? `Priority: ${pr}` : ""}&nbsp;
-              </div>
-              <div class="wo-notes">
-                ${notes || "<span class='wo-empty'>No notes entered.</span>"}
-              </div>
-              <div class="wo-meta">
-                <span>${when || "&nbsp;"}</span>
-                <span>${who || "&nbsp;"}</span>
-              </div>
-            </div>
-          `;
-        }).join("");
-
-        statusEl.textContent = `Showing ${docs.length} work order${docs.length===1?"":"s"} for this field (needs approved + pending).`;
-      }catch(e){
-        console.error("loadRelatedWorkOrders error", e);
-        clearWorkOrders("Error loading related work orders. Check console / Firestore index.");
-      }
-    }
-
     /* ---------- farm ⇄ field inflow ---------- */
     function refreshFieldComboForFarm(fieldCombo, farmId){
       let list = state.fields;
@@ -591,7 +391,6 @@ Dev page:
         state.field = null;
         const fb = $("fieldBtn");
         if(fb) fb.textContent = "— Select field —";
-        clearWorkOrders("Select a field to see related work orders.");
       }
     }
 
@@ -646,9 +445,6 @@ Dev page:
               selectFarmById(it.farmId);
               refreshFieldComboForFarm(fieldCombo, it.farmId);
             }
-
-            // Load related work orders for this field
-            loadRelatedWorkOrders(it.id);
           }
         });
 
@@ -677,13 +473,9 @@ Dev page:
         topicCombo && topicCombo.setItems(topics);
 
         status.textContent = `Loaded ${farms.length} farms, ${fields.length} fields, ${topics.length} topics. (All combos ready.)`;
-
-        // Initial related-wo state
-        clearWorkOrders("Select a field to see related work orders.");
       }catch(err){
         console.error("Dev combo init error:", err);
         if(status) status.textContent = "Error initializing dev combos — see console.";
-        clearWorkOrders("Error initializing. See console.");
       }
     })();
   </script>
