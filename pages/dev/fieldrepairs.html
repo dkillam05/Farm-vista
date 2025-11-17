@@ -5,8 +5,9 @@ Dev page:
  • Farm/Field inflow both directions:
       - Choosing a farm filters fields
       - Choosing a field auto-selects its farm and re-filters fields
- • Related Work Orders hero showing "needs approved" + "pending" WOs
-   for the selected field (read-only, for testing)
+ • Related Work Orders hero:
+      - Reads fieldMaintenance for the selected fieldId
+      - Filters to status "needs approved" or "pending" IN JS (no composite index)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -130,7 +131,7 @@ Dev page:
       pointer-events:none;
     }
 
-    /* Standard inline combo (same pattern as Grain Bag / Maintenance) */
+    /* Standard inline combo */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative;
@@ -342,9 +343,7 @@ Dev page:
       collection,
       getDocs,
       query,
-      where,
-      orderBy,
-      limit
+      where
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -361,9 +360,9 @@ Dev page:
       topic: null
     };
 
-    let DB = null;  // match maintenance-add pattern
+    let DB = null;
 
-    /* ---------- global combo closer (same pattern as maintenance/bag) ---------- */
+    /* ---------- global combo closer ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==exceptPanel) p.classList.remove('show');
@@ -403,7 +402,6 @@ Dev page:
       }
       function close(){ panel.classList.remove('show'); }
 
-      // *** FIXED: stopPropagation so document click doesn't immediately close it ***
       btn.addEventListener('click', e=>{
         e.stopPropagation();
         panel.classList.contains('show') ? close() : open();
@@ -430,12 +428,12 @@ Dev page:
       };
     }
 
-    /* ---------- shared name helper (same idea as maintenance-add) ---------- */
+    /* ---------- shared name helper ---------- */
     function inferName(data){
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
-    /* ---------- Firestore loaders (use global DB like maintenance-add) ---------- */
+    /* ---------- Firestore loaders ---------- */
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
       state.farms = snap.docs.map(doc => {
@@ -474,11 +472,10 @@ Dev page:
       }
     }
 
-    /* ---------- Related Work Orders (read-only dev view) ---------- */
+    /* ---------- Related Work Orders (no composite index needed) ---------- */
     function prettyDate(ts){
       if(!ts) return "";
       try{
-        // handle Firestore Timestamp or JS Date/string
         let d;
         if(ts.toDate){
           d = ts.toDate();
@@ -518,34 +515,56 @@ Dev page:
 
       try{
         const ref = collection(DB, "fieldMaintenance");
-        const q = query(
-          ref,
-          where("fieldId", "==", fieldId),
-          where("status", "in", ["needs approved", "pending"]),
-          orderBy("createdAt", "desc"),
-          limit(10)
-        );
+        // Simple query: ONLY where fieldId == ...  (no composite index needed)
+        const q = query(ref, where("fieldId", "==", fieldId));
         const snap = await getDocs(q);
 
         if(snap.empty){
-          clearWorkOrders("No needs-approved or pending work orders for this field.");
+          clearWorkOrders("No work orders found for this field.");
           return;
         }
 
-        const docs = snap.docs.map(d => {
+        const rowsRaw = snap.docs.map(d => {
           const data = d.data() || {};
+          const createdRaw = data.createdAt || data.dateSubmitted || null;
+          let createdMillis = 0;
+          if(createdRaw){
+            if(createdRaw.toMillis){
+              createdMillis = createdRaw.toMillis();
+            }else if(createdRaw.toDate){
+              createdMillis = createdRaw.toDate().getTime();
+            }else{
+              const dt = new Date(createdRaw);
+              createdMillis = Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+            }
+          }
           return {
             id: d.id,
             topic: data.topicLabel || data.topic || "Untitled",
             status: data.status || "unknown",
             priority: typeof data.priority === "number" ? data.priority : null,
             notes: data.notes || "",
-            createdAt: data.createdAt || data.dateSubmitted || null,
+            createdAt: createdRaw,
+            createdMillis,
             submittedBy: (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || ""
           };
         });
 
-        listEl.innerHTML = docs.map(row=>{
+        // Filter statuses in JS (case-insensitive)
+        const rows = rowsRaw.filter(r=>{
+          const s = (r.status || "").toLowerCase();
+          return s === "needs approved" || s === "pending";
+        });
+
+        if(!rows.length){
+          clearWorkOrders("No needs-approved or pending work orders for this field.");
+          return;
+        }
+
+        // Sort newest first by createdMillis
+        rows.sort((a,b)=> (b.createdMillis||0) - (a.createdMillis||0));
+
+        listEl.innerHTML = rows.map(row=>{
           const topic = esc(row.topic);
           const status = esc((row.status || "").toString());
           const pr = row.priority != null ? `P${row.priority}` : "";
@@ -572,10 +591,10 @@ Dev page:
           `;
         }).join("");
 
-        statusEl.textContent = `Showing ${docs.length} work order${docs.length===1?"":"s"} for this field (needs approved + pending).`;
+        statusEl.textContent = `Showing ${rows.length} work order${rows.length===1?"":"s"} for this field (needs approved + pending).`;
       }catch(e){
         console.error("loadRelatedWorkOrders error", e);
-        clearWorkOrders("Error loading related work orders. Check console / Firestore index.");
+        clearWorkOrders("Error loading related work orders. See console.");
       }
     }
 
@@ -587,7 +606,6 @@ Dev page:
       }
       fieldCombo && fieldCombo.setItems(list);
 
-      // If a field is selected that doesn't belong to this farm, clear it
       if(state.field && farmId && state.field.farmId !== farmId){
         state.field = null;
         const fb = $("fieldBtn");
@@ -610,7 +628,7 @@ Dev page:
       const status = $("devStatus");
       try{
         status.textContent = "Waiting for Firebase…";
-        await ready;                 // same usage as maintenance-add
+        await ready;
 
         DB = getFirestore();
         status.textContent = "Loading farms, fields, topics…";
@@ -626,7 +644,6 @@ Dev page:
           onPick: it=>{
             state.farm = it;
             $("farmBtn").textContent = it.name;
-            // farm -> field
             refreshFieldComboForFarm(fieldCombo, it.id);
           }
         });
@@ -642,7 +659,6 @@ Dev page:
             state.field = it;
             $("fieldBtn").textContent = it.name;
 
-            // field -> farm
             if(it.farmId){
               selectFarmById(it.farmId);
               refreshFieldComboForFarm(fieldCombo, it.farmId);
@@ -673,13 +689,11 @@ Dev page:
         ]);
 
         farmCombo && farmCombo.setItems(farms);
-        // Initially show all fields until a farm is chosen
         fieldCombo && fieldCombo.setItems(fields);
         topicCombo && topicCombo.setItems(topics);
 
         status.textContent = `Loaded ${farms.length} farms, ${fields.length} fields, ${topics.length} topics. (All combos ready.)`;
 
-        // Initial related-wo state
         clearWorkOrders("Select a field to see related work orders.");
       }catch(err){
         console.error("Dev combo init error:", err);
