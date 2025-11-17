@@ -1,9 +1,11 @@
 /* ====================================================================
 /Farm-vista/js/fv-map.js
-Google Maps helper for FarmVista – drop a pin + use my location
+Google Maps helper for FarmVista – pin drop + "Use my location"
+Designed for use inside a modal. Satellite only, no visible lat/long.
 Exports:
- • window.FVMap   – small helper object
- • window.fvMapInit – callback used by Google Maps script tag
+ • window.FVMap.init()        – called by Google callback (fvMapInit)
+ • window.FVMap.useMyLocation()
+ • window.FVMap.getLastLatLng()
 ==================================================================== */
 (function () {
   "use strict";
@@ -11,127 +13,56 @@ Exports:
   const MapState = {
     map: null,
     marker: null,
-    lastLatLng: null
+    lastLatLng: null,
+    helpEl: null,
+    statusEl: null
   };
 
   function $(id) {
     return document.getElementById(id);
   }
 
-  function updateOutputs(latLng) {
+  function updateHidden(latLng) {
     if (!latLng) return;
-
     const lat = latLng.lat();
     const lng = latLng.lng();
     const latStr = lat.toFixed(6);
     const lngStr = lng.toFixed(6);
 
-    const coordLine = $("coordLine");
-    const latField = $("latField");
-    const lngField = $("lngField");
-    const help = $("mapHelp");
-
-    if (coordLine) {
-      coordLine.textContent = `${latStr}, ${lngStr}`;
-    }
-    if (latField) latField.value = latStr;
-    if (lngField) lngField.value = lngStr;
-    if (help) help.textContent = "Pin set. Tap again to move it.";
+    const latH = $("latHidden");
+    const lngH = $("lngHidden");
+    if (latH) latH.value = latStr;
+    if (lngH) lngH.value = lngStr;
   }
 
   function setPin(latLng) {
-    if (!MapState.marker) return;
+    if (!MapState.marker || !latLng) return;
     MapState.marker.setPosition(latLng);
     MapState.lastLatLng = latLng;
-    updateOutputs(latLng);
-  }
+    updateHidden(latLng);
 
-  function wireButtons() {
-    const btnUseLoc = $("btnUseLocation");
-    const btnMap = $("btnMapTypeMap");
-    const btnSat = $("btnMapTypeSat");
-    const status = $("locationStatus");
-
-    if (btnUseLoc) {
-      btnUseLoc.addEventListener("click", () => {
-        if (!navigator.geolocation) {
-          if (status) {
-            status.textContent = "Geolocation not supported on this device.";
-          }
-          return;
-        }
-
-        if (status) {
-          status.textContent = "Getting current location…";
-        }
-
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const ll = new google.maps.LatLng(
-              pos.coords.latitude,
-              pos.coords.longitude
-            );
-            MapState.map.setCenter(ll);
-            MapState.map.setZoom(17);
-            setPin(ll);
-            if (status) {
-              status.textContent = "";
-            }
-          },
-          (err) => {
-            console.warn("geolocation error", err);
-            if (status) {
-              if (err && err.code === 1) {
-                status.textContent =
-                  "Location permission denied. Check Safari → Settings → Location for dkillam05.github.io.";
-              } else {
-                status.textContent = "Could not get current location.";
-              }
-            }
-          },
-          {
-            enableHighAccuracy: true,
-            maximumAge: 60000,
-            timeout: 10000
-          }
-        );
-      });
+    if (MapState.helpEl) {
+      MapState.helpEl.textContent = "Pin set. Tap again to move it.";
     }
-
-    function setMode(active) {
-      if (!MapState.map) return;
-      if (active === "sat") {
-        MapState.map.setMapTypeId(google.maps.MapTypeId.SATELLITE);
-        btnSat && btnSat.classList.add("mode-active");
-        btnMap && btnMap.classList.remove("mode-active");
-      } else {
-        MapState.map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
-        btnMap && btnMap.classList.add("mode-active");
-        btnSat && btnSat.classList.remove("mode-active");
-      }
-    }
-
-    if (btnMap) {
-      btnMap.addEventListener("click", () => setMode("map"));
-    }
-    if (btnSat) {
-      btnSat.addEventListener("click", () => setMode("sat"));
-    }
-
-    // Default -> map
-    setMode("map");
   }
 
   function init() {
     const mapEl = $("fvMap");
-    const help = $("mapHelp");
+    MapState.helpEl = $("mapHelp");
+    MapState.statusEl = $("locationStatus");
+
     if (!mapEl) {
       console.error("fv-map.js: #fvMap element not found.");
+      if (MapState.helpEl) {
+        MapState.helpEl.textContent = "Map container not found.";
+      }
       return;
     }
     if (!(window.google && google.maps)) {
       console.error("fv-map.js: Google Maps JS not loaded.");
-      if (help) help.textContent = "Google Maps failed to load.";
+      if (MapState.helpEl) {
+        MapState.helpEl.textContent = "Google Maps failed to load.";
+      }
       return;
     }
 
@@ -140,7 +71,7 @@ Exports:
     MapState.map = new google.maps.Map(mapEl, {
       center: centerUSA,
       zoom: 5,
-      mapTypeId: google.maps.MapTypeId.ROADMAP,
+      mapTypeId: google.maps.MapTypeId.SATELLITE,
       streetViewControl: false,
       fullscreenControl: false,
       mapTypeControl: false
@@ -155,27 +86,70 @@ Exports:
       setPin(e.latLng);
     });
 
-    if (help) {
-      help.textContent = "Tap anywhere on the map to drop a pin. Drag the map to move around.";
+    if (MapState.helpEl) {
+      MapState.helpEl.textContent =
+        "Tap anywhere on the map to drop a pin. Drag the map to move around.";
     }
-
-    const coordLine = $("coordLine");
-    if (coordLine) {
-      coordLine.textContent = "Waiting for pin…";
+    if (MapState.statusEl) {
+      MapState.statusEl.textContent = "";
     }
-
-    wireButtons();
   }
 
-  // Expose to global for Google callback + future forms
+  function useMyLocation() {
+    if (!navigator.geolocation) {
+      if (MapState.statusEl) {
+        MapState.statusEl.textContent =
+          "Geolocation not supported on this device.";
+      }
+      return;
+    }
+
+    if (MapState.statusEl) {
+      MapState.statusEl.textContent = "Getting current location…";
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (!MapState.map) return;
+        const ll = new google.maps.LatLng(
+          pos.coords.latitude,
+          pos.coords.longitude
+        );
+        MapState.map.setCenter(ll);
+        MapState.map.setZoom(17);
+        setPin(ll);
+        if (MapState.statusEl) {
+          MapState.statusEl.textContent = "";
+        }
+      },
+      (err) => {
+        console.warn("geolocation error", err);
+        if (MapState.statusEl) {
+          if (err && err.code === 1) {
+            MapState.statusEl.textContent =
+              "Location permission denied. Check Safari → Settings → Location for dkillam05.github.io.";
+          } else {
+            MapState.statusEl.textContent = "Could not get current location.";
+          }
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 60000,
+        timeout: 10000
+      }
+    );
+  }
+
   window.FVMap = {
     init,
+    useMyLocation,
     setPin,
     getLastLatLng() {
       return MapState.lastLatLng;
     }
   };
 
-  // This is the callback Google Maps will call.
+  // Callback used by the Google Maps script tag
   window.fvMapInit = init;
 })();
