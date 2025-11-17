@@ -6,9 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- ===========================
-       ABSOLUTE PATHS (FarmVista)
-       =========================== -->
+  <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -57,23 +55,23 @@
       <div class="emoji">🧪</div>
       <div>
         <div class="title">QR Code Maker (Dev)</div>
-        <div class="sub">Builds “smart” QR codes via <span class="mono">launch.html</span> — opens in the app if installed, else the web.</div>
+        <div class="sub">For testing equipment QR routing → directly encodes Hub URLs</div>
       </div>
     </div>
 
     <div class="grid">
-      <!-- Left: settings -->
+      <!-- Settings -->
       <div class="card">
         <h3>Settings</h3>
         <div class="body">
+
           <div class="row row-1">
             <div>
-              <label for="qrUrl">Destination (page or URL)</label>
-              <input id="qrUrl" type="text" spellcheck="false" class="mono"
-                value="/Farm-vista/pages/dev/grain-bag-put-down-test.html"/>
+              <label for="qrId">Equipment ID (Firestore doc ID)</label>
+              <input id="qrId" type="text" class="mono" placeholder="e.g., 22d8b41eca801394f9a69726"/>
               <div class="help">
-                Enter a path inside <span class="mono">/Farm-vista/</span> <i>or</i> a full <span class="mono">https://</span> URL.
-                We’ll automatically wrap it with the smart launcher.
+                This will build:<br>
+                <span class="mono">/Farm-vista/pages/equipment/actions/hub.html?id=ID_HERE</span>
               </div>
               <div id="effectiveLink" class="help" style="margin-top:6px"></div>
             </div>
@@ -81,8 +79,8 @@
 
           <div class="row">
             <div>
-              <label for="qrLabel">Optional Text Label (prints under code)</label>
-              <input id="qrLabel" type="text" placeholder="e.g., Tractor 8R 280 • Asset DF-TR-0280"/>
+              <label for="qrLabel">Optional Text Label</label>
+              <input id="qrLabel" type="text" placeholder="Tractor 8R 280 • #123456"/>
             </div>
             <div>
               <label for="qrSize">Size (pixels)</label>
@@ -91,8 +89,6 @@
                 <option value="384">384</option>
                 <option value="512" selected>512</option>
                 <option value="640">640</option>
-                <option value="768">768</option>
-                <option value="1024">1024</option>
               </select>
             </div>
           </div>
@@ -104,18 +100,16 @@
                 <option value="L">L (7%)</option>
                 <option value="M">M (15%)</option>
                 <option value="Q">Q (25%)</option>
-                <option value="H" selected>H (30%) — strongest</option>
+                <option value="H" selected>H (30%)</option>
               </select>
             </div>
             <div>
-              <label for="qrMargin">Quiet-Zone Margin (modules)</label>
+              <label for="qrMargin">Quiet Zone Margin</label>
               <select id="qrMargin">
                 <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4" selected>4 (recommended)</option>
+                <option value="4" selected>4</option>
                 <option value="8">8</option>
               </select>
-              <div class="help">Margin is baked into the exported PNG so phone cameras read it reliably.</div>
             </div>
           </div>
 
@@ -129,197 +123,139 @@
         </div>
       </div>
 
-      <!-- Right: preview -->
+      <!-- Preview -->
       <div class="card">
         <h3>Preview</h3>
         <div class="body">
           <div class="previewWrap">
             <div id="qrPreview">
-              <div id="qrTarget" aria-live="polite"></div>
+              <div id="qrTarget"></div>
               <div id="qrCaption" style="text-align:center;margin-top:10px;font-weight:700"></div>
             </div>
           </div>
-          <div class="note">Tip: For stickers, 512–768 px at ECC <b>H</b> with margin <b>4+</b> is ultra reliable.</div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Load QR lib after DOM; mark ready on load -->
+  <!-- QR library -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
 
   <script>
   (function(){
-    // ---------- Smart launcher helpers ----------
-    const APP_ROOT = '/Farm-vista/';
-    const LAUNCH_URL = () => (location.origin + APP_ROOT + 'launch.html');
+    const HUB_URL = id =>
+      `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`;
 
-    function normalizeTarget(raw){
-      if (!raw) return APP_ROOT + 'index.html';
-      // Absolute URL?
-      try { return new URL(raw).href; } catch {}
-      // Ensure leading slash for paths
-      const path = raw.startsWith('/') ? raw : '/' + raw;
-      return location.origin + path;
-    }
-
-    function buildSmartLink(raw){
-      const targetAbs = normalizeTarget(raw);
-      const url = new URL(LAUNCH_URL());
-      url.searchParams.set('to', targetAbs);
-      return url.href;
-    }
-
-    // ---------- QR app ----------
-    function whenQRCodeReady(cb){
-      let tries = 0;
-      (function tick(){
-        if (window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) cb();
-        else if (tries++ < 200) setTimeout(tick,50);
-        else {
-          const s = document.getElementById('status');
-          s.innerHTML = '<span class="bad">⚠</span> QR library failed to load.';
-        }
+    function whenReady(cb){
+      let tries=0;
+      (function check(){
+        if(window.__qrReady && window.QRCode) cb();
+        else if(tries++<200) setTimeout(check,50);
       })();
     }
 
     function app(){
-      const el = id => document.getElementById(id);
-      const qrUrl=el('qrUrl'), qrLabel=el('qrLabel'), qrSize=el('qrSize'), qrEcc=el('qrEcc'),
-            qrMargin=el('qrMargin'), btnMake=el('btnMake'), btnDownload=el('btnDownload'),
-            btnPrint=el('btnPrint'), status=el('status'), qrTarget=el('qrTarget'),
-            qrCaption=el('qrCaption'), effectiveLink=el('effectiveLink');
+      const $ = id => document.getElementById(id);
+      const qrId=$('qrId'), qrLabel=$('qrLabel'), qrSize=$('qrSize'),
+            qrEcc=$('qrEcc'), qrMargin=$('qrMargin'), btnMake=$('btnMake'),
+            btnDownload=$('btnDownload'), btnPrint=$('btnPrint'),
+            qrTarget=$('qrTarget'), qrCaption=$('qrCaption'),
+            status=$('status'), effectiveLink=$('effectiveLink');
 
-      let currentCanvas=null, lastLabel='', lastEncodedLink='';
+      let currentCanvas=null, lastLink='';
 
-      const ECC = {
-        L: QRCode.CorrectLevel.L, M: QRCode.CorrectLevel.M,
-        Q: QRCode.CorrectLevel.Q, H: QRCode.CorrectLevel.H
-      };
-
-      function setStatus(msg, ok=true){ status.innerHTML=(ok?'<span class="ok">✓</span> ':'<span class="bad">⚠</span> ')+msg; }
-      function clearPreview(){ qrTarget.innerHTML=''; qrCaption.textContent=''; currentCanvas=null; btnDownload.disabled=true; btnPrint.disabled=true; }
-
-      function showEffectiveLink(){
-        const smart = buildSmartLink(qrUrl.value.trim());
-        lastEncodedLink = smart;
-        effectiveLink.textContent = 'Encoded smart link: ' + smart;
+      function clear(){
+        qrTarget.innerHTML='';
+        qrCaption.textContent='';
+        btnDownload.disabled=true;
+        btnPrint.disabled=true;
+        currentCanvas=null;
       }
 
-      function waitForQRCodeCanvas(holder, timeoutMs=4000){
-        return new Promise((resolve,reject)=>{
-          const start=Date.now();
-          (function check(){
-            const n = holder.querySelector('canvas') || holder.querySelector('img');
-            if (n) resolve(n);
-            else if (Date.now()-start>timeoutMs) reject(new Error('QR render timeout'));
-            else requestAnimationFrame(check);
-          })();
+      function buildLink(){
+        const id = qrId.value.trim();
+        if(!id){
+          effectiveLink.textContent='';
+          return '';
+        }
+        const link = HUB_URL(id);
+        effectiveLink.textContent = 'Final QR URL: ' + link;
+        return link;
+      }
+
+      function makeQR(){
+        clear();
+        const id = qrId.value.trim();
+        if(!id){
+          status.innerHTML='<span class="bad">⚠</span> Enter an ID';
+          return;
+        }
+        const link = buildLink();
+        lastLink = link;
+
+        const size=parseInt(qrSize.value,10);
+        const ecc = {
+          L: QRCode.CorrectLevel.L,
+          M: QRCode.CorrectLevel.M,
+          Q: QRCode.CorrectLevel.Q,
+          H: QRCode.CorrectLevel.H
+        }[qrEcc.value];
+
+        const holder=document.createElement('div');
+        qrTarget.appendChild(holder);
+
+        new QRCode(holder,{
+          text: link,
+          width:size,
+          height:size,
+          colorDark:"#000",
+          colorLight:"#fff",
+          correctLevel:ecc
         });
-      }
 
-      function padCanvasWithMargin(srcCanvas, modulesMargin){
-        const size=parseInt(qrSize.value,10)||512;
-        const modulePx=size/40;
-        const pxMargin=Math.max(1,Math.round(modulesMargin*modulePx));
-        const c=document.createElement('canvas');
-        c.width=srcCanvas.width+pxMargin*2; c.height=srcCanvas.height+pxMargin*2;
-        const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
-        ctx.drawImage(srcCanvas,pxMargin,pxMargin);
-        return c;
-      }
+        const img = holder.querySelector('img') || holder.querySelector('canvas');
+        if(img){
+          currentCanvas = img.tagName==='CANVAS'
+            ? img
+            : (()=>{const c=document.createElement('canvas'); c.width=size; c.height=size;
+                    const ctx=c.getContext('2d'); const i=new Image(); i.src=img.src;
+                    i.onload=()=>ctx.drawImage(i,0,0,size,size); return c;})();
 
-      async function makeQR(){
-        clearPreview();
-        // Always wrap user input with the smart launcher
-        const smartLink = buildSmartLink(qrUrl.value.trim());
-        lastEncodedLink = smartLink;
+          qrTarget.innerHTML='';
+          const preview=new Image(); preview.src=currentCanvas.toDataURL('image/png');
+          qrTarget.appendChild(preview);
 
-        // Validate final URL (should always be absolute)
-        try { new URL(smartLink); } catch { setStatus('Invalid target.', false); return; }
-
-        const size=parseInt(qrSize.value,10)||512;
-        const ecc=ECC[qrEcc.value] ?? QRCode.CorrectLevel.H;
-        const marginModules=parseInt(qrMargin.value,10)||4;
-
-        const holder=document.createElement('div'); qrTarget.appendChild(holder);
-        new QRCode(holder,{text:smartLink,width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
-
-        try{
-          const node=await waitForQRCodeCanvas(holder);
-          let rawCanvas;
-          if(node.tagName==='CANVAS'){ rawCanvas=node; }
-          else{
-            rawCanvas=document.createElement('canvas'); rawCanvas.width=size; rawCanvas.height=size;
-            const ctx=rawCanvas.getContext('2d');
-            await new Promise((res,rej)=>{
-              const img=new Image(); img.crossOrigin='anonymous';
-              img.onload=()=>{ctx.drawImage(img,0,0,size,size); res();};
-              img.onerror=rej; img.src=node.src;
-            });
-          }
-          const padded=padCanvasWithMargin(rawCanvas,marginModules);
-          currentCanvas=padded;
-
-          const preview=new Image(); preview.alt='QR code preview'; preview.src=padded.toDataURL('image/png');
-          qrTarget.innerHTML=''; qrTarget.appendChild(preview);
-
-          lastLabel=qrLabel.value.trim(); qrCaption.textContent=lastLabel||'';
-          btnDownload.disabled=false; btnPrint.disabled=false;
-          setStatus('QR generated (smart link). Scan with phone.');
-        }catch(e){
-          setStatus('Failed to render QR.', false); console.error(e);
+          qrCaption.textContent = qrLabel.value.trim();
+          btnDownload.disabled=false;
+          btnPrint.disabled=false;
+          status.innerHTML='<span class="ok">✓</span> QR generated';
         }
       }
 
       function downloadPNG(){
         if(!currentCanvas) return;
         const a=document.createElement('a');
-        const slug=(lastLabel||'farmvista-qr').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-        a.download=`${slug||'qr'}.png`; a.href=currentCanvas.toDataURL('image/png');
-        document.body.appendChild(a); a.click(); requestAnimationFrame(()=>a.remove());
+        a.download='qr.png';
+        a.href=currentCanvas.toDataURL('image/png');
+        a.click();
       }
 
       function printQR(){
         if(!currentCanvas) return;
         const data=currentCanvas.toDataURL('image/png');
-        const label=lastLabel||'';
-        const w=window.open('','_blank','width=900,height=900');
-        w.document.write(`
-          <!doctype html><html><head><meta charset="utf-8"><title>Print QR</title>
-          <style>
-            body{margin:0;padding:24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;display:flex;align-items:center;justify-content:center}
-            .wrap{text-align:center}
-            img{max-width:90vw;max-height:75vh;display:block;margin:0 auto}
-            h1{font-size:18px;margin:14px 0 0 0}
-            .muted{color:#555;font-size:12px;margin-top:6px}
-            .link{margin-top:8px;font-size:12px;color:#333;word-break:break-all}
-          </style></head><body>
-            <div class="wrap">
-              <img src="${data}" alt="QR code">
-              ${label ? `<h1>${label.replace(/</g,'&lt;')}</h1>` : ``}
-              <div class="muted">${new Date().toLocaleString()}</div>
-              <div class="link">${(lastEncodedLink||'').replace(/</g,'&lt;')}</div>
-            </div>
-            <script>window.onload=function(){setTimeout(function(){window.print();},150);}<\/script>
-          </body></html>
-        `);
-        w.document.close();
+        const w=window.open('','_blank');
+        w.document.write(`<img src="${data}" style="width:100%">`);
+        w.print();
       }
 
-      document.getElementById('btnMake').addEventListener('click', makeQR);
-      document.getElementById('btnDownload').addEventListener('click', downloadPNG);
-      document.getElementById('btnPrint').addEventListener('click', printQR);
+      btnMake.onclick=makeQR;
+      btnDownload.onclick=downloadPNG;
+      btnPrint.onclick=printQR;
 
-      // show the effective link as you type
-      qrUrl.addEventListener('input', showEffectiveLink);
-
-      // initial render + link preview
-      showEffectiveLink();
-      makeQR();
+      qrId.oninput=()=>buildLink();
     }
 
-    whenQRCodeReady(app);
+    whenReady(app);
   })();
   </script>
 </body>
