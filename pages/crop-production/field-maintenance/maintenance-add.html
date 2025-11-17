@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html
-FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
+FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic + location picker
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -464,6 +464,45 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       margin-top:6px;
     }
     .ed-bottom .grow{ flex:1 1 auto; }
+
+    /* === Map modal (location picker) === */
+    .map-modal-body{
+      padding:14px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      flex:1 1 auto;
+      min-height:0;
+    }
+    .map-modal-body .btn{
+      align-self:flex-start;
+    }
+    .map-shell{
+      border-radius:14px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      background:#000;
+      min-height:260px;
+    }
+    #fvMap{
+      width:100%;
+      height:260px;
+    }
+    @media (min-width:700px){
+      #fvMap{ height:360px; }
+    }
+    .map-footer{
+      padding:8px 10px;
+      background:var(--surface);
+      border-top:1px solid var(--border);
+    }
+    .map-modal-footer{
+      padding:12px 14px;
+      border-top:1px solid var(--border);
+      display:flex;
+      gap:12px;
+      justify-content:flex-end;
+    }
   </style>
 </head>
 <body>
@@ -569,6 +608,17 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
             </div>
           </div>
 
+          <!-- Mark location button -->
+          <div class="row-1">
+            <div class="field">
+              <button id="btnMarkLocation" type="button" class="btn">
+                Mark Location (Optional)
+              </button>
+              <input id="locationLat" type="hidden">
+              <input id="locationLng" type="hidden">
+            </div>
+          </div>
+
           <!-- Notes (with mic) -->
           <div class="row-1">
             <div class="field">
@@ -625,7 +675,35 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
     </div>
   </div>
 
+  <!-- Map modal (no header, Cancel + Save at bottom) -->
+  <div id="mapModal" class="modal" role="dialog" aria-modal="true">
+    <div class="backdrop" data-close></div>
+    <div class="sheet">
+      <div class="map-modal-body">
+        <button id="btnUseLocation" type="button" class="btn">
+          Use my location
+        </button>
+        <div id="mapHelp" class="muted-line">
+          Tap anywhere on the map to drop a pin. Drag the map to move around.
+        </div>
+        <div class="map-shell">
+          <div id="fvMap"></div>
+          <div class="map-footer">
+            <span id="locationStatus" class="muted-line"></span>
+          </div>
+        </div>
+      </div>
+      <footer class="map-modal-footer">
+        <button id="btnCancelLocation" type="button" class="btn btn-quiet">Cancel</button>
+        <button id="btnSaveLocation" type="button" class="btn btn-primary">Save location</button>
+      </footer>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Google Maps JS (same key you confirmed works on dev page) -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 
   <script type="module">
     import {
@@ -1027,6 +1105,114 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       $("btnSave").addEventListener("click", saveMaintenance);
     }
 
+    /* ---- Map / location picker ---- */
+    let map = null;
+    let mapMarker = null;
+    let mapLatLng = null;
+
+    function ensureMap(){
+      if(map) return;
+      const el = $("fvMap");
+      if(!el) return;
+
+      if(!(window.google && window.google.maps)){
+        $("locationStatus").textContent = "Map failed to load. Check your connection.";
+        return;
+      }
+
+      const center = { lat: 39.8283, lng: -98.5795 }; // US center default
+      map = new google.maps.Map(el, {
+        center,
+        zoom: 16,
+        mapTypeId: "satellite",
+        disableDefaultUI: true,
+        zoomControl: true
+      });
+
+      map.addListener("click", (ev)=>{
+        setMapMarker(ev.latLng);
+      });
+    }
+
+    function setMapMarker(latLng){
+      if(!latLng) return;
+      if(!mapMarker){
+        mapMarker = new google.maps.Marker({
+          position: latLng,
+          map
+        });
+      }else{
+        mapMarker.setPosition(latLng);
+      }
+      mapLatLng = latLng;
+      $("locationStatus").textContent = "Pin set. Tap again to move it.";
+    }
+
+    function openMapModal(){
+      const modal = $("mapModal");
+      modal.classList.add("show");
+      document.body.style.overflow = "hidden";
+      ensureMap();
+      if(map && mapLatLng){
+        map.panTo(mapLatLng);
+      }
+    }
+
+    function closeMapModal(){
+      const modal = $("mapModal");
+      modal.classList.remove("show");
+      document.body.style.overflow = "";
+    }
+
+    function setupLocationPicker(){
+      const btnMark = $("btnMarkLocation");
+      const btnUseLocation = $("btnUseLocation");
+      const btnCancelLocation = $("btnCancelLocation");
+      const btnSaveLocation = $("btnSaveLocation");
+      const backdrop = $("mapModal").querySelector(".backdrop");
+
+      if(!btnMark) return;
+
+      btnMark.addEventListener("click", openMapModal);
+
+      backdrop.addEventListener("click", closeMapModal);
+      btnCancelLocation.addEventListener("click", closeMapModal);
+
+      btnUseLocation.addEventListener("click", ()=>{
+        if(!navigator.geolocation){
+          $("locationStatus").textContent = "Geolocation not supported on this device.";
+          return;
+        }
+        $("locationStatus").textContent = "Getting your location…";
+        navigator.geolocation.getCurrentPosition(
+          pos=>{
+            const latLng = new google.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+            ensureMap();
+            if(map){
+              map.panTo(latLng);
+              map.setZoom(18);
+            }
+            setMapMarker(latLng);
+          },
+          ()=>{
+            $("locationStatus").textContent = "Could not get current location. Check permissions.";
+          },
+          { enableHighAccuracy:true, timeout:12000 }
+        );
+      });
+
+      btnSaveLocation.addEventListener("click", ()=>{
+        if(!mapLatLng){
+          $("locationStatus").textContent = "Tap on the map to set a pin before saving.";
+          return;
+        }
+        $("locationLat").value = mapLatLng.lat();
+        $("locationLng").value = mapLatLng.lng();
+        showToast("Location saved.");
+        closeMapModal();
+      });
+    }
+
     async function saveMaintenance(){
       showErr("");
       const btn = $("btnSave");
@@ -1039,6 +1225,8 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
         const priority = Number($("priority").value || 0);
         const notes = $("notes").value.trim();
         const priorityReason = $("priorityReason").value.trim();
+        const lat = $("locationLat").value;
+        const lng = $("locationLng").value;
 
         if(!farmId || !fieldId || !topicId || !notes){
           showErr("Farm, Field, Topic, and Notes are required.");
@@ -1086,6 +1274,13 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
+
+        if(lat && lng){
+          payload.location = {
+            lat: Number(lat),
+            lng: Number(lng)
+          };
+        }
 
         await addDoc(collection(DB, "fieldMaintenance"), payload);
 
@@ -1287,6 +1482,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       setupMic();
       setupFiles();
       setupActions();
+      setupLocationPicker();
 
       // Combos first
       farmCombo = makeCombo({
