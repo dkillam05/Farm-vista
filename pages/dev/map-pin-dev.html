@@ -1,8 +1,12 @@
+<!-- =====================================================================
+/Farm-vista/pages/dev/map-pin-dev.html
+Dev page – Google Maps pin-drop tester using fv-map.js
+===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Map Dev</title>
+  <title>FarmVista • Map Pin Dev</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -26,23 +30,23 @@
     })();
   </script>
 
-  <!-- Map helper -->
-  <script src="/Farm-vista/js/fv-map.js"></script>
-
   <style>
     :root{
-      --card-max:1100px;
-      --page-bottom-gap:96px;
-      --accent:#2F6C3C;
+      --card-max: 1100px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
     }
-    body{ background:var(--app-bg,var(--surface)); }
+
+    body{
+      background: var(--app-bg, var(--surface));
+    }
 
     .wrap{
-      max-width:var(--card-max);
-      margin:0 auto;
-      padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
-      box-sizing:border-box;
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing: border-box;
     }
 
     .hero{
@@ -51,8 +55,9 @@
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
-      margin-bottom:var(--page-bottom-gap);
+      margin-bottom: var(--page-bottom-gap);
     }
+
     .hero-head{
       display:grid;
       grid-template-columns:36px 1fr;
@@ -82,13 +87,15 @@
       gap:14px;
     }
 
-    .mode-row{
+    .controls-row{
       display:flex;
       flex-wrap:wrap;
       gap:10px;
       align-items:center;
+      margin-bottom:4px;
     }
-    .mode-pill{
+
+    .btn-chip{
       display:inline-flex;
       align-items:center;
       justify-content:center;
@@ -96,48 +103,72 @@
       border-radius:999px;
       border:1px solid var(--border);
       background:var(--card-surface,var(--surface));
+      color:var(--text);
       font-weight:800;
       cursor:pointer;
+      user-select:none;
+      text-decoration:none;
+      -webkit-appearance:none;
+      appearance:none;
     }
-    .mode-pill.mode-active{
+    .btn-chip:focus-visible{
+      outline:2px solid var(--accent);
+      outline-offset:2px;
+    }
+
+    .btn-primary-chip{
       background:#2F6C3C;
-      color:#fff !important;
       border-color:#2F6C3C;
+      color:#fff;
     }
 
-    .map-help{
-      font-size:0.9rem;
-      color:var(--muted,#67706B);
-      margin-top:6px;
-    }
-
-    .map-frame{
-      border-radius:14px;
+    .mode-toggle{
+      border-radius:999px;
+      padding:8px 16px;
       border:1px solid var(--border);
       background:var(--card-surface,var(--surface));
-      overflow:hidden;
+      font-weight:700;
+      cursor:pointer;
     }
-    #mapCanvas{
+    .mode-toggle.mode-active{
+      background:#2F6C3C;
+      border-color:#2F6C3C;
+      color:#fff;
+    }
+
+    .map-shell{
+      border-radius:14px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      background:#111;
+    }
+
+    #fvMap{
       width:100%;
       height:360px;
       background:#111;
     }
 
-    .status-line{
-      font-size:0.9rem;
+    .map-footer{
+      padding:10px 12px;
+      background:var(--surface);
+      border-top:1px solid var(--border);
+      font-size:14px;
+    }
+
+    .coord-line{
+      font-weight:700;
+      margin-bottom:4px;
+    }
+
+    .muted-line{
+      font-size:13px;
       color:var(--muted,#67706B);
-      margin-top:6px;
     }
 
-    .row{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px;
+    .field{
+      margin-top:8px;
     }
-    @media (max-width:800px){
-      .row{ grid-template-columns:1fr; }
-    }
-
     .field label{
       display:block;
       font-weight:800;
@@ -147,42 +178,23 @@
       width:100%;
       font:inherit;
       font-size:16px;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:10px;
       padding:10px 12px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
     }
     .input[readonly]{
-      background:var(--card-surface,var(--surface));
+      opacity:0.9;
+      cursor:default;
+    }
+
+    @media (max-width:640px){
+      #fvMap{
+        height:320px;
+      }
     }
   </style>
-
-  <!-- Init callback for Google Maps -->
-  <script>
-    function initMapDev() {
-      if (!window.FVMap || !window.FVMap.initPicker) {
-        console.error("FVMap helper not loaded.");
-        return;
-      }
-      window.FVMap.initPicker({
-        containerId: 'mapCanvas',
-        latInputId: 'lat',
-        lngInputId: 'lng',
-        zoomInputId: 'zoom',
-        statusId: 'statusLine',
-        useLocationBtnId: 'btnUseLocation',
-        mapBtnId: 'btnMap',
-        satBtnId: 'btnSat',
-        initialCenter: { lat: 39.8283, lng: -98.5795 } // center of US
-      });
-    }
-  </script>
-
-  <!-- Google Maps JS (uses your API key) -->
-  <script async
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB3sLBWFDsoZRLmfQ19hKLoH_nMrHEFQME&callback=initMapDev">
-  </script>
 </head>
 <body>
   <fv-shell>
@@ -191,44 +203,62 @@
         <header class="hero-head">
           <div class="icon" aria-hidden="true">📍</div>
           <div>
-            <h1>Map Dev — Pin Drop</h1>
-            <p class="muted">Test dropping a pin, using your location, and switching between map and satellite.</p>
+            <h1>Map Pin Dev</h1>
+            <p class="muted">Test dropping a map pin, using your current location, and saving latitude / longitude values.</p>
           </div>
         </header>
 
         <div class="body">
-          <div class="mode-row">
-            <button id="btnUseLocation" type="button" class="mode-pill">Use my location</button>
-            <button id="btnMap" type="button" class="mode-pill mode-active">Map</button>
-            <button id="btnSat" type="button" class="mode-pill">Satellite</button>
-          </div>
-          <div class="map-help">
-            Tap anywhere on the map to drop a pin. Drag the map to move around.  
-            If “Use my location” doesn’t work, check Safari → Settings → Location for dkillam05.github.io.
+          <div class="controls-row">
+            <button id="btnUseLocation" type="button" class="btn-chip btn-primary-chip">
+              Use my location
+            </button>
+            <button id="btnMapTypeMap" type="button" class="mode-toggle mode-active">Map</button>
+            <button id="btnMapTypeSat" type="button" class="mode-toggle">Satellite</button>
           </div>
 
-          <div class="map-frame">
-            <div id="mapCanvas"></div>
+          <div class="muted-line" id="mapHelp">
+            Tap anywhere on the map to drop a pin. Drag the map to move around.
           </div>
 
-          <div id="statusLine" class="status-line">Waiting for pin…</div>
-
-          <div class="row">
-            <div class="field">
-              <label for="lat">Latitude</label>
-              <input id="lat" class="input" type="text" readonly>
-            </div>
-            <div class="field">
-              <label for="lng">Longitude</label>
-              <input id="lng" class="input" type="text" readonly>
+          <div class="map-shell">
+            <div id="fvMap"></div>
+            <div class="map-footer">
+              <div id="coordLine" class="coord-line">Waiting for pin…</div>
+              <div id="locationStatus" class="muted-line"></div>
             </div>
           </div>
 
-          <!-- Hidden zoom, just in case we want it later -->
-          <input id="zoom" type="hidden">
+          <div class="field">
+            <label for="latField">Latitude</label>
+            <input id="latField" class="input" type="text" readonly value="0.000000">
+          </div>
+
+          <div class="field">
+            <label for="lngField">Longitude</label>
+            <input id="lngField" class="input" type="text" readonly value="0.000000">
+          </div>
         </div>
       </section>
     </div>
   </fv-shell>
+
+  <!-- Map helper (must load before Google Maps script so callback exists) -->
+  <script src="/Farm-vista/js/fv-map.js"></script>
+
+  <!-- Google Maps JavaScript API
+       NOTE: this key is public; keep it locked down to your GitHub Pages domain in Google Cloud. -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&callback=fvMapInit"
+    async
+    defer>
+  </script>
+
+  <!-- Wire fv-shell nav -->
+  <script type="module">
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+    const shell = document.querySelector('fv-shell');
+    if (shell && NAV_MENU) shell.nav = NAV_MENU;
+  </script>
 </body>
 </html>
