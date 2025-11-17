@@ -1485,33 +1485,58 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
 
       try{
         const ref = collection(DB, "fieldMaintenance");
-        const q = query(
-          ref,
-          where("fieldId", "==", fieldId),
-          where("status", "in", ["needs approved", "pending"]),
-          orderBy("createdAt", "desc"),
-          limit(10)
-        );
-        const snap = await getDocs(q);
 
-        if(snap.empty){
+        // Query by status only (auto-indexed), then filter by fieldId + sort in JS
+        const qSnap = await getDocs(
+          query(
+            ref,
+            where("status", "in", ["needs approved", "pending"])
+          )
+        );
+
+        if(qSnap.empty){
           clearWorkOrders("No needs-approved or pending work orders for this field.");
           return;
         }
 
-        const docs = snap.docs.map(d => {
+        const allRows = qSnap.docs.map(d => {
           const data = d.data() || {};
+          const createdAt = data.createdAt || data.dateSubmitted || null;
           return {
             id: d.id,
+            fieldId: data.fieldId || null,
             topic: data.topicLabel || data.topic || "Untitled",
             status: data.status || "unknown",
             priority: typeof data.priority === "number" ? data.priority : null,
             notes: data.notes || "",
-            createdAt: data.createdAt || data.dateSubmitted || null,
+            createdAt,
             submittedBy: (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || "",
             farmName: data.farmName || "",
             fieldName: data.fieldName || ""
           };
+        });
+
+        // Filter down to this field
+        const docs = allRows.filter(r => r.fieldId === fieldId);
+
+        if(!docs.length){
+          clearWorkOrders("No needs-approved or pending work orders for this field.");
+          return;
+        }
+
+        // Sort newest first by createdAt if possible
+        docs.sort((a,b)=>{
+          const getTime = (x)=>{
+            if(!x) return 0;
+            try{
+              if(x.toMillis) return x.toMillis();
+              if(x instanceof Date) return x.getTime();
+              return new Date(x).getTime() || 0;
+            }catch{
+              return 0;
+            }
+          };
+          return getTime(b.createdAt) - getTime(a.createdAt);
         });
 
         listEl.innerHTML = docs.map(row=>{
@@ -1544,7 +1569,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
         statusEl.textContent = `Showing ${docs.length} work order${docs.length===1?"":"s"} for this field (needs approved + pending).`;
       }catch(e){
         console.error("loadRelatedWorkOrders error", e);
-        clearWorkOrders("Error loading related work orders. Check Firestore index.");
+        clearWorkOrders("Error loading related work orders.");
       }
     }
 
