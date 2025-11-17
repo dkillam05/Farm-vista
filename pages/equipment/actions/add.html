@@ -1,10 +1,13 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-13d
+Rev: 2025-11-13e  (QR update)
 Changes in this rev:
  • For TYPE=implement: move the "Type" field (implementType) above Make/Model
  • For TYPE=truck or trailer: relabel Serial # → VIN # (and tweak placeholder)
- • All themes, modules, extras engine, file input, QR flow, etc. unchanged
+ • QR flow updated:
+      - QR codes now point to hub.html?id={equipmentId} (via launch.html?to=…)
+      - No qr-token lookup / ?t= in new QR codes
+      - Equipment doc ID is reserved before QR generation and reused on save
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -464,6 +467,10 @@ Changes in this rev:
     // Will hold whatever the shared equipment-forms.js returns for this form
     let EXTRAS_API = null;
 
+    // NEW: reserve / reuse a single equipment doc ID per "session" of this form
+    // so that the QR can point to hub.html?id={eqRef.id} before save.
+    let eqRef = null;
+
     const state = { pendingChanges:0 };
     const bumpPending = (delta)=>{
       state.pendingChanges = Math.max(0, state.pendingChanges + delta);
@@ -617,17 +624,32 @@ Changes in this rev:
     }
 
     /* QR */
-    let pendingToken = null;
     let pendingQRBlob = null;
-    async function waitQRReady(){ let tries=0; while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){ await new Promise(r=>setTimeout(r,50)); } if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib'); }
-    function smartLaunch(absUrl){ const url = new URL(location.origin + '/Farm-vista/launch.html'); url.searchParams.set('to', absUrl); return url.href; }
-    function randTokenHex(len=24){ const bytes=new Uint8Array(len/2); crypto.getRandomValues(bytes); return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''); }
-    async function canvasToBlob(canvas){ return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png')); }
+    async function waitQRReady(){
+      let tries=0;
+      while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){
+        await new Promise(r=>setTimeout(r,50));
+      }
+      if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib');
+    }
+    function smartLaunch(absUrl){
+      const url = new URL(location.origin + '/Farm-vista/launch.html');
+      url.searchParams.set('to', absUrl);
+      return url.href;
+    }
+    async function canvasToBlob(canvas){
+      return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png'));
+    }
     async function makeQRForUrl(absUrl){
       await waitQRReady();
       const size=256, ecc=window.QRCode.CorrectLevel.H;
       const holder=document.createElement('div');
-      new QRCode(holder,{text:smartLaunch(absUrl),width:size,height:size,colorDark:"#000000",colorLight:"#ffffff",correctLevel:ecc});
+      new QRCode(holder,{
+        text: smartLaunch(absUrl),
+        width:size,height:size,
+        colorDark:"#000000",colorLight:"#ffffff",
+        correctLevel:ecc
+      });
       const node = await new Promise((res,rej)=>{
         const start=Date.now();
         (function check(){
@@ -1163,10 +1185,12 @@ Changes in this rev:
       saving = true; $("btnSave").disabled = true;
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
-      const eqRef = doc(collection(db,'equipment'));
-      const token = pendingToken || randTokenHex(24);
+      if(!eqRef){
+        // Reserve a document ID for this unit if we haven't already
+        const db2 = getFirestore();
+        eqRef = doc(collection(db2,'equipment'));
+      }
       const uniqRef = doc(db, 'equipment-uniq', uniqDocId);
-      const tokenRef = doc(db, 'qr-tokens', token);
 
       let runTransaction;
       try{
@@ -1182,35 +1206,42 @@ Changes in this rev:
               const existingEq = uSnap.data()?.equipmentId;
               if(existingEq && existingEq !== eqRef.id) throw new Error("DUP_UNIQ");
             }
-            const tSnap = await tx.get(tokenRef);
-            if(tSnap.exists()){
-              const boundEq = tSnap.data()?.equipmentId;
-              if(boundEq && boundEq !== eqRef.id) throw new Error("DUP_TOKEN");
-            }
             tx.set(eqRef, {
               ...form,
               status:"active",
-              qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
-              createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
             });
-            tx.set(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
-            tx.set(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+            tx.set(uniqRef, {
+              equipmentId: eqRef.id,
+              makeId: form.makeId,
+              modelId: form.modelId,
+              serial: form.serial,
+              updatedAt: serverTimestamp()
+            });
           });
         } else {
-          const [uSnap, tSnap] = await Promise.all([getDoc(uniqRef), getDoc(tokenRef)]);
-          if(uSnap.exists() && uSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_UNIQ");
-          if(tSnap.exists() && tSnap.data()?.equipmentId !== eqRef.id) throw new Error("DUP_TOKEN");
+          const uSnap = await getDoc(uniqRef);
+          if(uSnap.exists() && uSnap.data()?.equipmentId !== eqRef.id){
+            throw new Error("DUP_UNIQ");
+          }
 
           await setDoc(eqRef, {
             ...form,
             status:"active",
-            qr: { token, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
-            createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
           });
-          await setDoc(uniqRef, { equipmentId: eqRef.id, makeId: form.makeId, modelId: form.modelId, serial: form.serial, updatedAt: serverTimestamp() });
-          await setDoc(tokenRef, { equipmentId: eqRef.id, updatedAt: serverTimestamp() });
+          await setDoc(uniqRef, {
+            equipmentId: eqRef.id,
+            makeId: form.makeId,
+            modelId: form.modelId,
+            serial: form.serial,
+            updatedAt: serverTimestamp()
+          });
         }
 
+        // Upload QR image if we have one
         if(pendingQRBlob){
           try{
             const m = await import('/Farm-vista/js/firebase-init.js');
@@ -1220,7 +1251,7 @@ Changes in this rev:
             await m.uploadBytes(r, pendingQRBlob, { contentType: 'image/png' });
             const url = await m.getDownloadURL(r);
             await updateDoc(eqRef, {
-              qr: { token, image: { path: qrPath, url }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+              qr: { image: { path: qrPath, url }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
               updatedAt: serverTimestamp()
             });
           }catch(qe){
@@ -1254,8 +1285,6 @@ Changes in this rev:
       }catch(err){
         if(err && err.message === "DUP_UNIQ"){
           alert("This Make + Model + Serial/VIN already exists. Duplicate not allowed.");
-        }else if(err && err.message === "DUP_TOKEN"){
-          alert("This QR token is already bound to another unit. Generate a new QR and try again.");
         }else{
           console.error(err);
           alert("Save failed.");
@@ -1284,8 +1313,11 @@ Changes in this rev:
       ddModel.btn.disabled = true; ddModel.search.disabled = true; ddModel.list.innerHTML = "";
 
       $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
-      pendingToken=null;
       pendingQRBlob=null;
+
+      // NEW: after a successful save + reset, start fresh with a new equipment ID next time
+      eqRef = null;
+
       validateForm();
     }
 
@@ -1414,10 +1446,20 @@ Changes in this rev:
 
       $("serial").addEventListener("input", validateForm);
 
+      // NEW: QR now points directly at hub.html?id={equipmentId}
       $("btnQR").addEventListener("click", async ()=>{
-        if(!pendingToken) pendingToken = randTokenHex(24);
-        const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?t=${encodeURIComponent(pendingToken)}`;
-        try{ await makeQRForUrl(hubAbs); }catch(e){ console.error(e); alert("Could not create QR code."); }
+        try{
+          // Reserve an equipment doc ID if we haven't already
+          if(!eqRef){
+            const db2 = getFirestore();
+            eqRef = doc(collection(db2,'equipment'));
+          }
+          const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(eqRef.id)}`;
+          await makeQRForUrl(hubAbs);
+        }catch(e){
+          console.error(e);
+          alert("Could not create QR code.");
+        }
       });
 
       $("btnSave").addEventListener("click", ()=> saveAll(db));
