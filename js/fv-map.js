@@ -1,169 +1,175 @@
-<!-- /Farm-vista/js/fv-map.js -->
-<script>
-// Guard so we don't double-define
+// /Farm-vista/js/fv-map.js
+// Simple helper for Google Maps pin-drop + "Use my location"
+// Exposes: window.FVMap.initPicker(options)
+
 (function () {
-  if (window.FVMap) return;
+  if (window.FVMap) return; // don't double-define
 
   function toNumber(v, fallback) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   }
 
-  window.FVMap = {
-    /**
-     * Create a simple pin-drop picker.
-     *
-     * opts = {
-     *   mapId: "map",
-     *   useLocationBtnId: "btnUseLocation",
-     *   mapModeBtnId: "btnMapMode",
-     *   satModeBtnId: "btnSatMode",
-     *   messageId: "mapMessage",
-     *   latInputId: "lat",
-     *   lngInputId: "lng",
-     *   hiddenFieldId: "latlngHidden" (optional)
-     * }
-     */
-    initPicker(opts) {
-      const mapEl  = document.getElementById(opts.mapId);
-      if (!mapEl || !window.google || !google.maps) {
-        console.error("FVMap.initPicker: Google Maps not ready.");
-        return;
+  function setStatus(el, msg) {
+    if (!el) return;
+    el.textContent = msg || "";
+  }
+
+  function initPicker(opts) {
+    opts = opts || {};
+    const container = document.getElementById(opts.containerId);
+    if (!container || !window.google || !google.maps) {
+      console.error("FVMap.initPicker: container or google.maps missing");
+      return;
+    }
+
+    const latInput   = opts.latInputId   ? document.getElementById(opts.latInputId)   : null;
+    const lngInput   = opts.lngInputId   ? document.getElementById(opts.lngInputId)   : null;
+    const zoomInput  = opts.zoomInputId  ? document.getElementById(opts.zoomInputId)  : null;
+    const statusEl   = opts.statusId     ? document.getElementById(opts.statusId)     : null;
+    const locBtn     = opts.useLocationBtnId ? document.getElementById(opts.useLocationBtnId) : null;
+    const mapBtn     = opts.mapBtnId     ? document.getElementById(opts.mapBtnId)     : null;
+    const satBtn     = opts.satBtnId     ? document.getElementById(opts.satBtnId)     : null;
+
+    const defaultCenter = opts.initialCenter || { lat: 39.8283, lng: -98.5795 }; // center of US
+
+    const startLat = latInput ? toNumber(latInput.value, defaultCenter.lat) : defaultCenter.lat;
+    const startLng = lngInput ? toNumber(lngInput.value, defaultCenter.lng) : defaultCenter.lng;
+    const startZoom = zoomInput ? toNumber(zoomInput.value, 17) : 17;
+
+    const map = new google.maps.Map(container, {
+      center: { lat: startLat, lng: startLng },
+      zoom: startZoom,
+      mapTypeId: google.maps.MapTypeId.ROADMAP,
+      gestureHandling: "greedy"
+    });
+
+    let marker = null;
+
+    function updateInputs(pos, zoom) {
+      if (latInput) latInput.value = pos.lat.toFixed(6);
+      if (lngInput) lngInput.value = pos.lng.toFixed(6);
+      if (zoomInput && typeof zoom === "number") zoomInput.value = String(zoom);
+      setStatus(statusEl, pos.lat.toFixed(6) + ", " + pos.lng.toFixed(6));
+    }
+
+    function placeMarker(pos, zoomOverride) {
+      const latLng = new google.maps.LatLng(pos.lat, pos.lng);
+      if (!marker) {
+        marker = new google.maps.Marker({
+          map,
+          position: latLng
+        });
+      } else {
+        marker.setPosition(latLng);
       }
-
-      const btnUseLoc = document.getElementById(opts.useLocationBtnId);
-      const btnMap    = document.getElementById(opts.mapModeBtnId);
-      const btnSat    = document.getElementById(opts.satModeBtnId);
-      const msgEl     = document.getElementById(opts.messageId);
-      const latEl     = document.getElementById(opts.latInputId);
-      const lngEl     = document.getElementById(opts.lngInputId);
-      const hiddenEl  = opts.hiddenFieldId ? document.getElementById(opts.hiddenFieldId) : null;
-
-      function setMessage(text) {
-        if (!msgEl) return;
-        msgEl.textContent = text || "";
+      if (typeof zoomOverride === "number") {
+        map.setZoom(zoomOverride);
       }
+      map.panTo(latLng);
+      updateInputs({ lat: latLng.lat(), lng: latLng.lng() }, map.getZoom());
+    }
 
-      // Default center = US center-ish
-      const defaultCenter = { lat: 39.8283, lng: -98.5795 };
+    // If we already had lat/lng in the inputs, show that marker.
+    if (latInput && lngInput && latInput.value && lngInput.value) {
+      const lat = toNumber(latInput.value, defaultCenter.lat);
+      const lng = toNumber(lngInput.value, defaultCenter.lng);
+      placeMarker({ lat, lng }, startZoom);
+    } else {
+      updateInputs({ lat: startLat, lng: startLng }, startZoom);
+    }
 
-      const map = new google.maps.Map(mapEl, {
-        center: defaultCenter,
-        zoom: 15,
-        mapTypeId: google.maps.MapTypeId.SATELLITE,
-        gestureHandling: "greedy",
-        fullscreenControl: false,
-        streetViewControl: false,
-        mapTypeControl: false
-      });
+    // Clicking on map drops/moves the pin
+    map.addListener("click", (e) => {
+      if (!e || !e.latLng) return;
+      const pos = e.latLng.toJSON ? e.latLng.toJSON() : { lat: e.latLng.lat(), lng: e.latLng.lng() };
+      placeMarker(pos);
+    });
 
-      let marker = null;
+    // Watch zoom changes
+    map.addListener("zoom_changed", () => {
+      if (!marker) return;
+      const pos = marker.getPosition();
+      if (!pos) return;
+      updateInputs({ lat: pos.lat(), lng: pos.lng() }, map.getZoom());
+    });
 
-      function updateOutputs(latLng) {
-        const lat = latLng.lat();
-        const lng = latLng.lng();
-        if (latEl) latEl.value = lat.toFixed(6);
-        if (lngEl) lngEl.value = lng.toFixed(6);
-        if (hiddenEl) hiddenEl.value = `${lat},${lng}`;
-      }
-
-      function placeMarker(latLng, fromUserClick) {
-        if (!marker) {
-          marker = new google.maps.Marker({
-            position: latLng,
-            map,
-            draggable: false
-          });
-        } else {
-          marker.setPosition(latLng);
-        }
-        updateOutputs(latLng);
-        if (fromUserClick) {
-          setMessage("Pin dropped. You can adjust by tapping a new spot.");
-        }
-      }
-
-      // Restore from existing values if present
-      if (latEl && lngEl && latEl.value && lngEl.value) {
-        const lat = toNumber(latEl.value, NaN);
-        const lng = toNumber(lngEl.value, NaN);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          const ll = new google.maps.LatLng(lat, lng);
-          map.setCenter(ll);
-          placeMarker(ll, false);
-        }
-      }
-
-      // Click to drop pin
-      map.addListener("click", (e) => {
-        placeMarker(e.latLng, true);
-      });
-
-      // Use my location
-      if (btnUseLoc && "geolocation" in navigator) {
-        btnUseLoc.addEventListener("click", () => {
-          setMessage("Locating…");
+    // "Use my location" button
+    if (locBtn) {
+      if (!("geolocation" in navigator)) {
+        locBtn.disabled = true;
+        setStatus(statusEl, "Geolocation not supported on this device.");
+      } else {
+        locBtn.disabled = false;
+        locBtn.addEventListener("click", () => {
+          setStatus(statusEl, "Getting current location…");
           navigator.geolocation.getCurrentPosition(
             (pos) => {
               const coords = {
                 lat: pos.coords.latitude,
                 lng: pos.coords.longitude
               };
-              const ll = new google.maps.LatLng(coords.lat, coords.lng);
-              map.setCenter(ll);
-              map.setZoom(18);
-              placeMarker(ll, false);
-              setMessage("Location found. Pin placed at your current position.");
+              placeMarker(coords, 18);
             },
             (err) => {
-              console.warn("Geolocation error", err);
-              if (err.code === 1) {
-                setMessage("Location permission denied. Check Safari → Settings → Location for this site.");
-              } else if (err.code === 2) {
-                setMessage("Location unavailable. Move to an open area or check signal.");
+              console.warn("Geo error", err);
+              if (err && err.code === 1) {
+                setStatus(
+                  statusEl,
+                  "Location blocked. Check Safari/Browser location settings for dkillam05.github.io."
+                );
+              } else if (err && err.message) {
+                setStatus(statusEl, "Could not get current location: " + err.message);
               } else {
-                setMessage("Could not get current location.");
+                setStatus(statusEl, "Could not get current location.");
               }
             },
             {
               enableHighAccuracy: true,
               timeout: 15000,
-              maximumAge: 10000
+              maximumAge: 0
             }
           );
         });
-      } else if (btnUseLoc) {
-        btnUseLoc.disabled = true;
-        setMessage("This browser does not support location.");
       }
+    }
 
-      // Map / Satellite toggle
+    // Map / Satellite toggle
+    if (mapBtn && satBtn) {
+      const ACTIVE = "mode-active";
+
       function setMode(mode) {
-        if (!map) return;
-        if (mode === "map") {
-          map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
-          btnMap && btnMap.classList.add("map-mode-active");
-          btnSat && btnSat.classList.remove("map-mode-active");
-        } else {
+        if (mode === "sat") {
           map.setMapTypeId(google.maps.MapTypeId.SATELLITE);
-          btnSat && btnSat.classList.add("map-mode-active");
-          btnMap && btnMap.classList.remove("map-mode-active");
+          satBtn.classList.add(ACTIVE);
+          mapBtn.classList.remove(ACTIVE);
+        } else {
+          map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+          mapBtn.classList.add(ACTIVE);
+          satBtn.classList.remove(ACTIVE);
         }
       }
 
-      if (btnMap) {
-        btnMap.addEventListener("click", () => setMode("map"));
-      }
-      if (btnSat) {
-        btnSat.addEventListener("click", () => setMode("sat"));
-      }
+      mapBtn.addEventListener("click", () => setMode("map"));
+      satBtn.addEventListener("click", () => setMode("map"));
 
-      // Default to satellite (field view)
-      setMode("sat");
+      satBtn.addEventListener("click", () => setMode("sat"));
 
-      // Expose the map + marker in case we want it later
-      return { map, getMarker: () => marker };
+      // default mode
+      setMode("map");
     }
+
+    return {
+      getMap() {
+        return map;
+      },
+      getMarker() {
+        return marker;
+      }
+    };
+  }
+
+  window.FVMap = {
+    initPicker
   };
 })();
-</script>
