@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Approve Field Maintenance Work Orders</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    .page-header {
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      margin-bottom:18px;
+    }
+
+    .page-header-meta {
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    .wo-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .wo-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .wo-card {
+      position:relative;
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      cursor:pointer;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+    }
+    .wo-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-main {
+      flex:1 1 auto;
+      min-width:0;
+    }
+
+    .wo-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .wo-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .wo-meta-label {
+      font-weight:600;
+    }
+
+    /* Pill toggle */
+    .wo-toggle-wrap {
+      flex:0 0 auto;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:4px;
+      padding-left:4px;
+    }
+
+    .pill-label {
+      font-size:0.76rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.8;
+    }
+
+    .pill-toggle {
+      position:relative;
+      width:46px;
+      height:26px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--border) 70%, var(--surface) 30%);
+      border:1px solid var(--border);
+      display:inline-flex;
+      align-items:center;
+      padding:2px;
+      box-sizing:border-box;
+      transition:background .16s, border-color .16s;
+    }
+
+    .pill-toggle-thumb {
+      position:relative;
+      width:20px;
+      height:20px;
+      border-radius:999px;
+      background:var(--card-surface, #fff);
+      box-shadow:0 1px 2px rgba(0,0,0,.35);
+      transform:translateX(0);
+      transition:transform .16s;
+    }
+
+    .pill-toggle[data-on="true"] {
+      background:var(--accent, var(--green, #3B7E46));
+      border-color:var(--accent, var(--green, #3B7E46));
+    }
+
+    .pill-toggle[data-on="true"] .pill-toggle-thumb {
+      transform:translateX(18px);
+    }
+
+    .pill-toggle-input {
+      position:absolute;
+      inset:0;
+      opacity:0;
+      cursor:pointer;
+    }
+
+    /* Detail panel */
+    .wo-detail-panel {
+      margin-top:18px;
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .wo-detail-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-detail-title {
+      font-weight:700;
+      font-size:1rem;
+    }
+
+    .wo-detail-close {
+      border:none;
+      outline:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+    }
+
+    .wo-detail-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:6px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+    @media (min-width:700px) {
+      .wo-detail-grid {
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .wo-detail-item-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .wo-detail-item-value {
+      font-size:0.92rem;
+    }
+
+    .wo-detail-notes {
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+
+    .wo-detail-notes-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .wo-detail-notes-body {
+      margin-top:2px;
+    }
+
+    .wo-detail-footer {
+      margin-top:10px;
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .wo-detail-pill {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Google Maps for detail location (optional) -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, query, where, orderBy,
+      onSnapshot, updateDoc, doc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'fieldMaintenance', // same as maintenance-add.html
+      STATUS_FIELD:   'status',
+      NEEDS_APPROVAL_STATUS: 'needs approved', // EXACT string used in maintenance-add
+      PENDING_STATUS: 'pending'
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const STATE = {
+      items: [],
+      selectedId: null
+    };
+
+    function renderList(){
+      const listEl = $('.wo-list');
+      const emptyEl = $('.wo-empty');
+      listEl.innerHTML = '';
+
+      if(!STATE.items.length){
+        emptyEl.style.display = 'block';
+        const countEl = $('#woCount');
+        if(countEl) countEl.textContent = '0 needing approval';
+        return;
+      }
+      emptyEl.style.display = 'none';
+
+      for(const item of STATE.items){
+        const data = item.data;
+        const id   = item.id;
+
+        const field = data.fieldName || data.field || 'Field not set';
+        const farm  = data.farmName  || data.farm  || '';
+        const topic = data.topicLabel || data.topic || data.category || data.title || 'Maintenance';
+        const priority = data.priority ?? data.priorityLevel ?? null;
+        const equip = data.equipmentName || data.equipment || '';
+        const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || data.createdByName || data.createdBy || '';
+        const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
+        const when = ts && ts.toDate ? ts.toDate() : null;
+
+        const li = document.createElement('article');
+        li.className = 'wo-card';
+        li.dataset.id = id;
+
+        li.innerHTML = `
+          <div class="wo-row-top">
+            <div class="wo-main">
+              <div class="wo-title">
+                ${field ? `<span>${field}</span>` : 'Maintenance Work Order'}
+                ${farm ? ` · <span>${farm}</span>` : ''}
+              </div>
+              <div class="wo-sub">
+                ${topic}
+              </div>
+              <div class="wo-meta">
+                ${priority !== null ? `
+                  <span><span class="wo-meta-label">Priority</span> ${priority}</span>
+                ` : ''}
+                ${equip ? `
+                  <span><span class="wo-meta-label">Equip</span> ${equip}</span>
+                ` : ''}
+                ${createdBy ? `
+                  <span><span class="wo-meta-label">By</span> ${createdBy}</span>
+                ` : ''}
+                ${when ? `
+                  <span><span class="wo-meta-label">Created</span> ${when.toLocaleDateString()}</span>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="wo-toggle-wrap">
+              <div class="pill-label">Pending</div>
+              <div class="pill-toggle" data-on="false">
+                <div class="pill-toggle-thumb"></div>
+                <input class="pill-toggle-input" type="checkbox" aria-label="Mark work order as pending" />
+              </div>
+            </div>
+          </div>
+        `;
+
+        // Card click → show details
+        li.addEventListener('click', () => {
+          STATE.selectedId = id;
+          renderDetails();
+        });
+
+        // Prevent card click when toggling
+        const input = $('.pill-toggle-input', li);
+        input.addEventListener('click', (ev) => ev.stopPropagation());
+        input.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          const on = ev.target.checked;
+          const pill = ev.target.closest('.pill-toggle');
+          pill.dataset.on = on ? 'true' : 'false';
+
+          if(on){
+            // Change status → pending, then remove from list for speed
+            try{
+              await updateDoc(doc(getFirestore(), CONFIG.COLLECTION_PATH, id), {
+                [CONFIG.STATUS_FIELD]: CONFIG.PENDING_STATUS
+              });
+              // Optimistically drop from UI
+              STATE.items = STATE.items.filter(x => x.id !== id);
+              if(STATE.selectedId === id){
+                STATE.selectedId = null;
+                clearDetails();
+              }
+              renderList();
+            }catch(err){
+              console.error('Failed to update status:', err);
+              // revert UI
+              pill.dataset.on = 'false';
+              ev.target.checked = false;
+              alert('Could not update work order status. Please try again.');
+            }
+          }
+        });
+
+        listEl.appendChild(li);
+      }
+
+      // Update count
+      const countEl = $('#woCount');
+      if(countEl){
+        countEl.textContent = `${STATE.items.length} needing approval`;
+      }
+    }
+
+    function clearDetails(){
+      const panel = $('.wo-detail-panel');
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      $('.wo-detail-title', panel).textContent = 'Work Order Details';
+      $('.wo-detail-grid', panel).innerHTML = '';
+      $('.wo-detail-notes-body', panel).textContent = '';
+      $('.wo-detail-footer', panel).innerHTML = '';
+    }
+
+    let detailMap = null;
+    let detailMarker = null;
+
+    function renderDetails(){
+      const panel = $('.wo-detail-panel');
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){
+        clearDetails();
+        return;
+      }
+
+      const data = item.data;
+      const field = data.fieldName || data.field || 'Field not set';
+      const farm  = data.farmName  || data.farm  || '';
+      const topic = data.topicLabel || data.topic || data.category || data.title || 'Maintenance';
+      const priority = data.priority ?? data.priorityLevel ?? null;
+      const equip = data.equipmentName || data.equipment || '';
+      const acres = data.acres || data.area || null;
+      const status = data[CONFIG.STATUS_FIELD] || '';
+      const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || data.createdByName || data.createdBy || '';
+      const when = (data.createdAt && data.createdAt.toDate) ? data.createdAt.toDate()
+                 : (data.dateSubmitted && data.dateSubmitted.toDate) ? data.dateSubmitted.toDate()
+                 : (data.timestamp && data.timestamp.toDate) ? data.timestamp.toDate()
+                 : null;
+      const notes = data.notes || data.description || '';
+
+      panel.dataset.id = item.id;
+      $('.wo-detail-title', panel).textContent =
+        farm ? `${field} · ${farm}` : field;
+
+      const grid = $('.wo-detail-grid', panel);
+      grid.innerHTML = `
+        <div>
+          <div class="wo-detail-item-label">Topic</div>
+          <div class="wo-detail-item-value">${topic}</div>
+        </div>
+        ${equip ? `
+        <div>
+          <div class="wo-detail-item-label">Equipment</div>
+          <div class="wo-detail-item-value">${equip}</div>
+        </div>` : ''}
+        ${priority !== null ? `
+        <div>
+          <div class="wo-detail-item-label">Priority</div>
+          <div class="wo-detail-item-value">${priority}</div>
+        </div>` : ''}
+        ${acres !== null ? `
+        <div>
+          <div class="wo-detail-item-label">Acres / Area</div>
+          <div class="wo-detail-item-value">${acres}</div>
+        </div>` : ''}
+        ${createdBy ? `
+        <div>
+          <div class="wo-detail-item-label">Submitted By</div>
+          <div class="wo-detail-item-value">${createdBy}</div>
+        </div>` : ''}
+        ${when ? `
+        <div>
+          <div class="wo-detail-item-label">Submitted</div>
+          <div class="wo-detail-item-value">${when.toLocaleString()}</div>
+        </div>` : ''}
+      `;
+
+      $('.wo-detail-notes-body', panel).textContent = notes || 'No additional notes recorded.';
+
+      const footer = $('.wo-detail-footer', panel);
+      footer.innerHTML = `
+        Current status:
+        <span class="wo-detail-pill">${status || 'unknown'}</span>
+      `;
+
+      // Map support if location exists
+      const loc = data.location;
+      const mapShell = $('#woDetailMapShell');
+      if(
+        loc &&
+        typeof loc.lat === 'number' &&
+        typeof loc.lng === 'number' &&
+        window.google &&
+        window.google.maps
+      ){
+        mapShell.style.display = '';
+        const el = $('#woDetailMap');
+        const center = { lat: loc.lat, lng: loc.lng };
+
+        if(!detailMap){
+          detailMap = new google.maps.Map(el, {
+            center,
+            zoom: 18,
+            mapTypeId: 'satellite',
+            disableDefaultUI: true,
+            zoomControl: true
+          });
+          detailMarker = new google.maps.Marker({
+            position: center,
+            map: detailMap
+          });
+        }else{
+          detailMap.setCenter(center);
+          detailMap.setZoom(18);
+          detailMap.setMapTypeId('satellite');
+          if(!detailMarker){
+            detailMarker = new google.maps.Marker({
+              position: center,
+              map: detailMap
+            });
+          }else{
+            detailMarker.setPosition(center);
+          }
+        }
+      }else{
+        mapShell.style.display = 'none';
+      }
+
+      panel.style.display = 'flex';
+    }
+
+    ready().then(() => {
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      const db = getFirestore();
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      const q = query(
+        ref,
+        where(CONFIG.STATUS_FIELD, '==', CONFIG.NEEDS_APPROVAL_STATUS),
+        orderBy('createdAt', 'desc')
+      );
+
+      onSnapshot(q, (snap) => {
+        STATE.items = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+        renderList();
+        if(STATE.selectedId){
+          const stillThere = STATE.items.some(x => x.id === STATE.selectedId);
+          if(!stillThere){
+            STATE.selectedId = null;
+            clearDetails();
+          }else{
+            renderDetails();
+          }
+        }
+      });
+
+      const closeBtn = $('#woDetailClose');
+      closeBtn.addEventListener('click', () => {
+        STATE.selectedId = null;
+        clearDetails();
+      });
+    });
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="page container">
+
+      <header class="page-header">
+        <h1 class="page-title">Approve Field Maintenance Work Orders</h1>
+        <div class="page-sub">
+          Review all work orders that are currently saved with status
+          <strong>“needs approved”</strong>. Slide the pill to mark a work order
+          as <strong>Pending</strong> – it will drop from this list so you can
+          approve in bulk.
+        </div>
+        <div class="page-header-meta" id="woCount">
+          0 needing approval
+        </div>
+      </header>
+
+      <section aria-label="Work orders needing approval">
+        <div class="wo-empty">
+          No work orders currently have status “needs approved”.
+          New work orders that require your approval will appear here automatically.
+        </div>
+        <div class="wo-list"></div>
+      </section>
+
+      <section class="wo-detail-panel" aria-label="Work order details">
+        <div class="wo-detail-header">
+          <div class="wo-detail-title">Work Order Details</div>
+          <button type="button" id="woDetailClose" class="wo-detail-close">
+            Close
+          </button>
+        </div>
+
+        <div class="wo-detail-grid">
+          <!-- filled by JS -->
+        </div>
+
+        <div class="wo-detail-notes">
+          <div class="wo-detail-notes-label">Notes</div>
+          <div class="wo-detail-notes-body"></div>
+        </div>
+
+        <div class="wo-detail-footer">
+          <!-- status pill by JS -->
+        </div>
+
+        <div id="woDetailMapShell" style="display:none; margin-top:10px;">
+          <div id="woDetailMap" style="width:100%;height:220px;border-radius:12px;border:1px solid var(--border);overflow:hidden;"></div>
+        </div>
+      </section>
+
+    </div>
+  </fv-shell>
+</body>
+</html>
