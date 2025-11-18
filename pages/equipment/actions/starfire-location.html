@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/starfire-location.html
-Template – StarFire location moves (who/when/where)
+StarFire location moves (wired to Firestore)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -22,6 +22,9 @@ Template – StarFire location moves (who/when/where)
 
   <!-- Shell (header/footer/drawer) -->
   <script src="/Farm-vista/js/fv-shell.js"></script>
+
+  <!-- Firebase init (assumes this sets up global `firebase`) -->
+  <script src="/Farm-vista/js/firebase-init.js"></script>
 
   <style>
     :root{ --page-bottom-gap:56px; }
@@ -150,6 +153,17 @@ Template – StarFire location moves (who/when/where)
       color:var(--muted,#747C74);
       margin-top:6px;
     }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:11px;
+      background:var(--surface-soft,#F4F5F1);
+      color:var(--muted,#6B726C);
+    }
   </style>
 </head>
 <body>
@@ -169,10 +183,10 @@ Template – StarFire location moves (who/when/where)
           <label for="starfireSelect">StarFire Receiver</label>
           <select id="starfireSelect">
             <option value="">Select a receiver…</option>
-            <!-- TODO: populate from Firestore "equipment" where type=starfire -->
+            <!-- Populated from Firestore: equipment where type="starfire" -->
           </select>
           <div class="small-note">
-            TODO: Load StarFire receivers from the database (e.g., equipment where <code>type="starfire"</code>).
+            Loaded from <span class="pill">equipment (type = "starfire")</span>.
           </div>
         </div>
 
@@ -191,7 +205,10 @@ Template – StarFire location moves (who/when/where)
       <!-- Current / last-known location -->
       <section class="card">
         <h2>Current Location</h2>
-        <p class="sub">Pulled from the last logged move for this receiver.</p>
+        <p class="sub">
+          Pulled from the last logged move for this receiver (or the StarFire document’s
+          <code>starfireMountedOn</code> field if present).
+        </p>
 
         <div class="two-col">
           <div class="field-row">
@@ -226,10 +243,10 @@ Template – StarFire location moves (who/when/where)
             <label for="equipmentSelect">New Equipment Location</label>
             <select id="equipmentSelect" required>
               <option value="">Select equipment…</option>
-              <!-- TODO: populate from equipment where gpsCapable == true and (status=active) -->
+              <!-- Populated from equipment where gpsCapable == true -->
             </select>
             <div class="small-note">
-              TODO: Load only equipment with GPS-capable slider ON (e.g., <code>gpsCapable = true</code>).
+              Loaded from <span class="pill">equipment (gpsCapable = true)</span> and not archived.
             </div>
           </div>
 
@@ -238,7 +255,7 @@ Template – StarFire location moves (who/when/where)
               <label for="movedBy">Moved By</label>
               <input id="movedBy" type="text" autocomplete="off" placeholder="Auto-fill from logged-in user" />
               <div class="small-note">
-                TODO: Default to current FV user (e.g., from FVUserContext).
+                Defaults to the current FV user (if available).
               </div>
             </div>
 
@@ -246,7 +263,7 @@ Template – StarFire location moves (who/when/where)
               <label for="movedAt">Move Date &amp; Time</label>
               <input id="movedAt" type="datetime-local"/>
               <div class="small-note">
-                If left blank, you can default this to "now" in JS when saving.
+                If left blank, will default to “now” when saving.
               </div>
             </div>
           </div>
@@ -270,10 +287,56 @@ Template – StarFire location moves (who/when/where)
   </fv-shell>
 
   <script>
-    // Basic template wiring – no Firestore calls yet.
-    // This is intentionally light so it doesn’t break anything.
+    // ==============================
+    // Helpers
+    // ==============================
+    function fmtDateTime(dt) {
+      if (!dt) return '—';
+      try {
+        if (dt.toDate) dt = dt.toDate(); // Firestore Timestamp
+        const pad = n => String(n).padStart(2,'0');
+        const y = dt.getFullYear();
+        const m = pad(dt.getMonth()+1);
+        const d = pad(dt.getDate());
+        const hh = pad(dt.getHours());
+        const mm = pad(dt.getMinutes());
+        return y + '-' + m + '-' + d + ' ' + hh + ':' + mm;
+      } catch(e){
+        return '—';
+      }
+    }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    function toDateTimeLocalValue(date){
+      const pad = n => String(n).padStart(2,'0');
+      const y = date.getFullYear();
+      const m = pad(date.getMonth()+1);
+      const d = pad(date.getDate());
+      const hh = pad(date.getHours());
+      const mm = pad(date.getMinutes());
+      return y + '-' + m + '-' + d + 'T' + hh + ':' + mm;
+    }
+
+    function showToast(msg, type){
+      // Try to use your existing toast system if present
+      if (window.FVToast && typeof FVToast.show === 'function') {
+        FVToast.show(msg, type || 'info');
+      } else {
+        alert(msg);
+      }
+    }
+
+    // ==============================
+    // Main wiring
+    // ==============================
+    document.addEventListener('DOMContentLoaded', async () => {
+      if (!window.firebase || !firebase.firestore) {
+        console.error('Firebase / Firestore not available. Check firebase-init.js.');
+        showToast('Could not connect to database (Firebase not loaded).', 'error');
+        return;
+      }
+
+      const db = firebase.firestore();
+
       const starfireSelect   = document.getElementById('starfireSelect');
       const equipmentSelect  = document.getElementById('equipmentSelect');
       const moveForm         = document.getElementById('moveForm');
@@ -289,87 +352,284 @@ Template – StarFire location moves (who/when/where)
       const movedAtInput     = document.getElementById('movedAt');
       const notesInput       = document.getElementById('notes');
 
-      // TODO: replace this with real data pulls.
-      // For now, keep a simple in-memory example so the page "feels alive".
-      const demoStarfires = [
-        { id: 'sf-1', name: 'SF6000 #1', serial: 'JD-SF6000-001' },
-        { id: 'sf-2', name: 'SF6000 #2', serial: 'JD-SF6000-002' }
-      ];
-      const demoEquipment = [
-        { id: 'eq-8r',   label: '8R 370 – Tractor', gpsCapable: true },
-        { id: 'eq-s780', label: 'S780 – Combine',   gpsCapable: true },
-        { id: 'eq-6r',   label: '6R 155 – Tractor', gpsCapable: true }
-      ];
+      // Maps so we can get doc data by id later
+      const starfireMap  = new Map(); // id -> { id, data }
+      const equipmentMap = new Map(); // id -> { id, data }
 
-      // Populate dropdowns (temp demo).
-      demoStarfires.forEach(sf => {
-        const opt = document.createElement('option');
-        opt.value = sf.id;
-        opt.textContent = sf.name;
-        starfireSelect.appendChild(opt);
-      });
-      demoEquipment.forEach(eq => {
-        const opt = document.createElement('option');
-        opt.value = eq.id;
-        opt.textContent = eq.label;
-        equipmentSelect.appendChild(opt);
-      });
+      // Prefill "Moved By" from FVUserContext if available
+      try {
+        if (window.FVUserContext && window.FVUserContext.displayName) {
+          movedByInput.value = window.FVUserContext.displayName;
+        } else if (firebase.auth && firebase.auth().currentUser) {
+          const u = firebase.auth().currentUser;
+          movedByInput.value = u.displayName || u.email || '';
+        }
+      } catch(e){
+        console.warn('Could not prefill movedBy from context:', e);
+      }
 
-      // When a StarFire receiver is picked, fake-fill the "current location" section.
-      starfireSelect.addEventListener('change', () => {
-        const id = starfireSelect.value;
-        const sf = demoStarfires.find(x => x.id === id);
-        if (!sf) {
-          sfName.textContent = '—';
-          sfSerial.textContent = '—';
-          currentEquipment.textContent = 'Not assigned';
-          lastMovedAt.textContent = '—';
-          lastMovedBy.textContent = '—';
-          lastNotes.textContent = '—';
+      // Prefill move time with "now"
+      movedAtInput.value = toDateTimeLocalValue(new Date());
+
+      // ------------------------------
+      // Load StarFire receivers
+      // ------------------------------
+      async function loadStarfireReceivers(){
+        starfireSelect.innerHTML = '<option value="">Select a receiver…</option>';
+        starfireMap.clear();
+
+        try {
+          const snap = await db.collection('equipment')
+            .where('type','==','starfire')
+            .get();
+
+          snap.forEach(doc => {
+            const data = doc.data() || {};
+            // Skip archived if you use that flag
+            if (data.archived === true || data.isArchived === true) return;
+
+            const id = doc.id;
+            starfireMap.set(id, { id, data });
+
+            const name = data.nickname || data.displayName || data.name || data.equipName || ('StarFire ' + id.slice(0,6));
+            const opt  = document.createElement('option');
+            opt.value = id;
+            opt.textContent = name;
+            starfireSelect.appendChild(opt);
+          });
+        } catch(err){
+          console.error('Error loading StarFire receivers:', err);
+          showToast('Error loading StarFire receivers.', 'error');
+        }
+      }
+
+      // ------------------------------
+      // Load GPS-capable equipment
+      // ------------------------------
+      async function loadGpsEquipment(){
+        equipmentSelect.innerHTML = '<option value="">Select equipment…</option>';
+        equipmentMap.clear();
+
+        try {
+          const snap = await db.collection('equipment')
+            .where('gpsCapable','==', true)
+            .get();
+
+          snap.forEach(doc => {
+            const data = doc.data() || {};
+            if (data.archived === true || data.isArchived === true) return;
+
+            const id = doc.id;
+            equipmentMap.set(id, { id, data });
+
+            const labelParts = [];
+            // Try to build a decent label regardless of field naming
+            if (data.nickname) labelParts.push(data.nickname);
+            if (data.make)     labelParts.push(data.make);
+            if (data.model)    labelParts.push(data.model);
+            if (!labelParts.length && data.displayName) labelParts.push(data.displayName);
+            if (!labelParts.length && data.name)        labelParts.push(data.name);
+            const label = labelParts.join(' – ') || ('Equipment ' + id.slice(0,6));
+
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = label;
+            equipmentSelect.appendChild(opt);
+          });
+        } catch(err){
+          console.error('Error loading GPS-capable equipment:', err);
+          showToast('Error loading equipment.', 'error');
+        }
+      }
+
+      // ------------------------------
+      // Fill "current location" block
+      // ------------------------------
+      function clearCurrentLocation(){
+        currentEquipment.textContent = 'Not assigned';
+        lastMovedAt.textContent      = '—';
+        lastMovedBy.textContent      = '—';
+        lastNotes.textContent        = '—';
+      }
+
+      async function loadCurrentLocation(starfireId){
+        clearCurrentLocation();
+        const sf = starfireMap.get(starfireId);
+        if (!sf) return;
+
+        const data = sf.data || {};
+
+        // Try document-level "starfireMountedOn" first
+        if (data.starfireMountedOn) {
+          const m = data.starfireMountedOn;
+          currentEquipment.textContent = m.equipmentLabel || 'Unknown equipment';
+          lastMovedAt.textContent      = fmtDateTime(m.movedAt ? (m.movedAt.toDate ? m.movedAt : m.movedAt) : null);
+          lastMovedBy.textContent      = m.movedBy || '—';
+          lastNotes.textContent        = m.notes || '—';
           return;
         }
 
-        sfName.textContent = sf.name;
-        sfSerial.textContent = sf.serial;
+        // Otherwise, look at starfireMoves collection, most recent
+        try {
+          const snap = await db.collection('starfireMoves')
+            .where('receiverId','==', starfireId)
+            .orderBy('movedAt','desc')
+            .limit(1)
+            .get();
 
-        // TODO: load from Firestore move-history for this receiver.
-        currentEquipment.textContent = 'Example: 8R 370 – Tractor';
-        lastMovedAt.textContent = '2025-03-01 08:32';
-        lastMovedBy.textContent = 'Dane K.';
-        lastNotes.textContent = 'Moved from 6R to 8R for strip-till.';
+          if (snap.empty) {
+            clearCurrentLocation();
+            return;
+          }
+
+          const doc  = snap.docs[0];
+          const move = doc.data() || {};
+
+          currentEquipment.textContent = move.equipmentLabel || 'Unknown equipment';
+          lastMovedAt.textContent      = fmtDateTime(move.movedAt);
+          lastMovedBy.textContent      = move.movedBy || '—';
+          lastNotes.textContent        = move.notes || '—';
+        } catch(err){
+          console.error('Error loading last move:', err);
+          showToast('Error loading last move for this receiver.', 'error');
+        }
+      }
+
+      // ------------------------------
+      // StarFire selection change
+      // ------------------------------
+      starfireSelect.addEventListener('change', () => {
+        const id = starfireSelect.value;
+        if (!id) {
+          sfName.textContent   = '—';
+          sfSerial.textContent = '—';
+          clearCurrentLocation();
+          return;
+        }
+
+        const sf = starfireMap.get(id);
+        if (!sf) {
+          sfName.textContent   = '—';
+          sfSerial.textContent = '—';
+          clearCurrentLocation();
+          return;
+        }
+
+        const data = sf.data || {};
+        const name = data.nickname || data.displayName || data.name || data.equipName || ('StarFire ' + id.slice(0,6));
+        const serial = data.serial || data.serialNumber || data.vin || data.sn || '—';
+
+        sfName.textContent   = name;
+        sfSerial.textContent = serial;
+
+        loadCurrentLocation(id);
       });
 
-      moveForm.addEventListener('submit', (e) => {
+      // ------------------------------
+      // Save move
+      // ------------------------------
+      moveForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
         const receiverId = starfireSelect.value;
         const equipmentId = equipmentSelect.value;
 
         if (!receiverId) {
-          alert('Please select a StarFire receiver.');
+          showToast('Please select a StarFire receiver first.', 'error');
           return;
         }
         if (!equipmentId) {
-          alert('Please select new equipment.');
+          showToast('Please select the new equipment location.', 'error');
           return;
         }
 
+        const sf = starfireMap.get(receiverId);
+        const eq = equipmentMap.get(equipmentId);
+
+        const sfData = sf ? (sf.data || {}) : {};
+        const eqData = eq ? (eq.data || {}) : {};
+
+        const receiverName = sfName.textContent || sfData.nickname || sfData.displayName || sfData.name || '';
+        const receiverSerial = sfSerial.textContent || sfData.serial || sfData.serialNumber || sfData.vin || '';
+
+        const labelParts = [];
+        if (eqData.nickname) labelParts.push(eqData.nickname);
+        if (eqData.make)     labelParts.push(eqData.make);
+        if (eqData.model)    labelParts.push(eqData.model);
+        if (!labelParts.length && eqData.displayName) labelParts.push(eqData.displayName);
+        if (!labelParts.length && eqData.name)        labelParts.push(eqData.name);
+        const equipmentLabel = labelParts.join(' – ') || ('Equipment ' + equipmentId.slice(0,6));
+
+        let movedBy = movedByInput.value.trim();
+        if (!movedBy) {
+          if (window.FVUserContext && window.FVUserContext.displayName) {
+            movedBy = window.FVUserContext.displayName;
+          } else if (firebase.auth && firebase.auth().currentUser) {
+            const u = firebase.auth().currentUser;
+            movedBy = u.displayName || u.email || '';
+          }
+        }
+
+        let movedAtStr = movedAtInput.value;
+        let movedAtDate;
+        if (movedAtStr) {
+          movedAtDate = new Date(movedAtStr);
+        } else {
+          movedAtDate = new Date();
+        }
+
+        const notes = notesInput.value.trim();
+
         const payload = {
           receiverId,
+          receiverName,
+          receiverSerial,
           equipmentId,
-          movedBy: movedByInput.value || '(auto-fill user later)',
-          movedAt: movedAtInput.value || new Date().toISOString(),
-          notes: notesInput.value || ''
+          equipmentLabel,
+          movedBy: movedBy || null,
+          movedAt: firebase.firestore.Timestamp.fromDate(movedAtDate),
+          notes: notes || null,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        console.log('TODO: Save StarFire move to Firestore:', payload);
+        // Add account context if you’ve got it
+        if (window.FVUserContext && window.FVUserContext.accountId) {
+          payload.accountId = window.FVUserContext.accountId;
+        }
 
-        // TODO: replace with your toast system.
-        alert('StarFire move saved (template only – wire to Firestore).');
+        try {
+          // 1) Save move history
+          await db.collection('starfireMoves').add(payload);
 
-        // Optionally redirect back to the StarFire hub.
-        window.location.href = '/Farm-vista/pages/equipment/equipment-starfire.html';
+          // 2) Update StarFire equipment doc with latest mount info
+          await db.collection('equipment').doc(receiverId).set({
+            starfireMountedOn: {
+              equipmentId,
+              equipmentLabel,
+              movedBy: payload.movedBy,
+              movedAt: payload.movedAt,
+              notes: payload.notes || null
+            }
+          }, { merge: true });
+
+          showToast('StarFire move saved.', 'success');
+
+          // Optional: refresh current location to show updated values
+          await loadCurrentLocation(receiverId);
+
+          // Optional redirect back to hub if you want
+          window.location.href = '/Farm-vista/pages/equipment/equipment-starfire.html';
+        } catch(err){
+          console.error('Error saving StarFire move:', err);
+          showToast('Error saving move. Please try again.', 'error');
+        }
       });
+
+      // Initial load
+      await Promise.all([
+        loadStarfireReceivers(),
+        loadGpsEquipment()
+      ]);
     });
   </script>
 </body>
