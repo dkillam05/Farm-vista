@@ -54,7 +54,6 @@
       gap:6px;
       transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
     }
-
     .wo-card:active {
       transform:scale(.995);
       box-shadow:var(--shadow);
@@ -105,7 +104,7 @@
       font-weight:600;
     }
 
-    /* Status select */
+    /* Status select on the right */
     .wo-status-wrap {
       flex:0 0 auto;
       display:flex;
@@ -136,6 +135,17 @@
       outline:none;
     }
 
+    .wo-bottom-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+
     .wo-status-chip {
       display:inline-flex;
       align-items:center;
@@ -146,17 +156,6 @@
       text-transform:uppercase;
       letter-spacing:0.06em;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-    }
-
-    .wo-bottom-row {
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      font-size:0.78rem;
-      opacity:0.8;
-      margin-top:4px;
-      flex-wrap:wrap;
     }
   </style>
 
@@ -175,28 +174,41 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, orderBy,
-      onSnapshot, updateDoc, doc, serverTimestamp
+      collection, query, where, getDocs,
+      updateDoc, doc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
       COLLECTION_PATH: 'fieldMaintenance',
-      STATUS_FIELD:   'status',
-      STATUS_PENDING: 'pending',
-      STATUS_INPROG:  'in progress',
-      STATUS_DONE:    'completed'
+      STATUS_FIELD:    'status',
+      STATUS_PENDING:  'pending',
+      STATUS_INPROG:   'in progress',
+      STATUS_DONE:     'completed'
     };
 
-    const $  = (sel, root=document) => root.querySelector(sel);
+    const $ = (sel, root=document) => root.querySelector(sel);
 
     const STATE = {
+      db: null,
       items: []
     };
 
+    function getTime(ts){
+      if(!ts) return 0;
+      try{
+        if(ts.toMillis) return ts.toMillis();
+        if(ts.toDate)   return ts.toDate().getTime();
+        if(ts instanceof Date) return ts.getTime();
+        return new Date(ts).getTime() || 0;
+      }catch{
+        return 0;
+      }
+    }
+
     function renderList(){
-      const listEl = $('.wo-list');
+      const listEl  = $('.wo-list');
       const emptyEl = $('.wo-empty');
       listEl.innerHTML = '';
 
@@ -206,7 +218,6 @@
         if(countEl) countEl.textContent = '0 active work orders';
         return;
       }
-      emptyEl.style.display = 'block'; // show message but it's general; or hide:
       emptyEl.style.display = 'none';
 
       for(const item of STATE.items){
@@ -218,7 +229,8 @@
         const topic = data.topicLabel || data.topic || data.category || data.title || 'Maintenance';
         const priority = data.priority ?? data.priorityLevel ?? null;
         const equip = data.equipmentName || data.equipment || '';
-        const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || data.createdByName || data.createdBy || '';
+        const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email))
+                          || data.createdByName || data.createdBy || '';
         const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
         const when = ts && ts.toDate ? ts.toDate() : null;
         const status = (data[CONFIG.STATUS_FIELD] || '').toString();
@@ -262,80 +274,104 @@
 
           <div class="wo-bottom-row">
             <div>
-              ${when ? `Created ${when.toLocaleDateString()}${when.toLocaleTimeString ? ' ' + when.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : ''}` : ''}
+              ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
             </div>
-            <div class="wo-status-chip">
-              ${status || 'unknown'}
-            </div>
+            <div class="wo-status-chip">${status || 'unknown'}</div>
           </div>
         `;
 
-        // Set dropdown to current status
         const select = card.querySelector('.wo-status-select');
-        if(select){
-          if(status === CONFIG.STATUS_INPROG){
-            select.value = CONFIG.STATUS_INPROG;
-          }else if(status === CONFIG.STATUS_DONE){
-            select.value = CONFIG.STATUS_DONE;
-          }else{
-            select.value = CONFIG.STATUS_PENDING;
-          }
+        const chip   = card.querySelector('.wo-status-chip');
 
-          select.addEventListener('change', async (ev) => {
-            const newStatus = ev.target.value;
-            try{
-              await updateDoc(doc(getFirestore(), CONFIG.COLLECTION_PATH, id), {
-                [CONFIG.STATUS_FIELD]: newStatus,
-                updatedAt: serverTimestamp()
-              });
-
-              // If moved out of pending / in progress (i.e., completed), drop from this view
-              if(newStatus === CONFIG.STATUS_DONE){
-                STATE.items = STATE.items.filter(x => x.id !== id);
-                renderList();
-              }else{
-                // Update local and chip text
-                item.data[CONFIG.STATUS_FIELD] = newStatus;
-                const chip = card.querySelector('.wo-status-chip');
-                if(chip) chip.textContent = newStatus;
-              }
-            }catch(err){
-              console.error('Failed to update status:', err);
-              alert('Could not update work order status. Please try again.');
-              // revert UI to old value
-              ev.target.value = status || CONFIG.STATUS_PENDING;
-            }
-          });
+        // Set dropdown to current status
+        if(status === CONFIG.STATUS_INPROG){
+          select.value = CONFIG.STATUS_INPROG;
+        }else if(status === CONFIG.STATUS_DONE){
+          select.value = CONFIG.STATUS_DONE;
+        }else{
+          select.value = CONFIG.STATUS_PENDING;
         }
+
+        select.addEventListener('change', async (ev) => {
+          const newStatus = ev.target.value;
+
+          try{
+            await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), {
+              [CONFIG.STATUS_FIELD]: newStatus,
+              updatedAt: serverTimestamp()
+            });
+
+            if(newStatus === CONFIG.STATUS_DONE){
+              // Completed → drop from list
+              STATE.items = STATE.items.filter(x => x.id !== id);
+              renderList();
+            }else{
+              // Keep in list, update chip + local status
+              item.data[CONFIG.STATUS_FIELD] = newStatus;
+              if(chip) chip.textContent = newStatus;
+            }
+          }catch(err){
+            console.error('Failed to update status:', err);
+            alert('Could not update work order status. Please try again.');
+            // revert dropdown
+            ev.target.value = status || CONFIG.STATUS_PENDING;
+          }
+        });
 
         listEl.appendChild(card);
       }
 
       const countEl = $('#woCount');
       if(countEl){
-        countEl.textContent = `${STATE.items.length} active work order${STATE.items.length===1?'':'s'}`;
+        countEl.textContent = `${STATE.items.length} active work order${STATE.items.length === 1 ? '' : 's'}`;
       }
     }
 
-    ready().then(() => {
+    async function loadActiveWorkOrders(){
+      const db  = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const q = query(
+          ref,
+          where(CONFIG.STATUS_FIELD, 'in', [CONFIG.STATUS_PENDING, CONFIG.STATUS_INPROG])
+        );
+
+        const snap = await getDocs(q);
+
+        const items = snap.docs.map(d => ({
+          id: d.id,
+          data: d.data()
+        }));
+
+        // Sort newest → oldest by createdAt / dateSubmitted / timestamp
+        items.sort((a,b) => {
+          const ta = getTime(a.data.createdAt || a.data.dateSubmitted || a.data.timestamp);
+          const tb = getTime(b.data.createdAt || b.data.dateSubmitted || b.data.timestamp);
+          return tb - ta;
+        });
+
+        STATE.items = items;
+        renderList();
+      }catch(err){
+        console.error('Error loading active work orders:', err);
+        const emptyEl = $('.wo-empty');
+        emptyEl.textContent = 'Error loading work orders. Check console or Firestore indexes.';
+        emptyEl.style.display = 'block';
+        const countEl = $('#woCount');
+        if(countEl) countEl.textContent = 'Error loading work orders';
+      }
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      const db = getFirestore();
-      const ref = collection(db, CONFIG.COLLECTION_PATH);
-
-      // All work orders that are currently pending OR in progress
-      const q = query(
-        ref,
-        where(CONFIG.STATUS_FIELD, 'in', [CONFIG.STATUS_PENDING, CONFIG.STATUS_INPROG]),
-        orderBy('createdAt', 'desc')
-      );
-
-      onSnapshot(q, (snap) => {
-        STATE.items = snap.docs.map(d => ({ id: d.id, data: d.data() }));
-        renderList();
-      });
-    });
+      await loadActiveWorkOrders();
+    })();
   </script>
 </head>
 
@@ -346,9 +382,9 @@
       <header class="page-header">
         <h1 class="page-title">Active Field Maintenance Work Orders</h1>
         <div class="page-sub">
-          View all work orders that have already passed approval and are
-          <strong>Pending</strong> or <strong>In Progress</strong>.
-          Use the status dropdown to move items to <strong>In Progress</strong> or
+          Shows all work orders that have passed approval and are currently
+          <strong>Pending</strong> or <strong>In Progress</strong>. Use the
+          status dropdown to move them to <strong>In Progress</strong> or
           straight to <strong>Completed</strong>.
         </div>
         <div class="page-header-meta" id="woCount">
