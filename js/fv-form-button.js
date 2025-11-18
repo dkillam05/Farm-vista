@@ -1,7 +1,9 @@
-/* <fv-form-button> v3.2.12 — form entry tile
+/* <fv-form-button> v3.2.13 — form entry tile
    BASE: v3.2.11
    Added icon: 'eye' (view/preview), with aliases:
      'view'→'eye', 'preview'→'eye', 'visibility'→'eye', 'show'→'eye'
+   Added icon: 'approve' (work order approval), with aliases:
+     'approval'→'approve', 'approve-wo'→'approve'
 */
 (function () {
   const tpl = document.createElement('template');
@@ -173,6 +175,19 @@
               fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
         <!-- pupil -->
         <circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      </svg>`,
+
+    /* NEW: Approve (Document with Checkmark) */
+    approve: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <!-- document -->
+        <rect x="6" y="4.5" width="12" height="15" rx="2.2"
+              fill="none" stroke="currentColor" stroke-width="1.7"/>
+        <!-- header line -->
+        <path d="M9 8h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <!-- checkmark -->
+        <path d="M9 14.5l2.1 2.1 4-4.3"
+              fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`
   };
 
@@ -192,6 +207,9 @@
   ICONS["preview"] = ICONS["eye"];
   ICONS["visibility"] = ICONS["eye"];
   ICONS["show"] = ICONS["eye"];
+  /* NEW aliases for approve */
+  ICONS["approval"] = ICONS["approve"];
+  ICONS["approve-wo"] = ICONS["approve"];
 
   class FVFormButton extends HTMLElement{
     static get observedAttributes(){ return ['label','icon','href','icon-svg']; }
@@ -239,6 +257,7 @@
           (key === 'checklist' || key === 'pre-check' || key === 'seasonal-precheck') ? '8px' :
           (key === 'pin' || key === 'location' || key === 'map-pin' || key === 'pin-drop' || key === 'update-location') ? '8px' :
           (key === 'eye' || key === 'view' || key === 'preview' || key === 'visibility' || key === 'show') ? '6px' :
+          (key === 'approve' || key === 'approval' || key === 'approve-wo') ? '6px' :
           '0px';
 
         this.style.setProperty('--icon-extra', bump);
