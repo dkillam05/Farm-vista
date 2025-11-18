@@ -75,6 +75,18 @@ Usage (from any page):
     }, opts || {});
   }
 
+  // New: toggle "slider pill" helper
+  function toggleField(id, label, opts){
+    return Object.assign({
+      id,
+      label,
+      kind: 'toggle',
+      onLabel: 'Yes',
+      offLabel: 'No',
+      required: false
+    }, opts || {});
+  }
+
   /** ------------------------------------------------------------------
    * Per-category field config
    * -------------------------------------------------------------------*/
@@ -85,7 +97,8 @@ Usage (from any page):
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
         placeholder: 'e.g. 1250.5'
-      })
+      }),
+      toggleField('starfireCapable', 'StarFire GPS Capable?')
     ],
 
     /* 2) COMBINES ----------------------------------------------------- */
@@ -97,7 +110,8 @@ Usage (from any page):
       numField('separatorHours', 'Separator Hours', {
         step: '0.1',
         placeholder: 'e.g. 1550.0'
-      })
+      }),
+      toggleField('starfireCapable', 'StarFire GPS Capable?')
     ],
 
     /* 3) SPRAYERS ----------------------------------------------------- */
@@ -115,7 +129,9 @@ Usage (from any page):
         step: '1',
         inputmode: 'numeric',
         placeholder: 'e.g. 1000'
-      })
+      }),
+      // New: StarFire-capable pill, right after tank size
+      toggleField('starfireCapable', 'StarFire GPS Capable?')
     ],
 
     /* 4) IMPLEMENTS --------------------------------------------------- */
@@ -162,6 +178,11 @@ Usage (from any page):
         visibleForTypes: ['planter', 'corn-head']
       }),
 
+      // New: StarFire-capable pill for "some implements"
+      toggleField('starfireCapable', 'StarFire GPS Capable?', {
+        visibleForTypes: ['planter', 'grain-cart', 'corn-head', 'draper-head', 'other']
+      }),
+
       // Capacity for grain carts (no working width / rows required)
       numField('bushelCapacityBu', 'Capacity (bu)', {
         step: '1',
@@ -203,7 +224,9 @@ Usage (from any page):
           { value: 'other',      label: 'Other' }
         ],
         { required: false }
-      )
+      ),
+      // New: StarFire-capable pill (spreaders, etc.)
+      toggleField('starfireCapable', 'StarFire GPS Capable?')
     ],
 
     /* 6) TRUCKS ------------------------------------------------------- */
@@ -420,6 +443,27 @@ Usage (from any page):
       input.type = 'date';
       input.className = 'input';
 
+    }else if (field.kind === 'toggle'){
+      // Slider-pill style toggle using a button; CSS can style .pill-toggle and .pill-toggle.on
+      input = doc.createElement('button');
+      input.type = 'button';
+      input.className = 'pill-toggle';
+      input.dataset.state = 'off';
+      input.textContent = field.offLabel || 'No';
+
+      input.addEventListener('click', ()=>{
+        const isOn = input.dataset.state === 'on';
+        if (isOn){
+          input.dataset.state = 'off';
+          input.classList.remove('on');
+          input.textContent = field.offLabel || 'No';
+        }else{
+          input.dataset.state = 'on';
+          input.classList.add('on');
+          input.textContent = field.onLabel || 'Yes';
+        }
+      });
+
     }else{
       // Fallback to simple text input
       input = doc.createElement('input');
@@ -496,6 +540,13 @@ Usage (from any page):
       const el = controls.get(field.id);
       if (!el) continue;
 
+      // Toggle fields normalize to boolean
+      if (field.kind === 'toggle'){
+        const state = (el.dataset.state || 'off').toLowerCase();
+        out[field.id] = (state === 'on');
+        continue;
+      }
+
       let raw = (el.value ?? '').trim();
 
       if (raw === ''){
@@ -522,7 +573,14 @@ Usage (from any page):
     for (const field of fields){
       const el = controls.get(field.id);
       if (!el) continue;
-      el.value = '';
+
+      if (field.kind === 'toggle'){
+        el.dataset.state = 'off';
+        el.classList.remove('on');
+        el.textContent = field.offLabel || 'No';
+      }else{
+        el.value = '';
+      }
     }
   }
 
@@ -557,6 +615,17 @@ Usage (from any page):
 
       const el = controls.get(field.id);
       if (!el) continue;
+
+      if (field.kind === 'toggle'){
+        const state = (el.dataset.state || 'off').toLowerCase();
+        if (state !== 'on'){
+          return {
+            ok: false,
+            message: `${field.label || field.id} is required.`
+          };
+        }
+        continue;
+      }
 
       const raw = (el.value ?? '').trim();
       if (raw === ''){
@@ -600,7 +669,13 @@ Usage (from any page):
           // Hide and clear value when not applicable
           const input = controls.get(field.id);
           if (input){
-            input.value = '';
+            if (field.kind === 'toggle'){
+              input.dataset.state = 'off';
+              input.classList.remove('on');
+              input.textContent = field.offLabel || 'No';
+            }else{
+              input.value = '';
+            }
           }
           wrap.style.display = 'none';
         }else{
