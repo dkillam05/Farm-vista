@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Active Field Maintenance Work Orders</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    .page-header {
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      margin-bottom:18px;
+    }
+
+    .page-header-meta {
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    .wo-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .wo-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .wo-card {
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+    }
+
+    .wo-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-main {
+      flex:1 1 auto;
+      min-width:0;
+    }
+
+    .wo-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .wo-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .wo-meta-label {
+      font-weight:600;
+    }
+
+    /* Status select */
+    .wo-status-wrap {
+      flex:0 0 auto;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:4px;
+      padding-left:4px;
+      min-width:150px;
+    }
+
+    .wo-status-label {
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.75;
+    }
+
+    .wo-status-select {
+      width:100%;
+      max-width:170px;
+      font:inherit;
+      font-size:0.9rem;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:5px 10px;
+      background:var(--card-surface, var(--surface));
+      color:var(--text);
+      outline:none;
+    }
+
+    .wo-status-chip {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .wo-bottom-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, query, where, orderBy,
+      onSnapshot, updateDoc, doc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'fieldMaintenance',
+      STATUS_FIELD:   'status',
+      STATUS_PENDING: 'pending',
+      STATUS_INPROG:  'in progress',
+      STATUS_DONE:    'completed'
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+
+    const STATE = {
+      items: []
+    };
+
+    function renderList(){
+      const listEl = $('.wo-list');
+      const emptyEl = $('.wo-empty');
+      listEl.innerHTML = '';
+
+      if(!STATE.items.length){
+        emptyEl.style.display = 'block';
+        const countEl = $('#woCount');
+        if(countEl) countEl.textContent = '0 active work orders';
+        return;
+      }
+      emptyEl.style.display = 'block'; // show message but it's general; or hide:
+      emptyEl.style.display = 'none';
+
+      for(const item of STATE.items){
+        const data = item.data;
+        const id   = item.id;
+
+        const field = data.fieldName || data.field || 'Field not set';
+        const farm  = data.farmName  || data.farm  || '';
+        const topic = data.topicLabel || data.topic || data.category || data.title || 'Maintenance';
+        const priority = data.priority ?? data.priorityLevel ?? null;
+        const equip = data.equipmentName || data.equipment || '';
+        const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || data.createdByName || data.createdBy || '';
+        const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
+        const when = ts && ts.toDate ? ts.toDate() : null;
+        const status = (data[CONFIG.STATUS_FIELD] || '').toString();
+
+        const card = document.createElement('article');
+        card.className = 'wo-card';
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <div class="wo-row-top">
+            <div class="wo-main">
+              <div class="wo-title">
+                ${field ? `<span>${field}</span>` : 'Maintenance Work Order'}
+                ${farm ? ` · <span>${farm}</span>` : ''}
+              </div>
+              <div class="wo-sub">
+                ${topic}
+              </div>
+              <div class="wo-meta">
+                ${priority !== null ? `
+                  <span><span class="wo-meta-label">Priority</span> ${priority}</span>
+                ` : ''}
+                ${equip ? `
+                  <span><span class="wo-meta-label">Equip</span> ${equip}</span>
+                ` : ''}
+                ${createdBy ? `
+                  <span><span class="wo-meta-label">By</span> ${createdBy}</span>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="wo-status-wrap">
+              <div class="wo-status-label">Status</div>
+              <select class="wo-status-select">
+                <option value="${CONFIG.STATUS_PENDING}">Pending</option>
+                <option value="${CONFIG.STATUS_INPROG}">In Progress</option>
+                <option value="${CONFIG.STATUS_DONE}">Completed</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="wo-bottom-row">
+            <div>
+              ${when ? `Created ${when.toLocaleDateString()}${when.toLocaleTimeString ? ' ' + when.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : ''}` : ''}
+            </div>
+            <div class="wo-status-chip">
+              ${status || 'unknown'}
+            </div>
+          </div>
+        `;
+
+        // Set dropdown to current status
+        const select = card.querySelector('.wo-status-select');
+        if(select){
+          if(status === CONFIG.STATUS_INPROG){
+            select.value = CONFIG.STATUS_INPROG;
+          }else if(status === CONFIG.STATUS_DONE){
+            select.value = CONFIG.STATUS_DONE;
+          }else{
+            select.value = CONFIG.STATUS_PENDING;
+          }
+
+          select.addEventListener('change', async (ev) => {
+            const newStatus = ev.target.value;
+            try{
+              await updateDoc(doc(getFirestore(), CONFIG.COLLECTION_PATH, id), {
+                [CONFIG.STATUS_FIELD]: newStatus,
+                updatedAt: serverTimestamp()
+              });
+
+              // If moved out of pending / in progress (i.e., completed), drop from this view
+              if(newStatus === CONFIG.STATUS_DONE){
+                STATE.items = STATE.items.filter(x => x.id !== id);
+                renderList();
+              }else{
+                // Update local and chip text
+                item.data[CONFIG.STATUS_FIELD] = newStatus;
+                const chip = card.querySelector('.wo-status-chip');
+                if(chip) chip.textContent = newStatus;
+              }
+            }catch(err){
+              console.error('Failed to update status:', err);
+              alert('Could not update work order status. Please try again.');
+              // revert UI to old value
+              ev.target.value = status || CONFIG.STATUS_PENDING;
+            }
+          });
+        }
+
+        listEl.appendChild(card);
+      }
+
+      const countEl = $('#woCount');
+      if(countEl){
+        countEl.textContent = `${STATE.items.length} active work order${STATE.items.length===1?'':'s'}`;
+      }
+    }
+
+    ready().then(() => {
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      const db = getFirestore();
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      // All work orders that are currently pending OR in progress
+      const q = query(
+        ref,
+        where(CONFIG.STATUS_FIELD, 'in', [CONFIG.STATUS_PENDING, CONFIG.STATUS_INPROG]),
+        orderBy('createdAt', 'desc')
+      );
+
+      onSnapshot(q, (snap) => {
+        STATE.items = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+        renderList();
+      });
+    });
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="page container">
+
+      <header class="page-header">
+        <h1 class="page-title">Active Field Maintenance Work Orders</h1>
+        <div class="page-sub">
+          View all work orders that have already passed approval and are
+          <strong>Pending</strong> or <strong>In Progress</strong>.
+          Use the status dropdown to move items to <strong>In Progress</strong> or
+          straight to <strong>Completed</strong>.
+        </div>
+        <div class="page-header-meta" id="woCount">
+          0 active work orders
+        </div>
+      </header>
+
+      <section aria-label="Pending and in-progress work orders">
+        <div class="wo-empty">
+          No work orders are currently pending or in progress.
+          Once work orders are approved and ready to work, they will appear here.
+        </div>
+        <div class="wo-list"></div>
+      </section>
+
+    </div>
+  </fv-shell>
+</body>
+</html>
