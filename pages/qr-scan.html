@@ -138,18 +138,34 @@
         const back = videoInputs.find(d => /back|rear|environment/i.test(d.label));
         if (back) deviceId = back.deviceId;
 
+        // Ask for a reasonable resolution for faster decode (no 4K frames)
+        const videoConstraints = deviceId
+          ? {
+              deviceId: { exact: deviceId },
+              width:    { ideal: 1280 },
+              height:   { ideal: 720 }
+            }
+          : {
+              facingMode: { ideal: 'environment' },
+              width:      { ideal: 1280 },
+              height:     { ideal: 720 }
+            };
+
         stream = await navigator.mediaDevices.getUserMedia({
-          video: deviceId ? { deviceId:{ exact: deviceId } } : { facingMode:{ ideal: 'environment' } },
+          video: videoConstraints,
           audio: false
         });
         videoEl.srcObject = stream;
         await videoEl.play().catch(()=>{});
 
-        codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+        // Use QR-only reader for faster detection
+        codeReader = new ZXingBrowser.BrowserQRCodeReader();
+
         await codeReader.decodeFromVideoDevice(deviceId || null, videoEl, (result, err)=>{
           if (result && result.getText) {
             routeFromQR(result.getText());
           }
+          // We ignore per-frame errors; ZXing keeps scanning
         });
       } catch(e){
         console.error(e);
