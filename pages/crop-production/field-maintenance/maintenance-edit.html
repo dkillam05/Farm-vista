@@ -1,12 +1,12 @@
 <!-- =====================================================================
-/Farm-vista/pages/crop-production/field-maintenance/maintenance-master.html
-Work Order Master Editor – list, filter by status, full edit + delete
+/Farm-vista/pages/crop-production/field-maintenance/maintenance-edit.html
+Worker Order Editor – list, filter by status, full edit + delete
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Work Order Master Editor</title>
+  <title>FarmVista • Worker Order Editor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -440,6 +440,65 @@ Work Order Master Editor – list, filter by status, full edit + delete
     #masterErr{
       margin-top:4px;
     }
+
+    /* Photos in editor */
+    .photo-thumbs{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-bottom:4px;
+    }
+    .photo-thumb{
+      width:72px;
+      height:72px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      display:grid;
+      place-items:center;
+      background:var(--card-surface,var(--surface));
+    }
+    .photo-thumb img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
+
+    /* Map modal for editing location */
+    .map-modal-body{
+      padding:14px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      flex:1 1 auto;
+      min-height:0;
+    }
+    .map-shell{
+      border-radius:14px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      background:#000;
+      min-height:260px;
+    }
+    #editMap{
+      width:100%;
+      height:260px;
+    }
+    @media (min-width:700px){
+      #editMap{ height:360px; }
+    }
+    .map-footer{
+      padding:8px 10px;
+      background:var(--surface);
+      border-top:1px solid var(--border);
+    }
+    .map-modal-footer{
+      padding:12px 14px;
+      border-top:1px solid var(--border);
+      display:flex;
+      gap:12px;
+      justify-content:flex-end;
+    }
   </style>
 </head>
 <body>
@@ -449,8 +508,11 @@ Work Order Master Editor – list, filter by status, full edit + delete
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧰</div>
           <div>
-            <h1>Work Order Master Editor</h1>
-            <p class="muted">View every field maintenance work order, filter by status, edit details, or delete bad entries.</p>
+            <h1>Worker Order Editor</h1>
+            <p class="muted">
+              View every field maintenance work order, filter by status, edit details, map, photos,
+              or delete bad entries.
+            </p>
           </div>
         </header>
 
@@ -504,6 +566,7 @@ Work Order Master Editor – list, filter by status, full edit + delete
       <div class="edit-body">
         <div id="editErr" class="error"></div>
 
+        <!-- Farm / Field -->
         <div class="edit-grid">
           <div class="field">
             <div class="fm-row-label">Farm <span class="req">*</span></div>
@@ -531,6 +594,7 @@ Work Order Master Editor – list, filter by status, full edit + delete
           </div>
         </div>
 
+        <!-- Topic / Status -->
         <div class="edit-grid">
           <div class="field">
             <div class="fm-row-label">Topic / Category <span class="req">*</span></div>
@@ -556,6 +620,7 @@ Work Order Master Editor – list, filter by status, full edit + delete
           </div>
         </div>
 
+        <!-- Priority / Submitted -->
         <div class="edit-grid">
           <div class="field">
             <label class="fm-row-label" for="edPriority">Priority (1 = low, 10 = high) <span class="req">*</span></label>
@@ -567,11 +632,12 @@ Work Order Master Editor – list, filter by status, full edit + delete
           <div class="field">
             <label class="fm-row-label">Submitted</label>
             <div class="wo-sub" id="edSubmittedMeta">
-              <!-- filled via JS: date + name/email -->
+              <!-- date + name/email -->
             </div>
           </div>
         </div>
 
+        <!-- Priority reason -->
         <div id="edPriorityReasonBlock" class="priority-reason" hidden>
           <label class="fm-row-label" for="edPriorityReason">Why is this a high priority? (7–10)</label>
           <textarea
@@ -580,6 +646,7 @@ Work Order Master Editor – list, filter by status, full edit + delete
             placeholder="Explain why this needs urgent attention…"></textarea>
         </div>
 
+        <!-- Details / Notes -->
         <div class="field">
           <label class="fm-row-label" for="edNotes">Details / Notes <span class="req">*</span></label>
           <textarea
@@ -588,11 +655,58 @@ Work Order Master Editor – list, filter by status, full edit + delete
             placeholder="Describe the issue, location in the field, severity, equipment needed, etc."></textarea>
         </div>
 
+        <!-- Location (editable) -->
         <div class="field">
-          <label class="fm-row-label">Location (read-only)</label>
+          <label class="fm-row-label">Location (map editable)</label>
           <div class="wo-sub" id="edLocationMeta">
             <!-- "lat, lng" or "No location saved" -->
           </div>
+          <div class="wo-actions">
+            <button id="btnEditLocation" type="button" class="btn btn-quiet">Edit Location on Map</button>
+          </div>
+          <input id="edLocationLat" type="hidden">
+          <input id="edLocationLng" type="hidden">
+        </div>
+
+        <!-- Photos -->
+        <div class="field">
+          <label class="fm-row-label">Photos</label>
+          <div id="edPhotoThumbs" class="photo-thumbs"></div>
+          <label class="fm-row-label" for="edPhotoUrlsRaw" style="margin-top:6px;">
+            Photo URLs (one per line)
+          </label>
+          <textarea
+            id="edPhotoUrlsRaw"
+            class="textarea"
+            placeholder="https://.../photo1.jpg&#10;https://.../photo2.jpg"></textarea>
+        </div>
+
+        <!-- Finalize / Work performed -->
+        <div class="edit-grid">
+          <div class="field">
+            <label class="fm-row-label" for="edAssignedType">Assigned To Type</label>
+            <select id="edAssignedType" class="select">
+              <option value="">(none)</option>
+              <option value="employee">Employee</option>
+              <option value="subcontractor">Subcontractor</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="fm-row-label" for="edAssignedTo">Assigned To (names or crew)</label>
+            <input
+              id="edAssignedTo"
+              class="input"
+              type="text"
+              placeholder="e.g. John / Sprayer crew A">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="fm-row-label" for="edWorkPerformed">Work Performed / Final Notes</label>
+          <textarea
+            id="edWorkPerformed"
+            class="textarea"
+            placeholder="Summary of what was done (date, equipment, notes, etc.)"></textarea>
         </div>
       </div>
       <div class="edit-footer">
@@ -604,7 +718,37 @@ Work Order Master Editor – list, filter by status, full edit + delete
     </div>
   </div>
 
+  <!-- Map modal for editing location -->
+  <div id="mapModal" class="modal" role="dialog" aria-modal="true">
+    <div class="backdrop" data-close></div>
+    <div class="sheet">
+      <header>
+        <div>Edit Location</div>
+        <button class="close" type="button" data-close>Close</button>
+      </header>
+      <div class="map-modal-body">
+        <button id="btnUseEditLocation" type="button" class="btn">
+          Use my location
+        </button>
+        <div class="map-shell">
+          <div id="editMap"></div>
+          <div class="map-footer">
+            <span id="editMapStatus" class="wo-status"></span>
+          </div>
+        </div>
+      </div>
+      <footer class="map-modal-footer">
+        <button id="btnClearEditLocation" type="button" class="btn btn-quiet">Clear</button>
+        <button id="btnCancelEditLocation" type="button" class="btn">Cancel</button>
+        <button id="btnSaveEditLocation" type="button" class="btn btn-primary">Save location</button>
+      </footer>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Google Maps JS (same key as maintenance-add page) -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 
   <script type="module">
     import {
@@ -899,7 +1043,11 @@ Work Order Master Editor – list, filter by status, full edit + delete
             submittedBy: submittedByName,
             submittedAt: createdAt,
             photoCount: data.photoCount || 0,
+            photoUrls: Array.isArray(data.photoUrls) ? data.photoUrls : null,
             location: data.location || null,
+            assignedType: data.assignedType || "",
+            assignedTo: data.assignedTo || "",
+            workPerformed: data.workPerformed || data.finalNotes || "",
             raw: data
           };
         });
@@ -945,7 +1093,9 @@ Work Order Master Editor – list, filter by status, full edit + delete
             r.topicLabel,
             r.notes,
             r.status,
-            r.submittedBy
+            r.submittedBy,
+            r.assignedTo,
+            r.workPerformed
           ].join(" ").toLowerCase();
           return hay.includes(search);
         });
@@ -974,6 +1124,7 @@ Work Order Master Editor – list, filter by status, full edit + delete
         const who = row.submittedBy ? esc(row.submittedBy) : "";
         const farmField = [row.farmName, row.fieldName].filter(Boolean).join(" • ");
         const notes = esc(row.notes || "");
+        const assigned = row.assignedTo ? `Assigned: ${esc(row.assignedTo)}` : "";
         return `
           <div class="wo-item" data-id="${esc(row.id)}">
             <div class="wo-header">
@@ -985,6 +1136,7 @@ Work Order Master Editor – list, filter by status, full edit + delete
               <span>${when || ""}</span>
               <span>${who || ""}</span>
               ${pr ? `<span>${pr}</span>` : ""}
+              ${assigned ? `<span>${assigned}</span>` : ""}
             </div>
             <div class="wo-notes">
               ${notes || "<span class='wo-empty'>No notes entered.</span>"}
@@ -1021,11 +1173,15 @@ Work Order Master Editor – list, filter by status, full edit + delete
       }
       $("edSubmittedMeta").textContent = submittedParts.join(" • ") || "No submitted info saved.";
 
-      // Location meta
+      // Location meta + hidden fields
       if(row.location && typeof row.location.lat === "number" && typeof row.location.lng === "number"){
         $("edLocationMeta").textContent = `${row.location.lat.toFixed(5)}, ${row.location.lng.toFixed(5)}`;
+        $("edLocationLat").value = row.location.lat;
+        $("edLocationLng").value = row.location.lng;
       }else{
         $("edLocationMeta").textContent = "No location saved on this work order.";
+        $("edLocationLat").value = "";
+        $("edLocationLng").value = "";
       }
 
       // status
@@ -1063,6 +1219,36 @@ Work Order Master Editor – list, filter by status, full edit + delete
       selectEditFieldById(row.fieldId || null, row.fieldName || "Select field…");
       selectEditTopicById(row.topicId || null, row.topicLabel || "Select topic…");
 
+      // photos
+      const thumbsEl = $("edPhotoThumbs");
+      const urlsArea = $("edPhotoUrlsRaw");
+      thumbsEl.innerHTML = "";
+      const urls = Array.isArray(row.photoUrls) ? row.photoUrls : [];
+      urlsArea.value = urls.join("\n");
+      if(urls.length){
+        urls.forEach(url=>{
+          const div = document.createElement("div");
+          div.className = "photo-thumb";
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "Photo";
+          div.appendChild(img);
+          thumbsEl.appendChild(div);
+        });
+      }else{
+        const span = document.createElement("span");
+        span.className = "wo-status";
+        span.textContent = row.photoCount
+          ? `${row.photoCount} photo(s) recorded but no URLs stored.`
+          : "No photos saved.";
+        thumbsEl.appendChild(span);
+      }
+
+      // finalize fields
+      $("edAssignedType").value = row.assignedType || "";
+      $("edAssignedTo").value = row.assignedTo || "";
+      $("edWorkPerformed").value = row.workPerformed || "";
+
       // Show modal
       const modal = $("editModal");
       modal.classList.add("show");
@@ -1099,6 +1285,12 @@ Work Order Master Editor – list, filter by status, full edit + delete
       sync();
     }
 
+    function parsePhotoUrls(){
+      const raw = $("edPhotoUrlsRaw").value || "";
+      const urls = raw.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+      return urls;
+    }
+
     async function saveEdit(){
       if(!state.editing || !state.DB) return;
       showEditErr("");
@@ -1123,6 +1315,22 @@ Work Order Master Editor – list, filter by status, full edit + delete
       const fieldName = fieldSel ? fieldSel.name : (fallbackFieldName || null);
       const topicLabel = topicSel ? topicSel.label || topicSel.name : (fallbackTopicLabel || null);
 
+      const assignedType = $("edAssignedType").value || "";
+      const assignedTo = $("edAssignedTo").value.trim();
+      const workPerformed = $("edWorkPerformed").value.trim();
+
+      // location
+      const latStr = $("edLocationLat").value;
+      const lngStr = $("edLocationLng").value;
+      let location = null;
+      if(latStr && lngStr){
+        const latN = Number(latStr);
+        const lngN = Number(lngStr);
+        if(!Number.isNaN(latN) && !Number.isNaN(lngN)){
+          location = { lat: latN, lng: lngN };
+        }
+      }
+
       if(!farmId || !fieldId || !topicId || !notes){
         showEditErr("Farm, Field, Topic, and Notes are required.");
         return;
@@ -1142,6 +1350,9 @@ Work Order Master Editor – list, filter by status, full edit + delete
 
       const ref = doc(state.DB, "fieldMaintenance", state.editing.id);
 
+      const photoUrls = parsePhotoUrls();
+      const photoCount = photoUrls.length;
+
       const payload = {
         farmId,
         farmName,
@@ -1153,8 +1364,19 @@ Work Order Master Editor – list, filter by status, full edit + delete
         priorityReason: priority>=7 ? priorityReason : null,
         notes,
         status,
+        assignedType: assignedType || null,
+        assignedTo: assignedTo || null,
+        workPerformed: workPerformed || null,
+        photoUrls,
+        photoCount,
         updatedAt: serverTimestamp()
       };
+
+      if(location){
+        payload.location = location;
+      }else{
+        payload.location = null;
+      }
 
       $("btnSaveEdit").disabled = true;
 
@@ -1177,7 +1399,13 @@ Work Order Master Editor – list, filter by status, full edit + delete
             priority,
             priorityReason: priority>=7 ? priorityReason : "",
             notes,
-            status
+            status,
+            assignedType: assignedType || "",
+            assignedTo,
+            workPerformed,
+            photoUrls,
+            photoCount,
+            location
           };
         }
 
@@ -1215,6 +1443,136 @@ Work Order Master Editor – list, filter by status, full edit + delete
       }
     }
 
+    /* ------------ map editing ------------ */
+    let editMap = null;
+    let editMapMarker = null;
+
+    function ensureEditMap(){
+      if(editMap) return;
+      const el = $("editMap");
+      if(!el) return;
+
+      if(!(window.google && window.google.maps)){
+        $("editMapStatus").textContent = "Map failed to load. Check your connection.";
+        return;
+      }
+
+      const center = { lat: 39.8283, lng: -98.5795 }; // US center default
+      editMap = new google.maps.Map(el, {
+        center,
+        zoom: 16,
+        mapTypeId: "satellite",
+        disableDefaultUI: true,
+        zoomControl: true
+      });
+
+      editMap.addListener("click", (ev)=>{
+        setEditMapMarker(ev.latLng);
+      });
+    }
+
+    function setEditMapMarker(latLng){
+      if(!latLng || !editMap) return;
+      if(!editMapMarker){
+        editMapMarker = new google.maps.Marker({
+          position: latLng,
+          map: editMap
+        });
+      }else{
+        editMapMarker.setPosition(latLng);
+      }
+      $("editMapStatus").textContent = "Pin set. Tap again to move it.";
+    }
+
+    function openMapModal(){
+      const modal = $("mapModal");
+      if(!modal) return;
+      modal.classList.add("show");
+      document.body.style.overflow = "hidden";
+
+      ensureEditMap();
+
+      const lat = parseFloat($("edLocationLat").value);
+      const lng = parseFloat($("edLocationLng").value);
+      if(editMap && !Number.isNaN(lat) && !Number.isNaN(lng)){
+        const ll = new google.maps.LatLng(lat, lng);
+        editMap.setCenter(ll);
+        editMap.setZoom(18);
+        setEditMapMarker(ll);
+      }else if(editMap){
+        $("editMapStatus").textContent = "Tap on the map to drop a pin.";
+      }
+    }
+
+    function closeMapModal(){
+      const modal = $("mapModal");
+      if(!modal) return;
+      modal.classList.remove("show");
+      document.body.style.overflow = "";
+    }
+
+    function setupMapModal(){
+      const modal = $("mapModal");
+      const backdrop = modal.querySelector(".backdrop");
+      const closeBtns = modal.querySelectorAll("[data-close]");
+
+      backdrop.addEventListener("click", closeMapModal);
+      closeBtns.forEach(btn=>btn.addEventListener("click", closeMapModal));
+
+      $("btnUseEditLocation").addEventListener("click", ()=>{
+        if(!navigator.geolocation){
+          $("editMapStatus").textContent = "Geolocation not supported on this device.";
+          return;
+        }
+        $("editMapStatus").textContent = "Getting your location…";
+        navigator.geolocation.getCurrentPosition(
+          pos=>{
+            ensureEditMap();
+            if(!editMap) return;
+            const ll = new google.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+            editMap.panTo(ll);
+            editMap.setZoom(18);
+            setEditMapMarker(ll);
+          },
+          ()=>{
+            $("editMapStatus").textContent = "Could not get current location. Check permissions.";
+          },
+          { enableHighAccuracy:true, timeout:12000 }
+        );
+      });
+
+      $("btnSaveEditLocation").addEventListener("click", ()=>{
+        if(!editMapMarker){
+          $("editMapStatus").textContent = "Tap on the map to set a pin before saving.";
+          return;
+        }
+        const pos = editMapMarker.getPosition();
+        const lat = pos.lat();
+        const lng = pos.lng();
+        $("edLocationLat").value = lat;
+        $("edLocationLng").value = lng;
+        $("edLocationMeta").textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        showToast("Location updated.");
+        closeMapModal();
+      });
+
+      $("btnClearEditLocation").addEventListener("click", ()=>{
+        $("edLocationLat").value = "";
+        $("edLocationLng").value = "";
+        $("edLocationMeta").textContent = "No location saved on this work order.";
+        if(editMapMarker){
+          editMapMarker.setMap(null);
+          editMapMarker = null;
+        }
+        showToast("Location cleared.");
+        closeMapModal();
+      });
+
+      $("btnCancelEditLocation").addEventListener("click", closeMapModal);
+
+      $("btnEditLocation").addEventListener("click", openMapModal);
+    }
+
     /* ------------ shell + events ------------ */
     function setupShellNav(){
       const shell = document.querySelector("fv-shell");
@@ -1228,7 +1586,6 @@ Work Order Master Editor – list, filter by status, full edit + delete
 
       $("statusFilter").addEventListener("change", applyFilters);
       $("searchBox").addEventListener("input", ()=>{
-        // small debounce not needed; this list won't be huge
         applyFilters();
       });
 
@@ -1242,7 +1599,6 @@ Work Order Master Editor – list, filter by status, full edit + delete
         if(e.target.classList.contains("act-edit")){
           openEditModalForId(id);
         }else if(e.target.classList.contains("act-delete")){
-          // open delete directly
           const row = state.workOrders.find(r=>r.id===id);
           if(!row) return;
           state.editing = row;
@@ -1321,6 +1677,7 @@ Work Order Master Editor – list, filter by status, full edit + delete
       setupToolbar();
       setupEditModalChrome();
       setupEditCombos();
+      setupMapModal();
 
       try{
         await Promise.all([
