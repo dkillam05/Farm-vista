@@ -280,8 +280,7 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, orderBy,
-      onSnapshot, updateDoc, doc
+      collection, query, where, getDocs, updateDoc, doc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -298,8 +297,21 @@
 
     const STATE = {
       items: [],
-      selectedId: null
+      selectedId: null,
+      db: null
     };
+
+    function getTime(ts){
+      if(!ts) return 0;
+      try{
+        if(ts.toMillis) return ts.toMillis();
+        if(ts.toDate) return ts.toDate().getTime();
+        if(ts instanceof Date) return ts.getTime();
+        return new Date(ts).getTime() || 0;
+      }catch{
+        return 0;
+      }
+    }
 
     function renderList(){
       const listEl = $('.wo-list');
@@ -385,7 +397,7 @@
           if(on){
             // Change status → pending, then remove from list for speed
             try{
-              await updateDoc(doc(getFirestore(), CONFIG.COLLECTION_PATH, id), {
+              await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), {
                 [CONFIG.STATUS_FIELD]: CONFIG.PENDING_STATUS
               });
               // Optimistically drop from UI
@@ -542,39 +554,56 @@
       panel.style.display = 'flex';
     }
 
-    ready().then(() => {
+    async function loadWorkOrders(){
+      const db = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const q = query(
+          ref,
+          where(CONFIG.STATUS_FIELD, '==', CONFIG.NEEDS_APPROVAL_STATUS)
+        );
+        const snap = await getDocs(q);
+
+        const items = snap.docs.map(d => ({
+          id: d.id,
+          data: d.data()
+        }));
+
+        // sort newest first by createdAt
+        items.sort((a,b) => {
+          const ta = getTime(a.data.createdAt || a.data.dateSubmitted || a.data.timestamp);
+          const tb = getTime(b.data.createdAt || b.data.dateSubmitted || b.data.timestamp);
+          return tb - ta;
+        });
+
+        STATE.items = items;
+        renderList();
+      }catch(err){
+        console.error('Error loading work orders needing approval:', err);
+        const emptyEl = $('.wo-empty');
+        emptyEl.textContent = 'Error loading work orders. Check console or Firestore indexes.';
+        emptyEl.style.display = 'block';
+        const countEl = $('#woCount');
+        if(countEl) countEl.textContent = 'Error loading work orders';
+      }
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      const db = getFirestore();
-      const ref = collection(db, CONFIG.COLLECTION_PATH);
-
-      const q = query(
-        ref,
-        where(CONFIG.STATUS_FIELD, '==', CONFIG.NEEDS_APPROVAL_STATUS),
-        orderBy('createdAt', 'desc')
-      );
-
-      onSnapshot(q, (snap) => {
-        STATE.items = snap.docs.map(d => ({ id: d.id, data: d.data() }));
-        renderList();
-        if(STATE.selectedId){
-          const stillThere = STATE.items.some(x => x.id === STATE.selectedId);
-          if(!stillThere){
-            STATE.selectedId = null;
-            clearDetails();
-          }else{
-            renderDetails();
-          }
-        }
-      });
+      await loadWorkOrders();
 
       const closeBtn = $('#woDetailClose');
       closeBtn.addEventListener('click', () => {
         STATE.selectedId = null;
         clearDetails();
       });
-    });
+    })();
   </script>
 </head>
 
