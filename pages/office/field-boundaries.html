@@ -15,7 +15,16 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
   <!-- Ensure fv-shell -->
-  <script>(function(){if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);}})();</script>
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 
   <style>
     :root{
@@ -76,7 +85,7 @@
       line-height:1.2;
     }
 
-    .muted{ color:var(--muted,#67706B) }
+    .muted{ color:var(--muted,#67706B); }
 
     .body{
       padding:16px;
@@ -414,7 +423,7 @@
       display:block;
     }
 
-    /* Simple toast */
+    /* Simple toast for this page */
     #fv-toast{
       position:fixed;
       left:50%;
@@ -446,7 +455,9 @@
         <header class="hero-head">
           <div class="icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10M9 16v4M15 16v4"/><circle cx="17.5" cy="9.5" r="2"/>
+              <rect x="3" y="4" width="18" height="12" rx="2"/>
+              <path d="M7 20h10M9 16v4M15 16v4"/>
+              <circle cx="17.5" cy="9.5" r="2"/>
               <path d="M17.5 6.5v1M17.5 11.5v1M14.9 9.5h1M19.1 9.5h1M15.6 7.6l.7.7M18.7 10.7l.7.7M15.6 11.4l.7-.7M18.7 8.3l.7-.7"/>
             </svg>
           </div>
@@ -626,6 +637,8 @@
       query, where, orderBy
     } from '/Farm-vista/js/firebase-init.js';
 
+    const REDIRECT_URL = '/Farm-vista/pages/office/index.html';
+
     /* ===== Helpers ===== */
     const $ = id => document.getElementById(id);
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -637,18 +650,15 @@
       return d ? d.toLocaleDateString() : "";
     };
 
-    /* Simple toast (local to this page) */
     function showToast(msg){
       const el = $("fv-toast");
       if(!el) return;
       el.textContent = msg;
       el.classList.add("show");
-      setTimeout(()=>{
-        el.classList.remove("show");
-      }, 1300);
+      setTimeout(()=> el.classList.remove("show"), 1100);
     }
 
-    /* Combo utilities */
+    /* Combo helpers */
     function closeAllCombos(except=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==except) p.classList.remove('show');
@@ -726,7 +736,6 @@
     const woTitle = $("woTitle");
     const woSub = $("woSub");
     const woList = $("woList");
-
     const farmIdInput = $("farmId");
     const farmNameInput = $("farmName");
     const fieldIdInput = $("fieldId");
@@ -746,7 +755,10 @@
     async function currentUser(){
       const auth = getAuth();
       const u = auth.currentUser;
-      if (u) return { name: u.displayName || titleCase(String(u.email||"").replace(/@.*/,"").replace(/\./g," ")), email: u.email||"" };
+      if (u) return {
+        name: u.displayName || titleCase(String(u.email||"").replace(/@.*/,"").replace(/\./g," ")),
+        email: u.email||""
+      };
       return {name:"",email:""};
     }
 
@@ -760,6 +772,7 @@
       if(d.name) return d.name;
       return (d.email||"").replace(/@.*/,"");
     }
+
     async function loadEmployees(db){
       const me = await currentUser();
       let emps = [];
@@ -775,11 +788,16 @@
       const norm = s => String(s||"").trim().toLowerCase();
       const hasMe = emps.some(e => (e.email && norm(e.email)===norm(me.email)) || norm(e.name)===norm(me.name));
       if(!hasMe && (me.name || me.email)){
-        emps.unshift({ name: me.name || titleCase(String(me.email||"").replace(/@.*/,"").replace(/\./g," ")), email: me.email||"" });
+        emps.unshift({
+          name: me.name || titleCase(String(me.email||"").replace(/@.*/,"").replace(/\./g," ")),
+          email: me.email||""
+        });
       }
 
       emps = emps.filter(x=>x.name).sort((a,b)=>a.name.localeCompare(b.name));
-      submittedBySel.innerHTML = emps.map(e=>`<option value="${esc(e.name)}" data-email="${esc(e.email)}">${esc(e.name)}</option>`).join("");
+      submittedBySel.innerHTML = emps.map(e=>
+        `<option value="${esc(e.name)}" data-email="${esc(e.email)}">${esc(e.name)}</option>`
+      ).join("");
 
       let idx = emps.findIndex(e => norm(e.email)===norm(me.email));
       if (idx<0) idx = emps.findIndex(e => norm(e.name)===norm(me.name));
@@ -799,14 +817,18 @@
           farmIdInput.value = farm.id;
           farmNameInput.value = farm.name;
           $("farmBtn").textContent = farm.name || "— Select farm —";
+
           // Filter fields to this farm
           applyFarmFilter(farm.id);
-          // Clear current field selection when farm changes
+
+          // Clear current field selection
           currentFieldId = "";
           currentFieldLabel = "";
           fieldIdInput.value = "";
           fieldNameHidden.value = "";
           $("fieldBtn").textContent = "— Select field —";
+
+          // Clear active list
           woHero.hidden = true;
           woList.innerHTML = '<div class="muted">No active work orders.</div>';
         }
@@ -826,13 +848,11 @@
           fieldNameHidden.value = field.name || "";
           $("fieldBtn").textContent = field.name || "— Select field —";
 
-          // If this field has farm info, sync farm combo
+          // If field has farm info, sync farm selection
           if(field.farmId || field.farmName){
             farmIdInput.value = field.farmId || "";
             farmNameInput.value = field.farmName || "";
-            if(field.farmName){
-              $("farmBtn").textContent = field.farmName;
-            }
+            $("farmBtn").textContent = field.farmName || "— Select farm —";
           }
 
           if(dbInstance && currentFieldId){
@@ -847,7 +867,7 @@
       if(farmId){
         arr = allFields.filter(f => (f.farmId || "") === farmId);
       }
-      fieldCombo.setItems(arr);
+      if(fieldCombo) fieldCombo.setItems(arr);
       if(fieldHelp){
         if(farmId){
           fieldHelp.textContent = `${arr.length} fields in farm`;
@@ -901,10 +921,11 @@
     }
 
     /* ===== Photos & Annotations ===== */
-    let selectedFiles = []; // File[]
+    let selectedFiles = [];
+
     photos.addEventListener("change", ()=>{
       const list = Array.from(photos.files||[]);
-      selectedFiles = (selectedFiles || []).concat(list).slice(0,3); // cap at 3
+      selectedFiles = (selectedFiles || []).concat(list).slice(0,3);
       renderThumbs();
       photoNote.textContent = selectedFiles.length >= 3
         ? "Max 3 photos attached."
@@ -914,15 +935,24 @@
     function renderThumbs(){
       thumbs.innerHTML = "";
       selectedFiles.forEach((file, idx)=>{
-        const div = document.createElement("div"); div.className="thumb";
-        const img = document.createElement("img"); img.alt=file.name; img.src=URL.createObjectURL(file);
-        const tools = document.createElement("div"); tools.className="tools";
-        const btnAnn = document.createElement("button"); btnAnn.textContent="Annotate";
-        const btnRm  = document.createElement("button"); btnRm.textContent="Remove";
+        const div = document.createElement("div");
+        div.className="thumb";
+        const img = document.createElement("img");
+        img.alt=file.name;
+        img.src=URL.createObjectURL(file);
+        const tools = document.createElement("div");
+        tools.className="tools";
+        const btnAnn = document.createElement("button");
+        btnAnn.textContent="Annotate";
+        const btnRm  = document.createElement("button");
+        btnRm.textContent="Remove";
         btnAnn.addEventListener("click", ()=> openAnnotate(idx));
         btnRm.addEventListener("click", ()=>{ selectedFiles.splice(idx,1); renderThumbs(); });
-        tools.appendChild(btnAnn); tools.appendChild(btnRm);
-        div.appendChild(img); div.appendChild(tools); thumbs.appendChild(div);
+        tools.appendChild(btnAnn);
+        tools.appendChild(btnRm);
+        div.appendChild(img);
+        div.appendChild(tools);
+        thumbs.appendChild(div);
       });
     }
 
@@ -964,7 +994,8 @@
         const cssW = Math.round(img.width * scale);
         const cssH = Math.round(img.height * scale);
         const dpr = window.devicePixelRatio || 1; ann.dpr = dpr;
-        cvs.style.width = cssW+"px"; cvs.style.height = cssH+"px";
+        cvs.style.width = cssW+"px";
+        cvs.style.height = cssH+"px";
         cvs.width = Math.round(cssW * dpr);
         cvs.height= Math.round(cssH * dpr);
         ann.ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -1010,7 +1041,11 @@
         if(!b) return;
         const orig = selectedFiles[ann.idx];
         const ext = (orig?.name||"image").replace(/^.*(\.\w+)$/,'$1') || ".png";
-        const named = new File([b], (orig?.name?.replace(/\.\w+$/,'')||"annotated") + "-annotated"+ext, { type: "image/png" });
+        const named = new File(
+          [b],
+          (orig?.name?.replace(/\.\w+$/,'')||"annotated") + "-annotated"+ext,
+          { type: "image/png" }
+        );
         selectedFiles.splice(ann.idx,1,named);
         renderThumbs();
         closeModal();
@@ -1020,13 +1055,15 @@
     function openModal(title){
       $("mdTitle").textContent = title || "Details";
       modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
     }
     function closeModal(){
       modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
       mdBody.innerHTML = "";
       ann={canvas:null,ctx:null,img:null,idx:null,tool:"pen",drawing:false,start:null,undoStack:[],dpr:1};
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
     }
     mdClose.addEventListener("click", closeModal);
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
@@ -1076,7 +1113,7 @@
         if(ann.tool==="text" && pStart){
           const txt = prompt("Enter note text:");
           if(txt){
-            ctx.font = `bold ${Math.max(12,(Number(toolSize.value)||4)*4)}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+            ctx.font = `bold ${Math.max(12,(Number(toolSize.value)||4)*4)}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
             ctx.fillText(txt, pStart.x+4, pStart.y+4);
           }
         }
@@ -1095,15 +1132,22 @@
       const headLen = Math.max(8, width*4);
       const angle = Math.atan2(q.y - p.y, q.x - p.x);
       ctx.save();
-      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width; ctx.lineJoin="round"; ctx.lineCap="round";
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = width; ctx.lineJoin="round"; ctx.lineCap="round";
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(q.x, q.y);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(q.x, q.y);
-      ctx.lineTo(q.x - headLen * Math.cos(angle - Math.PI/6), q.y - headLen * Math.sin(angle - Math.PI/6));
-      ctx.lineTo(q.x - headLen * Math.cos(angle + Math.PI/6), q.y - headLen * Math.sin(angle + Math.PI/6));
+      ctx.lineTo(
+        q.x - headLen * Math.cos(angle - Math.PI/6),
+        q.y - headLen * Math.sin(angle - Math.PI/6)
+      );
+      ctx.lineTo(
+        q.x - headLen * Math.cos(angle + Math.PI/6),
+        q.y - headLen * Math.sin(angle + Math.PI/6)
+      );
       ctx.closePath();
       ctx.fill();
       ctx.restore();
@@ -1113,5 +1157,262 @@
     async function loadStorageFns(){
       try{
         const m = await import('/Farm-vista/js/firebase-init.js');
-        const fns = { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
-       .dots
+        const fns = {
+          getStorage:m.getStorage,
+          ref:m.ref,
+          uploadBytes:m.uploadBytes,
+          getDownloadURL:m.getDownloadURL
+        };
+        if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) return fns;
+      }catch(_){}
+      throw new Error('Storage functions are not exported by /Farm-vista/js/firebase-init.js. Please export getStorage, ref, uploadBytes, getDownloadURL.');
+    }
+
+    /* ===== Collect / validate / save ===== */
+    const DATA_FIELDS = () => Array.from(document.querySelectorAll("[data-field]"));
+
+    function collect(){
+      const o={};
+      DATA_FIELDS().forEach(el=> o[el.dataset.field]=el.value);
+
+      const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
+      o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
+      o.status="Open";
+      o.t=Date.now();
+      o.timestampISO=new Date(o.t).toISOString();
+      return o;
+    }
+
+    function validate(o){
+      if(!o.farmId || !o.farm) return "Please select a farm.";
+      if(!o.fieldId || !o.field) return "Please select a field.";
+      if(!o.boundaryType) return "Please choose Interior or Exterior.";
+      if(!o.scope) return "Please choose Small section or Entire field.";
+      if(!o.submittedBy || !o.submittedBy.trim()) return "Please choose who is submitting this.";
+      if(!o.when) return "Please set the date.";
+      return "";
+    }
+
+    async function saveRequest(db, obj){
+      const ref = await addDoc(collection(db, 'boundary_requests'), {
+        ...obj,
+        createdAt: serverTimestamp()
+      });
+      return ref.id;
+    }
+
+    async function uploadPhotosLazy(docId, files){
+      if(!files || !files.length) return [];
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
+      const st = getStorage();
+      const out = [];
+      for (const f of files){
+        const safe = safeName(f.name);
+        const path = `boundary-requests/${docId}/${safe}`;
+        const r = ref(st, path);
+        await uploadBytes(r, f, { contentType: f.type || 'image/png' });
+        const url = await getDownloadURL(r);
+        out.push({ name: f.name, url, path });
+      }
+      return out;
+    }
+
+    $("primary").addEventListener("click", async ()=>{
+      const o = collect();
+      const err = validate(o);
+      if(err){
+        alert(err);
+        return;
+      }
+      try{
+        const db = dbInstance || getFirestore();
+        const id = await saveRequest(db, o);
+
+        if (selectedFiles.length){
+          try{
+            const uploaded = await uploadPhotosLazy(id, selectedFiles);
+            if (uploaded.length){
+              await updateDoc(doc(db,'boundary_requests',id), {
+                photos: uploaded,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }catch(stErr){
+            console.error(stErr);
+            alert("Saved request, but photo upload failed:\n\n" + (stErr?.message||stErr));
+          }
+        }
+
+        showToast("Boundary request saved");
+        setTimeout(()=>{ window.location.href = REDIRECT_URL; }, 1100);
+      }catch(e){
+        console.error(e);
+        alert("Save failed: " + e.message);
+      }
+    });
+
+    $("cancel").addEventListener("click", ()=>{
+      window.location.href = REDIRECT_URL;
+    });
+
+    /* ===== Active Work Orders (per field) ===== */
+    async function renderActiveWorkOrders(db, fieldId, fieldNameLabel){
+      if(!fieldId){
+        woHero.hidden=true;
+        return;
+      }
+      try{
+        const qy = query(
+          collection(db,'boundary_requests'),
+          where('fieldId','==',fieldId),
+          orderBy('createdAt','desc')
+        );
+        const snap = await getDocs(qy);
+        const items = [];
+        snap.forEach(s=>{
+          const d = s.data()||{};
+          const status = String(d.status||'Open');
+          if(status.toLowerCase() !== 'closed'){
+            items.push({ id:s.id, ...d });
+          }
+        });
+
+        const label = fieldNameLabel || 'Selected Field';
+        woTitle.textContent = `Active Work Orders — ${label}`;
+        woSub.textContent = items.length
+          ? `${items.length} open request${items.length===1?'':'s'} for this field.`
+          : 'No open requests for this field.';
+        woHero.hidden = false;
+
+        if(!items.length){
+          woList.innerHTML = '<div class="muted">No active work orders.</div>';
+          return;
+        }
+
+        woList.innerHTML = "";
+        items.forEach(it=>{
+          const li = document.createElement('div');
+          li.className = 'wo-item';
+          li.setAttribute('role','button');
+          li.setAttribute('tabindex','0');
+          li.dataset.id = it.id;
+
+          const whenTxt = fmtDate(it.createdAt) || it.when || '';
+          li.innerHTML = `
+            <div class="wo-head">
+              <strong>${esc(it.boundaryType||'—')}</strong>
+              <span class="pill">${esc(whenTxt)}</span>
+              <span class="pill">${esc(it.status||'Open')}</span>
+            </div>
+            <div class="muted" style="margin-top:6px">
+              Submitted by ${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}
+            </div>
+            ${it.notes? `<div style="margin-top:6px">${esc(it.notes)}</div>` : ''}
+          `;
+          li.addEventListener('click', ()=> openWorkOrderView(db, it.id, label));
+          li.addEventListener('keydown', (e)=>{
+            if(e.key==='Enter' || e.key===' '){
+              e.preventDefault();
+              openWorkOrderView(db, it.id, label);
+            }
+          });
+          woList.appendChild(li);
+        });
+      }catch(e){
+        console.error(e);
+        woHero.hidden = false;
+        woTitle.textContent = "Active Work Orders";
+        woSub.textContent = "Open requests for this field.";
+        woList.innerHTML = `<div class="muted">Unable to load work orders: ${esc(e.message)}</div>`;
+      }
+    }
+
+    /* ===== View (read-only) modal for an existing request ===== */
+    const viewModal = $("viewModal"), vmClose = $("vmClose"), vmBody = $("vmBody"), vmTitle = $("vmTitle");
+
+    function openView(){
+      viewModal.setAttribute("open",""); viewModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
+    }
+    function closeView(){
+      viewModal.removeAttribute("open"); viewModal.setAttribute("aria-hidden","true");
+      vmBody.innerHTML="";
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
+    }
+    vmClose.addEventListener("click", closeView);
+    viewModal.addEventListener("click", e=>{ if(e.target===viewModal) closeView(); });
+    document.addEventListener("keydown", e=>{
+      if(e.key==="Escape" && viewModal.hasAttribute("open")) closeView();
+    });
+
+    async function openWorkOrderView(db, id, fieldNameLabel){
+      try{
+        const ref = doc(db, 'boundary_requests', id);
+        const snap = await getDoc(ref);
+        if(!snap.exists()){ return; }
+        const it = snap.data() || {};
+        const whenTxt = fmtDate(it.createdAt) || it.when || '';
+        vmTitle.textContent = `Work Order — ${fieldNameLabel || it.field || ''}`;
+
+        const photos = Array.isArray(it.photos) ? it.photos : [];
+        const photoHTML = photos.length
+          ? `<div class="vm-photos">` + photos.map(p=>{
+              const url = esc(p.url || "");
+              const nm  = esc(p.name || "photo");
+              return `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${nm}"/></a>`;
+            }).join("") + `</div>`
+          : `<div class="muted">No photos attached.</div>`;
+
+        vmBody.innerHTML = `
+          <div class="row" style="margin-bottom:8px">
+            <div class="field">
+              <label>Status</label>
+              <div class="pill">${esc(it.status||'Open')}</div>
+            </div>
+            <div class="field">
+              <label>Date</label>
+              <div class="pill">${esc(whenTxt)}</div>
+            </div>
+          </div>
+
+          <div class="field" style="margin-bottom:8px">
+            <label>Boundary Type</label>
+            <div><strong>${esc(it.boundaryType||'—')}</strong></div>
+          </div>
+
+          <div class="field" style="margin-bottom:8px">
+            <label>Submitted By</label>
+            <div>${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}</div>
+          </div>
+
+          ${it.notes ? `
+          <div class="field" style="margin-bottom:8px">
+            <label>Notes</label>
+            <div>${esc(it.notes)}</div>
+          </div>` : ''}
+
+          <div class="field">
+            <label>Photos</label>
+            ${photoHTML}
+            <div class="help" style="margin-top:6px">Tap a thumbnail to open the full image in a new tab.</div>
+          </div>
+        `;
+        openView();
+      }catch(e){
+        alert("Unable to open work order: " + (e?.message||e));
+      }
+    }
+
+    /* ===== Boot ===== */
+    (async function(){
+      await ready;
+      dbInstance = getFirestore();
+      initCombos();
+      await loadFarmsAndFields(dbInstance);
+      await loadEmployees(dbInstance);
+    })();
+  </script>
+</body>
+</html>
