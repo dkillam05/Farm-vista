@@ -29,9 +29,6 @@
   </script>
 
   <style>
-    /* ======================
-       Shared layout + hero (match Pick Up Bag)
-       ====================== */
     :root{
       --combo-gap: 4px;
       --combo-radius: 12px;
@@ -60,7 +57,7 @@
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:visible;
-      margin-bottom:var(--page-bottom-gap);
+      margin-bottom:18px;
     }
     .hero-head{
       display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
@@ -68,7 +65,8 @@
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
     .hero-head .icon{ width:24px; height:24px; color:var(--accent); display:grid; place-items:center }
-    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2 }
+    .hero-head h1,
+    .hero-head h2{ margin:0; font-size:clamp(20px,3.0vw,24px); line-height:1.2 }
     .muted{ color:var(--muted,#67706B) }
 
     .body{ padding:16px; display:grid; gap:14px }
@@ -78,12 +76,11 @@
     .field{ position:relative }
     .field label{ display:block; font-weight:800; margin:0 0 6px }
 
-    .input,.textarea,.buttonish{
+    .input,.buttonish{
       width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface)); border:1px solid var(--border);
       border-radius:var(--combo-btn-radius); padding:12px; outline:none;
     }
-    .textarea{ min-height:80px; resize:vertical }
     .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:42px }
     .buttonish.has-caret::after{
       content:""; position:absolute; right:14px; top:50%; width:0; height:0;
@@ -103,15 +100,11 @@
     .btn[disabled]{ opacity:.6; cursor:not-allowed }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
 
-    /* ======================
-       Combo core styles (same pattern as bag page)
-       ====================== */
+    /* combo dropdowns (same behavior as bag page) */
     .combo{ position:relative }
-
     .combo .combo-anchor{
       position:relative; display:inline-block; width:100%;
     }
-
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
       background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
@@ -128,12 +121,7 @@
     .combo-item:last-child{ border-bottom:none }
     .combo-empty{ padding:var(--combo-item-pad); color:#67706B }
 
-    .cards{ display:grid; grid-template-columns:1fr; gap:12px }
-    .card{
-      border:1px solid var(--border); border-radius:12px; background:var(--surface);
-      padding:12px; display:grid; gap:10px
-    }
-    .kvs{ display:flex; flex-wrap:wrap; gap:10px }
+    .kvs{ display:flex; flex-wrap:wrap; gap:8px }
     .kv{
       background:var(--card-surface,var(--surface));
       border:1px dashed var(--border);
@@ -156,84 +144,100 @@
 <body>
   <fv-shell>
     <div class="wrap">
+
+      <!-- HERO 1: choose StarFire -->
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">📡</div>
           <div>
-            <h1>StarFire Location Update</h1>
-            <p class="muted">Pick a StarFire globe, pick the machine it’s on, and record who moved it and when.</p>
+            <h1>Select StarFire</h1>
+            <p class="muted">Pick a globe and see its model and serial.</p>
           </div>
         </header>
-
         <div class="body">
-          <!-- Row 1: StarFire + Equipment combos -->
-          <div class="row">
-            <!-- StarFire receiver -->
-            <div class="field combo">
-              <label for="sfBtn">StarFire Receiver</label>
-              <div class="combo-anchor">
-                <button id="sfBtn" class="buttonish has-caret" type="button">— Select receiver —</button>
-                <div class="combo-panel" id="sfPanel" role="listbox" aria-label="StarFire list">
-                  <div class="search"><input id="sfSearch" type="search" placeholder="Search receivers…"/></div>
-                  <div class="list" id="sfList"></div>
-                </div>
+          <div class="field combo">
+            <label for="sfBtn">StarFire Receiver</label>
+            <div class="combo-anchor">
+              <button id="sfBtn" class="buttonish has-caret" type="button">— Select receiver —</button>
+              <div class="combo-panel" id="sfPanel" role="listbox" aria-label="StarFire list">
+                <div class="search"><input id="sfSearch" type="search" placeholder="Search receivers…"/></div>
+                <div class="list" id="sfList"></div>
               </div>
-              <div id="sfHelp" class="help">Loading…</div>
             </div>
-
-            <!-- Equipment (GPS-capable) -->
-            <div class="field combo">
-              <label for="equipBtn">Mounted On (equipment)</label>
-              <div class="combo-anchor">
-                <button id="equipBtn" class="buttonish has-caret" type="button">— Select equipment —</button>
-                <div class="combo-panel" id="equipPanel" role="listbox" aria-label="Equipment list">
-                  <div class="search"><input id="equipSearch" type="search" placeholder="Search equipment…"/></div>
-                  <div class="list" id="equipList"></div>
-                </div>
-              </div>
-              <div id="equipHelp" class="help">Shows GPS-capable, active equipment only.</div>
-            </div>
+            <div id="sfHelp" class="help">Loading…</div>
           </div>
 
-          <!-- Row 2: Receiver + current location summary -->
-          <div class="row">
-            <div class="field">
-              <label>Receiver Details</label>
-              <div class="kvs">
-                <span class="kv"><b>Name:</b> <span id="sfName">—</span></span>
-                <span class="kv"><b>Serial:</b> <span id="sfSerial">—</span></span>
-              </div>
-            </div>
-
-            <div class="field">
-              <label>Current Location</label>
-              <div class="kvs">
-                <span class="kv"><b>Mounted On:</b> <span id="curEquip">Not assigned</span></span>
-                <span class="kv"><b>Last Moved:</b> <span id="curMovedAt">—</span></span>
-                <span class="kv"><b>Moved By:</b> <span id="curMovedBy">—</span></span>
-                <span class="kv"><b>Notes:</b> <span id="curNotes">—</span></span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Row 3: Who/when -->
-          <div class="row">
-            <div class="field">
-              <label for="movedBy">Moved By</label>
-              <input id="movedBy" class="input" type="text" placeholder="Employee / operator name"/>
-              <div class="help" id="movedByHelp">Defaults to logged-in user if left blank.</div>
-            </div>
-
-            <div class="field">
-              <label for="movedAt">Move Date &amp; Time</label>
-              <input id="movedAt" class="input" type="datetime-local"/>
-            </div>
-          </div>
-
-          <!-- Notes -->
           <div class="field">
-            <label for="notes">Notes</label>
-            <textarea id="notes" class="textarea" placeholder="Optional: where it came from, why it was moved, etc."></textarea>
+            <label>Receiver Details</label>
+            <div class="kvs">
+              <span class="kv"><b>Model:</b> <span id="sfModel">—</span></span>
+              <span class="kv"><b>Serial (last 6):</b> <span id="sfSerial">—</span></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HERO 2: current location -->
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">📍</div>
+          <div>
+            <h2>Current Location</h2>
+            <p class="muted">Where this globe is right now.</p>
+          </div>
+        </header>
+        <div class="body">
+          <div class="field">
+            <label>Location</label>
+            <div class="kvs">
+              <span class="kv"><b>Mounted On:</b> <span id="curEquip">—</span></span>
+              <span class="kv"><b>Since:</b> <span id="curSince">—</span></span>
+              <span class="kv"><b>Duration:</b> <span id="curDuration">—</span></span>
+            </div>
+            <div class="help" id="curHelp">Select a StarFire receiver above to see its location.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HERO 3: assign new location -->
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🔁</div>
+          <div>
+            <h2>Assign New Location</h2>
+            <p class="muted">Send this globe to a machine or back to storage.</p>
+          </div>
+        </header>
+        <div class="body">
+          <div class="field combo">
+            <label for="equipBtn">New Location</label>
+            <div class="combo-anchor">
+              <button id="equipBtn" class="buttonish has-caret" type="button">— Select equipment or “In Storage” —</button>
+              <div class="combo-panel" id="equipPanel" role="listbox" aria-label="Equipment list">
+                <div class="search"><input id="equipSearch" type="search" placeholder="Search equipment…"/></div>
+                <div class="list" id="equipList"></div>
+              </div>
+            </div>
+            <div id="equipHelp" class="help">First option is <b>In Storage</b>, then GPS-capable equipment (make • model • last 6 of serial).</div>
+          </div>
+
+          <div class="row">
+            <div class="field combo">
+              <label for="moverBtn">Who is moving it?</label>
+              <div class="combo-anchor">
+                <button id="moverBtn" class="buttonish has-caret" type="button">— Select employee —</button>
+                <div class="combo-panel" id="moverPanel" role="listbox" aria-label="Employee list">
+                  <div class="list" id="moverList"></div>
+                </div>
+              </div>
+              <div id="moverHelp" class="help">Defaults to the logged-in user if found in employees.</div>
+            </div>
+
+            <div class="field">
+              <label for="moveDate">Move Date</label>
+              <input id="moveDate" class="input" type="date"/>
+              <div class="help">Defaults to today.</div>
+            </div>
           </div>
 
           <div id="pageErr" class="help error" hidden></div>
@@ -264,7 +268,7 @@
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* ---------- tiny helpers ---------- */
+    /* ---------------- utils ---------------- */
     const $ = id => document.getElementById(id);
     const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({
       "&":"&amp;",
@@ -281,26 +285,38 @@
       t.classList.add("show");
       setTimeout(()=>t.classList.remove('show'),ms);
     };
-    const fmtDT = (d)=>{
-      if(!d) return "—";
-      try{
-        const pad=n=>String(n).padStart(2,'0');
-        const y=d.getFullYear(), m=pad(d.getMonth()+1), da=pad(d.getDate());
-        const hh=pad(d.getHours()), mm=pad(d.getMinutes());
-        return `${y}-${m}-${da} ${hh}:${mm}`;
-      }catch(e){ return "—"; }
+    const todayISO = ()=>{
+      const d=new Date();
+      const y=d.getFullYear();
+      const m=String(d.getMonth()+1).padStart(2,'0');
+      const da=String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${da}`;
+    };
+    const last6 = s=>{
+      const str = String(s || "").trim();
+      if(!str) return "—";
+      return str.length>6 ? str.slice(-6) : str;
+    };
+    const daysBetween = (isoDate)=>{
+      if(!isoDate) return "—";
+      const d = new Date(isoDate);
+      if(Number.isNaN(d.getTime())) return "—";
+      const now = new Date();
+      const diff = Math.floor((now - d)/(1000*60*60*24));
+      if(diff < 0) return "—";
+      if(diff === 0) return "Today";
+      if(diff === 1) return "1 day";
+      return `${diff} days`;
     };
 
-    /* ---------- combo plumbing (same flow as bag page) ---------- */
+    /* -------- combo plumbing (same pattern as bag page) -------- */
     function closeAllCombos(except=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==except) p.classList.remove('show');
       });
     }
     document.addEventListener('click', ()=> closeAllCombos());
-    document.addEventListener('keydown', e=>{
-      if(e.key==='Escape') closeAllCombos();
-    });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
     function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label ?? x), onPick }){
       panel.addEventListener('click', e=> e.stopPropagation());
@@ -357,14 +373,62 @@
       };
     }
 
-    /* ---------- state ---------- */
+    /* -------- state -------- */
     let db, auth;
-    let STARFIRES = []; // {id,name,serial,data}
-    let EQUIPMENT = []; // {id,label,data}
-    let CHOSEN_SF = null;
-    let CHOSEN_EQ = null;
 
-    /* ---------- load data ---------- */
+    let STARFIRES = [];   // {id, name, model, serial, data}
+    let EQUIPMENT = [];   // {id, label, data} + special storage row
+    let EMPLOYEES = [];   // {id, name, email}
+
+    let selectedSF = null;
+    let selectedNewLoc = null;
+    let selectedMover = null;
+    let currentMount = null;  // {locationLabel, sinceDate, mode}
+
+    /* -------- combos -------- */
+    const sfCombo = makeCombo({
+      btn: $("sfBtn"),
+      panel: $("sfPanel"),
+      list: $("sfList"),
+      items: [],
+      searchable: true,
+      formatter: x => x.name,
+      onPick: it => {
+        selectedSF = it;
+        $("sfBtn").textContent = it.name;
+        $("sfModel").textContent  = it.model || "—";
+        $("sfSerial").textContent = last6(it.serial);
+        loadCurrentLocation(it.id);
+      }
+    });
+
+    const equipCombo = makeCombo({
+      btn: $("equipBtn"),
+      panel: $("equipPanel"),
+      list: $("equipList"),
+      items: [],
+      searchable: true,
+      formatter: x => x.label,
+      onPick: it => {
+        selectedNewLoc = it;        // it.id can be 'storage'
+        $("equipBtn").textContent = it.label;
+      }
+    });
+
+    const moverCombo = makeCombo({
+      btn: $("moverBtn"),
+      panel: $("moverPanel"),
+      list: $("moverList"),
+      items: [],
+      searchable: false,
+      formatter: x => x.name,
+      onPick: it => {
+        selectedMover = it;
+        $("moverBtn").textContent = it.name;
+      }
+    });
+
+    /* -------- data loaders -------- */
     async function loadStarfires(){
       STARFIRES = [];
       $("sfHelp").textContent = "Loading StarFire receivers…";
@@ -372,7 +436,7 @@
       try{
         const snap = await getDocs(collection(db,'equipment'));
         snap.forEach(d=>{
-          const x = d.data()||{};
+          const x = d.data() || {};
           if(x.type !== 'starfire') return;
           if(x.archived === true || x.isArchived === true) return;
 
@@ -383,14 +447,10 @@
             x.equipName ||
             ('StarFire ' + String(d.id).slice(0,6));
 
-          const serial =
-            x.serial ||
-            x.serialNumber ||
-            x.vin ||
-            x.sn ||
-            '';
+          const model = x.model || x.sfModel || x.displayName || "";
+          const serial = x.serial || x.serialNumber || x.vin || x.sn || "";
 
-          STARFIRES.push({ id:d.id, name, serial, data:x });
+          STARFIRES.push({ id:d.id, name, model, serial, data:x });
         });
 
         STARFIRES.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
@@ -409,129 +469,177 @@
       try{
         const snap = await getDocs(collection(db,'equipment'));
         snap.forEach(d=>{
-          const x = d.data()||{};
+          const x = d.data() || {};
           if(x.gpsCapable !== true) return;
           if(x.archived === true || x.isArchived === true) return;
 
-          const parts = [];
-          if(x.nickname) parts.push(x.nickname);
-          if(x.make)     parts.push(x.make);
-          if(x.model)    parts.push(x.model);
-          if(!parts.length && x.displayName) parts.push(x.displayName);
-          if(!parts.length && x.name)        parts.push(x.name);
+          const make  = x.make || "";
+          const model = x.model || "";
+          const serial = x.serial || x.serialNumber || x.vin || x.sn || "";
+          const label = `${make} ${model}`.trim() + (serial ? ` • ${last6(serial)}` : "");
 
-          const label = parts.join(' – ') || ('Equipment ' + String(d.id).slice(0,6));
-          EQUIPMENT.push({ id:d.id, label, data:x });
+          EQUIPMENT.push({
+            id: d.id,
+            label: label || ('Equipment ' + String(d.id).slice(0,6)),
+            data: x
+          });
         });
 
         EQUIPMENT.sort((a,b)=>(a.label||"").localeCompare(b.label||""));
-        equipCombo.setItems(EQUIPMENT);
-        $("equipHelp").textContent = `${EQUIPMENT.length} GPS-capable unit(s).`;
+
+        // first hardcoded option: In Storage
+        const STORAGE_ROW = { id:'storage', label:'In Storage', storage:true };
+        equipCombo.setItems([STORAGE_ROW, ...EQUIPMENT]);
+
+        $("equipHelp").textContent = `${EQUIPMENT.length} GPS-capable unit(s) plus “In Storage”.`;
       }catch(err){
         console.error('loadEquipment error:', err);
         $("equipHelp").textContent = "Error loading equipment.";
       }
     }
 
-    async function loadCurrentLocation(sfId){
-      $("curEquip").textContent   = "Not assigned";
-      $("curMovedAt").textContent = "—";
-      $("curMovedBy").textContent = "—";
-      $("curNotes").textContent   = "—";
-
-      if(!sfId) return;
-
+    async function loadEmployees(){
+      EMPLOYEES = [];
       try{
-        const snap = await getDoc(doc(db,'equipment', sfId));
-        if(!snap.exists()) return;
-        const data = snap.data()||{};
-        const m = data.starfireMountedOn;
-        if(!m) return;
-
-        $("curEquip").textContent   = m.equipmentLabel || "Unknown equipment";
-        $("curMovedAt").textContent = m.movedAt || "—";
-        $("curMovedBy").textContent = m.movedBy || "—";
-        $("curNotes").textContent   = m.notes || "—";
+        const snap = await getDocs(collection(db,'employees'));
+        snap.forEach(d=>{
+          const x = d.data() || {};
+          EMPLOYEES.push({
+            id: d.id,
+            name: x.name || x.displayName || x.fullName || x.email || d.id,
+            email: x.email || d.id
+          });
+        });
       }catch(err){
-        console.error('loadCurrentLocation error:', err);
+        console.warn('employees load error:', err);
+      }
+
+      EMPLOYEES.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+      moverCombo.setItems(EMPLOYEES);
+
+      // default to logged-in user, if found
+      if(auth.currentUser){
+        const meEmail = (auth.currentUser.email || "").toLowerCase();
+        const mine = EMPLOYEES.find(e => (e.email||"").toLowerCase() === meEmail);
+        if(mine){
+          selectedMover = mine;
+          $("moverBtn").textContent = mine.name;
+        }
+      }
+
+      if(!selectedMover && EMPLOYEES[0]){
+        selectedMover = EMPLOYEES[0];
+        $("moverBtn").textContent = EMPLOYEES[0].name;
       }
     }
 
-    /* ---------- combos ---------- */
-    const sfCombo = makeCombo({
-      btn: $("sfBtn"),
-      panel: $("sfPanel"),
-      list: $("sfList"),
-      items: [],
-      searchable: true,
-      formatter: x => x.name,
-      onPick: (it)=>{
-        CHOSEN_SF = it;
-        $("sfBtn").textContent = it.name;
-        $("sfName").textContent = it.name;
-        $("sfSerial").textContent = it.serial || "—";
-        loadCurrentLocation(it.id);
-      }
-    });
+    async function loadCurrentLocation(sfId){
+      currentMount = null;
+      $("curEquip").textContent   = "—";
+      $("curSince").textContent   = "—";
+      $("curDuration").textContent = "—";
+      $("curHelp").textContent    = "Looking up current location…";
 
-    const equipCombo = makeCombo({
-      btn: $("equipBtn"),
-      panel: $("equipPanel"),
-      list: $("equipList"),
-      items: [],
-      searchable: true,
-      formatter: x => x.label,
-      onPick: (it)=>{
-        CHOSEN_EQ = it;
-        $("equipBtn").textContent = it.label;
+      if(!sfId){
+        $("curHelp").textContent = "Select a StarFire receiver above to see its location.";
+        return;
       }
-    });
 
-    /* ---------- save move ---------- */
+      try{
+        const snap = await getDoc(doc(db,'equipment', sfId));
+        if(!snap.exists()){
+          $("curHelp").textContent = "No record found for this receiver.";
+          return;
+        }
+        const data = snap.data() || {};
+        const m = data.starfireMountedOn || null;
+
+        if(!m){
+          currentMount = { locationLabel:"In Storage", sinceDate:null, mode:'storage' };
+          $("curEquip").textContent   = "In Storage";
+          $("curSince").textContent   = "—";
+          $("curDuration").textContent = "—";
+          $("curHelp").textContent    = "No install history yet.";
+          return;
+        }
+
+        const eqId   = m.equipmentId || null;
+        const label  = m.equipmentLabel || (eqId ? ("Equipment " + eqId.slice(0,6)) : "In Storage");
+        const movedDate = m.movedDate || m.movedAt || null;   // movedDate is what we’ll store
+
+        currentMount = {
+          locationLabel: label,
+          sinceDate: movedDate,
+          mode: eqId ? 'equipment' : 'storage'
+        };
+
+        $("curEquip").textContent   = label;
+        $("curSince").textContent   = movedDate || "Unknown";
+        $("curDuration").textContent = movedDate ? daysBetween(movedDate) : "—";
+        $("curHelp").textContent    = eqId ? "Currently mounted on this machine." : "Currently in storage.";
+      }catch(err){
+        console.error('loadCurrentLocation error:', err);
+        $("curHelp").textContent = "Error loading current location.";
+      }
+    }
+
+    /* -------- save move -------- */
     async function saveMove(){
       const errEl = $("pageErr");
       errEl.hidden = true;
       errEl.textContent = "";
 
-      if(!CHOSEN_SF){
+      if(!selectedSF){
         errEl.textContent = "Pick a StarFire receiver first.";
         errEl.hidden = false;
         return;
       }
-      if(!CHOSEN_EQ){
-        errEl.textContent = "Pick the equipment this globe is on.";
+      if(!selectedNewLoc){
+        errEl.textContent = "Pick where this globe is going (equipment or In Storage).";
+        errEl.hidden = false;
+        return;
+      }
+      if(!selectedMover){
+        errEl.textContent = "Pick who is moving it.";
         errEl.hidden = false;
         return;
       }
 
-      const movedByInput = $("movedBy");
-      const movedAtInput = $("movedAt");
-      const notesInput   = $("notes");
+      const dateStr = $("moveDate").value || todayISO();
 
-      let movedBy = (movedByInput.value || "").trim();
-      if(!movedBy && auth.currentUser){
-        movedBy = auth.currentUser.displayName || auth.currentUser.email || "";
-      }
+      const from = currentMount || {
+        locationLabel:"Unknown",
+        sinceDate:null,
+        mode:'unknown'
+      };
 
-      let movedAtStr;
-      if(movedAtInput.value){
-        movedAtStr = fmtDT(new Date(movedAtInput.value));
-      }else{
-        movedAtStr = fmtDT(new Date());
-      }
+      const toIsStorage = !!selectedNewLoc.storage;
+      const toEquipmentId    = toIsStorage ? null : selectedNewLoc.id;
+      const toEquipmentLabel = toIsStorage ? "In Storage" : selectedNewLoc.label;
 
-      const notes = (notesInput.value || "").trim() || null;
+      const mover = selectedMover;
+      const moverName  = mover.name || "";
+      const moverEmail = mover.email || null;
 
       const payload = {
-        receiverId: CHOSEN_SF.id,
-        receiverName: CHOSEN_SF.name,
-        receiverSerial: CHOSEN_SF.serial || null,
-        equipmentId: CHOSEN_EQ.id,
-        equipmentLabel: CHOSEN_EQ.label,
-        movedBy: movedBy || null,
-        movedAt: movedAtStr,
-        movedAtTS: serverTimestamp(),
-        notes,
+        receiverId: selectedSF.id,
+        receiverName: selectedSF.name,
+        receiverModel: selectedSF.model || null,
+        receiverSerial: selectedSF.serial || null,
+
+        fromLocationLabel: from.locationLabel,
+        fromSinceDate: from.sinceDate || null,
+        fromMode: from.mode || null,
+
+        toEquipmentId,
+        toEquipmentLabel,
+        toMode: toIsStorage ? 'storage' : 'equipment',
+
+        movedById: mover.id,
+        movedByName: moverName,
+        movedByEmail: moverEmail,
+        movedDate: dateStr,
+
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -540,23 +648,24 @@
       btn.disabled = true;
 
       try{
+        // history
         await addDoc(collection(db,'starfireMoves'), payload);
 
-        await updateDoc(doc(db,'equipment', CHOSEN_SF.id), {
+        // latest location on StarFire doc
+        await updateDoc(doc(db,'equipment', selectedSF.id), {
           starfireMountedOn: {
-            equipmentId: payload.equipmentId,
-            equipmentLabel: payload.equipmentLabel,
-            movedBy: payload.movedBy,
-            movedAt: payload.movedAt,
-            notes: payload.notes
+            equipmentId: toEquipmentId,
+            equipmentLabel: toEquipmentLabel,
+            movedBy: moverName || null,
+            movedDate: dateStr
           },
           updatedAt: serverTimestamp()
         });
 
         toast("StarFire location saved.");
-        await loadCurrentLocation(CHOSEN_SF.id);
+        await loadCurrentLocation(selectedSF.id);
 
-        // Back to StarFire hub
+        // back to hub
         window.location.href = "/Farm-vista/pages/equipment/equipment-starfire.html";
       }catch(err){
         console.error('saveMove error:', err);
@@ -567,21 +676,19 @@
       }
     }
 
-    /* ---------- boot ---------- */
+    /* -------- boot -------- */
     (async()=>{
       await ready;
       db = getFirestore();
       auth = getAuth();
 
-      // Prefill movedBy + movedAt
-      try{
-        if(auth.currentUser){
-          $("movedBy").placeholder = auth.currentUser.displayName || auth.currentUser.email || "Employee / operator name";
-        }
-      }catch(e){}
-      $("movedAt").value = new Date().toISOString().slice(0,16); // yyyy-MM-ddTHH:mm
+      $("moveDate").value = todayISO();
 
-      await Promise.all([ loadStarfires(), loadEquipment() ]);
+      await Promise.all([
+        loadStarfires(),
+        loadEquipment(),
+        loadEmployees()
+      ]);
 
       $("saveMove").addEventListener('click', saveMove);
       $("cancelPage").addEventListener('click', ()=> {
@@ -595,10 +702,10 @@
         if(preId){
           const found = STARFIRES.find(s => s.id === preId);
           if(found){
-            CHOSEN_SF = found;
+            selectedSF = found;
             $("sfBtn").textContent = found.name;
-            $("sfName").textContent = found.name;
-            $("sfSerial").textContent = found.serial || "—";
+            $("sfModel").textContent  = found.model || "—";
+            $("sfSerial").textContent = last6(found.serial);
             await loadCurrentLocation(found.id);
           }
         }
