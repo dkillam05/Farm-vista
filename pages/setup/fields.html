@@ -374,11 +374,12 @@
       </div>
       <div class="dialog-body">
         <p class="import-note">
-          Use the Fields import template, then upload your completed CSV for review. Nothing is written to the database
-          until you confirm on the next step.
+          Expected CSV header (row 1):
+          <br>
+          <strong>farmName,fieldName,state,county,tillableAcres,helAcres,crpAcres,rtkTowerName</strong>
         </p>
         <ul class="import-steps">
-          <li>Download <strong>fields-template.csv</strong> from Setup → Import Templates.</li>
+          <li>Download <strong>fields-template.csv</strong> from Setup → Import Templates (matching these headers).</li>
           <li>Fill it out in Excel or Google Sheets.</li>
           <li>Upload the CSV here to review and import.</li>
         </ul>
@@ -394,7 +395,7 @@ No file selected yet.
       </div>
       <div class="dialog-footer">
         <button id="importCancel" class="closex" type="button">Cancel</button>
-        <button id="importRun" class="btn btn-primary" type="button">Run Import (Coming Soon)</button>
+        <button id="importRun" class="btn btn-primary" type="button" disabled>Run Import</button>
       </div>
     </div>
   </div>
@@ -412,7 +413,7 @@ No file selected yet.
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
-    /* ===== ACS (County) config ===== */
+    /* ===== ACS (County) + State helpers ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
       ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
@@ -432,6 +433,14 @@ No file selected yet.
       NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
+    const STATE_NAME_TO_CODE = new Map([
+      ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
+      ...STATES.map(([c])=>[c.toLowerCase(),c])
+    ]);
+    const STATE_CODE_SET = new Set(STATES.map(([c])=>c));
+
+    let DEFAULT_STATE_CODE = "IL";
+
     function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
       return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
@@ -457,6 +466,18 @@ No file selected yet.
       }
       out.sort((a,b)=>a.localeCompare(b));
       return out;
+    }
+
+    function normalizeStateInput(raw){
+      const v = String(raw||"").trim();
+      if(!v){
+        return {code: DEFAULT_STATE_CODE, note:"blank → default"};
+      }
+      const byName = STATE_NAME_TO_CODE.get(v.toLowerCase());
+      if(byName) return {code: byName};
+      const uc = v.toUpperCase();
+      if(STATE_CODE_SET.has(uc)) return {code: uc};
+      return {code:null, error:`Unknown state "${v}"`};
     }
 
     /* ===== Searchable dropdown helpers ===== */
@@ -574,54 +595,14 @@ No file selected yet.
       const f = FARMS_MAP.get(id);
       return f ? (f.name + (f.status==='archived'?' (Archived)':'')) : '(Unknown)';
     }
-    function populateFarmSelects(){
-      const addSel = $("farmSelect");
-      const editSel = $("editFarm");
-      const filterSel = $("filterFarm");
-
-      const farms = FARMS_CACHE.slice();
-      const active = farms.filter(f=>f.status!=='archived');
-      const archived = farms.filter(f=>f.status==='archived');
-
-      addSel.innerHTML = '';
-      if(!farms.length){
-        $("noFarms").style.display = "block";
-        addSel.disabled = true; $("save").disabled = true;
-      }else{
-        $("noFarms").style.display = "none";
-        $("save").disabled = false;
-        active.forEach(f=>{
-          const o=document.createElement("option");
-          o.value=f.id; o.textContent=f.name;
-          addSel.appendChild(o);
-        });
-        if(archived.length){
-          const grp=document.createElement("optgroup"); grp.label='Archived';
-          archived.forEach(f=>{
-            const o=document.createElement("option");
-            o.value=f.id; o.textContent=f.name + " (Archived)"; o.disabled = true;
-            grp.appendChild(o);
-          });
-          addSel.appendChild(grp);
-        }
-      }
-
-      editSel.innerHTML='';
-      farms.forEach(f=>{
-        const o=document.createElement('option');
-        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
-        editSel.appendChild(o);
-      });
-
-      filterSel.innerHTML='';
-      const optAll = document.createElement('option');
-      optAll.value=''; optAll.textContent='All Farms';
-      filterSel.appendChild(optAll);
-      farms.forEach(f=>{
-        const o=document.createElement('option');
-        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
-        filterSel.appendChild(o);
-      });
+    function findFarmIdByName(rawName){
+      const name = String(rawName||"").trim();
+      if(!name) return {id:null, error:"Farm name is required"};
+      const target = name.toLowerCase();
+      const matches = FARMS_CACHE.filter(f=>String(f.name||"").trim().toLowerCase()===target);
+      if(!matches.length) return {id:null, error:`Farm "${name}" not found`};
+      if(matches.length>1) return {id:null, error:`Farm "${name}" matched multiple farms`};
+      return {id:matches[0].id};
     }
 
     /* RTK Towers */
@@ -640,6 +621,20 @@ No file selected yet.
       ).join('');
       sel.innerHTML = opts;
       if(val) sel.value = val;
+    }
+    function rtkLabel(id){
+      if(!id) return '';
+      const t = RTK_MAP.get(id);
+      return t ? t.name : '';
+    }
+    function findRtkIdByName(rawName){
+      const name = String(rawName||"").trim();
+      if(!name) return {id:"", note:"no RTK"};
+      const target = name.toLowerCase();
+      const matches = RTK_CACHE.filter(r=>String(r.name||"").trim().toLowerCase()===target);
+      if(!matches.length) return {id:null, error:`RTK tower "${name}" not found`};
+      if(matches.length>1) return {id:null, error:`RTK tower "${name}" matched multiple towers`};
+      return {id:matches[0].id};
     }
 
     /* ===== Create / Validate ===== */
@@ -715,12 +710,6 @@ No file selected yet.
       return out;
     }
 
-    function rtkLabel(id){
-      if(!id) return '';
-      const t = RTK_MAP.get(id);
-      return t ? t.name : '';
-    }
-
     async function renderList(){
       const box = $("list");
       const farmFilter = $("filterFarm").value || "";
@@ -785,7 +774,7 @@ No file selected yet.
       populateRTKSelect($("editRtkSelect"), it.rtkTowerId || "");
 
       // state + counties
-      $("editState").value = it.state || "IL";
+      $("editState").value = it.state || DEFAULT_STATE_CODE || "IL";
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
       await loadCountiesIntoDropdown(ddEditCounty, $("editState").value, it.county || "");
@@ -828,6 +817,12 @@ No file selected yet.
     const importFile = $("importFile");
     const importPreview = $("importPreview");
 
+    const FIELD_IMPORT_HEADERS = [
+      "farmName","fieldName","state","county","tillableAcres","helAcres","crpAcres","rtkTowerName"
+    ];
+
+    let importState = null; // {fileName, rows:[{rowNum,payload,errors:[],source:[]}], okCount, errCount}
+
     function openImportModal(){
       importModal.setAttribute("open","");
       importModal.setAttribute("aria-hidden","false");
@@ -839,6 +834,10 @@ No file selected yet.
       importModal.setAttribute("aria-hidden","true");
       document.documentElement.classList.remove("no-scroll");
       document.body.classList.remove("no-scroll");
+      importState = null;
+      importFile.value = "";
+      importPreview.textContent = "No file selected yet.";
+      importRun.disabled = true;
     }
 
     if(importBtn){
@@ -854,25 +853,239 @@ No file selected yet.
       });
     }
 
+    /* ===== Simple CSV parser (supports quotes) ===== */
+    function parseCsvText(text){
+      const rows = [];
+      let cur = "";
+      let row = [];
+      let inQuotes = false;
+
+      for(let i=0;i<text.length;i++){
+        const c = text[i];
+        if(c === '"'){
+          if(inQuotes && text[i+1] === '"'){
+            cur += '"';
+            i++;
+          }else{
+            inQuotes = !inQuotes;
+          }
+        }else if(c === "," && !inQuotes){
+          row.push(cur);
+          cur = "";
+        }else if((c === "\n" || c === "\r") && !inQuotes){
+          // end of line
+          if(c === "\r" && text[i+1] === "\n") i++;
+          row.push(cur);
+          const allEmpty = row.every(v=>String(v||"").trim()==="");
+          if(!allEmpty) rows.push(row);
+          row = [];
+          cur = "";
+        }else{
+          cur += c;
+        }
+      }
+      if(cur.length>0 || row.length){
+        row.push(cur);
+        const allEmpty = row.every(v=>String(v||"").trim()==="");
+        if(!allEmpty) rows.push(row);
+      }
+      return rows;
+    }
+
+    function processImportCsv(text, fileName){
+      const rows = parseCsvText(text);
+      if(!rows.length){
+        importPreview.textContent = "File appears to be empty.";
+        importRun.disabled = true;
+        importState = null;
+        return;
+      }
+
+      const headerRow = rows[0].map(h=>String(h||"").trim());
+      const headerLower = headerRow.map(h=>h.toLowerCase());
+      const expectedLower = FIELD_IMPORT_HEADERS.map(h=>h.toLowerCase());
+
+      const headerMismatch = expectedLower.some((h,idx)=> headerLower[idx] !== h);
+      if(headerRow.length < FIELD_IMPORT_HEADERS.length || headerMismatch){
+        importPreview.textContent =
+`Header row does not match expected layout.
+
+Found:
+  ${headerRow.join(", ")}
+
+Expected:
+  ${FIELD_IMPORT_HEADERS.join(", ")}
+
+Please fix the header row in your CSV and re-upload.`;
+        importRun.disabled = true;
+        importState = null;
+        return;
+      }
+
+      const dataRows = rows.slice(1);
+      const processed = [];
+      let okCount = 0, errCount = 0;
+
+      dataRows.forEach((cols, idx)=>{
+        const rowNum = idx + 2; // account for header
+        const errors = [];
+
+        const farmName      = cols[0] ?? "";
+        const fieldName     = cols[1] ?? "";
+        const stateRaw      = cols[2] ?? "";
+        const county        = String(cols[3] ?? "").trim();
+        const tillableRaw   = cols[4] ?? "";
+        const helAcresRaw   = cols[5] ?? "";
+        const crpAcresRaw   = cols[6] ?? "";
+        const rtkName       = cols[7] ?? "";
+
+        // Farm
+        const farmRes = findFarmIdByName(farmName);
+        if(!farmRes.id) errors.push(farmRes.error);
+
+        // Field name
+        const nameTrim = String(fieldName||"").trim();
+        if(!nameTrim) errors.push("Field name is required");
+
+        // State
+        const stRes = normalizeStateInput(stateRaw);
+        if(!stRes.code) errors.push(stRes.error);
+
+        // County
+        if(!county) errors.push("County is required");
+
+        // Tillable
+        const tillable = toNum(tillableRaw);
+        if(!(tillable>0)) errors.push("tillableAcres must be > 0");
+
+        // HEL/CRP
+        const helAcres = toNum(helAcresRaw);
+        const crpAcres = toNum(crpAcresRaw);
+        const hasHEL = helAcres > 0;
+        const hasCRP = crpAcres > 0;
+
+        // RTK
+        const rtkRes = findRtkIdByName(rtkName);
+
+        if(rtkRes.error) errors.push(rtkRes.error);
+
+        const payload = {
+          farmId: farmRes.id || "",
+          name: nameTrim,
+          state: stRes.code || DEFAULT_STATE_CODE,
+          county,
+          tillable,
+          hasHEL,
+          helAcres: hasHEL ? helAcres : 0,
+          hasCRP,
+          crpAcres: hasCRP ? crpAcres : 0,
+          rtkTowerId: rtkRes.id || "",
+          status: "active",
+          used: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        if(errors.length) errCount++; else okCount++;
+
+        processed.push({
+          rowNum,
+          payload,
+          errors,
+          source: cols
+        });
+      });
+
+      importState = {
+        fileName,
+        rows: processed,
+        okCount,
+        errCount
+      };
+
+      const lines = [];
+      lines.push(`File: ${fileName}`);
+      lines.push(`Columns: ${FIELD_IMPORT_HEADERS.join(", ")}`);
+      lines.push("");
+      lines.push(`Summary: ${okCount} row(s) ready, ${errCount} row(s) with errors.`);
+      lines.push("");
+
+      processed.forEach(row=>{
+        if(row.errors.length){
+          lines.push(`Row ${row.rowNum}: ERROR — ${row.errors.join("; ")}`);
+        }else{
+          const p = row.payload;
+          lines.push(`Row ${row.rowNum}: ready — ${p.name} (${p.tillable} ac) on ${farmLabel(p.farmId)} [${p.county}, ${p.state}]`);
+        }
+      });
+
+      lines.push("");
+      if(errCount){
+        lines.push("Fix the errors in your CSV and re-upload. No data will be imported until all rows are valid.");
+      }else if(!okCount){
+        lines.push("No valid data rows found.");
+      }else{
+        lines.push("All rows look good. Click “Run Import” to create these fields.");
+      }
+
+      importPreview.textContent = lines.join("\n");
+      importRun.disabled = !(okCount>0 && errCount===0);
+    }
+
     if(importFile){
       importFile.addEventListener("change", ()=>{
         const file = importFile.files && importFile.files[0];
         if(!file){
           importPreview.textContent = "No file selected yet.";
+          importRun.disabled = true;
+          importState = null;
           return;
         }
-        importPreview.textContent =
-`Selected file:
-  Name: ${file.name}
-  Size: ${file.size} bytes
-  Type: ${file.type || "unknown"}
-  
-Import logic coming soon — this step will show a row-by-row review before anything is saved.`;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result || "");
+          processImportCsv(text, file.name);
+        };
+        reader.onerror = () => {
+          importPreview.textContent = "Error reading file.";
+          importRun.disabled = true;
+          importState = null;
+        };
+        reader.readAsText(file);
       });
     }
+
     if(importRun){
-      importRun.addEventListener("click", ()=>{
-        alert("Import engine not wired yet — this button will parse the CSV, show a review grid, and then write new fields to Firestore.");
+      importRun.addEventListener("click", async ()=>{
+        if(!importState || !importState.rows || !importState.rows.length){
+          alert("No parsed data to import.");
+          return;
+        }
+        if(importState.errCount>0){
+          alert("There are still rows with errors. Fix them and re-upload before importing.");
+          return;
+        }
+
+        importRun.disabled = true;
+        importRun.textContent = "Importing…";
+
+        try{
+          for(const row of importState.rows){
+            await addDoc(fieldsRef(), row.payload);
+          }
+          await renderList();
+          showToast(`Imported ${importState.okCount} field(s).`);
+          closeImportModal();
+        }catch(err){
+          console.error(err);
+          alert("Something went wrong while importing. Check console for details.");
+          importRun.disabled = false;
+          importRun.textContent = "Run Import";
+          return;
+        }
+
+        importRun.disabled = false;
+        importRun.textContent = "Run Import";
       });
     }
 
@@ -1020,12 +1233,8 @@ Import logic coming soon — this step will show a row-by-row review before anyt
         const snap = await getDoc(doc(db, 'company', 'main'));
         if(!snap.exists()) return "";
         const d = snap.data()||{};
-        const NAME_TO_CODE = new Map([
-          ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
-          ...STATES.map(([c])=>[c.toLowerCase(),c])
-        ]);
         const v = String(d.addressState || d.state || "").trim().toLowerCase();
-        return NAME_TO_CODE.get(v) || "";
+        return STATE_NAME_TO_CODE.get(v) || "";
       }catch{ return ""; }
     }
 
@@ -1071,6 +1280,7 @@ Import logic coming soon — this step will show a row-by-row review before anyt
       // Default state from company/main; fallback to IL
       let defaultState = await getCompanyStateCode();
       if(!defaultState) defaultState = "IL";
+      DEFAULT_STATE_CODE = defaultState;
       const stRec = STATES.find(([c])=>c===defaultState) || ["IL","Illinois"];
 
       ddState.hidden.value = stRec[0];
