@@ -56,6 +56,16 @@
     .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
     .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
 
+    /* FIX: keep farm filter dropdown from resizing / sideways scrolling */
+    .list-filters .select{
+      width:auto;              /* don't stretch full width */
+      min-width:220px;
+      max-width:260px;         /* hard cap so menu doesn't grow forever */
+    }
+    .list-filters .select option{
+      white-space:normal;      /* allow wrapping instead of horizontal scroll */
+    }
+
     /* Modal */
     .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
     .modal[open]{display:grid;opacity:1;}
@@ -713,12 +723,14 @@
 
       if(!items.length){ box.innerHTML = '<div class="muted">No fields yet.</div>'; return; }
 
+      // NEW SORT: active first, then by name ascending (numeric-friendly) so 0100 at top, bigger at bottom
       items.sort((a,b)=>{
         const sa = (a.status==='archived')|0;
         const sb = (b.status==='archived')|0;
-        const tA = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
-        const tB = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
-        return (sa - sb) || (tB - tA);
+        if (sa !== sb) return sa - sb;
+        const nameA = String(a.name||"");
+        const nameB = String(b.name||"");
+        return nameA.localeCompare(nameB, undefined, {numeric:true, sensitivity:'base'});
       });
 
       box.innerHTML = "";
