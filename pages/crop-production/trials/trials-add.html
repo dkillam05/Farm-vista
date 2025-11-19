@@ -1,1 +1,842 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Add Field Trial</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ===========================
+       ABSOLUTE PATHS (REQUIRED)
+       =========================== -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- ===========================
+       PAGE CSS
+       =========================== -->
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+
+      /* Combo vars */
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
+    }
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+
+    .page-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .back-link{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-size:14px;
+      font-weight:600;
+      cursor:pointer;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .hero-head .icon{
+      width:24px;height:24px;
+      color:var(--accent);
+      display:grid;place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{color:var(--muted,#67706B)}
+    .body{padding:16px;display:grid;gap:14px}
+
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    @media (max-width:880px){.row{grid-template-columns:1fr}}
+
+    .field{position:relative}
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+
+    .input,.select,.textarea,.buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
+    }
+    .textarea{min-height:110px;resize:vertical}
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+
+    .actions{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:6px;
+    }
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:160px;
+      padding:12px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      color:var(--text)!important;
+      cursor:pointer;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+    }
+    .toast.show{display:block;animation:fadeout 5s forwards}
+    @keyframes fadeout{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
+    }
+
+    .error{color:#b00020;font-weight:700}
+
+    /* ======================
+       Combo styles
+       ====================== */
+    .buttonish{
+      cursor:pointer;
+      text-align:left;
+      position:relative;
+      padding-right:42px;
+      border-radius:var(--combo-btn-radius);
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .combo{position:relative}
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0;right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:9999;
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{display:block}
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      font:inherit;
+      font-size:15px;
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{
+      background:rgba(0,0,0,.04);
+    }
+    .combo-item:last-child{border-bottom:none}
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <header class="page-header">
+        <button class="back-link" type="button"
+                onclick="window.location.href='/Farm-vista/pages/crop-production/crop-trials.html'">
+          <span aria-hidden="true">←</span>
+          <span>Back to Trials</span>
+        </button>
+      </header>
+
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧪</div>
+          <div>
+            <h1>Add Field / Product Trial</h1>
+            <p class="muted">
+              Log a new trial on a specific field with crop, year, and treatment details.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- Farm / Field -->
+          <div class="row">
+            <div class="field combo" id="farmCombo">
+              <label for="farmBtn">Farm</label>
+              <div class="combo-anchor">
+                <button id="farmBtn" class="buttonish has-caret" type="button">— Select farm —</button>
+                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                  <div class="search">
+                    <input id="farmSearch" type="search" placeholder="Search farms…">
+                  </div>
+                  <div class="list" id="farmList"></div>
+                </div>
+              </div>
+              <div id="farmHelp" class="help">Loading farms…</div>
+            </div>
+
+            <div class="field combo" id="fieldCombo">
+              <label for="fieldBtn">Field</label>
+              <div class="combo-anchor">
+                <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
+                <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                  <div class="search">
+                    <input id="fieldSearch" type="search" placeholder="Search fields…">
+                  </div>
+                  <div class="list" id="fieldList"></div>
+                </div>
+              </div>
+              <div id="fieldHelp" class="help">Choose a farm to filter fields (optional).</div>
+            </div>
+          </div>
+
+          <!-- Crop year / Crop -->
+          <div class="row">
+            <div class="field combo" id="yearCombo">
+              <label for="yearBtn">Crop Year</label>
+              <div class="combo-anchor">
+                <button id="yearBtn" class="buttonish has-caret" type="button">— Select year —</button>
+                <div class="combo-panel" id="yearPanel" role="listbox" aria-label="Year list">
+                  <div class="list" id="yearList"></div>
+                </div>
+              </div>
+              <div id="yearHelp" class="help">Usually the harvest year.</div>
+            </div>
+
+            <div class="field combo" id="cropCombo">
+              <label for="cropBtn">Crop</label>
+              <div class="combo-anchor">
+                <button id="cropBtn" class="buttonish has-caret" type="button">— Select crop —</button>
+                <div class="combo-panel" id="cropPanel" role="listbox" aria-label="Crop list">
+                  <div class="list" id="cropList"></div>
+                </div>
+              </div>
+              <div id="cropHelp" class="help">Corn, soybeans, wheat, etc.</div>
+            </div>
+          </div>
+
+          <!-- Trial type / Trial name -->
+          <div class="row">
+            <div class="field combo" id="typeCombo">
+              <label for="typeBtn">Trial Type</label>
+              <div class="combo-anchor">
+                <button id="typeBtn" class="buttonish has-caret" type="button">— Select type —</button>
+                <div class="combo-panel" id="typePanel" role="listbox" aria-label="Trial type list">
+                  <div class="list" id="typeList"></div>
+                </div>
+              </div>
+              <div id="typeHelp" class="help">Seed, fungicide, biological, fertility, etc.</div>
+            </div>
+
+            <div class="field">
+              <label for="trialName">Trial Name / Nickname</label>
+              <input id="trialName" class="input" placeholder="e.g. BP vs Check – 1742Q, SolTellus">
+              <div class="help">Short label you’ll recognize on reports.</div>
+            </div>
+          </div>
+
+          <!-- Treatment / Check -->
+          <div class="row">
+            <div class="field">
+              <label for="treatmentName">Treatment / Product</label>
+              <input id="treatmentName" class="input" placeholder="e.g. Blueprint 1742Q + $80 fungicide program">
+              <div class="help">What is being tested? Product, rate, timing, or full program.</div>
+            </div>
+
+            <div class="field">
+              <label for="checkDesc">Check / Comparison</label>
+              <input id="checkDesc" class="input" placeholder="e.g. Standard 1742Q, no fungicide">
+              <div class="help">What is the baseline you’ll compare against?</div>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="textarea"
+                      placeholder="Setup notes, population, strips, planter, boom, etc."></textarea>
+          </div>
+
+          <!-- Files -->
+          <div class="field">
+            <label for="files">Optional Files / Photos</label>
+            <input id="files" class="input" type="file"
+                   accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+            <div id="fileHelp" class="help">
+              Attach maps, aerial photos, or setup pictures. Storage only loads if you actually upload something.
+            </div>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+
+          <div class="actions">
+            <button id="btnClear" class="btn" type="button">Clear</button>
+            <button id="btnSave" class="btn btn-primary" type="button">Save Trial</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- ===========================
+       JS: Firebase + Combos
+       =========================== -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, getDocs, addDoc, doc, updateDoc,
+      serverTimestamp, query, orderBy
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $  = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+    const state = {
+      farm:null,
+      field:null,
+      year:null,
+      crop:null,
+      type:null
+    };
+
+    function showToast(msg="Saved.", ms=5000){
+      const t=$(" #toast ".trim()) || document.getElementById("toast");
+      t.textContent=msg;
+      t.classList.remove("show");
+      void t.offsetWidth;
+      t.classList.add("show");
+      setTimeout(()=>t.classList.remove("show"), ms);
+    }
+    function showError(msg){
+      const e = $("#err");
+      e.textContent = msg || "";
+      e.hidden = !msg;
+    }
+
+    /* =========================
+       Lazy Storage loader
+       ========================= */
+    async function loadStorageFns(){
+      const m = await import('/Farm-vista/js/firebase-init.js');
+      const fns = {
+        getStorage:m.getStorage,
+        ref:m.ref,
+        uploadBytes:m.uploadBytes,
+        getDownloadURL:m.getDownloadURL
+      };
+      if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) return fns;
+      throw new Error('Storage exports missing in /js/firebase-init.js');
+    }
+
+    /* =========================
+       Combo framework
+       ========================= */
+    function closeAllCombos(except=null){
+      $$('.combo-panel.show').forEach(p=>{
+        if(p!==except) p.classList.remove('show');
+      });
+    }
+
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{
+      if(e.key === 'Escape') closeAllCombos();
+    });
+
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+      let _items = Array.isArray(items) ? items.slice() : [];
+
+      function render(q=""){
+        const qq = (q||"").toLowerCase();
+        const filtered = _items.filter(x=>{
+          const label = formatter(x).toLowerCase();
+          return !qq || label.includes(qq);
+        });
+        list.innerHTML = filtered.length
+          ? filtered.map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`).join('')
+          : '<div class="combo-empty">(no matches)</div>';
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item');
+        if(!row) return;
+        const id = row.dataset.id;
+        const it = _items.find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable){
+        const s = panel.querySelector('input');
+        if(s) s.addEventListener('input', e=> render(e.target.value));
+      }
+
+      return {
+        setItems(arr){
+          _items = Array.isArray(arr) ? arr.slice() : [];
+          render("");
+        },
+        open, close
+      };
+    }
+
+    /* =========================
+       Farm / Field combos
+       ========================= */
+    const farmCombo = makeCombo({
+      btn:  $("#farmBtn"),
+      panel:$("#farmPanel"),
+      list: $("#farmList"),
+      items: [],
+      searchable:true,
+      formatter:x=>x.label,
+      onPick(it){
+        state.farm = it;
+        $("#farmBtn").textContent = it.label;
+        $("#farmHelp").textContent = "Farm selected.";
+        // Filter fields by farm if we have that link
+        filterFieldsByFarm();
+      }
+    });
+
+    let allFields = [];
+    const fieldCombo = makeCombo({
+      btn:  $("#fieldBtn"),
+      panel:$("#fieldPanel"),
+      list: $("#fieldList"),
+      items: [],
+      searchable:true,
+      formatter:x=>x.label,
+      onPick(it){
+        state.field = it;
+        $("#fieldBtn").textContent = it.label;
+        $("#fieldHelp").textContent = "Field selected.";
+      }
+    });
+
+    function filterFieldsByFarm(){
+      const farmId = state.farm?.id || null;
+      let filtered = allFields.slice();
+      if(farmId){
+        filtered = filtered.filter(x=>x.farmId === farmId);
+        $("#fieldHelp").textContent = filtered.length
+          ? `${filtered.length} field(s) on this farm`
+          : "No fields found for this farm.";
+      }else{
+        $("#fieldHelp").textContent = `${filtered.length} field(s) loaded.`;
+      }
+      fieldCombo.setItems(filtered);
+      state.field = null;
+      $("#fieldBtn").textContent = "— Select field —";
+    }
+
+    async function loadFarmsAndFields(db){
+      const farmHelp = $("#farmHelp");
+      const fieldHelp = $("#fieldHelp");
+
+      try{
+        // Farms
+        farmHelp.textContent = "Loading farms…";
+        let farms = [];
+        try{
+          const snap = await getDocs(query(collection(db,'farms'), orderBy('name')));
+          snap.forEach(d=>{
+            const x = d.data() || {};
+            const name = String(x.name || x.farmName || "").trim();
+            if(name) farms.push({ id:d.id, label:name });
+          });
+        }catch(e){
+          console.warn("Farm indexed query failed, falling back:", e.message);
+          const snap = await getDocs(collection(db,'farms'));
+          snap.forEach(d=>{
+            const x = d.data() || {};
+            const name = String(x.name || x.farmName || "").trim();
+            if(name) farms.push({ id:d.id, label:name });
+          });
+        }
+        farms.sort((a,b)=>a.label.localeCompare(b.label));
+        farmCombo.setItems(farms);
+        farmHelp.textContent = farms.length ? `${farms.length} farm(s) loaded.` : "No farms found.";
+
+        // Fields
+        fieldHelp.textContent = "Loading fields…";
+        let fields = [];
+        try{
+          const snap = await getDocs(query(collection(db,'fields'), orderBy('name')));
+          snap.forEach(d=>{
+            const x = d.data() || {};
+            const name = String(x.name || x.fieldName || "").trim();
+            const farmId = x.farmId || x.farm || null;
+            if(name) fields.push({ id:d.id, label:name, farmId:farmId || null });
+          });
+        }catch(e){
+          console.warn("Field indexed query failed, falling back:", e.message);
+          const snap = await getDocs(collection(db,'fields'));
+          snap.forEach(d=>{
+            const x = d.data() || {};
+            const name = String(x.name || x.fieldName || "").trim();
+            const farmId = x.farmId || x.farm || null;
+            if(name) fields.push({ id:d.id, label:name, farmId:farmId || null });
+          });
+        }
+        fields.sort((a,b)=>a.label.localeCompare(b.label));
+        allFields = fields;
+        fieldCombo.setItems(allFields);
+        fieldHelp.textContent = allFields.length ? `${allFields.length} field(s) loaded.` : "No fields found.";
+      }catch(err){
+        console.error(err);
+        farmHelp.textContent = "Failed to load farms.";
+        fieldHelp.textContent = "Failed to load fields.";
+        showError(`Error loading lists: ${err.message}`);
+      }
+    }
+
+    /* =========================
+       Static combos: Year / Crop / Type
+       ========================= */
+    const yearCombo = makeCombo({
+      btn:  $("#yearBtn"),
+      panel:$("#yearPanel"),
+      list: $("#yearList"),
+      items: [],
+      searchable:false,
+      formatter:x=>x.label,
+      onPick(it){
+        state.year = it;
+        $("#yearBtn").textContent = it.label;
+        $("#yearHelp").textContent = "Crop year selected.";
+      }
+    });
+
+    const cropCombo = makeCombo({
+      btn:  $("#cropBtn"),
+      panel:$("#cropPanel"),
+      list: $("#cropList"),
+      items: [],
+      searchable:false,
+      formatter:x=>x.label,
+      onPick(it){
+        state.crop = it;
+        $("#cropBtn").textContent = it.label;
+        $("#cropHelp").textContent = "Crop selected.";
+      }
+    });
+
+    const typeCombo = makeCombo({
+      btn:  $("#typeBtn"),
+      panel:$("#typePanel"),
+      list: $("#typeList"),
+      items: [],
+      searchable:false,
+      formatter:x=>x.label,
+      onPick(it){
+        state.type = it;
+        $("#typeBtn").textContent = it.label;
+        $("#typeHelp").textContent = "Trial type selected.";
+      }
+    });
+
+    function initStaticCombos(){
+      const y = new Date().getFullYear();
+      const years = [y-1, y, y+1].map(v=>({
+        id:String(v),
+        label:String(v),
+        value:v
+      }));
+      yearCombo.setItems(years);
+      const thisYear = years.find(x=>x.value===y) || years[1] || years[0];
+      if(thisYear){
+        state.year = thisYear;
+        $("#yearBtn").textContent = thisYear.label;
+        $("#yearHelp").textContent = "Defaulted to this crop year.";
+      }
+
+      const crops = [
+        { id:'corn',      label:'Corn',      value:'CORN' },
+        { id:'soybeans',  label:'Soybeans',  value:'SOY' },
+        { id:'wheat',     label:'Wheat',     value:'WHEAT' },
+        { id:'sorghum',   label:'Sorghum',   value:'SORGHUM' },
+        { id:'other',     label:'Other',     value:'OTHER' }
+      ];
+      cropCombo.setItems(crops);
+
+      const types = [
+        { id:'seed',       label:'Seed / Hybrid / Variety', value:'SEED' },
+        { id:'fungicide',  label:'Fungicide Program',       value:'FUNGICIDE' },
+        { id:'fertility',  label:'Fertility / Nutrient',    value:'FERTILITY' },
+        { id:'biological', label:'Biological / Additive',   value:'BIOLOGICAL' },
+        { id:'other',      label:'Other',                   value:'OTHER' }
+      ];
+      typeCombo.setItems(types);
+    }
+
+    /* =========================
+       Save handler
+       ========================= */
+    async function handleSave(db, auth, ctx){
+      showError("");
+
+      const trialName     = ($("#trialName").value || "").trim();
+      const treatmentName = ($("#treatmentName").value || "").trim();
+      const checkDesc     = ($("#checkDesc").value || "").trim();
+      const notes         = ($("#notes").value || "").trim();
+
+      if(!state.farm){ showError("Please choose a farm."); return; }
+      if(!state.field){ showError("Please choose a field."); return; }
+      if(!state.year){ showError("Please choose a crop year."); return; }
+      if(!state.crop){ showError("Please choose a crop."); return; }
+      if(!state.type){ showError("Please choose a trial type."); return; }
+      if(!trialName){ showError("Please enter a trial name or nickname."); return; }
+
+      const user = auth.currentUser || {};
+      const docData = {
+        accountId: ctx?.accountId || null,
+        farmId: state.farm?.id || null,
+        farmName: state.farm?.label || null,
+        fieldId: state.field?.id || null,
+        fieldName: state.field?.label || null,
+        cropYear: state.year?.value || null,
+        cropYearLabel: state.year?.label || null,
+        cropCode: state.crop?.value || null,
+        cropLabel: state.crop?.label || null,
+        trialType: state.type?.value || null,
+        trialTypeLabel: state.type?.label || null,
+        trialName,
+        treatmentName,
+        checkDescription: checkDesc,
+        notes,
+        status: 'planned',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: user.uid || null,
+        createdByEmail: user.email || null
+      };
+
+      // NOTE: adjust collection name if you prefer "cropTrials" or something else
+      const ref = await addDoc(collection(db,'fieldTrials'), docData);
+
+      const files = Array.from(($("#files").files || []));
+      if(files.length){
+        try{
+          const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
+          const st = getStorage();
+          const uploaded = [];
+
+          for(const f of files){
+            const safe = (Date.now() + '-' + f.name).replace(/[^\w.\-]+/g,'_');
+            const path = `trials/${ref.id}/${safe}`;
+            const r = stRef(st, path);
+            await uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+            const url = await getDownloadURL(r);
+            uploaded.push({
+              name:f.name,
+              url,
+              path,
+              size:f.size || null,
+              type:f.type || null
+            });
+          }
+
+          await updateDoc(doc(db,'fieldTrials',ref.id), {
+            files: uploaded,
+            updatedAt: serverTimestamp()
+          });
+        }catch(stErr){
+          console.error(stErr);
+          showError(`Trial saved but file upload failed: ${stErr.message}`);
+        }
+      }
+
+      showToast("Trial saved.");
+      clearForm();
+    }
+
+    function clearForm(){
+      // Reset text inputs
+      $("#trialName").value = "";
+      $("#treatmentName").value = "";
+      $("#checkDesc").value = "";
+      $("#notes").value = "";
+      $("#files").value = "";
+
+      // Reset selections (keep year default)
+      state.farm = null;
+      state.field = null;
+      state.crop = null;
+      state.type = null;
+
+      $("#farmBtn").textContent = "— Select farm —";
+      $("#fieldBtn").textContent = "— Select field —";
+      $("#cropBtn").textContent = "— Select crop —";
+      $("#typeBtn").textContent = "— Select type —";
+
+      $("#fieldHelp").textContent = allFields.length
+        ? `${allFields.length} field(s) loaded.`
+        : "No fields found.";
+    }
+
+    /* =========================
+       Boot
+       ========================= */
+    (async()=>{
+      const ctx  = await ready;
+      const db   = getFirestore();
+      const auth = getAuth();
+      console.log("✅ Firebase Ready:", ctx.mode, auth.currentUser?.email || '(anon)');
+
+      initStaticCombos();
+      await loadFarmsAndFields(db);
+
+      $("#btnSave").addEventListener("click", ()=> handleSave(db, auth, ctx));
+      $("#btnClear").addEventListener("click", ()=> clearForm());
+
+      window.addEventListener('online', ()=> showToast("Back online — syncing…", 4000));
+      window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 4000));
+    })();
+  </script>
+
+  <!-- ===========================
+       NOTES
+       ===========================
+       • Collection name is currently "fieldTrials" — change if you prefer a different name.
+       • Farms collection: expects docs with a "name" or "farmName" field.
+       • Fields collection: expects docs with "name"/"fieldName" and "farmId" (or "farm").
+       • File storage path: trials/{trialId}/{filename}.
+  -->
+</body>
+</html>
+
