@@ -386,11 +386,13 @@
       receiver: null,
       currentLoc: null,
       newLoc: null,
-      mover: null
+      mover: null,
+      occupiedEquipmentIds: new Set()
     };
 
     const qs = new URLSearchParams(location.search);
     const qsId = qs.get('id') || '';
+    const STARFIRE_LIST_URL = '/Farm-vista/pages/equipment/equipment-starfire.html';
 
     /* ---------- helpers ---------- */
     const last6 = v => String(v||"").slice(-6);
@@ -437,7 +439,7 @@
       return Math.floor(diffMs / (1000*60*60*24));
     }
 
-    /* ---------- global combo closer (copied from dev.html) ---------- */
+    /* ---------- global combo closer (same as dev.html) ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==exceptPanel) p.classList.remove('show');
@@ -450,7 +452,7 @@
       }
     });
 
-    /* ---------- generic combo helper (copied from dev.html) ---------- */
+    /* ---------- generic combo helper (same as dev.html) ---------- */
     function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x.label||x.name||x), onPick }) {
       if(!btn || !panel || !list) return;
 
@@ -512,15 +514,21 @@
       const db = state.db;
       const snap = await getDocs(collection(db,'equipment'));
       const list = [];
+      const occupied = new Set();
       snap.forEach(d=>{
         const x = d.data() || {};
         const type = String(x.type||'').toLowerCase();
         if(type !== 'starfire') return;
         if(String(x.status||'active').toLowerCase() === 'archived') return;
         list.push({ id:d.id, ...x });
+
+        // If this StarFire is mounted on a machine, mark that machine as "occupied"
+        const locId = x.starfireCurrentLocationId || x.starfireMountedOnId || null;
+        if(locId) occupied.add(String(locId));
       });
       list.sort((a,b)=> labelStarFire(a).localeCompare(labelStarFire(b)));
       state.receivers = list;
+      state.occupiedEquipmentIds = occupied;
       $("sfStatus").textContent = `${list.length} StarFire receiver(s) found.`;
       return list;
     }
@@ -529,10 +537,16 @@
       const db = state.db;
       const snap = await getDocs(collection(db,'equipment'));
       const list = [];
+      const occupied = state.occupiedEquipmentIds || new Set();
       snap.forEach(d=>{
         const x = d.data() || {};
         if(x.starfireCapable !== true) return;
         if(String(x.status||'active').toLowerCase() === 'archived') return;
+
+        // If ANY StarFire has this equipment id as its current location,
+        // skip it so there can only be 1 StarFire per machine.
+        if(occupied.has(String(d.id))) return;
+
         list.push({ id:d.id, ...x });
       });
       list.sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b)));
@@ -570,7 +584,6 @@
         return;
       }
 
-      // For now, read summary fields off equipment doc if present.
       const x = receiver;
       const label = x.starfireCurrentLocationName || "In Storage";
       const sinceISO = x.starfireCurrentLocationSince || null;
@@ -738,11 +751,15 @@
         });
 
         toast("Location updated.");
+
         // refresh local receiver snapshot
         receiver.starfireCurrentLocationId = toId;
         receiver.starfireCurrentLocationName = toName;
         receiver.starfireCurrentLocationSince = moveDate;
         await loadCurrentLocation(receiver);
+
+        // Small delay, then return to StarFire list
+        setTimeout(()=>{ window.location.href = STARFIRE_LIST_URL; }, 900);
       }catch(err){
         console.error("saveMove error", err);
         errEl.textContent = err.message || "Error saving move.";
@@ -763,8 +780,9 @@
 
         initCombos();
 
-        const [receivers, equipment, employees] = await Promise.all([
-          loadStarFireReceivers(),
+        // Load StarFire first so we know which equipment ids are occupied
+        const receivers = await loadStarFireReceivers();
+        const [equipment, employees] = await Promise.all([
           loadEquipment(),
           loadEmployees()
         ]);
@@ -781,7 +799,9 @@
       }
 
       $("btnSave").addEventListener("click", saveMove);
-      $("btnCancel").addEventListener("click", ()=> window.history.back());
+      $("btnCancel").addEventListener("click", ()=>{
+        window.location.href = STARFIRE_LIST_URL;
+      });
     })();
   </script>
 </body>
