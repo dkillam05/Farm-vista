@@ -88,6 +88,83 @@
     .coming-pill span{
       opacity:0.8;
     }
+
+    /* Modal for CSV preview (matches your general modal style) */
+    .modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      place-items:center;
+      background:rgba(0,0,0,.42);
+      z-index:9999;
+      transition:opacity .15s;
+      opacity:0;
+    }
+    .modal[open]{ display:grid; opacity:1; }
+
+    .dialog{
+      width:min(640px,92vw);
+      max-height:80vh;
+      display:flex;
+      flex-direction:column;
+      background:var(--surface,#fff);
+      color:var(--text,#111);
+      border-radius:14px;
+      border:1px solid var(--border,rgba(0,0,0,.12));
+      box-shadow:0 16px 36px rgba(0,0,0,.28);
+    }
+    .dialog-head{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border,rgba(0,0,0,.12));
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .dialog-head h3{
+      margin:0;
+      font-size:16px;
+    }
+    .dialog-body{
+      padding:14px;
+      display:grid;
+      gap:10px;
+      overflow:auto;
+    }
+    .dialog-footer{
+      display:flex;
+      justify-content:flex-end;
+      padding:10px 14px;
+      border-top:1px solid var(--border,rgba(0,0,0,.12));
+      gap:10px;
+    }
+    .closex{
+      border:1px solid var(--border,rgba(0,0,0,.12));
+      background:var(--surface,#fff);
+      border-radius:10px;
+      padding:8px 12px;
+      cursor:pointer;
+      font-weight:700;
+      color:var(--text,#111) !important;
+    }
+    .csv-preview{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:13px;
+      background:rgba(0,0,0,.03);
+      border-radius:10px;
+      padding:10px 12px;
+      overflow-x:auto;
+      white-space:pre;
+    }
+    .csv-note{
+      font-size:12px;
+      opacity:.8;
+    }
+
+    html.no-scroll, body.no-scroll{
+      overflow:hidden;
+      touch-action:none;
+    }
   </style>
 </head>
 <body>
@@ -106,7 +183,9 @@
         <article class="tpl-card" id="tpl-fields">
           <h3>🗺️ Fields</h3>
           <div class="tpl-actions">
-            <a class="btn" href="/Farm-vista/assets/templates/fields-template.csv" target="_blank" rel="noopener">View CSV</a>
+            <!-- View opens modal instead of file -->
+            <a class="btn" href="#" id="btnFieldsViewCsv">View CSV</a>
+            <!-- These rely on real files in /assets/templates once you add them -->
             <a class="btn" href="/Farm-vista/assets/templates/fields-template.csv" download>Download CSV</a>
             <a class="btn" href="/Farm-vista/assets/templates/fields-template.xlsx" download>Download XLSX</a>
           </div>
@@ -314,5 +393,67 @@
       </section>
     </div>
   </fv-shell>
+
+  <!-- Modal for Fields CSV preview -->
+  <div id="csvModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="csvModalTitle">
+      <div class="dialog-head">
+        <h3 id="csvModalTitle">Fields Import — CSV Preview</h3>
+        <button id="csvModalClose" class="closex" type="button">Close</button>
+      </div>
+      <div class="dialog-body">
+        <div class="csv-note">
+          This is the exact header row and a sample line used by the Fields import.
+          You can copy/paste into Excel or use the download buttons on the card.
+        </div>
+        <pre class="csv-preview" aria-label="Fields CSV template preview">
+farmCode,name,state,county,tillableAcres,helAcres,crpAcres,rtkTowerCode,status
+DF-0502,North 80,IL,Pike,80,0,0,RTK-01,active
+        </pre>
+      </div>
+      <div class="dialog-footer">
+        <button id="csvModalCloseBottom" class="closex" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      "use strict";
+      const modal = document.getElementById("csvModal");
+      const openBtn = document.getElementById("btnFieldsViewCsv");
+      const closeTop = document.getElementById("csvModalClose");
+      const closeBottom = document.getElementById("csvModalCloseBottom");
+
+      if(openBtn && modal){
+        const openModal = () => {
+          modal.setAttribute("open", "");
+          modal.setAttribute("aria-hidden", "false");
+          document.documentElement.classList.add("no-scroll");
+          document.body.classList.add("no-scroll");
+        };
+        const closeModal = () => {
+          modal.removeAttribute("open");
+          modal.setAttribute("aria-hidden", "true");
+          document.documentElement.classList.remove("no-scroll");
+          document.body.classList.remove("no-scroll");
+        };
+
+        openBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          openModal();
+        });
+        closeTop.addEventListener("click", closeModal);
+        closeBottom.addEventListener("click", closeModal);
+
+        modal.addEventListener("click", (e) => {
+          if(e.target === modal){ closeModal(); }
+        });
+        document.addEventListener("keydown", (e) => {
+          if(e.key === "Escape" && modal.hasAttribute("open")){ closeModal(); }
+        });
+      }
+    })();
+  </script>
 </body>
 </html>
