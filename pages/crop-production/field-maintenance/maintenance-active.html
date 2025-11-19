@@ -15,46 +15,111 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
   <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
+    }
+
     /* Make sure anything with [hidden] is actually hidden, even inside fv-shell */
     [hidden] {
       display: none !important;
     }
 
-    .page-header {
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      margin-bottom:18px;
+    html{-webkit-text-size-adjust:100%}
+    body{ background: var(--app-bg, var(--surface)); }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+      display:grid;
+      gap:16px;
     }
 
-    .page-header-top {
-      display:flex;
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
       align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
     }
 
-    .page-header-meta {
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+    .toolbar-right{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
       font-size:0.9rem;
       opacity:0.8;
     }
 
-    .btn-back {
-      border-radius:999px;
-      border:1px solid var(--border-strong, var(--border));
-      background:var(--surface-raised, var(--surface));
-      padding:6px 10px;
-      font-size:0.85rem;
+    .btn{
       display:inline-flex;
       align-items:center;
-      gap:6px;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
       cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
     }
-    .btn-back span.icon {
-      font-size:1.1rem;
-      line-height:1;
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
     }
+
+    /* ========== Work-order cards ========== */
 
     .wo-list {
       display:flex;
@@ -189,7 +254,8 @@
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    /* Detail overlay */
+    /* ========== Detail overlay ========== */
+
     .wo-detail-overlay {
       position:fixed;
       inset:0;
@@ -710,6 +776,14 @@
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
+      // Back button
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/crop-production/maintenance.html';
+        });
+      }
+
       const overlay = $('#woDetailOverlay');
       if(overlay){
         overlay.addEventListener('click', (ev)=>{
@@ -744,36 +818,42 @@
 
 <body>
   <fv-shell>
-    <div class="page container">
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🛠️</div>
+          <div>
+            <h1>Active Field Maintenance Work Orders</h1>
+            <p class="muted">
+              Shows all work orders that have passed approval and are currently
+              <strong>Pending</strong> or <strong>In Progress</strong>. Use the
+              status dropdown to move them to <strong>In Progress</strong> or
+              straight to <strong>Completed</strong>.
+            </p>
+          </div>
+        </header>
 
-      <header class="page-header">
-        <div class="page-header-top">
-          <h1 class="page-title">Active Field Maintenance Work Orders</h1>
-          <button type="button" class="btn-back"
-            onclick="location.href='/Farm-vista/pages/crop-production/maintenance.html'">
-            <span class="icon">←</span>
-            <span>Back to Field Maintenance</span>
-          </button>
-        </div>
-        <div class="page-sub">
-          Shows all work orders that have passed approval and are currently
-          <strong>Pending</strong> or <strong>In Progress</strong>. Use the
-          status dropdown to move them to <strong>In Progress</strong> or
-          straight to <strong>Completed</strong>.
-        </div>
-        <div class="page-header-meta" id="woCount">
-          0 active work orders
-        </div>
-      </header>
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Work Orders
+              </button>
+            </div>
+            <div class="toolbar-right">
+              <span id="woCount">0 active work orders</span>
+            </div>
+          </div>
 
-      <section aria-label="Pending and in-progress work orders">
-        <div class="wo-empty">
-          No work orders are currently pending or in progress.
-          Once work orders are approved and ready to work, they will appear here.
+          <section aria-label="Pending and in-progress work orders">
+            <div class="wo-empty">
+              No work orders are currently pending or in progress.
+              Once work orders are approved and ready to work, they will appear here.
+            </div>
+            <div class="wo-list"></div>
+          </section>
         </div>
-        <div class="wo-list"></div>
       </section>
-
     </div>
 
     <!-- Detail overlay -->
@@ -836,7 +916,6 @@
         </footer>
       </div>
     </div>
-
   </fv-shell>
 </body>
 </html>
