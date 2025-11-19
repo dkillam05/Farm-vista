@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- PWA + icons -->
+  <!-- Absolute paths (required) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -16,590 +16,594 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Shell (header/footer/drawer) -->
-  <script src="/Farm-vista/js/fv-shell.js"></script>
-
-  <!-- Data + combo helpers -->
-  <script src="/Farm-vista/js/fv-data.js"></script>
-  <script src="/Farm-vista/js/fv-combo.js"></script>
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 
   <style>
-    :root{ --page-bottom-gap:56px; }
+    /* ======================
+       Shared layout + hero (match Pick Up Bag)
+       ====================== */
+    :root{
+      --combo-gap: 4px;
+      --combo-radius: 12px;
+      --combo-btn-radius: 10px;
+      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad: 10px 8px;
+      --combo-max-h: 50vh;
 
-    body{
-      background:var(--app-bg,var(--surface));
-      min-height:100vh;
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
     }
+
+    body{ background:var(--app-bg,var(--surface)); }
+
     .wrap{
-      max-width:1100px;
+      max-width:var(--card-max);
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(
-        env(safe-area-inset-bottom,0px)
-        + var(--ftr-h,42px)
-        + var(--page-bottom-gap)
-      );
-    }
-    header.page{
-      margin:8px 0 20px 0;
-    }
-    header.page h1{
-      margin:0 0 6px 0;
-      font-size:clamp(22px,3.5vw,28px);
-      line-height:1.2;
-    }
-    header.page p{
-      margin:0;
-      color:var(--muted,#67706B);
-      font-size:clamp(14px,2.4vw,16px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
-    .card{
-      background:var(--card-surface,var(--surface));
-      border-radius:16px;
-      box-shadow:0 0 0 1px var(--border,#D5D8D2);
-      padding:clamp(12px,2.4vw,18px);
-      margin-bottom:clamp(14px,3vw,20px);
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
+      margin-bottom:var(--page-bottom-gap);
     }
-    .card h2{
-      margin:0 0 10px 0;
-      font-size:clamp(16px,2.8vw,20px);
+    .hero-head{
+      display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .card p.sub{
-      margin:0 0 10px 0;
-      font-size:13px;
-      color:var(--muted,#6B726C);
+    .hero-head .icon{ width:24px; height:24px; color:var(--accent); display:grid; place-items:center }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2 }
+    .muted{ color:var(--muted,#67706B) }
+
+    .body{ padding:16px; display:grid; gap:14px }
+    .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
+    @media (max-width:880px){ .row{ grid-template-columns:1fr } }
+
+    .field{ position:relative }
+    .field label{ display:block; font-weight:800; margin:0 0 6px }
+
+    .input,.textarea,.buttonish{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius); padding:12px; outline:none;
+    }
+    .textarea{ min-height:80px; resize:vertical }
+    .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:42px }
+    .buttonish.has-caret::after{
+      content:""; position:absolute; right:14px; top:50%; width:0; height:0;
+      border-left:6px solid transparent; border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
     }
 
-    .field-row{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-      margin-bottom:10px;
-    }
-    .field-row label{
-      font-size:13px;
-      font-weight:500;
-      color:var(--muted,#5E655F);
-    }
-    .field-row select,
-    .field-row input[type="text"],
-    .field-row textarea{
-      border-radius:10px;
-      border:1px solid var(--border,#D5D8D2);
-      padding:8px 10px;
-      font-size:14px;
-      background:var(--input-bg,var(--surface));
-      color:inherit;
-    }
-    .field-row textarea{
-      min-height:70px;
-      resize:vertical;
-    }
-    .field-row .readonly{
-      border-radius:10px;
-      padding:8px 10px;
-      font-size:14px;
-      background:var(--surface-soft,#F4F5F1);
-      border:1px dashed var(--border,#D5D8D2);
-      color:var(--muted,#5E655F);
-    }
+    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:6px }
+    .error{ color:#b00020; font-weight:700 }
 
-    .two-col{
-      display:grid;
-      grid-template-columns:repeat(2,minmax(0,1fr));
-      gap:10px;
-    }
-    @media(max-width:640px){
-      .two-col{ grid-template-columns:1fr; }
-    }
-
-    .actions{
-      display:flex;
-      gap:10px;
-      margin-top:12px;
-      justify-content:flex-end;
-      flex-wrap:wrap;
-    }
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:10px }
     .btn{
-      appearance:none;
-      border:none;
-      border-radius:999px;
-      padding:9px 16px;
+      display:inline-flex; align-items:center; justify-content:center; min-width:140px;
+      padding:12px 16px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer;
+    }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
+    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
+
+    /* ======================
+       Combo core styles (same pattern as bag page)
+       ====================== */
+    .combo{ position:relative }
+
+    .combo .combo-anchor{
+      position:relative; display:inline-block; width:100%;
+    }
+
+    .combo-panel{
+      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
+      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
+    }
+    .combo-panel.show{ display:block }
+    .combo-panel .search{ padding:4px 2px 8px }
+    .combo-panel .search input{
+      width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--combo-btn-radius)
+    }
+    .combo-panel .list{ max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border) }
+    .combo-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
+    .combo-item:hover{ background:rgba(0,0,0,.04) }
+    .combo-item:last-child{ border-bottom:none }
+    .combo-empty{ padding:var(--combo-item-pad); color:#67706B }
+
+    .cards{ display:grid; grid-template-columns:1fr; gap:12px }
+    .card{
+      border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      padding:12px; display:grid; gap:10px
+    }
+    .kvs{ display:flex; flex-wrap:wrap; gap:10px }
+    .kv{
+      background:var(--card-surface,var(--surface));
+      border:1px dashed var(--border);
+      border-radius:10px;
+      padding:6px 10px;
       font-size:14px;
-      font-weight:500;
-      cursor:pointer;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:6px;
-      text-decoration:none;
-    }
-    .btn-primary{
-      background:var(--accent,#3B7E46);
-      color:#fff;
-    }
-    .btn-outline{
-      background:transparent;
-      color:var(--accent,#3B7E46);
-      box-shadow:0 0 0 1px var(--accent,#3B7E46);
     }
 
-    .small-note{
-      font-size:12px;
-      color:var(--muted,#747C74);
-      margin-top:6px;
+    .toast{
+      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none
     }
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      border-radius:999px;
-      padding:4px 10px;
-      font-size:11px;
-      background:var(--surface-soft,#F4F5F1);
-      color:var(--muted,#6B726C);
-    }
+    .toast.show{ display:block; animation:fadeout 5s forwards }
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 </head>
+
 <body>
   <fv-shell>
     <div class="wrap">
-      <header class="page">
-        <h1>StarFire Location Update</h1>
-        <p>Track where each StarFire globe is mounted, when it was moved, and who moved it.</p>
-      </header>
-
-      <!-- Select which StarFire receiver we’re working with -->
-      <section class="card">
-        <h2>Select StarFire Receiver</h2>
-        <p class="sub">Choose a globe to view its current location and log a move.</p>
-
-        <div class="field-row">
-          <label for="starfireSelect">StarFire Receiver</label>
-          <select id="starfireSelect" data-fv-combo data-fv-search="true">
-            <option value="">Select a receiver…</option>
-            <!-- Populated from equipment where type="starfire" -->
-          </select>
-          <div class="small-note">
-            Loaded from <span class="pill">equipment (type = "starfire")</span>.
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">📡</div>
+          <div>
+            <h1>StarFire Location Update</h1>
+            <p class="muted">Pick a StarFire globe, pick the machine it’s on, and record who moved it and when.</p>
           </div>
-        </div>
+        </header>
 
-        <div class="two-col">
-          <div class="field-row">
-            <label>Receiver ID / Name</label>
-            <div id="sfName" class="readonly">—</div>
-          </div>
-          <div class="field-row">
-            <label>Serial / JD Number</label>
-            <div id="sfSerial" class="readonly">—</div>
-          </div>
-        </div>
-      </section>
+        <div class="body">
+          <!-- Row 1: StarFire + Equipment combos -->
+          <div class="row">
+            <!-- StarFire receiver -->
+            <div class="field combo">
+              <label for="sfBtn">StarFire Receiver</label>
+              <div class="combo-anchor">
+                <button id="sfBtn" class="buttonish has-caret" type="button">— Select receiver —</button>
+                <div class="combo-panel" id="sfPanel" role="listbox" aria-label="StarFire list">
+                  <div class="search"><input id="sfSearch" type="search" placeholder="Search receivers…"/></div>
+                  <div class="list" id="sfList"></div>
+                </div>
+              </div>
+              <div id="sfHelp" class="help">Loading…</div>
+            </div>
 
-      <!-- Current / last-known location -->
-      <section class="card">
-        <h2>Current Location</h2>
-        <p class="sub">
-          Pulled from the StarFire document’s <code>starfireMountedOn</code> field (latest known mount).
-        </p>
-
-        <div class="two-col">
-          <div class="field-row">
-            <label>Mounted On</label>
-            <div id="currentEquipment" class="readonly">Not assigned</div>
-          </div>
-          <div class="field-row">
-            <label>Last Moved</label>
-            <div id="lastMovedAt" class="readonly">—</div>
-          </div>
-        </div>
-
-        <div class="two-col">
-          <div class="field-row">
-            <label>Moved By</label>
-            <div id="lastMovedBy" class="readonly">—</div>
-          </div>
-          <div class="field-row">
-            <label>Last Notes</label>
-            <div id="lastNotes" class="readonly">—</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Log a new move -->
-      <section class="card">
-        <h2>Log New Location</h2>
-        <p class="sub">Record where this globe is going, who is moving it, and any notes.</p>
-
-        <form id="moveForm">
-          <div class="field-row">
-            <label for="equipmentSelect">New Equipment Location</label>
-            <select id="equipmentSelect" data-fv-combo data-fv-search="true" required>
-              <option value="">Select equipment…</option>
-              <!-- Populated from equipment where gpsCapable == true -->
-            </select>
-            <div class="small-note">
-              Loaded from <span class="pill">equipment (gpsCapable = true)</span> and not archived.
+            <!-- Equipment (GPS-capable) -->
+            <div class="field combo">
+              <label for="equipBtn">Mounted On (equipment)</label>
+              <div class="combo-anchor">
+                <button id="equipBtn" class="buttonish has-caret" type="button">— Select equipment —</button>
+                <div class="combo-panel" id="equipPanel" role="listbox" aria-label="Equipment list">
+                  <div class="search"><input id="equipSearch" type="search" placeholder="Search equipment…"/></div>
+                  <div class="list" id="equipList"></div>
+                </div>
+              </div>
+              <div id="equipHelp" class="help">Shows GPS-capable, active equipment only.</div>
             </div>
           </div>
 
-          <div class="two-col">
-            <div class="field-row">
+          <!-- Row 2: Receiver + current location summary -->
+          <div class="row">
+            <div class="field">
+              <label>Receiver Details</label>
+              <div class="kvs">
+                <span class="kv"><b>Name:</b> <span id="sfName">—</span></span>
+                <span class="kv"><b>Serial:</b> <span id="sfSerial">—</span></span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Current Location</label>
+              <div class="kvs">
+                <span class="kv"><b>Mounted On:</b> <span id="curEquip">Not assigned</span></span>
+                <span class="kv"><b>Last Moved:</b> <span id="curMovedAt">—</span></span>
+                <span class="kv"><b>Moved By:</b> <span id="curMovedBy">—</span></span>
+                <span class="kv"><b>Notes:</b> <span id="curNotes">—</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 3: Who/when -->
+          <div class="row">
+            <div class="field">
               <label for="movedBy">Moved By</label>
-              <input id="movedBy" type="text" autocomplete="off" placeholder="Auto-fill from logged-in user" />
-              <div class="small-note">
-                Defaults to the current FV user (if available).
-              </div>
+              <input id="movedBy" class="input" type="text" placeholder="Employee / operator name"/>
+              <div class="help" id="movedByHelp">Defaults to logged-in user if left blank.</div>
             </div>
 
-            <div class="field-row">
+            <div class="field">
               <label for="movedAt">Move Date &amp; Time</label>
-              <input id="movedAt" type="datetime-local"/>
-              <div class="small-note">
-                If left blank, will default to “now” when saving.
-              </div>
+              <input id="movedAt" class="input" type="datetime-local"/>
             </div>
           </div>
 
-          <div class="field-row">
-            <label for="notes">Notes (optional)</label>
-            <textarea id="notes" placeholder="Example: moved from 8R tractor to S780 combine for fall strip-till."></textarea>
+          <!-- Notes -->
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="textarea" placeholder="Optional: where it came from, why it was moved, etc."></textarea>
           </div>
+
+          <div id="pageErr" class="help error" hidden></div>
 
           <div class="actions">
-            <a class="btn btn-outline" href="/Farm-vista/pages/equipment/equipment-starfire.html">
-              Cancel
-            </a>
-            <button type="submit" class="btn btn-primary">
-              Save Move
-            </button>
+            <button id="saveMove" class="btn btn-primary" type="button">Save Move</button>
+            <button id="cancelPage" class="btn" type="button">Cancel</button>
           </div>
-        </form>
+        </div>
       </section>
     </div>
   </fv-shell>
 
-  <script>
-    // ---------- tiny helpers ----------
-    function fmtDateTime(dt) {
-      if (!dt) return '—';
-      try {
-        if (dt.toDate) dt = dt.toDate(); // Firestore Timestamp
-        const pad = (n) => String(n).padStart(2,'0');
-        const y = dt.getFullYear();
-        const m = pad(dt.getMonth()+1);
-        const d = pad(dt.getDate());
-        const hh = pad(dt.getHours());
-        const mm = pad(dt.getMinutes());
-        return y + '-' + m + '-' + d + ' ' + hh + ':' + mm;
-      } catch(e){
-        return '—';
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Firebase (modular) -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      getAuth,
+      collection,
+      getDocs,
+      addDoc,
+      doc,
+      getDoc,
+      updateDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    /* ---------- tiny helpers ---------- */
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      '"':"&quot;",
+      "'":"&#39;"
+    }[m]));
+    const toast = (msg="Saved.", ms=4200)=>{
+      const t=$("toast");
+      t.textContent=msg;
+      t.classList.remove("show");
+      void t.offsetWidth;
+      t.classList.add("show");
+      setTimeout(()=>t.classList.remove('show'),ms);
+    };
+    const fmtDT = (d)=>{
+      if(!d) return "—";
+      try{
+        const pad=n=>String(n).padStart(2,'0');
+        const y=d.getFullYear(), m=pad(d.getMonth()+1), da=pad(d.getDate());
+        const hh=pad(d.getHours()), mm=pad(d.getMinutes());
+        return `${y}-${m}-${da} ${hh}:${mm}`;
+      }catch(e){ return "—"; }
+    };
+
+    /* ---------- combo plumbing (same flow as bag page) ---------- */
+    function closeAllCombos(except=null){
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==except) p.classList.remove('show');
+      });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{
+      if(e.key==='Escape') closeAllCombos();
+    });
+
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label ?? x), onPick }){
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+      let _items = Array.isArray(items)?items:[];
+      function render(q=""){
+        const qq = (q||"").toLowerCase();
+        const vis = _items.filter(x=>{
+          const txt = formatter(x).toLowerCase();
+          return !qq || txt.includes(qq);
+        });
+        list.innerHTML = vis.length
+          ? vis.map(x=>`<div class="combo-item" data-id="${String(x.id)}">${esc(formatter(x))}</div>`).join('')
+          : `<div class="combo-empty">(no matches)</div>`;
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id = row.dataset.id;
+        const it = _items.find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable){
+        const s = panel.querySelector('input');
+        if(s){ s.addEventListener('input', e=> render(e.target.value)); }
+      }
+
+      return {
+        setItems(arr){
+          _items = Array.isArray(arr)?arr:[];
+          render("");
+        },
+        open, close
+      };
+    }
+
+    /* ---------- state ---------- */
+    let db, auth;
+    let STARFIRES = []; // {id,name,serial,data}
+    let EQUIPMENT = []; // {id,label,data}
+    let CHOSEN_SF = null;
+    let CHOSEN_EQ = null;
+
+    /* ---------- load data ---------- */
+    async function loadStarfires(){
+      STARFIRES = [];
+      $("sfHelp").textContent = "Loading StarFire receivers…";
+
+      try{
+        const snap = await getDocs(collection(db,'equipment'));
+        snap.forEach(d=>{
+          const x = d.data()||{};
+          if(x.type !== 'starfire') return;
+          if(x.archived === true || x.isArchived === true) return;
+
+          const name =
+            x.nickname ||
+            x.displayName ||
+            x.name ||
+            x.equipName ||
+            ('StarFire ' + String(d.id).slice(0,6));
+
+          const serial =
+            x.serial ||
+            x.serialNumber ||
+            x.vin ||
+            x.sn ||
+            '';
+
+          STARFIRES.push({ id:d.id, name, serial, data:x });
+        });
+
+        STARFIRES.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+        sfCombo.setItems(STARFIRES);
+        $("sfHelp").textContent = `${STARFIRES.length} receiver(s) loaded.`;
+      }catch(err){
+        console.error('loadStarfires error:', err);
+        $("sfHelp").textContent = "Error loading receivers.";
       }
     }
 
-    function toDateTimeLocalValue(date){
-      const pad = n => String(n).padStart(2,'0');
-      const y = date.getFullYear();
-      const m = pad(date.getMonth()+1);
-      const d = pad(date.getDate());
-      const hh = pad(date.getHours());
-      const mm = pad(date.getMinutes());
-      return y + '-' + m + '-' + d + 'T' + hh + ':' + mm;
-    }
+    async function loadEquipment(){
+      EQUIPMENT = [];
+      $("equipHelp").textContent = "Loading equipment…";
 
-    function showToast(msg, type){
-      if (window.FVToast && typeof FVToast.show === 'function') {
-        FVToast.show(msg, type || 'info');
-      } else {
-        alert(msg);
+      try{
+        const snap = await getDocs(collection(db,'equipment'));
+        snap.forEach(d=>{
+          const x = d.data()||{};
+          if(x.gpsCapable !== true) return;
+          if(x.archived === true || x.isArchived === true) return;
+
+          const parts = [];
+          if(x.nickname) parts.push(x.nickname);
+          if(x.make)     parts.push(x.make);
+          if(x.model)    parts.push(x.model);
+          if(!parts.length && x.displayName) parts.push(x.displayName);
+          if(!parts.length && x.name)        parts.push(x.name);
+
+          const label = parts.join(' – ') || ('Equipment ' + String(d.id).slice(0,6));
+          EQUIPMENT.push({ id:d.id, label, data:x });
+        });
+
+        EQUIPMENT.sort((a,b)=>(a.label||"").localeCompare(b.label||""));
+        equipCombo.setItems(EQUIPMENT);
+        $("equipHelp").textContent = `${EQUIPMENT.length} GPS-capable unit(s).`;
+      }catch(err){
+        console.error('loadEquipment error:', err);
+        $("equipHelp").textContent = "Error loading equipment.";
       }
     }
 
-    document.addEventListener('DOMContentLoaded', async () => {
-      if (!window.FVData) {
-        showToast('Could not connect to database (FVData not loaded).', 'error');
+    async function loadCurrentLocation(sfId){
+      $("curEquip").textContent   = "Not assigned";
+      $("curMovedAt").textContent = "—";
+      $("curMovedBy").textContent = "—";
+      $("curNotes").textContent   = "—";
+
+      if(!sfId) return;
+
+      try{
+        const snap = await getDoc(doc(db,'equipment', sfId));
+        if(!snap.exists()) return;
+        const data = snap.data()||{};
+        const m = data.starfireMountedOn;
+        if(!m) return;
+
+        $("curEquip").textContent   = m.equipmentLabel || "Unknown equipment";
+        $("curMovedAt").textContent = m.movedAt || "—";
+        $("curMovedBy").textContent = m.movedBy || "—";
+        $("curNotes").textContent   = m.notes || "—";
+      }catch(err){
+        console.error('loadCurrentLocation error:', err);
+      }
+    }
+
+    /* ---------- combos ---------- */
+    const sfCombo = makeCombo({
+      btn: $("sfBtn"),
+      panel: $("sfPanel"),
+      list: $("sfList"),
+      items: [],
+      searchable: true,
+      formatter: x => x.name,
+      onPick: (it)=>{
+        CHOSEN_SF = it;
+        $("sfBtn").textContent = it.name;
+        $("sfName").textContent = it.name;
+        $("sfSerial").textContent = it.serial || "—";
+        loadCurrentLocation(it.id);
+      }
+    });
+
+    const equipCombo = makeCombo({
+      btn: $("equipBtn"),
+      panel: $("equipPanel"),
+      list: $("equipList"),
+      items: [],
+      searchable: true,
+      formatter: x => x.label,
+      onPick: (it)=>{
+        CHOSEN_EQ = it;
+        $("equipBtn").textContent = it.label;
+      }
+    });
+
+    /* ---------- save move ---------- */
+    async function saveMove(){
+      const errEl = $("pageErr");
+      errEl.hidden = true;
+      errEl.textContent = "";
+
+      if(!CHOSEN_SF){
+        errEl.textContent = "Pick a StarFire receiver first.";
+        errEl.hidden = false;
+        return;
+      }
+      if(!CHOSEN_EQ){
+        errEl.textContent = "Pick the equipment this globe is on.";
+        errEl.hidden = false;
         return;
       }
 
-      try {
-        await FVData.ready();
-      } catch (e) {
-        console.error(e);
-        showToast('Could not connect to database.', 'error');
-        return;
+      const movedByInput = $("movedBy");
+      const movedAtInput = $("movedAt");
+      const notesInput   = $("notes");
+
+      let movedBy = (movedByInput.value || "").trim();
+      if(!movedBy && auth.currentUser){
+        movedBy = auth.currentUser.displayName || auth.currentUser.email || "";
       }
 
-      const starfireSelect   = document.getElementById('starfireSelect');
-      const equipmentSelect  = document.getElementById('equipmentSelect');
-      const moveForm         = document.getElementById('moveForm');
-
-      const sfName           = document.getElementById('sfName');
-      const sfSerial         = document.getElementById('sfSerial');
-      const currentEquipment = document.getElementById('currentEquipment');
-      const lastMovedAt      = document.getElementById('lastMovedAt');
-      const lastMovedBy      = document.getElementById('lastMovedBy');
-      const lastNotes        = document.getElementById('lastNotes');
-
-      const movedByInput     = document.getElementById('movedBy');
-      const movedAtInput     = document.getElementById('movedAt');
-      const notesInput       = document.getElementById('notes');
-
-      const starfireMap  = new Map(); // id -> data
-      const equipmentMap = new Map(); // id -> data
-
-      // Prefill "Moved By"
-      try {
-        const ctx = window.FVUserContext || {};
-        if (ctx.displayName) {
-          movedByInput.value = ctx.displayName;
-        } else if (ctx.name) {
-          movedByInput.value = ctx.name;
-        } else if (ctx.email) {
-          movedByInput.value = ctx.email;
-        }
-      } catch(e){}
-
-      // Prefill time
-      movedAtInput.value = toDateTimeLocalValue(new Date());
-
-      // ----- load StarFire receivers -----
-      async function loadStarfireReceivers() {
-        starfireSelect.innerHTML = '<option value="">Select a receiver…</option>';
-        starfireMap.clear();
-
-        try {
-          const list = await FVData.getWhere('equipment', 'type', '==', 'starfire', { limit: 500 });
-          list.forEach(doc => {
-            const data = doc || {};
-            if (data.archived === true || data.isArchived === true) return;
-
-            starfireMap.set(doc.id, data);
-
-            const name =
-              data.nickname ||
-              data.displayName ||
-              data.name ||
-              data.equipName ||
-              ('StarFire ' + String(doc.id).slice(0,6));
-
-            const opt = document.createElement('option');
-            opt.value = doc.id;
-            opt.textContent = name;
-            starfireSelect.appendChild(opt);
-          });
-        } catch (err) {
-          console.error('Error loading StarFire receivers:', err);
-          showToast('Error loading StarFire receivers.', 'error');
-        }
+      let movedAtStr;
+      if(movedAtInput.value){
+        movedAtStr = fmtDT(new Date(movedAtInput.value));
+      }else{
+        movedAtStr = fmtDT(new Date());
       }
 
-      // ----- load GPS-capable equipment -----
-      async function loadGpsEquipment() {
-        equipmentSelect.innerHTML = '<option value="">Select equipment…</option>';
-        equipmentMap.clear();
+      const notes = (notesInput.value || "").trim() || null;
 
-        try {
-          const list = await FVData.getWhere('equipment', 'gpsCapable', '==', true, { limit: 1000 });
-          list.forEach(doc => {
-            const data = doc || {};
-            if (data.archived === true || data.isArchived === true) return;
+      const payload = {
+        receiverId: CHOSEN_SF.id,
+        receiverName: CHOSEN_SF.name,
+        receiverSerial: CHOSEN_SF.serial || null,
+        equipmentId: CHOSEN_EQ.id,
+        equipmentLabel: CHOSEN_EQ.label,
+        movedBy: movedBy || null,
+        movedAt: movedAtStr,
+        movedAtTS: serverTimestamp(),
+        notes,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
 
-            equipmentMap.set(doc.id, data);
+      const btn = $("saveMove");
+      btn.disabled = true;
 
-            const labelParts = [];
-            if (data.nickname)     labelParts.push(data.nickname);
-            if (data.make)         labelParts.push(data.make);
-            if (data.model)        labelParts.push(data.model);
-            if (!labelParts.length && data.displayName) labelParts.push(data.displayName);
-            if (!labelParts.length && data.name)        labelParts.push(data.name);
+      try{
+        await addDoc(collection(db,'starfireMoves'), payload);
 
-            const label = labelParts.join(' – ') || ('Equipment ' + String(doc.id).slice(0,6));
+        await updateDoc(doc(db,'equipment', CHOSEN_SF.id), {
+          starfireMountedOn: {
+            equipmentId: payload.equipmentId,
+            equipmentLabel: payload.equipmentLabel,
+            movedBy: payload.movedBy,
+            movedAt: payload.movedAt,
+            notes: payload.notes
+          },
+          updatedAt: serverTimestamp()
+        });
 
-            const opt = document.createElement('option');
-            opt.value = doc.id;
-            opt.textContent = label;
-            equipmentSelect.appendChild(opt);
-          });
-        } catch (err) {
-          console.error('Error loading GPS-capable equipment:', err);
-          showToast('Error loading equipment.', 'error');
-        }
+        toast("StarFire location saved.");
+        await loadCurrentLocation(CHOSEN_SF.id);
+
+        // Back to StarFire hub
+        window.location.href = "/Farm-vista/pages/equipment/equipment-starfire.html";
+      }catch(err){
+        console.error('saveMove error:', err);
+        errEl.textContent = err.message || String(err);
+        errEl.hidden = false;
+      }finally{
+        btn.disabled = false;
       }
+    }
 
-      function clearCurrentLocation(){
-        currentEquipment.textContent = 'Not assigned';
-        lastMovedAt.textContent      = '—';
-        lastMovedBy.textContent      = '—';
-        lastNotes.textContent        = '—';
-      }
+    /* ---------- boot ---------- */
+    (async()=>{
+      await ready;
+      db = getFirestore();
+      auth = getAuth();
 
-      // ----- load current location from equipment doc -----
-      async function loadCurrentLocation(starfireId) {
-        clearCurrentLocation();
-        if (!starfireId) return;
-
-        try {
-          const doc = await FVData.getDocData('equipment/' + starfireId);
-          if (!doc || !doc.starfireMountedOn) return;
-
-          const m = doc.starfireMountedOn || {};
-          currentEquipment.textContent = m.equipmentLabel || 'Unknown equipment';
-          lastMovedAt.textContent      = fmtDateTime(m.movedAt || null);
-          lastMovedBy.textContent      = m.movedBy || '—';
-          lastNotes.textContent        = m.notes || '—';
-        } catch (err) {
-          console.error('Error loading starfireMountedOn:', err);
-          showToast('Error loading current location.', 'error');
+      // Prefill movedBy + movedAt
+      try{
+        if(auth.currentUser){
+          $("movedBy").placeholder = auth.currentUser.displayName || auth.currentUser.email || "Employee / operator name";
         }
-      }
+      }catch(e){}
+      $("movedAt").value = new Date().toISOString().slice(0,16); // yyyy-MM-ddTHH:mm
 
-      // ----- StarFire changed -----
-      starfireSelect.addEventListener('change', async () => {
-        const id = starfireSelect.value;
-        if (!id) {
-          sfName.textContent   = '—';
-          sfSerial.textContent = '—';
-          clearCurrentLocation();
-          return;
-        }
+      await Promise.all([ loadStarfires(), loadEquipment() ]);
 
-        const data = starfireMap.get(id) || {};
-        const name =
-          data.nickname ||
-          data.displayName ||
-          data.name ||
-          data.equipName ||
-          ('StarFire ' + String(id).slice(0,6));
-        const serial =
-          data.serial ||
-          data.serialNumber ||
-          data.vin ||
-          data.sn ||
-          '—';
-
-        sfName.textContent   = name;
-        sfSerial.textContent = serial;
-
-        await loadCurrentLocation(id);
+      $("saveMove").addEventListener('click', saveMove);
+      $("cancelPage").addEventListener('click', ()=> {
+        window.location.href = "/Farm-vista/pages/equipment/equipment-starfire.html";
       });
-
-      // ----- Save move -----
-      moveForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        const receiverId = starfireSelect.value;
-        const equipmentId = equipmentSelect.value;
-
-        if (!receiverId) {
-          showToast('Please select a StarFire receiver first.', 'error');
-          return;
-        }
-        if (!equipmentId) {
-          showToast('Please select the new equipment location.', 'error');
-          return;
-        }
-
-        const sfData = starfireMap.get(receiverId) || {};
-        const eqData = equipmentMap.get(equipmentId) || {};
-
-        const receiverName =
-          sfName.textContent ||
-          sfData.nickname ||
-          sfData.displayName ||
-          sfData.name ||
-          '';
-
-        const receiverSerial =
-          sfSerial.textContent ||
-          sfData.serial ||
-          sfData.serialNumber ||
-          sfData.vin ||
-          '';
-
-        const labelParts = [];
-        if (eqData.nickname)     labelParts.push(eqData.nickname);
-        if (eqData.make)         labelParts.push(eqData.make);
-        if (eqData.model)        labelParts.push(eqData.model);
-        if (!labelParts.length && eqData.displayName) labelParts.push(eqData.displayName);
-        if (!labelParts.length && eqData.name)        labelParts.push(eqData.name);
-        const equipmentLabel = labelParts.join(' – ') || ('Equipment ' + String(equipmentId).slice(0,6));
-
-        let movedBy = movedByInput.value.trim();
-        try {
-          if (!movedBy) {
-            const ctx = window.FVUserContext || {};
-            if (ctx.displayName) movedBy = ctx.displayName;
-            else if (ctx.name)   movedBy = ctx.name;
-            else if (ctx.email)  movedBy = ctx.email;
-          }
-        } catch(e){}
-
-        let movedAtStr = movedAtInput.value;
-        let movedAtDate;
-        if (movedAtStr) movedAtDate = new Date(movedAtStr);
-        else movedAtDate = new Date();
-
-        const notes = notesInput.value.trim();
-
-        const payload = {
-          receiverId,
-          receiverName,
-          receiverSerial,
-          equipmentId,
-          equipmentLabel,
-          movedBy: movedBy || null,
-          movedAt: movedAtDate,
-          notes: notes || null
-          // createdAt/updatedAt/uid added by FVData.add()
-        };
-
-        try {
-          // 1) history
-          await FVData.add('starfireMoves', payload);
-
-          // 2) latest mount info on the StarFire equipment doc
-          await FVData.setDocMerge('equipment/' + receiverId, {
-            starfireMountedOn: {
-              equipmentId,
-              equipmentLabel,
-              movedBy: payload.movedBy,
-              movedAt: payload.movedAt,
-              notes: payload.notes || null
-            }
-          });
-
-          showToast('StarFire move saved.', 'success');
-
-          // refresh UI (optional if you redirect)
-          await loadCurrentLocation(receiverId);
-
-          // redirect back to StarFire hub
-          window.location.href = '/Farm-vista/pages/equipment/equipment-starfire.html';
-        } catch (err) {
-          console.error('Error saving StarFire move:', err);
-          showToast('Error saving move. Please try again.', 'error');
-        }
-      });
-
-      // initial loads
-      await Promise.all([
-        loadStarfireReceivers(),
-        loadGpsEquipment()
-      ]);
 
       // If we came in with ?id=<starfireId>, preselect it
-      try {
+      try{
         const params = new URLSearchParams(location.search);
         const preId = params.get('id');
-        if (preId && starfireMap.has(preId)) {
-          starfireSelect.value = preId;
-          starfireSelect.dispatchEvent(new Event('change', { bubbles:true }));
+        if(preId){
+          const found = STARFIRES.find(s => s.id === preId);
+          if(found){
+            CHOSEN_SF = found;
+            $("sfBtn").textContent = found.name;
+            $("sfName").textContent = found.name;
+            $("sfSerial").textContent = found.serial || "—";
+            await loadCurrentLocation(found.id);
+          }
         }
-      } catch(e){}
-    });
+      }catch(e){}
+    })();
   </script>
 </body>
 </html>
