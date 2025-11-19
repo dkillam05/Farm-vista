@@ -2,7 +2,7 @@
 // /functions/index.js
 // FarmVista • Copilot backend
 //  - Exposes fvCopilotChat HTTPS function
-//  - Uses OpenAI (ChatGPT) via functions.config().openai.key
+//  - Uses OpenAI via functions.config().openai.key
 //  - Optional Firestore context hook (fieldMaintenance summary)
 // =====================================================================
 
@@ -21,7 +21,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 // ---------------------------------------------------------
-// OpenAI client (v4) – API key stored in functions config:
+// OpenAI client – API key stored in functions config:
 //
 //   firebase functions:config:set openai.key="sk-XXXX"
 // ---------------------------------------------------------
@@ -31,7 +31,6 @@ const openai = new OpenAI({
 
 // ---------------------------------------------------------
 // Simple CORS helper for your PWA
-// (we can tighten this later to your exact domain)
 // ---------------------------------------------------------
 function setCors(res) {
   res.set("Access-Control-Allow-Origin", "*");
@@ -42,7 +41,7 @@ function setCors(res) {
 // ---------------------------------------------------------
 // fvCopilotChat
 //
-// HTTPS endpoint:
+// HTTPS endpoint (after deploy):
 //   https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/fvCopilotChat
 //
 // Request (POST JSON):
@@ -76,9 +75,7 @@ exports.fvCopilotChat = functions
 
       // =====================================================
       // Optional: Firestore context example (fieldMaintenance)
-      //  - Right now: if you pass { type: "fieldMaintenanceSummary", fieldId: "abc" }
-      //    we pull up to 10 recent work orders for that field and feed a summary to GPT.
-      //  - You can ignore this for now; it won't break anything.
+      //  - Ignore this for now if you want; it won't break anything.
       // =====================================================
       let fieldSummary = "";
 
