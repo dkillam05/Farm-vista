@@ -381,7 +381,7 @@
                   <div class="list" id="yearList"></div>
                 </div>
               </div>
-              <div id="yearHelp" class="help">Usually the harvest year.</div>
+              <div id="yearHelp" class="help">Defaulted to this crop year.</div>
             </div>
 
             <div class="field combo" id="cropCombo">
@@ -396,7 +396,29 @@
             </div>
           </div>
 
-          <!-- Trial type / Trial name -->
+          <!-- Operation Task / Trial Name -->
+          <div class="row">
+            <div class="field combo" id="opTaskCombo">
+              <label for="opTaskBtn">Operation Task</label>
+              <div class="combo-anchor">
+                <button id="opTaskBtn" class="buttonish has-caret" type="button">— Select task —</button>
+                <div class="combo-panel" id="opTaskPanel" role="listbox" aria-label="Operation task list">
+                  <div class="list" id="opTaskList"></div>
+                </div>
+              </div>
+              <div id="opTaskHelp" class="help">
+                Which operation is this trial tied to? Planting, spraying, aerial apps, or fertilizer.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="trialName">Trial Name / Nickname</label>
+              <input id="trialName" class="input" placeholder="e.g. Blueprint 2026 Corn Large-Scale Trial">
+              <div class="help">Short label you’ll recognize on reports and maps.</div>
+            </div>
+          </div>
+
+          <!-- Trial type -->
           <div class="row">
             <div class="field combo" id="typeCombo">
               <label for="typeBtn">Trial Type</label>
@@ -407,12 +429,6 @@
                 </div>
               </div>
               <div id="typeHelp" class="help">Seed, fungicide, biological, fertility, etc.</div>
-            </div>
-
-            <div class="field">
-              <label for="trialName">Trial Name / Nickname</label>
-              <input id="trialName" class="input" placeholder="e.g. Blueprint 2026 Corn Large-Scale Trial">
-              <div class="help">Short label you’ll recognize on reports and maps.</div>
             </div>
           </div>
 
@@ -482,7 +498,7 @@
                 <div class="list" id="farmList"></div>
               </div>
             </div>
-            <div id="farmHelp" class="help">Loading farms…</div>
+            <div id="farmHelp" class="help">Choose a farm to filter fields (optional).</div>
           </div>
 
           <div class="field combo" id="fieldCombo">
@@ -496,14 +512,14 @@
                 <div class="list" id="fieldList"></div>
               </div>
             </div>
-            <div id="fieldHelp" class="help">Choose a farm to filter fields (optional).</div>
+            <div id="fieldHelp" class="help">478 field(s) loaded.</div>
           </div>
         </div>
 
         <div class="row">
-          <!-- NEW: Variety / Hybrid dropdown from productsSeed -->
+          <!-- Variety / Hybrid is for the trial product on this field -->
           <div class="field combo" id="varietyCombo">
-            <label for="tfVarietyBtn">Variety / Hybrid (for this field)</label>
+            <label for="tfVarietyBtn">Variety / Hybrid (for this trial)</label>
             <div class="combo-anchor">
               <button id="tfVarietyBtn" class="buttonish has-caret" type="button">— Select variety —</button>
               <div class="combo-panel" id="tfVarietyPanel" role="listbox" aria-label="Seed varieties list">
@@ -514,12 +530,12 @@
               </div>
             </div>
             <div id="tfVarietyHelp" class="help">
-              What variety is used on this field for this trial?
+              Which variety of the trial product is used on this field?
             </div>
           </div>
 
           <div class="field">
-            <label for="tfPlacement">Placement / Application</label>
+            <label for="tfPlacement">Placement / Application (of trial product)</label>
             <select id="tfPlacement" class="select">
               <option value="">— Select placement —</option>
               <option value="ON_SEED">On seed</option>
@@ -528,7 +544,7 @@
               <option value="SIDEDRESS">Side-dress / Y-drop</option>
               <option value="OTHER">Other / mixed program</option>
             </select>
-            <div class="help">For biologics, note if it’s on-seed vs in-furrow vs foliar, etc.</div>
+            <div class="help">For the trial product, note if it’s on-seed vs in-furrow vs foliar, etc.</div>
           </div>
         </div>
 
@@ -544,6 +560,18 @@
             <input id="tfFieldNotes" class="input"
                    placeholder="Pop, strips, passes, planter row set, etc.">
             <div class="help">Any notes that only apply to this farm + field combo.</div>
+          </div>
+        </div>
+
+        <!-- Trial acres in this field -->
+        <div class="row">
+          <div class="field">
+            <label for="tfTrialAcres">Trial Acres in This Field</label>
+            <input id="tfTrialAcres" class="input" type="number" min="0" step="0.01"
+                   placeholder="e.g. 12.5">
+            <div class="help">
+              Acres of this field that are actually in the trial (not total field acres).
+            </div>
           </div>
         </div>
 
@@ -583,7 +611,8 @@
       year:null,
       crop:null,
       type:null,
-      seedProduct:null,   // selected seed product for this field
+      operationTask:null,   // planting / spraying / aerial / fertilizer
+      seedProduct:null,     // selected seed product for this field
       trialFields:[]
     };
 
@@ -936,7 +965,7 @@
     }
 
     /* =========================
-       Static combos: Year / Crop / Type
+       Static combos: Year / Crop / Type / Operation Task
        ========================= */
     const yearCombo = makeCombo({
       btn:  $("#yearBtn"),
@@ -984,6 +1013,21 @@
       }
     });
 
+    const opTaskCombo = makeCombo({
+      btn:  $("#opTaskBtn"),
+      panel:$("#opTaskPanel"),
+      list: $("#opTaskList"),
+      items: [],
+      searchable:false,
+      formatter:x=>x.label,
+      onPick(it){
+        state.operationTask = it;
+        $("#opTaskBtn").textContent = it.label;
+        const h = $("#opTaskHelp");
+        if(h) h.textContent = "Operation task selected for this trial.";
+      }
+    });
+
     function initStaticCombos(){
       const y = new Date().getFullYear();
       const years = [y-1, y, y+1].map(v=>({
@@ -1017,6 +1061,15 @@
       ];
       typeCombo.setItems(types);
 
+      const tasks = [
+        { id:'planting',   label:'Planting',            value:'PLANTING' },
+        { id:'spraying',   label:'Spraying',            value:'SPRAYING' },
+        { id:'aerial',     label:'Aerial Application',  value:'AERIAL_APP' },
+        { id:'fertilizer', label:'Fertilizer',          value:'FERTILIZER' },
+        { id:'other',      label:'Other Operation',     value:'OTHER' }
+      ];
+      opTaskCombo.setItems(tasks);
+
       updateHeroSubtitle();
     }
 
@@ -1038,6 +1091,7 @@
               ${f.variety ? f.variety + ' • ' : ''}
               ${f.placementLabel || ''}
               ${f.plantingDate ? ' • Planted ' + f.plantingDate : ''}
+              ${f.trialAcres ? ' • ' + f.trialAcres + ' ac' : ''}
             </p>
           </div>
           <button type="button" class="pill-remove" data-id="${f.id}">Remove</button>
@@ -1060,6 +1114,8 @@
       const placement = ($("#tfPlacement").value || "").trim();
       const plantDate = ($("#tfPlantDate").value || "").trim();
       const notes     = ($("#tfFieldNotes").value || "").trim();
+      const trialAcresRaw = ($("#tfTrialAcres").value || "").trim();
+      const trialAcresNum = trialAcresRaw ? Number(trialAcresRaw) : null;
 
       const placementLabel = (()=> {
         const sel = $("#tfPlacement");
@@ -1089,7 +1145,8 @@
         placement: placement || null,
         placementLabel: placementLabel || null,
         plantingDate: plantDate || null,
-        notes: notes || null
+        notes: notes || null,
+        trialAcres: (trialAcresNum && !Number.isNaN(trialAcresNum)) ? trialAcresNum : null
       });
 
       // Reset draft field inputs
@@ -1102,6 +1159,7 @@
       $("#tfPlacement").value = "";
       $("#tfPlantDate").value = "";
       $("#tfFieldNotes").value = "";
+      $("#tfTrialAcres").value = "";
       $("#farmHelp").textContent = "Choose a farm to filter fields (optional).";
       $("#fieldHelp").textContent = allFields.length
         ? `${allFields.length} field(s) loaded.`
@@ -1109,7 +1167,7 @@
       const vHelp = $("#tfVarietyHelp");
       if(vHelp){
         vHelp.textContent = allSeedProducts.length
-          ? "What variety is used on this field for this trial?"
+          ? "Which variety of the trial product is used on this field?"
           : "No seed products found.";
       }
 
@@ -1151,6 +1209,9 @@
         trialType: state.type?.value || null,
         trialTypeLabel: state.type?.label || null,
 
+        operationTaskCode: state.operationTask?.value || null,
+        operationTaskLabel: state.operationTask?.label || null,
+
         trialName,
         treatmentName,
         checkDescription: checkDesc,
@@ -1173,7 +1234,8 @@
           placement: f.placement || null,
           placementLabel: f.placementLabel || null,
           plantingDate: f.plantingDate || null,
-          notes: f.notes || null
+          notes: f.notes || null,
+          trialAcres: f.trialAcres || null
         })),
 
         createdAt: serverTimestamp(),
@@ -1232,11 +1294,13 @@
       // Reset selections (keep year default)
       state.crop = null;
       state.type = null;
+      state.operationTask = null;
       state.trialFields = [];
       state.seedProduct = null;
 
       $("#cropBtn").textContent = "— Select crop —";
       $("#typeBtn").textContent = "— Select type —";
+      $("#opTaskBtn").textContent = "— Select task —";
       $("#tfVarietyBtn").textContent = "— Select variety —";
 
       // Reset trial field draft controls
@@ -1247,6 +1311,7 @@
       $("#tfPlacement").value = "";
       $("#tfPlantDate").value = "";
       $("#tfFieldNotes").value = "";
+      $("#tfTrialAcres").value = "";
       $("#farmHelp").textContent = "Choose a farm to filter fields (optional).";
       $("#fieldHelp").textContent = allFields.length
         ? `${allFields.length} field(s) loaded.`
@@ -1291,12 +1356,12 @@
        NOTES
        ===========================
        • This page treats one doc in "fieldTrials" as the TRIAL HEADER.
+       • Operation Task ties the trial back to planting/spraying/aerial/fertilizer workflows.
        • Multiple fields are stored as an embedded "fields" array with farm/field IDs.
-       • Farms collection: expects docs with "name" or "farmName".
-       • Fields collection: expects docs with "name"/"fieldName" and "farmId" (or "farm").
+       • Each field now tracks seed product, placement, planting date, notes,
+         and trialAcres for that field.
        • Seed products: loaded from "productsSeed", filtered by cropCorn/cropSoy.
        • File storage path: trials/{trialId}/{filename}.
-       • Yield data import is intentionally NOT implemented yet.
   -->
 </body>
 </html>
