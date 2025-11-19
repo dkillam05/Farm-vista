@@ -179,11 +179,9 @@
 
       // Generate a short, url-safe CID (immutable once set)
       function genCID(){
-        // Prefer crypto UUID then shorten; fallback to Math.random
         try {
           const raw = (self.crypto?.randomUUID?.() || String(Math.random()).slice(2) + String(Math.random()).slice(2))
             .replace(/-/g,'');
-          // 16 chars is plenty unique for this scope
           return raw.slice(0,16);
         } catch {
           return (Date.now().toString(36) + Math.random().toString(36).slice(2,10)).slice(0,16);
@@ -240,11 +238,23 @@
       el.city.addEventListener('blur', ()=>{ const s=String(el.city.value||'').trim(); el.city.value = s ? (s[0].toUpperCase()+s.slice(1).toLowerCase()) : ''; });
       el.zip.addEventListener('blur', ()=>{ const z=String(el.zip.value||'').trim(); if(z && !zipOk(z)) showErr('ZIP must be 12345 or 12345-6789.'); else showErr(''); });
 
+      function normalizeStateValue(raw){
+        if (typeof raw !== 'string') return '';
+        const st = raw.trim().toUpperCase();
+        if (!st) return '';
+        // Only use if it matches one of the options
+        return el.state.querySelector(`option[value="${st}"]`) ? st : '';
+      }
+
       function fillForm(d){
         el.name.value   = d?.name || "";
         el.street.value = d?.addressStreet || "";
         el.city.value   = d?.addressCity || "";
-        el.state.value  = d?.addressState || "";
+
+        // *** KEY FIX: normalize and only set if it matches an option ***
+        const st = normalizeStateValue(d?.addressState);
+        el.state.value  = st;
+
         el.zip.value    = d?.addressZip || "";
         el.phone.value  = d?.phone ? fmtPhoneFinal(d.phone) : "";
         el.email.value  = d?.email || "";
@@ -273,7 +283,8 @@
         return {
           addressStreet:(el.street.value||"").trim(),
           addressCity:(el.city.value||"").trim(),
-          addressState:(el.state.value||"").trim(),
+          // *** KEY FIX: always save uppercase 2-letter code ***
+          addressState:(el.state.value||"").trim().toUpperCase(),
           addressZip:(el.zip.value||"").trim(),
           email:normalizeEmail(el.email.value||"")
         };
@@ -284,7 +295,6 @@
       // Single-file preview (Ideas-style)
       el.logo?.addEventListener('change', ()=>{
         const files = Array.from(el.logo.files||[]);
-        // enforce single file
         if (files.length > 1){ el.logo.value=''; files.length=0; }
         const f = files[0] || null;
         el.logoThumbs.innerHTML='';
@@ -351,11 +361,11 @@
           // Ensure CID before any writes that depend on it
           if (!CID) await ensureCID(db);
 
-          // Core (also persist cid, but it remains immutable logically)
+          // Core
           await setDoc(REF(db), { ...core, cid: CID, updatedAt: serverTimestamp() }, { merge:true });
           el.saveStatus.innerHTML = `<span class="ok">Saved core fields (name, phone).</span>`;
 
-          // Extras
+          // Extras (state now normalized)
           await setDoc(REF(db), { ...extras, updatedAt: serverTimestamp(), cid: CID }, { merge:true });
           el.saveStatus.innerHTML += ` <span class="ok">Saved extra fields.</span>`;
 
@@ -365,7 +375,6 @@
           else { el.logoNote.style.display='none'; }
 
           showToast("Saved.");
-          // reset file input (so same file can be re-chosen)
           if (el.logo) { el.logo.value=''; el.logoThumbs.innerHTML=''; el.logoHint.textContent=''; el.logoThumbs.setAttribute('aria-hidden','true'); el.logoHint.setAttribute('aria-hidden','true'); }
 
           await loadFromFirestore();
@@ -385,7 +394,6 @@
         const cached = cacheRead();
         if (cached) fillForm(cached);
 
-        // Create or fetch CID first, then load doc (so Storage base is ready if user uploads immediately)
         await ensureCID(db);
         await loadFromFirestore();
       })();
