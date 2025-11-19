@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Setup → Fields</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -115,30 +117,14 @@
       color:#fff;
     }
 
-    /* Import modal extras */
-    .import-note{font-size:13px;color:var(--muted,#67706B);}
-    .import-steps{font-size:13px;display:grid;gap:6px;margin:4px 0 8px;}
-    .import-steps li{margin-left:18px;}
-    .import-file{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .import-file input[type="file"]{
-      font-size:13px;
-    }
-    .import-preview{
-      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    /* Import modal log */
+    #impLog{
+      font-family:SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
       font-size:12px;
-      background:rgba(0,0,0,.03);
-      border-radius:8px;
-      padding:8px 10px;
-      min-height:40px;
-      white-space:pre-wrap;
+      min-height:220px;
+      white-space:pre;
+      resize:vertical;
     }
-
-    html.no-scroll, body.no-scroll{overflow:hidden;touch-action:none;}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -253,7 +239,7 @@
         <div class="list-head">
           <div class="list-title">Fields</div>
           <div class="list-filters">
-            <button id="importFieldsBtn" class="btn btn-quiet" type="button">Import</button>
+            <button id="btnImport" type="button" class="btn btn-quiet">Import</button>
             <label for="filterFarm" class="muted" style="font-weight:700">Filter:</label>
             <select id="filterFarm" class="select" style="min-width:220px"></select>
           </div>
@@ -367,35 +353,31 @@
 
   <!-- Modal: Import Fields -->
   <div id="importModal" class="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="impTitle">
       <div class="dialog-head">
-        <h3 id="importTitle">Import Fields from CSV</h3>
-        <button id="importCloseX" class="closex" type="button">Close</button>
+        <h3 id="impTitle">Import Fields from CSV</h3>
+        <button id="impClose" class="closex" type="button">Back</button>
       </div>
       <div class="dialog-body">
-        <p class="import-note">
-          Expected CSV header (row 1):
-          <br>
-          <strong>farmName,fieldName,state,county,tillableAcres,helAcres,crpAcres,rtkTowerName</strong>
+        <p class="muted">
+          Use the <strong>fields-template.csv</strong> header:
+          <code>farmName, fieldName, state, county, tillableAcres, helAcres, crpAcres, rtkTowerName</code>.
+          RTK tower may be matched by tower name or network ID (e.g. <code>4010</code>).
         </p>
-        <ul class="import-steps">
-          <li>Download <strong>fields-template.csv</strong> from Setup → Import Templates (matching these headers).</li>
-          <li>Fill it out in Excel or Google Sheets.</li>
-          <li>Upload the CSV here to review and import.</li>
-        </ul>
-
-        <div class="import-file">
-          <label for="importFile" class="muted" style="font-weight:700;">CSV File:</label>
-          <input id="importFile" type="file" accept=".csv,text/csv">
+        <div class="field">
+          <label for="impFile">CSV file</label>
+          <input id="impFile" type="file" accept=".csv" class="input">
         </div>
-
-        <div id="importPreview" class="import-preview">
-No file selected yet.
+        <div class="field">
+          <label for="impLog">Preview / Log</label>
+          <textarea id="impLog" class="input" readonly></textarea>
         </div>
       </div>
       <div class="dialog-footer">
-        <button id="importCancel" class="closex" type="button">Cancel</button>
-        <button id="importRun" class="btn btn-primary" type="button" disabled>Run Import</button>
+        <div class="left-btns">
+          <button id="impCancel" class="btn btn-quiet" type="button">Cancel</button>
+        </div>
+        <button id="impRun" class="btn btn-primary" type="button" disabled>Run Import</button>
       </div>
     </div>
   </div>
@@ -413,7 +395,7 @@ No file selected yet.
     const $ = id => document.getElementById(id);
     const toast = $("toast");
 
-    /* ===== ACS (County) + State helpers ===== */
+    /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
       ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
@@ -433,14 +415,6 @@ No file selected yet.
       NC:"37", ND:"38", OH:"39", OK:"40", OR:"41", PA:"42", RI:"44", SC:"45", SD:"46", TN:"47", TX:"48",
       UT:"49", VT:"50", VA:"51", WA:"53", WV:"54", WI:"55", WY:"56"
     };
-    const STATE_NAME_TO_CODE = new Map([
-      ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
-      ...STATES.map(([c])=>[c.toLowerCase(),c])
-    ]);
-    const STATE_CODE_SET = new Set(STATES.map(([c])=>c));
-
-    let DEFAULT_STATE_CODE = "IL";
-
     function acsUrl(stateCode){
       const fips = STATE_TO_FIPS[stateCode];
       return `https://api.census.gov/data/2023/acs/acs5?get=NAME&for=county:*&in=state:${fips}&key=${encodeURIComponent(CENSUS_KEY)}`;
@@ -466,18 +440,6 @@ No file selected yet.
       }
       out.sort((a,b)=>a.localeCompare(b));
       return out;
-    }
-
-    function normalizeStateInput(raw){
-      const v = String(raw||"").trim();
-      if(!v){
-        return {code: DEFAULT_STATE_CODE, note:"blank → default"};
-      }
-      const byName = STATE_NAME_TO_CODE.get(v.toLowerCase());
-      if(byName) return {code: byName};
-      const uc = v.toUpperCase();
-      if(STATE_CODE_SET.has(uc)) return {code: uc};
-      return {code:null, error:`Unknown state "${v}"`};
     }
 
     /* ===== Searchable dropdown helpers ===== */
@@ -545,11 +507,11 @@ No file selected yet.
 
     /* ===== App helpers ===== */
     function showToast(msg="Saved.", ms=5000){
-      const toastEl = $("toast");
-      toastEl.textContent = msg;
-      toastEl.classList.remove("show"); void toastEl.offsetWidth;
-      toastEl.classList.add("show");
-      setTimeout(()=> toastEl.classList.remove("show"), ms);
+      const toast = $("toast");
+      toast.textContent = msg;
+      toast.classList.remove("show"); void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=> toast.classList.remove("show"), ms);
     }
     function wireNetToasts(){
       window.addEventListener('online', ()=> showToast("Back online — syncing…", 5000));
@@ -564,6 +526,9 @@ No file selected yet.
       const v = Number(n);
       return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
     };
+
+    const norm = v => String(v||"").trim();
+    const key = v => norm(v).toLowerCase();
 
     let db;
     let FARMS_CACHE = []; let FARMS_MAP = new Map();
@@ -595,14 +560,54 @@ No file selected yet.
       const f = FARMS_MAP.get(id);
       return f ? (f.name + (f.status==='archived'?' (Archived)':'')) : '(Unknown)';
     }
-    function findFarmIdByName(rawName){
-      const name = String(rawName||"").trim();
-      if(!name) return {id:null, error:"Farm name is required"};
-      const target = name.toLowerCase();
-      const matches = FARMS_CACHE.filter(f=>String(f.name||"").trim().toLowerCase()===target);
-      if(!matches.length) return {id:null, error:`Farm "${name}" not found`};
-      if(matches.length>1) return {id:null, error:`Farm "${name}" matched multiple farms`};
-      return {id:matches[0].id};
+    function populateFarmSelects(){
+      const addSel = $("farmSelect");
+      const editSel = $("editFarm");
+      const filterSel = $("filterFarm");
+
+      const farms = FARMS_CACHE.slice();
+      const active = farms.filter(f=>f.status!=='archived');
+      const archived = farms.filter(f=>f.status==='archived');
+
+      addSel.innerHTML = '';
+      if(!farms.length){
+        $("noFarms").style.display = "block";
+        addSel.disabled = true; $("save").disabled = true;
+      }else{
+        $("noFarms").style.display = "none";
+        $("save").disabled = false;
+        active.forEach(f=>{
+          const o=document.createElement("option");
+          o.value=f.id; o.textContent=f.name;
+          addSel.appendChild(o);
+        });
+        if(archived.length){
+          const grp=document.createElement("optgroup"); grp.label='Archived';
+          archived.forEach(f=>{
+            const o=document.createElement("option");
+            o.value=f.id; o.textContent=f.name + " (Archived)"; o.disabled = true;
+            grp.appendChild(o);
+          });
+          addSel.appendChild(grp);
+        }
+      }
+
+      editSel.innerHTML='';
+      farms.forEach(f=>{
+        const o=document.createElement('option');
+        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
+        editSel.appendChild(o);
+      });
+
+      filterSel.innerHTML='';
+      const optAll = document.createElement('option');
+      optAll.value=''; optAll.textContent='All Farms';
+      filterSel.appendChild(optAll);
+      farms.forEach(f=>{
+        const o=document.createElement('option');
+        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
+        filterSel.appendChild(o);
+      });
     }
 
     /* RTK Towers */
@@ -626,15 +631,6 @@ No file selected yet.
       if(!id) return '';
       const t = RTK_MAP.get(id);
       return t ? t.name : '';
-    }
-    function findRtkIdByName(rawName){
-      const name = String(rawName||"").trim();
-      if(!name) return {id:"", note:"no RTK"};
-      const target = name.toLowerCase();
-      const matches = RTK_CACHE.filter(r=>String(r.name||"").trim().toLowerCase()===target);
-      if(!matches.length) return {id:null, error:`RTK tower "${name}" not found`};
-      if(matches.length>1) return {id:null, error:`RTK tower "${name}" matched multiple towers`};
-      return {id:matches[0].id};
     }
 
     /* ===== Create / Validate ===== */
@@ -774,7 +770,7 @@ No file selected yet.
       populateRTKSelect($("editRtkSelect"), it.rtkTowerId || "");
 
       // state + counties
-      $("editState").value = it.state || DEFAULT_STATE_CODE || "IL";
+      $("editState").value = it.state || "IL";
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
       await loadCountiesIntoDropdown(ddEditCounty, $("editState").value, it.county || "");
@@ -807,294 +803,7 @@ No file selected yet.
     }
     mdClose.addEventListener("click", closeModal);
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
-
-    /* ===== Import Modal wiring (Fields) ===== */
-    const importModal = $("importModal");
-    const importBtn = $("importFieldsBtn");
-    const importCloseX = $("importCloseX");
-    const importCancel = $("importCancel");
-    const importRun = $("importRun");
-    const importFile = $("importFile");
-    const importPreview = $("importPreview");
-
-    const FIELD_IMPORT_HEADERS = [
-      "farmName","fieldName","state","county","tillableAcres","helAcres","crpAcres","rtkTowerName"
-    ];
-
-    let importState = null; // {fileName, rows:[{rowNum,payload,errors:[],source:[]}], okCount, errCount}
-
-    function openImportModal(){
-      importModal.setAttribute("open","");
-      importModal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll");
-      document.body.classList.add("no-scroll");
-    }
-    function closeImportModal(){
-      importModal.removeAttribute("open");
-      importModal.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll");
-      document.body.classList.remove("no-scroll");
-      importState = null;
-      importFile.value = "";
-      importPreview.textContent = "No file selected yet.";
-      importRun.disabled = true;
-    }
-
-    if(importBtn){
-      importBtn.addEventListener("click", ()=>{
-        openImportModal();
-      });
-    }
-    if(importCloseX) importCloseX.addEventListener("click", closeImportModal);
-    if(importCancel) importCancel.addEventListener("click", closeImportModal);
-    if(importModal){
-      importModal.addEventListener("click", e=>{
-        if(e.target === importModal) closeImportModal();
-      });
-    }
-
-    /* ===== Simple CSV parser (supports quotes) ===== */
-    function parseCsvText(text){
-      const rows = [];
-      let cur = "";
-      let row = [];
-      let inQuotes = false;
-
-      for(let i=0;i<text.length;i++){
-        const c = text[i];
-        if(c === '"'){
-          if(inQuotes && text[i+1] === '"'){
-            cur += '"';
-            i++;
-          }else{
-            inQuotes = !inQuotes;
-          }
-        }else if(c === "," && !inQuotes){
-          row.push(cur);
-          cur = "";
-        }else if((c === "\n" || c === "\r") && !inQuotes){
-          // end of line
-          if(c === "\r" && text[i+1] === "\n") i++;
-          row.push(cur);
-          const allEmpty = row.every(v=>String(v||"").trim()==="");
-          if(!allEmpty) rows.push(row);
-          row = [];
-          cur = "";
-        }else{
-          cur += c;
-        }
-      }
-      if(cur.length>0 || row.length){
-        row.push(cur);
-        const allEmpty = row.every(v=>String(v||"").trim()==="");
-        if(!allEmpty) rows.push(row);
-      }
-      return rows;
-    }
-
-    function processImportCsv(text, fileName){
-      const rows = parseCsvText(text);
-      if(!rows.length){
-        importPreview.textContent = "File appears to be empty.";
-        importRun.disabled = true;
-        importState = null;
-        return;
-      }
-
-      const headerRow = rows[0].map(h=>String(h||"").trim());
-      const headerLower = headerRow.map(h=>h.toLowerCase());
-      const expectedLower = FIELD_IMPORT_HEADERS.map(h=>h.toLowerCase());
-
-      const headerMismatch = expectedLower.some((h,idx)=> headerLower[idx] !== h);
-      if(headerRow.length < FIELD_IMPORT_HEADERS.length || headerMismatch){
-        importPreview.textContent =
-`Header row does not match expected layout.
-
-Found:
-  ${headerRow.join(", ")}
-
-Expected:
-  ${FIELD_IMPORT_HEADERS.join(", ")}
-
-Please fix the header row in your CSV and re-upload.`;
-        importRun.disabled = true;
-        importState = null;
-        return;
-      }
-
-      const dataRows = rows.slice(1);
-      const processed = [];
-      let okCount = 0, errCount = 0;
-
-      dataRows.forEach((cols, idx)=>{
-        const rowNum = idx + 2; // account for header
-        const errors = [];
-
-        const farmName      = cols[0] ?? "";
-        const fieldName     = cols[1] ?? "";
-        const stateRaw      = cols[2] ?? "";
-        const county        = String(cols[3] ?? "").trim();
-        const tillableRaw   = cols[4] ?? "";
-        const helAcresRaw   = cols[5] ?? "";
-        const crpAcresRaw   = cols[6] ?? "";
-        const rtkName       = cols[7] ?? "";
-
-        // Farm
-        const farmRes = findFarmIdByName(farmName);
-        if(!farmRes.id) errors.push(farmRes.error);
-
-        // Field name
-        const nameTrim = String(fieldName||"").trim();
-        if(!nameTrim) errors.push("Field name is required");
-
-        // State
-        const stRes = normalizeStateInput(stateRaw);
-        if(!stRes.code) errors.push(stRes.error);
-
-        // County
-        if(!county) errors.push("County is required");
-
-        // Tillable
-        const tillable = toNum(tillableRaw);
-        if(!(tillable>0)) errors.push("tillableAcres must be > 0");
-
-        // HEL/CRP
-        const helAcres = toNum(helAcresRaw);
-        const crpAcres = toNum(crpAcresRaw);
-        const hasHEL = helAcres > 0;
-        const hasCRP = crpAcres > 0;
-
-        // RTK
-        const rtkRes = findRtkIdByName(rtkName);
-
-        if(rtkRes.error) errors.push(rtkRes.error);
-
-        const payload = {
-          farmId: farmRes.id || "",
-          name: nameTrim,
-          state: stRes.code || DEFAULT_STATE_CODE,
-          county,
-          tillable,
-          hasHEL,
-          helAcres: hasHEL ? helAcres : 0,
-          hasCRP,
-          crpAcres: hasCRP ? crpAcres : 0,
-          rtkTowerId: rtkRes.id || "",
-          status: "active",
-          used: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-
-        if(errors.length) errCount++; else okCount++;
-
-        processed.push({
-          rowNum,
-          payload,
-          errors,
-          source: cols
-        });
-      });
-
-      importState = {
-        fileName,
-        rows: processed,
-        okCount,
-        errCount
-      };
-
-      const lines = [];
-      lines.push(`File: ${fileName}`);
-      lines.push(`Columns: ${FIELD_IMPORT_HEADERS.join(", ")}`);
-      lines.push("");
-      lines.push(`Summary: ${okCount} row(s) ready, ${errCount} row(s) with errors.`);
-      lines.push("");
-
-      processed.forEach(row=>{
-        if(row.errors.length){
-          lines.push(`Row ${row.rowNum}: ERROR — ${row.errors.join("; ")}`);
-        }else{
-          const p = row.payload;
-          lines.push(`Row ${row.rowNum}: ready — ${p.name} (${p.tillable} ac) on ${farmLabel(p.farmId)} [${p.county}, ${p.state}]`);
-        }
-      });
-
-      lines.push("");
-      if(errCount){
-        lines.push("Fix the errors in your CSV and re-upload. No data will be imported until all rows are valid.");
-      }else if(!okCount){
-        lines.push("No valid data rows found.");
-      }else{
-        lines.push("All rows look good. Click “Run Import” to create these fields.");
-      }
-
-      importPreview.textContent = lines.join("\n");
-      importRun.disabled = !(okCount>0 && errCount===0);
-    }
-
-    if(importFile){
-      importFile.addEventListener("change", ()=>{
-        const file = importFile.files && importFile.files[0];
-        if(!file){
-          importPreview.textContent = "No file selected yet.";
-          importRun.disabled = true;
-          importState = null;
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const text = String(reader.result || "");
-          processImportCsv(text, file.name);
-        };
-        reader.onerror = () => {
-          importPreview.textContent = "Error reading file.";
-          importRun.disabled = true;
-          importState = null;
-        };
-        reader.readAsText(file);
-      });
-    }
-
-    if(importRun){
-      importRun.addEventListener("click", async ()=>{
-        if(!importState || !importState.rows || !importState.rows.length){
-          alert("No parsed data to import.");
-          return;
-        }
-        if(importState.errCount>0){
-          alert("There are still rows with errors. Fix them and re-upload before importing.");
-          return;
-        }
-
-        importRun.disabled = true;
-        importRun.textContent = "Importing…";
-
-        try{
-          for(const row of importState.rows){
-            await addDoc(fieldsRef(), row.payload);
-          }
-          await renderList();
-          showToast(`Imported ${importState.okCount} field(s).`);
-          closeImportModal();
-        }catch(err){
-          console.error(err);
-          alert("Something went wrong while importing. Check console for details.");
-          importRun.disabled = false;
-          importRun.textContent = "Run Import";
-          return;
-        }
-
-        importRun.disabled = false;
-        importRun.textContent = "Run Import";
-      });
-    }
-
-    document.addEventListener("keydown", e=>{
-      if(e.key==="Escape"){
-        if(modal.hasAttribute("open")) closeModal();
-        else if(importModal && importModal.hasAttribute("open")) closeImportModal();
-      }
-    });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
     function onEditStatePicked(code,label){
       $("editState").value = code;
@@ -1233,8 +942,12 @@ Please fix the header row in your CSV and re-upload.`;
         const snap = await getDoc(doc(db, 'company', 'main'));
         if(!snap.exists()) return "";
         const d = snap.data()||{};
+        const NAME_TO_CODE = new Map([
+          ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
+          ...STATES.map(([c])=>[c.toLowerCase(),c])
+        ]);
         const v = String(d.addressState || d.state || "").trim().toLowerCase();
-        return STATE_NAME_TO_CODE.get(v) || "";
+        return NAME_TO_CODE.get(v) || "";
       }catch{ return ""; }
     }
 
@@ -1254,6 +967,215 @@ Please fix the header row in your CSV and re-upload.`;
         setToggle(btn, hiddenCheckbox, next, wrap, input);
       });
     }
+
+    /* ===== Import Engine ===== */
+    const EXPECTED_HEADER = [
+      "farmName","fieldName","state","county",
+      "tillableAcres","helAcres","crpAcres","rtkTowerName"
+    ];
+
+    let IMPORT_ROWS = [];
+
+    function parseCsvSimple(text){
+      const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+      if(!lines.length) return {header:[], rows:[]};
+      const splitLine = line => line.split(","); // assuming no embedded commas
+      const header = splitLine(lines[0]).map(h=>h.trim());
+      const rows = lines.slice(1).map((ln,i)=>({ lineNum: i+2, cols: splitLine(ln) }));
+      return {header, rows};
+    }
+
+    function buildFarmLookup(){
+      const map = new Map();
+      FARMS_CACHE.forEach(f=>{
+        const k = key(f.name);
+        if(k && !map.has(k)) map.set(k, f.id);
+      });
+      return map;
+    }
+
+    function buildRtkLookup(){
+      const map = new Map();
+      RTK_CACHE.forEach(t=>{
+        const kName = key(t.name);
+        const kNet  = key(t.networkId);
+        if(kName && !map.has(kName)) map.set(kName, t.id);
+        if(kNet && !map.has(kNet)) map.set(kNet, t.id);
+      });
+      return map;
+    }
+
+    async function analyzeImportFile(file){
+      const logLines = [];
+      IMPORT_ROWS = [];
+      $("impRun").disabled = true;
+
+      if(!file){
+        $("impLog").value = "";
+        return;
+      }
+
+      const text = await file.text();
+      const {header, rows} = parseCsvSimple(text);
+
+      // Header check
+      const headerNorm = header.map(h=>h.trim());
+      const expectedNorm = EXPECTED_HEADER;
+      const sameLength = headerNorm.length === expectedNorm.length;
+      const headerMatches = sameLength && expectedNorm.every((h,i)=>h === headerNorm[i]);
+
+      if(!headerMatches){
+        logLines.push("Header row does not match expected layout.\n");
+        logLines.push("Found:");
+        logLines.push("  " + headerNorm.join(", "));
+        logLines.push("");
+        logLines.push("Expected:");
+        logLines.push("  " + expectedNorm.join(", "));
+        $("impLog").value = logLines.join("\n");
+        return;
+      }
+
+      if(!FARMS_CACHE.length) await loadFarms();
+      if(!RTK_CACHE.length) await loadRTKTowers();
+
+      const FARM_BY_NAME = buildFarmLookup();
+      const RTK_BY_KEY   = buildRtkLookup();
+
+      let okCount = 0;
+      let errCount = 0;
+
+      rows.forEach(r=>{
+        const cols = r.cols.concat(Array(Math.max(0, EXPECTED_HEADER.length - r.cols.length)).fill(""));
+        const [farmName, fieldName, state, county, tillStr, helStr, crpStr, rtkNameRaw] = cols.map(norm);
+        const line = r.lineNum;
+
+        const rowErrors = [];
+        const farmKey = key(farmName);
+        const farmId = FARM_BY_NAME.get(farmKey) || "";
+
+        if(!farmId) rowErrors.push(`Farm "${farmName||"(blank)"}" not found`);
+        if(!fieldName) rowErrors.push("Missing fieldName");
+        if(!state) rowErrors.push("Missing state");
+        if(!county) rowErrors.push("Missing county");
+
+        const till = toNum(tillStr);
+        const hel  = toNum(helStr);
+        const crp  = toNum(crpStr);
+
+        if(!(till>0)) rowErrors.push("tillableAcres must be > 0");
+        if(hel < 0) rowErrors.push("helAcres cannot be negative");
+        if(crp < 0) rowErrors.push("crpAcres cannot be negative");
+
+        const rtkKey = key(rtkNameRaw);
+        let rtkTowerId = "";
+        if(rtkKey){
+          rtkTowerId = RTK_BY_KEY.get(rtkKey) || "";
+          if(!rtkTowerId){
+            rowErrors.push(`RTK tower "${rtkNameRaw}" not found (by name or networkId)`);
+          }
+        }
+
+        const hasHEL = hel > 0;
+        const hasCRP = crp > 0;
+
+        if(rowErrors.length){
+          errCount++;
+          rowErrors.forEach(msg=>{
+            logLines.push(`Row ${line}: ERROR — ${msg}`);
+          });
+        }else{
+          okCount++;
+          logLines.push(`Row ${line}: OK — Field "${fieldName}" on Farm "${farmName}"${rtkTowerId ? ` (RTK ${rtkNameRaw})` : ""}`);
+        }
+
+        IMPORT_ROWS.push({
+          lineNum: line,
+          farmId,
+          farmName,
+          name: fieldName,
+          state,
+          county,
+          tillable: till,
+          helAcres: hel,
+          crpAcres: crp,
+          hasHEL,
+          hasCRP,
+          rtkTowerId,
+          rtkTowerName: rtkNameRaw,
+          errors: rowErrors
+        });
+      });
+
+      logLines.unshift(`Preview complete: ${okCount} OK, ${errCount} with errors. Only OK rows will be imported.\n`);
+      $("impLog").value = logLines.join("\n");
+      if(okCount>0) $("impRun").disabled = false;
+    }
+
+    async function runImport(){
+      if(!IMPORT_ROWS.length) return;
+      $("impRun").disabled = true;
+
+      let imported = 0;
+      for(const row of IMPORT_ROWS){
+        if(row.errors && row.errors.length) continue;
+        const payload = {
+          farmId: row.farmId,
+          name: row.name,
+          state: row.state,
+          county: row.county,
+          tillable: row.tillable,
+          hasHEL: row.hasHEL,
+          helAcres: row.helAcres,
+          hasCRP: row.hasCRP,
+          crpAcres: row.crpAcres,
+          rtkTowerId: row.rtkTowerId || "",
+          status: "active",
+          used: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+        await addDoc(fieldsRef(), payload);
+        imported++;
+      }
+
+      showToast(`Imported ${imported} fields.`);
+      await renderList();
+    }
+
+    /* ===== Import modal wiring ===== */
+    const importModal = $("importModal");
+    const impFile = $("impFile");
+    const impLog = $("impLog");
+    const impRun = $("impRun");
+
+    function openImportModal(){
+      importModal.setAttribute("open",""); importModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      impFile.value = "";
+      impLog.value = "";
+      impRun.disabled = true;
+    }
+    function closeImportModal(){
+      importModal.removeAttribute("open"); importModal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      IMPORT_ROWS = [];
+    }
+
+    $("btnImport").addEventListener("click", openImportModal);
+    $("impClose").addEventListener("click", closeImportModal);
+    $("impCancel").addEventListener("click", closeImportModal);
+    importModal.addEventListener("click", e=>{ if(e.target===importModal) closeImportModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && importModal.hasAttribute("open")) closeImportModal(); });
+
+    impFile.addEventListener("change", async ()=>{
+      const file = impFile.files[0];
+      await analyzeImportFile(file);
+    });
+
+    impRun.addEventListener("click", async ()=>{
+      await runImport();
+      closeImportModal();
+    });
 
     /* ===== Boot ===== */
     (async ()=>{
@@ -1280,7 +1202,6 @@ Please fix the header row in your CSV and re-upload.`;
       // Default state from company/main; fallback to IL
       let defaultState = await getCompanyStateCode();
       if(!defaultState) defaultState = "IL";
-      DEFAULT_STATE_CODE = defaultState;
       const stRec = STATES.find(([c])=>c===defaultState) || ["IL","Illinois"];
 
       ddState.hidden.value = stRec[0];
@@ -1324,4 +1245,5 @@ Please fix the header row in your CSV and re-upload.`;
 
   })();
   </script>
-</body></html>
+</body>
+</html>
