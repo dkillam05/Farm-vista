@@ -35,16 +35,16 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        // Moved Field Maintenance to the top
+        // Field Maintenance at the top
         { type: 'link', id: 'crop-maint',      icon: '🛠️', label: 'Field Maintenance',  href: '/Farm-vista/pages/crop-production/maintenance.html', activeMatch: 'exact' },
         // Trials under that
         { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',              href: '/Farm-vista/pages/crop-production/trials.html',      activeMatch: 'exact' },
-        // Rest in original order
+        // Rest in desired order
         { type: 'link', id: 'crop-planting',   icon: '🌱', label: 'Planting',            href: '/Farm-vista/pages/crop-production/planting.html',    activeMatch: 'exact' },
         { type: 'link', id: 'crop-spraying',   icon: '💦', label: 'Spraying',            href: '/Farm-vista/pages/crop-production/spraying.html',    activeMatch: 'exact' },
+        { type: 'link', id: 'crop-aerial',     icon: '🚁', label: 'Aerial Applications', href: '/Farm-vista/pages/crop-production/aerial.html',      activeMatch: 'exact' },
         { type: 'link', id: 'crop-fertilizer', icon: '🧂', label: 'Fertilizer',          href: '/Farm-vista/pages/crop-production/fertilizer.html',  activeMatch: 'exact' },
-        { type: 'link', id: 'crop-harvest',    icon: '🌾', label: 'Harvest',             href: '/Farm-vista/pages/crop-production/harvest.html',     activeMatch: 'exact' },
-        { type: 'link', id: 'crop-aerial',     icon: '🚁', label: 'Aerial Applications', href: '/Farm-vista/pages/crop-production/aerial.html',      activeMatch: 'exact' }
+        { type: 'link', id: 'crop-harvest',    icon: '🌾', label: 'Harvest',             href: '/Farm-vista/pages/crop-production/harvest.html',     activeMatch: 'exact' }
       ]
     },
 
