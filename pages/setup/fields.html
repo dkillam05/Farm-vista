@@ -114,6 +114,31 @@
       border-color:#2F6C3C;
       color:#fff;
     }
+
+    /* Import modal extras */
+    .import-note{font-size:13px;color:var(--muted,#67706B);}
+    .import-steps{font-size:13px;display:grid;gap:6px;margin:4px 0 8px;}
+    .import-steps li{margin-left:18px;}
+    .import-file{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .import-file input[type="file"]{
+      font-size:13px;
+    }
+    .import-preview{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px;
+      background:rgba(0,0,0,.03);
+      border-radius:8px;
+      padding:8px 10px;
+      min-height:40px;
+      white-space:pre-wrap;
+    }
+
+    html.no-scroll, body.no-scroll{overflow:hidden;touch-action:none;}
   </style>
 
   <!-- Ensure fv-shell -->
@@ -228,6 +253,7 @@
         <div class="list-head">
           <div class="list-title">Fields</div>
           <div class="list-filters">
+            <button id="importFieldsBtn" class="btn btn-quiet" type="button">Import</button>
             <label for="filterFarm" class="muted" style="font-weight:700">Filter:</label>
             <select id="filterFarm" class="select" style="min-width:220px"></select>
           </div>
@@ -335,6 +361,40 @@
           <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the field is in use.">Delete</button>
         </div>
         <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Import Fields -->
+  <div id="importModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+      <div class="dialog-head">
+        <h3 id="importTitle">Import Fields from CSV</h3>
+        <button id="importCloseX" class="closex" type="button">Close</button>
+      </div>
+      <div class="dialog-body">
+        <p class="import-note">
+          Use the Fields import template, then upload your completed CSV for review. Nothing is written to the database
+          until you confirm on the next step.
+        </p>
+        <ul class="import-steps">
+          <li>Download <strong>fields-template.csv</strong> from Setup → Import Templates.</li>
+          <li>Fill it out in Excel or Google Sheets.</li>
+          <li>Upload the CSV here to review and import.</li>
+        </ul>
+
+        <div class="import-file">
+          <label for="importFile" class="muted" style="font-weight:700;">CSV File:</label>
+          <input id="importFile" type="file" accept=".csv,text/csv">
+        </div>
+
+        <div id="importPreview" class="import-preview">
+No file selected yet.
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="importCancel" class="closex" type="button">Cancel</button>
+        <button id="importRun" class="btn btn-primary" type="button">Run Import (Coming Soon)</button>
       </div>
     </div>
   </div>
@@ -464,11 +524,11 @@
 
     /* ===== App helpers ===== */
     function showToast(msg="Saved.", ms=5000){
-      const toast = $("toast");
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
-      setTimeout(()=> toast.classList.remove("show"), ms);
+      const toastEl = $("toast");
+      toastEl.textContent = msg;
+      toastEl.classList.remove("show"); void toastEl.offsetWidth;
+      toastEl.classList.add("show");
+      setTimeout(()=> toastEl.classList.remove("show"), ms);
     }
     function wireNetToasts(){
       window.addEventListener('online', ()=> showToast("Back online — syncing…", 5000));
@@ -758,7 +818,70 @@
     }
     mdClose.addEventListener("click", closeModal);
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
-    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
+
+    /* ===== Import Modal wiring (Fields) ===== */
+    const importModal = $("importModal");
+    const importBtn = $("importFieldsBtn");
+    const importCloseX = $("importCloseX");
+    const importCancel = $("importCancel");
+    const importRun = $("importRun");
+    const importFile = $("importFile");
+    const importPreview = $("importPreview");
+
+    function openImportModal(){
+      importModal.setAttribute("open","");
+      importModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
+    }
+    function closeImportModal(){
+      importModal.removeAttribute("open");
+      importModal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
+    }
+
+    if(importBtn){
+      importBtn.addEventListener("click", ()=>{
+        openImportModal();
+      });
+    }
+    if(importCloseX) importCloseX.addEventListener("click", closeImportModal);
+    if(importCancel) importCancel.addEventListener("click", closeImportModal);
+    if(importModal){
+      importModal.addEventListener("click", e=>{
+        if(e.target === importModal) closeImportModal();
+      });
+    }
+
+    if(importFile){
+      importFile.addEventListener("change", ()=>{
+        const file = importFile.files && importFile.files[0];
+        if(!file){
+          importPreview.textContent = "No file selected yet.";
+          return;
+        }
+        importPreview.textContent =
+`Selected file:
+  Name: ${file.name}
+  Size: ${file.size} bytes
+  Type: ${file.type || "unknown"}
+  
+Import logic coming soon — this step will show a row-by-row review before anything is saved.`;
+      });
+    }
+    if(importRun){
+      importRun.addEventListener("click", ()=>{
+        alert("Import engine not wired yet — this button will parse the CSV, show a review grid, and then write new fields to Firestore.");
+      });
+    }
+
+    document.addEventListener("keydown", e=>{
+      if(e.key==="Escape"){
+        if(modal.hasAttribute("open")) closeModal();
+        else if(importModal && importModal.hasAttribute("open")) closeImportModal();
+      }
+    });
 
     function onEditStatePicked(code,label){
       $("editState").value = code;
