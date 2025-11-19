@@ -1,95 +1,162 @@
-// functions/index.js
-const { onRequest } = require("firebase-functions/v2/https");
+// =====================================================================
+// /functions/index.js
+// FarmVista • Copilot backend
+//  - Exposes fvCopilotChat HTTPS function
+//  - Uses OpenAI (ChatGPT) via functions.config().openai.key
+//  - Optional Firestore context hook (fieldMaintenance summary)
+// =====================================================================
+
+"use strict";
+
+const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const OpenAI = require("openai");
 
+// ---------------------------------------------------------
+// Firebase Admin init
+// ---------------------------------------------------------
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
 
-// Read API key from Firebase config: functions.config().openai.key
-const functions = require("firebase-functions");
+// ---------------------------------------------------------
+// OpenAI client (v4) – API key stored in functions config:
+//
+//   firebase functions:config:set openai.key="sk-XXXX"
+// ---------------------------------------------------------
 const openai = new OpenAI({
   apiKey: functions.config().openai.key,
 });
 
-exports.fvCopilotChat = onRequest(async (req, res) => {
-  // Basic CORS so your PWA can call this
+// ---------------------------------------------------------
+// Simple CORS helper for your PWA
+// (we can tighten this later to your exact domain)
+// ---------------------------------------------------------
+function setCors(res) {
   res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") {
-    return res.status(204).send("");
-  }
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+}
 
-  try {
-    // ---- 1. Auth guard (requires Firebase ID token) ----
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.slice(7)
-      : null;
+// ---------------------------------------------------------
+// fvCopilotChat
+//
+// HTTPS endpoint:
+//   https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/fvCopilotChat
+//
+// Request (POST JSON):
+//   { "question": "text from Dane", "context": { ...optional } }
+//
+// Response (JSON):
+//   { "answer": "string response from Copilot" }
+// ---------------------------------------------------------
+exports.fvCopilotChat = functions
+  .region("us-central1")
+  .https.onRequest(async (req, res) => {
+    setCors(res);
 
-    if (!token) {
-      return res.status(401).json({ error: "Missing auth token" });
+    // Preflight (for browsers)
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
     }
 
-    const decoded = await admin.auth().verifyIdToken(token);
-    const uid = decoded.uid;
-
-    // ---- 2. Read prompt from body ----
-    const body = req.body || {};
-    const prompt = (body.prompt || "").toString().trim();
-    if (!prompt) {
-      return res.status(400).json({ error: "Missing prompt" });
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Use POST" });
     }
 
-    // ---- 3. Example: pull some context from Firestore ----
-    // You can change this query later to whatever you want Copilot to see
-    const fmSnap = await db.collection("fieldMaintenance")
-      .where("status", "in", ["needs_approved", "pending"])
-      .limit(20)
-      .get();
+    try {
+      const body = req.body || {};
+      const question = (body.question || "").toString().trim();
+      const context = body.context || {}; // we can use this later for field/equipment IDs
 
-    const items = fmSnap.docs.map(d => {
-      const x = d.data();
-      const field = x.fieldName || x.fieldId || d.id;
-      const status = x.status || "unknown";
-      const priority = x.priority != null ? x.priority : "n/a";
-      const details = (x.details || x.notes || "").toString().slice(0, 140);
-      return `• Field ${field} — status: ${status}, priority: ${priority}, notes: ${details}`;
-    });
+      if (!question) {
+        return res.status(400).json({ error: "Missing 'question' in body." });
+      }
 
-    const context = items.length
-      ? items.join("\n")
-      : "No matching field maintenance items found.";
+      // =====================================================
+      // Optional: Firestore context example (fieldMaintenance)
+      //  - Right now: if you pass { type: "fieldMaintenanceSummary", fieldId: "abc" }
+      //    we pull up to 10 recent work orders for that field and feed a summary to GPT.
+      //  - You can ignore this for now; it won't break anything.
+      // =====================================================
+      let fieldSummary = "";
 
-    // ---- 4. Call OpenAI (GPT-4.1-mini) ----
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are FarmVista Copilot. You help farmers by summarizing data from their system and answering clearly in a few short paragraphs or bullet points.",
-        },
-        {
-          role: "user",
-          content:
-            `User ID: ${uid}\n\n` +
-            `Question: ${prompt}\n\n` +
-            `Relevant data:\n${context}`,
-        },
-      ],
-      max_tokens: 400,
-    });
+      try {
+        if (context.type === "fieldMaintenanceSummary" && context.fieldId) {
+          const snap = await db
+            .collection("fieldMaintenance")
+            .where("fieldId", "==", context.fieldId)
+            .orderBy("createdAt", "desc")
+            .limit(10)
+            .get();
 
-    const reply =
-      completion.choices[0]?.message?.content ||
-      "Sorry, I couldn't generate a response.";
+          if (!snap.empty) {
+            const lines = [];
+            snap.forEach((doc) => {
+              const d = doc.data() || {};
+              lines.push(
+                [
+                  `• Topic: ${d.topicLabel || d.topic || "Unknown"}`,
+                  `Status: ${d.status || "unknown"}`,
+                  `Priority: ${d.priority ?? "n/a"}`,
+                  `Notes: ${(d.notes || "").slice(0, 120)}${
+                    (d.notes || "").length > 120 ? "…" : ""
+                  }`,
+                ].join(" | ")
+              );
+            });
+            fieldSummary = lines.join("\n");
+          }
+        }
+      } catch (ctxErr) {
+        console.error("Context lookup failed:", ctxErr);
+        // If this fails, we just proceed without extra context
+      }
 
-    return res.json({ reply });
-  } catch (err) {
-    console.error("[fvCopilotChat] error:", err);
-    return res.status(500).json({ error: "Internal error" });
-  }
-});
+      // =====================================================
+      // System prompt – FarmVista Copilot personality
+      // =====================================================
+      const systemPrompt = `
+You are FarmVista Copilot, an internal assistant for Dowson Farms' FarmVista PWA.
+
+You:
+- Answer questions clearly and concisely.
+- Focus on farm operations: fields, equipment, field maintenance, grain, etc.
+- When summarizing maintenance or work orders, be practical and action-oriented.
+- If the user asks for a "report", structure your response with headings and bullet points.
+
+If you are given a data extract or summary from Firestore, use ONLY that plus the user's question.
+If you don't have enough data to answer precisely, say so and explain what else you'd need.
+
+Current context (may be empty):
+
+Field maintenance summary:
+${fieldSummary || "(none loaded)"}
+      `.trim();
+
+      // =====================================================
+      // Call OpenAI (ChatGPT) via gpt-4.1-mini
+      // =====================================================
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: question },
+        ],
+        temperature: 0.4,
+        max_tokens: 800,
+      });
+
+      const answer =
+        completion?.choices?.[0]?.message?.content?.trim() ||
+        "I wasn’t able to generate a response.";
+
+      return res.json({ answer });
+    } catch (err) {
+      console.error("fvCopilotChat error:", err);
+      return res.status(500).json({
+        error: "Internal error talking to FarmVista Copilot.",
+      });
+    }
+  });
