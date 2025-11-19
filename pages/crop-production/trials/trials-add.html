@@ -365,7 +365,7 @@
           <!-- Back button row -->
           <div class="back-row">
             <button class="back-link" type="button"
-              onclick="window.location.href='/Farm-vista/pages/crop-production/trials.html'">
+              onclick="window.location.href='/Farm-vista/pages/crop-production/crop-trials.html'">
               <span aria-hidden="true">←</span>
               <span>Back to Trials</span>
             </button>
@@ -501,10 +501,21 @@
         </div>
 
         <div class="row">
-          <div class="field">
-            <label for="tfVariety">Variety / Hybrid (for this field)</label>
-            <input id="tfVariety" class="input" placeholder="e.g. P1742Q, DK68-35, etc.">
-            <div class="help">What variety is used on this field for this trial?</div>
+          <!-- NEW: Variety / Hybrid dropdown from productsSeed -->
+          <div class="field combo" id="varietyCombo">
+            <label for="tfVarietyBtn">Variety / Hybrid (for this field)</label>
+            <div class="combo-anchor">
+              <button id="tfVarietyBtn" class="buttonish has-caret" type="button">— Select variety —</button>
+              <div class="combo-panel" id="tfVarietyPanel" role="listbox" aria-label="Seed varieties list">
+                <div class="search">
+                  <input id="tfVarietySearch" type="search" placeholder="Search varieties…">
+                </div>
+                <div class="list" id="tfVarietyList"></div>
+              </div>
+            </div>
+            <div id="tfVarietyHelp" class="help">
+              What variety is used on this field for this trial?
+            </div>
           </div>
 
           <div class="field">
@@ -572,6 +583,7 @@
       year:null,
       crop:null,
       type:null,
+      seedProduct:null,   // selected seed product for this field
       trialFields:[]
     };
 
@@ -690,7 +702,7 @@
     }
 
     /* =========================
-       Farm / Field combos for trial fields
+       Farm / Field / Variety combos for trial fields
        ========================= */
     const farmCombo = makeCombo({
       btn:  $("#farmBtn"),
@@ -708,6 +720,8 @@
     });
 
     let allFields = [];
+    let allSeedProducts = [];
+
     const fieldCombo = makeCombo({
       btn:  $("#fieldBtn"),
       panel:$("#fieldPanel"),
@@ -719,6 +733,21 @@
         state.field = it;
         $("#fieldBtn").textContent = it.label;
         $("#fieldHelp").textContent = "Field selected for this trial.";
+      }
+    });
+
+    const varietyCombo = makeCombo({
+      btn:  $("#tfVarietyBtn"),
+      panel:$("#tfVarietyPanel"),
+      list: $("#tfVarietyList"),
+      items: [],
+      searchable:true,
+      formatter:x=>x.label,
+      onPick(it){
+        state.seedProduct = it;
+        $("#tfVarietyBtn").textContent = it.label;
+        const h = $("#tfVarietyHelp");
+        if(h) h.textContent = "Variety selected for this trial field.";
       }
     });
 
@@ -738,6 +767,31 @@
       fieldCombo.setItems(filtered);
       state.field = null;
       $("#fieldBtn").textContent = "— Select field —";
+    }
+
+    function applyVarietyFilter(){
+      const cropCode = state.crop?.value || null; // 'CORN', 'SOY', etc.
+      let filtered = allSeedProducts.slice();
+      if(cropCode){
+        filtered = filtered.filter(p => p.cropCode === cropCode);
+      }
+      varietyCombo.setItems(filtered);
+
+      const help = $("#tfVarietyHelp");
+      if(help){
+        if(filtered.length){
+          help.textContent = cropCode
+            ? `Choose from ${filtered.length} seed products for this crop.`
+            : `Choose from ${filtered.length} seed products.`;
+        }else{
+          help.textContent = cropCode
+            ? "No seed products found for this crop."
+            : "No seed products found.";
+        }
+      }
+
+      state.seedProduct = null;
+      $("#tfVarietyBtn").textContent = "— Select variety —";
     }
 
     async function loadFarmsAndFields(db){
@@ -802,6 +856,86 @@
     }
 
     /* =========================
+       Seed products (productsSeed) for variety dropdown
+       ========================= */
+    function formatSeedLabel(x){
+      const brand = String(x.brand || "").trim();
+      const variety = String(x.variety || "").trim();
+      const traitLabel = String(x.traitLabel || x.trait || "").trim();
+
+      const parts = [];
+      if(brand) parts.push(brand);
+      if(variety) parts.push(variety);
+      let label = parts.join(" ");
+      if(traitLabel) label += ` (${traitLabel})`;
+      return label || "Unnamed seed product";
+    }
+
+    async function loadSeedProducts(db){
+      const help = $("#tfVarietyHelp");
+      if(help) help.textContent = "Loading seed products…";
+
+      try{
+        let items = [];
+        try{
+          const snap = await getDocs(query(collection(db,'productsSeed')));
+          snap.forEach(d=>{
+            const x = d.data() || {};
+            const cropCode =
+              x.cropCorn ? 'CORN' :
+              x.cropSoy  ? 'SOY'  :
+              String(x.crop || "").toUpperCase() || 'OTHER';
+
+            const label = formatSeedLabel(x);
+
+            items.push({
+              id:d.id,
+              label,
+              varietyLabel: label,
+              cropCode,
+              rawCrop: x.crop || null,
+              brand: x.brand || null,
+              variety: x.variety || null,
+              maturity: x.maturity || null,
+              trait: x.trait || null,
+              traitLabel: x.traitLabel || null
+            });
+          });
+        }catch(e){
+          console.error("productsSeed query failed:", e);
+          const snap = await getDocs(collection(db,'productsSeed'));
+          snap.forEach(d=>{
+            const x = d.data() || {};
+            const cropCode =
+              x.cropCorn ? 'CORN' :
+              x.cropSoy  ? 'SOY'  :
+              String(x.crop || "").toUpperCase() || 'OTHER';
+            const label = formatSeedLabel(x);
+            items.push({
+              id:d.id,
+              label,
+              varietyLabel: label,
+              cropCode,
+              rawCrop: x.crop || null,
+              brand: x.brand || null,
+              variety: x.variety || null,
+              maturity: x.maturity || null,
+              trait: x.trait || null,
+              traitLabel: x.traitLabel || null
+            });
+          });
+        }
+
+        items.sort((a,b)=>a.label.localeCompare(b.label));
+        allSeedProducts = items;
+        applyVarietyFilter();
+      }catch(err){
+        console.error(err);
+        if(help) help.textContent = "Failed to load seed products.";
+      }
+    }
+
+    /* =========================
        Static combos: Year / Crop / Type
        ========================= */
     const yearCombo = makeCombo({
@@ -831,6 +965,7 @@
         $("#cropBtn").textContent = it.label;
         $("#cropHelp").textContent = "Crop selected.";
         updateHeroSubtitle();
+        applyVarietyFilter(); // re-filter seed products by crop
       }
     });
 
@@ -922,7 +1057,6 @@
         return;
       }
 
-      const variety   = ($("#tfVariety").value || "").trim();
       const placement = ($("#tfPlacement").value || "").trim();
       const plantDate = ($("#tfPlantDate").value || "").trim();
       const notes     = ($("#tfFieldNotes").value || "").trim();
@@ -934,6 +1068,8 @@
         return opt && opt.value ? opt.textContent.trim() : "";
       })();
 
+      const seed = state.seedProduct || null;
+
       const id = 'loc_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
 
       state.trialFields.push({
@@ -942,7 +1078,14 @@
         farmName: state.farm.label,
         fieldId: state.field.id,
         fieldName: state.field.label,
-        variety: variety || null,
+
+        // Seed details from productsSeed (if selected)
+        seedProductId: seed ? seed.id : null,
+        variety: seed ? (seed.varietyLabel || seed.variety || seed.label) : null,
+        seedBrand: seed ? (seed.brand || null) : null,
+        seedTrait: seed ? (seed.traitLabel || seed.trait || null) : null,
+        seedMaturity: seed ? (seed.maturity || null) : null,
+
         placement: placement || null,
         placementLabel: placementLabel || null,
         plantingDate: plantDate || null,
@@ -952,9 +1095,10 @@
       // Reset draft field inputs
       state.farm = null;
       state.field = null;
+      state.seedProduct = null;
       $("#farmBtn").textContent = "— Select farm —";
       $("#fieldBtn").textContent = "— Select field —";
-      $("#tfVariety").value = "";
+      $("#tfVarietyBtn").textContent = "— Select variety —";
       $("#tfPlacement").value = "";
       $("#tfPlantDate").value = "";
       $("#tfFieldNotes").value = "";
@@ -962,6 +1106,12 @@
       $("#fieldHelp").textContent = allFields.length
         ? `${allFields.length} field(s) loaded.`
         : "No fields found.";
+      const vHelp = $("#tfVarietyHelp");
+      if(vHelp){
+        vHelp.textContent = allSeedProducts.length
+          ? "What variety is used on this field for this trial?"
+          : "No seed products found.";
+      }
 
       renderTrialFieldsList();
     }
@@ -1013,7 +1163,13 @@
           farmName: f.farmName,
           fieldId: f.fieldId,
           fieldName: f.fieldName,
+
+          seedProductId: f.seedProductId || null,
           variety: f.variety || null,
+          seedBrand: f.seedBrand || null,
+          seedTrait: f.seedTrait || null,
+          seedMaturity: f.seedMaturity || null,
+
           placement: f.placement || null,
           placementLabel: f.placementLabel || null,
           plantingDate: f.plantingDate || null,
@@ -1077,16 +1233,17 @@
       state.crop = null;
       state.type = null;
       state.trialFields = [];
+      state.seedProduct = null;
 
       $("#cropBtn").textContent = "— Select crop —";
       $("#typeBtn").textContent = "— Select type —";
+      $("#tfVarietyBtn").textContent = "— Select variety —";
 
       // Reset trial field draft controls
       state.farm = null;
       state.field = null;
       $("#farmBtn").textContent = "— Select farm —";
       $("#fieldBtn").textContent = "— Select field —";
-      $("#tfVariety").value = "";
       $("#tfPlacement").value = "";
       $("#tfPlantDate").value = "";
       $("#tfFieldNotes").value = "";
@@ -1094,6 +1251,7 @@
       $("#fieldHelp").textContent = allFields.length
         ? `${allFields.length} field(s) loaded.`
         : "No fields found.";
+      applyVarietyFilter();
 
       renderTrialFieldsList();
       updateHeroSubtitle();
@@ -1110,7 +1268,12 @@
       console.log("✅ Firebase Ready:", ctx.mode, auth.currentUser?.email || '(anon)');
 
       initStaticCombos();
-      await loadFarmsAndFields(db);
+
+      await Promise.all([
+        loadFarmsAndFields(db),
+        loadSeedProducts(db)
+      ]);
+
       renderTrialFieldsList();
 
       $("#btnSave").addEventListener("click", ()=> handleSave(db, auth, ctx));
@@ -1127,10 +1290,11 @@
   <!-- ===========================
        NOTES
        ===========================
-       • This page now treats one doc in "fieldTrials" as the TRIAL HEADER.
+       • This page treats one doc in "fieldTrials" as the TRIAL HEADER.
        • Multiple fields are stored as an embedded "fields" array with farm/field IDs.
        • Farms collection: expects docs with "name" or "farmName".
        • Fields collection: expects docs with "name"/"fieldName" and "farmId" (or "farm").
+       • Seed products: loaded from "productsSeed", filtered by cropCorn/cropSoy.
        • File storage path: trials/{trialId}/{filename}.
        • Yield data import is intentionally NOT implemented yet.
   -->
