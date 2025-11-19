@@ -15,16 +15,58 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
   <style>
-    .page-header {
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      margin-bottom:18px;
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
     }
 
-    .page-header-meta {
-      font-size:0.9rem;
-      opacity:0.8;
+    body{
+      background: var(--app-bg, var(--surface));
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
     }
 
     /* Toolbar + back button (match edit page behavior) */
@@ -34,7 +76,6 @@
       gap:10px;
       align-items:flex-end;
       justify-content:space-between;
-      margin-bottom:10px;
     }
     .toolbar-left{
       display:flex;
@@ -42,6 +83,7 @@
       gap:10px;
       align-items:center;
     }
+
     .btn{
       display:inline-flex;
       align-items:center;
@@ -64,6 +106,12 @@
       padding-inline:10px;
     }
 
+    .page-header-meta{
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    /* Work-order list cards */
     .wo-list {
       display:flex;
       flex-direction:column;
@@ -82,7 +130,7 @@
 
     .wo-card {
       position:relative;
-      border-radius:14px;
+      border-radius:10px;
       border:1px solid var(--card-border, var(--border));
       background:var(--card-surface, var(--surface));
       box-shadow:var(--shadow-soft, var(--shadow));
@@ -201,10 +249,10 @@
       cursor:pointer;
     }
 
-    /* Detail panel */
+    /* Detail panel (still inside same hero card) */
     .wo-detail-panel {
-      margin-top:18px;
-      border-radius:14px;
+      margin-top:10px;
+      border-radius:10px;
       border:1px solid var(--card-border, var(--border));
       background:var(--card-surface, var(--surface));
       box-shadow:var(--shadow-soft, var(--shadow));
@@ -361,7 +409,14 @@
         if(countEl) countEl.textContent = '0 needing approval';
         return;
       }
-      emptyEl.style.display = 'none';
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = 'Slide the toggle to mark each work order as Pending. They will drop from this list as you go.';
+      if(STATE.items.length){
+        const countEl = $('#woCount');
+        if(countEl) countEl.textContent = `${STATE.items.length} needing approval`;
+      }
+
+      emptyEl.style.marginBottom = '4px';
 
       for(const item of STATE.items){
         const data = item.data;
@@ -455,12 +510,6 @@
         });
 
         listEl.appendChild(li);
-      }
-
-      // Update count
-      const countEl = $('#woCount');
-      if(countEl){
-        countEl.textContent = `${STATE.items.length} needing approval`;
       }
     }
 
@@ -654,63 +703,66 @@
 
 <body>
   <fv-shell>
-    <div class="page container">
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">✅</div>
+          <div>
+            <h1>Approve Field Maintenance Work Orders</h1>
+            <p class="muted">
+              Review work orders saved with status “needs approved”. Slide the toggle to mark each as
+              <strong>Pending</strong> – they’ll drop from this list as you approve them.
+            </p>
+          </div>
+        </header>
 
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <button id="btnBack" type="button" class="btn btn-quiet">
-            ← Back to Work Orders
-          </button>
-        </div>
-      </div>
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Work Orders
+              </button>
+            </div>
+            <div class="page-header-meta" id="woCount">
+              0 needing approval
+            </div>
+          </div>
 
-      <header class="page-header">
-        <h1 class="page-title">Approve Field Maintenance Work Orders</h1>
-        <div class="page-sub">
-          Review all work orders that are currently saved with status
-          <strong>“needs approved”</strong>. Slide the pill to mark a work order
-          as <strong>Pending</strong> – it will drop from this list so you can
-          approve in bulk.
-        </div>
-        <div class="page-header-meta" id="woCount">
-          0 needing approval
-        </div>
-      </header>
+          <section aria-label="Work orders needing approval">
+            <div class="wo-empty">
+              No work orders currently have status “needs approved”.
+              New work orders that require your approval will appear here automatically.
+            </div>
+            <div class="wo-list"></div>
+          </section>
 
-      <section aria-label="Work orders needing approval">
-        <div class="wo-empty">
-          No work orders currently have status “needs approved”.
-          New work orders that require your approval will appear here automatically.
+          <section class="wo-detail-panel" aria-label="Work order details">
+            <div class="wo-detail-header">
+              <div class="wo-detail-title">Work Order Details</div>
+              <button type="button" id="woDetailClose" class="wo-detail-close">
+                Close
+              </button>
+            </div>
+
+            <div class="wo-detail-grid">
+              <!-- filled by JS -->
+            </div>
+
+            <div class="wo-detail-notes">
+              <div class="wo-detail-notes-label">Notes</div>
+              <div class="wo-detail-notes-body"></div>
+            </div>
+
+            <div class="wo-detail-footer">
+              <!-- status pill by JS -->
+            </div>
+
+            <div id="woDetailMapShell" style="display:none; margin-top:10px;">
+              <div id="woDetailMap" style="width:100%;height:220px;border-radius:12px;border:1px solid var(--border);overflow:hidden;"></div>
+            </div>
+          </section>
         </div>
-        <div class="wo-list"></div>
       </section>
-
-      <section class="wo-detail-panel" aria-label="Work order details">
-        <div class="wo-detail-header">
-          <div class="wo-detail-title">Work Order Details</div>
-          <button type="button" id="woDetailClose" class="wo-detail-close">
-            Close
-          </button>
-        </div>
-
-        <div class="wo-detail-grid">
-          <!-- filled by JS -->
-        </div>
-
-        <div class="wo-detail-notes">
-          <div class="wo-detail-notes-label">Notes</div>
-          <div class="wo-detail-notes-body"></div>
-        </div>
-
-        <div class="wo-detail-footer">
-          <!-- status pill by JS -->
-        </div>
-
-        <div id="woDetailMapShell" style="display:none; margin-top:10px;">
-          <div id="woDetailMap" style="width:100%;height:220px;border-radius:12px;border:1px solid var(--border);overflow:hidden;"></div>
-        </div>
-      </section>
-
     </div>
   </fv-shell>
 </body>
