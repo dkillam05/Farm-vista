@@ -59,9 +59,11 @@
     .icon-btn:active{ transform:translateY(1px); }
     .icon-btn svg{ display:block }
 
-    /* Popover */
+    /* Popover – lowered z-index so header/footer win */
     .popover{
-      position:absolute; z-index:1000; min-width:220px;
+      position:absolute;
+      z-index:5;
+      min-width:220px;
       border:1px solid var(--border); border-radius:14px;
       background:var(--card-surface, var(--surface)); color:var(--text);
       box-shadow:0 18px 40px rgba(0,0,0,.28);
@@ -217,7 +219,6 @@
   <dialog id="detail" class="sheet" aria-modal="true">
     <header>
       <strong id="dTitle">Details</strong>
-      <!-- keep a simple Close in header -->
       <button id="dClose" class="btn" type="button">Close</button>
     </header>
     <div class="body">
@@ -397,7 +398,6 @@
 
           const right = document.createElement('div'); right.style.display='flex'; right.style.gap='8px'; right.style.alignItems='center';
 
-          // Archived helper badge only (no Unarchive button)
           if (isArchived(d)) {
             const badge = document.createElement('span');
             badge.className='badge arch';
@@ -419,7 +419,6 @@
     const dKV = document.getElementById('dKV');
     const btnHub = document.getElementById('openHub');
 
-    // Prevent accidental open before href is set
     btnHub.addEventListener('click', (e)=>{
       const href = btnHub.getAttribute('href') || '';
       if (!href.includes('id=')){
@@ -427,7 +426,6 @@
       }
     });
 
-    // QR elements
     const btnPrintQR = document.getElementById('btnPrintQR');
     const qrSection = document.getElementById('qrSection');
     const qrImg = document.getElementById('qrImg');
@@ -445,7 +443,6 @@
       dKV.append(K,V);
     }
 
-    // Resolve qr.image as string OR {url}
     function getQrUrl(d){
       try{
         if (!d || !d.qr) return '';
@@ -458,7 +455,6 @@
     }
 
     function openDetail(d){
-      // disable Open Hub until href is set (race-proof)
       btnHub.classList.add('disabled');
       btnHub.setAttribute('aria-disabled','true');
       btnHub.setAttribute('href','#');
@@ -471,7 +467,6 @@
       addRow('Year', d.year);
       const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
 
-      // Extra info (generic; tractors/combines/etc. will still show these if present)
       if (has(d.engineHours))     addRow('Engine Hours', d.engineHours);
       if (has(d.separatorHours))  addRow('Separator Hours', d.separatorHours);
       if (has(d.boomWidthFt))     addRow('Boom Width (ft)', d.boomWidthFt);
@@ -487,12 +482,10 @@
 
       addRow('Notes', d.notes);
 
-      // ID-only handoff to Hub
       btnHub.href = hubUrl(d.id);
       btnHub.classList.remove('disabled');
       btnHub.removeAttribute('aria-disabled');
 
-      // QR preview
       const url = getQrUrl(d);
       const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
       if (url){
@@ -514,7 +507,6 @@
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    /* ==================== Quick Unarchive (unused now, kept for safety) ==================== */
     async function quickUnarchive(d){
       const name = titleFor(d);
       if (!confirm(`Unarchive “${name}”?`)) return;
@@ -528,7 +520,6 @@
       }
     }
 
-    /* ==================== Toast ==================== */
     let toastT=null;
     function toast(msg){
       if (toastT) { clearTimeout(toastT); toastT=null; }
@@ -542,14 +533,13 @@
       toastT = setTimeout(()=>{ t.style.transition='opacity .25s'; t.style.opacity='0'; }, 1800);
     }
 
-    /* ==================== Filter popover logic ==================== */
+    /* Filter popover logic */
     function openPop(){
       if (!filterPop.hidden) return;
-      // Position below & right aligned to the button
       const r = filterBtn.getBoundingClientRect();
       filterPop.style.top = `${r.bottom + window.scrollY + 8}px`;
       const maxLeft = window.scrollX + document.documentElement.clientWidth - 12 - 220;
-      const desiredLeft = r.right + window.scrollX - 220; // right align
+      const desiredLeft = r.right + window.scrollX - 220;
       filterPop.style.left = `${Math.max(12, Math.min(maxLeft, desiredLeft))}px`;
       filterPop.hidden = false;
       filterBtn.setAttribute('aria-expanded','true');
@@ -568,14 +558,11 @@
     });
     window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
 
-    // NEW: close popover on scroll so it never rides over the header
+    // Close on scroll so it can’t ride up with content
     window.addEventListener('scroll', () => {
-      if (!filterPop.hidden) {
-        closePop();
-      }
+      if (!filterPop.hidden) closePop();
     }, { passive: true });
 
-    // Apply mode on radio change (auto-close)
     filterPop.addEventListener('change', (e)=>{
       if (e.target && e.target.name === 'statusMode') {
         mode = e.target.value;
@@ -584,13 +571,11 @@
       }
     });
 
-    // Initialize radios from default mode
     function syncRadios(){
       const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
       if (r) r.checked = true;
     }
 
-    /* ==================== QR Print (unchanged) ==================== */
     function printQR(url, labelText){
       const w = window.open('', '_blank');
       if (!w) return;
@@ -633,7 +618,6 @@
       w.document.open(); w.document.write(html); w.document.close();
     }
 
-    /* ==================== Lifecycle ==================== */
     function resume(){ if (!unsub) attach(); }
 
     (async()=>{
