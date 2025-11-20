@@ -143,6 +143,13 @@
     .textarea{min-height:110px;resize:vertical}
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
 
+    /* RED STATE FOR BAD ACRES */
+    .input-error{
+      border-color:#b00020 !important;
+      box-shadow:0 0 0 1px rgba(176,0,32,.4);
+      background:rgba(176,0,32,.08);
+    }
+
     .actions{
       display:flex;
       gap:12px;
@@ -738,6 +745,83 @@
     }
 
     /* =========================
+       Trial acres helpers / validation
+       ========================= */
+    function getTrialAcresBaseHelp(fieldObj){
+      const base = "Acres of this field that are actually in the trial (not total field acres).";
+      if(!fieldObj || typeof fieldObj.acres !== "number" || Number.isNaN(fieldObj.acres)) return base;
+      const acText = fieldObj.acres.toLocaleString(undefined,{maximumFractionDigits:2});
+      return `${base} Field total: ${acText} ac (trial acres cannot exceed this).`;
+    }
+
+    function resetTrialAcresHelp(){
+      const h = $("#tfTrialAcresHelp");
+      const input = $("#tfTrialAcres");
+      if(h){
+        h.classList.remove("error");
+        h.textContent = getTrialAcresBaseHelp(null);
+      }
+      if(input){
+        input.classList.remove("input-error");
+      }
+    }
+
+    function updateTrialAcresHelpForField(fieldObj){
+      const h = $("#tfTrialAcresHelp");
+      const input = $("#tfTrialAcres");
+      if(h){
+        h.classList.remove("error");
+        h.textContent = getTrialAcresBaseHelp(fieldObj);
+      }
+      if(input){
+        input.classList.remove("input-error");
+      }
+    }
+
+    function updateTrialAcresValidation(){
+      const input = $("#tfTrialAcres");
+      const help  = $("#tfTrialAcresHelp");
+      if(!input || !help) return;
+
+      // Clear visual error first
+      input.classList.remove("input-error");
+      help.classList.remove("error");
+
+      const fieldObj = state.field;
+      const baseMsg = getTrialAcresBaseHelp(fieldObj);
+      const raw = (input.value || "").trim();
+
+      if(!raw){
+        // No value: just show base helper
+        help.textContent = baseMsg;
+        return;
+      }
+
+      const val = Number(raw);
+      const hasFieldAcres = fieldObj && typeof fieldObj.acres === "number" && !Number.isNaN(fieldObj.acres);
+      const totalAcres = hasFieldAcres ? fieldObj.acres : null;
+
+      if(Number.isNaN(val) || val <= 0){
+        input.classList.add("input-error");
+        help.classList.add("error");
+        help.textContent = "Trial acres must be a positive number.";
+        return;
+      }
+
+      if(totalAcres != null && val > totalAcres + 0.0001){
+        input.classList.add("input-error");
+        help.classList.add("error");
+        const t = val.toLocaleString(undefined,{maximumFractionDigits:2});
+        const f = totalAcres.toLocaleString(undefined,{maximumFractionDigits:2});
+        help.textContent = `Trial acres (${t} ac) cannot exceed field acres (${f} ac).`;
+        return;
+      }
+
+      // Valid entry
+      help.textContent = baseMsg;
+    }
+
+    /* =========================
        Farm / Field helpers (bi-directional like maintenance-add)
        ========================= */
     function selectFarmById(farmId){
@@ -749,13 +833,6 @@
       if(btn) btn.textContent = farm.label;
       const help = $("#farmHelp");
       if(help) help.textContent = "Farm selected for this trial field.";
-    }
-
-    function resetTrialAcresHelp(){
-      const h = $("#tfTrialAcresHelp");
-      if(h){
-        h.textContent = "Acres of this field that are actually in the trial (not total field acres).";
-      }
     }
 
     function refreshFieldComboForFarm(farmId){
@@ -784,24 +861,6 @@
         state.field = null;
         const fb = $("#fieldBtn");
         if(fb) fb.textContent = "— Select field —";
-        resetTrialAcresHelp();
-      }
-    }
-
-    function updateTrialAcresHelpForField(fieldObj){
-      const h = $("#tfTrialAcresHelp");
-      if(!h) return;
-
-      const ac = (fieldObj && typeof fieldObj.acres === "number" && !Number.isNaN(fieldObj.acres))
-        ? fieldObj.acres
-        : null;
-
-      if(ac != null){
-        const acText = ac.toLocaleString(undefined,{maximumFractionDigits:2});
-        h.textContent =
-          `Acres of this field that are actually in the trial (not total field acres). ` +
-          `Field total: ${acText} ac (trial acres cannot exceed this).`;
-      }else{
         resetTrialAcresHelp();
       }
     }
@@ -841,8 +900,9 @@
           refreshFieldComboForFarm(it.farmId);
         }
 
-        // Update trial acres help with field's total acres
+        // Update trial acres help and validation with field's total acres
         updateTrialAcresHelpForField(it);
+        updateTrialAcresValidation();
       }
     });
 
@@ -1237,24 +1297,21 @@
       const notes     = ($("#tfFieldNotes").value || "").trim();
       const trialAcresRaw = ($("#tfTrialAcres").value || "").trim();
 
-      let trialAcresNum = null;
-      const totalAcres = (state.field && typeof state.field.acres === "number" && !Number.isNaN(state.field.acres))
-        ? state.field.acres
-        : null;
+      // Run validation & block if the box is red
+      updateTrialAcresValidation();
+      const acresInput = $("#tfTrialAcres");
+      const acresHelp  = $("#tfTrialAcresHelp");
+      if(acresInput && acresInput.classList.contains("input-error")){
+        showError(acresHelp?.textContent || "Please fix trial acres before adding this field.");
+        return;
+      }
 
+      let trialAcresNum = null;
       if(trialAcresRaw){
         const val = Number(trialAcresRaw);
-        if(Number.isNaN(val) || val <= 0){
-          showError("Trial acres must be a positive number.");
-          return;
+        if(!Number.isNaN(val) && val > 0){
+          trialAcresNum = val;
         }
-        if(totalAcres != null && val > totalAcres + 0.0001){
-          const t = val.toLocaleString(undefined,{maximumFractionDigits:2});
-          const f = totalAcres.toLocaleString(undefined,{maximumFractionDigits:2});
-          showError(`Trial acres (${t} ac) cannot exceed field acres (${f} ac).`);
-          return;
-        }
-        trialAcresNum = val;
       }
 
       const placementLabel = (()=> {
@@ -1494,6 +1551,12 @@
       $("#btnClear").addEventListener("click", ()=> clearForm());
       $("#btnAddField").addEventListener("click", handleAddFieldToTrial);
 
+      // Live validation on trial acres as user types
+      const trialAcresInput = $("#tfTrialAcres");
+      if(trialAcresInput){
+        trialAcresInput.addEventListener("input", updateTrialAcresValidation);
+      }
+
       window.addEventListener('online', ()=> showToast("Back online — syncing…", 4000));
       window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 4000));
     })();
@@ -1510,6 +1573,7 @@
        • Each field now tracks seed product, placement, planting date, notes,
          and trialAcres for that field.
        • Trial acres are validated so they cannot exceed the field’s total acres (when known).
+       • Trial acres input shows the field total in helper text and turns red when invalid.
        • Seed products: loaded from "productsSeed", filtered by cropCorn/cropSoy.
        • File storage path: trials/{trialId}/{filename}.
        • After save, user is returned to the Trials Portal for a cleaner flow.
