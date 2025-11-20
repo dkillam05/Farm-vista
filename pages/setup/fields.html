@@ -123,9 +123,9 @@
       }
     }
 
-    /* Farm filter popover */
+    /* Farm filter popover – now FIXED to viewport */
     .popover{
-      position:absolute;
+      position:fixed;
       z-index:1000;
       min-width:220px;
       border:1px solid var(--border);
@@ -952,10 +952,10 @@
         const pills = [
           `<span class="pill">${esc(farmLabel(it.farmId))}</span>`,
           (it.county || it.state) ? `<span class="pill">${esc(it.county||'—')}${it.state?`, ${esc(it.state)}`:''}</span>` : "",
-          (it.tillable? `<span class="pill">${fmt(it.tillable)} ac</span>` : ""),
+          (it.tillable ? `<span class="pill">${fmt(it.tillable)} ac</span>` : ""),
           (it.hasHEL && it.helAcres ? `<span class="pill">HEL ${fmt(it.helAcres)} ac</span>` : ""),
-          (it.hasCRP && it.crpAcres ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : "",
-          (it.rtkTowerId ? `<span class="pill">RTK: ${esc(rtkLabel(it.rtkTowerId))}</span>` : "")),
+          (it.hasCRP && it.crpAcres ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : ""),
+          (it.rtkTowerId ? `<span class="pill">RTK: ${esc(rtkLabel(it.rtkTowerId))}</span>` : ""),
           it.status==="archived" ? `<span class="pill">Archived</span>` : ""
         ].filter(Boolean).join(" ");
 
@@ -1403,7 +1403,7 @@
       closeImportModal();
     });
 
-    /* ===== Farm filter popover logic (updated for max-height & scroll) ===== */
+    /* ===== Farm filter popover logic – now using viewport coords ===== */
     function openFarmPop(){
       if(!farmFilterPop) return;
       buildFarmFilterPopover(); // ensure up to date
@@ -1411,24 +1411,22 @@
 
       const r = farmFilterBtn.getBoundingClientRect();
 
-      // Width and horizontal position anchored to button
       const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-      const width = Math.min(260, viewportWidth - 24); // leave 12px padding on each side
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+
+      const width = Math.min(260, viewportWidth - 24); // leave 12px margin each side
       farmFilterPop.style.width = width + "px";
 
-      const maxLeft = window.scrollX + viewportWidth - 12 - width;
-      const desiredLeft = r.right + window.scrollX - width;
+      const maxLeft = viewportWidth - 12 - width;
+      const desiredLeft = r.right - width;
       const left = Math.max(12, Math.min(maxLeft, desiredLeft));
       farmFilterPop.style.left = left + "px";
 
-      // Top just below the button
-      const top = r.bottom + window.scrollY + 8;
+      const top = r.bottom + 8;
       farmFilterPop.style.top = top + "px";
 
-      // Limit height so it doesn't run into footer / bottom of screen
-      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
-      const available = viewportHeight - (r.bottom + 8) - 24; // 24px margin above footer
-      const maxH = Math.max(120, available); // minimum height for small lists
+      const available = viewportHeight - (r.bottom + 8) - 24; // keep above footer
+      const maxH = Math.max(120, available);
       farmFilterPop.style.maxHeight = maxH + "px";
 
       farmFilterPop.hidden = false;
