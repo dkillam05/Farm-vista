@@ -1,0 +1,1763 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Field Trials (View & Yield Entry)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ===========================
+       ABSOLUTE PATHS (REQUIRED)
+       =========================== -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- ===========================
+       PAGE CSS
+       =========================== -->
+  <style>
+    :root{
+      --card-max:1200px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+
+      /* Combo vars (from combo template) */
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
+    }
+
+    /* Make sure anything with [hidden] is actually hidden, even inside fv-shell */
+    [hidden]{display:none!important;}
+
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+      box-sizing:border-box;
+      display:grid;
+      gap:16px;
+    }
+
+    /* ===========================
+       HERO + TOOLBAR
+       =========================== */
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left,
+    .toolbar-right{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+    .toolbar-right{
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text)!important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+
+    /* ===========================
+       FILTER ROW
+       =========================== */
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+    }
+    @media (max-width:880px){
+      .row{ grid-template-columns:1fr; }
+    }
+
+    .field{ position:relative; }
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+    .help{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin-top:6px;
+    }
+
+    .select{
+      width:100%;
+      font:inherit;
+      font-size:15px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 12px;
+      outline:none;
+    }
+
+    /* ===========================
+       COMBO STYLES (from template)
+       =========================== */
+    .input,
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:12px;
+      outline:none;
+    }
+    .buttonish{
+      cursor:pointer;
+      text-align:left;
+      position:relative;
+      padding-right:42px;
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:9999;
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      font:inherit;
+      font-size:15px;
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{
+      background:rgba(0,0,0,.04);
+    }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+    }
+
+    /* ===========================
+       TRIAL LIST
+       =========================== */
+    .trial-list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+    .trial-empty{
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface,var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .trial-card{
+      border-radius:14px;
+      border:1px solid var(--card-border,var(--border));
+      background:var(--card-surface,var(--surface));
+      box-shadow:var(--shadow-soft,var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+      cursor:pointer;
+    }
+    .trial-card:active{
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .trial-row-top{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .trial-main{
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .trial-title{
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+    .trial-sub{
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+    .trial-meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+    .trial-meta span{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .trial-meta-label{
+      font-weight:600;
+    }
+
+    .trial-status-wrap{
+      flex:0 0 auto;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:4px;
+      padding-left:4px;
+      min-width:150px;
+    }
+    .trial-status-label{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.75;
+    }
+    .trial-status-select{
+      width:100%;
+      max-width:170px;
+      font:inherit;
+      font-size:0.9rem;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:5px 10px;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      outline:none;
+      cursor:pointer;
+    }
+
+    .trial-bottom-row{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+    .trial-status-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    /* ===========================
+       DETAIL OVERLAY
+       =========================== */
+    .trial-detail-overlay{
+      position:fixed;
+      inset:0;
+      background:color-mix(in srgb, #000 45%, transparent);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:9999;
+    }
+    .trial-detail-panel{
+      width:min(820px, 100% - 24px);
+      max-height:92vh;
+      border-radius:16px;
+      background:var(--surface-raised,var(--card-surface,var(--surface)));
+      box-shadow:var(--shadow-strong,0 18px 45px rgba(0,0,0,.35));
+      padding:16px 16px 14px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      overflow:auto;
+    }
+    .trial-detail-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .trial-detail-title{
+      font-weight:700;
+      font-size:1rem;
+      line-height:1.3;
+    }
+    .trial-detail-sub{
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+    .trial-detail-close{
+      border:none;
+      background:transparent;
+      font-size:1.3rem;
+      line-height:1;
+      cursor:pointer;
+      padding:4px;
+      border-radius:999px;
+    }
+
+    .trial-detail-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+      gap:8px;
+      font-size:0.82rem;
+    }
+    .trial-detail-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:3px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.78rem;
+    }
+    .trial-detail-label{
+      font-weight:600;
+      font-size:0.78rem;
+      opacity:0.9;
+    }
+
+    .trial-detail-section{
+      border-top:1px solid var(--border-soft,var(--border));
+      padding-top:10px;
+      margin-top:6px;
+    }
+    .trial-detail-section h3{
+      font-size:0.88rem;
+      margin:0 0 4px;
+    }
+    .trial-detail-notes{
+      font-size:0.82rem;
+      white-space:pre-wrap;
+    }
+
+    .trial-detail-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px 10px;
+      align-items:center;
+      font-size:0.82rem;
+    }
+    .trial-detail-input,
+    .trial-detail-select{
+      font:inherit;
+      font-size:0.82rem;
+      padding:5px 8px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      color:var(--text);
+      min-width:0;
+      border-radius:10px;
+      box-sizing:border-box;
+    }
+    .trial-detail-input{
+      flex:1 1 120px;
+    }
+
+    .trial-detail-footer{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:6px;
+    }
+    .btn-outline{
+      border-radius:999px;
+      border:1px solid var(--border-strong,var(--border));
+      background:var(--surface);
+      padding:6px 12px;
+      font-size:0.85rem;
+      cursor:pointer;
+    }
+    .btn-primary-pill{
+      border-radius:999px;
+      border:1px solid transparent;
+      background:var(--green,#3B7E46);
+      color:#fff;
+      padding:6px 14px;
+      font-size:0.85rem;
+      font-weight:600;
+      cursor:pointer;
+    }
+
+    /* Trial fields list in overlay */
+    .trial-fields-list{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      margin-top:4px;
+      font-size:0.82rem;
+    }
+    .trial-field-pill{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      background:var(--card-surface,var(--surface));
+      flex-wrap:wrap;
+    }
+    .trial-field-text{
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .trial-field-main{
+      font-weight:600;
+      margin:0;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .trial-field-sub{
+      margin:0;
+      font-size:0.78rem;
+      color:var(--muted,#67706B);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    /* Yield blocks */
+    .yield-list{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      margin-top:4px;
+      font-size:0.8rem;
+    }
+    .yield-pill{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      background:var(--card-surface,var(--surface));
+    }
+
+    .yield-result{
+      font-size:0.82rem;
+      margin-top:4px;
+      opacity:0.9;
+    }
+
+    .error{
+      color:#b00020;
+      font-weight:700;
+      font-size:0.8rem;
+    }
+
+    /* Tiny toast */
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+    }
+    .toast.show{
+      display:block;
+      animation:fadeout 5s forwards;
+    }
+    @keyframes fadeout{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
+    }
+
+    @media (max-width:600px){
+      .trial-detail-panel{
+        border-radius:18px 18px 0 0;
+        max-height:92vh;
+        margin:0;
+        align-self:flex-end;
+      }
+    }
+  </style>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, getDocs, doc, updateDoc, addDoc,
+      where, query,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    /* =========================
+       Small utilities
+       ========================= */
+    const qs  = (sel, root=document) => root.querySelector(sel);
+    const qsa = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const STATE = {
+      db:null,
+      accountId:null,
+      allTrials:[],
+      filteredTrials:[],
+      filters:{
+        status:'active',   // 'active' | 'completed' | 'all'
+        year:null,        // number | null
+        type:null         // 'SEED' | 'FUNGICIDE' | ... | null
+      },
+      currentTrial:null,
+      currentYields:[],
+      farms:[],
+      fields:[]
+    };
+
+    function showToast(msg="Saved.", ms=5000){
+      const t = qs('#toast');
+      if(!t) return;
+      t.textContent = msg;
+      t.classList.remove('show');
+      void t.offsetWidth;
+      t.classList.add('show');
+      setTimeout(()=>t.classList.remove('show'), ms);
+    }
+
+    /* =========================
+       Combo framework (from template)
+       ========================= */
+    function closeAllCombos(except=null){
+      qsa('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      if(!btn || !panel || !list) return { setItems(){}, open(){}, close(){} };
+
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+      let _items = Array.isArray(items) ? items.slice() : [];
+
+      function render(q=""){
+        const qq = (q||"").toLowerCase();
+        const filtered = _items.filter(x=>{
+          const label = formatter(x).toLowerCase();
+          return !qq || label.includes(qq);
+        });
+        list.innerHTML = filtered.length
+          ? filtered.map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`).join('')
+          : '<div class="combo-empty">(no matches)</div>';
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id  = row.dataset.id;
+        const it  = _items.find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable){
+        const s = panel.querySelector('input');
+        if(s) s.addEventListener('input', e=> render(e.target.value));
+      }
+
+      return {
+        setItems(arr){
+          _items = Array.isArray(arr) ? arr.slice() : [];
+          render("");
+        },
+        open,
+        close
+      };
+    }
+
+    /* =========================
+       Filters – combos
+       ========================= */
+    let yearCombo, typeCombo;
+
+    function initFilterCombos(trials){
+      const yearsSet = new Set();
+      trials.forEach(t=>{
+        const y = t.data.cropYear;
+        if(typeof y === 'number' && !Number.isNaN(y)) yearsSet.add(y);
+      });
+      const years = Array.from(yearsSet).sort((a,b)=>a-b).map(v=>({
+        id:String(v),
+        label:String(v),
+        value:v
+      }));
+      years.unshift({ id:'all', label:'All years', value:null });
+
+      yearCombo = makeCombo({
+        btn: qs('#yearBtn'),
+        panel: qs('#yearPanel'),
+        list: qs('#yearList'),
+        items: years,
+        searchable:false,
+        formatter:x=>x.label,
+        onPick(it){
+          STATE.filters.year = it.value;
+          qs('#yearBtn').textContent = it.label;
+          qs('#yearHelp').textContent = it.value == null
+            ? 'Showing all crop years.'
+            : `Filtering trials for crop year ${it.label}.`;
+          applyFilters();
+        }
+      });
+      yearCombo.setItems(years);
+      qs('#yearBtn').textContent = years[0]?.label || 'All years';
+      qs('#yearHelp').textContent = 'Showing all crop years.';
+
+      const types = [
+        { id:'all',       label:'All trial types',              value:null },
+        { id:'seed',      label:'Seed / Hybrid / Variety',      value:'SEED' },
+        { id:'fungicide', label:'Fungicide Program',            value:'FUNGICIDE' },
+        { id:'fertility', label:'Fertility / Nutrient',         value:'FERTILITY' },
+        { id:'biologic',  label:'Biological / Additive',        value:'BIOLOGICAL' },
+        { id:'other',     label:'Other',                        value:'OTHER' }
+      ];
+      typeCombo = makeCombo({
+        btn: qs('#typeBtn'),
+        panel: qs('#typePanel'),
+        list: qs('#typeList'),
+        items: types,
+        searchable:false,
+        formatter:x=>x.label,
+        onPick(it){
+          STATE.filters.type = it.value;
+          qs('#typeBtn').textContent = it.label;
+          qs('#typeHelp').textContent = it.value == null
+            ? 'Showing all trial types.'
+            : `Filtering trials for type: ${it.label}.`;
+          applyFilters();
+        }
+      });
+      typeCombo.setItems(types);
+      qs('#typeBtn').textContent = types[0]?.label || 'All trial types';
+      qs('#typeHelp').textContent = 'Showing all trial types.';
+    }
+
+    /* =========================
+       Status helper
+       ========================= */
+    function isActiveStatus(status){
+      if(!status) return true;
+      const s = String(status).toLowerCase();
+      if(s === 'completed' || s === 'archived' || s === 'closed') return false;
+      return true;
+    }
+
+    /* =========================
+       Filtering + rendering
+       ========================= */
+    function applyFilters(){
+      const { status, year, type } = STATE.filters;
+
+      let list = STATE.allTrials.slice();
+
+      if(status !== 'all'){
+        list = list.filter(t=>{
+          const st = (t.data.status || 'planned').toString().toLowerCase();
+          const active = isActiveStatus(st);
+          return status === 'active' ? active : !active;
+        });
+      }
+
+      if(year != null){
+        list = list.filter(t => t.data.cropYear === year);
+      }
+
+      if(type){
+        list = list.filter(t => t.data.trialType === type);
+      }
+
+      STATE.filteredTrials = list;
+      renderTrialList();
+    }
+
+    function renderTrialList(){
+      const listEl  = qs('.trial-list');
+      const emptyEl = qs('.trial-empty');
+      const countEl = qs('#trialCount');
+
+      listEl.innerHTML = '';
+
+      if(!STATE.filteredTrials.length){
+        if(emptyEl) emptyEl.hidden = false;
+        if(countEl) countEl.textContent = '0 trials';
+        return;
+      }
+
+      if(emptyEl) emptyEl.hidden = true;
+
+      STATE.filteredTrials.forEach(item=>{
+        const d = item.data;
+        const id = item.id;
+
+        const trialName = d.trialName || 'Unnamed trial';
+        const yearLabel = d.cropYearLabel || d.cropYear || '';
+        const cropLabel = d.cropLabel || d.cropCode || '';
+        const typeLabel = d.trialTypeLabel || d.trialType || '';
+        const opTask    = d.operationTaskLabel || d.operationTaskCode || '';
+        const fieldCount = d.fieldCount || (Array.isArray(d.fields) ? d.fields.length : 0);
+        const status = (d.status || 'planned').toString().toLowerCase();
+        const createdTs = d.createdAt || d.updatedAt || null;
+        let whenText = '';
+        try{
+          const dt = createdTs && createdTs.toDate ? createdTs.toDate() : null;
+          if(dt){
+            whenText = `Created ${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+          }
+        }catch{}
+
+        const card = document.createElement('article');
+        card.className = 'trial-card';
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <div class="trial-row-top">
+            <div class="trial-main">
+              <div class="trial-title">
+                ${trialName ? `<span>${trialName}</span>` : 'Trial'}
+                ${yearLabel || cropLabel ? ` · <span>${[yearLabel, cropLabel].filter(Boolean).join(' • ')}</span>` : ''}
+              </div>
+              <div class="trial-sub">
+                ${[typeLabel, opTask].filter(Boolean).join(' • ') || 'Trial details'}
+              </div>
+              <div class="trial-meta">
+                <span><span class="trial-meta-label">Fields</span> ${fieldCount}</span>
+                ${d.yieldCount ? `<span><span class="trial-meta-label">Yield blocks</span> ${d.yieldCount}</span>` : ''}
+              </div>
+            </div>
+            <div class="trial-status-wrap">
+              <div class="trial-status-label">Status</div>
+              <select class="trial-status-select">
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+          <div class="trial-bottom-row">
+            <div>${whenText}</div>
+            <div class="trial-status-chip">${status}</div>
+          </div>
+        `;
+
+        const select = card.querySelector('.trial-status-select');
+        const chip   = card.querySelector('.trial-status-chip');
+
+        const isActive = isActiveStatus(status);
+        select.value = isActive ? 'active' : 'completed';
+
+        select.addEventListener('change', async ev=>{
+          const newMode = ev.target.value; // 'active' | 'completed'
+          const newStatus = newMode === 'completed' ? 'completed' : 'active';
+          try{
+            await updateDoc(doc(STATE.db,'fieldTrials',id), {
+              status: newStatus,
+              updatedAt: serverTimestamp()
+            });
+            item.data.status = newStatus;
+            if(chip) chip.textContent = newStatus;
+            applyFilters(); // will drop it if filter hides it
+          }catch(err){
+            console.error('Failed to update trial status:', err);
+            alert('Could not update trial status. Please try again.');
+            ev.target.value = isActive ? 'active' : 'completed';
+          }
+        });
+
+        card.addEventListener('click', ev=>{
+          if(ev.target.closest('.trial-status-select')) return;
+          openTrialDetail(item);
+        });
+
+        listEl.appendChild(card);
+      });
+
+      if(countEl){
+        countEl.textContent = `${STATE.filteredTrials.length} trial${STATE.filteredTrials.length === 1 ? '' : 's'}`;
+      }
+    }
+
+    /* =========================
+       Trial detail overlay
+       ========================= */
+    function openTrialDetail(item){
+      STATE.currentTrial = item;
+      const d = item.data;
+
+      const overlay = qs('#trialDetailOverlay');
+      const titleEl = qs('#detailTitle');
+      const subEl   = qs('#detailSub');
+      const chipWrap = qs('#detailChips');
+      const statusChip = qs('#detailStatusChip');
+      const createdEl = qs('#detailCreated');
+      const notesEl = qs('#detailNotes');
+      const errEl = qs('#detailErr');
+
+      if(titleEl){
+        titleEl.textContent = d.trialName || 'Unnamed trial';
+      }
+      if(subEl){
+        const parts = [];
+        if(d.cropYearLabel || d.cropYear) parts.push(d.cropYearLabel || d.cropYear);
+        if(d.cropLabel || d.cropCode) parts.push(d.cropLabel || d.cropCode);
+        if(d.trialTypeLabel || d.trialType) parts.push(d.trialTypeLabel || d.trialType);
+        subEl.textContent = parts.join(' • ') || 'Trial details';
+      }
+
+      if(chipWrap){
+        chipWrap.innerHTML = '';
+        if(d.operationTaskLabel || d.operationTaskCode){
+          const span = document.createElement('span');
+          span.className = 'trial-detail-chip';
+          span.innerHTML = `<span class="trial-detail-label">Operation</span> ${d.operationTaskLabel || d.operationTaskCode}`;
+          chipWrap.appendChild(span);
+        }
+        const fieldCount = d.fieldCount || (Array.isArray(d.fields) ? d.fields.length : 0);
+        const span2 = document.createElement('span');
+        span2.className = 'trial-detail-chip';
+        span2.innerHTML = `<span class="trial-detail-label">Fields</span> ${fieldCount}`;
+        chipWrap.appendChild(span2);
+      }
+
+      if(statusChip){
+        statusChip.textContent = d.status || 'planned';
+      }
+
+      const createdTs = d.createdAt || d.updatedAt || null;
+      if(createdEl){
+        try{
+          const dt = createdTs && createdTs.toDate ? createdTs.toDate() : null;
+          createdEl.textContent = dt
+            ? `Created ${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`
+            : '';
+        }catch{
+          createdEl.textContent = '';
+        }
+      }
+
+      if(notesEl){
+        notesEl.textContent = d.notes || 'No trial-level notes yet.';
+      }
+      if(errEl){
+        errEl.textContent = '';
+        errEl.hidden = true;
+      }
+
+      renderDetailFields();
+      loadYieldBlocks();
+
+      if(overlay){
+        overlay.hidden = false;
+        document.body.style.overflow = 'hidden';
+      }
+    }
+
+    function closeTrialDetail(){
+      const overlay = qs('#trialDetailOverlay');
+      if(overlay){
+        overlay.hidden = true;
+      }
+      document.body.style.overflow = '';
+      STATE.currentTrial = null;
+      STATE.currentYields = [];
+    }
+
+    function renderDetailFields(){
+      const listEl = qs('#detailFieldsList');
+      if(!listEl || !STATE.currentTrial) return;
+      const d = STATE.currentTrial.data;
+      const fields = Array.isArray(d.fields) ? d.fields : [];
+
+      if(!fields.length){
+        listEl.innerHTML = `<p class="help">No fields are attached to this trial yet. You can still record yield blocks, but attaching fields will help keep things organized.</p>`;
+        return;
+      }
+
+      listEl.innerHTML = fields.map(f=>{
+        const lines = [];
+        if(f.variety) lines.push(f.variety);
+        if(f.trialAcres) lines.push(`${f.trialAcres} ac`);
+        return `
+          <div class="trial-field-pill">
+            <div class="trial-field-text">
+              <p class="trial-field-main">${(f.fieldName || 'Field')}${f.farmName ? ' · ' + f.farmName : ''}</p>
+              <p class="trial-field-sub">${lines.join(' • ')}</p>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    /* =========================
+       Add Field to Trial (minimal)
+       ========================= */
+    async function loadFarmsAndFieldsOnce(){
+      if(STATE.farms.length || STATE.fields.length){
+        return;
+      }
+      const db = STATE.db;
+      if(!db) return;
+
+      const farmHelp = qs('#afFarmHelp');
+      const fieldHelp = qs('#afFieldHelp');
+
+      try{
+        if(farmHelp) farmHelp.textContent = 'Loading farms…';
+        const farms = [];
+        const snapF = await getDocs(collection(db,'farms'));
+        snapF.forEach(d=>{
+          const x = d.data() || {};
+          const name = String(x.name || x.farmName || '').trim();
+          if(name) farms.push({ id:d.id, label:name });
+        });
+        farms.sort((a,b)=>a.label.localeCompare(b.label));
+        STATE.farms = farms;
+        if(farmHelp) farmHelp.textContent = farms.length ? `${farms.length} farm(s) loaded.` : 'No farms found.';
+
+        if(fieldHelp) fieldHelp.textContent = 'Loading fields…';
+        const fields = [];
+        const snapFld = await getDocs(collection(db,'fields'));
+        snapFld.forEach(d=>{
+          const x = d.data() || {};
+          const name = String(x.name || x.fieldName || '').trim();
+          const farmId = x.farmId || x.farm || null;
+          if(name) fields.push({
+            id:d.id,
+            label:name,
+            farmId:farmId || null
+          });
+        });
+        fields.sort((a,b)=>a.label.localeCompare(b.label));
+        STATE.fields = fields;
+        if(fieldHelp) fieldHelp.textContent = fields.length ? `${fields.length} field(s) loaded.` : 'No fields found.';
+
+        farmComboAF.setItems(STATE.farms);
+        fieldComboAF.setItems(STATE.fields);
+      }catch(err){
+        console.error('Error loading farms/fields:', err);
+        if(farmHelp) farmHelp.textContent = 'Failed to load farms.';
+        if(fieldHelp) fieldHelp.textContent = 'Failed to load fields.';
+      }
+    }
+
+    let farmComboAF, fieldComboAF;
+    const AF_STATE = { farm:null, field:null };
+
+    function initAddFieldCombos(){
+      farmComboAF = makeCombo({
+        btn: qs('#afFarmBtn'),
+        panel: qs('#afFarmPanel'),
+        list: qs('#afFarmList'),
+        items: [],
+        searchable:true,
+        formatter:x=>x.label,
+        onPick(it){
+          AF_STATE.farm = it;
+          qs('#afFarmBtn').textContent = it.label;
+          const help = qs('#afFarmHelp');
+          if(help) help.textContent = 'Farm selected.';
+          // Filter fields list
+          const list = STATE.fields.filter(f=> !it || f.farmId === it.id);
+          fieldComboAF.setItems(list);
+          if(qs('#afFieldBtn')) qs('#afFieldBtn').textContent = '— Select field —';
+          AF_STATE.field = null;
+        }
+      });
+
+      fieldComboAF = makeCombo({
+        btn: qs('#afFieldBtn'),
+        panel: qs('#afFieldPanel'),
+        list: qs('#afFieldList'),
+        items: [],
+        searchable:true,
+        formatter:x=>x.label,
+        onPick(it){
+          AF_STATE.field = it;
+          qs('#afFieldBtn').textContent = it.label;
+          const help = qs('#afFieldHelp');
+          if(help) help.textContent = 'Field selected.';
+        }
+      });
+    }
+
+    async function handleAddFieldToTrial(){
+      const errEl = qs('#detailErr');
+      if(errEl){
+        errEl.textContent = '';
+        errEl.hidden = true;
+      }
+
+      if(!STATE.currentTrial || !STATE.db) return;
+
+      if(!AF_STATE.farm){
+        if(errEl){ errEl.textContent = 'Select a farm before adding a field.'; errEl.hidden = false; }
+        return;
+      }
+      if(!AF_STATE.field){
+        if(errEl){ errEl.textContent = 'Select a field before adding it to this trial.'; errEl.hidden = false; }
+        return;
+      }
+
+      const acresRaw = (qs('#afTrialAcres')?.value || '').trim();
+      let trialAcres = null;
+      if(acresRaw){
+        const v = Number(acresRaw);
+        if(!Number.isNaN(v) && v > 0) trialAcres = v;
+      }
+
+      const d = STATE.currentTrial.data;
+      const fields = Array.isArray(d.fields) ? d.fields.slice() : [];
+
+      const already = fields.some(f=>f.fieldId === AF_STATE.field.id);
+      if(already){
+        if(errEl){ errEl.textContent = 'This field is already attached to the trial.'; errEl.hidden = false; }
+        return;
+      }
+
+      fields.push({
+        farmId: AF_STATE.farm.id,
+        farmName: AF_STATE.farm.label,
+        fieldId: AF_STATE.field.id,
+        fieldName: AF_STATE.field.label,
+        trialAcres: trialAcres
+      });
+
+      try{
+        await updateDoc(doc(STATE.db,'fieldTrials',STATE.currentTrial.id), {
+          fields,
+          fieldCount: fields.length,
+          updatedAt: serverTimestamp()
+        });
+        STATE.currentTrial.data.fields = fields;
+        STATE.currentTrial.data.fieldCount = fields.length;
+        renderDetailFields();
+        showToast('Field added to trial.');
+        // reset add field mini form
+        AF_STATE.farm = null;
+        AF_STATE.field = null;
+        if(qs('#afFarmBtn')) qs('#afFarmBtn').textContent = '— Select farm —';
+        if(qs('#afFieldBtn')) qs('#afFieldBtn').textContent = '— Select field —';
+        if(qs('#afTrialAcres')) qs('#afTrialAcres').value = '';
+      }catch(err){
+        console.error('Failed to add field to trial:', err);
+        if(errEl){
+          errEl.textContent = `Could not add field: ${err.message}`;
+          errEl.hidden = false;
+        }
+      }
+    }
+
+    /* =========================
+       Yield blocks
+       ========================= */
+    async function loadYieldBlocks(){
+      const listEl = qs('#yieldList');
+      if(!STATE.currentTrial || !STATE.db){
+        if(listEl) listEl.innerHTML = '<p class="help">No trial selected.</p>';
+        return;
+      }
+      const trialId = STATE.currentTrial.id;
+      try{
+        const ref = collection(STATE.db,'fieldTrials',trialId,'yields');
+        const snap = await getDocs(ref);
+        const items = snap.docs.map(d=>({ id:d.id, data:d.data() }));
+        items.sort((a,b)=>{
+          const ta = a.data.createdAt && a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0;
+          const tb = b.data.createdAt && b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0;
+          return tb - ta;
+        });
+        STATE.currentYields = items;
+        renderYieldList();
+      }catch(err){
+        console.error('Error loading yield blocks:', err);
+        if(listEl){
+          listEl.innerHTML = `<p class="error">Error loading yield blocks: ${err.message}</p>`;
+        }
+      }
+    }
+
+    function renderYieldList(){
+      const listEl = qs('#yieldList');
+      if(!listEl) return;
+      const items = STATE.currentYields || [];
+      if(!items.length){
+        listEl.innerHTML = '<p class="help">No yield blocks recorded yet. Use the form below to add your first block.</p>';
+        return;
+      }
+
+      listEl.innerHTML = items.map(x=>{
+        const d = x.data;
+        const field = d.fieldName || 'Field';
+        const acres = d.acres;
+        const lbs   = d.lbs;
+        const moist = d.moisture;
+        const buWet = d.yieldWetBuPerAc;
+        const buAdj = d.yieldAdjBuPerAc;
+        const combines = d.combines;
+        return `
+          <div class="yield-pill">
+            <div><strong>${field}</strong>${acres ? ` • ${acres} ac` : ''}${combines ? ` • ${combines} combines` : ''}</div>
+            <div class="yield-result">
+              ${lbs ? `${lbs.toLocaleString?.() || lbs} lbs` : ''}
+              ${moist != null ? ` • ${moist}% moisture` : ''}
+              ${buWet != null ? ` • Wet: ${buWet.toFixed(1)} bu/ac` : ''}
+              ${buAdj != null ? ` • Adj: ${buAdj.toFixed(1)} bu/ac` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function computeTrialYield({ cropCode, lbs, acres, moisture }){
+      if(!acres || !lbs) return null;
+      const isSoy  = cropCode === 'SOY';
+      const isCorn = cropCode === 'CORN';
+
+      const testW = isSoy ? 60 : 56;
+      const stdM  = isSoy ? 13.0 : 15.5;
+
+      const shrinkPerPt = isSoy
+        ? 1.5
+        : (21/13.5); // corn: 29% moisture = 21% shrink from 15.5%
+
+      const wetBuPerAc = (lbs / testW) / acres;
+      const extraMoist = Math.max(0, (moisture || 0) - stdM);
+      const shrinkPct  = extraMoist * shrinkPerPt;
+      const adjFactor  = 1 - (shrinkPct / 100);
+      const adjBuPerAc = wetBuPerAc * adjFactor;
+
+      return {
+        wetBuPerAc,
+        adjBuPerAc,
+        shrinkPct,
+        stdMoist: stdM
+      };
+    }
+
+    function recalcYieldPreview(){
+      const outEl = qs('#yieldPreview');
+      if(!STATE.currentTrial || !outEl){
+        return;
+      }
+      const acres = Number((qs('#yAcres')?.value || '').trim());
+      const lbs   = Number((qs('#yLbs')?.value || '').trim());
+      const moist = Number((qs('#yMoist')?.value || '').trim());
+
+      if(!acres || !lbs || !moist){
+        outEl.textContent = 'Enter acres, pounds, and moisture to calculate yield.';
+        return;
+      }
+
+      const cropCode = STATE.currentTrial.data.cropCode || 'CORN';
+      const res = computeTrialYield({ cropCode, lbs, acres, moisture:moist });
+      if(!res){
+        outEl.textContent = 'Unable to calculate yield with the values provided.';
+        return;
+      }
+
+      const cropLabel = cropCode === 'SOY' ? 'soybeans (13.0%)' : 'corn (15.5%)';
+      outEl.textContent =
+        `Wet yield: ${res.wetBuPerAc.toFixed(1)} bu/ac • ` +
+        `Adj: ${res.adjBuPerAc.toFixed(1)} bu/ac (to ${cropLabel}, shrink ${res.shrinkPct.toFixed(1)}%).`;
+    }
+
+    async function handleAddYieldBlock(){
+      const errEl = qs('#detailErr');
+      if(errEl){
+        errEl.textContent = '';
+        errEl.hidden = true;
+      }
+      if(!STATE.currentTrial || !STATE.db) return;
+
+      const fieldSel = qs('#yField');
+      const acresRaw = (qs('#yAcres')?.value || '').trim();
+      const lbsRaw   = (qs('#yLbs')?.value || '').trim();
+      const moistRaw = (qs('#yMoist')?.value || '').trim();
+      const combRaw  = (qs('#yCombines')?.value || '').trim();
+
+      if(!fieldSel || !fieldSel.value){
+        if(errEl){ errEl.textContent = 'Choose which trial field this block belongs to.'; errEl.hidden = false; }
+        return;
+      }
+      const acres = Number(acresRaw);
+      const lbs   = Number(lbsRaw);
+      const moist = Number(moistRaw);
+      const combines = combRaw ? Number(combRaw) : null;
+
+      if(!acres || acres <= 0 || Number.isNaN(acres)){
+        if(errEl){ errEl.textContent = 'Enter a positive acres value.'; errEl.hidden = false; }
+        return;
+      }
+      if(!lbs || lbs <= 0 || Number.isNaN(lbs)){
+        if(errEl){ errEl.textContent = 'Enter pounds of grain harvested.'; errEl.hidden = false; }
+        return;
+      }
+      if(!moist || moist <= 0 || Number.isNaN(moist)){
+        if(errEl){ errEl.textContent = 'Enter moisture percentage.'; errEl.hidden = false; }
+        return;
+      }
+
+      const fields = Array.isArray(STATE.currentTrial.data.fields) ? STATE.currentTrial.data.fields : [];
+      const field = fields.find(f=>f.fieldId === fieldSel.value) || {};
+      const cropCode = STATE.currentTrial.data.cropCode || 'CORN';
+      const res = computeTrialYield({ cropCode, lbs, acres, moisture:moist }) || {};
+
+      try{
+        const trialId = STATE.currentTrial.id;
+        const ref = collection(STATE.db,'fieldTrials',trialId,'yields');
+        await addDoc(ref, {
+          fieldId: field.fieldId || null,
+          fieldName: field.fieldName || null,
+          farmId: field.farmId || null,
+          farmName: field.farmName || null,
+          acres,
+          lbs,
+          moisture: moist,
+          combines: combines || null,
+          cropCode,
+          yieldWetBuPerAc: res.wetBuPerAc || null,
+          yieldAdjBuPerAc: res.adjBuPerAc || null,
+          shrinkPct: res.shrinkPct || null,
+          stdMoisture: res.stdMoist || null,
+          createdAt: serverTimestamp()
+        });
+
+        // bump yieldCount on header (simple increment-ish)
+        const currentCount = STATE.currentTrial.data.yieldCount || 0;
+        STATE.currentTrial.data.yieldCount = currentCount + 1;
+        await updateDoc(doc(STATE.db,'fieldTrials',trialId), {
+          yieldCount: currentCount + 1,
+          updatedAt: serverTimestamp()
+        });
+
+        // reset inputs
+        qs('#yAcres').value = '';
+        qs('#yLbs').value = '';
+        qs('#yMoist').value = '';
+        qs('#yCombines').value = '';
+        recalcYieldPreview();
+        showToast('Yield block added.');
+        await loadYieldBlocks();
+        applyFilters(); // refresh card meta counts
+      }catch(err){
+        console.error('Failed to add yield block:', err);
+        if(errEl){
+          errEl.textContent = `Could not add yield block: ${err.message}`;
+          errEl.hidden = false;
+        }
+      }
+    }
+
+    function populateYieldFieldSelect(){
+      const sel = qs('#yField');
+      if(!sel || !STATE.currentTrial) return;
+      const fields = Array.isArray(STATE.currentTrial.data.fields) ? STATE.currentTrial.data.fields : [];
+      sel.innerHTML = '';
+      if(!fields.length){
+        sel.innerHTML = '<option value="">— No fields attached —</option>';
+        return;
+      }
+      sel.innerHTML =
+        '<option value="">— Select trial field —</option>' +
+        fields.map(f=>`<option value="${f.fieldId}">${f.fieldName || 'Field'}${f.farmName ? ' · ' + f.farmName : ''}</option>`).join('');
+    }
+
+    /* =========================
+       Load trials
+       ========================= */
+    async function loadTrials(){
+      const db = STATE.db;
+      if(!db) return;
+
+      const emptyEl = qs('.trial-empty');
+      if(emptyEl){
+        emptyEl.hidden = false;
+        emptyEl.textContent = 'Loading trials…';
+      }
+
+      try{
+        const ref = collection(db,'fieldTrials');
+        let q = ref;
+        if(STATE.accountId){
+          q = query(ref, where('accountId','==',STATE.accountId));
+        }
+        const snap = await getDocs(q);
+        const items = snap.docs.map(d=>({ id:d.id, data:d.data() || {} }));
+        // sort newest first
+        items.sort((a,b)=>{
+          const ta = a.data.createdAt && a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0;
+          const tb = b.data.createdAt && b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0;
+          return tb - ta;
+        });
+        STATE.allTrials = items;
+
+        if(emptyEl){
+          emptyEl.textContent = 'No trials found. Once you create trials, they will appear here.';
+        }
+
+        initFilterCombos(items);
+        applyFilters();
+      }catch(err){
+        console.error('Error loading trials:', err);
+        if(emptyEl){
+          emptyEl.hidden = false;
+          emptyEl.textContent = 'Error loading trials. Check Firestore or indexes.';
+        }
+        const countEl = qs('#trialCount');
+        if(countEl) countEl.textContent = 'Error loading trials';
+      }
+    }
+
+    /* =========================
+       Boot
+       ========================= */
+    (async function boot(){
+      const ctx = await ready;
+      STATE.db = getFirestore();
+      STATE.accountId = ctx?.accountId || null;
+
+      const shell = document.querySelector('fv-shell');
+      if(shell) shell.nav = NAV_MENU;
+
+      // Back button to Trials portal
+      const backBtn = qs('#btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', ()=>{
+          window.location.href = '/Farm-vista/pages/crop-production/trials.html';
+        });
+      }
+
+      // Status filter select
+      const statusSel = qs('#statusFilter');
+      if(statusSel){
+        statusSel.addEventListener('change', e=>{
+          STATE.filters.status = e.target.value;
+          applyFilters();
+        });
+      }
+
+      // Overlay wiring
+      const overlay = qs('#trialDetailOverlay');
+      if(overlay){
+        overlay.addEventListener('click', ev=>{
+          if(ev.target === overlay){
+            closeTrialDetail();
+          }
+        });
+      }
+      const closeBtn = qs('#detailCloseBtn');
+      const cancelBtn = qs('#detailCancelBtn');
+      if(closeBtn) closeBtn.addEventListener('click', closeTrialDetail);
+      if(cancelBtn) cancelBtn.addEventListener('click', closeTrialDetail);
+
+      // Add field
+      initAddFieldCombos();
+      await loadFarmsAndFieldsOnce();
+      const addFieldBtn = qs('#btnAddFieldToTrial');
+      if(addFieldBtn) addFieldBtn.addEventListener('click', handleAddFieldToTrial);
+
+      // Yield preview + save
+      ['#yAcres','#yLbs','#yMoist'].forEach(sel=>{
+        const inp = qs(sel);
+        if(inp) inp.addEventListener('input', recalcYieldPreview);
+      });
+      const addYieldBtn = qs('#btnAddYield');
+      if(addYieldBtn) addYieldBtn.addEventListener('click', handleAddYieldBlock);
+
+      // When overlay opens, we also need to wire yield field dropdown when fields change
+      // We'll re-populate it from openTrialDetail -> populateYieldFieldSelect
+      // Hook that here via mutation of openTrialDetail:
+      const origOpen = openTrialDetail;
+      window.openTrialDetail = function(item){
+        origOpen(item);
+        populateYieldFieldSelect();
+        recalcYieldPreview();
+      };
+
+      // Load trials
+      await loadTrials();
+
+      // Network toasts
+      window.addEventListener('online', ()=> showToast('Back online — syncing…', 4000));
+      window.addEventListener('offline',()=> showToast('Currently offline — using saved data', 4000));
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧪</div>
+          <div>
+            <h1>Field Trials – View & Yield Entry</h1>
+            <p class="muted">
+              Filter by crop year and trial type, open a trial to attach fields, and
+              record yield blocks (acres, pounds, moisture, number of combines).
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Trials Portal
+              </button>
+            </div>
+            <div class="toolbar-right">
+              <span id="trialCount">0 trials</span>
+            </div>
+          </div>
+
+          <!-- Filters -->
+          <div class="row">
+            <div class="field">
+              <label for="statusFilter">Status</label>
+              <select id="statusFilter" class="select">
+                <option value="active">Active (planned / running)</option>
+                <option value="completed">Completed</option>
+                <option value="all">All</option>
+              </select>
+              <div class="help">Filter by trial status.</div>
+            </div>
+
+            <div class="field combo" id="yearFilter">
+              <label for="yearBtn">Crop Year</label>
+              <div class="combo-anchor">
+                <button id="yearBtn" class="buttonish has-caret" type="button">All years</button>
+                <div class="combo-panel" id="yearPanel" role="listbox" aria-label="Year list">
+                  <div class="list" id="yearList"></div>
+                </div>
+              </div>
+              <div id="yearHelp" class="help">Showing all crop years.</div>
+            </div>
+
+            <div class="field combo" id="typeFilter">
+              <label for="typeBtn">Trial Type</label>
+              <div class="combo-anchor">
+                <button id="typeBtn" class="buttonish has-caret" type="button">All trial types</button>
+                <div class="combo-panel" id="typePanel" role="listbox" aria-label="Trial type list">
+                  <div class="list" id="typeList"></div>
+                </div>
+              </div>
+              <div id="typeHelp" class="help">Showing all trial types.</div>
+            </div>
+          </div>
+
+          <!-- Trial list -->
+          <section aria-label="Filtered trials">
+            <div class="trial-empty">
+              No trials found. Once you create trials, they will appear here.
+            </div>
+            <div class="trial-list"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <!-- Detail overlay -->
+    <div id="trialDetailOverlay" class="trial-detail-overlay" hidden>
+      <div class="trial-detail-panel" role="dialog" aria-modal="true">
+        <header class="trial-detail-header">
+          <div>
+            <div id="detailTitle" class="trial-detail-title">Trial name</div>
+            <div id="detailSub" class="trial-detail-sub">Year • Crop • Trial type</div>
+          </div>
+          <button type="button" id="detailCloseBtn" class="trial-detail-close" aria-label="Close">
+            ×
+          </button>
+        </header>
+
+        <div class="trial-detail-grid">
+          <div id="detailChips"></div>
+          <div>
+            <div class="trial-detail-label">Created</div>
+            <div id="detailCreated" style="font-size:0.82rem;"></div>
+          </div>
+          <div>
+            <div class="trial-detail-label">Status</div>
+            <div id="detailStatusChip" class="trial-detail-chip">planned</div>
+          </div>
+        </div>
+
+        <section class="trial-detail-section">
+          <h3>Trial-level notes</h3>
+          <div id="detailNotes" class="trial-detail-notes">
+            No trial-level notes yet.
+          </div>
+        </section>
+
+        <section class="trial-detail-section">
+          <h3>Fields in this trial</h3>
+          <div id="detailFieldsList" class="trial-fields-list">
+            <p class="help">No fields attached yet.</p>
+          </div>
+
+          <div class="trial-detail-row" style="margin-top:10px;">
+            <span class="trial-detail-label">Add field to trial</span>
+          </div>
+          <div class="trial-detail-row">
+            <select id="afFarmBtn" class="trial-detail-select">
+              <!-- replaced by combo button text; keep element for layout -->
+            </select>
+          </div>
+          <!-- real combos for add-field -->
+          <div class="trial-detail-row" style="margin-top:6px;">
+            <div class="field combo" style="flex:1 1 160px;">
+              <label class="trial-detail-label" for="afFarmBtnReal">Farm</label>
+              <div class="combo-anchor">
+                <button id="afFarmBtnReal" class="buttonish has-caret" type="button">— Select farm —</button>
+                <div class="combo-panel" id="afFarmPanel" role="listbox" aria-label="Farm list">
+                  <div class="search">
+                    <input id="afFarmSearch" type="search" placeholder="Search farms…">
+                  </div>
+                  <div class="list" id="afFarmList"></div>
+                </div>
+              </div>
+              <div id="afFarmHelp" class="help">Pick a farm to narrow fields.</div>
+            </div>
+
+            <div class="field combo" style="flex:1 1 160px;">
+              <label class="trial-detail-label" for="afFieldBtn">Field</label>
+              <div class="combo-anchor">
+                <button id="afFieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
+                <div class="combo-panel" id="afFieldPanel" role="listbox" aria-label="Field list">
+                  <div class="search">
+                    <input id="afFieldSearch" type="search" placeholder="Search fields…">
+                  </div>
+                  <div class="list" id="afFieldList"></div>
+                </div>
+              </div>
+              <div id="afFieldHelp" class="help">All fields loaded.</div>
+            </div>
+          </div>
+
+          <div class="trial-detail-row" style="margin-top:6px;">
+            <label class="trial-detail-label" for="afTrialAcres">Trial acres (optional)</label>
+            <input id="afTrialAcres" class="trial-detail-input" type="number" min="0" step="0.01" placeholder="e.g. 12.5">
+          </div>
+
+          <div class="trial-detail-footer" style="justify-content:flex-start;margin-top:8px;">
+            <button type="button" id="btnAddFieldToTrial" class="btn-primary-pill">+ Add field to trial</button>
+          </div>
+        </section>
+
+        <section class="trial-detail-section">
+          <h3>Yield blocks</h3>
+          <div id="yieldList" class="yield-list">
+            <p class="help">No yield blocks recorded yet.</p>
+          </div>
+
+          <div class="trial-detail-row" style="margin-top:10px;">
+            <span class="trial-detail-label">Add yield block</span>
+          </div>
+
+          <div class="trial-detail-row">
+            <label class="trial-detail-label" for="yField">Trial field</label>
+            <select id="yField" class="trial-detail-select" style="flex:1 1 160px;">
+              <option value="">— Select trial field —</option>
+            </select>
+          </div>
+
+          <div class="trial-detail-row" style="margin-top:6px;">
+            <label class="trial-detail-label" for="yAcres">Block acres</label>
+            <input id="yAcres" class="trial-detail-input" type="number" min="0" step="0.01" placeholder="e.g. 12.5">
+
+            <label class="trial-detail-label" for="yLbs">Pounds of grain</label>
+            <input id="yLbs" class="trial-detail-input" type="number" min="0" step="1" placeholder="e.g. 65000">
+          </div>
+
+          <div class="trial-detail-row" style="margin-top:6px;">
+            <label class="trial-detail-label" for="yMoist">Moisture (%)</label>
+            <input id="yMoist" class="trial-detail-input" type="number" min="0" step="0.1" placeholder="e.g. 21.0">
+
+            <label class="trial-detail-label" for="yCombines"># combines (info only)</label>
+            <input id="yCombines" class="trial-detail-input" type="number" min="1" step="1" placeholder="e.g. 2">
+          </div>
+
+          <div id="yieldPreview" class="yield-result">
+            Enter acres, pounds, and moisture to calculate yield.
+          </div>
+
+          <div id="detailErr" class="error" hidden></div>
+
+          <footer class="trial-detail-footer">
+            <button type="button" id="detailCancelBtn" class="btn-outline">Close</button>
+            <button type="button" id="btnAddYield" class="btn-primary-pill">Save yield block</button>
+          </footer>
+        </section>
+      </div>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+</body>
+</html>
