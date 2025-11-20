@@ -16,6 +16,7 @@
 
   <style>
     .page{
+      position:relative;              /* anchor for popover */
       max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
     }
@@ -123,10 +124,10 @@
       }
     }
 
-    /* Farm filter popover – absolute so it scrolls with content & can slide behind footer */
+    /* Farm filter popover */
     .popover{
       position:absolute;
-      z-index:900;
+      z-index:900; /* below fv-shell footer, above cards */
       min-width:220px;
       border:1px solid var(--border);
       border-radius:14px;
@@ -134,8 +135,7 @@
       color:var(--text);
       box-shadow:0 18px 40px rgba(0,0,0,.28);
       padding:10px;
-      max-height:min(520px, 70vh);
-      overflow-y:auto; /* allow scroll when tall */
+      overflow-y:auto; /* scroll when tall */
     }
     .popover header{
       font-weight:800;margin:4px 2px 8px;color:var(--muted);
@@ -569,6 +569,7 @@
     const farmFilterBtn = $("farmFilterBtn");
     const farmFilterPop = $("farmFilterPop");
     const farmFilterOpts = $("farmFilterOpts");
+    const pageEl = document.querySelector('.page');
 
     /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
@@ -953,10 +954,10 @@
         const pills = [
           `<span class="pill">${esc(farmLabel(it.farmId))}</span>`,
           (it.county || it.state) ? `<span class="pill">${esc(it.county||'—')}${it.state?`, ${esc(it.state)}`:''}</span>` : "",
-          (it.tillable ? `<span class="pill">${fmt(it.tillable)} ac</span>` : ""),
-          (it.hasHEL && it.helAcres ? `<span class="pill">HEL ${fmt(it.helAcres)} ac</span>` : ""),
-          (it.hasCRP && it.crpAcres ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : ""),
-          (it.rtkTowerId ? `<span class="pill">RTK: ${esc(rtkLabel(it.rtkTowerId))}</span>` : ""),
+          it.tillable ? `<span class="pill">${fmt(it.tillable)} ac</span>` : "",
+          (it.hasHEL && it.helAcres) ? `<span class="pill">HEL ${fmt(it.helAcres)} ac</span>` : "",
+          (it.hasCRP && it.crpAcres) ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : "",
+          it.rtkTowerId ? `<span class="pill">RTK: ${esc(rtkLabel(it.rtkTowerId))}</span>` : "",
           it.status==="archived" ? `<span class="pill">Archived</span>` : ""
         ].filter(Boolean).join(" ");
 
@@ -1404,25 +1405,34 @@
       closeImportModal();
     });
 
-    /* ===== Farm filter popover logic – anchored to button & scrolls with page ===== */
+    /* ===== Farm filter popover logic (now anchored to .page, scrolls with button) ===== */
     function openFarmPop(){
       if(!farmFilterPop) return;
       buildFarmFilterPopover(); // ensure up to date
       if(!farmFilterPop.hidden) return;
 
-      const r = farmFilterBtn.getBoundingClientRect();
-      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const btnRect = farmFilterBtn.getBoundingClientRect();
+      const pageRect = pageEl ? pageEl.getBoundingClientRect() : {top:0,left:0,width:document.documentElement.clientWidth};
 
-      const width = Math.min(260, viewportWidth - 24); // leave 12px margin each side
+      // Width based on page width, right-aligned to button
+      const containerWidth = pageRect.width;
+      const width = Math.min(260, containerWidth - 24); // 12px padding each side
       farmFilterPop.style.width = width + "px";
 
-      const pageLeft = window.scrollX + r.right - width;
-      const maxLeft = window.scrollX + viewportWidth - 12 - width;
-      const left = Math.max(window.scrollX + 12, Math.min(maxLeft, pageLeft));
+      const desiredLeft = (btnRect.right - pageRect.left) - width;
+      const maxLeft = containerWidth - width - 12;
+      const left = Math.max(12, Math.min(maxLeft, desiredLeft));
       farmFilterPop.style.left = left + "px";
 
-      const top = window.scrollY + r.bottom + 8;
-      farmFilterPop.style.top = top + "px";
+      // Top: just under the button, relative to page
+      const topWithinPage = (btnRect.bottom - pageRect.top) + 8;
+      farmFilterPop.style.top = topWithinPage + "px";
+
+      // Height: fill to bottom of viewport (so it can go behind footer), with internal scroll
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const available = viewportHeight - (btnRect.bottom + 8);
+      const maxH = Math.max(160, available); // at least a reasonable box
+      farmFilterPop.style.maxHeight = maxH + "px";
 
       farmFilterPop.hidden = false;
       farmFilterBtn.setAttribute('aria-expanded','true');
@@ -1472,6 +1482,7 @@
       // Wire pill toggles (Add)
       wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
       wireToggle($("crpToggle"), $("hasCRP"), $("crpAcreWrap"), $("crpAcres"));
+
       // Wire pill toggles (Edit)
       wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
       wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
