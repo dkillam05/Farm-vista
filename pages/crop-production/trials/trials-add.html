@@ -470,6 +470,9 @@
             <button id="btnClear" class="btn btn-ghost" type="button">Clear</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save Trial</button>
           </div>
+          <div class="help">
+            “Save Trial” will save the trial header and <strong>all fields listed below</strong> in one step.
+          </div>
         </div>
       </section>
 
@@ -569,7 +572,7 @@
             <label for="tfTrialAcres">Trial Acres in This Field</label>
             <input id="tfTrialAcres" class="input" type="number" min="0" step="0.01"
                    placeholder="e.g. 12.5">
-            <div class="help">
+            <div id="tfTrialAcresHelp" class="help">
               Acres of this field that are actually in the trial (not total field acres).
             </div>
           </div>
@@ -615,6 +618,10 @@
       seedProduct:null,     // selected seed product for this field
       trialFields:[]
     };
+
+    let allFarms = [];
+    let allFields = [];
+    let allSeedProducts = [];
 
     function showToast(msg="Saved.", ms=5000){
       const t=$(" #toast ".trim()) || document.getElementById("toast");
@@ -731,6 +738,75 @@
     }
 
     /* =========================
+       Farm / Field helpers (bi-directional like maintenance-add)
+       ========================= */
+    function selectFarmById(farmId){
+      if(!farmId) return;
+      const farm = allFarms.find(f=>f.id === farmId);
+      if(!farm) return;
+      state.farm = farm;
+      const btn = $("#farmBtn");
+      if(btn) btn.textContent = farm.label;
+      const help = $("#farmHelp");
+      if(help) help.textContent = "Farm selected for this trial field.";
+    }
+
+    function resetTrialAcresHelp(){
+      const h = $("#tfTrialAcresHelp");
+      if(h){
+        h.textContent = "Acres of this field that are actually in the trial (not total field acres).";
+      }
+    }
+
+    function refreshFieldComboForFarm(farmId){
+      let list = allFields.slice();
+      const fieldHelp = $("#fieldHelp");
+
+      if(farmId){
+        list = list.filter(f=>f.farmId === farmId);
+        if(fieldHelp){
+          fieldHelp.textContent = list.length
+            ? `${list.length} field(s) on this farm.`
+            : "No fields found for this farm.";
+        }
+      }else{
+        if(fieldHelp){
+          fieldHelp.textContent = list.length
+            ? `${list.length} field(s) loaded.`
+            : "No fields found.";
+        }
+      }
+
+      fieldCombo.setItems(list);
+
+      // If the current field belongs to a different farm, clear it
+      if(state.field && farmId && state.field.farmId !== farmId){
+        state.field = null;
+        const fb = $("#fieldBtn");
+        if(fb) fb.textContent = "— Select field —";
+        resetTrialAcresHelp();
+      }
+    }
+
+    function updateTrialAcresHelpForField(fieldObj){
+      const h = $("#tfTrialAcresHelp");
+      if(!h) return;
+
+      const ac = (fieldObj && typeof fieldObj.acres === "number" && !Number.isNaN(fieldObj.acres))
+        ? fieldObj.acres
+        : null;
+
+      if(ac != null){
+        const acText = ac.toLocaleString(undefined,{maximumFractionDigits:2});
+        h.textContent =
+          `Acres of this field that are actually in the trial (not total field acres). ` +
+          `Field total: ${acText} ac (trial acres cannot exceed this).`;
+      }else{
+        resetTrialAcresHelp();
+      }
+    }
+
+    /* =========================
        Farm / Field / Variety combos for trial fields
        ========================= */
     const farmCombo = makeCombo({
@@ -741,15 +817,11 @@
       searchable:true,
       formatter:x=>x.label,
       onPick(it){
-        state.farm = it;
-        $("#farmBtn").textContent = it.label;
-        $("#farmHelp").textContent = "Farm selected for this trial field.";
-        filterFieldsByFarm();
+        // Match maintenance-add behavior: set farm and filter fields for that farm
+        selectFarmById(it.id);
+        refreshFieldComboForFarm(it.id);
       }
     });
-
-    let allFields = [];
-    let allSeedProducts = [];
 
     const fieldCombo = makeCombo({
       btn:  $("#fieldBtn"),
@@ -762,6 +834,15 @@
         state.field = it;
         $("#fieldBtn").textContent = it.label;
         $("#fieldHelp").textContent = "Field selected for this trial.";
+
+        // Back-flow farm selection like maintenance-add
+        if(it.farmId){
+          selectFarmById(it.farmId);
+          refreshFieldComboForFarm(it.farmId);
+        }
+
+        // Update trial acres help with field's total acres
+        updateTrialAcresHelpForField(it);
       }
     });
 
@@ -779,24 +860,6 @@
         if(h) h.textContent = "Variety selected for this trial field.";
       }
     });
-
-    function filterFieldsByFarm(){
-      const farmId = state.farm?.id || null;
-      let filtered = allFields.slice();
-      if(farmId){
-        filtered = filtered.filter(x=>x.farmId === farmId);
-        $("#fieldHelp").textContent = filtered.length
-          ? `${filtered.length} field(s) on this farm`
-          : "No fields found for this farm.";
-      }else{
-        $("#fieldHelp").textContent = filtered.length
-          ? `${filtered.length} field(s) loaded.`
-          : "No fields found.";
-      }
-      fieldCombo.setItems(filtered);
-      state.field = null;
-      $("#fieldBtn").textContent = "— Select field —";
-    }
 
     function applyVarietyFilter(){
       const cropCode = state.crop?.value || null; // 'CORN', 'SOY', etc.
@@ -848,7 +911,8 @@
           });
         }
         farms.sort((a,b)=>a.label.localeCompare(b.label));
-        farmCombo.setItems(farms);
+        allFarms = farms;
+        farmCombo.setItems(allFarms);
         farmHelp.textContent = farms.length ? `${farms.length} farm(s) loaded.` : "No farms found.";
 
         // Fields
@@ -860,7 +924,35 @@
             const x = d.data() || {};
             const name = String(x.name || x.fieldName || "").trim();
             const farmId = x.farmId || x.farm || null;
-            if(name) fields.push({ id:d.id, label:name, farmId:farmId || null });
+
+            // Try to infer total acres from common field keys
+            let totalAcres = null;
+            const candidates = [
+              x.tillableAcres,
+              x.totalAcres,
+              x.fieldAcres,
+              x.acres
+            ];
+            for(const c of candidates){
+              if(typeof c === "number"){
+                totalAcres = c;
+                break;
+              }
+              if(typeof c === "string" && c.trim()){
+                const n = Number(c);
+                if(!Number.isNaN(n)){
+                  totalAcres = n;
+                  break;
+                }
+              }
+            }
+
+            if(name) fields.push({
+              id: d.id,
+              label: name,
+              farmId: farmId || null,
+              acres: totalAcres
+            });
           });
         }catch(e){
           console.warn("Field indexed query failed, falling back:", e.message);
@@ -869,11 +961,40 @@
             const x = d.data() || {};
             const name = String(x.name || x.fieldName || "").trim();
             const farmId = x.farmId || x.farm || null;
-            if(name) fields.push({ id:d.id, label:name, farmId:farmId || null });
+
+            let totalAcres = null;
+            const candidates = [
+              x.tillableAcres,
+              x.totalAcres,
+              x.fieldAcres,
+              x.acres
+            ];
+            for(const c of candidates){
+              if(typeof c === "number"){
+                totalAcres = c;
+                break;
+              }
+              if(typeof c === "string" && c.trim()){
+                const n = Number(c);
+                if(!Number.isNaN(n)){
+                  totalAcres = n;
+                  break;
+                }
+              }
+            }
+
+            if(name) fields.push({
+              id: d.id,
+              label: name,
+              farmId: farmId || null,
+              acres: totalAcres
+            });
           });
         }
         fields.sort((a,b)=>a.label.localeCompare(b.label));
         allFields = fields;
+
+        // Initial field list (no farm filter yet)
         fieldCombo.setItems(allFields);
         fieldHelp.textContent = allFields.length ? `${allFields.length} field(s) loaded.` : "No fields found.";
       }catch(err){
@@ -1115,7 +1236,26 @@
       const plantDate = ($("#tfPlantDate").value || "").trim();
       const notes     = ($("#tfFieldNotes").value || "").trim();
       const trialAcresRaw = ($("#tfTrialAcres").value || "").trim();
-      const trialAcresNum = trialAcresRaw ? Number(trialAcresRaw) : null;
+
+      let trialAcresNum = null;
+      const totalAcres = (state.field && typeof state.field.acres === "number" && !Number.isNaN(state.field.acres))
+        ? state.field.acres
+        : null;
+
+      if(trialAcresRaw){
+        const val = Number(trialAcresRaw);
+        if(Number.isNaN(val) || val <= 0){
+          showError("Trial acres must be a positive number.");
+          return;
+        }
+        if(totalAcres != null && val > totalAcres + 0.0001){
+          const t = val.toLocaleString(undefined,{maximumFractionDigits:2});
+          const f = totalAcres.toLocaleString(undefined,{maximumFractionDigits:2});
+          showError(`Trial acres (${t} ac) cannot exceed field acres (${f} ac).`);
+          return;
+        }
+        trialAcresNum = val;
+      }
 
       const placementLabel = (()=> {
         const sel = $("#tfPlacement");
@@ -1164,6 +1304,7 @@
       $("#fieldHelp").textContent = allFields.length
         ? `${allFields.length} field(s) loaded.`
         : "No fields found.";
+      resetTrialAcresHelp();
       const vHelp = $("#tfVarietyHelp");
       if(vHelp){
         vHelp.textContent = allSeedProducts.length
@@ -1197,6 +1338,10 @@
       if(!state.crop){ showError("Please choose a crop."); return; }
       if(!state.type){ showError("Please choose a trial type."); return; }
       if(!trialName){ showError("Please enter a trial name or nickname."); return; }
+      if(!state.trialFields.length){
+        showError("Add at least one farm + field to this trial before saving.");
+        return;
+      }
 
       const user = auth.currentUser || {};
       const docData = {
@@ -1280,7 +1425,10 @@
       }
 
       showToast("Trial saved.");
-      clearForm();
+      // After save, send user back to Trials portal for a cleaner flow
+      setTimeout(()=>{
+        window.location.href = '/Farm-vista/pages/crop-production/crop-trials.html';
+      }, 900);
     }
 
     function clearForm(){
@@ -1316,6 +1464,7 @@
       $("#fieldHelp").textContent = allFields.length
         ? `${allFields.length} field(s) loaded.`
         : "No fields found.";
+      resetTrialAcresHelp();
       applyVarietyFilter();
 
       renderTrialFieldsList();
@@ -1360,8 +1509,10 @@
        • Multiple fields are stored as an embedded "fields" array with farm/field IDs.
        • Each field now tracks seed product, placement, planting date, notes,
          and trialAcres for that field.
+       • Trial acres are validated so they cannot exceed the field’s total acres (when known).
        • Seed products: loaded from "productsSeed", filtered by cropCorn/cropSoy.
        • File storage path: trials/{trialId}/{filename}.
+       • After save, user is returned to the Trials Portal for a cleaner flow.
   -->
 </body>
 </html>
