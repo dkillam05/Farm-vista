@@ -269,8 +269,7 @@
             </div>
 
             <div class="ai-hint">
-              Voice dictation uses your browser’s speech recognition (where supported).
-              We’ll later connect this to your AI backend to query Firestore and build standard reports.
+              Connected to your FarmVista AI backend. Early beta – answers may be generic for now.
             </div>
           </form>
         </div>
@@ -445,18 +444,23 @@
       setStatus(isThinking ? "Thinking…" : "");
     }
 
-    // Placeholder AI call
+    // ======================
+    // REAL AI CALL (Cloud Run)
+    // ======================
     async function callAssistant(prompt){
-      await new Promise(r => setTimeout(r, 600));
-      return [
-        "This is a placeholder response from FarmVista Copilot.",
-        "",
-        "Next step:",
-        "• We’ll hook this box to a Cloud Function that:",
-        "  - Calls OpenAI (ChatGPT) with your question",
-        "  - Reads Firestore (via admin SDK) for context",
-        "  - Returns a report or summary in a standard format."
-      ].join("\n");
+      const endpoint = "https://chatbot-api-300398089669.us-central1.run.app/chat";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: prompt })
+      });
+
+      if (!res.ok){
+        throw new Error("API error " + res.status);
+      }
+
+      const data = await res.json();
+      return data && data.reply ? data.reply.toString() : "(No response)";
     }
 
     // Handle submit
@@ -477,7 +481,7 @@
         appendMessage("assistant", reply || "(No response)");
       }catch(e){
         console.warn("[copilot] error:", e);
-        appendMessage("assistant", "Sorry, I couldn't process that request yet.");
+        appendMessage("assistant", "Sorry, I couldn't process that request right now.");
       }finally{
         setThinking(false);
       }
