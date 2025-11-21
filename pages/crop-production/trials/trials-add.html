@@ -87,7 +87,7 @@
     }
     .muted{color:var(--muted,#67706B);margin:4px 0 0;font-size:14px}
 
-    /* BACK BUTTON (matches other pages) */
+    /* BACK BUTTON (matches other pages, no blue) */
     .back-link{
       display:inline-flex;
       align-items:center;
@@ -101,6 +101,7 @@
       cursor:pointer;
       white-space:nowrap;
       box-shadow:0 8px 18px rgba(0,0,0,.05);
+      color:var(--text)!important;          /* kill blue text */
     }
     .back-link span[aria-hidden="true"]{
       font-size:18px;
@@ -148,6 +149,19 @@
       border-color:#b00020 !important;
       box-shadow:0 0 0 1px rgba(176,0,32,.4);
       background:rgba(176,0,32,.08);
+    }
+
+    /* RED STATE FOR REQUIRED FIELDS (header section) */
+    .field-error .buttonish,
+    .field-error .input,
+    .field-error .select,
+    .field-error .textarea{
+      border-color:#b00020 !important;
+      box-shadow:0 0 0 1px rgba(176,0,32,.4);
+      background:rgba(176,0,32,.08);
+    }
+    .field-error .help{
+      color:#b00020;
     }
 
     .actions{
@@ -215,7 +229,7 @@
       padding:16px;
       display:grid;
       gap:14px;
-      margin-bottom:var(--page-bottom-gap);
+      margin-bottom:18px; /* tightened to match gap between first two boxes */
     }
     .trial-section-head{
       display:flex;
@@ -418,7 +432,7 @@
               </div>
             </div>
 
-            <div class="field">
+            <div class="field" id="trialNameField">
               <label for="trialName">Trial Name / Nickname</label>
               <input id="trialName" class="input" placeholder="e.g. Blueprint 2026 Corn Large-Scale Trial">
               <div class="help">Short label you’ll recognize on reports and maps.</div>
@@ -1168,6 +1182,8 @@
         state.year = it;
         $("#yearBtn").textContent = it.label;
         $("#yearHelp").textContent = "Crop year selected.";
+        $("#yearCombo")?.classList.remove("field-error");
+        showError("");
         updateHeroSubtitle();
       }
     });
@@ -1183,6 +1199,8 @@
         state.crop = it;
         $("#cropBtn").textContent = it.label;
         $("#cropHelp").textContent = "Crop selected.";
+        $("#cropCombo")?.classList.remove("field-error");
+        showError("");
         updateHeroSubtitle();
         applyVarietyFilter(); // re-filter seed products by crop
       }
@@ -1199,6 +1217,8 @@
         state.type = it;
         $("#typeBtn").textContent = it.label;
         $("#typeHelp").textContent = "Trial type selected.";
+        $("#typeCombo")?.classList.remove("field-error");
+        showError("");
         updateHeroSubtitle();
       }
     });
@@ -1406,18 +1426,46 @@
     /* =========================
        Save handler
        ========================= */
+    function clearHeaderErrors(){
+      $$(".field-error").forEach(el=>el.classList.remove("field-error"));
+      const trialField = $("#trialNameField");
+      if(trialField){
+        trialField.classList.remove("field-error");
+      }
+    }
+
     async function handleSave(db, auth, ctx){
       showError("");
+      clearHeaderErrors();
 
       const trialName     = ($("#trialName").value || "").trim();
       const treatmentName = ($("#treatmentName").value || "").trim();
       const checkDesc     = ($("#checkDesc").value || "").trim();
       const notes         = ($("#notes").value || "").trim();
 
-      if(!state.year){ showError("Please choose a crop year."); return; }
-      if(!state.crop){ showError("Please choose a crop."); return; }
-      if(!state.type){ showError("Please choose a trial type."); return; }
-      if(!trialName){ showError("Please enter a trial name or nickname."); return; }
+      let hasError = false;
+
+      if(!state.year){
+        $("#yearCombo")?.classList.add("field-error");
+        hasError = true;
+      }
+      if(!state.crop){
+        $("#cropCombo")?.classList.add("field-error");
+        hasError = true;
+      }
+      if(!state.type){
+        $("#typeCombo")?.classList.add("field-error");
+        hasError = true;
+      }
+      if(!trialName){
+        $("#trialNameField")?.classList.add("field-error");
+        hasError = true;
+      }
+
+      if(hasError){
+        showError("Please fill in all required fields highlighted in red.");
+        return;
+      }
 
       const user = auth.currentUser || {};
       const docData = {
@@ -1546,6 +1594,7 @@
       renderTrialFieldsList();
       updateHeroSubtitle();
       showError("");
+      clearHeaderErrors();
       setFieldFormVisible(false);
     }
 
@@ -1588,6 +1637,15 @@
         trialAcresInput.addEventListener("input", updateTrialAcresValidation);
       }
 
+      // Clear red state on trial name when they type
+      const trialNameInput = $("#trialName");
+      if(trialNameInput){
+        trialNameInput.addEventListener("input", ()=>{
+          $("#trialNameField")?.classList.remove("field-error");
+          showError("");
+        });
+      }
+
       window.addEventListener('online', ()=> showToast("Back online — syncing…", 4000));
       window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 4000));
     })();
@@ -1609,6 +1667,7 @@
        • File storage path: trials/{trialId}/{filename}.
        • After save, user is returned to the Trials Portal for a cleaner flow.
        • Fields are optional; trials can be created without them.
+       • All required header fields highlight red until filled correctly.
   -->
 </body>
 </html>
