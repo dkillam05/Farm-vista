@@ -358,6 +358,8 @@
       display:flex;
       flex-direction:column;
       gap:12px;
+      box-sizing:border-box;
+      overflow-x:hidden; /* prevent horizontal scroll */
     }
     @media(max-width:700px){
       .trial-panel{
@@ -480,7 +482,7 @@
       opacity:0.85;
     }
 
-    /* Edit Trial modal (smaller) */
+    /* Edit Trial modal */
     .modal-overlay{
       position:fixed;
       inset:0;
@@ -494,7 +496,7 @@
     .modal-panel{
       width:min(520px,100% - 24px);
       max-height:90vh;
-      border-radius:16px;
+      border-radius:20px; /* ensure all corners rounded */
       background:var(--surface-raised,var(--card-surface,var(--surface)));
       box-shadow:var(--shadow-strong,0 18px 45px rgba(0,0,0,0.35));
       padding:16px 16px 14px;
@@ -502,6 +504,8 @@
       flex-direction:column;
       gap:10px;
       font-size:0.9rem;
+      box-sizing:border-box;
+      overflow-x:hidden; /* prevent horizontal scroll */
     }
     .modal-header{
       display:flex;
@@ -535,7 +539,7 @@
     .field-panel{
       width:min(720px,100% - 24px);
       max-height:92vh;
-      border-radius:16px;
+      border-radius:20px;
       background:var(--surface-raised,var(--card-surface,var(--surface)));
       box-shadow:var(--shadow-strong,0 18px 45px rgba(0,0,0,0.35));
       padding:16px 16px 14px;
@@ -543,6 +547,8 @@
       flex-direction:column;
       gap:10px;
       font-size:0.86rem;
+      box-sizing:border-box;
+      overflow-x:hidden;
     }
     .field-header{
       display:flex;
@@ -555,9 +561,13 @@
 
     .field-grid{
       display:grid;
-      grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+      grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
       gap:8px;
     }
+    @media(max-width:600px){
+      .field-grid{grid-template-columns:1fr;}
+    }
+
     .textarea{
       width:100%;
       min-height:80px;
@@ -926,6 +936,41 @@
       }
     }
 
+    /* ===== Helpers for modal selects ===== */
+    function ensureOptionSelected(selectEl, value, label){
+      if(!selectEl) return;
+      if(value === undefined || value === null || value === '') return;
+      const val = String(value);
+      let opt = Array.from(selectEl.options).find(o => String(o.value) === val);
+      if(!opt){
+        opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = label || val;
+        selectEl.appendChild(opt);
+      }
+      selectEl.value = val;
+    }
+
+    function mapTrialTypeLabelToCode(label){
+      if(!label) return null;
+      const t = label.toString().toLowerCase();
+      if(t.includes('seed') || t.includes('hybrid') || t.includes('variety')) return 'SEED';
+      if(t.includes('fungicide')) return 'FUNGICIDE';
+      if(t.includes('fertility') || t.includes('nutrient')) return 'FERTILITY';
+      if(t.includes('biological') || t.includes('additive')) return 'BIOLOGICAL';
+      return 'OTHER';
+    }
+
+    function mapOpLabelToCode(label){
+      if(!label) return null;
+      const t = label.toString().toLowerCase();
+      if(t.includes('plant')) return 'PLANTING';
+      if(t.includes('spray')) return 'SPRAYING';
+      if(t.includes('aerial')) return 'AERIAL_APP';
+      if(t.includes('fert')) return 'FERTILIZER';
+      return 'OTHER';
+    }
+
     /* ============ Trial Detail overlay ============ */
     function openTrialDetail(item){
       STATE.currentTrial = item;
@@ -1049,14 +1094,32 @@
       const modal = $('#editTrialOverlay');
       if(!modal) return;
 
+      // Name + notes
       $('#editTrialName').value = d.trialName || '';
       $('#editTrialNotes').value = d.notes || d.trialNotes || '';
 
-      // Year/crop/type/task selects (simple selects here)
-      $('#editCropYear').value = d.cropYear || '';
-      $('#editCrop').value = d.cropCode || d.cropLabel || '';
-      $('#editTrialType').value = d.trialType || d.trialTypeCode || '';
-      $('#editOpTask').value = d.operationTaskCode || '';
+      // Crop year
+      const yearSel = $('#editCropYear');
+      const yearVal = d.cropYear || d.cropYearLabel || '';
+      ensureOptionSelected(yearSel, yearVal, yearVal);
+
+      // Crop
+      const cropSel = $('#editCrop');
+      const cropCode = d.cropCode || d.crop || d.cropLabel || '';
+      const cropLabel = d.cropLabel || d.cropName || cropCode;
+      ensureOptionSelected(cropSel, cropCode, cropLabel);
+
+      // Trial type
+      const trialSel = $('#editTrialType');
+      const trialCode = d.trialType || d.trialTypeCode || mapTrialTypeLabelToCode(d.trialTypeLabel);
+      const trialLabel = d.trialTypeLabel || trialCode;
+      ensureOptionSelected(trialSel, trialCode, trialLabel);
+
+      // Operation task
+      const opSel = $('#editOpTask');
+      const opCode = d.operationTaskCode || d.operationTask || mapOpLabelToCode(d.operationTaskLabel);
+      const opLabel = d.operationTaskLabel || opCode;
+      ensureOptionSelected(opSel, opCode, opLabel);
 
       $('#editTrialError').textContent = '';
       $('#editTrialError').hidden = true;
@@ -1582,7 +1645,7 @@
       $('#trialCloseBtn')?.addEventListener('click', closeTrialDetail);
 
       $('#trialHdrClickArea')?.addEventListener('click', openEditTrialModal);
-      // NOTE: editTrialLink button removed per user request, so no listener here
+      // Pencil button removed; no separate link listener
 
       $('#editTrialOverlay')?.addEventListener('click', e=>{
         if(e.target.id === 'editTrialOverlay') closeEditTrialModal();
@@ -1712,7 +1775,7 @@
               <span class="trial-status-chip" id="trialMetaStatus">planned</span>
             </div>
           </div>
-          <!-- Pencil button removed per request -->
+          <!-- Pencil button intentionally removed -->
         </div>
 
         <section class="trial-section">
@@ -1794,7 +1857,6 @@
           <label for="editCropYear">Crop year</label>
           <select id="editCropYear" class="select">
             <option value="">— Leave as-is —</option>
-            <!-- simple range; you can tweak later -->
             <option value="2024">2024</option>
             <option value="2025">2025</option>
             <option value="2026">2026</option>
@@ -1906,7 +1968,7 @@
               <input id="yBlockCombines" type="number" step="1" min="0" class="input" placeholder="e.g. 2" />
             </div>
           </div>
-          <div class="field" style="margin-top:6px;">
+          <div class="field" style="margin-top:6px%;">
             <label for="yBlockNotes">Notes (optional)</label>
             <textarea id="yBlockNotes" class="textarea" placeholder="Strip name, direction, program label, etc."></textarea>
           </div>
