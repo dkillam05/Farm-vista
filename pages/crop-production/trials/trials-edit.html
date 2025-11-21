@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • View Field Trials</title>
+  <title>FarmVista • Field Trials</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -31,7 +31,10 @@
 
     [hidden]{display:none!important}
     html{-webkit-text-size-adjust:100%}
-    body{background:var(--app-bg,var(--surface));}
+    body{
+      background:var(--app-bg,var(--surface));
+      overflow-x:hidden; /* guard against horizontal scroll */
+    }
 
     /* Kill blue links on this page */
     a, a:visited{
@@ -39,7 +42,8 @@
       text-decoration:none;
     }
 
-    .wrap{
+    /* Main page wrapper – keep consistent with other newer pages */
+    .page{
       max-width:var(--card-max);
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
@@ -80,7 +84,7 @@
     }
     .muted{color:var(--muted,#67706B);}
 
-    .body{
+    .hero-body{
       padding:16px;
       display:grid;
       gap:14px;
@@ -176,7 +180,7 @@
       margin-top:3px;
     }
 
-    /* Combo styles (clone of template) */
+    /* Combo styles */
     .buttonish{
       width:100%;
       font:inherit;
@@ -336,10 +340,13 @@
       max-height:92vh;
       overflow-y:auto;
       -webkit-overflow-scrolling:touch;
+      border-radius:inherit;
     }
 
-    /* Trial detail overlay */
-    .trial-overlay{
+    /* Overlays – consistent look, no horizontal scroll */
+    .trial-overlay,
+    .modal-overlay,
+    .field-overlay{
       position:fixed;
       inset:0;
       background:color-mix(in srgb, #000 45%, transparent);
@@ -349,9 +356,12 @@
       z-index:9999;
       overscroll-behavior:contain;
     }
-    .trial-panel{
+
+    .trial-panel,
+    .modal-panel,
+    .field-panel{
       width:min(820px, 100% - 24px);
-      border-radius:16px;
+      border-radius:18px; /* all four corners rounded */
       background:var(--surface-raised,var(--card-surface,var(--surface)));
       box-shadow:var(--shadow-strong,0 18px 45px rgba(0,0,0,.35));
       padding:16px 16px 14px;
@@ -360,10 +370,25 @@
       gap:12px;
       box-sizing:border-box;
       overflow-x:hidden; /* prevent horizontal scroll */
+      max-height:92vh;
     }
+
+    .modal-panel{
+      width:min(520px,100% - 24px);
+    }
+
+    .field-panel{
+      width:min(720px,100% - 24px);
+      font-size:0.86rem;
+    }
+
     @media(max-width:700px){
-      .trial-panel{
-        border-radius:18px 18px 0 0;
+      .trial-panel,
+      .modal-panel,
+      .field-panel{
+        width:100%;
+        max-width:100%;
+        border-radius:18px; /* keep all corners rounded even on mobile */
         align-self:flex-end;
       }
     }
@@ -483,30 +508,6 @@
     }
 
     /* Edit Trial modal */
-    .modal-overlay{
-      position:fixed;
-      inset:0;
-      background:color-mix(in srgb,#000 45%,transparent);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      z-index:10000;
-      overscroll-behavior:contain;
-    }
-    .modal-panel{
-      width:min(520px,100% - 24px);
-      max-height:90vh;
-      border-radius:20px; /* ensure all corners rounded */
-      background:var(--surface-raised,var(--card-surface,var(--surface)));
-      box-shadow:var(--shadow-strong,0 18px 45px rgba(0,0,0,0.35));
-      padding:16px 16px 14px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      font-size:0.9rem;
-      box-sizing:border-box;
-      overflow-x:hidden; /* prevent horizontal scroll */
-    }
     .modal-header{
       display:flex;
       justify-content:space-between;
@@ -525,31 +526,7 @@
       margin-top:6px;
     }
 
-    /* Field-in-Trial overlay */
-    .field-overlay{
-      position:fixed;
-      inset:0;
-      background:color-mix(in srgb,#000 45%,transparent);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      z-index:10001;
-      overscroll-behavior:contain;
-    }
-    .field-panel{
-      width:min(720px,100% - 24px);
-      max-height:92vh;
-      border-radius:20px;
-      background:var(--surface-raised,var(--card-surface,var(--surface)));
-      box-shadow:var(--shadow-strong,0 18px 45px rgba(0,0,0,0.35));
-      padding:16px 16px 14px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      font-size:0.86rem;
-      box-sizing:border-box;
-      overflow-x:hidden;
-    }
+    /* Field overlay */
     .field-header{
       display:flex;
       justify-content:space-between;
@@ -771,7 +748,7 @@
       });
       STATE.combos.year = yearCombo;
 
-      // Trial type combo (match add page codes)
+      // Trial type combo
       const types = [
         { id:'ALL',       label:'All trial types',           value:null },
         { id:'SEED',      label:'Seed / Hybrid / Variety',   value:'SEED' },
@@ -1101,25 +1078,45 @@
       // Crop year
       const yearSel = $('#editCropYear');
       const yearVal = d.cropYear || d.cropYearLabel || '';
-      ensureOptionSelected(yearSel, yearVal, yearVal);
+      if(yearSel){
+        yearSel.value = yearVal ? String(yearVal) : '';
+        if(!yearSel.value && yearVal){
+          ensureOptionSelected(yearSel, yearVal, yearVal);
+        }
+      }
 
       // Crop
       const cropSel = $('#editCrop');
-      const cropCode = d.cropCode || d.crop || d.cropLabel || '';
-      const cropLabel = d.cropLabel || d.cropName || cropCode;
-      ensureOptionSelected(cropSel, cropCode, cropLabel);
+      const cropCodeSaved = d.cropCode || d.crop || '';
+      const cropLabelSaved = d.cropLabel || d.cropName || cropCodeSaved;
+      if(cropSel){
+        cropSel.value = cropCodeSaved || '';
+        if(!cropSel.value && cropCodeSaved){
+          ensureOptionSelected(cropSel, cropCodeSaved, cropLabelSaved || cropCodeSaved);
+        }
+      }
 
       // Trial type
       const trialSel = $('#editTrialType');
-      const trialCode = d.trialType || d.trialTypeCode || mapTrialTypeLabelToCode(d.trialTypeLabel);
-      const trialLabel = d.trialTypeLabel || trialCode;
-      ensureOptionSelected(trialSel, trialCode, trialLabel);
+      const trialCodeSaved = d.trialType || d.trialTypeCode || mapTrialTypeLabelToCode(d.trialTypeLabel);
+      const trialLabelSaved = d.trialTypeLabel || trialCodeSaved;
+      if(trialSel){
+        trialSel.value = trialCodeSaved || '';
+        if(!trialSel.value && trialCodeSaved){
+          ensureOptionSelected(trialSel, trialCodeSaved, trialLabelSaved || trialCodeSaved);
+        }
+      }
 
       // Operation task
       const opSel = $('#editOpTask');
-      const opCode = d.operationTaskCode || d.operationTask || mapOpLabelToCode(d.operationTaskLabel);
-      const opLabel = d.operationTaskLabel || opCode;
-      ensureOptionSelected(opSel, opCode, opLabel);
+      const opCodeSaved = d.operationTaskCode || d.operationTask || mapOpLabelToCode(d.operationTaskLabel);
+      const opLabelSaved = d.operationTaskLabel || opCodeSaved;
+      if(opSel){
+        opSel.value = opCodeSaved || '';
+        if(!opSel.value && opCodeSaved){
+          ensureOptionSelected(opSel, opCodeSaved, opLabelSaved || opCodeSaved);
+        }
+      }
 
       $('#editTrialError').textContent = '';
       $('#editTrialError').hidden = true;
@@ -1138,10 +1135,6 @@
 
       const name = $('#editTrialName').value.trim();
       const notes = $('#editTrialNotes').value.trim();
-      const yearVal = $('#editCropYear').value;
-      const cropVal = $('#editCrop').value;
-      const typeVal = $('#editTrialType').value;
-      const opVal   = $('#editOpTask').value;
       const errEl = $('#editTrialError');
 
       if(!name){
@@ -1150,17 +1143,43 @@
         return;
       }
 
+      // Year
+      const yearSel = $('#editCropYear');
+      const yearVal = yearSel ? yearSel.value : '';
+      const yearNum = yearVal ? Number(yearVal) : null;
+
+      // Crop
+      const cropSel = $('#editCrop');
+      const cropCode = cropSel ? (cropSel.value || null) : null;
+      const cropLabel = cropCode
+        ? (cropSel.options[cropSel.selectedIndex]?.textContent || cropCode)
+        : null;
+
+      // Trial type
+      const trialSel = $('#editTrialType');
+      const typeCode = trialSel ? (trialSel.value || null) : null;
+      const typeLabel = typeCode
+        ? (trialSel.options[trialSel.selectedIndex]?.textContent || typeCode)
+        : null;
+
+      // Operation task
+      const opSel = $('#editOpTask');
+      const opCode = opSel ? (opSel.value || null) : null;
+      const opLabel = opCode
+        ? (opSel.options[opSel.selectedIndex]?.textContent || opCode)
+        : null;
+
       const updates = {
         trialName: name,
         notes,
-        cropYear: yearVal ? Number(yearVal) : null,
+        cropYear: yearNum,
         cropYearLabel: yearVal || null,
-        cropCode: cropVal || null,
-        cropLabel: cropVal || null,
-        trialType: typeVal || null,
-        trialTypeLabel: typeVal || null,
-        operationTaskCode: opVal || null,
-        operationTaskLabel: opVal || null,
+        cropCode: cropCode,
+        cropLabel: cropLabel,
+        trialType: typeCode,
+        trialTypeLabel: typeLabel,
+        operationTaskCode: opCode,
+        operationTaskLabel: opLabel,
         updatedAt: serverTimestamp()
       };
 
@@ -1611,7 +1630,7 @@
         showToast('Yield block saved.');
       }catch(err){
         console.error('Failed to save yield block:', err);
-        errEl.textContent = `Error saving yield: ${err.message}`;
+        errEl.textContent = `Error saving: ${err.message}`;
         errEl.hidden = false;
       }
     }
@@ -1638,18 +1657,19 @@
       await loadFarmsAndFields();
       await loadTrials();
 
-      // Wire trial overlay close + click on header to edit
+      // Trial overlay close + click on header to edit
       $('#trialOverlay')?.addEventListener('click', e=>{
         if(e.target.id === 'trialOverlay') closeTrialDetail();
       });
       $('#trialCloseBtn')?.addEventListener('click', closeTrialDetail);
 
       $('#trialHdrClickArea')?.addEventListener('click', openEditTrialModal);
-      // Pencil button removed; no separate link listener
 
+      // Edit Trial overlay close/save
       $('#editTrialOverlay')?.addEventListener('click', e=>{
         if(e.target.id === 'editTrialOverlay') closeEditTrialModal();
       });
+      $('#editTrialCloseX')?.addEventListener('click', closeEditTrialModal);
       $('#editTrialCancel')?.addEventListener('click', closeEditTrialModal);
       $('#editTrialSave')?.addEventListener('click', saveEditTrial);
 
@@ -1683,7 +1703,7 @@
 
 <body>
   <fv-shell>
-    <div class="wrap">
+    <div class="page">
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧪</div>
@@ -1696,7 +1716,7 @@
           </div>
         </header>
 
-        <div class="body">
+        <div class="hero-body">
           <div class="toolbar">
             <div class="toolbar-left">
               <button id="btnBack" type="button" class="btn btn-quiet">
@@ -1775,7 +1795,6 @@
               <span class="trial-status-chip" id="trialMetaStatus">planned</span>
             </div>
           </div>
-          <!-- Pencil button intentionally removed -->
         </div>
 
         <section class="trial-section">
@@ -1845,7 +1864,7 @@
       <div class="modal-panel scroll-panel" role="dialog" aria-modal="true">
         <header class="modal-header">
           <h2>Edit trial details</h2>
-          <button type="button" id="editTrialCancel" class="trial-panel-close" aria-label="Close">×</button>
+          <button type="button" id="editTrialCloseX" class="trial-panel-close" aria-label="Close">×</button>
         </header>
 
         <div class="field">
@@ -1968,7 +1987,7 @@
               <input id="yBlockCombines" type="number" step="1" min="0" class="input" placeholder="e.g. 2" />
             </div>
           </div>
-          <div class="field" style="margin-top:6px%;">
+          <div class="field" style="margin-top:6px;">
             <label for="yBlockNotes">Notes (optional)</label>
             <textarea id="yBlockNotes" class="textarea" placeholder="Strip name, direction, program label, etc."></textarea>
           </div>
