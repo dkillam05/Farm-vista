@@ -42,6 +42,67 @@
     .chip{font-size:12px;border:1px solid var(--border);border-radius:999px;padding:4px 8px;color:var(--muted,#67706B);background:var(--surface)}
     .empty{color:var(--muted,#67706B)}
 
+    /* =======================
+       Approval badge (home)
+       ======================= */
+    .dash-badge{
+      display:block;
+      margin:12px 0 18px 0;
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px dashed var(--border-strong,rgba(0,0,0,0.12));
+      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
+      text-decoration:none;
+      color:inherit;
+      box-shadow:0 6px 16px rgba(0,0,0,0.06);
+      transition:transform 0.08s ease, box-shadow 0.08s ease, background 0.08s ease;
+    }
+    .dash-badge:hover{
+      transform:translateY(-1px);
+      box-shadow:0 10px 22px rgba(0,0,0,0.10);
+      background:linear-gradient(90deg, rgba(59,126,70,0.14), transparent);
+    }
+    .dash-badge-body{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .dash-badge-label{
+      font-size:14px;
+      font-weight:600;
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .dash-badge-label span.emoji{
+      font-size:16px;
+    }
+    .dash-badge-count{
+      min-width:34px;
+      min-height:28px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(59,126,70,0.35);
+      background:rgba(59,126,70,0.12);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:700;
+      font-size:14px;
+    }
+    .dash-badge-sub{
+      margin-top:4px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .dash-badge-empty .dash-badge-count{
+      border-style:dotted;
+      background:rgba(0,0,0,0.02);
+      opacity:0.85;
+    }
+
     /* ============================
        FarmVista Copilot (AI box)
        ============================ */
@@ -221,6 +282,27 @@
         </div>
       </section>
 
+      <!-- ==============================================
+           Work orders needing approval (dashboard badge)
+           ============================================== -->
+      <a
+        href="pages/crop-production/field-maintenance/maintenance-approve.html"
+        class="dash-badge"
+        id="wo-approve-badge"
+        aria-label="View work orders that still need approval before work can begin"
+      >
+        <div class="dash-badge-body">
+          <div class="dash-badge-label">
+            <span class="emoji" aria-hidden="true">🧾</span>
+            <span>Work orders needing approval before work can begin</span>
+          </div>
+          <div class="dash-badge-count" id="wo-approve-count">0</div>
+        </div>
+        <div class="dash-badge-sub" id="wo-approve-sub">
+          Checking for pending approvals…
+        </div>
+      </a>
+
       <!-- ============================
            FarmVista Copilot (AI Box)
            ============================ -->
@@ -396,6 +478,77 @@
     refresh();
     document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") refresh(); });
 
+  })();
+  </script>
+
+  <!-- ===========================================
+       Work order approval badge JS (dashboard)
+       =========================================== -->
+  <script>
+  (function(){
+    "use strict";
+
+    const badgeEl   = document.getElementById("wo-approve-badge");
+    const countEl   = document.getElementById("wo-approve-count");
+    const subEl     = document.getElementById("wo-approve-sub");
+    const COL       = "fieldMaintenance"; // adjust if your collection name differs
+
+    if (!badgeEl || !countEl || !subEl) return;
+
+    function applyState(count){
+      const n = Number(count) || 0;
+      countEl.textContent = String(n);
+
+      if (!n){
+        badgeEl.classList.add("dash-badge-empty");
+        subEl.textContent = "All caught up — no approvals needed.";
+      }else{
+        badgeEl.classList.remove("dash-badge-empty");
+        subEl.textContent = n === 1
+          ? "work order waiting for your approval."
+          : "work orders waiting for your approval.";
+      }
+    }
+
+    async function loadPending(){
+      if (!window.FVData || typeof FVData.list !== "function"){
+        applyState(0);
+        return;
+      }
+
+      try{
+        await FVData.ready();
+        // Pull a reasonable set; filter client-side for now
+        const docs = await FVData.list(COL, { limit: 400, mine: false }) || [];
+
+        const pending = docs.filter(d=>{
+          const statusRaw = (d.status || d.workStatus || "").toString().toLowerCase();
+          const requiresApproval = d.requiresApproval === true || d.approvalRequired === true;
+          const approved = d.approved === true || (d.approvalStatus || "").toString().toLowerCase() === "approved";
+
+          const waitingStatus =
+            statusRaw === "pending" ||
+            statusRaw === "submitted" ||
+            statusRaw === "awaiting_approval" ||
+            statusRaw === "needs_approval";
+
+          // Needs approval if:
+          //  - not approved yet AND
+          //  - either flagged as requiresApproval OR in a "waiting" status
+          return !approved && (requiresApproval || waitingStatus);
+        });
+
+        applyState(pending.length);
+      }catch(err){
+        console.warn("[dashboard] failed to load work-order approvals:", err);
+        applyState(0);
+      }
+    }
+
+    loadPending();
+    document.addEventListener("visibilitychange", ()=>{
+      if (document.visibilityState === "visible") loadPending();
+    });
   })();
   </script>
 
