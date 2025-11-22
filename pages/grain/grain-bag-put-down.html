@@ -84,7 +84,6 @@
 
     /* Standardized Inline Combo Dropdown (tight + rounded) */
     .combo{ position:relative }
-    /* Anchor the panel to only the button area (prevents big grid-row gaps) */
     .combo .combo-anchor{ position:relative; display:inline-block; width:100%; }
     .combo-panel{
       position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
@@ -322,15 +321,13 @@
         if(p!==exceptPanel) p.classList.remove('show');
       });
     }
-    // Close on outside click / Esc
     document.addEventListener('click', ()=> closeAllCombos());
     document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
-    /* ---------- generic combo helper (anchor + fixed events) ---------- */
+    /* ---------- generic combo helper ---------- */
     function makeCombo({btn, panel, list, items=[], searchable=false, formatter=x=>String(x.label||x), onPick}){
-      // Prevent outside-click closer when interacting inside the panel
       panel.addEventListener('click', e=> e.stopPropagation());
-      panel.addEventListener('mousedown', e=> e.stopPropagation()); // extra safety for item pick
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
 
       function render(q=""){
         const qq=(q||"").toLowerCase();
@@ -355,7 +352,6 @@
         panel.classList.contains('show') ? close() : open();
       });
 
-      // Use mousedown so selection occurs before any bubbling document click
       list.addEventListener('mousedown', e=>{
         const el=e.target.closest('.combo-item'); if(!el) return;
         const it=(items||[]).find(i=>String(i.id)===String(el.dataset.id)); if(!it) return;
@@ -371,7 +367,7 @@
       return { setItems(arr){ items=arr||[]; render(""); }, close, open };
     }
 
-    /* ---------- partial rows (usage combo uses same standard & anchor) ---------- */
+    /* ---------- partial rows ---------- */
     function updatePartialRangeHelp(){
       const L = Number(chosen.bag?.sizeFeet||0);
       const min=50, max=Math.max(0,L-50);
@@ -389,7 +385,7 @@
       len.addEventListener('input', schedulePartialValidate);
       lenWrap.append(lenLbl,len,lenHelp);
 
-      // usage col (standard combo with anchor)
+      // usage col
       const useWrap=document.createElement('div'); useWrap.className='field combo';
       const useLbl=document.createElement('label'); useLbl.textContent=`Partial ${idx+1} usage`;
 
@@ -441,7 +437,7 @@
       return ok;
     }
 
-    /* ---------- priority slider setup ---------- */
+    /* ---------- priority slider ---------- */
     function setupPriority(){
       const slider = $("priority");
       const valSpan = $("priorityValue");
@@ -466,11 +462,16 @@
 
     /* ---------- formatting ---------- */
     function bagLabel(b){
+      const invDisplay =
+        (b.onHand != null)
+          ? `on hand: ${b.onHand}`
+          : (b.initialQty != null ? `purchased: ${b.initialQty}` : null);
+
       const parts=[
         `${b.brand} — ${b.sizeFeet} ft`,
         b.diameterFt?`Ø${b.diameterFt}'`:null,
         b.location||null,
-        (b.onHand!=null)?`on hand: ${b.onHand}`:null
+        invDisplay
       ].filter(Boolean);
       return parts.join(' • ');
     }
@@ -570,15 +571,35 @@
         }
       }
 
-      // Inventory decrement: +1 if ANY partial is "new"
-      const anyNew = partialUsage.includes('new');
-      const debit = fullBags + (anyNew ? 1 : 0);
-      if(chosen.bag && chosen.bag.onHand!=null && debit>0){
-        try{
-          const next=Math.max(0,Number(chosen.bag.onHand)-debit);
-          await updateDoc(doc(db,'inventoryGrainBagMovements',chosen.bag.id), { onHand:next, updatedAt:serverTimestamp() });
-        }catch(err){
-          console.warn("Inventory decrement failed:", err);
+      // --------- Inventory decrement using qty/onHand ----------
+      // full bags = 1 each; each partial marked "new" = 1 each.
+      const newPartialsCount = partialUsage.filter(v => v === 'new').length;
+      const debit = fullBags + newPartialsCount;
+
+      if (chosen.bag && debit > 0) {
+        // Seed onHand from qty if it doesn't exist yet.
+        const currentOnHand =
+          (chosen.bag.onHand != null)
+            ? Number(chosen.bag.onHand)
+            : (chosen.bag.initialQty != null ? Number(chosen.bag.initialQty) : null);
+
+        if (currentOnHand != null) {
+          if (debit > currentOnHand) {
+            $("err").hidden = false;
+            $("err").textContent = `You only have ${currentOnHand} bags on hand for this SKU but are trying to use ${debit}. Adjust counts or update inventory.`;
+            return;
+          }
+          try {
+            const next = Math.max(0, currentOnHand - debit);
+            await updateDoc(doc(db, 'inventoryGrainBagMovements', chosen.bag.id), {
+              onHand: next,
+              updatedAt: serverTimestamp()
+            });
+            // keep local state in sync
+            chosen.bag.onHand = next;
+          } catch (err) {
+            console.warn("Inventory decrement failed:", err);
+          }
         }
       }
 
@@ -613,7 +634,6 @@
       if(pBlock) pBlock.hidden = true;
       if(pReason) pReason.value = "";
 
-      // Focus the Field picker for quick re-entry
       setTimeout(()=>{
         const fb = document.getElementById('fieldBtn');
         if(fb) fb.focus();
@@ -634,7 +654,6 @@
         {id:"Soybeans",value:"Soybeans",label:"Soybeans"}
       ];
 
-      // Priority slider
       setupPriority();
 
       const fieldCombo = makeCombo({
@@ -748,13 +767,19 @@
             const brand=String(x.brand||"Bag");
             const sizeFeet=Number(x.lengthFt||x.length||0);
             if(sizeFeet<=0) return;
+
+            const qty = (x.qty !== undefined ? Number(x.qty) : null);
+            const onHand = (x.onHand !== undefined ? Number(x.onHand) :
+                            qty !== null ? qty : null);
+
             list.push({
               id:d.id,
               brand,
               sizeFeet,
               diameterFt:Number(x.diameterFt||x.diameter||0)||null,
               location:x.location||null,
-              onHand:(x.onHand!==undefined?Number(x.onHand):null)
+              onHand,
+              initialQty: qty
             });
           });
           list.sort((a,b)=>(`${a.brand} ${a.sizeFeet}`).localeCompare(
@@ -787,7 +812,7 @@
         toast("Bag form ready.", 2200);
       });
 
-      // Cancel (top) -> go back to previous page
+      // Cancel (top)
       const cancelTop = document.getElementById("btnCancelTop");
       if(cancelTop){
         cancelTop.addEventListener("click", ()=> window.history.back());
