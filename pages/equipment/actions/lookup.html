@@ -576,25 +576,86 @@
       if (r) r.checked = true;
     }
 
+    // UPDATED FOR 50mm x 25mm LABEL WITH 24mm QR LEFT, MODEL + LAST6 RIGHT
     function printQR(url, labelText){
       const w = window.open('', '_blank');
       if (!w) return;
+
+      // Parse labelText into model + last6 (expects "Model - #123456")
+      let model = labelText || '';
+      let serial6 = '';
+      if (labelText) {
+        const m = labelText.match(/^(.*?)(?:\s*-\s*#(\w+))?$/);
+        if (m) {
+          model = (m[1] || '').trim();
+          serial6 = (m[2] || '').trim();
+        }
+      }
+
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  @page { size: 2in 1in; margin: 0; }
-  html, body { margin:0; padding:0; background:#fff; }
-  body:before{ content:""; display:block; height:0; }
+  /* Physical label: 50mm x 25mm, no margins */
+  @page { size: 50mm 25mm; margin: 0; }
+  html, body {
+    margin:0; padding:0;
+    width:50mm; height:25mm;
+    background:#fff;
+  }
   #wrap{
-    width:2in; height:1in; margin:0 auto;
-    display:flex; align-items:center; justify-content:center;
+    width:50mm; height:25mm;
+    margin:0;
+    display:flex;
+    align-items:center;
+    justify-content:flex-start;
+    padding-left:2mm;
+    padding-right:2mm;
+    box-sizing:border-box;
     transform:translateZ(0);
   }
-  #card { width:2in; height:1in; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  #qri { max-width: 1.25in; max-height: 0.72in; display:block; image-rendering: pixelated; background:#fff; }
-  #lbl { font:700 10px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height:1; white-space:nowrap; margin-top:2px; }
+  #card{
+    width:100%; height:100%;
+    display:flex;
+    flex-direction:row;
+    align-items:center;
+    justify-content:flex-start;
+  }
+  #qri{
+    width:24mm;
+    height:24mm;
+    display:block;
+    image-rendering:pixelated;
+    background:#fff;
+    margin-right:3mm;
+  }
+  #text{
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:flex-start;
+    max-width:calc(50mm - 24mm - 7mm); /* label width - QR width - margins */
+    overflow:hidden;
+  }
+  #model{
+    font:700 4mm system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.1;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  #serial{
+    font:600 3.2mm system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.1;
+    margin-top:1mm;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
   @media print {
-    html, body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    html, body {
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
     *, *:before, *:after { box-shadow:none !important; }
     #wrap, #card { break-inside:avoid; page-break-inside:avoid; }
   }
@@ -603,7 +664,10 @@
   <div id="wrap">
     <div id="card">
       <img id="qri" src="${url}" alt="QR"/>
-      <div id="lbl">${labelText}</div>
+      <div id="text">
+        <div id="model">${model || ''}</div>
+        <div id="serial">${serial6 ? ('#' + serial6) : ''}</div>
+      </div>
     </div>
   </div>
 <script>
@@ -615,7 +679,10 @@
   setTimeout(()=>{ try{ window.close(); }catch(e){} }, 4000);
 <\/script>
 </body></html>`;
-      w.document.open(); w.document.write(html); w.document.close();
+
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
     }
 
     function resume(){ if (!unsub) attach(); }
