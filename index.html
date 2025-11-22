@@ -360,6 +360,28 @@
         </div>
       </a>
 
+      <!-- =====================================
+           KPI: Grain bag inventory on hand
+           ===================================== -->
+      <a
+        href="pages/grain-tracking/grain-bags.html"
+        class="dash-kpi dash-kpi-empty"
+        id="bag-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Grain Bag Inventory</div>
+            <div class="dash-kpi-title">
+              Bags remaining in sheds
+            </div>
+          </div>
+          <div class="dash-kpi-count" id="bag-kpi-count">–</div>
+        </div>
+        <div class="dash-kpi-sub" id="bag-kpi-sub">
+          Summing bags on hand…
+        </div>
+      </a>
+
       <!-- ============================
            FarmVista Copilot (AI Box)
            ============================ -->
@@ -590,6 +612,82 @@
     loadPending();
     document.addEventListener("visibilitychange", ()=>{
       if (document.visibilityState === "visible") loadPending();
+    });
+  })();
+  </script>
+
+  <!-- ===========================================
+       Grain bag inventory KPI JS (dashboard)
+       =========================================== -->
+  <script>
+  (function(){
+    "use strict";
+
+    const kpiEl   = document.getElementById("bag-kpi");
+    const countEl = document.getElementById("bag-kpi-count");
+    const subEl   = document.getElementById("bag-kpi-sub");
+
+    if (!kpiEl || !countEl || !subEl) return;
+
+    function applyState(totalBags, skuCount){
+      const total = Number(totalBags) || 0;
+      const skus  = Number(skuCount) || 0;
+
+      countEl.textContent = total.toString();
+
+      if (!total){
+        kpiEl.classList.add("dash-kpi-empty");
+        subEl.textContent = "No grain bags on hand in inventory.";
+      }else{
+        kpiEl.classList.remove("dash-kpi-empty");
+        const skuLabel = skus === 1 ? "SKU" : "SKUs";
+        subEl.textContent = `Total bags on hand across ${skus || 1} ${skuLabel}.`;
+      }
+    }
+
+    async function loadBagInventory(){
+      try{
+        if (!window.FVData || typeof FVData.list !== "function"){
+          console.warn("[dashboard] FVData.list not available for bag KPI.");
+          applyState(0, 0);
+          return;
+        }
+
+        await FVData.ready();
+
+        // Pull all bag inventory docs (running total per SKU)
+        const docs = await FVData.list("inventoryGrainBagMovements", {
+          limit: 2000,
+          mine: false
+        }) || [];
+
+        let total = 0;
+        let skuCount = 0;
+
+        docs.forEach(d=>{
+          const rawOnHand = d.onHand;
+          const rawQty    = d.qty;
+          let n = (rawOnHand != null)
+            ? Number(rawOnHand)
+            : (rawQty != null ? Number(rawQty) : 0);
+
+          if (!Number.isFinite(n)) n = 0;
+          if (n > 0){
+            total += n;
+            skuCount += 1;
+          }
+        });
+
+        applyState(total, skuCount);
+      }catch(err){
+        console.warn("[dashboard] failed to load grain-bag inventory KPI:", err);
+        applyState(0, 0);
+      }
+    }
+
+    loadBagInventory();
+    document.addEventListener("visibilitychange", ()=>{
+      if (document.visibilityState === "visible") loadBagInventory();
     });
   })();
   </script>
