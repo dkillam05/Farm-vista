@@ -619,77 +619,74 @@
   <!-- ===========================================
        Grain bag inventory KPI JS (dashboard)
        =========================================== -->
-  <script>
-  (function(){
-    "use strict";
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs
+    } from '/Farm-vista/js/firebase-init.js';
 
-    const kpiEl   = document.getElementById("bag-kpi");
-    const countEl = document.getElementById("bag-kpi-count");
-    const subEl   = document.getElementById("bag-kpi-sub");
+    (async function(){
+      "use strict";
 
-    if (!kpiEl || !countEl || !subEl) return;
+      const kpiEl   = document.getElementById("bag-kpi");
+      const countEl = document.getElementById("bag-kpi-count");
+      const subEl   = document.getElementById("bag-kpi-sub");
 
-    function applyState(totalBags, skuCount){
-      const total = Number(totalBags) || 0;
-      const skus  = Number(skuCount) || 0;
+      if (!kpiEl || !countEl || !subEl) return;
 
-      countEl.textContent = total.toString();
+      function applyState(totalBags, skuCount){
+        const total = Number(totalBags) || 0;
+        const skus  = Number(skuCount) || 0;
 
-      if (!total){
-        kpiEl.classList.add("dash-kpi-empty");
-        subEl.textContent = "No grain bags on hand in inventory.";
-      }else{
-        kpiEl.classList.remove("dash-kpi-empty");
-        const skuLabel = skus === 1 ? "SKU" : "SKUs";
-        subEl.textContent = `Total bags on hand across ${skus || 1} ${skuLabel}.`;
-      }
-    }
+        countEl.textContent = total.toString();
 
-    async function loadBagInventory(){
-      try{
-        if (!window.FVData || typeof FVData.list !== "function"){
-          console.warn("[dashboard] FVData.list not available for bag KPI.");
-          applyState(0, 0);
-          return;
+        if (!total){
+          kpiEl.classList.add("dash-kpi-empty");
+          subEl.textContent = "No grain bags on hand in inventory.";
+        }else{
+          kpiEl.classList.remove("dash-kpi-empty");
+          const skuLabel = skus === 1 ? "SKU" : "SKUs";
+          subEl.textContent = `Total bags on hand across ${skus || 1} ${skuLabel}.`;
         }
-
-        await FVData.ready();
-
-        // Pull all bag inventory docs (running total per SKU)
-        const docs = await FVData.list("inventoryGrainBagMovements", {
-          limit: 2000,
-          mine: false
-        }) || [];
-
-        let total = 0;
-        let skuCount = 0;
-
-        docs.forEach(d=>{
-          const rawOnHand = d.onHand;
-          const rawQty    = d.qty;
-          let n = (rawOnHand != null)
-            ? Number(rawOnHand)
-            : (rawQty != null ? Number(rawQty) : 0);
-
-          if (!Number.isFinite(n)) n = 0;
-          if (n > 0){
-            total += n;
-            skuCount += 1;
-          }
-        });
-
-        applyState(total, skuCount);
-      }catch(err){
-        console.warn("[dashboard] failed to load grain-bag inventory KPI:", err);
-        applyState(0, 0);
       }
-    }
 
-    loadBagInventory();
-    document.addEventListener("visibilitychange", ()=>{
-      if (document.visibilityState === "visible") loadBagInventory();
-    });
-  })();
+      async function loadBagInventory(){
+        try{
+          await ready;
+          const db = getFirestore();
+          const colRef = collection(db, 'inventoryGrainBagMovements');
+          const snap = await getDocs(colRef);
+
+          let total = 0;
+          let skuCount = 0;
+
+          snap.forEach(docSnap => {
+            const d = docSnap.data() || {};
+            let n = (d.onHand != null)
+              ? Number(d.onHand)
+              : (d.qty != null ? Number(d.qty) : 0);
+
+            if (!Number.isFinite(n)) n = 0;
+            if (n > 0){
+              total += n;
+              skuCount += 1;
+            }
+          });
+
+          applyState(total, skuCount);
+        }catch(err){
+          console.warn("[dashboard] failed to load grain-bag inventory KPI:", err);
+          applyState(0, 0);
+        }
+      }
+
+      await loadBagInventory();
+      document.addEventListener("visibilitychange", ()=>{
+        if (document.visibilityState === "visible") loadBagInventory();
+      });
+    })();
   </script>
 
   <!-- ==========================
