@@ -275,7 +275,7 @@
     .ai-mic:hover:not([disabled]){
       transform:translateY(-50%) scale(1.05);
     }
-    .ai-mic[disabled]){
+    .ai-mic[disabled]{
       opacity:0.5;
       cursor:default;
     }
@@ -543,13 +543,12 @@
     const kpiEl   = document.getElementById("wo-approve-kpi");
     const countEl = document.getElementById("wo-approve-count");
     const subEl   = document.getElementById("wo-approve-sub");
-    const COL     = "fieldMaintenance";
 
     if (!kpiEl || !countEl || !subEl) return;
 
     function applyState(count){
       const n = Number(count) || 0;
-      countEl.textContent = n === 0 ? "0" : String(n);
+      countEl.textContent = n.toString();
 
       if (!n){
         kpiEl.classList.add("dash-kpi-empty");
@@ -563,22 +562,22 @@
     }
 
     async function loadPending(){
-      if (!window.FVData || typeof FVData.list !== "function"){
-        applyState(0);
-        return;
-      }
-
       try{
-        await FVData.ready();
-        const docs = await FVData.list(COL, { limit: 400, mine: false }) || [];
+        // Use Firestore directly so this always matches the approve page.
+        if (!window.firebase || !firebase.firestore){
+          console.warn("[dashboard] Firebase not available for KPI.");
+          applyState(0);
+          return;
+        }
 
-        // *** KEY CHANGE: match the exact status value you’re using ***
-        const pending = docs.filter(d=>{
-          const statusRaw = (d.status || "").toString().toLowerCase();
-          return statusRaw === "needs approved";
-        });
+        const db = firebase.firestore();
+        const snap = await db
+          .collection("fieldMaintenance")
+          .where("status", "==", "needs approved")
+          .limit(500)
+          .get();
 
-        applyState(pending.length);
+        applyState(snap.size);
       }catch(err){
         console.warn("[dashboard] failed to load work-order approvals:", err);
         applyState(0);
