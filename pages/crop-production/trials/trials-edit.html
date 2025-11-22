@@ -656,7 +656,8 @@
       combos: {},
       currentTrial: null,
       currentFieldIdx: null,
-      currentFieldYields: []
+      currentFieldYields: [],
+      currentYieldEditId: null // null = add mode, id = edit mode
     };
 
     /* ============ Helpers ============ */
@@ -852,7 +853,7 @@
       renderTrialList();
     }
 
-    /* ============ Load trials (more reliable with FVData) ============ */
+    /* ============ Load trials ============ */
     async function loadTrials(){
       const db = STATE.db;
       const listCol = collection(db,'fieldTrials');
@@ -1075,7 +1076,7 @@
               ${f.fieldName || 'Field ?'}${f.farmName ? ' · '+f.farmName : ''}
             </div>
             <div class="field-pill-sub">
-              ${(f.variety || f.seedBrand) ? (f.variety || f.seedBrand) + ' · ' : ''}
+              ${(f.variety) ? f.variety + ' · ' : ''}
               ${f.trialAcres ? (f.trialAcres + ' ac') : ''}
             </div>
           </div>
@@ -1318,6 +1319,10 @@
       const farmLabel = $('#trialAddFarmBtn').textContent.trim();
       const fieldLabel = $('#trialAddFieldBtn').textContent.trim();
       const acresRaw = $('#trialAddAcres').value.trim();
+      const varietyVal = $('#trialAddVariety').value.trim();
+      const placementVal = $('#trialAddPlacement').value.trim();
+      const plantingVal = $('#trialAddPlantingDate').value.trim();
+      const notesVal = $('#trialAddFieldNotes').value.trim();
       const errEl = $('#trialAddFieldError');
 
       const farmObj = allFarms.find(f=>f.label === farmLabel);
@@ -1356,7 +1361,11 @@
         farmName: farmObj.label,
         fieldId: fieldObj.id,
         fieldName: fieldObj.label,
-        trialAcres
+        trialAcres,
+        variety: varietyVal || null,
+        placement: placementVal || null,
+        plantingDate: plantingVal || null,
+        notes: notesVal || null
       });
 
       try{
@@ -1373,6 +1382,10 @@
         $('#trialAddFarmBtn').textContent = '— Select farm —';
         $('#trialAddFieldBtn').textContent = '— Select field —';
         $('#trialAddAcres').value = '';
+        $('#trialAddVariety').value = '';
+        $('#trialAddPlacement').value = '';
+        $('#trialAddPlantingDate').value = '';
+        $('#trialAddFieldNotes').value = '';
         $('#trialAddFarmHelp').textContent = `${allFarms.length} farm(s) loaded.`;
         $('#trialAddFieldHelp').textContent = `${allFields.length} field(s) loaded.`;
 
@@ -1397,6 +1410,7 @@
 
       STATE.currentFieldIdx = fieldIdx;
       STATE.currentFieldYields = [];
+      STATE.currentYieldEditId = null;
 
       const overlay = $('#fieldOverlay');
       if(!overlay) return;
@@ -1406,6 +1420,9 @@
       const trialBadgeEl = $('#fieldTrialBadge');
       const acresInput = $('#fieldTrialAcres');
       const notesInput = $('#fieldNotes');
+      const varietyInput = $('#fieldVariety');
+      const placementInput = $('#fieldPlacement');
+      const plantDateInput = $('#fieldPlantingDate');
       const yieldErrEl = $('#fieldYieldError');
 
       const trialName = d.trialName || 'Trial';
@@ -1420,6 +1437,9 @@
 
       if(acresInput) acresInput.value = fieldObj.trialAcres != null ? fieldObj.trialAcres : '';
       if(notesInput) notesInput.value = fieldObj.notes || '';
+      if(varietyInput) varietyInput.value = fieldObj.variety || '';
+      if(placementInput) placementInput.value = fieldObj.placement || '';
+      if(plantDateInput) plantDateInput.value = fieldObj.plantingDate || '';
       if(yieldErrEl){
         yieldErrEl.textContent = '';
         yieldErrEl.hidden = true;
@@ -1449,6 +1469,7 @@
       if(overlay) overlay.hidden = true;
       STATE.currentFieldIdx = null;
       STATE.currentFieldYields = [];
+      STATE.currentYieldEditId = null;
     }
 
     async function saveFieldTrialInfo(){
@@ -1463,6 +1484,9 @@
 
       const acresRaw = $('#fieldTrialAcres').value.trim();
       const notesVal = $('#fieldNotes').value.trim();
+      const varietyVal = $('#fieldVariety').value.trim();
+      const placementVal = $('#fieldPlacement').value.trim();
+      const plantingVal = $('#fieldPlantingDate').value.trim();
       const errEl = $('#fieldInfoError');
 
       let acresNum = null;
@@ -1481,6 +1505,9 @@
 
       fieldObj.trialAcres = acresNum;
       fieldObj.notes = notesVal || null;
+      fieldObj.variety = varietyVal || null;
+      fieldObj.placement = placementVal || null;
+      fieldObj.plantingDate = plantingVal || null;
       arr[idx] = fieldObj;
 
       try{
@@ -1585,7 +1612,7 @@
         const note = d.notes;
 
         return `
-          <div class="yield-pill">
+          <div class="yield-pill" data-yid="${y.id}">
             <div><span class="fw-bold">${acres ?? '?'} ac</span> · ${lbs ?? '?'} lbs · ${m ?? '?'}% moisture</div>
             <div class="help-text">
               Yield: ${wet != null ? wet.toFixed(1) : '?'} bu/ac (wet),
@@ -1596,6 +1623,40 @@
           </div>
         `;
       }).join('');
+    }
+
+    function openYieldFormNew(){
+      const form = $('#yieldForm');
+      if(!form) return;
+      STATE.currentYieldEditId = null;
+      $('#yBlockAcres').value = '';
+      $('#yBlockLbs').value = '';
+      $('#yBlockMoisture').value = '';
+      $('#yBlockCombines').value = '';
+      $('#yBlockNotes').value = '';
+      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
+      $('#fieldYieldError').textContent = '';
+      $('#fieldYieldError').hidden = true;
+      form.hidden = false;
+    }
+
+    function openYieldEdit(yItem){
+      const d = yItem.data || {};
+      const form = $('#yieldForm');
+      if(!form) return;
+
+      STATE.currentYieldEditId = yItem.id;
+
+      $('#yBlockAcres').value = d.blockAcres != null ? d.blockAcres : '';
+      $('#yBlockLbs').value = d.lbs != null ? Number(d.lbs).toLocaleString() : '';
+      $('#yBlockMoisture').value = d.moisture != null ? d.moisture : '';
+      $('#yBlockCombines').value = d.combines != null ? d.combines : '';
+      $('#yBlockNotes').value = d.notes || '';
+      $('#fieldYieldError').textContent = '';
+      $('#fieldYieldError').hidden = true;
+
+      form.hidden = false;
+      updateYieldHelper();
     }
 
     async function saveYieldBlock(){
@@ -1653,7 +1714,7 @@
         ? window.FVData.uid()
         : null;
 
-      const docData = {
+      const baseData = {
         trialId: item.id,
         fieldId: fieldObj.fieldId,
         fieldName: fieldObj.fieldName || null,
@@ -1665,21 +1726,43 @@
         yieldWet: yRes ? yRes.wet : null,
         yieldAdj: yRes ? yRes.adj : null,
         notes: note || null,
-        uid: uid || null,
-        createdAt: serverTimestamp()
+        uid: uid || null
       };
 
       try{
-        const ref = await addDoc(collection(db,'fieldTrials',item.id,'yieldBlocks'), docData);
-        STATE.currentFieldYields.unshift({id:ref.id, data:docData});
-        renderYieldList();
-        $('#yBlockAcres').value = '';
-        $('#yBlockLbs').value = '';
-        $('#yBlockMoisture').value = '';
-        $('#yBlockCombines').value = '';
-        $('#yBlockNotes').value = '';
-        updateYieldHelper();
-        showToast('Yield block saved.');
+        const editingId = STATE.currentYieldEditId;
+        if(editingId){
+          // Edit existing yield block
+          await updateDoc(doc(db,'fieldTrials',item.id,'yieldBlocks',editingId), {
+            ...baseData,
+            updatedAt: serverTimestamp()
+          });
+          const idxY = STATE.currentFieldYields.findIndex(y=>y.id === editingId);
+          if(idxY !== -1){
+            STATE.currentFieldYields[idxY].data = {
+              ...STATE.currentFieldYields[idxY].data,
+              ...baseData
+            };
+          }
+          renderYieldList();
+          showToast('Yield block updated.');
+        }else{
+          // New yield block
+          const docData = {
+            ...baseData,
+            createdAt: serverTimestamp()
+          };
+          const ref = await addDoc(collection(db,'fieldTrials',item.id,'yieldBlocks'), docData);
+          STATE.currentFieldYields.unshift({id:ref.id, data:docData});
+          renderYieldList();
+          $('#yBlockAcres').value = '';
+          $('#yBlockLbs').value = '';
+          $('#yBlockMoisture').value = '';
+          $('#yBlockCombines').value = '';
+          $('#yBlockNotes').value = '';
+          updateYieldHelper();
+          showToast('Yield block saved.');
+        }
       }catch(err){
         console.error('Failed to save yield block:', err);
         errEl.textContent = `Error saving: ${err.message}`;
@@ -1750,14 +1833,12 @@
       $('#fieldCancelBtn')?.addEventListener('click', closeFieldOverlay);
       $('#fieldSaveInfoBtn')?.addEventListener('click', saveFieldTrialInfo);
 
-      // Yield form open/close + events
-      $('#openYieldFormBtn')?.addEventListener('click', ()=>{
-        const form = $('#yieldForm');
-        if(form) form.hidden = false;
-      });
+      // Yield form open, editing, and input events
+      $('#openYieldFormBtn')?.addEventListener('click', openYieldFormNew);
 
       $('#yBlockAcres')?.addEventListener('input', updateYieldHelper);
       $('#yBlockMoisture')?.addEventListener('input', updateYieldHelper);
+      $('#yBlockCombines')?.addEventListener('input', updateYieldHelper);
 
       // Special handler for pounds to keep commas + numeric keypad
       const lbsInput = $('#yBlockLbs');
@@ -1776,8 +1857,16 @@
         });
       }
 
-      $('#yBlockCombines')?.addEventListener('input', updateYieldHelper);
       $('#saveYieldBlockBtn')?.addEventListener('click', saveYieldBlock);
+
+      // Click to edit yield blocks
+      $('#yieldList')?.addEventListener('click', e=>{
+        const pill = e.target.closest('.yield-pill');
+        if(!pill) return;
+        const yid = pill.dataset.yid;
+        const yItem = STATE.currentFieldYields.find(y=>y.id === yid);
+        if(yItem) openYieldEdit(yItem);
+      });
 
       window.addEventListener('online', ()=> showToast('Back online — syncing…', 3500));
       window.addEventListener('offline',()=> showToast('Currently offline — using saved data', 3500));
@@ -1983,7 +2072,7 @@
         <header class="field-header">
           <div>
             <div class="field-title">Add field to trial</div>
-            <div class="field-sub">Select farm, field, and trial acres.</div>
+            <div class="field-sub">Select farm, field, and trial details.</div>
           </div>
           <button type="button" id="addFieldCancelBtn" class="trial-panel-close" aria-label="Close">×</button>
         </header>
@@ -2019,9 +2108,29 @@
             </div>
 
             <div class="field">
+              <label for="trialAddVariety">Variety / hybrid (for this trial)</label>
+              <input id="trialAddVariety" class="input" placeholder="e.g. P1742Q" />
+            </div>
+
+            <div class="field">
+              <label for="trialAddPlacement">Placement / application of trial product</label>
+              <input id="trialAddPlacement" class="input" placeholder="e.g. East half, top of hill" />
+            </div>
+
+            <div class="field">
+              <label for="trialAddPlantingDate">Planting date</label>
+              <input id="trialAddPlantingDate" type="date" class="input" />
+            </div>
+
+            <div class="field">
               <label for="trialAddAcres">Trial acres (optional)</label>
               <input id="trialAddAcres" type="number" step="0.01" min="0" inputmode="decimal" class="input" placeholder="e.g. 12.5" />
               <div class="help-text">Acres of this field that are actually in the trial.</div>
+            </div>
+
+            <div class="field" style="grid-column:1/-1;">
+              <label for="trialAddFieldNotes">Field-specific notes (optional)</label>
+              <textarea id="trialAddFieldNotes" class="textarea" placeholder="Pop, passes, treatment details…"></textarea>
             </div>
           </div>
 
@@ -2052,11 +2161,23 @@
           <h3>Trial info for this field</h3>
           <div class="field-grid">
             <div class="field">
+              <label for="fieldVariety">Variety / hybrid (for this field)</label>
+              <input id="fieldVariety" class="input" placeholder="e.g. P1742Q" />
+            </div>
+            <div class="field">
+              <label for="fieldPlacement">Placement / application</label>
+              <input id="fieldPlacement" class="input" placeholder="e.g. South end, across rows" />
+            </div>
+            <div class="field">
+              <label for="fieldPlantingDate">Planting date</label>
+              <input id="fieldPlantingDate" type="date" class="input" />
+            </div>
+            <div class="field">
               <label for="fieldTrialAcres">Trial acres (for this field)</label>
               <input id="fieldTrialAcres" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 12.5" />
               <div class="help-text">Acres of this field that are actually in the trial.</div>
             </div>
-            <div class="field">
+            <div class="field" style="grid-column:1/-1;">
               <label for="fieldNotes">Field-specific notes</label>
               <textarea id="fieldNotes" class="textarea" placeholder="Pop, passes, planter rows, etc."></textarea>
             </div>
