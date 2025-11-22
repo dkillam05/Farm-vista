@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test – Approval Counter</title>
+
+  <!-- Firebase core + Firestore -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+</head>
+
+<body style="font-family: Arial; padding: 20px;">
+
+  <h2>Test – Work Orders Needing Approval</h2>
+
+  <p><strong>Count:</strong> <span id="count">loading…</span></p>
+
+  <pre id="log" style="background:#eee; padding:10px; border-radius:6px; white-space:pre-wrap;"></pre>
+
+  <script>
+    async function runTest() {
+      const out = document.getElementById("count");
+      const log = document.getElementById("log");
+
+      try {
+        if (!window.firebase || !firebase.firestore) {
+          out.textContent = "Firebase not loaded.";
+          log.textContent = "firebase.firestore is undefined.";
+          return;
+        }
+
+        const db = firebase.firestore();
+
+        log.textContent += "Running query:\n";
+        log.textContent += `collection('fieldMaintenance').where('status', '==', 'needs approved')\n\n`;
+
+        const snap = await db
+          .collection("fieldMaintenance")
+          .where("status", "==", "needs approved")
+          .get();
+
+        out.textContent = snap.size;
+
+        log.textContent += `Returned documents: ${snap.size}\n\n`;
+
+        snap.forEach(doc => {
+          log.textContent += `ID: ${doc.id}\n`;
+          log.textContent += JSON.stringify(doc.data(), null, 2) + "\n\n";
+        });
+
+      } catch (err) {
+        out.textContent = "ERROR";
+        log.textContent += "\nERROR:\n" + (err.message || err);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", runTest);
+  </script>
+
+</body>
+</html>
