@@ -403,7 +403,7 @@
         width:100%;
         max-width:100%;
         border-radius:18px;
-        align-self:flex-end;
+        align-self:center; /* center on mobile instead of bottom */
       }
     }
 
@@ -491,6 +491,7 @@
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
+      color:var(--text); /* prevent blue link styling */
     }
     .field-pill-sub{
       font-size:0.78rem;
@@ -588,6 +589,15 @@
       background:var(--card-surface,var(--surface));
     }
 
+    /* Yield header row for button placement */
+    .yield-header-row{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
     .toast{
       position:fixed;
       left:50%;
@@ -669,6 +679,10 @@
         return cleaned.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
       }
       return s;
+    }
+
+    function stripCommas(val){
+      return (val || '').replace(/,/g,'');
     }
 
     /* ============ Combos ============ */
@@ -1411,12 +1425,15 @@
         yieldErrEl.hidden = true;
       }
 
+      // Reset yield form
       $('#yBlockAcres').value = '';
       $('#yBlockLbs').value = '';
       $('#yBlockMoisture').value = '';
       $('#yBlockCombines').value = '';
       $('#yBlockNotes').value = '';
       $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
+      const yieldForm = $('#yieldForm');
+      if(yieldForm) yieldForm.hidden = true; // keep collapsed until user taps Add
 
       $('#yieldList').innerHTML = '<div class="help-text">Loading yield blocks…</div>';
 
@@ -1504,8 +1521,10 @@
 
     function updateYieldHelper(){
       const acres = Number($('#yBlockAcres').value || '0');
-      const lbs = Number($('#yBlockLbs').value || '0');
-      const m = $('#yBlockMoisture').value ? Number($('#yBlockMoisture').value) : null;
+      const lbsVal = stripCommas($('#yBlockLbs').value || '0');
+      const lbs = Number(lbsVal || '0');
+      const mVal = $('#yBlockMoisture').value;
+      const m = mVal ? Number(mVal) : null;
       const helper = $('#yBlockYieldHelper');
 
       const res = computeYield(acres, lbs, m);
@@ -1591,7 +1610,7 @@
       if(!fieldObj) return;
 
       const acresRaw = $('#yBlockAcres').value.trim();
-      const lbsRaw = $('#yBlockLbs').value.trim();
+      const lbsRaw = stripCommas($('#yBlockLbs').value.trim());
       const mRaw   = $('#yBlockMoisture').value.trim();
       const combRaw= $('#yBlockCombines').value.trim();
       const note   = $('#yBlockNotes').value.trim();
@@ -1612,15 +1631,28 @@
         errEl.hidden = false;
         return;
       }
-      if(m!=null && (Number.isNaN(m) || m<0 || m>50)){
-        errEl.textContent = 'Moisture % looks invalid.';
-        errEl.hidden = false;
-        return;
+
+      if(m != null){
+        if(Number.isNaN(m) || m < 5 || m > 40){
+          errEl.textContent = 'Moisture % must be between 5.00 and 40.00.';
+          errEl.hidden = false;
+          return;
+        }
+        if(!/^\d+(\.\d{1,2})?$/.test(mRaw)){
+          errEl.textContent = 'Moisture % can have at most two decimals.';
+          errEl.hidden = false;
+          return;
+        }
       }
+
       errEl.textContent = '';
       errEl.hidden = true;
 
       const yRes = computeYield(acres, lbs, m);
+      const uid = (window.FVData && typeof window.FVData.uid === 'function')
+        ? window.FVData.uid()
+        : null;
+
       const docData = {
         trialId: item.id,
         fieldId: fieldObj.fieldId,
@@ -1633,6 +1665,7 @@
         yieldWet: yRes ? yRes.wet : null,
         yieldAdj: yRes ? yRes.adj : null,
         notes: note || null,
+        uid: uid || null,
         createdAt: serverTimestamp()
       };
 
@@ -1717,9 +1750,33 @@
       $('#fieldCancelBtn')?.addEventListener('click', closeFieldOverlay);
       $('#fieldSaveInfoBtn')?.addEventListener('click', saveFieldTrialInfo);
 
+      // Yield form open/close + events
+      $('#openYieldFormBtn')?.addEventListener('click', ()=>{
+        const form = $('#yieldForm');
+        if(form) form.hidden = false;
+      });
+
       $('#yBlockAcres')?.addEventListener('input', updateYieldHelper);
-      $('#yBlockLbs')?.addEventListener('input', updateYieldHelper);
       $('#yBlockMoisture')?.addEventListener('input', updateYieldHelper);
+
+      // Special handler for pounds to keep commas + numeric keypad
+      const lbsInput = $('#yBlockLbs');
+      if(lbsInput){
+        lbsInput.addEventListener('input', (e)=>{
+          let raw = e.target.value;
+          raw = raw.replace(/[^\d]/g,''); // digits only
+          if(!raw){
+            e.target.value = '';
+            updateYieldHelper();
+            return;
+          }
+          const num = Number(raw);
+          e.target.value = num.toLocaleString();
+          updateYieldHelper();
+        });
+      }
+
+      $('#yBlockCombines')?.addEventListener('input', updateYieldHelper);
       $('#saveYieldBlockBtn')?.addEventListener('click', saveYieldBlock);
 
       window.addEventListener('online', ()=> showToast('Back online — syncing…', 3500));
@@ -1963,7 +2020,7 @@
 
             <div class="field">
               <label for="trialAddAcres">Trial acres (optional)</label>
-              <input id="trialAddAcres" type="number" step="0.01" min="0" class="input" placeholder="e.g. 12.5" />
+              <input id="trialAddAcres" type="number" step="0.01" min="0" inputmode="decimal" class="input" placeholder="e.g. 12.5" />
               <div class="help-text">Acres of this field that are actually in the trial.</div>
             </div>
           </div>
@@ -1996,7 +2053,7 @@
           <div class="field-grid">
             <div class="field">
               <label for="fieldTrialAcres">Trial acres (for this field)</label>
-              <input id="fieldTrialAcres" class="input" type="number" min="0" step="0.01" placeholder="e.g. 12.5" />
+              <input id="fieldTrialAcres" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 12.5" />
               <div class="help-text">Acres of this field that are actually in the trial.</div>
             </div>
             <div class="field">
@@ -2013,37 +2070,46 @@
         </section>
 
         <section class="trial-section">
-          <h3>Yield blocks for this field</h3>
-          <div class="yield-grid">
-            <div class="field">
-              <label for="yBlockAcres">Block acres</label>
-              <input id="yBlockAcres" type="number" step="0.01" min="0" class="input" placeholder="e.g. 12.5" />
-            </div>
-            <div class="field">
-              <label for="yBlockLbs">Pounds of grain</label>
-              <input id="yBlockLbs" type="number" step="1" min="0" class="input" placeholder="e.g. 65000" />
-            </div>
-            <div class="field">
-              <label for="yBlockMoisture">Moisture (%)</label>
-              <input id="yBlockMoisture" type="number" step="0.1" min="0" max="50" class="input" placeholder="e.g. 21.0" />
-            </div>
-            <div class="field">
-              <label for="yBlockCombines"># combines (info only)</label>
-              <input id="yBlockCombines" type="number" step="1" min="0" class="input" placeholder="e.g. 2" />
-            </div>
-          </div>
-          <div class="field" style="margin-top:6px;">
-            <label for="yBlockNotes">Notes (optional)</label>
-            <textarea id="yBlockNotes" class="textarea" placeholder="Strip name, direction, program label, etc."></textarea>
-          </div>
-          <div id="yBlockYieldHelper" class="help-text" style="margin-top:4px;">
-            Enter acres, pounds, and moisture to see calculated yield.
-          </div>
-          <div id="fieldYieldError" class="trial-error" hidden></div>
-          <div style="margin-top:6px;">
-            <button type="button" id="saveYieldBlockBtn" class="btn btn-primary btn-small">
+          <div class="yield-header-row">
+            <h3>Yield blocks for this field</h3>
+            <button type="button" id="openYieldFormBtn" class="btn btn-primary btn-small">
               + Add yield block
             </button>
+          </div>
+
+          <!-- Yield form is hidden until Add button is tapped -->
+          <div id="yieldForm" hidden>
+            <div class="yield-grid" style="margin-top:6px;">
+              <div class="field">
+                <label for="yBlockAcres">Block acres</label>
+                <input id="yBlockAcres" type="number" step="0.01" min="0" inputmode="decimal" class="input" placeholder="e.g. 12.5" />
+              </div>
+              <div class="field">
+                <label for="yBlockLbs">Pounds of grain</label>
+                <input id="yBlockLbs" type="text" inputmode="numeric" pattern="[0-9,]*" class="input" placeholder="e.g. 65,000" />
+              </div>
+              <div class="field">
+                <label for="yBlockMoisture">Moisture (%)</label>
+                <input id="yBlockMoisture" type="number" step="0.01" min="5" max="40" inputmode="decimal" class="input" placeholder="e.g. 21.0" />
+              </div>
+              <div class="field">
+                <label for="yBlockCombines"># combines (info only)</label>
+                <input id="yBlockCombines" type="number" step="1" min="0" inputmode="numeric" class="input" placeholder="e.g. 2" />
+              </div>
+            </div>
+            <div class="field" style="margin-top:6px;">
+              <label for="yBlockNotes">Notes (optional)</label>
+              <textarea id="yBlockNotes" class="textarea" placeholder="Strip name, direction, program label, etc."></textarea>
+            </div>
+            <div id="yBlockYieldHelper" class="help-text" style="margin-top:4px;">
+              Enter acres, pounds, and moisture to see calculated yield.
+            </div>
+            <div id="fieldYieldError" class="trial-error" hidden></div>
+            <div style="margin-top:6px;">
+              <button type="button" id="saveYieldBlockBtn" class="btn btn-primary btn-small">
+                Save yield block
+              </button>
+            </div>
           </div>
 
           <div id="yieldList" class="yield-list"></div>
