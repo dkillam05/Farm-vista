@@ -87,11 +87,11 @@
           <div class="row">
             <div class="field">
               <label for="qty">Quantity (bags)</label>
-              <input id="qty" class="input" inputmode="numeric" type="number" min="1" step="1" placeholder="e.g., 10">
+              <input id="qty" class="input" inputmode="numeric" type="number" min="1" step="1" placeholder="e.g., 500">
             </div>
             <div class="field">
               <label for="location">Storage location <span class="muted">(optional)</span></label>
-              <input id="location" class="input" placeholder="e.g., North shed, bay 2">
+              <input id="location" class="input" placeholder="e.g., Main Shop, North shed, bay 2">
             </div>
           </div>
 
@@ -119,7 +119,7 @@
     import {
       ready,
       getFirestore, collection, query, orderBy, getDocs,
-      where, addDoc, doc, serverTimestamp
+      addDoc, doc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     (function(){
@@ -152,7 +152,7 @@
 
       async function loadProducts(){
         PRODUCTS = []; P_MAP.clear();
-        // Simple orderBy (no composite index needed); filter status client-side
+        // Simple orderBy; filter status client-side
         const qs = await getDocs(query(productsRef(), orderBy('brand')));
         qs.forEach(s=>{
           const d = s.data()||{};
@@ -216,17 +216,21 @@
         const qty = toInt($("qty").value);
         if(!(qty>=1)){ alert("Quantity must be a whole number ≥ 1."); return; }
 
+        const location = String($("location").value||"").trim() || null;
+        const note = String($("note").value||"").trim() || null;
+
         const payload = {
           type: 'add',
-          qty,
+          qty,                 // purchased count in this batch
+          onHand: qty,         // starting on-hand for this batch
           productRef: doc(db, 'productsGrainBags', id),
           brand: p.brand || null,
           diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
           lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
           thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
           status: p.status || null,
-          location: String($("location").value||"").trim() || null,
-          note: String($("note").value||"").trim() || null,
+          location,
+          note,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
@@ -243,7 +247,7 @@
       }
 
       (async()=>{
-        const ctx = await ready; // same readiness gate as Fields
+        const ctx = await ready;
         if(ctx.mode!=='firebase'){
           alert("Firestore not available (stub mode). This page expects Firebase to be live.");
         }
