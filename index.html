@@ -563,21 +563,24 @@
 
     async function loadPending(){
       try{
-        // Use Firestore directly so this always matches the approve page.
-        if (!window.firebase || !firebase.firestore){
-          console.warn("[dashboard] Firebase not available for KPI.");
+        if (!window.FVData || typeof FVData.getWhere !== "function"){
+          console.warn("[dashboard] FVData.getWhere not available for KPI.");
           applyState(0);
           return;
         }
 
-        const db = firebase.firestore();
-        const snap = await db
-          .collection("fieldMaintenance")
-          .where("status", "==", "needs approved")
-          .limit(500)
-          .get();
+        await FVData.ready();
 
-        applyState(snap.size);
+        // EXACT same logic as the working dev test page:
+        const docs = await FVData.getWhere(
+          "fieldMaintenance",
+          "status",
+          "==",
+          "needs approved",
+          { limit: 500 }
+        ) || [];
+
+        applyState(docs.length);
       }catch(err){
         console.warn("[dashboard] failed to load work-order approvals:", err);
         applyState(0);
