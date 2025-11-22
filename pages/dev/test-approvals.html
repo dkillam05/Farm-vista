@@ -2,54 +2,72 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Test – Approval Counter</title>
+  <title>Test – Work Orders Needing Approval</title>
 
-  <!-- Firebase core + Firestore -->
+  <!-- Load your normal Firebase + FVData stack -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
+  <script src="/Farm-vista/js/fv-data.js"></script>
 </head>
 
-<body style="font-family: Arial; padding: 20px;">
+<body style="font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; padding: 20px;">
 
   <h2>Test – Work Orders Needing Approval</h2>
 
-  <p><strong>Count:</strong> <span id="count">loading…</span></p>
+  <p><strong>Needs approved count:</strong> <span id="needs-count">loading…</span></p>
+  <p><strong>Total fieldMaintenance docs seen by FVData:</strong> <span id="total-count">loading…</span></p>
 
-  <pre id="log" style="background:#eee; padding:10px; border-radius:6px; white-space:pre-wrap;"></pre>
+  <h3>Debug log</h3>
+  <pre id="log" style="background:#eee; padding:10px; border-radius:6px; white-space:pre-wrap; font-size:12px;"></pre>
 
   <script>
     async function runTest() {
-      const out = document.getElementById("count");
+      const needsSpan = document.getElementById("needs-count");
+      const totalSpan = document.getElementById("total-count");
       const log = document.getElementById("log");
 
       try {
-        if (!window.firebase || !firebase.firestore) {
-          out.textContent = "Firebase not loaded.";
-          log.textContent = "firebase.firestore is undefined.";
+        if (!window.FVData || typeof FVData.list !== "function") {
+          needsSpan.textContent = "FVData not available";
+          totalSpan.textContent = "-";
+          log.textContent = "FVData or FVData.list is undefined. Make sure fv-data.js is loading.";
           return;
         }
 
-        const db = firebase.firestore();
+        log.textContent += "Calling FVData.ready()…\n";
+        await FVData.ready();
 
-        log.textContent += "Running query:\n";
-        log.textContent += `collection('fieldMaintenance').where('status', '==', 'needs approved')\n\n`;
+        log.textContent += "Listing fieldMaintenance docs via FVData.list…\n\n";
 
-        const snap = await db
-          .collection("fieldMaintenance")
-          .where("status", "==", "needs approved")
-          .get();
+        const docs = await FVData.list("fieldMaintenance", {
+          limit: 500,
+          mine: false
+        }) || [];
 
-        out.textContent = snap.size;
+        totalSpan.textContent = docs.length.toString();
 
-        log.textContent += `Returned documents: ${snap.size}\n\n`;
-
-        snap.forEach(doc => {
-          log.textContent += `ID: ${doc.id}\n`;
-          log.textContent += JSON.stringify(doc.data(), null, 2) + "\n\n";
+        const pending = docs.filter(d => {
+          const status = (d.status || "").toString().toLowerCase().trim();
+          return status === "needs approved";
         });
 
+        needsSpan.textContent = pending.length.toString();
+
+        log.textContent += `Total docs returned: ${docs.length}\n`;
+        log.textContent += `Docs with status === "needs approved": ${pending.length}\n\n`;
+
+        pending.forEach(d => {
+          log.textContent += `ID: ${d.id || "(no id)"}\n`;
+          log.textContent += JSON.stringify(d, null, 2) + "\n\n";
+        });
+
+        if (pending.length === 0) {
+          log.textContent += "No docs matched status === \"needs approved\".\n";
+        }
+
       } catch (err) {
-        out.textContent = "ERROR";
-        log.textContent += "\nERROR:\n" + (err.message || err);
+        needsSpan.textContent = "ERROR";
+        totalSpan.textContent = "-";
+        log.textContent += "\nERROR:\n" + (err && err.message ? err.message : err);
       }
     }
 
