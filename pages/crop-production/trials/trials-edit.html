@@ -14,6 +14,9 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
+  <!-- Data helper for more reliable Firebase binding -->
+  <script src="/Farm-vista/js/fv-data.js"></script>
+
   <style>
     :root{
       --card-max: 1200px;
@@ -36,7 +39,9 @@
       overflow-x:hidden; /* guard against horizontal scroll */
     }
 
-    a, a:visited{
+    /* No blue links, even in dark mode */
+    a,
+    a:visited{
       color:var(--text);
       text-decoration:none;
     }
@@ -123,11 +128,11 @@
       font-weight:800;
       cursor:pointer;
       user-select:none;
-      color:var(--text)!important;
       background:var(--card-surface,var(--surface));
       font-size:0.9rem;
       gap:6px;
       text-decoration:none;
+      color:var(--text)!important; /* default buttons use body text color */
     }
     .btn-quiet{
       min-width:auto;
@@ -139,7 +144,7 @@
       background:var(--green,#3B7E46);
     }
     .btn.btn-primary{
-      color:#fff !important; /* force white text on green */
+      color:#fff !important; /* FORCE white text on green, all modes */
     }
     .btn-small{
       min-width:0;
@@ -154,7 +159,8 @@
       margin:0 0 4px;
       font-size:0.86rem;
     }
-    .select, .input{
+    .select,
+    .input{
       width:100%;
       font:inherit;
       font-size:0.9rem;
@@ -168,9 +174,10 @@
     }
     .input{border-radius:10px;}
 
+    /* Filters: 3 clean equal columns */
     .filters-grid{
       display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr)); /* 3 equal columns */
+      grid-template-columns:repeat(3,minmax(0,1fr));
       gap:10px;
     }
     @media(max-width:900px){
@@ -329,6 +336,7 @@
       text-transform:uppercase;
       letter-spacing:0.06em;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
     }
     .trial-bottom-row{
       display:flex;
@@ -425,6 +433,7 @@
       cursor:pointer;
       padding:4px;
       border-radius:999px;
+      color:var(--text);
     }
     .trial-header-chips{
       display:flex;
@@ -441,6 +450,7 @@
       border-radius:999px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       font-size:0.78rem;
+      color:var(--text);
     }
     .chip-label{font-weight:600;}
 
@@ -612,7 +622,7 @@
 
   <script type="module">
     import {
-      ready,
+      ready as fbReady,
       getFirestore,
       collection, getDocs, doc, updateDoc, addDoc,
       query, orderBy,
@@ -650,10 +660,10 @@
       setTimeout(()=>t.classList.remove('show'), ms);
     }
 
+    // Make ugly ALLCAPS / UNDERSCORE labels look like "Corn" / "Fungicide Program"
     function smartLabel(str){
       if(!str) return '';
       const s = String(str);
-      // If it's ALL CAPS or has underscores, prettify
       if(s === s.toUpperCase() || s.includes('_')){
         const cleaned = s.replace(/_/g,' ');
         return cleaned.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
@@ -791,7 +801,6 @@
       }
       return 'active';
     }
-
     function bucketLabel(bucket){
       return bucket === 'completed' ? 'Completed / Archived' : 'Active';
     }
@@ -829,10 +838,11 @@
       renderTrialList();
     }
 
-    /* ============ Load trials ============ */
+    /* ============ Load trials (more reliable with FVData) ============ */
     async function loadTrials(){
       const db = STATE.db;
-      const snap = await getDocs(query(collection(db,'fieldTrials'), orderBy('createdAt','desc')));
+      const listCol = collection(db,'fieldTrials');
+      const snap = await getDocs(query(listCol, orderBy('createdAt','desc')));
       const items = [];
       snap.forEach(d=>{
         items.push({id:d.id, data:d.data() || {}});
@@ -1646,7 +1656,12 @@
 
     /* ============ Boot ============ */
     (async function boot(){
-      await ready;
+      // Wait for BOTH firebase-init and FVData (for more reliable binding)
+      await Promise.all([
+        fbReady,
+        window.FVData && window.FVData.ready ? window.FVData.ready() : Promise.resolve()
+      ]);
+
       const db  = getFirestore();
       STATE.db = db;
 
@@ -1659,9 +1674,11 @@
 
       initFilterCombos();
       initAddFieldCombos();
+
       await loadFarmsAndFields();
       await loadTrials();
 
+      // Trial overlay
       $('#trialOverlay')?.addEventListener('click', e=>{
         if(e.target.id === 'trialOverlay') closeTrialDetail();
       });
@@ -1669,6 +1686,7 @@
 
       $('#trialHdrClickArea')?.addEventListener('click', openEditTrialModal);
 
+      // Edit Trial modal
       $('#editTrialOverlay')?.addEventListener('click', e=>{
         if(e.target.id === 'editTrialOverlay') closeEditTrialModal();
       });
@@ -1676,6 +1694,7 @@
       $('#editTrialCancel')?.addEventListener('click', closeEditTrialModal);
       $('#editTrialSave')?.addEventListener('click', saveEditTrial);
 
+      // Add field modal
       $('#openAddFieldModalBtn')?.addEventListener('click', openAddFieldModal);
       $('#addFieldOverlay')?.addEventListener('click', e=>{
         if(e.target.id === 'addFieldOverlay') closeAddFieldModal();
@@ -1683,6 +1702,7 @@
       $('#addFieldCancelBtn')?.addEventListener('click', closeAddFieldModal);
       $('#trialAddFieldBtnSave')?.addEventListener('click', handleAddFieldToTrial);
 
+      // Field overlay
       $('#trialFieldsList')?.addEventListener('click', e=>{
         const pill = e.target.closest('.field-pill');
         if(!pill) return;
