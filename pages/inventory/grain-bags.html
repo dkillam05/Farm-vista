@@ -45,7 +45,7 @@
     .btn-quiet{min-width:auto;padding:8px 12px}
     .muted{ color:var(--muted,#67706B); }
 
-    /* Toast (same pattern as Fields) */
+    /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 4s forwards;}
@@ -63,7 +63,10 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Add Grain Bags to Inventory</h1>
-      <p class="page-sub">Record <strong>bags on-hand in the shed</strong>. Choose the bag (brand • size) from your Products list, enter quantity, and save.</p>
+      <p class="page-sub">
+        Record <strong>bags on-hand in the shed</strong>. Choose the bag (brand • size) from your Products list, enter quantity, and save.
+        Each save updates the running total for that bag.
+      </p>
 
       <section class="section">
         <header class="section-head">
@@ -114,12 +117,12 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Modular Firebase (same pattern as Fields) -->
+  <!-- Modular Firebase -->
   <script type="module">
     import {
       ready,
       getFirestore, collection, query, orderBy, getDocs,
-      addDoc, doc, serverTimestamp
+      addDoc, doc, serverTimestamp, where, updateDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     (function(){
@@ -132,7 +135,6 @@
         toast.classList.add("show");
         setTimeout(()=> toast.classList.remove("show"), 3500);
       };
-      const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
       const toInt = (v)=> {
         const n = Number(String(v||"").replace(/,/g,"").trim());
         return Number.isFinite(n) ? Math.round(n) : 0;
@@ -152,7 +154,6 @@
 
       async function loadProducts(){
         PRODUCTS = []; P_MAP.clear();
-        // Simple orderBy; filter status client-side
         const qs = await getDocs(query(productsRef(), orderBy('brand')));
         qs.forEach(s=>{
           const d = s.data()||{};
@@ -167,10 +168,10 @@
           PRODUCTS.push(it); P_MAP.set(it.id, it);
         });
 
-        // Keep only active
+        // only active
         PRODUCTS = PRODUCTS.filter(p => String(p.status).toLowerCase() === 'active');
 
-        // Secondary sorts
+        // sort brand -> diameter -> length
         PRODUCTS.sort((a,b)=>{
           const ba=a.brand.toLowerCase(), bb=b.brand.toLowerCase();
           if(ba!==bb) return ba<bb?-1:1;
@@ -219,30 +220,65 @@
         const location = String($("location").value||"").trim() || null;
         const note = String($("note").value||"").trim() || null;
 
-        const payload = {
-          type: 'add',
-          qty,                 // purchased count in this batch
-          onHand: qty,         // starting on-hand for this batch
-          productRef: doc(db, 'productsGrainBags', id),
-          brand: p.brand || null,
-          diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
-          lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
-          thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
-          status: p.status || null,
-          location,
-          note,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
+        const productDocRef = doc(db, 'productsGrainBags', id);
 
-        await addDoc(movesRef(), payload);
+        // Look for existing inventory doc for this productRef
+        const existingSnap = await getDocs(
+          query(movesRef(), where('productRef', '==', productDocRef))
+        );
+
+        if (!existingSnap.empty) {
+          // Update existing running totals
+          const exDoc = existingSnap.docs[0];
+          const ex = exDoc.data() || {};
+          const prevQty = Number(ex.qty || 0);
+          const prevOnHand =
+            (ex.onHand != null) ? Number(ex.onHand) :
+            (ex.qty != null ? Number(ex.qty) : 0);
+
+          const newQtyTotal = prevQty + qty;
+          const newOnHand = prevOnHand + qty;
+
+          await updateDoc(exDoc.ref, {
+            qty: newQtyTotal,
+            onHand: newOnHand,
+            location,
+            note,
+            brand: p.brand || null,
+            diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
+            lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
+            thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
+            status: p.status || null,
+            updatedAt: serverTimestamp()
+          });
+
+        } else {
+          // First time: create a new inventory doc for this SKU
+          const payload = {
+            type: 'add',
+            qty,             // total purchased so far
+            onHand: qty,     // starting on-hand
+            productRef: productDocRef,
+            brand: p.brand || null,
+            diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
+            lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
+            thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
+            status: p.status || null,
+            location,
+            note,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          };
+
+          await addDoc(movesRef(), payload);
+        }
 
         $("qty").value = "";
         $("location").value = "";
         $("note").value = "";
         $("bagSelect").value = "";
         validate();
-        showToast("Saved: bags added to inventory.");
+        showToast("Saved: bags added to inventory (running total updated).");
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
 
