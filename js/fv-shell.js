@@ -839,20 +839,45 @@
       const runRefreshContract = async ()=>{
         // Announce begin
         document.dispatchEvent(new CustomEvent('fv:refresh:begin'));
+
+        let didSomething = false;
+
         // Page hook (preferred)
         if (typeof window.FVRefresh === 'function') {
-          try { await window.FVRefresh(); } catch(e){ console.error('[FV] FVRefresh failed:', e); }
+          try {
+            await window.FVRefresh();
+            didSomething = true;
+          } catch(e){
+            console.error('[FV] FVRefresh failed:', e);
+          }
         }
+
         // Global data layer hook (optional)
         try {
           if (window.FVData && typeof window.FVData.refreshAll === 'function') {
             await window.FVData.refreshAll();
+            didSomething = true;
           }
-        } catch(e){ console.error('[FV] FVData.refreshAll failed:', e); }
+        } catch(e){
+          console.error('[FV] FVData.refreshAll failed:', e);
+        }
+
         // Repaint menu (in case ACL/context changed)
         try { await this._initMenuFiltered(); } catch {}
+
         // Announce end
         document.dispatchEvent(new CustomEvent('fv:refresh:end'));
+
+        // If no page/global hooks were available, fall back to a full reload
+        if (!didSomething) {
+          try {
+            const url = new URL(location.href);
+            url.searchParams.set('ptr', Date.now().toString(36));
+            location.replace(url.toString());
+          } catch {
+            location.reload();
+          }
+        }
       };
 
       const onEnd = ()=>{
