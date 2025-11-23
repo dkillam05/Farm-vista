@@ -361,6 +361,28 @@
       </a>
 
       <!-- =====================================
+           KPI: Field boundary fixes needed
+           ===================================== -->
+      <a
+        href="pages/reports/reports-boundary-requests.html"
+        class="dash-kpi dash-kpi-empty"
+        id="boundary-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Field Boundaries</div>
+            <div class="dash-kpi-title">
+              Needing map corrections
+            </div>
+          </div>
+          <div class="dash-kpi-count" id="boundary-kpi-count">–</div>
+        </div>
+        <div class="dash-kpi-sub" id="boundary-kpi-sub">
+          Checking for open boundary requests…
+        </div>
+      </a>
+
+      <!-- =====================================
            KPI: Grain bag inventory on hand
            ===================================== -->
       <a
@@ -612,6 +634,67 @@
     loadPending();
     document.addEventListener("visibilitychange", ()=>{
       if (document.visibilityState === "visible") loadPending();
+    });
+  })();
+  </script>
+
+  <!-- ===========================================
+       Field boundary requests KPI JS (dashboard)
+       =========================================== -->
+  <script>
+  (function(){
+    "use strict";
+
+    const kpiEl   = document.getElementById("boundary-kpi");
+    const countEl = document.getElementById("boundary-kpi-count");
+    const subEl   = document.getElementById("boundary-kpi-sub");
+
+    if (!kpiEl || !countEl || !subEl) return;
+
+    function applyState(count){
+      const n = Number(count) || 0;
+      countEl.textContent = n.toString();
+
+      if (!n){
+        kpiEl.classList.add("dash-kpi-empty");
+        subEl.textContent = "No field boundary fixes pending.";
+      }else{
+        kpiEl.classList.remove("dash-kpi-empty");
+        subEl.textContent = n === 1
+          ? "boundary fix request awaiting review."
+          : "boundary fix requests awaiting review.";
+      }
+    }
+
+    async function loadBoundaryRequests(){
+      try{
+        if (!window.FVData || typeof FVData.getWhere !== "function"){
+          console.warn("[dashboard] FVData.getWhere not available for boundary KPI.");
+          applyState(0);
+          return;
+        }
+
+        await FVData.ready();
+
+        // Count all open boundary requests.
+        const docs = await FVData.getWhere(
+          "boundary_requests",
+          "status",
+          "==",
+          "Open",
+          { limit: 500 }
+        ) || [];
+
+        applyState(docs.length);
+      }catch(err){
+        console.warn("[dashboard] failed to load boundary KPI:", err);
+        applyState(0);
+      }
+    }
+
+    loadBoundaryRequests();
+    document.addEventListener("visibilitychange", ()=>{
+      if (document.visibilityState === "visible") loadBoundaryRequests();
     });
   })();
   </script>
