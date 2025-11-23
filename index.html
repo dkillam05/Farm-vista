@@ -364,7 +364,7 @@
            KPI: Field boundary fixes needed
            ===================================== -->
       <a
-        href="pages/reports/reports-boundary-requests.html"
+        href="/Farm-vista/pages/reports/reports-boundary-requests.html"
         class="dash-kpi dash-kpi-empty"
         id="boundary-kpi"
       >
@@ -615,7 +615,6 @@
 
         await FVData.ready();
 
-        // EXACT same logic as the working dev test page:
         const docs = await FVData.getWhere(
           "fieldMaintenance",
           "status",
@@ -668,24 +667,23 @@
 
     async function loadBoundaryRequests(){
       try{
-        if (!window.FVData || typeof FVData.getWhere !== "function"){
-          console.warn("[dashboard] FVData.getWhere not available for boundary KPI.");
+        if (!window.FVData || typeof FVData.list !== "function"){
+          console.warn("[dashboard] FVData.list not available for boundary KPI.");
           applyState(0);
           return;
         }
 
         await FVData.ready();
 
-        // Count all open boundary requests (matches Firestore 'Open.' status)
-        const docs = await FVData.getWhere(
-          "boundary_requests",
-          "status",
-          "==",
-          "Open.",
-          { limit: 500 }
-        ) || [];
+        // Pull all boundary requests and treat "Open" and "Open." (and any trailing periods) as open
+        const docs = await FVData.list("boundary_requests", { limit: 500, mine: false }) || [];
+        const openDocs = docs.filter(d => {
+          const raw = (d.status || "").toString().trim();
+          const normalized = raw.replace(/\.+$/,"").toLowerCase(); // strip trailing dots
+          return normalized === "open";
+        });
 
-        applyState(docs.length);
+        applyState(openDocs.length);
       }catch(err){
         console.warn("[dashboard] failed to load boundary KPI:", err);
         applyState(0);
