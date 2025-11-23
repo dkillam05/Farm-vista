@@ -137,15 +137,15 @@
       </section>
 
       <!-- ===========================
-           SUMMARY 2: GRAIN BAG INVENTORY (SUPPLY)
+           SUMMARY 2: GRAIN BAG INVENTORY (GRAIN IN BAGS)
            =========================== -->
       <section class="sum-card" aria-label="Grain Bag Inventory summary">
-        <div class="sum-title">Grain Bag Inventory (bags on hand)</div>
+        <div class="sum-title">Grain Bag Inventory (grain in bags)</div>
 
         <div class="selectors" role="group" aria-label="Bag selectors">
           <div>
             <label for="bag-crop">Crop</label><br/>
-            <!-- Schema for inventoryGrainBagMovements has no crop; cosmetic for now. -->
+            <!-- Current schema has no crop on bag events; cosmetic for now. -->
             <select id="bag-crop" class="select" aria-label="Select crop for bag summary">
               <option value="all" selected>All Crops</option>
               <option value="corn">Corn</option>
@@ -154,7 +154,7 @@
           </div>
           <div>
             <label for="bag-year">Crop Year</label><br/>
-            <!-- No year on these docs either; cosmetic. -->
+            <!-- If you later add a year field to grain_bag_events we can wire it. -->
             <select id="bag-year" class="select" aria-label="Select crop year for bag summary">
               <option value="all" selected>All Years</option>
               <option value="2025">2025</option>
@@ -165,11 +165,11 @@
 
         <div class="metrics">
           <div class="metric">
-            <div class="muted">Bag Count On Hand</div>
+            <div class="muted">Bag Count (full-equivalent)</div>
             <div id="bag-count" class="big">—</div>
           </div>
           <div class="metric">
-            <div class="muted">Estimated Bushels</div>
+            <div class="muted">Total Bushels In Bags</div>
             <div id="bag-bushels" class="big">— bu</div>
           </div>
         </div>
@@ -349,57 +349,96 @@
       }
 
       // ---------- 2) GRAIN BAG INVENTORY SUMMARY ----------
-      // **Match home dashboard KPI logic**
-      // Uses /inventoryGrainBagMovements:
-      //   onHand or qty = bags on hand for that SKU
+      // Grain in bags using:
+      //   productsGrainBags: bushels (full capacity), lengthFt (full length)
+      //   grain_bag_events:  bagSku.id -> SKU, counts.full, optional partials
       async function loadBagSummary() {
         bagCountEl.textContent   = '…';
-        bagBushelsEl.textContent = '— bu';
+        bagBushelsEl.textContent = '… bu';
 
         try {
-          const colRef = collection(db, 'inventoryGrainBagMovements');
-          const snap   = await getDocs(colRef);
+          // 1) Build SKU map from productsGrainBags
+          const skuSnap = await getDocs(collection(db, 'productsGrainBags'));
+          const skuMap = new Map();
 
-          if (snap.empty) {
+          skuSnap.forEach((docSnap) => {
+            const d = docSnap.data() || {};
+            const bus = num(d.bushels);
+            const len = num(d.lengthFt ?? d.sizeFeet);
+            if (!bus || !len) return; // need both to compute bu/ft
+            skuMap.set(docSnap.id, {
+              bushels: bus,
+              lengthFt: len
+            });
+          });
+
+          // 2) Sum events from grain_bag_events
+          const evSnap = await getDocs(collection(db, 'grain_bag_events'));
+
+          if (evSnap.empty || !skuMap.size) {
             bagCountEl.textContent   = '—';
             bagBushelsEl.textContent = '— bu';
             return;
           }
 
-          let totalBags = 0;
-          let skuCount  = 0;
-          let totalBushels = 0;
+          let totalBagsEquiv = 0;   // full-equivalent bag count
+          let totalBushels   = 0;
 
-          snap.forEach((docSnap) => {
+          evSnap.forEach((docSnap) => {
             const d = docSnap.data() || {};
-            let n = (d.onHand != null)
-              ? Number(d.onHand)
-              : (d.qty != null ? Number(d.qty) : 0);
+            const bagSku = d.bagSku || {};
+            const skuId  = bagSku.id || d.bagSkuId;
+            if (!skuId || !skuMap.has(skuId)) return;
 
-            if (!Number.isFinite(n)) n = 0;
-            if (n <= 0) return;
+            const sku = skuMap.get(skuId);
+            const fullCapBu = num(sku.bushels);
+            const fullLenFt = num(sku.lengthFt);
+            if (!fullCapBu || !fullLenFt) return;
 
-            totalBags += n;
-            skuCount  += 1;
+            const counts = d.counts || {};
+            const fullCount = num(counts.full) || 0;
 
-            // Optional: if you ever store capacity per bag, we’ll use it.
-            const perBag =
-              num(d.bushelsPerBag) ??
-              num(d.buPerBag) ??
-              num(d.capacityBu);
-            if (perBag) {
-              totalBushels += n * perBag;
+            const buPerFt = fullCapBu / fullLenFt;
+
+            // Optional partial length (feet of bag filled)
+            const partialFeet =
+              num(counts.partialFeet) ??
+              num(counts.partialFt) ??
+              num(counts.partialLengthFt);
+
+            // Optional partial fraction (0–1 or percent)
+            let partialFraction = num(counts.partialFraction);
+            if (partialFraction == null) {
+              const pct = num(counts.partialPct);
+              if (pct != null) partialFraction = pct / 100;
             }
+
+            let eventBushels = 0;
+            let bagEquiv     = 0;
+
+            if (fullCount > 0) {
+              eventBushels += fullCount * fullCapBu;
+              bagEquiv     += fullCount;
+            }
+
+            if (partialFeet != null && partialFeet > 0 && buPerFt) {
+              eventBushels += partialFeet * buPerFt;
+              bagEquiv     += partialFeet / fullLenFt;
+            }
+
+            if (partialFraction != null && partialFraction > 0 && fullCapBu) {
+              eventBushels += partialFraction * fullCapBu;
+              bagEquiv     += partialFraction;
+            }
+
+            totalBushels   += eventBushels;
+            totalBagsEquiv += bagEquiv;
           });
 
-          bagCountEl.textContent = totalBags ? fmtInt(totalBags) : '—';
-
-          // Only show bushels if we had real capacity data
-          bagBushelsEl.textContent = totalBushels
-            ? `${fmtInt(totalBushels)} bu`
-            : '— bu';
+          bagCountEl.textContent   = totalBagsEquiv ? fmtInt(totalBagsEquiv) : '—';
+          bagBushelsEl.textContent = totalBushels   ? `${fmtInt(totalBushels)} bu` : '— bu';
         } catch (err) {
-          console.warn('[grain] failed to load grain-bag inventory summary:', err);
+          console.error('[grain] failed to load grain-bag inventory summary:', err);
           bagCountEl.textContent   = '—';
           bagBushelsEl.textContent = '— bu';
         }
