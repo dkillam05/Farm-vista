@@ -163,7 +163,7 @@
 
         <div class="metrics">
           <div class="metric">
-            <div class="muted">Bag Count (full bags in fields)</div>
+            <div class="muted">Bag Count (full + partial, in fields)</div>
             <div id="bag-count" class="big">—</div>
           </div>
           <div class="metric">
@@ -212,7 +212,7 @@
     </div>
   </fv-shell>
 
-  <!-- 🔌 LIVE WIRING -->
+  <!-- 🔌 LIVE WIRING: BINS + FIELD BAGS (FULL + PARTIAL) -->
   <script type="module">
     import {
       ready,
@@ -292,7 +292,7 @@
         }
       }
 
-      // ====== FIELD BAGS: full bags + 2-step join to products ======
+      // ====== FIELD BAGS: full + partial bags ======
       async function loadBagSummary() {
         if (!bagCountEl || !bagBushelsEl) return;
         bagCountEl.textContent   = '…';
@@ -302,31 +302,38 @@
         const yearFilter = bagSelYear.value;         // "all" | "2025" | "2024"
 
         try {
-          // 1) productId -> bushels (productsGrainBags)
+          // 1) productId -> { buPerBag, lengthFt }
           const prodSnap = await getDocs(collection(db, 'productsGrainBags'));
-          const productBu = {};
+          const productMeta = {};
           prodSnap.forEach(ds => {
             const d = ds.data() || {};
             const bu = num(d.bushels);
-            if (!bu) return;
-            productBu[ds.id] = bu;
+            const len = num(d.lengthFt ?? d.sizeFeet);
+            if (!bu || !len) return;
+            productMeta[ds.id] = { buPerBag: bu, lengthFt: len };
           });
 
-          // 2) inventoryId -> bushelsPerBag (inventoryGrainBagMovements via productRef)
+          // 2) inventoryId -> { buPerBag, lengthFt } via productRef
           const invSnap = await getDocs(collection(db, 'inventoryGrainBagMovements'));
-          const invBu = {};
+          const invMeta = {};
           invSnap.forEach(ds => {
             const d = ds.data() || {};
-            let ref = d.productRef; // string path like "/productsGrainBags/OVJJ2bMEi0kPNlYIEVb1"
+            let ref = d.productRef;
             let prodId = null;
             if (typeof ref === 'string') {
               const parts = ref.split('/');
               prodId = parts[parts.length - 1];
             } else if (ref && typeof ref === 'object' && ref.id) {
-              prodId = ref.id; // in case it's a DocumentReference-like object
+              prodId = ref.id;
             }
-            if (prodId && productBu[prodId]) {
-              invBu[ds.id] = productBu[prodId]; // bushels per full bag
+            const prod = prodId ? productMeta[prodId] : null;
+            if (prod) {
+              // prefer product lengthFt, fall back to inventory lengthFt
+              const len = prod.lengthFt || num(d.lengthFt ?? d.sizeFeet);
+              invMeta[ds.id] = {
+                buPerBag: prod.buPerBag,
+                lengthFt: len
+              };
             }
           });
 
@@ -338,7 +345,7 @@
             return;
           }
 
-          let totalBags = 0;
+          let totalBags = 0; // physical bags: full + partials
           let totalBu   = 0;
 
           evSnap.forEach(ds => {
@@ -358,21 +365,51 @@
               if (evYear && evYear !== yearFilter) return;
             }
 
-            // --- counts.full from counts map or top-level ---
             const counts = d.counts || {};
             const full = num(
               counts.full != null ? counts.full : d.full
             ) || 0;
-            if (!full) return;
 
-            totalBags += full;
+            // partialFeet: array of lengths (ft), each entry = one partial bag
+            let partialFeetList = [];
+            const pfRaw = counts.partialFeet;
+            if (Array.isArray(pfRaw)) {
+              pfRaw.forEach(v => {
+                const n = num(v);
+                if (n && n > 0) partialFeetList.push(n);
+              });
+            } else {
+              const n = num(pfRaw);
+              if (n && n > 0) partialFeetList.push(n);
+            }
 
-            // --- look up bushels per bag via inventory id ---
+            const partialBagCount = partialFeetList.length;
+
+            if (!full && !partialBagCount) return;
+
+            // update physical bag count
+            totalBags += full + partialBagCount;
+
+            // look up per-bag bushels + length from inventory id
             const bagSku = d.bagSku || {};
             const invId  = bagSku.id || d.bagSkuId;
-            const perBag = invId ? invBu[invId] : null;
-            if (perBag) {
-              totalBu += full * perBag;
+            const meta   = invId ? invMeta[invId] : null;
+
+            if (meta && meta.buPerBag && meta.lengthFt) {
+              const buPerBag = meta.buPerBag;
+              const lengthFt = meta.lengthFt;
+              const buPerFt  = buPerBag / lengthFt;
+
+              let eventBu = 0;
+              if (full > 0) {
+                eventBu += full * buPerBag;
+              }
+              if (partialFeetList.length) {
+                const totalPartialFt = partialFeetList.reduce((sum, ft) => sum + ft, 0);
+                eventBu += totalPartialFt * buPerFt;
+              }
+
+              totalBu += eventBu;
             }
           });
 
