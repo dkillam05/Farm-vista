@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Report • Field Boundary Fix Requests</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- IMPORTANT: adjust <base> if you place this outside /Farm-vista/ -->
+  <base href="/Farm-vista/">
+
+  <!-- Standard includes -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="assets/icons/icon-192.png" />
+  <script src="js/theme-boot.js"></script>
+  <link rel="stylesheet" href="assets/css/theme.css" />
+  <link rel="stylesheet" href="assets/css/app.css" />
+
+  <!-- Firebase / FVData / Shell (live data) -->
+  <script src="js/firebase-config.js"></script>
+  <script src="js/fv-data.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/fv-shell.js" defer></script>
+
+  <style>
+    body{
+      background:var(--app-bg,var(--surface));
+      min-height:100vh;
+    }
+    .page{
+      max-width:1100px;
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 64px)!important;
+    }
+
+    /* Hero / header */
+    .report-hero{
+      border-radius:18px;
+      padding:16px 18px;
+      background:linear-gradient(125deg, rgba(59,126,70,0.11), rgba(59,126,70,0.02));
+      border:1px solid rgba(59,126,70,0.30);
+      box-shadow:0 10px 26px rgba(0,0,0,0.08);
+      margin-bottom:16px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:14px 18px;
+      align-items:flex-start;
+      position:relative;
+    }
+    .report-hero-main{
+      flex:1 1 220px;
+      min-width:0;
+    }
+    .report-kicker{
+      font-size:12px;
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      color:var(--muted,#5e6a63);
+      margin-bottom:4px;
+      font-weight:600;
+    }
+    .report-title{
+      font-size:22px;
+      font-weight:700;
+      margin:0 0 4px 0;
+    }
+    .report-sub{
+      font-size:13px;
+      color:var(--muted,#5e6a63);
+    }
+    .report-tags{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:8px;
+    }
+    .report-tag{
+      font-size:11px;
+      border-radius:999px;
+      border:1px solid rgba(0,0,0,0.12);
+      padding:3px 9px;
+      background:rgba(255,255,255,0.9);
+      color:var(--muted,#5e6a63);
+    }
+
+    .report-stats{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:stretch;
+    }
+    .stat-pill{
+      min-width:120px;
+      border-radius:14px;
+      border:1px solid rgba(0,0,0,0.10);
+      background:rgba(255,255,255,0.96);
+      padding:8px 10px;
+      font-size:12px;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+    }
+    .stat-label{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.10em;
+      color:var(--muted,#5e6a63);
+      margin-bottom:2px;
+    }
+    .stat-value{
+      font-size:18px;
+      font-weight:700;
+    }
+    .stat-sub{
+      font-size:11px;
+      color:var(--muted,#5e6a63);
+    }
+
+    /* Filters row */
+    .report-filters{
+      margin:6px 0 14px 0;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:flex-end;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:120px;
+      flex:1 1 140px;
+    }
+    .filter-label{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:var(--muted,#5e6a63);
+    }
+    .filter-input,
+    .filter-select{
+      border-radius:999px;
+      border:1px solid var(--border,#D1D5DB);
+      padding:6px 10px;
+      font-size:13px;
+      background:#fff;
+      min-height:32px;
+    }
+    .filter-input::placeholder{
+      color:var(--muted,#9CA3AF);
+    }
+
+    .filter-actions{
+      display:flex;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+    .btn-pill{
+      border-radius:999px;
+      border:1px solid var(--border,#D1D5DB);
+      padding:7px 14px;
+      font-size:13px;
+      background:#fff;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      text-decoration:none;
+      color:inherit;
+    }
+    .btn-pill-primary{
+      background:#3B7E46;
+      border-color:#3B7E46;
+      color:#fff;
+    }
+
+    /* Body / list */
+    .report-body{
+      border-radius:16px;
+      border:1px solid var(--border,#E5E7EB);
+      background:var(--surface,#fff);
+      box-shadow:0 8px 20px rgba(0,0,0,0.05);
+      padding:10px 12px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .report-header-row{
+      display:grid;
+      grid-template-columns: minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr);
+      gap:10px;
+      padding:4px 4px 6px;
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:var(--muted,#6B7280);
+      border-bottom:1px solid var(--border,#E5E7EB);
+    }
+
+    .report-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      margin-top:4px;
+    }
+
+    .report-row{
+      border-radius:12px;
+      border:1px solid var(--border,#E5E7EB);
+      padding:8px 10px;
+      display:grid;
+      grid-template-columns: minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr);
+      gap:10px;
+      font-size:13px;
+      background:var(--card-surface,#fff);
+    }
+    .report-cell-main{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .cell-title{
+      font-weight:600;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
+    }
+    .cell-notes{
+      font-size:12px;
+      color:var(--muted,#4B5563);
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
+    }
+    .cell-meta{
+      font-size:12px;
+      color:var(--muted,#6B7280);
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+    }
+    .cell-tags{
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+      font-size:11px;
+    }
+    .tag{
+      border-radius:999px;
+      border:1px solid rgba(0,0,0,0.10);
+      padding:2px 7px;
+      background:rgba(249,250,251,0.95);
+    }
+    .tag-green{
+      border-color:rgba(59,126,70,0.45);
+      background:rgba(59,126,70,0.10);
+      color:#1f5c2d;
+    }
+
+    .report-empty{
+      padding:18px 8px;
+      font-size:13px;
+      color:var(--muted,#6B7280);
+      text-align:center;
+    }
+
+    /* Footer / print/export hint */
+    .report-footer}{
+      margin-top:10px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+      justify-content:space-between;
+      font-size:12px;
+      color:var(--muted,#6B7280);
+    }
+
+    .report-footer{
+      margin-top:10px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+      justify-content:space-between;
+      font-size:12px;
+      color:var(--muted,#6B7280);
+    }
+
+    @media (max-width: 720px){
+      .report-header-row{
+        display:none;
+      }
+      .report-row{
+        grid-template-columns:1fr;
+      }
+      .cell-meta{
+        flex-direction:row;
+        flex-wrap:wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+
+      <!-- HERO -->
+      <section class="report-hero" aria-label="Field boundary fix requests report">
+        <div class="report-hero-main">
+          <div class="report-kicker">Live Report</div>
+          <h1 class="report-title">Field Boundary Fix Requests</h1>
+          <p class="report-sub">
+            Lists all open boundary corrections by farm and field, with short notes so GIS can see what needs fixed.
+          </p>
+          <div class="report-tags">
+            <span class="report-tag" id="tag-status">Status: Open</span>
+            <span class="report-tag" id="tag-date-range">Date range: All time</span>
+            <span class="report-tag" id="tag-generated">
+              Generated <span id="tag-generated-at"></span>
+            </span>
+          </div>
+        </div>
+
+        <div class="report-stats" aria-label="Summary">
+          <div class="stat-pill">
+            <div class="stat-label">Open Requests</div>
+            <div class="stat-value" id="stat-open-count">–</div>
+            <div class="stat-sub" id="stat-open-sub">Boundary fixes currently waiting.</div>
+          </div>
+          <div class="stat-pill">
+            <div class="stat-label">Farms Affected</div>
+            <div class="stat-value" id="stat-farm-count">–</div>
+            <div class="stat-sub" id="stat-farm-sub">Unique farms with open items.</div>
+          </div>
+          <div class="stat-pill">
+            <div class="stat-label">Oldest Request</div>
+            <div class="stat-value" id="stat-oldest">–</div>
+            <div class="stat-sub" id="stat-oldest-sub">Age of the oldest open ticket.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FILTERS -->
+      <section class="report-filters" aria-label="Filters">
+        <div class="filter-field">
+          <label class="filter-label" for="filter-status">Status</label>
+          <select id="filter-status" class="filter-select">
+            <option value="open">Open only</option>
+            <option value="all">All statuses</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filter-farm">Farm</label>
+          <select id="filter-farm" class="filter-select">
+            <option value="all">All farms</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filter-search">Search</label>
+          <input
+            id="filter-search"
+            class="filter-input"
+            type="search"
+            placeholder="Search field, notes, submitter…"
+          />
+        </div>
+
+        <div class="filter-actions">
+          <button type="button" class="btn-pill" id="filter-clear">Clear filters</button>
+          <button type="button" class="btn-pill btn-pill-primary" id="btn-print">
+            Print / Save PDF
+          </button>
+        </div>
+      </section>
+
+      <!-- BODY -->
+      <section class="report-body" aria-label="Boundary request list">
+        <div class="report-header-row">
+          <div>Field / Notes</div>
+          <div>Farm / Scope</div>
+          <div>Submitted</div>
+          <div>Status</div>
+        </div>
+
+        <div id="report-list" class="report-list">
+          <div class="report-empty" id="report-empty">
+            Loading boundary requests…
+          </div>
+        </div>
+
+        <div class="report-footer">
+          <div id="footer-left">
+            Pulling live data from the <code>boundary_requests</code> collection.
+          </div>
+          <div>
+            Tip: Use “Print / Save PDF” for a clean layout you can send to GIS or landlords.
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </fv-shell>
+
+  <script>
+  (function(){
+    "use strict";
+
+    // ===== STATE =====
+    let allData = [];
+    let currentFiltered = [];
+
+    // ===== DOM refs =====
+    const listEl    = document.getElementById("report-list");
+    const emptyEl   = document.getElementById("report-empty");
+    const statusSel = document.getElementById("filter-status");
+    const farmSel   = document.getElementById("filter-farm");
+    const searchEl  = document.getElementById("filter-search");
+    const clearBtn  = document.getElementById("filter-clear");
+    const printBtn  = document.getElementById("btn-print");
+
+    const statOpen  = document.getElementById("stat-open-count");
+    const statFarm  = document.getElementById("stat-farm-count");
+    const statOldest= document.getElementById("stat-oldest");
+    const statOldestSub = document.getElementById("stat-oldest-sub");
+    const tagGeneratedAt = document.getElementById("tag-generated-at");
+    const footerLeft = document.getElementById("footer-left");
+
+    if (!listEl) return;
+
+    function formatDateShort(iso){
+      if (!iso) return "";
+      try{
+        const d = new Date(iso);
+        return d.toLocaleDateString(undefined,{
+          month:"short", day:"numeric", year:"numeric"
+        });
+      }catch{
+        return "";
+      }
+    }
+
+    function formatAge(iso){
+      try{
+        const d = new Date(iso);
+        const now = new Date();
+        const diffMs = now - d;
+        if (!Number.isFinite(diffMs) || diffMs < 0) return "";
+        const days = Math.floor(diffMs / (1000*60*60*24));
+        if (days <= 0) return "Today";
+        if (days === 1) return "1 day";
+        if (days < 30) return days + " days";
+        const months = Math.floor(days/30);
+        if (months === 1) return "1 month";
+        return months + " months";
+      }catch{
+        return "";
+      }
+    }
+
+    function updateGeneratedTag(){
+      try{
+        tagGeneratedAt.textContent = new Date().toLocaleString(undefined,{
+          month:"short", day:"numeric", hour:"numeric", minute:"2-digit"
+        });
+      }catch{
+        tagGeneratedAt.textContent = "";
+      }
+    }
+
+    // ---- Firestore load via FVData ----
+    async function loadFromFirestore(){
+      if (!window.FVData || typeof FVData.list !== "function"){
+        console.warn("[boundary-report] FVData.list not available.");
+        footerLeft.textContent = "FVData not available – no live data loaded.";
+        emptyEl.textContent = "Live data helpers are not available.";
+        return [];
+      }
+
+      try{
+        await FVData.ready();
+        const docs = await FVData.list("boundary_requests", { limit: 1000, mine: false }) || [];
+
+        const mapped = docs.map(d => {
+          const farm = d.farm || "";
+          const farmId = d.farmId || farm || "";
+          const field = d.field || "";
+          const fieldId = d.fieldId || field || "";
+          const scope = d.scope || "";
+          const notes = d.notes || "";
+          const status = d.status || "";
+          const submittedBy = d.submittedBy || d.submittedByName || "";
+          const submittedByEmail = d.submittedByEmail || "";
+          let createdAtIso = "";
+
+          // Prefer explicit ISO if present
+          if (d.timestampISO){
+            createdAtIso = d.timestampISO;
+          }else if (d.createdAt && typeof d.createdAt.toDate === "function"){
+            createdAtIso = d.createdAt.toDate().toISOString();
+          }else if (typeof d.createdAt === "string"){
+            createdAtIso = d.createdAt;
+          }else if (d.createdAt && typeof d.createdAt.seconds === "number"){
+            createdAtIso = new Date(d.createdAt.seconds * 1000).toISOString();
+          }else if (d.t != null){
+            // t might be ms or Firestore-style {seconds}
+            if (typeof d.t === "number"){
+              createdAtIso = new Date(d.t).toISOString();
+            }else if (d.t && typeof d.t.seconds === "number"){
+              createdAtIso = new Date(d.t.seconds * 1000).toISOString();
+            }
+          }
+
+          return {
+            farm, farmId, field, fieldId,
+            scope, notes, status,
+            submittedBy, submittedByEmail,
+            createdAt: createdAtIso
+          };
+        });
+
+        footerLeft.textContent = "Pulled " + mapped.length + " records from boundary_requests.";
+        return mapped;
+      }catch(err){
+        console.warn("[boundary-report] failed to load boundary_requests:", err);
+        footerLeft.textContent = "Error loading live data from boundary_requests.";
+        emptyEl.textContent = "Error loading boundary requests. Try refreshing the page.";
+        return [];
+      }
+    }
+
+    // Populate farm dropdown from data
+    function populateFarmFilter(data){
+      const farms = new Map();
+      data.forEach(d => {
+        if (!d.farm) return;
+        farms.set(d.farmId || d.farm, d.farm);
+      });
+      // Clear existing except "all"
+      while (farmSel.options.length > 1){
+        farmSel.remove(1);
+      }
+      Array.from(farms.entries())
+        .sort((a,b)=> (a[1] || "").localeCompare(b[1] || ""))
+        .forEach(([id,label])=>{
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = label;
+          farmSel.appendChild(opt);
+        });
+    }
+
+    function applyFilters(data){
+      const statusFilter = (statusSel.value || "open").toLowerCase();
+      const farmFilter   = farmSel.value || "all";
+      const q            = (searchEl.value || "").trim().toLowerCase();
+
+      return data.filter(d => {
+        const statusVal = (d.status || "").toLowerCase().replace(/\.+$/,""); // tolerate "Open."
+        if (statusFilter === "open" && statusVal !== "open") return false;
+        if (farmFilter !== "all"){
+          const id = (d.farmId || d.farm || "").toString();
+          if (id !== farmFilter) return false;
+        }
+        if (q){
+          const hay = [
+            d.farm,
+            d.field,
+            d.scope,
+            d.notes,
+            d.submittedBy,
+            d.submittedByEmail
+          ].join(" ").toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderList(data){
+      const filtered = applyFilters(data);
+      currentFiltered = filtered.slice();
+
+      // Stats (always based on OPEN requests across all data)
+      const openOnly = data.filter(d =>
+        (d.status || "").toLowerCase().replace(/\.+$/,"") === "open"
+      );
+      statOpen.textContent = openOnly.length.toString();
+      const farmIds = new Set(openOnly.map(d => d.farmId || d.farm).filter(Boolean));
+      statFarm.textContent = farmIds.size.toString();
+      if (openOnly.length){
+        const oldest = openOnly.reduce((min,d)=>{
+          const t = new Date(d.createdAt || 0).getTime();
+          return (t < min.t) ? { t, d } : min;
+        }, { t: Infinity, d: null });
+        statOldest.textContent = formatAge(oldest.d && oldest.d.createdAt) || "—";
+        statOldestSub.textContent =
+          "Oldest open ticket is " + (formatDateShort(oldest.d && oldest.d.createdAt) || "unknown");
+      }else{
+        statOldest.textContent = "–";
+        statOldestSub.textContent = "No open tickets at this time.";
+      }
+
+      listEl.innerHTML = "";
+      if (!filtered.length){
+        emptyEl.style.display = "block";
+        emptyEl.textContent = "No matching boundary requests. Adjust filters to see more results.";
+        listEl.appendChild(emptyEl);
+        return;
+      }
+
+      emptyEl.style.display = "none";
+
+      filtered
+        .sort((a,b)=>{
+          // newest first
+          return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+        })
+        .forEach(d => {
+          const row = document.createElement("article");
+          row.className = "report-row";
+
+          const fieldLabel = d.field || "(Unknown field)";
+          const farmLabel  = d.farm || "(Unknown farm)";
+          const scope      = d.scope || "";
+          const notes      = d.notes || "";
+          const status     = d.status || "";
+          const when       = formatDateShort(d.createdAt) || "";
+          const age        = formatAge(d.createdAt) || "";
+          const who        = d.submittedBy || "";
+          const email      = d.submittedByEmail || "";
+
+          const safeNotesTitle = notes.replace(/"/g,"&quot;");
+
+          row.innerHTML = `
+            <div class="report-cell-main">
+              <div class="cell-title">${fieldLabel}</div>
+              <div class="cell-notes" title="${safeNotesTitle}">
+                ${notes || "<span style='opacity:.7'>(No notes)</span>"}
+              </div>
+            </div>
+            <div class="cell-meta">
+              <div>${farmLabel}</div>
+              <div class="cell-tags">
+                ${scope ? `<span class="tag">${scope}</span>` : ""}
+              </div>
+            </div>
+            <div class="cell-meta">
+              ${when ? `<div>${when}</div>` : ""}
+              ${age ? `<div style="opacity:.8">(${age} old)</div>` : ""}
+              ${who ? `<div style="opacity:.8">By: ${who}</div>` : ""}
+            </div>
+            <div class="cell-meta">
+              <div class="cell-tags">
+                <span class="tag ${(status || "").toLowerCase().replace(/\.+$/,"")==="open" ? "tag-green" : ""}">
+                  ${status || "Unknown"}
+                </span>
+              </div>
+              ${email ? `<div style="opacity:.8">${email}</div>` : ""}
+            </div>
+          `;
+          listEl.appendChild(row);
+        });
+    }
+
+    function bindEvents(){
+      const refresh = () => renderList(allData);
+
+      statusSel.addEventListener("change", refresh);
+      farmSel.addEventListener("change", refresh);
+      searchEl.addEventListener("input", refresh);
+
+      clearBtn.addEventListener("click", ()=>{
+        statusSel.value = "open";
+        farmSel.value = "all";
+        searchEl.value = "";
+        refresh();
+      });
+
+      // Special print view (not just screenshot of this page)
+      printBtn.addEventListener("click", ()=>{
+        const rows = currentFiltered.length ? currentFiltered : allData;
+        const win = window.open("", "_blank", "noopener,noreferrer");
+        if (!win){
+          // Fallback – normal print
+          window.print();
+          return;
+        }
+
+        const nowStr = new Date().toLocaleString(undefined,{
+          month:"short", day:"numeric", year:"numeric",
+          hour:"numeric", minute:"2-digit"
+        });
+
+        const tableRows = rows
+          .sort((a,b)=> new Date(a.farm||"").localeCompare(b.farm||""))
+          .map((d,idx)=>{
+            const statusClean = (d.status || "").replace(/\.+$/,"");
+            return `
+              <tr>
+                <td>${idx+1}</td>
+                <td>${d.farm || ""}</td>
+                <td>${d.field || ""}</td>
+                <td>${d.scope || ""}</td>
+                <td>${(d.notes || "").replace(/[\r\n]+/g," ")}</td>
+                <td>${formatDateShort(d.createdAt) || ""}</td>
+                <td>${statusClean || ""}</td>
+                <td>${d.submittedBy || ""}</td>
+              </tr>
+            `;
+          }).join("");
+
+        const html = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Boundary Fix Requests – Printable Report</title>
+  <style>
+    *{box-sizing:border-box;}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+      margin:24px;
+      color:#111827;
+      font-size:12px;
+    }
+    h1{
+      margin:0 0 4px 0;
+      font-size:18px;
+    }
+    .sub{
+      font-size:11px;
+      color:#6B7280;
+      margin-bottom:10px;
+    }
+    .header-row{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+      border-bottom:1px solid #D1D5DB;
+      padding-bottom:6px;
+    }
+    .tagline{
+      font-size:11px;
+      color:#4B5563;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:6px;
+    }
+    th,td{
+      border:1px solid #D1D5DB;
+      padding:4px 6px;
+      vertical-align:top;
+    }
+    th{
+      background:#F3F4F6;
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      text-align:left;
+    }
+    td{
+      font-size:11px;
+    }
+    .foot{
+      margin-top:8px;
+      font-size:10px;
+      color:#6B7280;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+    }
+    @page{
+      margin:16mm;
+    }
+  </style>
+</head>
+<body>
+  <div class="header-row">
+    <div>
+      <h1>Field Boundary Fix Requests</h1>
+      <div class="sub">All open requests by farm and field</div>
+      <div class="tagline">Generated ${nowStr}</div>
+    </div>
+    <div class="tagline">
+      Status filter: ${(statusSel.value || "open").toUpperCase()}<br>
+      Farms: ${farmSel.value === "all" ? "All" : (farmSel.options[farmSel.selectedIndex]?.text || "")}<br>
+      Search: ${(searchEl.value || "(none)")}</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Farm</th>
+        <th>Field</th>
+        <th>Scope</th>
+        <th>Notes</th>
+        <th>Submitted</th>
+        <th>Status</th>
+        <th>Submitted By</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tableRows || '<tr><td colspan="8">No boundary requests to show.</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="foot">
+    <div>FarmVista • Boundary Requests Report</div>
+    <div>Use this printout or PDF as a work list for map corrections.</div>
+  </div>
+</body>
+</html>
+        `;
+
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        win.print();
+      });
+    }
+
+    async function init(){
+      updateGeneratedTag();
+      emptyEl.textContent = "Loading boundary requests…";
+
+      allData = await loadFromFirestore();
+      if (!allData.length){
+        // Already set footer/empty text in loader
+        return;
+      }
+
+      populateFarmFilter(allData);
+      bindEvents();
+      renderList(allData);
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+  })();
+  </script>
+</body>
+</html>
