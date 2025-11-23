@@ -212,7 +212,7 @@
     </div>
   </fv-shell>
 
-  <!-- 🔌 LIVE WIRING: SIMPLE, DEFENSIVE VERSION -->
+  <!-- 🔌 LIVE WIRING -->
   <script type="module">
     import {
       ready,
@@ -252,13 +252,13 @@
       const bagSelCrop   = document.getElementById('bag-crop');
       const bagSelYear   = document.getElementById('bag-year');
 
-      // ----- BINS: super simple sum of onHand -----
+      // ====== BINS: sum onHand with optional filters ======
       async function loadBinSummary() {
         if (!binBushelsEl) return;
         binBushelsEl.textContent = '… bu';
 
-        const cropFilter = norm(binSelCrop.value);
-        const yearFilter = binSelYear.value;
+        const cropFilter = norm(binSelCrop.value);   // "all" | "corn" | "soybeans"
+        const yearFilter = binSelYear.value;         // "all" | "2025" | "2024"
 
         try {
           const snap = await getDocs(collection(db, 'binSites'));
@@ -292,7 +292,7 @@
         }
       }
 
-      // ----- FIELD BAGS: simple – full bags only -----
+      // ====== FIELD BAGS: full bags + 2-step join to products ======
       async function loadBagSummary() {
         if (!bagCountEl || !bagBushelsEl) return;
         bagCountEl.textContent   = '…';
@@ -302,16 +302,35 @@
         const yearFilter = bagSelYear.value;         // "all" | "2025" | "2024"
 
         try {
-          // Build SKU → bushels map
-          const skuSnap = await getDocs(collection(db, 'productsGrainBags'));
-          const skuMap = new Map();
-          skuSnap.forEach(docSnap => {
-            const d = docSnap.data() || {};
+          // 1) productId -> bushels (productsGrainBags)
+          const prodSnap = await getDocs(collection(db, 'productsGrainBags'));
+          const productBu = {};
+          prodSnap.forEach(ds => {
+            const d = ds.data() || {};
             const bu = num(d.bushels);
             if (!bu) return;
-            skuMap.set(docSnap.id, bu);
+            productBu[ds.id] = bu;
           });
 
+          // 2) inventoryId -> bushelsPerBag (inventoryGrainBagMovements via productRef)
+          const invSnap = await getDocs(collection(db, 'inventoryGrainBagMovements'));
+          const invBu = {};
+          invSnap.forEach(ds => {
+            const d = ds.data() || {};
+            let ref = d.productRef; // string path like "/productsGrainBags/OVJJ2bMEi0kPNlYIEVb1"
+            let prodId = null;
+            if (typeof ref === 'string') {
+              const parts = ref.split('/');
+              prodId = parts[parts.length - 1];
+            } else if (ref && typeof ref === 'object' && ref.id) {
+              prodId = ref.id; // in case it's a DocumentReference-like object
+            }
+            if (prodId && productBu[prodId]) {
+              invBu[ds.id] = productBu[prodId]; // bushels per full bag
+            }
+          });
+
+          // 3) events: grain_bag_events
           const evSnap = await getDocs(collection(db, 'grain_bag_events'));
           if (evSnap.empty) {
             bagCountEl.textContent   = '—';
@@ -322,35 +341,38 @@
           let totalBags = 0;
           let totalBu   = 0;
 
-          evSnap.forEach(docSnap => {
-            const d = docSnap.data() || {};
+          evSnap.forEach(ds => {
+            const d = ds.data() || {};
 
-            // crop filter
+            // --- filters ---
             const evCrop = norm(d.cropType || d.crop || '');
             if (cropFilter && cropFilter !== 'all' && evCrop && evCrop !== cropFilter) return;
 
-            // year filter
             if (yearFilter && yearFilter !== 'all') {
               let evYear = null;
               const cy = d.cropYear;
               if (typeof cy === 'number') evYear = cy.toString();
               else if (typeof cy === 'string' && cy.length >= 4) evYear = cy.slice(0,4);
+              else if (typeof d.datePlaced === 'string' && d.datePlaced.length >= 4) evYear = d.datePlaced.slice(0,4);
               else if (typeof d.dateISO === 'string' && d.dateISO.length >= 4) evYear = d.dateISO.slice(0,4);
               if (evYear && evYear !== yearFilter) return;
             }
 
-            // counts.full
+            // --- counts.full from counts map or top-level ---
             const counts = d.counts || {};
-            const full = num(counts.full != null ? counts.full : d.full) || 0;
+            const full = num(
+              counts.full != null ? counts.full : d.full
+            ) || 0;
             if (!full) return;
 
             totalBags += full;
 
-            // SKU ID: either bagSku.id or top-level id
-            const skuId = (d.bagSku && d.bagSku.id) || d.id || d.bagSkuId;
-            const skuBu = skuId ? skuMap.get(skuId) : null;
-            if (skuBu) {
-              totalBu += full * skuBu;
+            // --- look up bushels per bag via inventory id ---
+            const bagSku = d.bagSku || {};
+            const invId  = bagSku.id || d.bagSkuId;
+            const perBag = invId ? invBu[invId] : null;
+            if (perBag) {
+              totalBu += full * perBag;
             }
           });
 
