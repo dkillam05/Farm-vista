@@ -145,7 +145,6 @@
         <div class="selectors" role="group" aria-label="Bag selectors">
           <div>
             <label for="bag-crop">Crop</label><br/>
-            <!-- Current schema has no crop on bag events; cosmetic for now. -->
             <select id="bag-crop" class="select" aria-label="Select crop for bag summary">
               <option value="all" selected>All Crops</option>
               <option value="corn">Corn</option>
@@ -154,7 +153,6 @@
           </div>
           <div>
             <label for="bag-year">Crop Year</label><br/>
-            <!-- If you later add a year field to grain_bag_events we can wire it. -->
             <select id="bag-year" class="select" aria-label="Select crop year for bag summary">
               <option value="all" selected>All Years</option>
               <option value="2025">2025</option>
@@ -176,31 +174,10 @@
       </section>
 
       <!-- ===========================
-           SUMMARY 3: GRAIN CONTRACTS (placeholder)
+           SUMMARY 3 & 4: placeholders
            =========================== -->
       <section class="sum-card" aria-label="Grain Contracts summary">
         <div class="sum-title">Grain Contracts</div>
-
-        <div class="selectors" role="group" aria-label="Contracts selectors">
-          <div>
-            <label for="con-crop">Crop</label><br/>
-            <select id="con-crop" class="select" aria-label="Select crop for contracts summary">
-              <option value="corn" selected>Corn</option>
-              <option value="soybeans">Soybeans</option>
-            </select>
-          </div>
-          <div>
-            <label for="con-month">Month</label><br/>
-            <select id="con-month" class="select" aria-label="Select delivery month for contracts summary">
-              <option value="Dec" selected>Dec</option>
-              <option value="Jan">Jan</option>
-              <option value="Feb">Feb</option>
-              <option value="Mar">Mar</option>
-              <option value="Apr">Apr</option>
-            </select>
-          </div>
-        </div>
-
         <div class="metrics">
           <div class="metric">
             <div class="muted">Bushels Hauled</div>
@@ -213,30 +190,8 @@
         </div>
       </section>
 
-      <!-- ===========================
-           SUMMARY 4: GRAIN TICKETS (placeholder)
-           =========================== -->
       <section class="sum-card" aria-label="Grain Tickets summary">
         <div class="sum-title">Grain Tickets</div>
-
-        <div class="selectors" role="group" aria-label="Tickets selectors">
-          <div>
-            <label for="tix-crop">Crop</label><br/>
-            <select id="tix-crop" class="select" aria-label="Select crop for tickets summary">
-              <option value="corn" selected>Corn</option>
-              <option value="soybeans">Soybeans</option>
-            </select>
-          </div>
-          <div>
-            <label for="tix-start">Start Date</label><br/>
-            <input id="tix-start" type="date" class="fv-input" aria-label="Start date for tickets summary" />
-          </div>
-          <div>
-            <label for="tix-end">End Date</label><br/>
-            <input id="tix-end" type="date" class="fv-input" aria-label="End date for tickets summary" />
-          </div>
-        </div>
-
         <div class="metrics">
           <div class="metric">
             <div class="muted">Total Bushels</div>
@@ -345,15 +300,15 @@
       }
 
       // ---------- 2) FIELD GRAIN BAG INVENTORY ----------
-      // Grain in *field* bags using:
-      //   productsGrainBags: bushels (full capacity), lengthFt (full length)
-      //   grain_bag_events:  bagSku.id -> SKU, counts.full, optional partials
       async function loadBagSummary() {
+        const selectedCrop = normCrop(bagSelCrop.value);   // "all" | "corn" | "soybeans"
+        const selectedYear = bagSelYear.value;             // "all" | "2025" | "2024"
+
         bagCountEl.textContent   = '…';
         bagBushelsEl.textContent = '… bu';
 
         try {
-          // 1) Build SKU map from productsGrainBags (for bushels)
+          // SKU map: productsGrainBags
           const skuSnap = await getDocs(collection(db, 'productsGrainBags'));
           const skuMap = new Map();
 
@@ -365,7 +320,7 @@
             skuMap.set(docSnap.id, { bushels: bus, lengthFt: len });
           });
 
-          // 2) Sum events from grain_bag_events (field bags)
+          // Events: grain_bag_events
           const evSnap = await getDocs(collection(db, 'grain_bag_events'));
 
           if (evSnap.empty) {
@@ -374,40 +329,56 @@
             return;
           }
 
-          let totalBagsEquiv = 0;   // full-equivalent bag count in fields
+          let totalBagsEquiv = 0;
           let totalBushels   = 0;
 
           evSnap.forEach((docSnap) => {
             const d = docSnap.data() || {};
 
-            // --- Bag Count (full-equivalent) always computed from counts ---
-            const counts = d.counts || {};
+            // --- filter by crop ---
+            const evCrop = normCrop(d.cropType || d.crop || '');
+            if (selectedCrop && selectedCrop !== 'all' && evCrop && evCrop !== selectedCrop) {
+              return;
+            }
+
+            // --- filter by cropYear / dateISO ---
+            if (selectedYear !== 'all') {
+              let evYear = null;
+              const cy = d.cropYear;
+              if (typeof cy === 'number') evYear = cy.toString();
+              else if (typeof cy === 'string' && cy.length >= 4) evYear = cy.slice(0,4);
+              else if (typeof d.dateISO === 'string' && d.dateISO.length >= 4) evYear = d.dateISO.slice(0,4);
+
+              if (evYear && evYear !== selectedYear) return;
+            }
+
+            // --- counts map (full + partials) ---
+            const counts = d.counts || {
+              partial: d.partial,
+              partialFeet: d.partialFeet,
+              full: d.full,
+              partialUsage: d.partialUsage
+            };
+
             const fullCount = num(counts.full) || 0;
 
-            // partials: either fraction or feet
-            const fullFromFraction = (() => {
-              let frac = num(counts.partialFraction);
-              if (frac == null) {
-                const pct = num(counts.partialPct);
-                if (pct != null) frac = pct / 100;
-              }
-              return frac && frac > 0 ? frac : 0;
-            })();
+            // partial as fraction (0–1 or pct) NOT used right now because you use partialFeet[] / partialUsage[]
+            const partialFeetRaw = counts.partialFeet ?? [];
+            let totalPartialFeet = 0;
+            if (Array.isArray(partialFeetRaw)) {
+              partialFeetRaw.forEach(v => {
+                const n = num(v);
+                if (n && n > 0) totalPartialFeet += n;
+              });
+            } else {
+              const n = num(partialFeetRaw);
+              if (n && n > 0) totalPartialFeet += n;
+            }
 
-            const partialFeet =
-              num(counts.partialFeet) ??
-              num(counts.partialFt) ??
-              num(counts.partialLengthFt) ??
-              0;
+            // base bag-equivalent: full bags
+            let bagEquiv = fullCount;
 
-            // Add bag-equivalents from counts
-            let bagEquiv = 0;
-            bagEquiv += fullCount;
-            bagEquiv += fullFromFraction; // fraction of a bag
-            // feet-based equivalent (we need SKU length, but that's only for bag count if SKU exists)
-            // we'll add this later when we have SKU length.
-
-            // --- Bushels: only if SKU data is available ---
+            // --- bushels via SKU if possible ---
             const bagSku = d.bagSku || {};
             const skuId  = bagSku.id || d.bagSkuId;
             const sku    = skuId ? skuMap.get(skuId) : null;
@@ -423,21 +394,18 @@
                 if (fullCount > 0) {
                   eventBushels += fullCount * fullCapBu;
                 }
-                if (fullFromFraction > 0) {
-                  eventBushels += fullFromFraction * fullCapBu;
-                }
-                if (partialFeet > 0 && buPerFt) {
-                  eventBushels += partialFeet * buPerFt;
-                  bagEquiv     += partialFeet / fullLenFt;
+                if (totalPartialFeet > 0 && buPerFt) {
+                  eventBushels += totalPartialFeet * buPerFt;
+                  bagEquiv     += totalPartialFeet / fullLenFt;
                 }
 
                 totalBushels += eventBushels;
               }
             } else {
-              // No SKU match → still treat partialFeet as fraction of a bag if we know full length on the event
-              const lenFromEvent = num(d.lengthFt ?? d.sizeFeet);
-              if (lenFromEvent && partialFeet > 0) {
-                bagEquiv += partialFeet / lenFromEvent;
+              // No SKU → still try to use sizeFeet on event for equivalent
+              const lenFromEvent = num(d.sizeFeet ?? d.lengthFt);
+              if (lenFromEvent && totalPartialFeet > 0) {
+                bagEquiv += totalPartialFeet / lenFromEvent;
               }
             }
 
