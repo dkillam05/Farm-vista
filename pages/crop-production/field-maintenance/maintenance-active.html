@@ -259,6 +259,8 @@
     .wo-detail-overlay {
       position:fixed;
       inset:0;
+      padding:16px;
+      box-sizing:border-box;
       background:color-mix(in srgb, #000 45%, transparent);
       display:flex;
       align-items:center;
@@ -267,16 +269,15 @@
     }
 
     .wo-detail-panel {
-      width:min(640px, 100% - 24px);
+      width:min(700px, 100% - 24px);
       max-height:90vh;
       border-radius:16px;
       background:var(--surface-raised, var(--card-surface, var(--surface)));
       box-shadow:var(--shadow-strong, 0 18px 45px rgba(0,0,0,0.35));
-      padding:16px 16px 14px;
+      padding:14px 16px 10px;
       display:flex;
       flex-direction:column;
-      gap:12px;
-      overflow:auto;
+      gap:10px;
     }
 
     .wo-detail-header {
@@ -308,9 +309,19 @@
       border-radius:999px;
     }
 
+    .wo-detail-content{
+      flex:1 1 auto;
+      overflow:auto;
+      margin-top:4px;
+      padding-right:2px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
     .wo-detail-grid {
       display:grid;
-      grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+      grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
       gap:8px;
       font-size:0.82rem;
     }
@@ -334,7 +345,7 @@
     .wo-detail-section {
       border-top:1px solid var(--border-soft, var(--border));
       padding-top:10px;
-      margin-top:6px;
+      margin-top:4px;
     }
 
     .wo-detail-section h3 {
@@ -386,11 +397,17 @@
       flex:1 1 120px;
     }
 
+    .wo-detail-status-select{
+      width:100%;
+    }
+
     .wo-detail-footer {
       display:flex;
       justify-content:flex-end;
       gap:8px;
       margin-top:6px;
+      padding-top:6px;
+      border-top:1px solid var(--border-soft,var(--border));
     }
 
     .btn-outline {
@@ -414,11 +431,15 @@
     }
 
     @media (max-width:600px){
+      .wo-detail-overlay{
+        padding:0;
+        align-items:flex-end;
+      }
       .wo-detail-panel {
         border-radius:18px 18px 0 0;
         max-height:92vh;
         margin:0;
-        align-self:flex-end;
+        width:100%;
       }
     }
   </style>
@@ -485,7 +506,7 @@
                         || data.createdByName || data.createdBy || '';
       const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
       const when = ts && ts.toDate ? ts.toDate() : null;
-      const status = (data[CONFIG.STATUS_FIELD] || '').toString() || 'pending';
+      const status = (data[CONFIG.STATUS_FIELD] || '').toString() || CONFIG.STATUS_PENDING;
 
       const originalNotes = data.details || data.description || data.notes || '';
 
@@ -494,7 +515,7 @@
       const subEl   = $('#detailSub');
       const chipsEl = $('#detailChips');
       const createdEl = $('#detailCreated');
-      const statusChipEl = $('#detailStatusChip');
+      const statusSel = $('#detailStatusSelect');
       const origNotesEl = $('#detailNotesOriginal');
       const compNotesEl = $('#detailNotesCompletion');
       const whoTypeSel  = $('#detailWhoType');
@@ -534,8 +555,14 @@
           ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`
           : '';
       }
-      if(statusChipEl){
-        statusChipEl.textContent = status;
+
+      if(statusSel){
+        const normalized = status || CONFIG.STATUS_PENDING;
+        if([CONFIG.STATUS_PENDING, CONFIG.STATUS_INPROG, CONFIG.STATUS_DONE].includes(normalized)){
+          statusSel.value = normalized;
+        }else{
+          statusSel.value = CONFIG.STATUS_PENDING;
+        }
       }
 
       if(origNotesEl){
@@ -576,6 +603,7 @@
       const compNotesEl = $('#detailNotesCompletion');
       const whoTypeSel  = $('#detailWhoType');
       const whoNamesInp = $('#detailWhoNames');
+      const statusSel   = $('#detailStatusSelect');
 
       const updates = {
         updatedAt: serverTimestamp()
@@ -591,11 +619,26 @@
         updates.assignedWorkersNote = whoNamesInp.value.trim();
       }
 
+      let newStatus = null;
+      if(statusSel){
+        newStatus = statusSel.value || CONFIG.STATUS_PENDING;
+        updates[CONFIG.STATUS_FIELD] = newStatus;
+      }
+
       try {
         await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, item.id), updates);
 
         // Update local copy so the data stays in sync if reopened
         Object.assign(item.data, updates);
+
+        // If status changed to completed, drop from list; otherwise refresh chip text
+        if(newStatus === CONFIG.STATUS_DONE){
+          STATE.items = STATE.items.filter(x => x.id !== item.id);
+          renderList();
+        }else if(newStatus){
+          // just re-render to refresh row meta / chip text
+          renderList();
+        }
 
         closeDetail();
       } catch(err){
@@ -811,6 +854,13 @@
         });
       }
 
+      // ESC to close detail
+      document.addEventListener('keydown', (ev)=>{
+        if(ev.key === 'Escape'){
+          closeDetail();
+        }
+      });
+
       await loadActiveWorkOrders();
     })();
   </script>
@@ -869,46 +919,52 @@
           </button>
         </header>
 
-        <div class="wo-detail-grid">
-          <div id="detailChips"></div>
-          <div>
-            <div class="wo-detail-label">Created</div>
-            <div id="detailCreated" style="font-size:0.82rem;"></div>
+        <div class="wo-detail-content">
+          <div class="wo-detail-grid">
+            <div id="detailChips"></div>
+            <div>
+              <div class="wo-detail-label">Created</div>
+              <div id="detailCreated" style="font-size:0.82rem;"></div>
+            </div>
+            <div>
+              <div class="wo-detail-label">Status</div>
+              <select id="detailStatusSelect" class="wo-detail-select wo-detail-status-select">
+                <option value="pending">Pending</option>
+                <option value="in progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <div class="wo-detail-label">Status</div>
-            <div id="detailStatusChip" class="wo-detail-chip">pending</div>
-          </div>
+
+          <section class="wo-detail-section">
+            <h3>Original request</h3>
+            <div id="detailNotesOriginal" class="wo-detail-notes">
+              No original description was provided.
+            </div>
+          </section>
+
+          <section class="wo-detail-section">
+            <h3>Who’s doing the work?</h3>
+            <div class="wo-detail-row" style="margin-bottom:6px;">
+              <label class="wo-detail-label" for="detailWhoType">Work done by</label>
+              <select id="detailWhoType" class="wo-detail-select">
+                <option value="employee">Employees</option>
+                <option value="subcontractor">Sub-contractor</option>
+              </select>
+            </div>
+            <div class="wo-detail-row">
+              <label class="wo-detail-label" for="detailWhoNames">Who is working on it?</label>
+              <input id="detailWhoNames" class="wo-detail-input"
+                placeholder="Names / crew (we’ll hook this to employees &amp; subs list later)" />
+            </div>
+          </section>
+
+          <section class="wo-detail-section">
+            <h3>Work performed / completion notes</h3>
+            <textarea id="detailNotesCompletion" class="wo-detail-textarea"
+              placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
+          </section>
         </div>
-
-        <section class="wo-detail-section">
-          <h3>Original request</h3>
-          <div id="detailNotesOriginal" class="wo-detail-notes">
-            No original description was provided.
-          </div>
-        </section>
-
-        <section class="wo-detail-section">
-          <h3>Who’s doing the work?</h3>
-          <div class="wo-detail-row" style="margin-bottom:6px;">
-            <label class="wo-detail-label" for="detailWhoType">Work done by</label>
-            <select id="detailWhoType" class="wo-detail-select">
-              <option value="employee">Employees</option>
-              <option value="subcontractor">Sub-contractor</option>
-            </select>
-          </div>
-          <div class="wo-detail-row">
-            <label class="wo-detail-label" for="detailWhoNames">Who is working on it?</label>
-            <input id="detailWhoNames" class="wo-detail-input"
-              placeholder="Names / crew (we’ll hook this to employees & subs list later)" />
-          </div>
-        </section>
-
-        <section class="wo-detail-section">
-          <h3>Work performed / completion notes</h3>
-          <textarea id="detailNotesCompletion" class="wo-detail-textarea"
-            placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
-        </section>
 
         <footer class="wo-detail-footer">
           <button type="button" id="detailCancelBtn" class="btn-outline">Close</button>
