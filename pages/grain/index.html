@@ -118,14 +118,6 @@
               <option value="soybeans">Soybeans</option>
             </select>
           </div>
-          <div>
-            <label for="bin-year">Crop Year</label><br/>
-            <select id="bin-year" class="select" aria-label="Select crop year for bin summary">
-              <option value="all" selected>All Years</option>
-              <option value="2025">2025</option>
-              <option value="2024">2024</option>
-            </select>
-          </div>
         </div>
 
         <div class="metrics">
@@ -149,14 +141,6 @@
               <option value="all" selected>All Crops</option>
               <option value="corn">Corn</option>
               <option value="soybeans">Soybeans</option>
-            </select>
-          </div>
-          <div>
-            <label for="bag-year">Crop Year</label><br/>
-            <select id="bag-year" class="select" aria-label="Select crop year for bag summary">
-              <option value="all" selected>All Years</option>
-              <option value="2025">2025</option>
-              <option value="2024">2024</option>
             </select>
           </div>
         </div>
@@ -245,20 +229,17 @@
       // ----- DOM -----
       const binBushelsEl = document.getElementById('bin-bushels');
       const binSelCrop   = document.getElementById('bin-crop');
-      const binSelYear   = document.getElementById('bin-year');
 
       const bagCountEl   = document.getElementById('bag-count');
       const bagBushelsEl = document.getElementById('bag-bushels');
       const bagSelCrop   = document.getElementById('bag-crop');
-      const bagSelYear   = document.getElementById('bag-year');
 
-      // ====== BINS: sum onHand with optional filters ======
+      // ====== BINS: sum onHand with optional crop filter (running total, all years) ======
       async function loadBinSummary() {
         if (!binBushelsEl) return;
         binBushelsEl.textContent = '… bu';
 
         const cropFilter = norm(binSelCrop.value);   // "all" | "corn" | "soybeans"
-        const yearFilter = binSelYear.value;         // "all" | "2025" | "2024"
 
         try {
           const snap = await getDocs(collection(db, 'binSites'));
@@ -274,13 +255,6 @@
               const bCrop = norm(b && b.lastCropType);
               if (cropFilter && cropFilter !== 'all' && bCrop && bCrop !== cropFilter) return;
 
-              if (yearFilter && yearFilter !== 'all') {
-                const ms = num(b && b.lastUpdatedMs);
-                if (!ms) return;
-                const yr = new Date(ms).getFullYear().toString();
-                if (yr !== yearFilter) return;
-              }
-
               total += on;
             });
           });
@@ -292,14 +266,13 @@
         }
       }
 
-      // ====== FIELD BAGS: full + partial bags ======
+      // ====== FIELD BAGS: full + partial bags (running totals, all years) ======
       async function loadBagSummary() {
         if (!bagCountEl || !bagBushelsEl) return;
         bagCountEl.textContent   = '…';
         bagBushelsEl.textContent = '… bu';
 
         const cropFilter = norm(bagSelCrop.value);   // "all" | "corn" | "soybeans"
-        const yearFilter = bagSelYear.value;         // "all" | "2025" | "2024"
 
         try {
           // 1) productId -> { buPerBag, lengthFt }
@@ -351,19 +324,9 @@
           evSnap.forEach(ds => {
             const d = ds.data() || {};
 
-            // --- filters ---
+            // --- crop filter only (no year filter) ---
             const evCrop = norm(d.cropType || d.crop || '');
             if (cropFilter && cropFilter !== 'all' && evCrop && evCrop !== cropFilter) return;
-
-            if (yearFilter && yearFilter !== 'all') {
-              let evYear = null;
-              const cy = d.cropYear;
-              if (typeof cy === 'number') evYear = cy.toString();
-              else if (typeof cy === 'string' && cy.length >= 4) evYear = cy.slice(0,4);
-              else if (typeof d.datePlaced === 'string' && d.datePlaced.length >= 4) evYear = d.datePlaced.slice(0,4);
-              else if (typeof d.dateISO === 'string' && d.dateISO.length >= 4) evYear = d.dateISO.slice(0,4);
-              if (evYear && evYear !== yearFilter) return;
-            }
 
             const counts = d.counts || {};
             const full = num(
@@ -424,9 +387,7 @@
 
       // wire events
       binSelCrop.addEventListener('change', loadBinSummary);
-      binSelYear.addEventListener('change', loadBinSummary);
       bagSelCrop.addEventListener('change', loadBagSummary);
-      bagSelYear.addEventListener('change', loadBagSummary);
 
       // initial load
       loadBinSummary();
