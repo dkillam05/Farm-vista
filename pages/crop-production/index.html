@@ -18,12 +18,23 @@
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/fv-data.js"></script>
 
-  <!-- Global CSS (same as Setup) -->
+  <!-- Global CSS (same as Setup / Dashboard) -->
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
 
   <style>
+    body{
+      background:var(--app-bg,var(--surface));
+      min-height:100vh;
+    }
+    .page{
+      max-width:1100px;
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
+    }
+
     /* Dashboard-style KPI badge (same as main Dashboard) */
     .dash-kpi{
       display:block;
@@ -169,7 +180,7 @@
   </script>
 
   <!-- ===========================================
-       Field Maintenance KPI JS (pending + in-progress)
+       Field Maintenance KPI JS (pending + in progress)
        =========================================== -->
   <script>
     (function(){
@@ -198,8 +209,8 @@
 
       async function loadActive(){
         try{
-          if (!window.FVData || typeof FVData.list !== "function"){
-            console.warn("[crop-production] FVData.list not available for KPI.");
+          if (!window.FVData || typeof FVData.getWhere !== "function"){
+            console.warn("[crop-production] FVData.getWhere not available for KPI.");
             applyState(0);
             return;
           }
@@ -208,18 +219,18 @@
             await FVData.ready();
           }
 
-          // Pull fieldMaintenance docs and count those with status "pending" or "in-progress"
-          const docs = await FVData.list("fieldMaintenance", { limit: 1000, mine: false }) || [];
-          let count = 0;
+          // Match how other KPIs query Firestore:
+          // Count docs where status == "pending" OR status == "in progress"
+          const [pendingDocs, inProgDocs] = await Promise.all([
+            FVData.getWhere("fieldMaintenance", "status", "==", "pending",     { limit: 500 }) || [],
+            FVData.getWhere("fieldMaintenance", "status", "==", "in progress", { limit: 500 }) || []
+          ]);
 
-          docs.forEach(d => {
-            const st = (d && d.status ? d.status : "").toString().trim().toLowerCase();
-            if (st === "pending" || st === "in-progress"){
-              count += 1;
-            }
-          });
+          const ids = new Set();
+          pendingDocs.forEach(d => { if (d && d.id) ids.add(d.id); });
+          inProgDocs.forEach(d => { if (d && d.id) ids.add(d.id); });
 
-          applyState(count);
+          applyState(ids.size);
         }catch(err){
           console.warn("[crop-production] failed to load active work-order KPI:", err);
           applyState(0);
