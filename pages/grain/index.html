@@ -113,13 +113,13 @@
           <div>
             <label for="bin-crop">Crop</label><br/>
             <select id="bin-crop" class="select" aria-label="Select crop for bin summary">
-              <option value="corn" selected>Corn</option>
+              <option value="all" selected>All Crops</option>
+              <option value="corn">Corn</option>
               <option value="soybeans">Soybeans</option>
             </select>
           </div>
           <div>
             <label for="bin-year">Crop Year</label><br/>
-            <!-- Uses bins[].lastUpdatedMs year as "crop year" -->
             <select id="bin-year" class="select" aria-label="Select crop year for bin summary">
               <option value="all" selected>All Years</option>
               <option value="2025">2025</option>
@@ -163,7 +163,7 @@
 
         <div class="metrics">
           <div class="metric">
-            <div class="muted">Bag Count (full-equivalent, in fields)</div>
+            <div class="muted">Bag Count (full bags in fields)</div>
             <div id="bag-count" class="big">—</div>
           </div>
           <div class="metric">
@@ -173,9 +173,7 @@
         </div>
       </section>
 
-      <!-- ===========================
-           SUMMARY 3 & 4: placeholders
-           =========================== -->
+      <!-- Contracts / Tickets placeholders -->
       <section class="sum-card" aria-label="Grain Contracts summary">
         <div class="sum-title">Grain Contracts</div>
         <div class="metrics">
@@ -214,7 +212,7 @@
     </div>
   </fv-shell>
 
-  <!-- 🔌 LIVE WIRING: BINS + FIELD GRAIN BAG INVENTORY -->
+  <!-- 🔌 LIVE WIRING: SIMPLE, DEFENSIVE VERSION -->
   <script type="module">
     import {
       ready,
@@ -234,58 +232,53 @@
       if (n === null) return '—';
       return Math.round(n).toLocaleString('en-US');
     };
-    const normCrop = (s) => (s || '').toString().trim().toLowerCase();
+    const norm = (s) => (s || '').toString().trim().toLowerCase();
 
     (async () => {
       await ready;
       const db = getFirestore();
-
-      // ---------- DOM refs ----------
-      const binSelCrop   = document.getElementById('bin-crop');
-      const binSelYear   = document.getElementById('bin-year');
-      const binBushelsEl = document.getElementById('bin-bushels');
-
-      const bagSelCrop   = document.getElementById('bag-crop');
-      const bagSelYear   = document.getElementById('bag-year');
-      const bagCountEl   = document.getElementById('bag-count');
-      const bagBushelsEl = document.getElementById('bag-bushels');
-
-      if (!binSelCrop || !binBushelsEl || !bagCountEl || !bagBushelsEl) {
+      if (!db) {
+        console.warn('[grain] no Firestore handle');
         return;
       }
 
-      // ---------- 1) GRAIN BIN SUMMARY ----------
-      async function loadBinSummary() {
-        const selectedCrop = normCrop(binSelCrop.value);   // "corn" | "soybeans"
-        const selectedYear = binSelYear.value;             // "all" | "2025" | "2024"
+      // ----- DOM -----
+      const binBushelsEl = document.getElementById('bin-bushels');
+      const binSelCrop   = document.getElementById('bin-crop');
+      const binSelYear   = document.getElementById('bin-year');
 
+      const bagCountEl   = document.getElementById('bag-count');
+      const bagBushelsEl = document.getElementById('bag-bushels');
+      const bagSelCrop   = document.getElementById('bag-crop');
+      const bagSelYear   = document.getElementById('bag-year');
+
+      // ----- BINS: super simple sum of onHand -----
+      async function loadBinSummary() {
+        if (!binBushelsEl) return;
         binBushelsEl.textContent = '… bu';
+
+        const cropFilter = norm(binSelCrop.value);
+        const yearFilter = binSelYear.value;
 
         try {
           const snap = await getDocs(collection(db, 'binSites'));
-          if (snap.empty) {
-            binBushelsEl.textContent = '— bu';
-            return;
-          }
-
           let total = 0;
 
-          snap.forEach((docSnap) => {
-            const data = docSnap.data() || {};
-            const bins = Array.isArray(data.bins) ? data.bins : [];
-
-            bins.forEach((bin) => {
-              const on = num(bin && bin.onHand);
+          snap.forEach(docSnap => {
+            const d = docSnap.data() || {};
+            const bins = Array.isArray(d.bins) ? d.bins : [];
+            bins.forEach(b => {
+              let on = num(b && b.onHand);
               if (!on || on <= 0) return;
 
-              const binCrop = normCrop(bin && bin.lastCropType);
-              if (selectedCrop && binCrop && selectedCrop !== binCrop) return;
+              const bCrop = norm(b && b.lastCropType);
+              if (cropFilter && cropFilter !== 'all' && bCrop && bCrop !== cropFilter) return;
 
-              if (selectedYear !== 'all') {
-                const ms = num(bin && bin.lastUpdatedMs);
+              if (yearFilter && yearFilter !== 'all') {
+                const ms = num(b && b.lastUpdatedMs);
                 if (!ms) return;
                 const yr = new Date(ms).getFullYear().toString();
-                if (yr !== selectedYear) return;
+                if (yr !== yearFilter) return;
               }
 
               total += on;
@@ -294,141 +287,89 @@
 
           binBushelsEl.textContent = total ? `${fmtInt(total)} bu` : '— bu';
         } catch (err) {
-          console.error('Grain bin summary error', err);
+          console.error('[grain] bin summary error', err);
           binBushelsEl.textContent = '— bu';
         }
       }
 
-      // ---------- 2) FIELD GRAIN BAG INVENTORY ----------
+      // ----- FIELD BAGS: simple – full bags only -----
       async function loadBagSummary() {
-        const selectedCrop = normCrop(bagSelCrop.value);   // "all" | "corn" | "soybeans"
-        const selectedYear = bagSelYear.value;             // "all" | "2025" | "2024"
-
+        if (!bagCountEl || !bagBushelsEl) return;
         bagCountEl.textContent   = '…';
         bagBushelsEl.textContent = '… bu';
 
+        const cropFilter = norm(bagSelCrop.value);   // "all" | "corn" | "soybeans"
+        const yearFilter = bagSelYear.value;         // "all" | "2025" | "2024"
+
         try {
-          // SKU map: productsGrainBags
+          // Build SKU → bushels map
           const skuSnap = await getDocs(collection(db, 'productsGrainBags'));
           const skuMap = new Map();
-
-          skuSnap.forEach((docSnap) => {
+          skuSnap.forEach(docSnap => {
             const d = docSnap.data() || {};
-            const bus = num(d.bushels);
-            const len = num(d.lengthFt ?? d.sizeFeet);
-            if (!bus || !len) return;
-            skuMap.set(docSnap.id, { bushels: bus, lengthFt: len });
+            const bu = num(d.bushels);
+            if (!bu) return;
+            skuMap.set(docSnap.id, bu);
           });
 
-          // Events: grain_bag_events
           const evSnap = await getDocs(collection(db, 'grain_bag_events'));
-
           if (evSnap.empty) {
             bagCountEl.textContent   = '—';
             bagBushelsEl.textContent = '— bu';
             return;
           }
 
-          let totalBagsEquiv = 0;
-          let totalBushels   = 0;
+          let totalBags = 0;
+          let totalBu   = 0;
 
-          evSnap.forEach((docSnap) => {
+          evSnap.forEach(docSnap => {
             const d = docSnap.data() || {};
 
-            // --- filter by crop ---
-            const evCrop = normCrop(d.cropType || d.crop || '');
-            if (selectedCrop && selectedCrop !== 'all' && evCrop && evCrop !== selectedCrop) {
-              return;
-            }
+            // crop filter
+            const evCrop = norm(d.cropType || d.crop || '');
+            if (cropFilter && cropFilter !== 'all' && evCrop && evCrop !== cropFilter) return;
 
-            // --- filter by cropYear / dateISO ---
-            if (selectedYear !== 'all') {
+            // year filter
+            if (yearFilter && yearFilter !== 'all') {
               let evYear = null;
               const cy = d.cropYear;
               if (typeof cy === 'number') evYear = cy.toString();
               else if (typeof cy === 'string' && cy.length >= 4) evYear = cy.slice(0,4);
               else if (typeof d.dateISO === 'string' && d.dateISO.length >= 4) evYear = d.dateISO.slice(0,4);
-
-              if (evYear && evYear !== selectedYear) return;
+              if (evYear && evYear !== yearFilter) return;
             }
 
-            // --- counts map (full + partials) ---
-            const counts = d.counts || {
-              partial: d.partial,
-              partialFeet: d.partialFeet,
-              full: d.full,
-              partialUsage: d.partialUsage
-            };
+            // counts.full
+            const counts = d.counts || {};
+            const full = num(counts.full != null ? counts.full : d.full) || 0;
+            if (!full) return;
 
-            const fullCount = num(counts.full) || 0;
+            totalBags += full;
 
-            // partial as fraction (0–1 or pct) NOT used right now because you use partialFeet[] / partialUsage[]
-            const partialFeetRaw = counts.partialFeet ?? [];
-            let totalPartialFeet = 0;
-            if (Array.isArray(partialFeetRaw)) {
-              partialFeetRaw.forEach(v => {
-                const n = num(v);
-                if (n && n > 0) totalPartialFeet += n;
-              });
-            } else {
-              const n = num(partialFeetRaw);
-              if (n && n > 0) totalPartialFeet += n;
+            // SKU ID: either bagSku.id or top-level id
+            const skuId = (d.bagSku && d.bagSku.id) || d.id || d.bagSkuId;
+            const skuBu = skuId ? skuMap.get(skuId) : null;
+            if (skuBu) {
+              totalBu += full * skuBu;
             }
-
-            // base bag-equivalent: full bags
-            let bagEquiv = fullCount;
-
-            // --- bushels via SKU if possible ---
-            const bagSku = d.bagSku || {};
-            const skuId  = bagSku.id || d.bagSkuId;
-            const sku    = skuId ? skuMap.get(skuId) : null;
-
-            if (sku) {
-              const fullCapBu = num(sku.bushels);
-              const fullLenFt = num(sku.lengthFt);
-              if (fullCapBu && fullLenFt) {
-                const buPerFt = fullCapBu / fullLenFt;
-
-                let eventBushels = 0;
-
-                if (fullCount > 0) {
-                  eventBushels += fullCount * fullCapBu;
-                }
-                if (totalPartialFeet > 0 && buPerFt) {
-                  eventBushels += totalPartialFeet * buPerFt;
-                  bagEquiv     += totalPartialFeet / fullLenFt;
-                }
-
-                totalBushels += eventBushels;
-              }
-            } else {
-              // No SKU → still try to use sizeFeet on event for equivalent
-              const lenFromEvent = num(d.sizeFeet ?? d.lengthFt);
-              if (lenFromEvent && totalPartialFeet > 0) {
-                bagEquiv += totalPartialFeet / lenFromEvent;
-              }
-            }
-
-            totalBagsEquiv += bagEquiv;
           });
 
-          bagCountEl.textContent   = totalBagsEquiv ? fmtInt(totalBagsEquiv) : '—';
-          bagBushelsEl.textContent = totalBushels   ? `${fmtInt(totalBushels)} bu` : '— bu';
+          bagCountEl.textContent   = totalBags ? fmtInt(totalBags) : '—';
+          bagBushelsEl.textContent = totalBu   ? `${fmtInt(totalBu)} bu` : '— bu';
         } catch (err) {
-          console.error('[grain] failed to load field grain-bag summary:', err);
+          console.error('[grain] bag summary error', err);
           bagCountEl.textContent   = '—';
           bagBushelsEl.textContent = '— bu';
         }
       }
 
-      // ---------- Wire events ----------
+      // wire events
       binSelCrop.addEventListener('change', loadBinSummary);
       binSelYear.addEventListener('change', loadBinSummary);
-
       bagSelCrop.addEventListener('change', loadBagSummary);
       bagSelYear.addEventListener('change', loadBagSummary);
 
-      // ---------- Initial load ----------
+      // initial load
       loadBinSummary();
       loadBagSummary();
     })();
