@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
 
-  <!-- ✅ Load core + shell EARLY -->
+  <!-- Core + shell -->
   <script src="/Farm-vista/js/version.js" defer></script>
   <script src="/Farm-vista/js/core.js" defer></script>
   <script src="/Farm-vista/js/fv-shell.js" defer></script>
@@ -32,18 +32,31 @@
       box-shadow:var(--shadow); padding:16px; margin:20px 0 0;
       display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
     }
-    .sum-title{ width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0; }
+    .sum-title{
+      width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0;
+    }
     .muted{ color:var(--muted,#87908a); }
-    .big{ font-weight:900; font-size:clamp(22px,4.8vw,32px); line-height:1.15; }
+    .big{
+      font-weight:900;
+      font-size:clamp(22px,4.8vw,32px);
+      line-height:1.15;
+    }
 
     .selectors{
       display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;
     }
-    .selectors > div{min-width:160px}
-    .selectors label{ font-weight:700; color:var(--muted,#87908a); }
+    .selectors > div{ min-width:160px; }
+    .selectors label{
+      font-weight:700; color:var(--muted,#87908a);
+    }
     select.select{
-      appearance:none; border:1px solid var(--border); background:var(--surface);
-      padding:8px 12px; border-radius:10px; font-weight:700; color:var(--text);
+      appearance:none;
+      border:1px solid var(--border);
+      background:var(--surface);
+      padding:8px 12px;
+      border-radius:10px;
+      font-weight:700;
+      color:var(--text);
       width:100%;
       background-image:
         url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="8" viewBox="0 0 14 8"><path d="M1 1l6 6 6-6" fill="none" stroke="%2367706B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
@@ -106,9 +119,7 @@
           </div>
           <div>
             <label for="bin-year">Crop Year</label><br/>
-            <!-- Year exists in UI, but current schema has no cropYear on bins.
-                 We still listen to changes so the UI feels responsive, but the
-                 value is *not* used in the query (no fake filtering). -->
+            <!-- Uses bins[].lastUpdatedMs year as "crop year" -->
             <select id="bin-year" class="select" aria-label="Select crop year for bin summary">
               <option value="all" selected>All Years</option>
               <option value="2025">2025</option>
@@ -134,7 +145,7 @@
         <div class="selectors" role="group" aria-label="Bag selectors">
           <div>
             <label for="bag-crop">Crop</label><br/>
-            <!-- Your bag inventory docs don’t store crop; selector is cosmetic for now. -->
+            <!-- Schema for inventoryGrainBags has no crop; this is cosmetic for now. -->
             <select id="bag-crop" class="select" aria-label="Select crop for bag summary">
               <option value="all" selected>All Crops</option>
               <option value="corn">Corn</option>
@@ -143,7 +154,7 @@
           </div>
           <div>
             <label for="bag-year">Crop Year</label><br/>
-            <!-- Same note as above: no year in inventoryGrainBags; selector currently cosmetic. -->
+            <!-- Schema has no year either; cosmetic until we add a field. -->
             <select id="bag-year" class="select" aria-label="Select crop year for bag summary">
               <option value="all" selected>All Years</option>
               <option value="2025">2025</option>
@@ -159,15 +170,13 @@
           </div>
           <div class="metric">
             <div class="muted">Estimated Bushels</div>
-            <!-- Left as "— bu" until a per-bag bushel capacity field exists; no guessing. -->
             <div id="bag-bushels" class="big">— bu</div>
           </div>
         </div>
       </section>
 
       <!-- ===========================
-           SUMMARY 3: GRAIN CONTRACTS
-           (placeholder – not wired yet)
+           SUMMARY 3: GRAIN CONTRACTS (placeholder)
            =========================== -->
       <section class="sum-card" aria-label="Grain Contracts summary">
         <div class="sum-title">Grain Contracts</div>
@@ -205,8 +214,7 @@
       </section>
 
       <!-- ===========================
-           SUMMARY 4: GRAIN TICKETS
-           (placeholder – not wired yet)
+           SUMMARY 4: GRAIN TICKETS (placeholder)
            =========================== -->
       <section class="sum-card" aria-label="Grain Tickets summary">
         <div class="sum-title">Grain Tickets</div>
@@ -288,16 +296,18 @@
       const bagBushelsEl = document.getElementById('bag-bushels');
 
       if (!binSelCrop || !binBushelsEl || !bagCountEl || !bagBushelsEl) {
-        // If this page ever gets reused in a different context, just bail quietly.
         return;
       }
 
       // ---------- 1) GRAIN BIN SUMMARY ----------
-      // Uses /binSites docs with bins[] objects:
+      // Uses /binSites docs with bins[]:
       //   bins[].onHand        -> current bushels
-      //   bins[].lastCropType  -> "Corn", "Soybeans", etc.
+      //   bins[].lastCropType  -> "Corn", "Soybeans", ...
+      //   bins[].lastUpdatedMs -> ms timestamp (we use its year as "crop year")
       async function loadBinSummary() {
-        const selectedCrop = normCrop(binSelCrop.value); // "corn" | "soybeans"
+        const selectedCrop = normCrop(binSelCrop.value);   // "corn" | "soybeans"
+        const selectedYear = binSelYear.value;             // "all" | "2025" | "2024"
+
         binBushelsEl.textContent = '… bu';
 
         try {
@@ -318,8 +328,14 @@
               if (!on || on <= 0) return;
 
               const binCrop = normCrop(bin && bin.lastCropType);
-              // If a crop is chosen, only include bins whose lastCropType matches.
               if (selectedCrop && binCrop && selectedCrop !== binCrop) return;
+
+              if (selectedYear !== 'all') {
+                const ms = num(bin && bin.lastUpdatedMs);
+                if (!ms) return;
+                const yr = new Date(ms).getFullYear().toString();
+                if (yr !== selectedYear) return;
+              }
 
               total += on;
             });
@@ -334,15 +350,14 @@
 
       // ---------- 2) GRAIN BAG INVENTORY SUMMARY ----------
       // Uses /inventoryGrainBags docs:
-      //   onHand: number of bags on hand
-      //   status: "active" (we only count active or missing status)
+      //   onHand: number (we sum > 0)
       async function loadBagSummary() {
-        // Crop/year selectors are cosmetic for now; schema has no crop/year on bags.
         bagCountEl.textContent   = '…';
         bagBushelsEl.textContent = '— bu';
 
         try {
           const snap = await getDocs(collection(db, 'inventoryGrainBags'));
+          console.log('inventoryGrainBags docs:', snap.size);
           if (snap.empty) {
             bagCountEl.textContent   = '—';
             bagBushelsEl.textContent = '— bu';
@@ -353,17 +368,13 @@
 
           snap.forEach((doc) => {
             const data = doc.data() || {};
-            const status = (data.status || '').toString().toLowerCase();
-            if (status && status !== 'active') return;
-
             const on = num(data.onHand);
             if (!on || on <= 0) return;
-
             totalBags += on;
           });
 
           bagCountEl.textContent   = totalBags ? fmtInt(totalBags) : '—';
-          // No bushel math without a real per-bag capacity field – avoiding guesses.
+          // Still not inventing bushels until there is a real "bushels per bag" field.
           bagBushelsEl.textContent = '— bu';
         } catch (err) {
           console.error('Grain bag inventory summary error', err);
@@ -374,7 +385,7 @@
 
       // ---------- Wire events ----------
       binSelCrop.addEventListener('change', loadBinSummary);
-      binSelYear.addEventListener('change', loadBinSummary); // currently no-op on query, but keeps UI feeling live
+      binSelYear.addEventListener('change', loadBinSummary);
 
       bagSelCrop.addEventListener('change', loadBagSummary);
       bagSelYear.addEventListener('change', loadBagSummary);
