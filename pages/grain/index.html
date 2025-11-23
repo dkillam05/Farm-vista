@@ -145,7 +145,7 @@
         <div class="selectors" role="group" aria-label="Bag selectors">
           <div>
             <label for="bag-crop">Crop</label><br/>
-            <!-- Schema for inventoryGrainBags has no crop; this is cosmetic for now. -->
+            <!-- Schema for inventoryGrainBagMovements has no crop; cosmetic for now. -->
             <select id="bag-crop" class="select" aria-label="Select crop for bag summary">
               <option value="all" selected>All Crops</option>
               <option value="corn">Corn</option>
@@ -154,7 +154,7 @@
           </div>
           <div>
             <label for="bag-year">Crop Year</label><br/>
-            <!-- Schema has no year either; cosmetic until we add a field. -->
+            <!-- No year on these docs either; cosmetic. -->
             <select id="bag-year" class="select" aria-label="Select crop year for bag summary">
               <option value="all" selected>All Years</option>
               <option value="2025">2025</option>
@@ -300,10 +300,10 @@
       }
 
       // ---------- 1) GRAIN BIN SUMMARY ----------
-      // Uses /binSites docs with bins[]:
+      // /binSites docs with bins[]:
       //   bins[].onHand        -> current bushels
       //   bins[].lastCropType  -> "Corn", "Soybeans", ...
-      //   bins[].lastUpdatedMs -> ms timestamp (we use its year as "crop year")
+      //   bins[].lastUpdatedMs -> ms timestamp (we use year as "crop year")
       async function loadBinSummary() {
         const selectedCrop = normCrop(binSelCrop.value);   // "corn" | "soybeans"
         const selectedYear = binSelYear.value;             // "all" | "2025" | "2024"
@@ -319,8 +319,8 @@
 
           let total = 0;
 
-          snap.forEach((doc) => {
-            const data = doc.data() || {};
+          snap.forEach((docSnap) => {
+            const data = docSnap.data() || {};
             const bins = Array.isArray(data.bins) ? data.bins : [];
 
             bins.forEach((bin) => {
@@ -349,15 +349,17 @@
       }
 
       // ---------- 2) GRAIN BAG INVENTORY SUMMARY ----------
-      // Uses /inventoryGrainBags docs:
-      //   onHand: number (we sum > 0)
+      // **Match home dashboard KPI logic**
+      // Uses /inventoryGrainBagMovements:
+      //   onHand or qty = bags on hand for that SKU
       async function loadBagSummary() {
         bagCountEl.textContent   = '…';
         bagBushelsEl.textContent = '— bu';
 
         try {
-          const snap = await getDocs(collection(db, 'inventoryGrainBags'));
-          console.log('inventoryGrainBags docs:', snap.size);
+          const colRef = collection(db, 'inventoryGrainBagMovements');
+          const snap   = await getDocs(colRef);
+
           if (snap.empty) {
             bagCountEl.textContent   = '—';
             bagBushelsEl.textContent = '— bu';
@@ -365,19 +367,39 @@
           }
 
           let totalBags = 0;
+          let skuCount  = 0;
+          let totalBushels = 0;
 
-          snap.forEach((doc) => {
-            const data = doc.data() || {};
-            const on = num(data.onHand);
-            if (!on || on <= 0) return;
-            totalBags += on;
+          snap.forEach((docSnap) => {
+            const d = docSnap.data() || {};
+            let n = (d.onHand != null)
+              ? Number(d.onHand)
+              : (d.qty != null ? Number(d.qty) : 0);
+
+            if (!Number.isFinite(n)) n = 0;
+            if (n <= 0) return;
+
+            totalBags += n;
+            skuCount  += 1;
+
+            // Optional: if you ever store capacity per bag, we’ll use it.
+            const perBag =
+              num(d.bushelsPerBag) ??
+              num(d.buPerBag) ??
+              num(d.capacityBu);
+            if (perBag) {
+              totalBushels += n * perBag;
+            }
           });
 
-          bagCountEl.textContent   = totalBags ? fmtInt(totalBags) : '—';
-          // Still not inventing bushels until there is a real "bushels per bag" field.
-          bagBushelsEl.textContent = '— bu';
+          bagCountEl.textContent = totalBags ? fmtInt(totalBags) : '—';
+
+          // Only show bushels if we had real capacity data
+          bagBushelsEl.textContent = totalBushels
+            ? `${fmtInt(totalBushels)} bu`
+            : '— bu';
         } catch (err) {
-          console.error('Grain bag inventory summary error', err);
+          console.warn('[grain] failed to load grain-bag inventory summary:', err);
           bagCountEl.textContent   = '—';
           bagBushelsEl.textContent = '— bu';
         }
