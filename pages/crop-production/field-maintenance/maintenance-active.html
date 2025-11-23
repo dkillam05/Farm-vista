@@ -27,7 +27,7 @@
     }
 
     html{-webkit-text-size-adjust:100%}
-    body{ background: var(--app-bg, var(--surface)); }
+    body{ background: var(--app-bg, var(--surface)); overflow-x:hidden; }
 
     .wrap{
       max-width: var(--card-max);
@@ -117,6 +117,14 @@
     .btn-quiet{
       min-width:auto;
       padding-inline:10px;
+    }
+
+    .btn-small{
+      min-width:auto;
+      padding:5px 10px;
+      font-size:0.78rem;
+      font-weight:600;
+      border-radius:999px;
     }
 
     /* ========== Work-order cards ========== */
@@ -370,6 +378,9 @@
       background:var(--surface);
       color:var(--text);
       box-sizing:border-box;
+      white-space:pre-wrap;
+      overflow-wrap:break-word;
+      overflow-x:hidden; /* kill horizontal scrollbar */
     }
 
     .wo-detail-row {
@@ -430,6 +441,37 @@
       cursor:pointer;
     }
 
+    /* Photos section */
+    .wo-detail-photos{
+      margin-top:8px;
+    }
+    .wo-detail-helper{
+      font-size:0.76rem;
+      opacity:0.8;
+      margin-top:2px;
+    }
+    .wo-detail-gallery{
+      margin-top:6px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+    }
+    .wo-detail-thumb{
+      width:72px;
+      height:72px;
+      border-radius:10px;
+      overflow:hidden;
+      border:1px solid var(--border-soft,var(--border));
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      flex:0 0 auto;
+    }
+    .wo-detail-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
     @media (max-width:600px){
       .wo-detail-overlay{
         padding:0;
@@ -478,8 +520,26 @@
     const STATE = {
       db: null,
       items: [],
-      currentItem: null
+      currentItem: null,
+      currentPhotos: []
     };
+
+    // Lazy-load storage API so we don't break page if it's not wired yet
+    let storageApi = null;
+    async function getStorageApi(){
+      if(storageApi) return storageApi;
+      try{
+        const mod = await import('/Farm-vista/js/firebase-init.js');
+        const { getStorage, ref, uploadBytes, getDownloadURL } = mod;
+        if(getStorage && ref && uploadBytes && getDownloadURL){
+          storageApi = { getStorage, ref, uploadBytes, getDownloadURL };
+          return storageApi;
+        }
+      }catch(err){
+        console.error('Storage API not available:', err);
+      }
+      return null;
+    }
 
     function getTime(ts){
       if(!ts) return 0;
@@ -490,6 +550,43 @@
         return new Date(ts).getTime() || 0;
       }catch{
         return 0;
+      }
+    }
+
+    function renderPhotoGallery(){
+      const gallery = $('#detailPhotoGallery');
+      const hint = $('#detailPhotoHint');
+      if(!gallery) return;
+
+      gallery.innerHTML = '';
+      const urls = STATE.currentPhotos || [];
+
+      if(!urls.length){
+        if(hint){
+          hint.textContent = 'Attach photos of what needs to be done or what was completed.';
+        }
+        return;
+      }
+
+      if(hint){
+        hint.textContent = 'Tap a photo to view it larger in a new tab.';
+      }
+
+      for(const url of urls){
+        if(!url) continue;
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.className = 'wo-detail-thumb';
+
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = 'Work order photo';
+        img.loading = 'lazy';
+
+        a.appendChild(img);
+        gallery.appendChild(a);
       }
     }
 
@@ -581,6 +678,17 @@
         whoNamesInp.value = data.assignedWorkersNote || '';
       }
 
+      // Photos: accept several possible fields
+      const existingPhotos =
+        data.photos ||
+        data.photoUrls ||
+        data.attachments ||
+        [];
+
+      STATE.currentPhotos = Array.isArray(existingPhotos) ? [...existingPhotos] : [];
+
+      renderPhotoGallery();
+
       if(overlay){
         overlay.hidden = false;
         document.body.style.overflow = 'hidden';
@@ -594,6 +702,46 @@
       }
       document.body.style.overflow = '';
       STATE.currentItem = null;
+      STATE.currentPhotos = [];
+    }
+
+    async function handlePhotoFiles(ev){
+      const input = ev.target;
+      const files = Array.from(input.files || []);
+      input.value = '';
+
+      if(!files.length || !STATE.currentItem) return;
+
+      const api = await getStorageApi();
+      if(!api){
+        alert('Photo upload is not configured yet. Ask Dane to enable Firebase Storage helpers.');
+        return;
+      }
+      const { getStorage, ref, uploadBytes, getDownloadURL } = api;
+
+      const hint = $('#detailPhotoHint');
+      if(hint){
+        hint.textContent = 'Uploading photos...';
+      }
+
+      const storage = getStorage();
+      const urls = STATE.currentPhotos || [];
+
+      for(const file of files){
+        try{
+          const safeName = (file.name || 'photo').replace(/[^\w.-]+/g,'_');
+          const path = `${CONFIG.COLLECTION_PATH}/${STATE.currentItem.id}/${Date.now()}-${safeName}`;
+          const storageRef = ref(storage, path);
+          await uploadBytes(storageRef, file);
+          const url = await getDownloadURL(storageRef);
+          urls.push(url);
+        }catch(err){
+          console.error('Photo upload failed:', err);
+        }
+      }
+
+      STATE.currentPhotos = urls;
+      renderPhotoGallery();
     }
 
     async function saveDetailUpdates(){
@@ -625,6 +773,12 @@
         updates[CONFIG.STATUS_FIELD] = newStatus;
       }
 
+      // Only write photos field if we actually have something (keeps old docs clean)
+      if(STATE.currentPhotos && STATE.currentPhotos.length){
+        updates.photos = STATE.currentPhotos;
+        updates.photoUrls = STATE.currentPhotos; // mirror for compatibility
+      }
+
       try {
         await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, item.id), updates);
 
@@ -636,7 +790,6 @@
           STATE.items = STATE.items.filter(x => x.id !== item.id);
           renderList();
         }else if(newStatus){
-          // just re-render to refresh row meta / chip text
           renderList();
         }
 
@@ -854,6 +1007,13 @@
         });
       }
 
+      const addPhotosBtn = $('#detailAddPhotosBtn');
+      const photoInput   = $('#detailPhotoInput');
+      if(addPhotosBtn && photoInput){
+        addPhotosBtn.addEventListener('click', () => photoInput.click());
+        photoInput.addEventListener('change', handlePhotoFiles);
+      }
+
       // ESC to close detail
       document.addEventListener('keydown', (ev)=>{
         if(ev.key === 'Escape'){
@@ -963,6 +1123,20 @@
             <h3>Work performed / completion notes</h3>
             <textarea id="detailNotesCompletion" class="wo-detail-textarea"
               placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
+
+            <div class="wo-detail-photos">
+              <div class="wo-detail-row">
+                <span class="wo-detail-label">Photos</span>
+                <button type="button" id="detailAddPhotosBtn" class="btn-outline btn-small">
+                  Add photos
+                </button>
+                <input type="file" id="detailPhotoInput" accept="image/*" multiple hidden />
+              </div>
+              <div id="detailPhotoHint" class="wo-detail-helper">
+                Attach photos of what needs to be done or what was completed.
+              </div>
+              <div id="detailPhotoGallery" class="wo-detail-gallery"></div>
+            </div>
           </section>
         </div>
 
