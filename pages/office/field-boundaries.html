@@ -848,11 +848,31 @@
           fieldNameHidden.value = field.name || "";
           $("fieldBtn").textContent = field.name || "— Select field —";
 
-          // If field has farm info, sync farm selection
-          if(field.farmId || field.farmName){
-            farmIdInput.value = field.farmId || "";
-            farmNameInput.value = field.farmName || "";
-            $("farmBtn").textContent = field.farmName || "— Select farm —";
+          // If field has farm info, sync farm selection WITHOUT clearing a good existing choice
+          if (field.farmId || field.farmName){
+            // Try to match against loaded farms
+            let matchedFarm = null;
+            if (field.farmId){
+              matchedFarm = allFarms.find(f => String(f.id) === String(field.farmId));
+            }
+            if (!matchedFarm && field.farmName){
+              matchedFarm = allFarms.find(f => String(f.name) === String(field.farmName));
+            }
+
+            if (matchedFarm){
+              // Use canonical farm from farms collection
+              farmIdInput.value = matchedFarm.id;
+              farmNameInput.value = matchedFarm.name;
+              $("farmBtn").textContent = matchedFarm.name || "— Select farm —";
+            } else if (!farmIdInput.value && !farmNameInput.value){
+              // Only fall back to raw field values if NO farm has been chosen yet
+              farmIdInput.value = field.farmId || "";
+              farmNameInput.value = field.farmName || "";
+              if (field.farmName){
+                $("farmBtn").textContent = field.farmName;
+              }
+              // If there is no farmName, leave the button text alone instead of clearing it
+            }
           }
 
           if(dbInstance && currentFieldId){
