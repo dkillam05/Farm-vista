@@ -14,10 +14,80 @@
   <!-- Early theme boot (prevents flash) -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
+  <!-- Firebase config + FVData (needed for KPI badge) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <script src="/Farm-vista/js/fv-data.js"></script>
+
   <!-- Global CSS (same as Setup) -->
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
+
+  <style>
+    /* Dashboard-style KPI badge (same as main Dashboard) */
+    .dash-kpi{
+      display:block;
+      margin:12px 0 18px 0;
+      padding:14px 16px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 8px 18px rgba(0,0,0,0.06);
+      text-decoration:none;
+      color:inherit;
+      transition:transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+    }
+    .dash-kpi:hover{
+      transform:translateY(-1px);
+      box-shadow:0 12px 24px rgba(0,0,0,0.10);
+      border-color:rgba(59,126,70,0.55);
+    }
+    .dash-kpi-main{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      flex-wrap:wrap;
+    }
+    .dash-kpi-text{
+      flex:1 1 180px;
+      min-width:0;
+    }
+    .dash-kpi-label{
+      font-size:13px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      font-weight:600;
+      color:var(--muted,#67706B);
+      margin-bottom:4px;
+    }
+    .dash-kpi-title{
+      font-size:15px;
+      font-weight:600;
+    }
+    .dash-kpi-count{
+      min-width:52px;
+      min-height:52px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:22px;
+      font-weight:700;
+      border:1px solid rgba(59,126,70,0.4);
+      background:rgba(59,126,70,0.10);
+    }
+    .dash-kpi-sub{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .dash-kpi-empty .dash-kpi-count{
+      border-color:rgba(0,0,0,0.12);
+      background:rgba(0,0,0,0.02);
+      color:var(--muted,#67706B);
+    }
+  </style>
 </head>
 <body>
   <fv-shell>
@@ -36,6 +106,28 @@
         Use the sidebar to jump into <em>Planting</em>, <em>Spraying</em>, <em>Fertilizer</em>, <em>Maintenance</em>, <em>Harvest</em>,
         <em>Aerial Applications</em>, and <em>Trials</em>.
       </p>
+
+      <!-- ============================
+           KPI: Pending / In-Progress Field Maintenance
+           ============================ -->
+      <a
+        href="field-maintenance/maintenance-active.html"
+        class="dash-kpi dash-kpi-empty"
+        id="wo-active-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Field Maintenance</div>
+            <div class="dash-kpi-title">
+              Pending &amp; in-progress work orders
+            </div>
+          </div>
+          <div class="dash-kpi-count" id="wo-active-count">–</div>
+        </div>
+        <div class="dash-kpi-sub" id="wo-active-sub">
+          Checking for active field maintenance work orders…
+        </div>
+      </a>
 
       <div class="card" style="max-width:780px;">
         <h2 class="card-title">Overview</h2>
@@ -73,6 +165,71 @@
           });
         }
       })().catch(err => console.error('Bootloader failed:', err));
+    })();
+  </script>
+
+  <!-- ===========================================
+       Field Maintenance KPI JS (pending + in-progress)
+       =========================================== -->
+  <script>
+    (function(){
+      "use strict";
+
+      const kpiEl   = document.getElementById("wo-active-kpi");
+      const countEl = document.getElementById("wo-active-count");
+      const subEl   = document.getElementById("wo-active-sub");
+
+      if (!kpiEl || !countEl || !subEl) return;
+
+      function applyState(count){
+        const n = Number(count) || 0;
+        countEl.textContent = n.toString();
+
+        if (!n){
+          kpiEl.classList.add("dash-kpi-empty");
+          subEl.textContent = "No pending or in-progress field maintenance work orders.";
+        }else{
+          kpiEl.classList.remove("dash-kpi-empty");
+          subEl.textContent = n === 1
+            ? "field maintenance work order currently pending or in progress."
+            : "field maintenance work orders currently pending or in progress.";
+        }
+      }
+
+      async function loadActive(){
+        try{
+          if (!window.FVData || typeof FVData.list !== "function"){
+            console.warn("[crop-production] FVData.list not available for KPI.");
+            applyState(0);
+            return;
+          }
+
+          if (typeof FVData.ready === "function"){
+            await FVData.ready();
+          }
+
+          // Pull fieldMaintenance docs and count those with status "pending" or "in-progress"
+          const docs = await FVData.list("fieldMaintenance", { limit: 1000, mine: false }) || [];
+          let count = 0;
+
+          docs.forEach(d => {
+            const st = (d && d.status ? d.status : "").toString().trim().toLowerCase();
+            if (st === "pending" || st === "in-progress"){
+              count += 1;
+            }
+          });
+
+          applyState(count);
+        }catch(err){
+          console.warn("[crop-production] failed to load active work-order KPI:", err);
+          applyState(0);
+        }
+      }
+
+      loadActive();
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") loadActive();
+      });
     })();
   </script>
 
