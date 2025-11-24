@@ -367,6 +367,22 @@
       margin:0 0 4px;
     }
 
+    .wo-detail-summary{
+      padding-bottom:6px;
+      border-bottom:1px solid var(--border-soft,var(--border));
+    }
+
+    .wo-detail-bullets{
+      list-style:disc;
+      padding-left:18px;
+      margin:6px 0 0;
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+    .wo-detail-bullets li+li{
+      margin-top:2px;
+    }
+
     .wo-detail-notes {
       font-size:0.82rem;
       white-space:pre-wrap;
@@ -412,10 +428,6 @@
     .wo-detail-input {
       border-radius:10px;
       flex:1 1 120px;
-    }
-
-    .wo-detail-status-select{
-      width:100%;
     }
 
     .wo-detail-footer {
@@ -478,12 +490,49 @@
       border:1px solid var(--border-soft,var(--border));
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       flex:0 0 auto;
+      padding:0;
     }
     .wo-detail-thumb img{
       width:100%;
       height:100%;
       object-fit:cover;
       display:block;
+    }
+
+    /* Photo lightbox */
+    .wo-photo-lightbox{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.8);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:10000;
+    }
+    .wo-photo-lightbox-inner{
+      position:relative;
+      max-width:90vw;
+      max-height:90vh;
+    }
+    .wo-photo-lightbox-inner img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+      border-radius:12px;
+      box-shadow:0 12px 32px rgba(0,0,0,0.6);
+    }
+    .wo-photo-lightbox-close{
+      position:absolute;
+      top:-12px;
+      right:-12px;
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:none;
+      background:rgba(0,0,0,0.65);
+      color:#fff;
+      font-size:1.2rem;
+      cursor:pointer;
     }
 
     @media (max-width:600px){
@@ -535,7 +584,8 @@
       db: null,
       items: [],
       currentItem: null,
-      currentPhotos: []
+      currentPhotos: [],
+      currentUserName: ''
     };
 
     // Lazy-load storage API so we don't break page if it's not wired yet
@@ -553,6 +603,19 @@
         console.error('Storage API not available:', err);
       }
       return null;
+    }
+
+    function detectCurrentUserName(){
+      try{
+        const w = window;
+        if(w.FV_AUTH && w.FV_AUTH.user){
+          return w.FV_AUTH.user.displayName || w.FV_AUTH.user.email || '';
+        }
+        if(w.FV_CONTEXT && w.FV_CONTEXT.user){
+          return w.FV_CONTEXT.user.name || w.FV_CONTEXT.user.email || '';
+        }
+      }catch{/* ignore */}
+      return '';
     }
 
     function getTime(ts){
@@ -589,6 +652,50 @@
         : `Open for ${core} so far`;
     }
 
+    function openPhotoLightbox(url){
+      const lb = $('#photoLightbox');
+      const img = $('#photoLightboxImg');
+      if(!lb || !img) return;
+      img.src = url;
+      lb.hidden = false;
+    }
+
+    function closePhotoLightbox(){
+      const lb = $('#photoLightbox');
+      const img = $('#photoLightboxImg');
+      if(!lb || !img) return;
+      img.src = '';
+      lb.hidden = true;
+    }
+
+    function updateSummaryBullets(){
+      const item = STATE.currentItem;
+      const bulletsEl = $('#detailBullets');
+      if(!item || !bulletsEl) return;
+
+      const data = item.data;
+      const field = data.fieldName || data.field || 'Field not set';
+      const farm  = data.farmName  || data.farm  || '';
+      const status = (data[CONFIG.STATUS_FIELD] || '').toString() || CONFIG.STATUS_PENDING;
+
+      const hasLocation = !!(data.fieldId || data.fieldUid || (field && field !== 'Field not set' && farm));
+      const hasPhotos = STATE.currentPhotos && STATE.currentPhotos.length > 0;
+
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+      bulletsEl.innerHTML = '';
+      const lines = [
+        `Status: ${statusLabel}`,
+        hasLocation ? 'Location mapped' : 'No location mapped',
+        hasPhotos ? 'Photos attached' : 'No photos attached'
+      ];
+      for(const text of lines){
+        const li = document.createElement('li');
+        li.textContent = text;
+        bulletsEl.appendChild(li);
+      }
+    }
+
     function renderPhotoGallery(){
       const gallery = $('#detailPhotoGallery');
       const hint = $('#detailPhotoHint');
@@ -601,29 +708,32 @@
         if(hint){
           hint.textContent = 'Attach photos of what needs to be done or what was completed.';
         }
+        updateSummaryBullets();
         return;
       }
 
       if(hint){
-        hint.textContent = 'Tap a photo to view it larger in a new tab.';
+        hint.textContent = 'Tap a photo to view it larger.';
       }
 
       for(const url of urls){
         if(!url) continue;
-        const a = document.createElement('a');
-        a.href = url;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.className = 'wo-detail-thumb';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wo-detail-thumb';
 
         const img = document.createElement('img');
         img.src = url;
         img.alt = 'Work order photo';
         img.loading = 'lazy';
 
-        a.appendChild(img);
-        gallery.appendChild(a);
+        btn.addEventListener('click', () => openPhotoLightbox(url));
+
+        btn.appendChild(img);
+        gallery.appendChild(btn);
       }
+
+      updateSummaryBullets();
     }
 
     function openDetail(item){
@@ -653,11 +763,11 @@
       const chipsEl = $('#detailChips');
       const createdEl = $('#detailCreated');
       const durationEl = $('#detailDuration');
-      const statusSel = $('#detailStatusSelect');
       const origNotesEl = $('#detailNotesOriginal');
       const compNotesEl = $('#detailNotesCompletion');
       const whoTypeSel  = $('#detailWhoType');
       const whoNamesInp = $('#detailWhoNames');
+      const completedOnEl = $('#detailCompletedOn');
 
       if(titleEl){
         titleEl.textContent = farm ? `${field} · ${farm}` : field;
@@ -702,12 +812,12 @@
           : '';
       }
 
-      if(statusSel){
-        const normalized = status || CONFIG.STATUS_PENDING;
-        if([CONFIG.STATUS_PENDING, CONFIG.STATUS_INPROG, CONFIG.STATUS_DONE].includes(normalized)){
-          statusSel.value = normalized;
+      if(completedOnEl){
+        if(completedDate){
+          completedOnEl.textContent =
+            `${completedDate.toLocaleDateString()} ${completedDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
         }else{
-          statusSel.value = CONFIG.STATUS_PENDING;
+          completedOnEl.textContent = 'Will be set when marked completed.';
         }
       }
 
@@ -719,12 +829,18 @@
         compNotesEl.value = data.completionNotes || '';
       }
 
-      // Worker assignment (simple for now – we’ll hook to real lists later)
+      // Worker assignment
       if(whoTypeSel){
         whoTypeSel.value = data.assignedWorkerType || 'employee';
       }
       if(whoNamesInp){
-        whoNamesInp.value = data.assignedWorkersNote || '';
+        if(data.assignedWorkersNote){
+          whoNamesInp.value = data.assignedWorkersNote;
+        }else if(STATE.currentUserName){
+          whoNamesInp.value = STATE.currentUserName;
+        }else{
+          whoNamesInp.value = '';
+        }
       }
 
       // Photos: accept several possible fields
@@ -736,6 +852,7 @@
 
       STATE.currentPhotos = Array.isArray(existingPhotos) ? [...existingPhotos] : [];
 
+      updateSummaryBullets();
       renderPhotoGallery();
 
       if(overlay){
@@ -800,7 +917,6 @@
       const compNotesEl = $('#detailNotesCompletion');
       const whoTypeSel  = $('#detailWhoType');
       const whoNamesInp = $('#detailWhoNames');
-      const statusSel   = $('#detailStatusSelect');
 
       const updates = {
         updatedAt: serverTimestamp()
@@ -816,18 +932,24 @@
         updates.assignedWorkersNote = whoNamesInp.value.trim();
       }
 
-      let newStatus = null;
-      if(statusSel){
-        newStatus = statusSel.value || CONFIG.STATUS_PENDING;
-        updates[CONFIG.STATUS_FIELD] = newStatus;
+      // Decide status via confirm dialog
+      const currentStatus = item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING;
+      let newStatus = currentStatus;
+
+      if(currentStatus !== CONFIG.STATUS_DONE){
+        const isCompleted = window.confirm(
+          'Is this job completed?\n\nOK = Mark as Completed\nCancel = Keep as In Progress'
+        );
+        newStatus = isCompleted ? CONFIG.STATUS_DONE : CONFIG.STATUS_INPROG;
       }
 
-      const oldStatus = item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING;
-      if(newStatus === CONFIG.STATUS_DONE && oldStatus !== CONFIG.STATUS_DONE){
+      updates[CONFIG.STATUS_FIELD] = newStatus;
+
+      if(newStatus === CONFIG.STATUS_DONE && currentStatus !== CONFIG.STATUS_DONE){
         updates.completedAt = serverTimestamp();
       }
 
-      // Only write photos field if we actually have something (keeps old docs clean)
+      // Only write photos field if we actually have something
       if(STATE.currentPhotos && STATE.currentPhotos.length){
         updates.photos = STATE.currentPhotos;
         updates.photoUrls = STATE.currentPhotos; // mirror for compatibility
@@ -836,14 +958,14 @@
       try {
         await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, item.id), updates);
 
-        // Update local copy so the data stays in sync if reopened
+        // Update local copy so the data stays in sync
         Object.assign(item.data, updates);
 
         if(newStatus === CONFIG.STATUS_DONE){
           // Completed → drop from list
           STATE.items = STATE.items.filter(x => x.id !== item.id);
           renderList();
-        }else if(newStatus){
+        }else{
           renderList();
         }
 
@@ -941,7 +1063,7 @@
 
         const originalStatus = status || CONFIG.STATUS_PENDING;
 
-        // Status change handler
+        // Status change handler (card-level quick change)
         select.addEventListener('change', async (ev) => {
           const newStatus = ev.target.value;
 
@@ -1031,6 +1153,7 @@
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
+      STATE.currentUserName = detectCurrentUserName();
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -1077,9 +1200,28 @@
         photoInput.addEventListener('change', handlePhotoFiles);
       }
 
-      // ESC to close detail
+      // Photo lightbox events
+      const lb = $('#photoLightbox');
+      if(lb){
+        lb.addEventListener('click', (ev)=>{
+          if(ev.target === lb){
+            closePhotoLightbox();
+          }
+        });
+      }
+      const lbClose = $('#photoLightboxClose');
+      if(lbClose){
+        lbClose.addEventListener('click', closePhotoLightbox);
+      }
+
+      // ESC to close detail or photo
       document.addEventListener('keydown', (ev)=>{
         if(ev.key === 'Escape'){
+          const lbNow = $('#photoLightbox');
+          if(lbNow && !lbNow.hidden){
+            closePhotoLightbox();
+            return;
+          }
           closeDetail();
         }
       });
@@ -1100,7 +1242,7 @@
             <p class="muted">
               Shows all work orders that have passed approval and are currently
               <strong>Pending</strong> or <strong>In Progress</strong>. Use the
-              status dropdown to move them to <strong>In Progress</strong> or
+              status dropdown on each card to move them to <strong>In Progress</strong> or
               straight to <strong>Completed</strong>.
             </p>
           </div>
@@ -1143,25 +1285,23 @@
         </header>
 
         <div class="wo-detail-content">
-          <div class="wo-detail-grid">
-            <div id="detailChips"></div>
-            <div>
-              <div class="wo-detail-label">Created</div>
-              <div id="detailCreated" style="font-size:0.82rem;"></div>
+          <!-- SUMMARY (top half) -->
+          <section class="wo-detail-summary">
+            <div class="wo-detail-grid">
+              <div id="detailChips"></div>
+              <div>
+                <div class="wo-detail-label">Created</div>
+                <div id="detailCreated" style="font-size:0.82rem;"></div>
+              </div>
+              <div>
+                <div class="wo-detail-label">Timing</div>
+                <div id="detailDuration" style="font-size:0.82rem;"></div>
+              </div>
             </div>
-            <div>
-              <div class="wo-detail-label">Timing</div>
-              <div id="detailDuration" style="font-size:0.82rem;"></div>
-            </div>
-            <div>
-              <div class="wo-detail-label">Status</div>
-              <select id="detailStatusSelect" class="wo-detail-select wo-detail-status-select">
-                <option value="pending">Pending</option>
-                <option value="in progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-          </div>
+            <ul id="detailBullets" class="wo-detail-bullets">
+              <!-- Status / location / photos summary -->
+            </ul>
+          </section>
 
           <section class="wo-detail-section">
             <h3>Original request</h3>
@@ -1170,6 +1310,7 @@
             </div>
           </section>
 
+          <!-- COMPLETION FORM (bottom half) -->
           <section class="wo-detail-section">
             <h3>Who’s doing the work?</h3>
             <div class="wo-detail-row" style="margin-bottom:6px;">
@@ -1182,12 +1323,17 @@
             <div class="wo-detail-row">
               <label class="wo-detail-label" for="detailWhoNames">Who is working on it?</label>
               <input id="detailWhoNames" class="wo-detail-input"
-                placeholder="Names / crew (we’ll hook this to employees &amp; subs list later)" />
+                placeholder="Names / crew (comma-separated; defaults to logged-in user)" />
             </div>
           </section>
 
           <section class="wo-detail-section">
             <h3>Work performed / completion notes</h3>
+            <div class="wo-detail-row" style="margin-bottom:4px;">
+              <div class="wo-detail-label">Completed on</div>
+              <div id="detailCompletedOn" style="font-size:0.82rem;"></div>
+            </div>
+
             <textarea id="detailNotesCompletion" class="wo-detail-textarea"
               placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
 
@@ -1211,6 +1357,16 @@
           <button type="button" id="detailCancelBtn" class="btn-outline">Close</button>
           <button type="button" id="detailSaveBtn" class="btn-primary">Save updates</button>
         </footer>
+      </div>
+    </div>
+
+    <!-- Photo lightbox -->
+    <div id="photoLightbox" class="wo-photo-lightbox" hidden>
+      <div class="wo-photo-lightbox-inner">
+        <button type="button" id="photoLightboxClose" class="wo-photo-lightbox-close" aria-label="Close photo">
+          ×
+        </button>
+        <img id="photoLightboxImg" src="" alt="Work order photo" />
       </div>
     </div>
   </fv-shell>
