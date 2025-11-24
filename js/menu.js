@@ -128,7 +128,8 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        { type: 'link', id: 'inv-grain-bags', icon: '👝', label: 'Grain Bag Inventory', href: '/Farm-vista/pages/inventory/grain-bags.html', activeMatch: 'starts-with' }
+        { type: 'link', id: 'inv-grain-bags',      icon: '👝', label: 'Grain Bag Inventory',        href: '/Farm-vista/pages/inventory/grain-bags.html',       activeMatch: 'starts-with' },
+        { type: 'link', id: 'inv-manual-removal',  icon: '➖', label: 'Inventory Manual Adjustment', href: '/Farm-vista/pages/inventory/manual-removal.html',   activeMatch: 'starts-with' }
       ]
     },
 
