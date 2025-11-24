@@ -446,6 +446,9 @@
 
     .wo-detail-row-2{
       width:100%;
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
     }
     .wo-detail-col{
       flex:1 1 0;
@@ -475,7 +478,8 @@
 
     .wo-detail-input {
       border-radius:10px;
-      flex:1 1 120px;
+      flex:1 1 auto;
+      max-width:260px;
     }
 
     .wo-detail-textarea {
@@ -602,6 +606,7 @@
     .combo{
       position:relative;
       width:100%;
+      max-width:260px;
     }
     .combo-anchor{
       position:relative;
@@ -913,7 +918,7 @@
     function openPhotoLightbox(url){
       const lb = $('#photoLightbox');
       const img = $('#photoLightboxImg');
-      if(!lb || !img) return;
+      if(!lb || !img || !url) return;
       img.src = url;
       lb.hidden = false;
     }
@@ -1020,9 +1025,15 @@
         }).sort((a,b)=>a.fullName.localeCompare(b.fullName));
 
         STATE.selectedEmployeeIds.clear();
+
+        // try to match logged-in user
         if(STATE.currentUserEmail){
           const match = STATE.employees.find(e => e.email === STATE.currentUserEmail);
           if(match) STATE.selectedEmployeeIds.add(match.id);
+        }
+        // fallback to first employee
+        if(!STATE.selectedEmployeeIds.size && STATE.employees.length){
+          STATE.selectedEmployeeIds.add(STATE.employees[0].id);
         }
 
         updateSubmittedByUI();
@@ -1055,7 +1066,11 @@
         (data.location && typeof data.location.lat === 'number' && typeof data.location.lng === 'number')
       );
 
-      const hasPhotos = STATE.currentPhotos && STATE.currentPhotos.length > 0;
+      const hasPhotoUrls = STATE.currentPhotos && STATE.currentPhotos.length > 0;
+      const photoCountField = typeof data.photoCount === 'number' && data.photoCount > 0
+        ? data.photoCount
+        : null;
+      const hasPhotos = hasPhotoUrls || !!photoCountField;
 
       bulletsEl.innerHTML = '';
 
@@ -1075,9 +1090,10 @@
 
       const liPhotos = document.createElement('li');
       if(hasPhotos){
-        const count = STATE.currentPhotos.length;
+        const count = hasPhotoUrls ? STATE.currentPhotos.length : (photoCountField || 0);
+        const label = `${count || 'Some'} photo${count===1?'':'s'} attached`;
         liPhotos.innerHTML =
-          `<button type="button" class="summary-link js-photos-link">${count} photo${count===1?'':'s'} attached</button>`;
+          `<button type="button" class="summary-link js-photos-link">${label}</button>`;
       }else{
         liPhotos.textContent = 'No photos attached';
       }
@@ -1211,7 +1227,6 @@
           : '';
       }
 
-      // Completed on row: only show once job is completed
       if(completedRow){
         if(completedDate){
           completedRow.hidden = false;
@@ -1228,7 +1243,6 @@
         origNotesEl.textContent = originalNotes || 'No original description was provided.';
       }
 
-      // Work dates
       function isoFrom(any){
         if(!any) return '';
         if(any.toDate){
@@ -1261,7 +1275,7 @@
         compNotesEl.value = data.completionNotes || '';
       }
 
-      // Submitted by -> multi select from employees
+      // Submitted by
       STATE.selectedEmployeeIds.clear();
       let selectedNames = [];
 
@@ -1279,9 +1293,8 @@
         const emp = STATE.employees.find(e => e.fullName === name);
         if(emp) STATE.selectedEmployeeIds.add(emp.id);
       }
-      if(!STATE.selectedEmployeeIds.size && STATE.currentUserEmail){
-        const match = STATE.employees.find(e => e.email === STATE.currentUserEmail);
-        if(match) STATE.selectedEmployeeIds.add(match.id);
+      if(!STATE.selectedEmployeeIds.size && STATE.employees.length){
+        STATE.selectedEmployeeIds.add(STATE.employees[0].id);
       }
       updateSubmittedByUI();
 
@@ -1657,7 +1670,7 @@
       }
     }
 
-    /* ------------ mic wiring (from add page) ------------ */
+    /* ------------ mic wiring ------------ */
 
     function wireMic(buttonId, textareaId){
       const btn = document.getElementById(buttonId);
@@ -1876,7 +1889,6 @@
       // Mic on Notes
       wireMic('detailDictationBtn', 'detailNotesCompletion');
 
-      // Load data
       await loadEmployees();
       await loadActiveWorkOrders();
     })();
