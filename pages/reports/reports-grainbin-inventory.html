@@ -1,1 +1,1463 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Grain Bin Inventory</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
+    }
+
+    body{
+      background: var(--app-bg, var(--surface));
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    /* Toolbar + back / print buttons */
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+
+    .page-header-meta{
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    /* Filters */
+    .filters{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:flex-end;
+      margin-top:4px;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:150px;
+      flex:1 1 160px;
+      font-size:0.8rem;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+    .filter-input,
+    .filter-select{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:32px;
+    }
+    .filter-input::placeholder{
+      color:var(--muted,#9CA3AF);
+    }
+
+    /* Inventory list */
+    .wo-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .wo-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .group-heading{
+      margin-top:8px;
+      font-size:0.86rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      color:var(--muted,#6B7280);
+    }
+
+    .site-heading{
+      margin-top:4px;
+      font-size:0.9rem;
+      font-weight:600;
+      color:var(--text,#111827);
+    }
+
+    .wo-card {
+      position:relative;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      cursor:pointer;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+    }
+    .wo-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-main {
+      flex:1 1 auto;
+      min-width:0;
+    }
+
+    .wo-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .wo-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .wo-meta-label {
+      font-weight:600;
+    }
+
+    /* Detail panel */
+    .wo-detail-panel {
+      margin-top:10px;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .wo-detail-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-detail-title {
+      font-weight:700;
+      font-size:1rem;
+    }
+
+    .wo-detail-close {
+      border:none;
+      outline:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+    }
+
+    .wo-detail-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:6px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+    @media (min-width:700px) {
+      .wo-detail-grid {
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .wo-detail-item-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .wo-detail-item-value {
+      font-size:0.92rem;
+    }
+
+    .wo-detail-notes {
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+
+    .wo-detail-notes-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .wo-detail-notes-body {
+      margin-top:2px;
+    }
+
+    .wo-detail-footer {
+      margin-top:10px;
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .wo-detail-pill {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
+    }
+
+    /* Bottom print button */
+    .bottom-actions{
+      margin-top:16px;
+      display:flex;
+      justify-content:flex-end;
+    }
+
+    /* Hidden iframe for print */
+    #fv-print-frame{
+      position:fixed;
+      right:0;
+      bottom:0;
+      width:0;
+      height:0;
+      border:0;
+      visibility:hidden;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, getDocs,
+      doc, getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'binSites',
+      COMPANY_DOC_PATH: ['company','main']
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const STATE = {
+      items: [],        // { id, data:{ siteId, siteName, binKey, binNum, capacity, onHand, lastCropType, lastCropMoisture, lastUpdatedBy, lastUpdatedAt } }
+      filteredItems: null,
+      selectedId: null,
+      db: null,
+      company: null,
+      siteMap: new Map(),  // siteId -> siteName
+      cropSet: new Set()
+    };
+
+    function formatDate(d){
+      if(!d) return '';
+      try{
+        return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+      }catch{ return ''; }
+    }
+
+    function formatDateTime(d){
+      if(!d) return '';
+      try{
+        return d.toLocaleString();
+      }catch{ return ''; }
+    }
+
+    function formatNumber(n){
+      const num = Number(n);
+      if(!Number.isFinite(num)) return '';
+      return num.toLocaleString();
+    }
+
+    function getWorkingItems(){
+      return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
+    }
+
+    function groupItemsByCropSite(items){
+      const cropMap = new Map(); // crop -> Map(siteName -> [items])
+
+      items.forEach(it => {
+        const d = it.data;
+        const crop = (d.lastCropType || 'Unknown crop').toString();
+        const site = (d.siteName || 'Unknown bin site').toString();
+
+        if(!cropMap.has(crop)) cropMap.set(crop, new Map());
+        const siteMap = cropMap.get(crop);
+        if(!siteMap.has(site)) siteMap.set(site, []);
+        siteMap.get(site).push(it);
+      });
+
+      // sort sites and bins
+      const cropsArr = Array.from(cropMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
+      cropsArr.forEach(([, siteMap]) => {
+        Array.from(siteMap.entries()).forEach(([siteName, arr]) => {
+          arr.sort((a,b) => {
+            const na = Number(a.data.binNum || 0);
+            const nb = Number(b.data.binNum || 0);
+            return na - nb;
+          });
+        });
+      });
+
+      return cropsArr; // [ [cropName, Map(siteName -> [items])] , ... ]
+    }
+
+    function renderList(){
+      const listEl  = $('.wo-list');
+      const emptyEl = $('.wo-empty');
+      const summaryEl = $('#gbSummary');
+
+      listEl.innerHTML = '';
+
+      const items = getWorkingItems().filter(it => Number(it.data.onHand || 0) > 0);
+
+      if(!items.length){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'No grain currently on hand in tracked bins for the selected filters.';
+        if(summaryEl) summaryEl.textContent = '0 bu on hand';
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+
+      const totalOnHand = items.reduce((sum,it) => sum + (Number(it.data.onHand) || 0), 0);
+      const totalCapacity = items.reduce((sum,it) => sum + (Number(it.data.capacity) || 0), 0);
+      const sites = new Set(items.map(it => it.data.siteId));
+      const crops = new Set(items.map(it => (it.data.lastCropType || 'Unknown crop')));
+      const binsCount = items.length;
+
+      const pct = totalCapacity > 0 ? (totalOnHand / totalCapacity) * 100 : 0;
+      const pctStr = totalCapacity > 0 ? `${pct.toFixed(1)}% full` : 'N/A';
+
+      if(summaryEl){
+        summaryEl.textContent = `${formatNumber(totalOnHand)} bu on hand across ${binsCount} bin${binsCount === 1 ? '' : 's'} at ${sites.size} site${sites.size === 1 ? '' : 's'} (${pctStr})`;
+      }
+
+      const grouped = groupItemsByCropSite(items);
+
+      for(const [cropName, siteMap] of grouped){
+        const cropHeading = document.createElement('div');
+        cropHeading.className = 'group-heading';
+        cropHeading.textContent = cropName;
+        listEl.appendChild(cropHeading);
+
+        const sitesArr = Array.from(siteMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
+
+        for(const [siteName, bins] of sitesArr){
+          const siteHeading = document.createElement('div');
+          siteHeading.className = 'site-heading';
+          siteHeading.textContent = siteName;
+          listEl.appendChild(siteHeading);
+
+          for(const item of bins){
+            const d = item.data;
+            const cap = Number(d.capacity) || 0;
+            const onHand = Number(d.onHand) || 0;
+            const pctFull = cap > 0 ? (onHand / cap) * 100 : 0;
+            const moisture = d.lastCropMoisture ?? null;
+
+            const card = document.createElement('article');
+            card.className = 'wo-card';
+            card.dataset.id = item.id;
+
+            card.innerHTML = `
+              <div class="wo-row-top">
+                <div class="wo-main">
+                  <div class="wo-title">
+                    Bin ${d.binNum ?? ''} · ${cropName}
+                  </div>
+                  <div class="wo-sub">
+                    ${formatNumber(onHand)} bu on hand of ${formatNumber(cap)} bu capacity
+                    ${cap > 0 ? ` (${pctFull.toFixed(1)}% full)` : ''}
+                  </div>
+                  <div class="wo-meta">
+                    <span><span class="wo-meta-label">Site</span> ${siteName}</span>
+                    ${moisture !== null && moisture !== undefined ? `<span><span class="wo-meta-label">Last Moisture</span> ${moisture}%</span>` : ''}
+                    ${d.lastUpdatedAt ? `<span><span class="wo-meta-label">Updated</span> ${formatDate(d.lastUpdatedAt)}</span>` : ''}
+                    ${d.lastUpdatedBy ? `<span><span class="wo-meta-label">By</span> ${d.lastUpdatedBy}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+            `;
+
+            card.addEventListener('click', () => {
+              STATE.selectedId = item.id;
+              renderDetails();
+            });
+
+            listEl.appendChild(card);
+          }
+        }
+      }
+    }
+
+    function clearDetails(){
+      const panel = $('.wo-detail-panel');
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      $('.wo-detail-title', panel).textContent = 'Bin details';
+      $('.wo-detail-grid', panel).innerHTML = '';
+      $('.wo-detail-notes-body', panel).textContent = '';
+      $('.wo-detail-footer', panel).innerHTML = '';
+    }
+
+    function renderDetails(){
+      const panel = $('.wo-detail-panel');
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){
+        clearDetails();
+        return;
+      }
+
+      const d = item.data;
+      const crop  = d.lastCropType || 'Unknown crop';
+      const site  = d.siteName || 'Unknown bin site';
+      const cap   = Number(d.capacity) || 0;
+      const onHand = Number(d.onHand) || 0;
+      const pctFull = cap > 0 ? (onHand / cap) * 100 : 0;
+      const moisture = d.lastCropMoisture ?? null;
+      const updatedAt = d.lastUpdatedAt || null;
+      const updatedStr = updatedAt ? formatDateTime(updatedAt) : 'Unknown';
+      const updatedBy  = d.lastUpdatedBy || 'Unknown';
+
+      panel.dataset.id = item.id;
+      $('.wo-detail-title', panel).textContent =
+        `Bin ${d.binNum ?? ''} · ${site}`;
+
+      const grid = $('.wo-detail-grid', panel);
+      grid.innerHTML = `
+        <div>
+          <div class="wo-detail-item-label">Bin site</div>
+          <div class="wo-detail-item-value">${site}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Bin number</div>
+          <div class="wo-detail-item-value">${d.binNum ?? ''}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Crop</div>
+          <div class="wo-detail-item-value">${crop}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Grain on hand</div>
+          <div class="wo-detail-item-value">${formatNumber(onHand)} bu</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Capacity</div>
+          <div class="wo-detail-item-value">${formatNumber(cap)} bu</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">% full</div>
+          <div class="wo-detail-item-value">${cap > 0 ? pctFull.toFixed(1) + '%' : 'N/A'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Last crop moisture</div>
+          <div class="wo-detail-item-value">${moisture !== null && moisture !== undefined ? moisture + '%' : 'Not recorded'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Last updated</div>
+          <div class="wo-detail-item-value">${updatedStr}<br><span style="opacity:.8">By ${updatedBy}</span></div>
+        </div>
+      `;
+
+      $('.wo-detail-notes-body', panel).textContent =
+        'This panel shows the last known crop and grain on hand for this bin. Any manual or ticket-driven inventory changes will update these values.';
+
+      const footer = $('.wo-detail-footer', panel);
+      footer.innerHTML = `
+        Current fill level:
+        <span class="wo-detail-pill">${cap > 0 ? pctFull.toFixed(1) + '% of ' + formatNumber(cap) + ' bu' : 'Capacity not set'}</span>
+      `;
+
+      panel.style.display = 'flex';
+    }
+
+    async function loadBinSites(){
+      const db = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const snap = await getDocs(ref);
+        const items = [];
+
+        snap.forEach(docSnap => {
+          const data = docSnap.data() || {};
+          const siteId = docSnap.id;
+          const siteName = data.name || data.siteName || 'Unnamed bin site';
+
+          const bins = data.bins || {};
+          Object.entries(bins).forEach(([key, b]) => {
+            if(!b || typeof b !== 'object') return;
+            const cap = Number(b.bushels) || 0;
+            const onHand = Number(b.onHand) || 0;
+            const crop = b.lastCropType || '';
+            const moist = b.lastCropMoisture ?? null;
+            const updatedMs = b.lastUpdatedMs || null;
+            let updatedAt = null;
+            if(updatedMs && Number.isFinite(Number(updatedMs))){
+              updatedAt = new Date(Number(updatedMs));
+            }
+
+            items.push({
+              id: `${siteId}__${key}`,
+              data: {
+                siteId,
+                siteName,
+                binKey: key,
+                binNum: b.num ?? (Number(key) + 1),
+                capacity: cap,
+                onHand,
+                lastCropType: crop,
+                lastCropMoisture: moist,
+                lastUpdatedBy: b.lastUpdatedBy || '',
+                lastUpdatedAt: updatedAt
+              }
+            });
+          });
+        });
+
+        STATE.items = items;
+        STATE.siteMap = new Map();
+        STATE.cropSet = new Set();
+
+        items.forEach(it => {
+          const d = it.data;
+          if(d.siteId){
+            STATE.siteMap.set(d.siteId, d.siteName || 'Unnamed bin site');
+          }
+          if(d.lastCropType){
+            STATE.cropSet.add(d.lastCropType);
+          } else {
+            STATE.cropSet.add('Unknown crop');
+          }
+        });
+      }catch(err){
+        console.error('Error loading binSites:', err);
+        const emptyEl = $('.wo-empty');
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'Error loading grain bin inventory. Check console or Firestore rules.';
+        const summaryEl = $('#gbSummary');
+        if(summaryEl) summaryEl.textContent = 'Error loading inventory';
+      }
+    }
+
+    function populateFiltersFromItems(){
+      const cropSel = $('#filterCrop');
+      const siteSel = $('#filterSite');
+      if(!cropSel || !siteSel) return;
+
+      cropSel.innerHTML = '<option value="all">All crops</option>';
+      const crops = Array.from(STATE.cropSet).filter(Boolean).sort((a,b)=>a.localeCompare(b));
+      crops.forEach(crop => {
+        const opt = document.createElement('option');
+        opt.value = crop;
+        opt.textContent = crop;
+        cropSel.appendChild(opt);
+      });
+
+      siteSel.innerHTML = '<option value="all">All sites</option>';
+      Array.from(STATE.siteMap.entries())
+        .sort((a,b)=> (a[1] || '').localeCompare(b[1] || ''))
+        .forEach(([id,label]) => {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = label;
+          siteSel.appendChild(opt);
+        });
+    }
+
+    function applyFilters(){
+      const cropSel  = $('#filterCrop');
+      const siteSel  = $('#filterSite');
+      const searchEl = $('#filterSearch');
+
+      const cropFilter = (cropSel?.value || 'all');
+      const siteFilter = (siteSel?.value || 'all');
+      const q = (searchEl?.value || '').trim().toLowerCase();
+
+      const filtered = STATE.items.filter(it => {
+        const d = it.data;
+
+        // only show bins with grain on hand
+        if(!(Number(d.onHand) > 0)) return false;
+
+        const cropName = d.lastCropType || 'Unknown crop';
+        if(cropFilter !== 'all' && cropName !== cropFilter) return false;
+
+        if(siteFilter !== 'all' && d.siteId !== siteFilter) return false;
+
+        if(q){
+          const hay = [
+            d.siteName,
+            d.binNum,
+            cropName,
+            d.lastUpdatedBy
+          ].join(' ').toLowerCase();
+          if(!hay.includes(q)) return false;
+        }
+
+        return true;
+      });
+
+      STATE.filteredItems = filtered;
+      renderList();
+    }
+
+    async function loadCompanyHeader(){
+      if (STATE.company) return STATE.company;
+      try{
+        const [col,id] = CONFIG.COMPANY_DOC_PATH;
+        const ref = doc(STATE.db, col, id);
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = d.name || '';
+        const address = [
+          d.addressStreet || '',
+          [d.addressCity, d.addressState].filter(Boolean).join(', '),
+          d.addressZip || ''
+        ].filter(Boolean).join(' · ');
+        const phone = d.phone || '';
+        const email = d.email || '';
+        STATE.company = { name, address, phone, email };
+      }catch(e){
+        console.warn('[bin-inventory-report] failed to load company header', e);
+        STATE.company = { name:'', address:'', phone:'', email:'' };
+      }
+      return STATE.company;
+    }
+
+    function escapeHtml(str){
+      return String(str || '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
+    }
+
+    function computeDateRange(items){
+      if (!items.length) return '';
+      let min = Infinity;
+      let max = -Infinity;
+      items.forEach(it => {
+        const d = it.data.lastUpdatedAt;
+        if(!d) return;
+        const t = d.getTime();
+        if(t < min) min = t;
+        if(t > max) max = t;
+      });
+      if(!Number.isFinite(min) || !Number.isFinite(max)) return '';
+      const dMin = new Date(min);
+      const dMax = new Date(max);
+      if (dMin.toDateString() === dMax.toDateString()){
+        return formatDate(dMin);
+      }
+      return `${formatDate(dMin)} – ${formatDate(dMax)}`;
+    }
+
+    function summarizeFilters(){
+      const cropSel  = $('#filterCrop');
+      const siteSel  = $('#filterSite');
+      const searchEl = $('#filterSearch');
+
+      const cropLabel = (!cropSel || cropSel.value === 'all')
+        ? 'All crops'
+        : `Crop: ${cropSel.value}`;
+
+      let siteLabel = 'All sites';
+      if (siteSel && siteSel.value !== 'all'){
+        const id = siteSel.value;
+        siteLabel = STATE.siteMap.get(id) || 'Selected site';
+      }
+
+      const searchVal = (searchEl?.value || '').trim();
+      const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
+
+      return `${cropLabel} • ${siteLabel} • ${searchLabel}`;
+    }
+
+    function groupForPdf(items){
+      const cropMap = new Map(); // crop -> Map(siteName -> [items])
+      items.forEach(it => {
+        const d = it.data;
+        const crop = d.lastCropType || 'Unknown crop';
+        const site = d.siteName || 'Unnamed bin site';
+
+        if(!cropMap.has(crop)) cropMap.set(crop, new Map());
+        const siteMap = cropMap.get(crop);
+        if(!siteMap.has(site)) siteMap.set(site, []);
+        siteMap.get(site).push(it);
+      });
+
+      const crops = Array.from(cropMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
+      crops.forEach(([, siteMap]) => {
+        Array.from(siteMap.entries()).forEach(([siteName, arr]) => {
+          arr.sort((a,b) => {
+            const na = Number(a.data.binNum || 0);
+            const nb = Number(b.data.binNum || 0);
+            return na - nb;
+          });
+        });
+      });
+
+      return crops; // [ [cropName, Map(siteName -> [items])] ]
+    }
+
+    async function handlePrintClick(){
+      const items = getWorkingItems().filter(it => Number(it.data.onHand || 0) > 0);
+      if (!items.length){
+        alert('No grain bin inventory matches the current filters to print.');
+        return;
+      }
+
+      const company = await loadCompanyHeader();
+      const grouped = groupForPdf(items);
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const totalOnHand = items.reduce((sum,it) => sum + (Number(it.data.onHand) || 0), 0);
+      const totalCapacity = items.reduce((sum,it) => sum + (Number(it.data.capacity) || 0), 0);
+      const sites = new Set(items.map(it => it.data.siteId));
+      const crops = new Set(items.map(it => it.data.lastCropType || 'Unknown crop'));
+      const binsCount = items.length;
+      const pct = totalCapacity > 0 ? (totalOnHand / totalCapacity) * 100 : 0;
+
+      const dateRange = computeDateRange(items);
+      const filterSummary = summarizeFilters();
+      const totalRecords = items.length;
+
+      const html = buildPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        dateRange,
+        filterSummary,
+        totalRecords,
+        totalOnHand,
+        totalCapacity,
+        pct,
+        siteCount: sites.size,
+        cropCount: crops.size,
+        grouped
+      });
+
+      // print via hidden iframe (no new tab)
+      let iframe = document.getElementById('fv-print-frame');
+      if (!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        try{
+          win.focus();
+          win.print();
+        }catch(err){
+          console.warn('[bin-inventory-report] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 400);
+    }
+
+    function buildPrintHtml({
+      company,
+      runStr,
+      runDateOnly,
+      dateRange,
+      filterSummary,
+      totalRecords,
+      totalOnHand,
+      totalCapacity,
+      pct,
+      siteCount,
+      cropCount,
+      grouped
+    }){
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Grain Bin Inventory</title>
+  <style>
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--fv-text);
+      background:var(--fv-bg);
+    }
+    body{
+      display:flex;
+      justify-content:center;
+      padding:24px 12px;
+    }
+    .page{
+      width:100%;
+      max-width:900px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.15);
+      padding:24px 28px 28px;
+    }
+    .report-header{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      gap:16px;
+      align-items:center;
+      border-bottom:2px solid var(--fv-green);
+      padding-bottom:14px;
+      margin-bottom:18px;
+    }
+    .report-logo{
+      width:64px;
+      height:64px;
+      border-radius:16px;
+      border:1px solid var(--fv-border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:26px;
+      font-weight:800;
+      color:#fff;
+      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+    }
+    .report-logo span{letter-spacing:0.02em;}
+    .company-block{min-width:0;}
+    .company-name{
+      font-size:18px;
+      font-weight:800;
+      margin:0 0 2px;
+    }
+    .company-line{
+      font-size:12px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-meta-top{
+      text-align:right;
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .report-meta-top strong{color:var(--fv-text);}
+    .report-title-block{margin-bottom:16px;}
+    .report-title{
+      font-size:20px;
+      font-weight:800;
+      margin:4px 0 4px;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+    }
+    .report-subtitle{
+      font-size:13px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-summary-strip{
+      margin-top:12px;
+      padding:8px 10px;
+      border-radius:10px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
+      border:1px solid rgba(59,126,70,0.20);
+      font-size:11px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 16px;
+    }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      white-space:nowrap;
+    }
+    .summary-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-weight:600;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .summary-value{
+      font-weight:600;
+      font-size:11px;
+    }
+    .section{margin-top:18px;}
+    .section-heading-row{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .section-title-main{
+      font-size:15px;
+      font-weight:700;
+      letter-spacing:0.03em;
+      text-transform:uppercase;
+    }
+    .section-note{
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .kpi-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:6px;
+    }
+    .kpi-card{
+      flex:1 1 140px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      padding:8px 10px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #ffffff);
+    }
+    .kpi-label{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--fv-muted);
+      margin-bottom:2px;
+    }
+    .kpi-value{
+      font-size:16px;
+      font-weight:800;
+    }
+    .kpi-footnote{
+      font-size:10px;
+      color:var(--fv-muted);
+      margin-top:2px;
+    }
+    .section-title{
+      font-size:13px;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .section-body{
+      font-size:12px;
+      line-height:1.5;
+    }
+    .crop-block{margin-top:10px;}
+    .farm-title{
+      font-size:13px;
+      font-weight:700;
+      margin:8px 0 4px;
+    }
+    .farm-subtitle{
+      font-size:11px;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .table-wrap{
+      margin-top:4px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      overflow:hidden;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:11px;
+    }
+    thead{
+      background:#F9FAFB;
+    }
+    th, td{
+      padding:6px 8px;
+      border-bottom:1px solid #E5E7EB;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:10px;
+      color:#4B5563;
+      border-bottom:1px solid #D1D5DB;
+    }
+    tr:nth-child(even) td{
+      background:#F9FAFB;
+    }
+    .cell-right{text-align:right;}
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid var(--fv-border);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .footer-left{max-width:60%;}
+    .footer-right{text-align:right;}
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{
+        max-width:none;
+        border-radius:0;
+        box-shadow:none;
+        padding:12mm 14mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="report-header">
+      <div class="report-logo">
+        <span>DF</span>
+      </div>
+      <div class="company-block">
+        <p class="company-name">${escapeHtml(company.name || '')}</p>
+        <p class="company-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="report-meta-top">
+        <div><strong>Grain Bin Inventory</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <section class="report-title-block">
+      <h1 class="report-title">Grain Bin Inventory</h1>
+      <p class="report-subtitle">Current grain on hand in bin storage, grouped by crop, bin site, and bin.</p>
+
+      <div class="report-summary-strip">
+        <div class="summary-pill">
+          <span class="summary-label">Last updated range</span>
+          <span class="summary-value">${escapeHtml(dateRange || 'Not available')}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Filters</span>
+          <span class="summary-value">${escapeHtml(filterSummary)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Bin records</span>
+          <span class="summary-value">${totalRecords}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading-row">
+        <div class="section-title-main">Key Metrics</div>
+        <div class="section-note">Snapshot at the time of report generation.</div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Grain on hand</div>
+          <div class="kpi-value">${formatNumber(totalOnHand)} bu</div>
+          <div class="kpi-footnote">Across all bins currently holding grain</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Tracked capacity</div>
+          <div class="kpi-value">${formatNumber(totalCapacity)} bu</div>
+          <div class="kpi-footnote">${totalCapacity > 0 ? ('Approx. ' + pct.toFixed(1) + '% full') : 'Capacity not fully defined'}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Sites & crops</div>
+          <div class="kpi-value">${siteCount} sites / ${cropCount} crops</div>
+          <div class="kpi-footnote">Sites with non-zero grain on hand</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Detail by Crop, Bin Site, and Bin</h2>
+      <div class="section-body">
+        ${grouped.map(([cropName, siteMap]) => {
+          const sitesArr = Array.from(siteMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
+          const binCount = sitesArr.reduce((sum, [, arr]) => sum + arr.length, 0);
+          return `
+          <div class="crop-block">
+            <div class="farm-title">${escapeHtml(cropName)}</div>
+            <p class="farm-subtitle">${binCount} bin${binCount === 1 ? '' : 's'} currently holding this crop.</p>
+            ${sitesArr.map(([siteName, arr]) => {
+              const siteTotalOnHand = arr.reduce((s,it)=> s + (Number(it.data.onHand) || 0), 0);
+              return `
+                <div class="farm-subtitle" style="margin-top:4px;"><strong>${escapeHtml(siteName)}</strong> • ${formatNumber(siteTotalOnHand)} bu on hand</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="width:10%">Bin #</th>
+                        <th style="width:18%">On hand (bu)</th>
+                        <th style="width:18%">Capacity (bu)</th>
+                        <th style="width:10%">% full</th>
+                        <th style="width:12%">Moisture</th>
+                        <th style="width:16%">Last updated</th>
+                        <th>Updated by</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${arr.map(it => {
+                        const d = it.data;
+                        const cap = Number(d.capacity) || 0;
+                        const onHand = Number(d.onHand) || 0;
+                        const pctFull = cap > 0 ? (onHand / cap) * 100 : 0;
+                        const moist = d.lastCropMoisture ?? null;
+                        const updated = d.lastUpdatedAt || null;
+                        return `
+                          <tr>
+                            <td>${escapeHtml(String(d.binNum ?? ''))}</td>
+                            <td class="cell-right">${formatNumber(onHand)}</td>
+                            <td class="cell-right">${formatNumber(cap)}</td>
+                            <td class="cell-right">${cap > 0 ? pctFull.toFixed(1) + '%' : ''}</td>
+                            <td>${moist !== null && moist !== undefined ? moist + '%' : ''}</td>
+                            <td>${updated ? '${''}' + escapeHtml(formatDate(updated)) : ''}</td>
+                            <td>${escapeHtml(d.lastUpdatedBy || '')}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          `;
+        }).join('')}
+      </div>
+    </section>
+
+    <footer class="report-footer">
+      <div class="footer-left">
+        Internal use only. Inventory values reflect the last recorded movements and manual adjustments in FarmVista.
+      </div>
+      <div class="footer-right">
+        FarmVista • Grain Bin Inventory • ${escapeHtml(runDateOnly || '')}
+      </div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
+        });
+      }
+
+      $('#woDetailClose').addEventListener('click', () => {
+        STATE.selectedId = null;
+        clearDetails();
+      });
+
+      await loadBinSites();
+      populateFiltersFromItems();
+
+      const cropSel  = $('#filterCrop');
+      const siteSel  = $('#filterSite');
+      const searchEl = $('#filterSearch');
+      const clearBtn = $('#filterClear');
+
+      if(cropSel)  cropSel.addEventListener('change', applyFilters);
+      if(siteSel)  siteSel.addEventListener('change', applyFilters);
+      if(searchEl) searchEl.addEventListener('input', applyFilters);
+      if(clearBtn){
+        clearBtn.addEventListener('click', () => {
+          if(cropSel)  cropSel.value  = 'all';
+          if(siteSel)  siteSel.value  = 'all';
+          if(searchEl) searchEl.value = '';
+          applyFilters();
+        });
+      }
+
+      applyFilters();
+
+      const printTop = $('#btnPrint');
+      const printBottom = $('#btnPrintBottom');
+      if (printTop)    printTop.addEventListener('click', handlePrintClick);
+      if (printBottom) printBottom.addEventListener('click', handlePrintClick);
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🌾</div>
+          <div>
+            <h1>Grain Bin Inventory</h1>
+            <p class="muted">
+              Live view of grain currently on hand in bins, grouped by crop, bin site, and bin.
+              Tap a row to see bin details and last update info.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Reports
+              </button>
+              <button id="btnPrint" type="button" class="btn btn-primary">
+                Print / Save PDF
+              </button>
+            </div>
+            <div class="page-header-meta" id="gbSummary">
+              Loading grain bin inventory…
+            </div>
+          </div>
+
+          <div class="filters">
+            <div class="filter-field">
+              <label class="filter-label" for="filterCrop">Crop</label>
+              <select id="filterCrop" class="filter-select">
+                <option value="all">All crops</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterSite">Bin site</label>
+              <select id="filterSite" class="filter-select">
+                <option value="all">All sites</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterSearch">Search</label>
+              <input
+                id="filterSearch"
+                class="filter-input"
+                type="search"
+                placeholder="Search site, bin number, crop, updated by…"
+              />
+            </div>
+
+            <button id="filterClear" type="button" class="btn btn-quiet">
+              Clear filters
+            </button>
+          </div>
+
+          <section aria-label="Grain bin inventory list">
+            <div class="wo-empty">
+              Loading grain bin inventory…
+            </div>
+            <div class="wo-list"></div>
+          </section>
+
+          <section class="wo-detail-panel" aria-label="Bin details">
+            <div class="wo-detail-header">
+              <div class="wo-detail-title">Bin details</div>
+              <button type="button" id="woDetailClose" class="wo-detail-close">
+                Close
+              </button>
+            </div>
+
+            <div class="wo-detail-grid">
+              <!-- filled by JS -->
+            </div>
+
+            <div class="wo-detail-notes">
+              <div class="wo-detail-notes-label">Notes</div>
+              <div class="wo-detail-notes-body"></div>
+            </div>
+
+            <div class="wo-detail-footer">
+              <!-- status pill by JS -->
+            </div>
+          </section>
+
+          <div class="bottom-actions">
+            <button id="btnPrintBottom" type="button" class="btn btn-primary">
+              Print / Save PDF
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Hidden iframe used for print so we don't open a new tab -->
+    <iframe id="fv-print-frame"></iframe>
+  </fv-shell>
+</body>
+</html>
+
