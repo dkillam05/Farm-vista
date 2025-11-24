@@ -55,6 +55,7 @@
     /* Bins card */
     .bins-card{border:1px dashed var(--border);border-radius:12px;padding:12px;display:grid;gap:12px;background:var(--card-surface,var(--surface));}
     .bins-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .bins-head-add{justify-content:flex-end;} /* add-form version */
     .bins-title{font-weight:800}
     .bin-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center}
     @media(max-width:720px){.bin-row{grid-template-columns:90px 1fr auto}}
@@ -82,11 +83,28 @@
     .modal[open]{display:grid;opacity:1;}
     .dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
       border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
+    .dialog-sm{width:min(480px,92vw);} /* smaller dialog for Add Bin */
     .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
     .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
     .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
     .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
+
+    .info-ico{
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      width:28px;
+      height:28px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      font-size:14px;
+      font-weight:800;
+      cursor:pointer;
+      color:var(--muted,#67706B);
+      flex-shrink:0;
+    }
 
     /* Toast + error */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
@@ -137,15 +155,11 @@
           </div>
 
           <div class="bins-card">
-            <div class="bins-head">
-              <div class="bins-title">Bins (corn bu capacity)</div>
+            <div class="bins-head bins-head-add">
+              <!-- Only Add Bin button on the right; no header text or pills -->
               <button id="addBin" class="btn" type="button">Add Bin</button>
             </div>
             <div id="bins"></div>
-            <div class="totals">
-              <span class="pill" id="binCountPill">0 bins</span>
-              <span class="pill" id="bushelTotalPill">0 corn bu</span>
-            </div>
           </div>
         </div>
 
@@ -162,7 +176,36 @@
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
-  <!-- Modal: View/Edit -->
+  <!-- Modal: Add Bin (for NEW site form) -->
+  <div id="binModal" class="modal" aria-hidden="true">
+    <div class="dialog dialog-sm" role="dialog" aria-modal="true" aria-labelledby="binMdTitle">
+      <div class="dialog-head">
+        <h3 id="binMdTitle">Add Bin</h3>
+        <button id="binMdClose" class="closex" type="button">Back</button>
+      </div>
+      <div class="dialog-body">
+        <div class="field">
+          <label for="binBushels">Bushels</label>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <input id="binBushels" class="input" placeholder="Bushels (corn bu)" inputmode="decimal">
+            <button
+              id="binInfoBtn"
+              class="info-ico"
+              type="button"
+              title="These bushels are rated for corn. Other crop capacities will be calculated automatically based on their crop conversion factors.">
+              i
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <span></span>
+        <button id="binMdSave" class="btn btn-primary" type="button">Add Bin</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: View/Edit existing bin site -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -211,11 +254,15 @@
     const errBox = $("err");
 
     // Add form DOM
-    const binsBox = $("bins"), binCountPill = $("binCountPill"), bushelTotalPill = $("bushelTotalPill");
+    const binsBox = $("bins");
     const addBtn = $("addBin"), saveBtn = $("save"), clearBtn = $("clear");
     const siteName = $("siteName");
 
-    // List + modal DOM
+    // Add-bin modal DOM (for new site)
+    const binModal = $("binModal"), binMdClose = $("binMdClose"), binMdSave = $("binMdSave");
+    const binBushels = $("binBushels"), binMdTitle = $("binMdTitle");
+
+    // List + main View/Edit modal DOM
     const listBox = $("list");
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
     const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
@@ -225,6 +272,7 @@
     let addBins = [];       // [{num, bushels}]
     let editId = null;
     let mdBins = [];        // modal bins
+    let pendingBinNum = null; // for Add Bin (new site)
 
     /* ========== Utils ========== */
     const showToast = (msg="Successfully saved.")=>{
@@ -248,6 +296,7 @@
     const nextBinNumber = (list)=> list.length ? (Math.max(...list.map(b=>Number(b.num)||0)) + 1) : 1;
 
     function updateTotals(list, pills){
+      if(!pills || !pills.count || !pills.total) return; // no totals (e.g., add-form card)
       const count = list.length;
       const total = list.reduce((s,b)=> s + toNum(b.bushels), 0);
       pills.count.textContent = `${count} ${count===1?'bin':'bins'}`;
@@ -266,35 +315,80 @@
         `;
         const bu = row.querySelector(".bu");
         bu.addEventListener("blur", ()=>{ bu.value = fmtComma(bu.value); });
-        bu.addEventListener("input", ()=>{ b.bushels = toNum(bu.value); updateTotals(list, pills); });
-        row.querySelector(".bin-remove").addEventListener("click", ()=>{ list.splice(idx,1); renderBins(list, box, pills); });
+        bu.addEventListener("input", ()=>{
+          b.bushels = toNum(bu.value);
+          updateTotals(list, pills);
+        });
+        row.querySelector(".bin-remove").addEventListener("click", ()=>{
+          list.splice(idx,1);
+          renderBins(list, box, pills);
+        });
         box.appendChild(row);
       });
       updateTotals(list, pills);
     }
 
-    /* ========== Add form actions ========== */
-    addBtn.addEventListener("click", ()=>{
-      addBins.push({ num: nextBinNumber(addBins), bushels: 0 });
-      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+    /* ========== Add-bin modal (new site form) ========== */
+    function openBinModal(){
+      pendingBinNum = nextBinNumber(addBins);
+      binMdTitle.textContent = `Add Bin ${pendingBinNum}`;
+      binBushels.value = "";
+      binModal.setAttribute("open",""); binModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      setTimeout(()=> binBushels.focus(), 0);
+    }
+    function closeBinModal(){
+      binModal.removeAttribute("open"); binModal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      pendingBinNum = null;
+    }
+
+    addBtn.addEventListener("click", openBinModal);
+    binMdClose.addEventListener("click", closeBinModal);
+    binModal.addEventListener("click", e=>{ if(e.target===binModal) closeBinModal(); });
+    document.addEventListener("keydown", e=>{
+      if(e.key==="Escape" && binModal.hasAttribute("open")) closeBinModal();
     });
 
+    binMdSave.addEventListener("click", ()=>{
+      const buVal = binBushels.value;
+      const bu = toNum(buVal);
+      if(!bu || bu <= 0){
+        alert("Please enter bushels for this bin.");
+        return;
+      }
+      const num = pendingBinNum || nextBinNumber(addBins);
+      addBins.push({ num, bushels: bu });
+      renderBins(addBins, binsBox, null);
+      closeBinModal();
+    });
+
+    /* ========== Add form actions ========== */
     clearBtn.addEventListener("click", ()=>{
       siteName.value = "";
       addBins = [];
-      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+      renderBins(addBins, binsBox, null);
       showErr("");
     });
 
     saveBtn.addEventListener("click", async ()=>{
       const name = siteName.value.trim();
-      if(!name){ alert("Please enter a site name."); return; }
-      if(addBins.length===0 && !confirm("No bins added. Save site without bins?")) return;
+      if(!name){
+        alert("Please enter a site name.");
+        return;
+      }
+      if(addBins.length === 0){
+        alert("Please add at least one bin before saving.");
+        return;
+      }
 
       const bins = addBins.map(b=>({ num: Number(b.num)||0, bushels: toNum(b.bushels) }));
       const set = new Set(); let dup=false;
       bins.forEach(b=>{ const k=String(b.num); if(set.has(k)) dup=true; set.add(k); });
-      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
+      if(dup){
+        alert("Duplicate bin numbers. Please adjust.");
+        return;
+      }
 
       const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
 
@@ -310,7 +404,7 @@
         showToast("Successfully saved.");
         siteName.value = "";
         addBins = [];
-        renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+        renderBins(addBins, binsBox, null);
         await renderList();
         window.scrollTo({top:0, behavior:"smooth"});
       }catch(e){
@@ -319,7 +413,7 @@
       }
     });
 
-    /* ========== List & Modal (FVData) ========== */
+    /* ========== List & main View/Edit modal (FVData) ========== */
     async function fetchSites(){
       // By default FVData.list() returns current-user docs (fits your rules)
       const arr = await FVData.list('binSites', { limit: 500 });
@@ -335,7 +429,10 @@
 
     async function renderList(){
       const items = await fetchSites();
-      if(!items.length){ listBox.innerHTML = '<div class="muted">No bin sites yet.</div>'; return; }
+      if(!items.length){
+        listBox.innerHTML = '<div class="muted">No bin sites yet.</div>';
+        return;
+      }
       listBox.innerHTML = "";
       items.forEach(it=>{
         const div = document.createElement("div");
@@ -394,7 +491,9 @@
     }
     mdClose.addEventListener("click", closeModal);
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
-    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
+    document.addEventListener("keydown", e=>{
+      if(e.key==="Escape" && modal.hasAttribute("open")) closeModal();
+    });
 
     $("mdAddBin").addEventListener("click", ()=>{
       mdBins.push({ num: nextBinNumber(mdBins), bushels: 0 });
@@ -403,11 +502,21 @@
 
     mdSave.addEventListener("click", async ()=>{
       const name = mdName.value.trim();
-      if(!name){ alert("Please enter a site name."); return; }
+      if(!name){
+        alert("Please enter a site name.");
+        return;
+      }
+      if(mdBins.length === 0){
+        alert("Please keep at least one bin on the site.");
+        return;
+      }
       const bins = mdBins.map(b=>({ num:Number(b.num)||0, bushels: toNum(b.bushels) }));
       const used = new Set(); let dup=false;
       bins.forEach(b=>{ const k=String(b.num); if(used.has(k)) dup=true; used.add(k); });
-      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
+      if(dup){
+        alert("Duplicate bin numbers. Please adjust.");
+        return;
+      }
 
       const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
 
@@ -444,7 +553,10 @@
       try{
         const cur = await FVData.getDocData(`binSites/${editId}`);
         if(!cur) return;
-        if(cur.used){ alert("This site is in use and cannot be deleted. Archive instead."); return; }
+        if(cur.used){
+          alert("This site is in use and cannot be deleted. Archive instead.");
+          return;
+        }
         if(!confirm(`Delete site "${cur.name||''}"? This cannot be undone.`)) return;
         await FVData.remove('binSites', editId);
         showToast("Site deleted.");
@@ -463,7 +575,7 @@
       }catch(e){
         console.warn(e);
       }
-      renderBins(addBins, binsBox, {count:binCountPill,total:bushelTotalPill});
+      renderBins(addBins, binsBox, null);
       await renderList();
     })();
 
