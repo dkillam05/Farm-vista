@@ -19,6 +19,14 @@
       --card-max: 1200px;
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
+
+      /* Combo globals (from FV combo template) */
+      --combo-gap: 4px;
+      --combo-radius: 12px;
+      --combo-btn-radius: 10px;
+      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad: 10px 8px;
+      --combo-max-h: 50vh;
     }
 
     body{
@@ -137,8 +145,7 @@
       letter-spacing:0.08em;
       opacity:0.78;
     }
-    .filter-input,
-    .filter-select{
+    .filter-input{
       border-radius:999px;
       border:1px solid var(--border);
       padding:6px 10px;
@@ -157,6 +164,96 @@
 
     .filters-bottom{
       align-items:flex-end;
+    }
+
+    /* Combo styles (adapted from FV combo template) */
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:0.9rem;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:8px 12px;
+      outline:none;
+      cursor:pointer;
+      text-align:left;
+      position:relative;
+      padding-right:42px;
+      min-height:32px;
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .combo{ position:relative; }
+
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+
+    .combo-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:9999;
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:8px 10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      font:inherit;
+      font-size:0.9rem;
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+      font-size:0.9rem;
+    }
+    .combo-item:hover{
+      background:rgba(0,0,0,.04);
+    }
+    .combo-item:last-child{
+      border-bottom:none;
+    }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+      font-size:0.85rem;
+    }
+    .combo-item-all{
+      font-weight:700;
     }
 
     /* Tower list cards */
@@ -416,8 +513,20 @@
       towers: [],          // [{id, data, fields:[], farmIds:Set}]
       filteredTowers: null,
       selectedId: null,
-      farmMap: new Map()   // farmId -> farmName
+      farmMap: new Map(),  // farmId -> farmName
+      farmOptions: [],     // [{id,name}]
+      towerOptions: [],    // [{id,name}]
+      farmToTowerIds: new Map(), // farmId -> Set(towerId)
+      towerToFarmIds: new Map(), // towerId -> Set(farmId)
+      towerNameMap: new Map(),
+      filters: {
+        farmId: 'all',
+        towerId: 'all'
+      }
     };
+
+    let farmCombo = null;
+    let towerCombo = null;
 
     function escapeHtml(str){
       return String(str || '').replace(/[&<>"']/g, m => (
@@ -436,6 +545,107 @@
         ? STATE.filteredTowers
         : STATE.towers;
     }
+
+    /* =========================
+       Combo helpers (from template)
+       ========================= */
+
+    function closeAllCombos(except=null){
+      $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
+    }
+    document.addEventListener('click', () => closeAllCombos());
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') closeAllCombos(); });
+
+    function makeCombo({ btn, panel, list, searchInput=null, placeholder='All', includeAll=true, items=[], formatter=x=>String(x?.label ?? x), onPick }){
+      let currentItems = Array.isArray(items) ? items.slice() : [];
+      let selectedId = 'all';
+
+      panel.addEventListener('click', e => e.stopPropagation());
+      panel.addEventListener('mousedown', e => e.stopPropagation());
+
+      function render(q=''){
+        const qq = (q || '').toLowerCase();
+        const rows = [];
+
+        if(includeAll && (!qq || 'all'.includes(qq))){
+          rows.push(`<div class="combo-item combo-item-all" data-id="__all__">All</div>`);
+        }
+
+        currentItems.forEach(x => {
+          const label = formatter(x) || '';
+          if(!qq || label.toLowerCase().includes(qq)){
+            rows.push(`<div class="combo-item" data-id="${String(x.id)}">${escapeHtml(label)}</div>`);
+          }
+        });
+
+        list.innerHTML = rows.join('') || `<div class="combo-empty">(no matches)</div>`;
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render('');
+        if(searchInput){
+          searchInput.value = '';
+          searchInput.focus();
+        }
+      }
+
+      function close(){
+        panel.classList.remove('show');
+      }
+
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e => {
+        const row = e.target.closest('.combo-item');
+        if(!row) return;
+        const id = row.dataset.id;
+        if(id === '__all__'){
+          selectedId = 'all';
+          btn.textContent = placeholder;
+          onPick?.(null);
+          close();
+          return;
+        }
+        const it = currentItems.find(x => String(x.id) === id);
+        if(!it) return;
+        selectedId = String(it.id);
+        btn.textContent = formatter(it);
+        onPick?.(it);
+        close();
+      });
+
+      if(searchInput){
+        searchInput.addEventListener('input', e => render(e.target.value));
+      }
+
+      return {
+        setItems(arr){
+          currentItems = Array.isArray(arr) ? arr.slice() : [];
+          render(searchInput ? searchInput.value : '');
+        },
+        setValue(id){
+          selectedId = (id === 'all' || !id) ? 'all' : String(id);
+          if(selectedId === 'all'){
+            btn.textContent = placeholder;
+          }else{
+            const it = currentItems.find(x => String(x.id) === selectedId);
+            btn.textContent = it ? formatter(it) : placeholder;
+          }
+        },
+        getValue(){
+          return selectedId;
+        }
+      };
+    }
+
+    /* =========================
+       List + detail rendering
+       ========================= */
 
     function renderList(){
       const listEl  = $('.wo-list');
@@ -616,13 +826,63 @@
       setTimeout(()=> toast.classList.remove('rtk-summary--show'), 3500);
     }
 
-    function applyFilters(){
-      const farmSel   = $('#filterFarm');
-      const towerSel  = $('#filterTower');
-      const searchEl  = $('#filterSearch');
+    /* =========================
+       Filtering logic
+       ========================= */
 
-      const farmFilter  = farmSel?.value || 'all';
-      const towerFilter = towerSel?.value || 'all';
+    function updateFarmComboItems(){
+      if(!farmCombo) return;
+      const towerId = STATE.filters.towerId;
+      let farms = STATE.farmOptions;
+
+      if(towerId !== 'all'){
+        const allowed = STATE.towerToFarmIds.get(towerId) || new Set();
+        farms = farms.filter(f => allowed.has(f.id));
+      }
+
+      farmCombo.setItems(farms);
+      // ensure current selection still valid
+      if(STATE.filters.farmId !== 'all'){
+        const stillValid = farms.some(f => f.id === STATE.filters.farmId);
+        if(!stillValid){
+          STATE.filters.farmId = 'all';
+          farmCombo.setValue('all');
+        }else{
+          farmCombo.setValue(STATE.filters.farmId);
+        }
+      }else{
+        farmCombo.setValue('all');
+      }
+    }
+
+    function updateTowerComboItems(){
+      if(!towerCombo) return;
+      const farmId = STATE.filters.farmId;
+      let towers = STATE.towerOptions;
+
+      if(farmId !== 'all'){
+        const allowed = STATE.farmToTowerIds.get(farmId) || new Set();
+        towers = towers.filter(t => allowed.has(t.id));
+      }
+
+      towerCombo.setItems(towers);
+      if(STATE.filters.towerId !== 'all'){
+        const stillValid = towers.some(t => t.id === STATE.filters.towerId);
+        if(!stillValid){
+          STATE.filters.towerId = 'all';
+          towerCombo.setValue('all');
+        }else{
+          towerCombo.setValue(STATE.filters.towerId);
+        }
+      }else{
+        towerCombo.setValue('all');
+      }
+    }
+
+    function applyFilters(){
+      const searchEl  = $('#filterSearch');
+      const farmFilter  = STATE.filters.farmId || 'all';
+      const towerFilter = STATE.filters.towerId || 'all';
       const q           = (searchEl?.value || '').trim().toLowerCase();
 
       const filtered = [];
@@ -630,31 +890,24 @@
       for(const baseTower of STATE.towers){
         const d = baseTower.data || {};
 
-        // Tower filter: skip towers that are not the selected one
         if(towerFilter !== 'all' && baseTower.id !== towerFilter){
           continue;
         }
 
-        // Start with all fields for this tower
         let fields = baseTower.fields;
 
-        // Farm filter: only keep fields from that farm
         if(farmFilter !== 'all'){
           fields = fields.filter(f => {
             const fd = f.data || {};
             return (fd.farmId || 'unknown') === farmFilter;
           });
-
-          // If no fields remain for this tower under that farm, skip tower entirely
           if(!fields.length){
             continue;
           }
         }
 
-        // Build farmIds from the filtered fields
         const farmIds = new Set(fields.map(f => (f.data || {}).farmId).filter(Boolean));
 
-        // Search filter (tower + filtered fields + farm names)
         if(q){
           const hayParts = [d.name, d.networkId, d.frequencyMHz];
 
@@ -685,44 +938,9 @@
       clearDetails();
     }
 
-    function populateFarmFilterFromTowers(){
-      const farmSelEl = $('#filterFarm');
-      if (!farmSelEl) return;
-
-      const farmIds = new Set();
-      STATE.towers.forEach(t => t.farmIds.forEach(id => farmIds.add(id)));
-
-      farmSelEl.innerHTML = '<option value="all">All farms</option>';
-      Array.from(farmIds)
-        .map(id => ({ id, name: STATE.farmMap.get(id) || 'Unknown farm' }))
-        .sort((a,b)=> a.name.localeCompare(b.name))
-        .forEach(({id,name})=>{
-          const opt = document.createElement('option');
-          opt.value = id;
-          opt.textContent = name;
-          farmSelEl.appendChild(opt);
-        });
-    }
-
-    function populateTowerFilter(){
-      const towerSelEl = $('#filterTower');
-      if(!towerSelEl) return;
-
-      towerSelEl.innerHTML = '<option value="all">All towers</option>';
-      STATE.towers
-        .slice()
-        .sort((a,b)=>{
-          const na = (a.data.name || '').toString().toLowerCase();
-          const nb = (b.data.name || '').toString().toLowerCase();
-          return na.localeCompare(nb);
-        })
-        .forEach(t=>{
-          const opt = document.createElement('option');
-          opt.value = t.id;
-          opt.textContent = t.data.name || 'Unnamed tower';
-          towerSelEl.appendChild(opt);
-        });
-    }
+    /* =========================
+       Company + print helpers
+       ========================= */
 
     async function loadCompanyHeader(){
       if (STATE.company) return STATE.company;
@@ -748,22 +966,18 @@
     }
 
     function summarizeFilters(){
-      const farmSel   = $('#filterFarm');
-      const towerSel  = $('#filterTower');
-      const searchEl  = $('#filterSearch');
-
+      const { farmId, towerId } = STATE.filters;
       let farmLabel = 'All farms';
-      if (farmSel && farmSel.value !== 'all'){
-        const id = farmSel.value;
-        farmLabel = STATE.farmMap.get(id) || 'Selected farm';
+      if (farmId !== 'all'){
+        farmLabel = STATE.farmMap.get(farmId) || 'Selected farm';
       }
 
       let towerLabel = 'All towers';
-      if (towerSel && towerSel.value !== 'all'){
-        const t = STATE.towers.find(x => x.id === towerSel.value);
-        towerLabel = t?.data?.name || 'Selected tower';
+      if (towerId !== 'all'){
+        towerLabel = STATE.towerNameMap.get(towerId) || 'Selected tower';
       }
 
+      const searchEl  = $('#filterSearch');
       const searchVal = (searchEl?.value || '').trim();
       const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
 
@@ -1228,6 +1442,10 @@
       }, 400);
     }
 
+    /* =========================
+       Firestore load
+       ========================= */
+
     async function loadData(){
       const db = STATE.db;
 
@@ -1272,7 +1490,36 @@
       });
 
       STATE.towers = towers;
+
+      // Options + maps for combos
+      STATE.farmOptions = Array.from(STATE.farmMap.entries())
+        .map(([id,name]) => ({ id, name }));
+      STATE.towerOptions = STATE.towers.map(t => ({
+        id: t.id,
+        name: t.data.name || 'Unnamed tower'
+      }));
+      STATE.towerNameMap = new Map();
+      STATE.towers.forEach(t => {
+        STATE.towerNameMap.set(t.id, t.data.name || 'Unnamed tower');
+      });
+
+      STATE.farmToTowerIds = new Map();
+      STATE.towerToFarmIds = new Map();
+
+      STATE.towers.forEach(t => {
+        const tid = t.id;
+        const farms = t.farmIds || new Set();
+        STATE.towerToFarmIds.set(tid, new Set(farms));
+        farms.forEach(fid => {
+          if(!STATE.farmToTowerIds.has(fid)) STATE.farmToTowerIds.set(fid,new Set());
+          STATE.farmToTowerIds.get(fid).add(tid);
+        });
+      });
     }
+
+    /* =========================
+       Boot
+       ========================= */
 
     (async function boot(){
       await ready;
@@ -1288,6 +1535,49 @@
         });
       }
 
+      // Set up combos with empty data; we'll fill items after loadData()
+      const farmBtn     = $('#farmBtn');
+      const farmPanel   = $('#farmPanel');
+      const farmList    = $('#farmList');
+      const farmSearch  = $('#farmSearch');
+
+      const towerBtn    = $('#towerBtn');
+      const towerPanel  = $('#towerPanel');
+      const towerList   = $('#towerList');
+      const towerSearch = $('#towerSearch');
+
+      farmCombo = makeCombo({
+        btn: farmBtn,
+        panel: farmPanel,
+        list: farmList,
+        searchInput: farmSearch,
+        placeholder: 'All farms',
+        includeAll: true,
+        items: [],
+        formatter: x => x.name,
+        onPick: it => {
+          STATE.filters.farmId = it ? it.id : 'all';
+          updateTowerComboItems();   // flow farm -> towers
+          applyFilters();
+        }
+      });
+
+      towerCombo = makeCombo({
+        btn: towerBtn,
+        panel: towerPanel,
+        list: towerList,
+        searchInput: towerSearch,
+        placeholder: 'All towers',
+        includeAll: true,
+        items: [],
+        formatter: x => x.name,
+        onPick: it => {
+          STATE.filters.towerId = it ? it.id : 'all';
+          updateFarmComboItems();    // flow tower -> farms
+          applyFilters();
+        }
+      });
+
       $('#woDetailClose').addEventListener('click', () => {
         const tower = getWorkingTowers().find(x => x.id === STATE.selectedId);
         STATE.selectedId = null;
@@ -1297,22 +1587,25 @@
 
       try{
         await loadData();
-        populateFarmFilterFromTowers();
-        populateTowerFilter();
 
-        const farmSel   = $('#filterFarm');
-        const towerSel  = $('#filterTower');
+        // initialize combos with full lists
+        STATE.filters.farmId  = 'all';
+        STATE.filters.towerId = 'all';
+        updateFarmComboItems();
+        updateTowerComboItems();
+
         const searchEl  = $('#filterSearch');
         const clearBtn  = $('#filterClear');
 
-        if(farmSel)  farmSel.addEventListener('change', applyFilters);
-        if(towerSel) towerSel.addEventListener('change', applyFilters);
         if(searchEl) searchEl.addEventListener('input', applyFilters);
+
         if(clearBtn){
           clearBtn.addEventListener('click', () => {
-            if(farmSel)  farmSel.value  = 'all';
-            if(towerSel) towerSel.value = 'all';
+            STATE.filters.farmId  = 'all';
+            STATE.filters.towerId = 'all';
             if(searchEl) searchEl.value = '';
+            updateFarmComboItems();
+            updateTowerComboItems();
             STATE.filteredTowers = null;
             clearDetails();
             renderList();
@@ -1379,20 +1672,36 @@
             </div>
           </div>
 
-          <!-- FARM + TOWER + CLEAR ROW -->
+          <!-- FARM + TOWER + CLEAR ROW (FV COMBOS) -->
           <div class="filters filters-bottom">
             <div class="filter-field">
-              <label class="filter-label" for="filterFarm">Farm</label>
-              <select id="filterFarm" class="filter-select">
-                <option value="all">All farms</option>
-              </select>
+              <label class="filter-label" for="farmBtn">Farm</label>
+              <div class="combo" id="farmCombo">
+                <div class="combo-anchor">
+                  <button id="farmBtn" class="buttonish has-caret" type="button">All farms</button>
+                  <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                    <div class="search">
+                      <input id="farmSearch" type="search" placeholder="Search farms…">
+                    </div>
+                    <div class="list" id="farmList"></div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="filter-field">
-              <label class="filter-label" for="filterTower">Tower</label>
-              <select id="filterTower" class="filter-select">
-                <option value="all">All towers</option>
-              </select>
+              <label class="filter-label" for="towerBtn">Tower</label>
+              <div class="combo" id="towerCombo">
+                <div class="combo-anchor">
+                  <button id="towerBtn" class="buttonish has-caret" type="button">All towers</button>
+                  <div class="combo-panel" id="towerPanel" role="listbox" aria-label="Tower list">
+                    <div class="search">
+                      <input id="towerSearch" type="search" placeholder="Search towers…">
+                    </div>
+                    <div class="list" id="towerList"></div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <button id="filterClear" type="button" class="btn btn-quiet">
