@@ -517,11 +517,12 @@
       opacity:0.85;
     }
 
-    /* Divider line inside modal (like Field Maintenance popup) */
+    /* Green gradient divider like Field Maintenance popup */
     .modal-divider{
-      height:1px;
-      background:var(--border);
-      margin:10px 0;
+      height:3px;
+      margin:10px -4px 10px;
+      border-radius:8px;
+      background:linear-gradient(90deg,#3B7E46,#AFCF71);
     }
 
     /* Edit Trial modal */
@@ -636,7 +637,6 @@
       }
     })();
   </script>
-
   <script type="module">
     import {
       ready as fbReady,
@@ -678,7 +678,6 @@
       setTimeout(()=>t.classList.remove('show'), ms);
     }
 
-    // Make ugly ALLCAPS / UNDERSCORE labels look like "Corn" / "Fungicide Program"
     function smartLabel(str){
       if(!str) return '';
       const s = String(str);
@@ -720,6 +719,7 @@
           ? filtered.map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`).join('')
           : `<div class="combo-empty">(no matches)</div>`;
       }
+
       function open(){
         closeAllCombos(panel);
         panel.classList.add('show');
@@ -766,6 +766,7 @@
       const years = [nowYear-1, nowYear, nowYear+1, nowYear+2].map(v=>({
         id:String(v), label:String(v), value:v
       }));
+
       const yearCombo = makeCombo({
         btn:  $('#fltYearBtn'),
         panel:$('#fltYearPanel'),
@@ -789,6 +790,7 @@
         { id:'BIO',       label:'Biological / Additive',     value:'BIOLOGICAL' },
         { id:'OTHER',     label:'Other',                     value:'OTHER' }
       ];
+
       const typeCombo = makeCombo({
         btn:  $('#fltTypeBtn'),
         panel:$('#fltTypePanel'),
@@ -940,6 +942,7 @@
           </div>
         `;
 
+        /* CLICK OPENS DETAIL */
         card.addEventListener('click', ()=> openTrialDetail(item));
         listEl.appendChild(card);
       }
@@ -949,7 +952,503 @@
       }
     }
 
-    /* ===== Modal select helpers ===== */
+    /* ============ Trial Detail overlay with MARK COMPLETED button ============ */
+    function openTrialDetail(item){
+      STATE.currentTrial = item;
+      const overlay = $('#trialOverlay');
+      const d = item.data || {};
+
+      const titleEl = $('#trialHdrTitle');
+      const subEl   = $('#trialHdrSub');
+      const chipsEl = $('#trialHdrChips');
+      const notesEl = $('#trialNotes');
+      const createdEl = $('#trialMetaCreated');
+      const statusEl  = $('#trialMetaStatus');
+      const fieldsCountEl = $('#trialMetaFields');
+
+      const trialName = d.trialName || 'Untitled trial';
+      const cropYear = d.cropYear || null;
+      const cropLabelRaw = d.cropLabel || d.cropCode || '';
+      const typeLabelRaw = d.trialTypeLabel || d.trialType || '';
+      const opTaskRaw = d.operationTaskLabel || d.operationTaskCode || '';
+      const cropLabel = smartLabel(cropLabelRaw);
+      const typeLabel = smartLabel(typeLabelRaw);
+      const opTask = smartLabel(opTaskRaw);
+
+      const statusRaw = d.status || 'active';
+      const bucket = statusBucket(statusRaw);
+      const fieldCount = d.fieldCount || (Array.isArray(d.fields)? d.fields.length : 0);
+      const ts = d.createdAt || null;
+      const when = ts && ts.toDate ? ts.toDate() : null;
+
+      if(titleEl) titleEl.textContent = trialName;
+      if(subEl){
+        const pieces = [];
+        if(cropYear) pieces.push(cropYear);
+        if(cropLabel) pieces.push(cropLabel);
+        if(typeLabel) pieces.push(typeLabel);
+        subEl.textContent = pieces.join(' · ') || 'Trial details';
+      }
+
+      /* STATUS CHIP */
+      if(statusEl){
+        statusEl.textContent = bucketLabel(bucket);
+      }
+
+      /* ADD GREEN “MARK COMPLETED” BUTTON IN HEADER */
+      insertMarkCompletedButton(bucket === 'completed');
+
+      if(chipsEl){
+        chipsEl.innerHTML = '';
+        if(opTask){
+          const span = document.createElement('span');
+          span.className = 'chip';
+          span.innerHTML = `<span class="chip-label">Operation</span> ${opTask}`;
+          chipsEl.appendChild(span);
+        }
+        const fcSpan = document.createElement('span');
+        fcSpan.className = 'chip';
+        fcSpan.innerHTML = `<span class="chip-label">Fields</span> ${fieldCount}`;
+        chipsEl.appendChild(fcSpan);
+      }
+
+      if(notesEl){
+        const n = d.notes || '';
+        notesEl.textContent = n || 'No trial-level notes yet.';
+      }
+      if(createdEl){
+        createdEl.textContent = when
+          ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`
+          : '';
+      }
+      if(fieldsCountEl){
+        fieldsCountEl.textContent = `${fieldCount} field${fieldCount===1?'':'s'} in this trial`;
+      }
+
+      STATE.currentFieldIdx = null;
+      renderFieldsList(d);
+
+      overlay.hidden = false;
+      document.body.style.overflow = 'hidden';
+    }
+
+    function insertMarkCompletedButton(isCompleted){
+      const header = $('#trialHdrClickArea');
+      if(!header) return;
+
+      /* Remove existing button if any */
+      const oldBtn = document.getElementById('btnMarkCompleted');
+      if(oldBtn) oldBtn.remove();
+
+      /* If already completed, do not show button */
+      if(isCompleted) return;
+
+      const btn = document.createElement('button');
+      btn.id = 'btnMarkCompleted';
+      btn.textContent = '✔ Mark Completed';
+      btn.style.background = '#3B7E46';
+      btn.style.color = '#fff';
+      btn.style.border = 'none';
+      btn.style.padding = '6px 12px';
+      btn.style.borderRadius = '999px';
+      btn.style.fontSize = '0.82rem';
+      btn.style.fontWeight = '700';
+      btn.style.cursor = 'pointer';
+
+      btn.addEventListener('click', async (ev)=>{
+        ev.stopPropagation();
+        await markTrialCompleted();
+      });
+
+      header.appendChild(btn);
+    }
+
+    async function markTrialCompleted(){
+      const item = STATE.currentTrial;
+      if(!item || !STATE.db) return;
+
+      try{
+        await updateDoc(doc(STATE.db,'fieldTrials',item.id), {
+          status: 'completed',
+          updatedAt: serverTimestamp()
+        });
+
+        item.data.status = 'completed';
+        showToast('Trial marked completed.');
+
+        closeTrialDetail();
+        applyFilters();
+      }catch(err){
+        console.error('Failed to mark completed:', err);
+        alert('Could not update trial status.');
+      }
+    }
+
+    function closeTrialDetail(){
+      const overlay = $('#trialOverlay');
+      if(overlay) overlay.hidden = true;
+      document.body.style.overflow = '';
+      STATE.currentTrial = null;
+      STATE.currentFieldIdx = null;
+    }
+
+    /* RENDER FIELDS */
+    function renderFieldsList(trialData){
+      const listEl = $('#trialFieldsList');
+      if(!listEl) return;
+
+      const arr = Array.isArray(trialData.fields) ? trialData.fields : [];
+      if(!arr.length){
+        listEl.innerHTML = '<div class="help-text">No fields added yet. Use “Add field to trial” below.</div>';
+        return;
+      }
+
+      listEl.innerHTML = arr.map((f,idx)=>`
+        <button type="button" class="field-pill" data-idx="${idx}">
+          <div>
+            <div class="field-pill-main">
+              ${f.fieldName || 'Field ?'}${f.farmName ? ' · '+f.farmName : ''}
+            </div>
+            <div class="field-pill-sub">
+              ${(f.variety) ? f.variety + ' · ' : ''}
+              ${f.trialAcres ? (f.trialAcres + ' ac') : ''}
+            </div>
+          </div>
+        </button>
+      `).join('');
+    }
+    /* OPEN FIELD OVERLAY */
+    function openFieldOverlay(fieldIdx){
+      const item = STATE.currentTrial;
+      if(!item) return;
+
+      const d = item.data || {};
+      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
+      const fieldObj = fieldsArr[fieldIdx];
+      if(!fieldObj) return;
+
+      STATE.currentFieldIdx = fieldIdx;
+      STATE.currentFieldYields = [];
+      STATE.currentYieldEditId = null;
+
+      const overlay = $('#fieldOverlay');
+      if(!overlay) return;
+
+      $('#fieldTitle').textContent = fieldObj.fieldName || 'Field';
+      $('#fieldSub').textContent   = fieldObj.farmName || '';
+      $('#fieldTrialBadge').textContent =
+        `${d.trialName || 'Trial'} • ${d.cropYear || ''} ${smartLabel(d.cropLabel || d.cropCode || '')}`.trim();
+
+      $('#fieldTrialAcres').value   = fieldObj.trialAcres != null ? fieldObj.trialAcres : '';
+      $('#fieldNotes').value        = fieldObj.notes || '';
+      $('#fieldVariety').value      = fieldObj.variety || '';
+      $('#fieldPlacement').value    = fieldObj.placement || '';
+      $('#fieldPlantingDate').value = fieldObj.plantingDate || '';
+
+      $('#fieldYieldError').hidden = true;
+
+      // Reset yield form
+      $('#yBlockAcres').value = '';
+      $('#yBlockLbs').value = '';
+      $('#yBlockMoisture').value = '';
+      $('#yBlockCombines').value = '';
+      $('#yBlockNotes').value = '';
+      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
+      $('#yieldForm').hidden = true;
+
+      $('#yieldList').innerHTML = '<div class="help-text">Loading yield blocks…</div>';
+
+      overlay.hidden = false;
+      loadYieldBlocksForField().catch(err=>{
+        console.error('Error loading yields:', err);
+        $('#yieldList').innerHTML = '<div class="help-text">No yield blocks saved for this field yet.</div>';
+      });
+    }
+
+    function closeFieldOverlay(){
+      $('#fieldOverlay').hidden = true;
+      STATE.currentFieldIdx = null;
+      STATE.currentFieldYields = [];
+      STATE.currentYieldEditId = null;
+    }
+
+    /* SAVE FIELD TRIAL INFO */
+    async function saveFieldTrialInfo(){
+      const item = STATE.currentTrial;
+      const db = STATE.db;
+      if(!item || !db) return;
+
+      const d = item.data || {};
+      const idx = STATE.currentFieldIdx;
+      const arr = Array.isArray(d.fields) ? d.fields.slice() : [];
+      const fieldObj = arr[idx];
+      if(!fieldObj) return;
+
+      const acresRaw    = $('#fieldTrialAcres').value.trim();
+      const notesVal    = $('#fieldNotes').value.trim();
+      const varietyVal  = $('#fieldVariety').value.trim();
+      const placementVal= $('#fieldPlacement').value.trim();
+      const plantingVal = $('#fieldPlantingDate').value.trim();
+      const errEl       = $('#fieldInfoError');
+
+      let acresNum = null;
+      if(acresRaw){
+        const n = Number(acresRaw);
+        if(Number.isNaN(n) || n <= 0){
+          errEl.textContent = 'Trial acres must be a positive number.';
+          errEl.hidden = false;
+          return;
+        }
+        acresNum = n;
+      }
+
+      errEl.hidden = true;
+
+      // Update object
+      fieldObj.trialAcres  = acresNum;
+      fieldObj.notes       = notesVal || null;
+      fieldObj.variety     = varietyVal || null;
+      fieldObj.placement   = placementVal || null;
+      fieldObj.plantingDate= plantingVal || null;
+      arr[idx] = fieldObj;
+
+      try{
+        await updateDoc(doc(db,'fieldTrials',item.id), {
+          fields: arr,
+          updatedAt: serverTimestamp()
+        });
+
+        d.fields = arr;
+        renderFieldsList(d);
+        showToast('Field trial info updated.');
+      }catch(err){
+        console.error('Failed to save field info:', err);
+        errEl.textContent = `Error saving: ${err.message}`;
+        errEl.hidden = false;
+      }
+    }
+
+    /* YIELD CALCULATION HELPERS */
+    function computeYield(acres, lbs, moisture){
+      if(!acres || !lbs) return null;
+      const wetBu = lbs / 56;
+      const wetYld = wetBu / acres;
+      let adjYld = wetYld;
+      if(moisture != null && !Number.isNaN(moisture)){
+        const std = 15.5;
+        if(moisture > std){
+          const shrinkFactor = (100 - moisture) / (100 - std);
+          adjYld = wetYld * shrinkFactor;
+        }
+      }
+      return { wet: wetYld, adj: adjYld };
+    }
+
+    function updateYieldHelper(){
+      const acres = Number($('#yBlockAcres').value || '0');
+      const lbsVal = stripCommas($('#yBlockLbs').value || '0');
+      const lbs = Number(lbsVal || '0');
+      const mVal = $('#yBlockMoisture').value;
+      const m = mVal ? Number(mVal) : null;
+
+      const helper = $('#yBlockYieldHelper');
+      const res = computeYield(acres, lbs, m);
+      if(!res){
+        helper.textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
+        return;
+      }
+      helper.textContent = 
+        `Approx yield: ${res.wet.toFixed(1)} bu/ac (wet), ${res.adj.toFixed(1)} bu/ac (to 15.5%).`;
+    }
+
+    /* LOAD YIELD BLOCKS */
+    async function loadYieldBlocksForField(){
+      const item = STATE.currentTrial;
+      const db = STATE.db;
+      const idx = STATE.currentFieldIdx;
+      if(!item || !db || idx==null) return;
+
+      const d = item.data || {};
+      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
+      const fieldObj = fieldsArr[idx];
+      if(!fieldObj) return;
+
+      const col = collection(db,'fieldTrials', item.id, 'yieldBlocks');
+      const snap = await getDocs(col);
+      const arr = [];
+      snap.forEach(docSnap=>{
+        const y = docSnap.data() || {};
+        if(y.fieldId === fieldObj.fieldId){
+          arr.push({id:docSnap.id, data:y});
+        }
+      });
+
+      arr.sort((a,b)=>{
+        const ta = a.data.createdAt && a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0;
+        const tb = b.data.createdAt && b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0;
+        return tb - ta;
+      });
+
+      STATE.currentFieldYields = arr;
+      renderYieldList();
+    }
+
+    function renderYieldList(){
+      const listEl = $('#yieldList');
+      if(!listEl) return;
+
+      if(!STATE.currentFieldYields.length){
+        listEl.innerHTML = '<div class="help-text">No yield blocks saved for this field yet.</div>';
+        return;
+      }
+
+      listEl.innerHTML = STATE.currentFieldYields.map(y=>{
+        const d = y.data || {};
+        return `
+          <div class="yield-pill" data-yid="${y.id}">
+            <div>
+              <span class="fw-bold">${d.blockAcres ?? '?'} ac</span> · ${d.lbs ?? '?'} lbs · ${d.moisture ?? '?'}%
+            </div>
+            <div class="help-text">
+              Yield: ${d.yieldWet?.toFixed?.(1) ?? '?'} bu/ac (wet),
+              ${d.yieldAdj?.toFixed?.(1) ?? '?'} bu/ac adj.
+              ${d.combines ? `· # combines: ${d.combines}` : ''}
+            </div>
+            ${d.notes ? `<div class="help-text">${d.notes}</div>`:''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    /* OPEN NEW YIELD FORM */
+    function openYieldFormNew(){
+      $('#yBlockAcres').value = '';
+      $('#yBlockLbs').value = '';
+      $('#yBlockMoisture').value = '';
+      $('#yBlockCombines').value = '';
+      $('#yBlockNotes').value = '';
+      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
+      $('#fieldYieldError').hidden = true;
+      $('#yieldForm').hidden = false;
+    }
+
+    /* EDIT EXISTING YIELD */
+    function openYieldEdit(yItem){
+      const d = yItem.data || {};
+
+      STATE.currentYieldEditId = yItem.id;
+
+      $('#yBlockAcres').value = d.blockAcres ?? '';
+      $('#yBlockLbs').value = d.lbs != null ? Number(d.lbs).toLocaleString() : '';
+      $('#yBlockMoisture').value = d.moisture ?? '';
+      $('#yBlockCombines').value = d.combines ?? '';
+      $('#yBlockNotes').value = d.notes ?? '';
+      $('#fieldYieldError').hidden = true;
+
+      $('#yieldForm').hidden = false;
+      updateYieldHelper();
+    }
+
+    /* SAVE YIELD BLOCK */
+    async function saveYieldBlock(){
+      const item = STATE.currentTrial;
+      const db = STATE.db;
+      const idx = STATE.currentFieldIdx;
+      if(!item || !db || idx==null) return;
+
+      const d = item.data || {};
+      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
+      const fieldObj = fieldsArr[idx];
+      if(!fieldObj) return;
+
+      const acresRaw = $('#yBlockAcres').value.trim();
+      const lbsRaw   = stripCommas($('#yBlockLbs').value.trim());
+      const mRaw     = $('#yBlockMoisture').value.trim();
+      const combRaw  = $('#yBlockCombines').value.trim();
+      const note     = $('#yBlockNotes').value.trim();
+      const errEl    = $('#fieldYieldError');
+
+      const acres    = Number(acresRaw);
+      const lbs      = Number(lbsRaw);
+      const m        = mRaw ? Number(mRaw) : null;
+      const combines = combRaw ? Number(combRaw) : null;
+
+      if(Number.isNaN(acres) || acres<=0){
+        errEl.textContent = 'Block acres must be positive.';
+        errEl.hidden = false;
+        return;
+      }
+      if(Number.isNaN(lbs) || lbs<=0){
+        errEl.textContent = 'Pounds must be positive.';
+        errEl.hidden = false;
+        return;
+      }
+      if(m != null){
+        if(Number.isNaN(m) || m < 5 || m > 40){
+          errEl.textContent = 'Moisture must be 5–40%.';
+          errEl.hidden = false;
+          return;
+        }
+        if(!/^\d+(\.\d{1,2})?$/.test(mRaw)){
+          errEl.textContent = 'Moisture max 2 decimals.';
+          errEl.hidden = false;
+          return;
+        }
+      }
+
+      errEl.hidden = true;
+
+      const yieldRes = computeYield(acres, lbs, m);
+      const baseData = {
+        trialId: item.id,
+        fieldId: fieldObj.fieldId,
+        fieldName: fieldObj.fieldName || null,
+        farmName: fieldObj.farmName || null,
+        blockAcres: acres,
+        lbs,
+        moisture: m,
+        combines: combines || null,
+        yieldWet: yieldRes ? yieldRes.wet : null,
+        yieldAdj: yieldRes ? yieldRes.adj : null,
+        notes: note || null,
+        uid: window.FVData?.uid?.() || null
+      };
+
+      try{
+        if(STATE.currentYieldEditId){
+          await updateDoc(
+            doc(db,'fieldTrials',item.id,'yieldBlocks',STATE.currentYieldEditId),
+            {...baseData, updatedAt: serverTimestamp()}
+          );
+
+          const idxY = STATE.currentFieldYields.findIndex(y=>y.id === STATE.currentYieldEditId);
+          if(idxY !== -1){
+            STATE.currentFieldYields[idxY].data = {...STATE.currentFieldYields[idxY].data, ...baseData};
+          }
+
+          renderYieldList();
+          showToast('Yield updated.');
+        }else{
+          const docData = {...baseData, createdAt: serverTimestamp()};
+          const ref = await addDoc(collection(db,'fieldTrials',item.id,'yieldBlocks'), docData);
+          STATE.currentFieldYields.unshift({id:ref.id, data:docData});
+          renderYieldList();
+
+          $('#yBlockAcres').value='';
+          $('#yBlockLbs').value='';
+          $('#yBlockMoisture').value='';
+          $('#yBlockCombines').value='';
+          $('#yBlockNotes').value='';
+          updateYieldHelper();
+          showToast('Yield saved.');
+        }
+      }catch(err){
+        console.error('Failed to save yield block:', err);
+        errEl.textContent = `Error saving: ${err.message}`;
+        errEl.hidden = false;
+      }
+    }
+    /* ===== Modal select helpers (for Edit Trial) ===== */
     function ensureOptionSelected(selectEl, value, label){
       if(!selectEl) return;
       if(value === undefined || value === null || value === '') return;
@@ -982,114 +1481,6 @@
       if(t.includes('aerial')) return 'AERIAL_APP';
       if(t.includes('fert')) return 'FERTILIZER';
       return 'OTHER';
-    }
-
-    /* ============ Trial Detail overlay ============ */
-    function openTrialDetail(item){
-      STATE.currentTrial = item;
-      const overlay = $('#trialOverlay');
-      const d = item.data || {};
-
-      const titleEl = $('#trialHdrTitle');
-      const subEl   = $('#trialHdrSub');
-      const chipsEl = $('#trialHdrChips');
-      const notesEl = $('#trialNotes');
-      const createdEl = $('#trialMetaCreated');
-      const statusEl  = $('#trialMetaStatus');
-      const fieldsCountEl = $('#trialMetaFields');
-
-      const trialName = d.trialName || d.name || 'Untitled trial';
-      const cropYear = d.cropYear || d.year || null;
-      const cropLabelRaw = d.cropLabel || d.cropCode || '';
-      const typeLabelRaw = d.trialTypeLabel || d.trialType || '';
-      const opTaskRaw = d.operationTaskLabel || d.operationTaskCode || '';
-      const cropLabel = smartLabel(cropLabelRaw);
-      const typeLabel = smartLabel(typeLabelRaw);
-      const opTask = smartLabel(opTaskRaw);
-
-      const statusRaw = d.status || 'active';
-      const bucket = statusBucket(statusRaw);
-      const fieldCount = d.fieldCount || (Array.isArray(d.fields)? d.fields.length : 0);
-      const ts = d.createdAt || null;
-      const when = ts && ts.toDate ? ts.toDate() : null;
-
-      if(titleEl) titleEl.textContent = trialName;
-      if(subEl){
-        const pieces = [];
-        if(cropYear) pieces.push(cropYear);
-        if(cropLabel) pieces.push(cropLabel);
-        if(typeLabel) pieces.push(typeLabel);
-        subEl.textContent = pieces.join(' · ') || 'Trial details';
-      }
-
-      if(chipsEl){
-        chipsEl.innerHTML = '';
-        if(opTask){
-          const span = document.createElement('span');
-          span.className = 'chip';
-          span.innerHTML = `<span class="chip-label">Operation</span> ${opTask}`;
-          chipsEl.appendChild(span);
-        }
-        const fcSpan = document.createElement('span');
-        fcSpan.className = 'chip';
-        fcSpan.innerHTML = `<span class="chip-label">Fields</span> ${fieldCount}`;
-        chipsEl.appendChild(fcSpan);
-      }
-
-      if(notesEl){
-        const n = d.notes || d.trialNotes || '';
-        notesEl.textContent = n || 'No trial-level notes yet.';
-      }
-      if(createdEl){
-        createdEl.textContent = when
-          ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`
-          : '';
-      }
-      if(statusEl){
-        statusEl.textContent = bucketLabel(bucket);
-      }
-      if(fieldsCountEl){
-        fieldsCountEl.textContent = `${fieldCount} field${fieldCount===1?'':'s'} in this trial`;
-      }
-
-      STATE.currentFieldIdx = null;
-      renderFieldsList(d);
-
-      overlay.hidden = false;
-      document.body.style.overflow = 'hidden';
-    }
-
-    function closeTrialDetail(){
-      const overlay = $('#trialOverlay');
-      if(overlay) overlay.hidden = true;
-      document.body.style.overflow = '';
-      STATE.currentTrial = null;
-      STATE.currentFieldIdx = null;
-    }
-
-    function renderFieldsList(trialData){
-      const listEl = $('#trialFieldsList');
-      if(!listEl) return;
-
-      const arr = Array.isArray(trialData.fields) ? trialData.fields : [];
-      if(!arr.length){
-        listEl.innerHTML = '<div class="help-text">No fields added yet. Use “Add field to trial” below.</div>';
-        return;
-      }
-
-      listEl.innerHTML = arr.map((f,idx)=>`
-        <button type="button" class="field-pill" data-idx="${idx}">
-          <div>
-            <div class="field-pill-main">
-              ${f.fieldName || 'Field ?'}${f.farmName ? ' · '+f.farmName : ''}
-            </div>
-            <div class="field-pill-sub">
-              ${(f.variety) ? f.variety + ' · ' : ''}
-              ${f.trialAcres ? (f.trialAcres + ' ac') : ''}
-            </div>
-          </div>
-        </button>
-      `).join('');
     }
 
     /* ============ Edit Trial modal ============ */
@@ -1146,7 +1537,7 @@
         }
       }
 
-      // NEW: status selector in edit modal
+      // Status selector (Active / Completed)
       const statusSel = $('#editStatus');
       const statusVal = (d.status || 'active').toString().toLowerCase();
       if(statusSel){
@@ -1200,7 +1591,6 @@
         ? (opSel.options[opSel.selectedIndex]?.textContent || opCode)
         : null;
 
-      // NEW: read status from dropdown (Active / Completed)
       const statusSel = $('#editStatus');
       const statusVal = statusSel ? (statusSel.value || 'active') : 'active';
 
@@ -1223,8 +1613,8 @@
         await updateDoc(doc(STATE.db,'fieldTrials',item.id), updates);
         Object.assign(item.data, updates);
         closeEditTrialModal();
-        openTrialDetail(item);
-        applyFilters();
+        openTrialDetail(item);   // refresh popup
+        applyFilters();          // refresh list/status filter
         showToast('Trial details updated.');
       }catch(err){
         console.error('Failed to update trial:', err);
@@ -1336,16 +1726,16 @@
       const db = STATE.db;
       if(!item || !db) return;
 
-      const farmLabel = $('#trialAddFarmBtn').textContent.trim();
-      const fieldLabel = $('#trialAddFieldBtn').textContent.trim();
-      const acresRaw = $('#trialAddAcres').value.trim();
-      const varietyVal = $('#trialAddVariety').value.trim();
-      const placementVal = $('#trialAddPlacement').value.trim();
+      const farmLabel   = $('#trialAddFarmBtn').textContent.trim();
+      const fieldLabel  = $('#trialAddFieldBtn').textContent.trim();
+      const acresRaw    = $('#trialAddAcres').value.trim();
+      const varietyVal  = $('#trialAddVariety').value.trim();
+      const placementVal= $('#trialAddPlacement').value.trim();
       const plantingVal = $('#trialAddPlantingDate').value.trim();
-      const notesVal = $('#trialAddFieldNotes').value.trim();
-      const errEl = $('#trialAddFieldError');
+      const notesVal    = $('#trialAddFieldNotes').value.trim();
+      const errEl       = $('#trialAddFieldError');
 
-      const farmObj = allFarms.find(f=>f.label === farmLabel);
+      const farmObj  = allFarms.find(f=>f.label === farmLabel);
       const fieldObj = allFields.find(f=>f.label === fieldLabel);
 
       if(!farmObj){
@@ -1370,7 +1760,6 @@
         trialAcres = n;
       }
 
-      errEl.textContent = '';
       errEl.hidden = true;
 
       const d = item.data;
@@ -1418,381 +1807,8 @@
       }
     }
 
-    /* ============ Field overlay + yields ============ */
-    function openFieldOverlay(fieldIdx){
-      const item = STATE.currentTrial;
-      if(!item) return;
-
-      const d = item.data || {};
-      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
-      const fieldObj = fieldsArr[fieldIdx];
-      if(!fieldObj) return;
-
-      STATE.currentFieldIdx = fieldIdx;
-      STATE.currentFieldYields = [];
-      STATE.currentYieldEditId = null;
-
-      const overlay = $('#fieldOverlay');
-      if(!overlay) return;
-
-      const titleEl = $('#fieldTitle');
-      const subEl   = $('#fieldSub');
-      const trialBadgeEl = $('#fieldTrialBadge');
-      const acresInput = $('#fieldTrialAcres');
-      const notesInput = $('#fieldNotes');
-      const varietyInput = $('#fieldVariety');
-      const placementInput = $('#fieldPlacement');
-      const plantDateInput = $('#fieldPlantingDate');
-      const yieldErrEl = $('#fieldYieldError');
-
-      const trialName = d.trialName || 'Trial';
-      const cropYear = d.cropYear || d.year || '';
-      const cropLabelRaw = d.cropLabel || d.cropCode || '';
-      const cropLabel = smartLabel(cropLabelRaw);
-
-      if(titleEl) titleEl.textContent = fieldObj.fieldName || 'Field';
-      if(subEl) subEl.textContent = fieldObj.farmName || '';
-      if(trialBadgeEl) trialBadgeEl.textContent =
-        `${trialName} • ${cropYear || ''} ${cropLabel || ''}`.trim();
-
-      if(acresInput) acresInput.value = fieldObj.trialAcres != null ? fieldObj.trialAcres : '';
-      if(notesInput) notesInput.value = fieldObj.notes || '';
-      if(varietyInput) varietyInput.value = fieldObj.variety || '';
-      if(placementInput) placementInput.value = fieldObj.placement || '';
-      if(plantDateInput) plantDateInput.value = fieldObj.plantingDate || '';
-      if(yieldErrEl){
-        yieldErrEl.textContent = '';
-        yieldErrEl.hidden = true;
-      }
-
-      // Reset yield form
-      $('#yBlockAcres').value = '';
-      $('#yBlockLbs').value = '';
-      $('#yBlockMoisture').value = '';
-      $('#yBlockCombines').value = '';
-      $('#yBlockNotes').value = '';
-      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
-      const yieldForm = $('#yieldForm');
-      if(yieldForm) yieldForm.hidden = true; // keep collapsed until user taps Add
-
-      $('#yieldList').innerHTML = '<div class="help-text">Loading yield blocks…</div>';
-
-      overlay.hidden = false;
-      loadYieldBlocksForField().catch(err=>{
-        console.error('Error loading yields:', err);
-        $('#yieldList').innerHTML = '<div class="help-text">No yield blocks saved for this field yet.</div>';
-      });
-    }
-
-    function closeFieldOverlay(){
-      const overlay = $('#fieldOverlay');
-      if(overlay) overlay.hidden = true;
-      STATE.currentFieldIdx = null;
-      STATE.currentFieldYields = [];
-      STATE.currentYieldEditId = null;
-    }
-
-    async function saveFieldTrialInfo(){
-      const item = STATE.currentTrial;
-      const db = STATE.db;
-      if(!item || !db) return;
-      const d = item.data || {};
-      const idx = STATE.currentFieldIdx;
-      const arr = Array.isArray(d.fields) ? d.fields.slice() : [];
-      const fieldObj = arr[idx];
-      if(!fieldObj) return;
-
-      const acresRaw = $('#fieldTrialAcres').value.trim();
-      const notesVal = $('#fieldNotes').value.trim();
-      const varietyVal = $('#fieldVariety').value.trim();
-      const placementVal = $('#fieldPlacement').value.trim();
-      const plantingVal = $('#fieldPlantingDate').value.trim();
-      const errEl = $('#fieldInfoError');
-
-      let acresNum = null;
-      if(acresRaw){
-        const n = Number(acresRaw);
-        if(Number.isNaN(n) || n <= 0){
-          errEl.textContent = 'Trial acres must be a positive number.';
-          errEl.hidden = false;
-          return;
-        }
-        acresNum = n;
-      }
-
-      errEl.textContent = '';
-      errEl.hidden = true;
-
-      fieldObj.trialAcres = acresNum;
-      fieldObj.notes = notesVal || null;
-      fieldObj.variety = varietyVal || null;
-      fieldObj.placement = placementVal || null;
-      fieldObj.plantingDate = plantingVal || null;
-      arr[idx] = fieldObj;
-
-      try{
-        await updateDoc(doc(db,'fieldTrials',item.id), {
-          fields: arr,
-          updatedAt: serverTimestamp()
-        });
-        d.fields = arr;
-        renderFieldsList(d);
-        showToast('Field trial info updated.');
-      }catch(err){
-        console.error('Failed to save field info:', err);
-        errEl.textContent = `Error saving: ${err.message}`;
-        errEl.hidden = false;
-      }
-    }
-
-    function computeYield(acres, lbs, moisture){
-      if(!acres || !lbs) return null;
-      const wetBu = lbs / 56;
-      const wetYld = wetBu / acres;
-      let adjYld = wetYld;
-      if(moisture != null && !Number.isNaN(moisture)){
-        const m = moisture;
-        const std = 15.5;
-        if(m > std){
-          const shrinkFactor = (100 - m) / (100 - std);
-          adjYld = wetYld * shrinkFactor;
-        }else{
-          adjYld = wetYld; // no bonus bushels below standard
-        }
-      }
-      return {
-        wet: wetYld,
-        adj: adjYld
-      };
-    }
-
-    function updateYieldHelper(){
-      const acres = Number($('#yBlockAcres').value || '0');
-      const lbsVal = stripCommas($('#yBlockLbs').value || '0');
-      const lbs = Number(lbsVal || '0');
-      const mVal = $('#yBlockMoisture').value;
-      const m = mVal ? Number(mVal) : null;
-      const helper = $('#yBlockYieldHelper');
-
-      const res = computeYield(acres, lbs, m);
-      if(!res){
-        helper.textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
-        return;
-      }
-      helper.textContent = `Approx yield: ${res.wet.toFixed(1)} bu/ac (wet), ${res.adj.toFixed(1)} bu/ac (to 15.5%).`;
-    }
-
-    async function loadYieldBlocksForField(){
-      const item = STATE.currentTrial;
-      const db = STATE.db;
-      const idx = STATE.currentFieldIdx;
-      if(!item || !db || idx==null) return;
-
-      const d = item.data || {};
-      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
-      const fieldObj = fieldsArr[idx];
-      if(!fieldObj) return;
-
-      const yieldsCol = collection(db,'fieldTrials', item.id, 'yieldBlocks');
-      const snap = await getDocs(yieldsCol);
-      const arr = [];
-      snap.forEach(docSnap=>{
-        const y = docSnap.data() || {};
-        if(y.fieldId === fieldObj.fieldId){
-          arr.push({id:docSnap.id, data:y});
-        }
-      });
-      arr.sort((a,b)=>{
-        const ta = a.data.createdAt && a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0;
-        const tb = b.data.createdAt && b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0;
-        return tb - ta;
-      });
-
-      STATE.currentFieldYields = arr;
-      renderYieldList();
-    }
-
-    function renderYieldList(){
-      const listEl = $('#yieldList');
-      if(!listEl) return;
-
-      if(!STATE.currentFieldYields.length){
-        listEl.innerHTML = '<div class="help-text">No yield blocks saved for this field yet.</div>';
-        return;
-      }
-
-      listEl.innerHTML = STATE.currentFieldYields.map(y=>{
-        const d = y.data || {};
-        const acres = d.blockAcres;
-        const lbs = d.lbs;
-        const m = d.moisture;
-        const wet = d.yieldWet;
-        const adj = d.yieldAdj;
-        const combines = d.combines;
-        const note = d.notes;
-
-        return `
-          <div class="yield-pill" data-yid="${y.id}">
-            <div><span class="fw-bold">${acres ?? '?'} ac</span> · ${lbs ?? '?'} lbs · ${m ?? '?'}% moisture</div>
-            <div class="help-text">
-              Yield: ${wet != null ? wet.toFixed(1) : '?'} bu/ac (wet),
-              ${adj != null ? adj.toFixed(1) : '?'} bu/ac adj.
-              ${combines ? ` · # combines: ${combines}` : ''}
-            </div>
-            ${note ? `<div class="help-text">${note}</div>`:''}
-          </div>
-        `;
-      }).join('');
-    }
-
-    function openYieldFormNew(){
-      const form = $('#yieldForm');
-      if(!form) return;
-      STATE.currentYieldEditId = null;
-      $('#yBlockAcres').value = '';
-      $('#yBlockLbs').value = '';
-      $('#yBlockMoisture').value = '';
-      $('#yBlockCombines').value = '';
-      $('#yBlockNotes').value = '';
-      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
-      $('#fieldYieldError').textContent = '';
-      $('#fieldYieldError').hidden = true;
-      form.hidden = false;
-    }
-
-    function openYieldEdit(yItem){
-      const d = yItem.data || {};
-      const form = $('#yieldForm');
-      if(!form) return;
-
-      STATE.currentYieldEditId = yItem.id;
-
-      $('#yBlockAcres').value = d.blockAcres != null ? d.blockAcres : '';
-      $('#yBlockLbs').value = d.lbs != null ? Number(d.lbs).toLocaleString() : '';
-      $('#yBlockMoisture').value = d.moisture != null ? d.moisture : '';
-      $('#yBlockCombines').value = d.combines != null ? d.combines : '';
-      $('#yBlockNotes').value = d.notes || '';
-      $('#fieldYieldError').textContent = '';
-      $('#fieldYieldError').hidden = true;
-
-      form.hidden = false;
-      updateYieldHelper();
-    }
-
-    async function saveYieldBlock(){
-      const item = STATE.currentTrial;
-      const db = STATE.db;
-      const idx = STATE.currentFieldIdx;
-      if(!item || !db || idx==null) return;
-
-      const d = item.data || {};
-      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
-      const fieldObj = fieldsArr[idx];
-      if(!fieldObj) return;
-
-      const acresRaw = $('#yBlockAcres').value.trim();
-      const lbsRaw = stripCommas($('#yBlockLbs').value.trim());
-      const mRaw   = $('#yBlockMoisture').value.trim();
-      const combRaw= $('#yBlockCombines').value.trim();
-      const note   = $('#yBlockNotes').value.trim();
-      const errEl  = $('#fieldYieldError');
-
-      const acres = Number(acresRaw);
-      const lbs   = Number(lbsRaw);
-      const m     = mRaw ? Number(mRaw) : null;
-      const combines = combRaw ? Number(combRaw) : null;
-
-      if(Number.isNaN(acres) || acres<=0){
-        errEl.textContent = 'Block acres must be a positive number.';
-        errEl.hidden = false;
-        return;
-      }
-      if(Number.isNaN(lbs) || lbs<=0){
-        errEl.textContent = 'Pounds of grain must be a positive number.';
-        errEl.hidden = false;
-        return;
-      }
-
-      if(m != null){
-        if(Number.isNaN(m) || m < 5 || m > 40){
-          errEl.textContent = 'Moisture % must be between 5.00 and 40.00.';
-          errEl.hidden = false;
-          return;
-        }
-        if(!/^\d+(\.\d{1,2})?$/.test(mRaw)){
-          errEl.textContent = 'Moisture % can have at most two decimals.';
-          errEl.hidden = false;
-          return;
-        }
-      }
-
-      errEl.textContent = '';
-      errEl.hidden = true;
-
-      const yRes = computeYield(acres, lbs, m);
-      const uid = (window.FVData && typeof window.FVData.uid === 'function')
-        ? window.FVData.uid()
-        : null;
-
-      const baseData = {
-        trialId: item.id,
-        fieldId: fieldObj.fieldId,
-        fieldName: fieldObj.fieldName || null,
-        farmName: fieldObj.farmName || null,
-        blockAcres: acres,
-        lbs,
-        moisture: m,
-        combines: combines || null,
-        yieldWet: yRes ? yRes.wet : null,
-        yieldAdj: yRes ? yRes.adj : null,
-        notes: note || null,
-        uid: uid || null
-      };
-
-      try{
-        const editingId = STATE.currentYieldEditId;
-        if(editingId){
-          // Edit existing yield block
-          await updateDoc(doc(db,'fieldTrials',item.id,'yieldBlocks',editingId), {
-            ...baseData,
-            updatedAt: serverTimestamp()
-          });
-          const idxY = STATE.currentFieldYields.findIndex(y=>y.id === editingId);
-          if(idxY !== -1){
-            STATE.currentFieldYields[idxY].data = {
-              ...STATE.currentFieldYields[idxY].data,
-              ...baseData
-            };
-          }
-          renderYieldList();
-          showToast('Yield block updated.');
-        }else{
-          // New yield block
-          const docData = {
-            ...baseData,
-            createdAt: serverTimestamp()
-          };
-          const ref = await addDoc(collection(db,'fieldTrials',item.id,'yieldBlocks'), docData);
-          STATE.currentFieldYields.unshift({id:ref.id, data:docData});
-          renderYieldList();
-          $('#yBlockAcres').value = '';
-          $('#yBlockLbs').value = '';
-          $('#yBlockMoisture').value = '';
-          $('#yBlockCombines').value = '';
-          $('#yBlockNotes').value = '';
-          updateYieldHelper();
-          showToast('Yield block saved.');
-        }
-      }catch(err){
-        console.error('Failed to save yield block:', err);
-        errEl.textContent = `Error saving: ${err.message}`;
-        errEl.hidden = false;
-      }
-    }
-
     /* ============ Boot ============ */
     (async function boot(){
-      // Wait for BOTH firebase-init and FVData (for more reliable binding)
       await Promise.all([
         fbReady,
         window.FVData && window.FVData.ready ? window.FVData.ready() : Promise.resolve()
@@ -1860,12 +1876,12 @@
       $('#yBlockMoisture')?.addEventListener('input', updateYieldHelper);
       $('#yBlockCombines')?.addEventListener('input', updateYieldHelper);
 
-      // Special handler for pounds to keep commas + numeric keypad
+      // Pounds input with commas
       const lbsInput = $('#yBlockLbs');
       if(lbsInput){
         lbsInput.addEventListener('input', (e)=>{
           let raw = e.target.value;
-          raw = raw.replace(/[^\d]/g,''); // digits only
+          raw = raw.replace(/[^\d]/g,'');
           if(!raw){
             e.target.value = '';
             updateYieldHelper();
@@ -1974,6 +1990,7 @@
             <div id="trialHdrSub" class="trial-panel-sub">Year · Crop · Trial type</div>
             <div id="trialHdrChips" class="trial-header-chips"></div>
           </div>
+          <!-- Close button (Mark Completed button is injected by JS next to this) -->
           <button type="button" id="trialCloseBtn" class="trial-panel-close" aria-label="Close trial">
             ×
           </button>
@@ -1997,7 +2014,7 @@
           </div>
         </section>
 
-        <!-- Divider line like Field Maintenance popup -->
+        <!-- Green gradient divider like Field Maintenance popup -->
         <div class="modal-divider"></div>
 
         <section class="trial-section">
@@ -2074,7 +2091,7 @@
           </select>
         </div>
 
-        <!-- NEW: Status selector -->
+        <!-- Status selector -->
         <div class="field">
           <label for="editStatus">Status</label>
           <select id="editStatus" class="select">
@@ -2230,7 +2247,6 @@
             </button>
           </div>
 
-          <!-- Yield form is hidden until Add button is tapped -->
           <div id="yieldForm" hidden>
             <div class="yield-grid" style="margin-top:6px;">
               <div class="field">
