@@ -124,6 +124,8 @@
       padding-inline:10px;
     }
 
+    /* Work-order list */
+
     .wo-list {
       display:flex;
       flex-direction:column;
@@ -197,37 +199,6 @@
       font-weight:600;
     }
 
-    .wo-status-wrap {
-      flex:0 0 auto;
-      display:flex;
-      flex-direction:column;
-      align-items:flex-end;
-      gap:4px;
-      padding-left:4px;
-      min-width:150px;
-    }
-
-    .wo-status-label {
-      font-size:0.78rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      opacity:0.75;
-    }
-
-    .wo-status-select {
-      width:100%;
-      max-width:170px;
-      font:inherit;
-      font-size:0.9rem;
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:5px 10px;
-      background:var(--card-surface, var(--surface));
-      color:var(--text);
-      outline:none;
-      cursor:pointer;
-    }
-
     .wo-bottom-row {
       display:flex;
       justify-content:space-between;
@@ -267,8 +238,7 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, getDocs,
-      updateDoc, doc, serverTimestamp
+      collection, query, where, getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -277,8 +247,8 @@
       COLLECTION_PATH: 'fieldMaintenance',
       STATUS_FIELD:    'status',
       STATUS_PENDING:  'pending',
-      STATUS_INPROG:   'in progress',
-      STATUS_DONE:     'completed'
+      STATUS_INPROG:   'in progress'
+      // we do NOT show "completed" here
     };
 
     const STATE = {
@@ -327,11 +297,16 @@
                           || data.createdByName || data.createdBy || '';
         const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
         const when = ts && ts.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
-        const status = (data[CONFIG.STATUS_FIELD] || '').toString();
+        const statusRaw = (data.status || '').toString() || 'unknown';
 
         const card = document.createElement('article');
         card.className = 'wo-card';
         card.dataset.id = id;
+
+        const friendlyStatus =
+          statusRaw.toLowerCase() === 'in progress' ? 'In Progress' :
+          statusRaw.toLowerCase() === 'pending'     ? 'Pending' :
+          statusRaw;
 
         card.innerHTML = `
           <div class="wo-row-top">
@@ -355,69 +330,15 @@
                 ` : ''}
               </div>
             </div>
-
-            <div class="wo-status-wrap">
-              <div class="wo-status-label">Status</div>
-              <select class="wo-status-select">
-                <option value="${CONFIG.STATUS_PENDING}">Pending</option>
-                <option value="${CONFIG.STATUS_INPROG}">In Progress</option>
-                <option value="${CONFIG.STATUS_DONE}">Completed</option>
-              </select>
-            </div>
           </div>
 
           <div class="wo-bottom-row">
             <div>
               ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
             </div>
-            <div class="wo-status-chip">${status || 'unknown'}</div>
+            <div class="wo-status-chip">${friendlyStatus}</div>
           </div>
         `;
-
-        const select = card.querySelector('.wo-status-select');
-        const chip   = card.querySelector('.wo-status-chip');
-
-        // set dropdown to current status
-        if(status === CONFIG.STATUS_INPROG){
-          select.value = CONFIG.STATUS_INPROG;
-        }else if(status === CONFIG.STATUS_DONE){
-          select.value = CONFIG.STATUS_DONE;
-        }else{
-          select.value = CONFIG.STATUS_PENDING;
-        }
-
-        const originalStatus = status || CONFIG.STATUS_PENDING;
-
-        // status change handler (no popup, just update Firestore & list)
-        select.addEventListener('change', async (ev) => {
-          const newStatus = ev.target.value;
-
-          const updates = {
-            [CONFIG.STATUS_FIELD]: newStatus,
-            updatedAt: serverTimestamp()
-          };
-          if(newStatus === CONFIG.STATUS_DONE && originalStatus !== CONFIG.STATUS_DONE){
-            updates.completedAt = serverTimestamp();
-          }
-
-          try{
-            await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), updates);
-
-            if(newStatus === CONFIG.STATUS_DONE){
-              // remove from active list
-              STATE.items = STATE.items.filter(x => x.id !== id);
-              renderList();
-            }else{
-              item.data[CONFIG.STATUS_FIELD] = newStatus;
-              Object.assign(item.data, updates);
-              if(chip) chip.textContent = newStatus;
-            }
-          }catch(err){
-            console.error('Failed to update status:', err);
-            alert('Could not update work order status. Please try again.');
-            ev.target.value = originalStatus || CONFIG.STATUS_PENDING;
-          }
-        });
 
         listEl.appendChild(card);
       }
@@ -443,7 +364,6 @@
           data: d.data()
         }));
 
-        // newest first
         items.sort((a,b) => {
           const ta = getTime(a.data.createdAt || a.data.dateSubmitted || a.data.timestamp);
           const tb = getTime(b.data.createdAt || b.data.dateSubmitted || b.data.timestamp);
@@ -493,9 +413,7 @@
             <h1>Active Field Maintenance Work Orders</h1>
             <p class="muted">
               Shows all work orders that have passed approval and are currently
-              <strong>Pending</strong> or <strong>In Progress</strong>. Use the
-              status dropdown to move them to <strong>In Progress</strong> or
-              straight to <strong>Completed</strong>.
+              <strong>Pending</strong> or <strong>In Progress</strong>. Status values are read-only here.
             </p>
           </div>
         </header>
