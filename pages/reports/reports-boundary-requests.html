@@ -69,7 +69,7 @@
       gap:14px;
     }
 
-    /* Toolbar + back button */
+    /* Toolbar + back / print buttons */
     .toolbar{
       display:flex;
       flex-wrap:wrap;
@@ -104,6 +104,11 @@
     .btn-quiet{
       min-width:auto;
       padding-inline:10px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
     }
 
     .page-header-meta{
@@ -322,6 +327,13 @@
       font-size:0.8rem;
       margin-left:6px;
     }
+
+    /* Bottom print button */
+    .bottom-actions{
+      margin-top:16px;
+      display:flex;
+      justify-content:flex-end;
+    }
   </style>
 
   <script>
@@ -339,13 +351,15 @@
     import {
       ready,
       getFirestore,
-      collection, getDocs
+      collection, getDocs,
+      doc, getDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      COLLECTION_PATH: 'boundary_requests'
+      COLLECTION_PATH: 'boundary_requests',
+      COMPANY_DOC_PATH: ['company','main']
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -353,8 +367,10 @@
 
     const STATE = {
       items: [],
+      filteredItems: null,
       selectedId: null,
-      db: null
+      db: null,
+      company: null
     };
 
     function getTimeFromAny(v){
@@ -398,6 +414,10 @@
       return `${months} months`;
     }
 
+    function getWorkingItems(){
+      return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
+    }
+
     function renderList(){
       const listEl  = $('.wo-list');
       const emptyEl = $('.wo-empty');
@@ -405,7 +425,9 @@
 
       listEl.innerHTML = '';
 
-      if(!STATE.items.length){
+      const items = getWorkingItems();
+
+      if(!items.length){
         emptyEl.style.display = 'block';
         emptyEl.textContent = 'No boundary fix requests have been submitted yet.';
         if(countEl) countEl.textContent = '0 open requests';
@@ -414,8 +436,8 @@
 
       emptyEl.style.display = 'none';
 
-      // Stats: open count + farms + oldest
-      const open = STATE.items.filter(it => normalizeStatus(it.data.status) === 'open');
+      // Stats: open count + farms
+      const open = items.filter(it => normalizeStatus(it.data.status) === 'open');
       const farmIds = new Set(open.map(it => it.data.farmId || it.data.farm).filter(Boolean));
 
       if(countEl){
@@ -424,7 +446,7 @@
         countEl.textContent = `${openCount} open on ${farmCount || 0} farm${farmCount === 1 ? '' : 's'}`;
       }
 
-      for(const item of STATE.items){
+      for(const item of items){
         const d = item.data;
         const field = d.field || 'Field not set';
         const farm  = d.farm  || '';
@@ -574,7 +596,7 @@
           return tb - ta; // newest first
         });
 
-        // Compute oldest-open age for console/debug if you want
+        // Compute oldest-open age for debug
         const open = items.filter(it => normalizeStatus(it.data.status) === 'open');
         if(open.length){
           const now = Date.now();
@@ -587,7 +609,6 @@
         }
 
         STATE.items = items;
-        renderList();
       }catch(err){
         console.error('Error loading boundary_requests:', err);
         const emptyEl = $('.wo-empty');
@@ -596,6 +617,227 @@
         const countEl = $('#brCount');
         if(countEl) countEl.textContent = 'Error loading requests';
       }
+    }
+
+    // --- Filters & sorting used for list AND PDF ---
+    function applyFilters(){
+      const statusSel = $('#filterStatus');
+      const farmSel   = $('#filterFarm');
+      const searchEl  = $('#filterSearch');
+
+      const statusFilter = (statusSel?.value || 'open').toLowerCase();
+      const farmFilter   = farmSel?.value || 'all';
+      const q            = (searchEl?.value || '').trim().toLowerCase();
+
+      const filtered = STATE.items.filter(it => {
+        const d = it.data;
+        const st = normalizeStatus(d.status);
+
+        if(statusFilter === 'open' && st !== 'open') return false;
+
+        if(farmFilter !== 'all'){
+          const id = (d.farmId || d.farm || '').toString();
+          if(id !== farmFilter) return false;
+        }
+
+        if(q){
+          const hay = [
+            d.farm,
+            d.field,
+            d.scope,
+            d.notes,
+            d.submittedBy,
+            d.submittedByEmail
+          ].join(' ').toLowerCase();
+          if(!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      STATE.filteredItems = filtered;
+      renderList();
+    }
+
+    function populateFarmFilterFromItems(){
+      const farms = new Map();
+      STATE.items.forEach(it => {
+        const d = it.data;
+        if(!d.farm) return;
+        farms.set(d.farmId || d.farm, d.farm);
+      });
+      const farmSelEl = $('#filterFarm');
+      if (!farmSelEl) return;
+      // clear existing options except "all"
+      farmSelEl.innerHTML = '<option value="all">All farms</option>';
+      Array.from(farms.entries())
+        .sort((a,b)=> (a[1] || '').localeCompare(b[1] || ''))
+        .forEach(([id,label])=>{
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = label;
+          farmSelEl.appendChild(opt);
+        });
+    }
+
+    // --- Company header for PDF ---
+    async function loadCompanyHeader(){
+      if (STATE.company) return STATE.company;
+      try{
+        const [col,id] = CONFIG.COMPANY_DOC_PATH;
+        const ref = doc(STATE.db, col, id);
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = d.name || '';
+        const addr = [
+          d.addressStreet || '',
+          [d.addressCity, d.addressState].filter(Boolean).join(', '),
+          d.addressZip || ''
+        ].filter(Boolean).join(' · ');
+        STATE.company = { name, address: addr };
+      }catch(e){
+        console.warn('[boundary-report] failed to load company header', e);
+        STATE.company = { name: '', address: '' };
+      }
+      return STATE.company;
+    }
+
+    function escapeHtml(str){
+      return String(str || '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
+    }
+
+    function extractFieldNumber(field){
+      const m = String(field || '').match(/^(\d+)/);
+      if (!m) return Number.MAX_SAFE_INTEGER;
+      const n = parseInt(m[1], 10);
+      return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+    }
+
+    function groupForPdf(items){
+      const map = new Map();
+      items.forEach(it=>{
+        const d = it.data;
+        const farm = d.farm || 'Unknown farm';
+        if(!map.has(farm)) map.set(farm, []);
+        map.get(farm).push(it);
+      });
+
+      const farms = Array.from(map.entries()).sort((a,b)=> a[0].localeCompare(b[0]));
+      farms.forEach(entry => {
+        const arr = entry[1];
+        arr.sort((a,b)=>{
+          const fa = a.data.field || '';
+          const fb = b.data.field || '';
+          const na = extractFieldNumber(fa);
+          const nb = extractFieldNumber(fb);
+          if (na !== nb) return na - nb;
+          return fa.localeCompare(fb);
+        });
+      });
+      return farms;
+    }
+
+    async function handlePrintClick(){
+      const items = getWorkingItems();
+      if (!items.length){
+        alert('No boundary requests match the current filters to print.');
+        return;
+      }
+
+      const company = await loadCompanyHeader();
+      const grouped = groupForPdf(items);
+      const now = new Date();
+      const runStr = formatDateTime(now);
+
+      const htmlParts = [];
+      htmlParts.push(`
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Field Boundary Fix Requests</title>
+  <style>
+    body{ font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin:24px; color:#111827; }
+    h1{ font-size:20px; margin:0 0 4px; }
+    h2{ font-size:16px; margin:18px 0 6px; border-bottom:1px solid #e5e7eb; padding-bottom:3px; }
+    .company{ font-size:13px; margin-bottom:12px; }
+    .meta{ font-size:12px; color:#4b5563; margin-bottom:16px; }
+    table{ width:100%; border-collapse:collapse; margin-top:4px; page-break-inside:avoid; }
+    th,td{ font-size:11px; border:1px solid #e5e7eb; padding:4px 6px; vertical-align:top; }
+    th{ background:#f3f4f6; text-align:left; }
+    .notes{ white-space:pre-wrap; }
+    @media print{
+      body{ margin:12mm; }
+      .no-print{ display:none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="company">
+    ${company.name ? `<strong>${escapeHtml(company.name)}</strong><br>` : ''}
+    ${company.address ? `${escapeHtml(company.address)}<br>` : ''}
+  </div>
+  <div class="meta">
+    Field Boundary Fix Requests &nbsp;•&nbsp; Generated ${escapeHtml(runStr)}
+  </div>
+`);
+
+      grouped.forEach(([farmName, arr])=>{
+        htmlParts.push(`<h2>${escapeHtml(farmName)}</h2>`);
+        htmlParts.push(`
+<table>
+  <thead>
+    <tr>
+      <th style="width:12%">Field</th>
+      <th style="width:9%">Scope</th>
+      <th style="width:9%">Type</th>
+      <th style="width:9%">Status</th>
+      <th style="width:16%">Submitted By</th>
+      <th style="width:10%">Date</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+`);
+        arr.forEach(it=>{
+          const d = it.data;
+          const created = d._createdAtDate || null;
+          htmlParts.push(`
+    <tr>
+      <td>${escapeHtml(d.field || '')}</td>
+      <td>${escapeHtml(d.scope || '')}</td>
+      <td>${escapeHtml(d.boundaryType || '')}</td>
+      <td>${escapeHtml(d.status || '')}</td>
+      <td>${escapeHtml((d.submittedBy || '') + (d.submittedByEmail ? ' · ' + d.submittedByEmail : ''))}</td>
+      <td>${escapeHtml(created ? formatDate(created) : '')}</td>
+      <td class="notes">${escapeHtml(d.notes || '')}</td>
+    </tr>
+`);
+        });
+        htmlParts.push(`
+  </tbody>
+</table>
+`);
+      });
+
+      htmlParts.push(`
+</body>
+</html>`);
+
+      const html = htmlParts.join('');
+
+      const w = window.open('', '_blank');
+      if(!w){
+        alert('Popup blocked. Please allow popups for FarmVista to print/save the report.');
+        return;
+      }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      // Give the browser a moment to render before printing
+      setTimeout(()=>{ try{ w.print(); }catch(_){/* ignore */} }, 400);
     }
 
     (async function boot(){
@@ -608,18 +850,7 @@
       const backBtn = document.getElementById('btnBack');
       if(backBtn){
         backBtn.addEventListener('click', () => {
-          // Adjust target if you want a different landing page
-          location.href = '/Farm-vista/pages/crop-production/index.html';
-        });
-      }
-
-      const clearBtn = $('#filterClear');
-      if(clearBtn){
-        clearBtn.addEventListener('click', () => {
-          $('#filterStatus').value = 'open';
-          $('#filterFarm').value = 'all';
-          $('#filterSearch').value = '';
-          renderList(); // just re-run; filters are client-side below
+          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
         });
       }
 
@@ -629,69 +860,34 @@
       });
 
       await loadBoundaryRequests();
+      populateFarmFilterFromItems();
 
-      // Simple client-side filter hooks
+      // wire filters
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
+      const clearBtn  = $('#filterClear');
 
-      function applyFilters(){
-        const statusFilter = (statusSel.value || 'open').toLowerCase();
-        const farmFilter   = farmSel.value || 'all';
-        const q            = (searchEl.value || '').trim().toLowerCase();
-
-        const filtered = STATE.items.filter(it => {
-          const d = it.data;
-          const st = normalizeStatus(d.status);
-
-          if(statusFilter === 'open' && st !== 'open') return false;
-
-          if(farmFilter !== 'all'){
-            const id = (d.farmId || d.farm || '').toString();
-            if(id !== farmFilter) return false;
-          }
-
-          if(q){
-            const hay = [
-              d.farm,
-              d.field,
-              d.scope,
-              d.notes,
-              d.submittedBy,
-              d.submittedByEmail
-            ].join(' ').toLowerCase();
-            if(!hay.includes(q)) return false;
-          }
-          return true;
+      if(statusSel) statusSel.addEventListener('change', applyFilters);
+      if(farmSel)   farmSel.addEventListener('change', applyFilters);
+      if(searchEl)  searchEl.addEventListener('input', applyFilters);
+      if(clearBtn){
+        clearBtn.addEventListener('click', () => {
+          if(statusSel) statusSel.value = 'open';
+          if(farmSel)   farmSel.value   = 'all';
+          if(searchEl)  searchEl.value  = '';
+          applyFilters();
         });
-
-        // temporarily swap STATE.items for rendering then restore
-        const original = STATE.items;
-        STATE.items = filtered;
-        renderList();
-        STATE.items = original;
       }
 
-      // populate farm select from all items
-      const farms = new Map();
-      STATE.items.forEach(it => {
-        const d = it.data;
-        if(!d.farm) return;
-        farms.set(d.farmId || d.farm, d.farm);
-      });
-      const farmSelEl = $('#filterFarm');
-      Array.from(farms.entries())
-        .sort((a,b)=> (a[1] || '').localeCompare(b[1] || ''))
-        .forEach(([id,label])=>{
-          const opt = document.createElement('option');
-          opt.value = id;
-          opt.textContent = label;
-          farmSelEl.appendChild(opt);
-        });
+      // initial filter/render
+      applyFilters();
 
-      statusSel.addEventListener('change', applyFilters);
-      farmSel.addEventListener('change', applyFilters);
-      searchEl.addEventListener('input', applyFilters);
+      // Print buttons
+      const printTop = $('#btnPrint');
+      const printBottom = $('#btnPrintBottom');
+      if (printTop)    printTop.addEventListener('click', handlePrintClick);
+      if (printBottom) printBottom.addEventListener('click', handlePrintClick);
     })();
   </script>
 </head>
@@ -715,7 +911,10 @@
           <div class="toolbar">
             <div class="toolbar-left">
               <button id="btnBack" type="button" class="btn btn-quiet">
-                ← Back to Crop Production
+                ← Back to Reports
+              </button>
+              <button id="btnPrint" type="button" class="btn btn-primary">
+                Print / Save PDF
               </button>
             </div>
             <div class="page-header-meta" id="brCount">
@@ -783,6 +982,12 @@
               <!-- status pill by JS -->
             </div>
           </section>
+
+          <div class="bottom-actions">
+            <button id="btnPrintBottom" type="button" class="btn btn-primary">
+              Print / Save PDF
+            </button>
+          </div>
         </div>
       </section>
     </div>
