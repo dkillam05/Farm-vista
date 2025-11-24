@@ -177,31 +177,13 @@
           <label for="editFreq">Radio Frequency (MHz)</label>
           <input id="editFreq" class="input" inputmode="decimal" placeholder="450.12345">
         </div>
-        <div class="help" id="editUsage">Checking usage…</div>
+        <div class="help" id="editUsage">Usage not loaded on this screen.</div>
       </div>
       <div class="dialog-footer">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <button id="mdDelete" class="btn btn-danger" type="button">Delete</button>
         </div>
         <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: In-use warning (list fields that block delete) -->
-  <div id="useModal" class="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="useTitle">
-      <div class="dialog-head">
-        <h3 id="useTitle">Cannot delete — tower in use</h3>
-        <button id="useClose" class="closex" type="button">Close</button>
-      </div>
-      <div class="dialog-body">
-        <p>This RTK tower is assigned to the following fields. Reassign these fields to a new tower before deleting:</p>
-        <ul id="useList" style="margin:0;padding-left:18px;display:grid;gap:6px"></ul>
-      </div>
-      <div class="dialog-footer">
-        <span class="help">Tip: open <strong>Setup → Fields</strong> to change the RTK tower on each field.</span>
-        <button id="useOk" class="btn btn-primary" type="button">Got it</button>
       </div>
     </div>
   </div>
@@ -219,7 +201,7 @@
       alertBox.textContent = msg; alertBox.classList.add('show');
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
-    /* FIX: removed stray brace that broke JS */
+
     const escapeHTML = s => String(s||"").replace(/[&<>"']/g,
       m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])
     );
@@ -240,7 +222,6 @@
     let towers = [];
     let rows = [];
     let editId = null;
-    let editUse = [];
 
     $("netid").addEventListener("input", e=>{ e.target.value = e.target.value.replace(/\D/g,"").slice(0,4); });
     $("freq").addEventListener("blur", e=>{
@@ -279,46 +260,20 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    async function fieldsUsingTower(towerId){
-      const names = new Set();
-      try{
-        const a = await FVData.getWhere('fields','rtkId','==', towerId, { limit: 5000 }) || [];
-        a.forEach(f => names.add(String(f.name || f.fieldName || '(Unnamed field)').trim()));
-      }catch(e){}
-      try{
-        const b = await FVData.getWhere('fields','rtkTowerId','==', towerId, { limit: 5000 }) || [];
-        b.forEach(f => names.add(String(f.name || f.fieldName || '(Unnamed field)').trim()));
-      }catch(e){}
-      try{
-        const all = await FVData.list('fields', { limit: 5000 }) || [];
-        for (const f of all){
-          const cand = f.rtkTowerId ?? f.rtkId ?? f.rtk ?? null;
-          const match =
-            (typeof cand === 'string' && cand === towerId) ||
-            (cand && typeof cand === 'object' && (cand.id === towerId || cand._id === towerId));
-          if (match){
-            names.add(String(f.name || f.fieldName || '(Unnamed field)').trim());
-          }
-        }
-      }catch(e){}
-      return Array.from(names);
-    }
-
     async function loadAll(){
-      const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
-      const enriched = [];
-      for (const t of towersRaw) {
-        const usedByNames = await fieldsUsingTower(t.id);
-        enriched.push({
+      try{
+        const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
+        towers = towersRaw.map(t => ({
           id: t.id,
-          name: String(t.name||'').trim(),
-          networkId: typeof t.networkId==='number' ? t.networkId : parseInt(t.networkId,10) || 0,
-          frequencyMHz: String(t.frequencyMHz||'').trim(),
-          inUse: usedByNames
-        });
+          name: String(t.name || '').trim(),
+          networkId: typeof t.networkId === 'number' ? t.networkId : parseInt(t.networkId, 10) || 0,
+          frequencyMHz: String(t.frequencyMHz || '').trim()
+        })).sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
+        renderDict();
+      }catch(e){
+        console.error(e);
+        showError('Failed to load RTK towers: ' + (e?.message || e));
       }
-      towers = enriched.sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
-      renderDict();
     }
 
     function renderDict(){
@@ -330,17 +285,18 @@
           t.frequencyMHz.toLowerCase().includes(term);
       });
 
-      if(!rows.length){ dictList.innerHTML = '<div class="muted">No towers yet.</div>'; return; }
+      if(!rows.length){
+        dictList.innerHTML = '<div class="muted">No towers yet.</div>';
+        return;
+      }
 
       dictList.innerHTML = '';
       rows.forEach(t=>{
         const card = document.createElement('div');
         card.className = 'tower-card';
-        const usage = t.inUse.length ? `<span class="chip">${t.inUse.length} field${t.inUse.length===1?'':'s'}</span>` : `<span class="chip">not in use</span>`;
         card.innerHTML = `
           <div class="tower-row">
             <div class="tower-name">${escapeHTML(t.name)}</div>
-            ${usage}
           </div>
           <div class="tower-row mono" style="font-size:14px">
             <div>NET ${pad4(t.networkId)}</div>
@@ -348,15 +304,11 @@
           </div>
           <div class="tower-row" style="gap:8px">
             <button class="btn" data-act="edit">View / Edit</button>
-            <button class="btn btn-danger" data-act="delete"${t.inUse.length ? ' disabled':''}>Delete</button>
+            <button class="btn btn-danger" data-act="delete">Delete</button>
           </div>
         `;
         card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEdit(t.id));
-        const delBtn = card.querySelector('[data-act="delete"]');
-        delBtn.addEventListener('click', ()=> tryDelete(t.id));
-        if (t.inUse.length) {
-          delBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); showUsage(t); }, { capture:true });
-        }
+        card.querySelector('[data-act="delete"]').addEventListener('click', ()=> tryDelete(t.id));
         dictList.appendChild(card);
       });
     }
@@ -366,18 +318,16 @@
 
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete");
     function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("editName").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; editUse = []; }
+    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
 
     function openEdit(id){
       const t = towers.find(x=>x.id===id); if(!t) return;
-      editId = id; editUse = t.inUse||[];
+      editId = id;
       $("editName").value = t.name || '';
-      $("editNet").value  = pad4(t.networkId||0);
+      $("editNet").value  = pad4(t.networkId || 0);
       $("editFreq").value = t.frequencyMHz || '';
-      $("editUsage").textContent = editUse.length
-        ? `In use by ${editUse.length} field${editUse.length===1?'':'s'}.`
-        : 'Not currently used by any fields.';
-      mdDelete.disabled = editUse.length > 0;
+      $("editUsage").textContent = 'Usage not loaded on this screen.';
+      mdDelete.disabled = false;
       openModal();
     }
 
@@ -405,10 +355,6 @@
 
     async function tryDelete(id){
       const t = towers.find(x=>x.id===id); if(!t) return;
-      if (t.inUse.length){
-        showUsage(t);
-        return;
-      }
       if(!confirm(`Delete RTK tower "${t.name}"? This cannot be undone.`)) return;
       try{
         await FVData.ready(); await waitForAuthReady();
@@ -417,20 +363,6 @@
         await loadAll();
         closeModal();
       }catch(e){ console.error(e); showError('Delete failed: ' + (e?.message||e)); }
-    }
-
-    const useModal = $("useModal"), useClose = $("useClose"), useOk = $("useOk"), useList = $("useList");
-    function openUse(){ useModal.setAttribute('open',''); useModal.setAttribute('aria-hidden','false'); }
-    function closeUse(){ useModal.removeAttribute('open'); useModal.setAttribute('aria-hidden','true'); useList.innerHTML=''; }
-    useClose.addEventListener('click', closeUse); useOk.addEventListener('click', closeUse);
-    useModal.addEventListener('click', e=>{ if(e.target===useModal) closeUse(); });
-
-    function showUsage(t){
-      useList.innerHTML = '';
-      (t.inUse||[]).forEach(name=>{
-        const li = document.createElement('li'); li.textContent = name; useList.appendChild(li);
-      });
-      openUse();
     }
 
     (async function boot(){
