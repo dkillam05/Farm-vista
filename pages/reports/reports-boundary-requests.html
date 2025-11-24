@@ -334,6 +334,17 @@
       display:flex;
       justify-content:flex-end;
     }
+
+    /* Hidden iframe for print */
+    #fv-print-frame{
+      position:fixed;
+      right:0;
+      bottom:0;
+      width:0;
+      height:0;
+      border:0;
+      visibility:hidden;
+    }
   </style>
 
   <script>
@@ -596,7 +607,6 @@
 
         STATE.items = items;
 
-        // build farm map for filter & PDF
         STATE.farmMap = new Map();
         items.forEach(it=>{
           const d = it.data;
@@ -796,11 +806,50 @@
 
       const dateRange = computeDateRange(items);
       const filterSummary = summarizeFilters();
-
       const totalRecords = items.length;
 
-      const htmlParts = [];
-      htmlParts.push(`<!doctype html>
+      const html = buildPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        dateRange,
+        filterSummary,
+        totalRecords,
+        openCount,
+        farmCount,
+        oldestOpenAge,
+        grouped
+      });
+
+      // ======= NEW: print via hidden iframe, no new tab =======
+      let iframe = document.getElementById('fv-print-frame');
+      if (!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      // Give the iframe a moment to render before printing
+      setTimeout(() => {
+        try{
+          win.focus();
+          win.print();
+        }catch(err){
+          console.warn('[boundary-report] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 400);
+    }
+
+    function buildPrintHtml({ company, runStr, runDateOnly, dateRange, filterSummary, totalRecords, openCount, farmCount, oldestOpenAge, grouped }){
+      return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -1165,20 +1214,7 @@
     </footer>
   </div>
 </body>
-</html>`);
-
-      const html = htmlParts.join('');
-
-      const w = window.open('', '_blank');
-      if(!w){
-        alert('Popup blocked. Please allow popups for FarmVista to print/save the report.');
-        return;
-      }
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-      w.focus();
-      setTimeout(()=>{ try{ w.print(); }catch(_){/* ignore */} }, 400);
+</html>`;
     }
 
     (async function boot(){
@@ -1328,6 +1364,9 @@
         </div>
       </section>
     </div>
+
+    <!-- Hidden iframe used for print so we don't open a new tab -->
+    <iframe id="fv-print-frame"></iframe>
   </fv-shell>
 </body>
 </html>
