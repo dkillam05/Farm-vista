@@ -132,6 +132,11 @@
       flex:1 1 160px;
       font-size:0.8rem;
     }
+    /* search bar = full-width row on top */
+    .filter-field.filter-search{
+      flex:1 1 100%;
+      max-width:100%;
+    }
     .filter-label{
       text-transform:uppercase;
       letter-spacing:0.08em;
@@ -387,6 +392,7 @@
     const CONFIG = {
       EVENTS_COLLECTION: 'grain_bag_events',
       FIELDS_COLLECTION: 'fields',
+      FARMS_COLLECTION: 'farms',          // 👈 NEW: pull real farm names
       COMPANY_DOC_PATH: ['company','main']
     };
 
@@ -400,7 +406,7 @@
       db: null,
       company: null,
       fieldMap: new Map(), // fieldId -> { fieldName, farmId, farmName }
-      farmMap: new Map(),  // farmId -> farmName
+      farmMap: new Map(),  // farmId -> farmName (used for filters)
       cropSet: new Set()
     };
 
@@ -429,14 +435,14 @@
     }
 
     // === Bag bushel estimate (per-foot) ===
-    // Adjust these numbers if you have a specific cheat-sheet.
+    // tweak these if you want different numbers
     function estimateBuPerFoot(diameterFt){
       const d = Number(diameterFt) || 0;
-      if(d >= 12) return 60;    // approx bu/ft for 12'
-      if(d >= 11) return 50;    // approx for 11'
-      if(d >= 10) return 39;    // approx for 10'
-      if(d >= 9)  return 30;    // approx for 9'
-      if(d > 0)   return 25;    // fallback
+      if(d >= 12) return 60;
+      if(d >= 11) return 50;
+      if(d >= 10) return 39;
+      if(d >= 9)  return 30;
+      if(d > 0)   return 25;
       return 0;
     }
 
@@ -458,7 +464,6 @@
         fieldMap.get(field).push(it);
       });
 
-      // sort farms, crops, fields
       const farmsArr = Array.from(farmMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
       farmsArr.forEach(([, cropMap]) => {
         Array.from(cropMap.entries()).forEach(([, fieldMap]) => {
@@ -474,7 +479,7 @@
         });
       });
 
-      return farmsArr; // [ [farmName, Map(cropName -> Map(fieldName -> [items]))] , ... ]
+      return farmsArr;
     }
 
     function renderList(){
@@ -692,18 +697,41 @@
 
     async function loadFieldsMap(){
       const db = STATE.db;
-      const ref = collection(db, CONFIG.FIELDS_COLLECTION);
+
+      // 1) load farms first -> id -> name
+      const farmNameMap = new Map();
+      try{
+        const farmSnap = await getDocs(collection(db, CONFIG.FARMS_COLLECTION));
+        farmSnap.forEach(docSnap => {
+          const d = docSnap.data() || {};
+          const label = d.name || d.farmName || 'Unnamed farm';
+          farmNameMap.set(docSnap.id, label);
+        });
+      }catch(err){
+        console.warn('Error loading farms for grain bag inventory:', err);
+      }
+
+      // 2) load fields and attach farmId/farmName
+      const fieldRef = collection(db, CONFIG.FIELDS_COLLECTION);
       const map = new Map();
 
       try{
-        const snap = await getDocs(ref);
+        const snap = await getDocs(fieldRef);
         snap.forEach(docSnap => {
           const data = docSnap.data() || {};
           const fieldId = docSnap.id;
           const fieldName = data.name || 'Unnamed field';
-          const farmId = data.farmId || data.farm?.id || fieldId; // fallback
-          const farmName = data.farmName || data.farm?.name || 'Unknown farm';
+          const farmId = data.farmId || data.farm?.id || fieldId;
+          const farmName =
+            farmNameMap.get(farmId) ||
+            data.farmName ||
+            data.farm?.name ||
+            'Unknown farm';
+
           map.set(fieldId, { fieldId, fieldName, farmId, farmName });
+
+          // also seed farmMap for filters
+          STATE.farmMap.set(farmId, farmName);
         });
       }catch(err){
         console.warn('Error loading fields for grain bag inventory:', err);
@@ -735,7 +763,7 @@
           const fieldInfo = fieldId ? STATE.fieldMap.get(fieldId) : null;
           const fieldName = x.field?.name || fieldInfo?.fieldName || 'Unknown field';
           const farmId = fieldInfo?.farmId || fieldId || 'unknown';
-          const farmName = fieldInfo?.farmName || 'Unknown farm';
+          const farmName = fieldInfo?.farmName || STATE.farmMap.get(farmId) || 'Unknown farm';
 
           const cropType = x.cropType || x.crop || 'Unknown crop';
           const cropYear = x.cropYear || null;
@@ -805,7 +833,6 @@
             }
           });
 
-          // track sets
           STATE.cropSet.add(cropType || 'Unknown crop');
           STATE.farmMap.set(farmId, farmName);
         });
@@ -822,8 +849,8 @@
     }
 
     function populateFiltersFromItems(){
-      const cropSel = $('#filterCrop');
-      const farmSel = $('#filterFarm');
+      const cropSel  = $('#filterCrop');
+      const farmSel  = $('#filterFarm');
       const fieldSel = $('#filterField');
       if(!cropSel || !farmSel || !fieldSel) return;
 
@@ -1012,7 +1039,7 @@
         });
       });
 
-      return farms; // [ [farmName, Map(crop -> Map(field -> [items]))] ]
+      return farms;
     }
 
     async function handlePrintClick(){
@@ -1054,7 +1081,6 @@
         grouped
       });
 
-      // print via hidden iframe (no new tab)
       let iframe = document.getElementById('fv-print-frame');
       if (!iframe){
         iframe = document.createElement('iframe');
@@ -1498,7 +1524,7 @@
         clearDetails();
       });
 
-      await loadFieldsMap();
+      await loadFieldsMap();          // now pulls farmId → farmName from /farms
       await loadGrainBagInventory();
       populateFiltersFromItems();
 
@@ -1563,6 +1589,17 @@
           </div>
 
           <div class="filters">
+            <!-- SEARCH ON TOP -->
+            <div class="filter-field filter-search">
+              <label class="filter-label" for="filterSearch">Search</label>
+              <input
+                id="filterSearch"
+                class="filter-input"
+                type="search"
+                placeholder="Search farm, field, crop, bag, submitted by…"
+              />
+            </div>
+
             <div class="filter-field">
               <label class="filter-label" for="filterCrop">Crop</label>
               <select id="filterCrop" class="filter-select">
@@ -1582,16 +1619,6 @@
               <select id="filterField" class="filter-select">
                 <option value="all">All fields</option>
               </select>
-            </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterSearch">Search</label>
-              <input
-                id="filterSearch"
-                class="filter-input"
-                type="search"
-                placeholder="Search farm, field, crop, bag SKU, submitted by…"
-              />
             </div>
 
             <button id="filterClear" type="button" class="btn btn-quiet">
