@@ -324,6 +324,7 @@
       collection, getDocs, doc, updateDoc,
       serverTimestamp, query, orderBy
     } from '/Farm-vista/js/firebase-init.js';
+    import NAV_MENU from '/Farm-vista/js/menu.js';
 
     /* ---------- Small utilities ---------- */
     const $  = sel => document.querySelector(sel);
@@ -455,6 +456,41 @@
       $("#btnSave").disabled = !validateForm();
     }
 
+    /* -------- Build categories from NAV_MENU (Setup › Products) -------- */
+    function buildCategoriesFromMenu(){
+      const out = [];
+      try{
+        const rootItems = NAV_MENU?.items || [];
+        const setup = rootItems.find(x => x.id === 'setup');
+        const setupChildren = setup?.children || [];
+        const prodGroup = setupChildren.find(x => x.id === 'setup-products');
+        const prodChildren = prodGroup?.children || [];
+
+        // Optional explicit overrides by menu id (in case labels change)
+        const OVERRIDE_COLLECTIONS = {
+          'setup-prod-seed':       'productsSeed',
+          'setup-prod-chemical':   'productsChemical',
+          'setup-prod-fertilizer': 'productsFertilizer',
+          'setup-prod-grainbags':  'productsGrainBags'
+        };
+
+        for(const child of prodChildren){
+          const label = child.label || '';
+          let collection = OVERRIDE_COLLECTIONS[child.id];
+          if(!collection){
+            const clean = String(label).replace(/\s+/g,''); // "Grain Bags" -> "GrainBags"
+            if(clean) collection = 'products' + clean;
+          }
+          if(collection){
+            out.push({ id: child.id, label, collection });
+          }
+        }
+      }catch(err){
+        console.warn('Failed to build inventory categories from NAV_MENU:', err);
+      }
+      return out;
+    }
+
     /* ---------- Boot ---------- */
     (async()=>{
       const ctx  = await ready;
@@ -462,14 +498,19 @@
       const auth = getAuth();
       console.log("✅ Firebase Ready:", ctx.mode, auth.currentUser?.email || '(anon)');
 
-      // Category combo (static)
-      const categories = [
-        { id:'productsSeed',       label:'Seed',        collection:'productsSeed' },
-        { id:'productsFertilizer', label:'Fertilizer',  collection:'productsFertilizer' },
-        { id:'productsChemical',   label:'Chemical',    collection:'productsChemical' },
-        { id:'productsGrainBags',  label:'Grain Bags',  collection:'productsGrainBags' }
-      ];
+      // Build categories dynamically from menu.js; fallback to static if needed
+      let categories = buildCategoriesFromMenu();
+      if(!categories.length){
+        console.warn('No inventory categories found in menu; using hard-coded defaults.');
+        categories = [
+          { id:'productsSeed',       label:'Seed',        collection:'productsSeed' },
+          { id:'productsFertilizer', label:'Fertilizer',  collection:'productsFertilizer' },
+          { id:'productsChemical',   label:'Chemical',    collection:'productsChemical' },
+          { id:'productsGrainBags',  label:'Grain Bags',  collection:'productsGrainBags' }
+        ];
+      }
 
+      // Category combo (from menu)
       const catCombo = makeCombo({
         btn:   $("#catBtn"),
         panel: $("#catPanel"),
@@ -488,7 +529,6 @@
           });
         }
       });
-
       catCombo.setItems(categories);
       state.combos.category = catCombo;
 
@@ -671,14 +711,10 @@
   <!-- ===========================
        NOTES
        ===========================
-       • Collections used:
-         - productsChemical
-         - productsFertilizer
-         - productsGrainBags
-         - productsSeed
-       • Quantity field is auto-detected from one of:
-         qtyOnHand, onHandQty, onHandUnits, currentQty, quantity, onHand.
-         If your schema uses a different field name, just add it to QTY_FIELDS.
+       • Categories are built from menu.js → Setup › Products.
+       • Firestore collection name is derived as:
+           'products' + (menu label with spaces removed),
+         with an explicit override map for current four categories.
        • Manual removals never allow going below zero and require typing
          “REMOVE” before Firestore is updated.
   -->
