@@ -57,6 +57,7 @@
     .bins-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
     .bins-head-add{justify-content:flex-end;} /* add-form version */
     .bins-title{font-weight:800}
+    .bins-title-wrap{display:flex;align-items:center;gap:8px;}
     .bin-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center}
     @media(max-width:720px){.bin-row{grid-template-columns:90px 1fr auto}}
     .bin-num{display:flex;align-items:center;gap:8px}
@@ -71,12 +72,11 @@
     .list-title{font-size:clamp(18px,2.6vw,22px);font-weight:800;}
     .list{padding:14px 16px;display:grid;gap:12px;}
     .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
-      display:flex;align-items:center;justify-content:flex-start;}
-    .item-main{display:flex;flex-direction:column;gap:6px;width:100%;}
-    .item-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+      display:flex;align-items:center;justify-content:space-between;gap:12px;}
+    .item-main{display:flex;flex-direction:column;gap:6px;flex:1 1 auto;}
     .item-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;}
     .name{font-weight:800}
-    .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
+    .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;align-self:center;}
 
     /* Modal */
     .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
@@ -220,7 +220,16 @@
 
         <div class="bins-card">
           <div class="bins-head">
-            <div class="bins-title">Bins (corn bu capacity)</div>
+            <div class="bins-title-wrap">
+              <div class="bins-title">Bushels</div>
+              <button
+                id="mdInfoBtn"
+                class="info-ico"
+                type="button"
+                title="These bushels are rated for corn. Other crop capacities will be calculated automatically based on their crop conversion factors.">
+                i
+              </button>
+            </div>
             <button id="mdAddBin" class="btn" type="button">Add Bin</button>
           </div>
           <div id="mdBins"></div>
@@ -273,6 +282,9 @@
     let editId = null;
     let mdBins = [];        // modal bins
     let pendingBinNum = null; // for Add Bin (new site)
+    let editSiteHasGrain = false;
+    let editSiteUsed = false;
+    let lockedBinNums = new Set(); // bins with grain on hand (cannot remove)
 
     /* ========== Utils ========== */
     const showToast = (msg="Successfully saved.")=>{
@@ -283,11 +295,26 @@
     const showErr = (msg)=>{ errBox.textContent = msg||""; errBox.classList.toggle("show", !!msg); };
 
     const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
     const fmtComma = (n)=>{
       if(n==null||n==="") return "";
-      const v = Number(String(n).replace(/,/g,""));
-      return isFinite(v) ? v.toLocaleString() : String(n);
+      const num = Number(String(n).replace(/,/g,""));
+      if(!isFinite(num)) return String(n);
+      return num.toLocaleString();
     };
+
+    // Format arbitrary numeric string with commas, preserving decimals
+    const formatNumericString = (str)=>{
+      if(str == null) return "";
+      const clean = String(str).replace(/,/g,"").trim();
+      if(clean === "") return "";
+      const parts = clean.split(".");
+      const intPart = parts[0].replace(/[^\d]/g,"");
+      const decPart = parts[1]?.replace(/[^\d]/g,"");
+      const intWithCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      return decPart ? `${intWithCommas}.${decPart}` : intWithCommas;
+    };
+
     const toNum = (v)=> {
       const n = Number(String(v||"").replace(/,/g,"").trim());
       return isFinite(n) ? n : 0;
@@ -303,26 +330,75 @@
       pills.total.textContent = `${fmtComma(total)} corn bu`;
     }
 
-    function renderBins(list, box, pills){
+    // Attach live-comma formatting to an input, updating a bin object + totals
+    function attachCommaInput(el, binObj, list, pills){
+      el.addEventListener("input", (e)=>{
+        const input = e.target;
+        const rawBefore = input.value;
+        const cursorPos = input.selectionStart || 0;
+
+        // String without commas up to cursor (for caret math)
+        const plainBeforeCursor = rawBefore.slice(0, cursorPos).replace(/,/g,"");
+        const plainAll = rawBefore.replace(/,/g,"");
+
+        if(plainAll === ""){
+          binObj.bushels = 0;
+          input.value = "";
+          updateTotals(list, pills);
+          return;
+        }
+
+        const numeric = toNum(plainAll);
+        binObj.bushels = numeric;
+
+        const formatted = formatNumericString(plainAll);
+        input.value = formatted;
+
+        // New caret position: keep same "distance from start" in the plain digits
+        const digitsUpToCursor = plainBeforeCursor.length;
+        let newPos = 0;
+        let digitCount = 0;
+        for(let i=0;i<formatted.length;i++){
+          if(/\d/.test(formatted[i])){
+            digitCount++;
+          }
+          if(digitCount >= digitsUpToCursor){
+            newPos = i+1;
+            break;
+          }
+        }
+        input.setSelectionRange(newPos,newPos);
+
+        updateTotals(list, pills);
+      });
+    }
+
+    function renderBins(list, box, pills, opts={}){
+      const locked = opts.lockedBinNums || new Set();
       box.innerHTML = "";
       list.forEach((b, idx)=>{
         const row = document.createElement("div");
         row.className = "bin-row";
         row.innerHTML = `
           <div class="bin-num"><span class="badge">Bin ${escapeHTML(b.num)}</span></div>
-          <input class="input bu" placeholder="Bushels (corn bu)" inputmode="decimal" value="${escapeHTML(fmtComma(b.bushels))}">
+          <input class="input bu" placeholder="Bushels (corn bu)" inputmode="decimal" value="${escapeHTML(formatNumericString(b.bushels))}">
           <button type="button" class="bin-remove">Remove</button>
         `;
         const bu = row.querySelector(".bu");
-        bu.addEventListener("blur", ()=>{ bu.value = fmtComma(bu.value); });
-        bu.addEventListener("input", ()=>{
-          b.bushels = toNum(bu.value);
-          updateTotals(list, pills);
-        });
-        row.querySelector(".bin-remove").addEventListener("click", ()=>{
-          list.splice(idx,1);
-          renderBins(list, box, pills);
-        });
+        attachCommaInput(bu, b, list, pills);
+
+        const removeBtn = row.querySelector(".bin-remove");
+        const isLocked = locked.has(String(b.num));
+        if(isLocked){
+          removeBtn.disabled = true;
+          removeBtn.title = "This bin has grain on hand and cannot be removed.";
+        }else{
+          removeBtn.addEventListener("click", ()=>{
+            list.splice(idx,1);
+            renderBins(list, box, pills, opts);
+          });
+        }
+
         box.appendChild(row);
       });
       updateTotals(list, pills);
@@ -350,6 +426,9 @@
       if(e.key==="Escape" && binModal.hasAttribute("open")) closeBinModal();
     });
 
+    // live commas in Add Bin modal
+    attachCommaInput(binBushels, { bushels: 0 }, [], null);
+
     binMdSave.addEventListener("click", ()=>{
       const buVal = binBushels.value;
       const bu = toNum(buVal);
@@ -359,7 +438,7 @@
       }
       const num = pendingBinNum || nextBinNumber(addBins);
       addBins.push({ num, bushels: bu });
-      renderBins(addBins, binsBox, null);
+      renderBins(addBins, binsBox, null, {});
       closeBinModal();
     });
 
@@ -367,7 +446,7 @@
     clearBtn.addEventListener("click", ()=>{
       siteName.value = "";
       addBins = [];
-      renderBins(addBins, binsBox, null);
+      renderBins(addBins, binsBox, null, {});
       showErr("");
     });
 
@@ -404,7 +483,7 @@
         showToast("Successfully saved.");
         siteName.value = "";
         addBins = [];
-        renderBins(addBins, binsBox, null);
+        renderBins(addBins, binsBox, null, {});
         await renderList();
         window.scrollTo({top:0, behavior:"smooth"});
       }catch(e){
@@ -415,7 +494,6 @@
 
     /* ========== List & main View/Edit modal (FVData) ========== */
     async function fetchSites(){
-      // By default FVData.list() returns current-user docs (fits your rules)
       const arr = await FVData.list('binSites', { limit: 500 });
       // archived last, newest first
       arr.sort((a,b)=>{
@@ -445,14 +523,12 @@
         `;
         div.innerHTML = `
           <div class="item-main">
-            <div class="item-row">
-              <div class="name">${escapeHTML(it.name||'(Unnamed)')}</div>
-              <button class="view" type="button">View / Edit</button>
-            </div>
+            <div class="name">${escapeHTML(it.name||'(Unnamed)')}</div>
             <div class="item-meta">
               ${pills}
             </div>
           </div>
+          <button class="view" type="button">View / Edit</button>
         `;
         div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
         listBox.appendChild(div);
@@ -465,13 +541,53 @@
         if(!it) return;
         editId = id;
         mdName.value = it.name || "";
-        mdBins = (it.bins||[]).map(b=>({ num:Number(b.num)||0, bushels:Number(b.bushels)||0 }));
+
+        // set usage + grain rules
+        editSiteUsed = !!it.used;
+        const totalOnHand = Number(it.totalOnHand || 0); // expected to be maintained by grain flows
+        lockedBinNums = new Set();
+        const rawBins = (it.bins||[]).map(b=>{
+          const num = Number(b.num)||0;
+          const bu = Number(b.bushels)||0;
+          const onHand = Number(b.onHand || 0); // expected field for per-bin grain on hand
+          if(onHand > 0){
+            lockedBinNums.add(String(num));
+          }
+          return { num, bushels: bu, onHand };
+        });
+        mdBins = rawBins.map(b=>({ num:b.num, bushels:b.bushels })); // editing bushels only here
+
+        editSiteHasGrain = (totalOnHand > 0) || (rawBins.some(b=> b.onHand > 0));
+
+        // status pills
         statusPill.textContent = (it.status==='archived') ? "Archived" : "Active";
         usedPill.style.display = it.used ? "inline-block" : "none";
-        mdDelete.disabled = !!it.used;
-        mdDelete.title = it.used ? "This site is in use and cannot be deleted. Archive instead." : "Delete this site";
-        mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
-        renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill});
+
+        // Button enable / disable based on rules
+        if(editSiteHasGrain){
+          mdArchive.disabled = true;
+          mdArchive.title = "This site has grain on hand and cannot be archived. Move grain out of all bins first.";
+          mdDelete.disabled = true;
+          mdDelete.title = "This site has grain on hand and cannot be deleted.";
+        }else{
+          if(editSiteUsed){
+            // Has been used, no grain now: can archive, cannot delete
+            mdArchive.disabled = false;
+            mdArchive.title = "Archive this site.";
+            mdDelete.disabled = true;
+            mdDelete.title = "This site has been used and cannot be deleted. Archive instead.";
+          }else{
+            // Never used, no grain: can delete, archive not needed
+            mdArchive.disabled = true;
+            mdArchive.title = "This site has never been used and does not need to be archived.";
+            mdDelete.disabled = false;
+            mdDelete.title = "Delete this unused site.";
+          }
+        }
+
+        renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, {
+          lockedBinNums
+        });
         openModal();
       }catch(e){
         console.error(e);
@@ -488,6 +604,7 @@
       modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
       document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
       editId = null;
+      lockedBinNums = new Set();
     }
     mdClose.addEventListener("click", closeModal);
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
@@ -497,7 +614,9 @@
 
     $("mdAddBin").addEventListener("click", ()=>{
       mdBins.push({ num: nextBinNumber(mdBins), bushels: 0 });
-      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill});
+      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, {
+        lockedBinNums
+      });
     });
 
     mdSave.addEventListener("click", async ()=>{
@@ -534,10 +653,17 @@
     });
 
     mdArchive.addEventListener("click", async ()=>{
+      if(mdArchive.disabled) return;
       try{
         const cur = await FVData.getDocData(`binSites/${editId}`);
         if(!cur) return;
         const next = (cur.status==='archived') ? 'active' : 'archived';
+        // Only allow archive toggling if siteHasGrain is false; we already gate via disabled, but double-check:
+        const totalOnHand = Number(cur.totalOnHand || 0);
+        if(totalOnHand > 0){
+          alert("This site has grain on hand and cannot be archived.");
+          return;
+        }
         await FVData.update('binSites', editId, { status: next });
         showToast(next==='archived' ? "Site archived." : "Site unarchived.");
         await renderList();
@@ -550,13 +676,21 @@
     });
 
     mdDelete.addEventListener("click", async ()=>{
+      if(mdDelete.disabled) return;
       try{
         const cur = await FVData.getDocData(`binSites/${editId}`);
         if(!cur) return;
-        if(cur.used){
-          alert("This site is in use and cannot be deleted. Archive instead.");
+
+        const totalOnHand = Number(cur.totalOnHand || 0);
+        if(totalOnHand > 0){
+          alert("This site has grain on hand and cannot be deleted.");
           return;
         }
+        if(cur.used){
+          alert("This site has been used and cannot be deleted. Archive instead.");
+          return;
+        }
+
         if(!confirm(`Delete site "${cur.name||''}"? This cannot be undone.`)) return;
         await FVData.remove('binSites', editId);
         showToast("Site deleted.");
@@ -575,7 +709,7 @@
       }catch(e){
         console.warn(e);
       }
-      renderBins(addBins, binsBox, null);
+      renderBins(addBins, binsBox, null, {});
       await renderList();
     })();
 
