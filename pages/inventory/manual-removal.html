@@ -1,1 +1,686 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Manual Inventory Removal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ===========================
+       ABSOLUTE PATHS (REQUIRED)
+       =========================== -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- ===========================
+       PAGE CSS
+       =========================== -->
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+
+      /* FV Combo tokens */
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
+    }
+
+    body{ background:var(--app-bg,var(--surface)); }
+
+    /* Standard wrapper */
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+
+    /* Hero card */
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .hero-head .icon{
+      width:24px;height:24px;color:var(--accent);
+      display:grid;place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{color:var(--muted,#67706B)}
+    .body{padding:16px;display:grid;gap:16px}
+
+    /* Grid rows */
+    .row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+    @media (max-width:880px){.row{grid-template-columns:1fr}}
+
+    /* Fields / inputs */
+    .field{position:relative}
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+    .input,.textarea{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px;padding:12px;outline:none;
+    }
+    .input[readonly]{
+      background:var(--surface-variant, #f4f5f4);
+      color:var(--muted,#67706B);
+    }
+    .textarea{min-height:110px;resize:vertical}
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+    .error{color:#b00020;font-weight:700}
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 8px;
+      border-radius:999px;
+      background:rgba(176,0,32,.06);
+      color:#b00020;
+      font-size:12px;
+      font-weight:700;
+    }
+
+    /* Buttons */
+    .actions{
+      display:flex;gap:12px;flex-wrap:wrap;
+      align-items:center;margin-top:4px;
+    }
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;
+      min-width:160px;
+      padding:12px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      color:var(--text)!important;
+      cursor:pointer;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
+    }
+    .btn[disabled]{
+      opacity:.5;
+      cursor:not-allowed;
+    }
+
+    /* Tiny toast */
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+    }
+    .toast.show{display:block;animation:fadeout 5s forwards}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* ======================
+       FV Combo styles
+       ====================== */
+    .buttonish{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);padding:12px;
+      outline:none;cursor:pointer;text-align:left;position:relative;
+      padding-right:42px;
+    }
+    .buttonish.has-caret::after{
+      content:"";position:absolute;right:14px;top:50%;width:0;height:0;
+      border-left:6px solid transparent;border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);pointer-events:none;
+    }
+    .combo{position:relative}
+    .combo .combo-anchor{
+      position:relative;display:inline-block;width:100%;
+    }
+    .combo-panel{
+      position:absolute;left:0;right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:9999;
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{display:block}
+    .combo-panel .search{padding:4px 2px 8px}
+    .combo-panel .search input{
+      width:100%;padding:10px;border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);font:inherit;
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{background:rgba(0,0,0,.04)}
+    .combo-item:last-child{border-bottom:none}
+    .combo-empty{padding:var(--combo-item-pad);color:#67706B}
+  </style>
+</head>
+
+<body>
+  <!-- All content must live inside <fv-shell> -->
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">⚠️</div>
+          <div>
+            <h1>Manual Inventory Removal</h1>
+            <p class="muted">
+              Emergency-only adjustment tool. You can <strong>remove</strong> inventory down to zero,
+              but you can’t add or go negative.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="pill">
+            Strict confirmation required before saving manual changes.
+          </div>
+
+          <!-- Row: Category + Product -->
+          <div class="row">
+            <div class="field combo" id="catCombo">
+              <label for="catBtn">Product category</label>
+              <div class="combo-anchor">
+                <button id="catBtn" class="buttonish has-caret" type="button">
+                  — Select category —
+                </button>
+                <div class="combo-panel" id="catPanel" role="listbox" aria-label="Product categories">
+                  <div class="list" id="catList"></div>
+                </div>
+              </div>
+              <div id="catHelp" class="help">
+                Choose the product family you need to adjust (Seed, Fertilizer, Chemical, Grain Bags).
+              </div>
+            </div>
+
+            <div class="field combo" id="prodCombo">
+              <label for="prodBtn">Product</label>
+              <div class="combo-anchor">
+                <button id="prodBtn" class="buttonish has-caret" type="button" disabled>
+                  — Select product —
+                </button>
+                <div class="combo-panel" id="prodPanel" role="listbox" aria-label="Products">
+                  <div class="search"><input id="prodSearch" type="search" placeholder="Search products…" /></div>
+                  <div class="list" id="prodList"></div>
+                </div>
+              </div>
+              <div id="prodHelp" class="help">
+                0 items
+              </div>
+            </div>
+          </div>
+
+          <!-- Row: current vs remove -->
+          <div class="row">
+            <div class="field">
+              <label for="currentQty">Current on-hand</label>
+              <input id="currentQty" class="input" type="text" readonly value="—" />
+              <div id="currentHelp" class="help">
+                Shows the quantity currently on record for the selected product.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="removeQty">Remove quantity</label>
+              <input id="removeQty" class="input" type="number" min="0" step="any" placeholder="0" />
+              <div id="removeHelp" class="help">
+                Amount to remove. You can’t remove more than the on-hand amount and you can’t go negative.
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="reason">Reason for manual removal</label>
+            <textarea id="reason" class="textarea" placeholder="Short explanation (required)"></textarea>
+            <div class="help">
+              Example: “Damaged totes”, “Calibration error from last delivery”, “Spoilage”, etc.
+            </div>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+
+          <div class="actions">
+            <button id="btnClear" class="btn" type="button">Clear</button>
+            <button id="btnSave" class="btn btn-primary" type="button" disabled>
+              Save manual removal
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- App toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- ===========================
+       PAGE SCRIPT
+       =========================== -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, getDocs, doc, updateDoc,
+      serverTimestamp, query, orderBy
+    } from '/Farm-vista/js/firebase-init.js';
+
+    /* ---------- Small utilities ---------- */
+    const $  = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[m]));
+
+    function showToast(msg="Saved.", ms=5000){
+      const t=$("#toast");
+      t.textContent=msg;
+      t.classList.remove("show");
+      void t.offsetWidth;
+      t.classList.add("show");
+      setTimeout(()=>t.classList.remove("show"), ms);
+    }
+
+    function setError(msg){
+      const box = $("#err");
+      if(!msg){
+        box.hidden = true;
+        box.textContent = "";
+      }else{
+        box.hidden = false;
+        box.textContent = msg;
+      }
+    }
+
+    /* =========================================
+       One-open-at-a-time combo panel management
+       ========================================= */
+    function closeAllCombos(except=null){
+      $$('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+    /* =========================
+       Reusable combo constructor
+       ========================= */
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+      function render(q=""){
+        const qq=(q||"").toLowerCase();
+        list.innerHTML = (items||[])
+          .filter(x=>!qq || formatter(x).toLowerCase().includes(qq))
+          .map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${formatter(x)}</div>`)
+          .join('') || `<div class="combo-empty">(no matches)</div>`;
+      }
+      function open(){
+        if(btn.disabled) return;
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id  = row.dataset.id;
+        const it  = (items||[]).find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable){
+        const s = panel.querySelector('input');
+        if(s){ s.addEventListener('input', e=> render(e.target.value)); }
+      }
+
+      return {
+        setItems(arr){ items = Array.isArray(arr)? arr : []; render(""); },
+        open, close,
+        get items(){ return items; }
+      };
+    }
+
+    /* ===================================
+       Inventory Manual Removal Logic
+       =================================== */
+    const QTY_FIELDS = ['qtyOnHand','onHandQty','onHandUnits','currentQty','quantity','onHand'];
+
+    const state = {
+      category: null,          // {id, label, collection}
+      product: null,           // {id, name, qtyField, qtyValue, unit}
+      combos: {}
+    };
+
+    function resetProductSelection(){
+      state.product = null;
+      $("#prodBtn").textContent = "— Select product —";
+      $("#prodBtn").disabled = !state.category;
+      $("#prodHelp").textContent = state.category ? "0 items" : "Select a category first.";
+      $("#currentQty").value = "—";
+      $("#currentHelp").textContent = "Shows the quantity currently on record for the selected product.";
+      $("#removeQty").value = "";
+      $("#removeHelp").textContent = "Amount to remove. You can’t remove more than the on-hand amount and you can’t go negative.";
+      $("#btnSave").disabled = true;
+    }
+
+    function validateForm(){
+      if(!state.category || !state.product) return false;
+
+      const curr = Number(state.product.qtyValue ?? 0);
+      const val = Number($("#removeQty").value || 0);
+      const reason = $("#reason").value.trim();
+
+      if(!Number.isFinite(val) || val <= 0) return false;
+      if(val > curr) return false;
+      if(!reason) return false;
+      if(!state.product.qtyField) return false;
+
+      return true;
+    }
+
+    function refreshSaveState(){
+      $("#btnSave").disabled = !validateForm();
+    }
+
+    /* ---------- Boot ---------- */
+    (async()=>{
+      const ctx  = await ready;
+      const db   = getFirestore();
+      const auth = getAuth();
+      console.log("✅ Firebase Ready:", ctx.mode, auth.currentUser?.email || '(anon)');
+
+      // Category combo (static)
+      const categories = [
+        { id:'productsSeed',       label:'Seed',        collection:'productsSeed' },
+        { id:'productsFertilizer', label:'Fertilizer',  collection:'productsFertilizer' },
+        { id:'productsChemical',   label:'Chemical',    collection:'productsChemical' },
+        { id:'productsGrainBags',  label:'Grain Bags',  collection:'productsGrainBags' }
+      ];
+
+      const catCombo = makeCombo({
+        btn:   $("#catBtn"),
+        panel: $("#catPanel"),
+        list:  $("#catList"),
+        items: categories,
+        searchable: false,
+        formatter: x => x.label,
+        onPick: it => {
+          state.category = it;
+          $("#catBtn").textContent = it.label;
+          $("#catHelp").textContent = `Editing category: ${it.label}.`;
+          resetProductSelection();
+          loadProductsForCategory(db, it).catch(err=>{
+            console.error(err);
+            setError(`Failed to load products: ${err.message}`);
+          });
+        }
+      });
+
+      catCombo.setItems(categories);
+      state.combos.category = catCombo;
+
+      // Product combo (searchable)
+      const prodCombo = makeCombo({
+        btn:   $("#prodBtn"),
+        panel: $("#prodPanel"),
+        list:  $("#prodList"),
+        items: [],
+        searchable: true,
+        formatter: x => x.displayName || x.name || x.id,
+        onPick: it => {
+          state.product = it;
+          $("#prodBtn").textContent = it.displayName || it.name || "Product";
+          $("#currentQty").value = (it.qtyValue ?? 0).toLocaleString(undefined,{maximumFractionDigits:3});
+          const unitTxt = it.unit ? ` ${it.unit}` : "";
+          $("#currentHelp").textContent = `Inventory field: ${it.qtyField || 'N/A'} • On-hand: ${(it.qtyValue ?? 0)}${unitTxt}.`;
+          $("#removeQty").value = "";
+          $("#removeHelp").textContent = "Enter the quantity to remove (must be > 0 and ≤ on-hand).";
+          setError("");
+          refreshSaveState();
+        }
+      });
+
+      state.combos.product = prodCombo;
+      resetProductSelection();
+
+      // Input listeners
+      $("#removeQty").addEventListener("input", ()=>{
+        setError("");
+        refreshSaveState();
+      });
+      $("#reason").addEventListener("input", ()=>{
+        setError("");
+        refreshSaveState();
+      });
+
+      $("#btnClear").addEventListener("click", ()=>{
+        state.category = null;
+        state.product  = null;
+        $("#catBtn").textContent  = "— Select category —";
+        $("#catHelp").textContent = "Choose the product family you need to adjust (Seed, Fertilizer, Chemical, Grain Bags).";
+        resetProductSelection();
+        $("#reason").value = "";
+        setError("");
+      });
+
+      $("#btnSave").addEventListener("click", async ()=>{
+        try{
+          setError("");
+          if(!validateForm()){
+            setError("Form is incomplete or invalid. Check quantities and required fields.");
+            return;
+          }
+
+          const { category, product } = state;
+          const curr = Number(product.qtyValue ?? 0);
+          const remove = Number($("#removeQty").value || 0);
+          const remaining = curr - remove;
+          const reason = $("#reason").value.trim();
+          const userEmail = auth.currentUser?.email || "(unknown user)";
+
+          // Strict confirmation
+          const summary =
+            `You are about to perform a MANUAL inventory REMOVAL.\n\n` +
+            `Category: ${category.label}\n` +
+            `Product:  ${product.displayName || product.name || product.id}\n` +
+            `Current on-hand: ${curr}\n` +
+            `Remove:          ${remove}\n` +
+            `New on-hand:     ${remaining}\n\n` +
+            `This cannot be undone.\n\n` +
+            `Type EXACTLY: REMOVE to confirm.`;
+          const phrase = window.prompt(summary, "");
+          if(phrase !== "REMOVE"){
+            alert("Manual removal cancelled (you must type REMOVE exactly).");
+            return;
+          }
+
+          if(remaining < 0){
+            setError("Removal would make inventory negative. Adjust the quantity.");
+            return;
+          }
+
+          if(!product.qtyField){
+            setError("Selected product doesn’t have a known inventory field. Can’t update.");
+            return;
+          }
+
+          const ref = doc(db, category.collection, product.id);
+          const patch = {};
+          patch[product.qtyField] = remaining;
+          patch.updatedAt = serverTimestamp();
+          patch.lastManualAdjustment = serverTimestamp();
+          patch.lastManualAdjustmentReason = reason;
+          patch.lastManualAdjustmentRemoveQty = remove;
+          patch.lastManualAdjustmentUser = userEmail;
+
+          await updateDoc(ref, patch);
+
+          // Update local state
+          product.qtyValue = remaining;
+          $("#currentQty").value = remaining.toLocaleString(undefined,{maximumFractionDigits:3});
+          $("#removeQty").value = "";
+          $("#reason").value = "";
+          refreshSaveState();
+
+          showToast("Manual removal saved.");
+        }catch(err){
+          console.error(err);
+          setError(`Failed to save manual removal: ${err.message}`);
+        }
+      });
+
+      // Helpful network toasts
+      window.addEventListener('online', ()=> showToast("Back online — syncing…", 4000));
+      window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 4000));
+
+      /* ----------------------
+         Load products by type
+         ---------------------- */
+      async function loadProductsForCategory(db, cat){
+        const prodHelp = $("#prodHelp");
+        const prodBtn  = $("#prodBtn");
+        prodHelp.textContent = "Loading products…";
+        prodBtn.disabled = true;
+
+        const items = [];
+        try{
+          const baseCol = collection(db, cat.collection);
+          let snap;
+          try{
+            snap = await getDocs(query(baseCol, orderBy('name')));
+          }catch(e){
+            console.warn("Name-ordered query failed, falling back:", e.message);
+            snap = await getDocs(baseCol);
+          }
+
+          snap.forEach(d=>{
+            const data = d.data() || {};
+            const name = String(data.name || data.productName || data.displayName || "").trim();
+            const unit = data.unit || data.units || data.uom || "";
+            // Try to infer which field stores quantity
+            let qtyField = null;
+            let qtyValue = 0;
+            for(const key of QTY_FIELDS){
+              if(Object.prototype.hasOwnProperty.call(data, key)){
+                qtyField = key;
+                qtyValue = Number(data[key] ?? 0) || 0;
+                break;
+              }
+            }
+            const displayName = name || d.id;
+            items.push({
+              id: d.id,
+              name,
+              displayName,
+              unit,
+              qtyField,
+              qtyValue
+            });
+          });
+
+          items.sort((a,b)=> (a.displayName||"").localeCompare(b.displayName||""));
+
+          state.combos.product.setItems(items);
+          prodHelp.textContent = `${items.length} items`;
+          prodBtn.disabled = items.length === 0;
+          if(items.length === 0){
+            $("#currentQty").value = "—";
+            $("#currentHelp").textContent = "No products found in this category.";
+          }
+        }catch(err){
+          prodHelp.textContent = "Error loading products.";
+          throw err;
+        }
+      }
+    })();
+  </script>
+
+  <!-- ===========================
+       NOTES
+       ===========================
+       • Collections used:
+         - productsChemical
+         - productsFertilizer
+         - productsGrainBags
+         - productsSeed
+       • Quantity field is auto-detected from one of:
+         qtyOnHand, onHandQty, onHandUnits, currentQty, quantity, onHand.
+         If your schema uses a different field name, just add it to QTY_FIELDS.
+       • Manual removals never allow going below zero and require typing
+         “REMOVE” before Firestore is updated.
+  -->
+</body>
+</html>
