@@ -536,14 +536,6 @@
       margin-top:4px;
     }
 
-    .wo-date-range-inline{
-      flex:1 1 auto;
-      gap:6px;
-    }
-    .wo-date-range-sep{
-      font-size:0.8rem;
-    }
-
     /* Mic button */
 
     .wo-detail-notes-wrap{
@@ -761,7 +753,7 @@
       cursor:pointer;
     }
 
-    /* Status choice modal */
+    /* Status + Range modals */
 
     .wo-status-modal{
       position:fixed;
@@ -913,6 +905,13 @@
       STATE.currentUserEmail = email || '';
     }
 
+    function prettyFromIso(iso){
+      if(!iso) return '';
+      const d = new Date(iso);
+      if(isNaN(d.getTime())) return '';
+      return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+    }
+
     /* ------------ photo lightbox ------------ */
 
     function openPhotoLightbox(url){
@@ -1026,14 +1025,13 @@
 
         STATE.selectedEmployeeIds.clear();
 
-        // try to match logged-in user
         if(STATE.currentUserEmail){
-          const match = STATE.employees.find(e => e.email === STATE.currentUserEmail);
-          if(match) STATE.selectedEmployeeIds.add(match.id);
+          const byEmail = STATE.employees.find(e => e.email === STATE.currentUserEmail);
+          if(byEmail) STATE.selectedEmployeeIds.add(byEmail.id);
         }
-        // fallback to first employee
-        if(!STATE.selectedEmployeeIds.size && STATE.employees.length){
-          STATE.selectedEmployeeIds.add(STATE.employees[0].id);
+        if(!STATE.selectedEmployeeIds.size && STATE.currentUserName){
+          const byName = STATE.employees.find(e => e.fullName === STATE.currentUserName);
+          if(byName) STATE.selectedEmployeeIds.add(byName.id);
         }
 
         updateSubmittedByUI();
@@ -1137,6 +1135,35 @@
       }
     }
 
+    /* ------------ range display helpers ------------ */
+
+    function updateRangeDisplayFromHidden(){
+      const disp = $('#detailWorkRangeDisplay');
+      const startEl = $('#detailWorkRangeStart');
+      const endEl = $('#detailWorkRangeEnd');
+      if(!disp || !startEl || !endEl) return;
+
+      const s = startEl.value;
+      const e = endEl.value;
+
+      if(s && e){
+        if(s === e){
+          disp.value = prettyFromIso(s);
+        }else{
+          const sDate = prettyFromIso(s);
+          const eDate = prettyFromIso(e);
+          disp.value = `${sDate} – ${eDate}`;
+        }
+      }else if(s){
+        disp.value = prettyFromIso(s);
+      }else if(e){
+        disp.value = prettyFromIso(e);
+      }else{
+        disp.value = '';
+        disp.placeholder = 'Tap to select dates';
+      }
+    }
+
     /* ------------ open / close detail ------------ */
 
     function openDetail(item){
@@ -1163,7 +1190,6 @@
       STATE.currentLocationUrl =
         data.locationUrl || data.mapUrl || data.mapLink || data.boundaryUrl || '';
 
-      // if only location object exists, build a Google maps URL
       if(!STATE.currentLocationUrl && data.location && typeof data.location.lat==='number' && typeof data.location.lng==='number'){
         const {lat,lng} = data.location;
         STATE.currentLocationUrl = `https://www.google.com/maps?q=${lat},${lng}&z=18&output=embed`;
@@ -1264,12 +1290,14 @@
         }
         workDateInp.value = val;
       }
+
       if(workStartInp){
         workStartInp.value = isoFrom(data.completionWorkStart);
       }
       if(workEndInp){
         workEndInp.value = isoFrom(data.completionWorkEnd);
       }
+      updateRangeDisplayFromHidden();
 
       if(compNotesEl){
         compNotesEl.value = data.completionNotes || '';
@@ -1293,18 +1321,25 @@
         const emp = STATE.employees.find(e => e.fullName === name);
         if(emp) STATE.selectedEmployeeIds.add(emp.id);
       }
-      if(!STATE.selectedEmployeeIds.size && STATE.employees.length){
-        STATE.selectedEmployeeIds.add(STATE.employees[0].id);
-      }
       updateSubmittedByUI();
 
-      // Photos
-      const existingPhotos =
-        data.photos ||
-        data.photoUrls ||
-        data.attachments ||
-        [];
-      STATE.currentPhotos = Array.isArray(existingPhotos) ? [...existingPhotos] : [];
+      // Photos – handle array OR single url
+      let existingPhotos = [];
+      if(Array.isArray(data.photos) && data.photos.length){
+        existingPhotos = data.photos;
+      }else if(typeof data.photos === 'string' && data.photos){
+        existingPhotos = [data.photos];
+      }else if(Array.isArray(data.photoUrls) && data.photoUrls.length){
+        existingPhotos = data.photoUrls;
+      }else if(typeof data.photoUrls === 'string' && data.photoUrls){
+        existingPhotos = [data.photoUrls];
+      }else if(Array.isArray(data.attachments) && data.attachments.length){
+        existingPhotos = data.attachments;
+      }else if(typeof data.photoUrl === 'string' && data.photoUrl){
+        existingPhotos = [data.photoUrl];
+      }
+
+      STATE.currentPhotos = existingPhotos;
 
       updateSummaryBullets();
       renderPhotoGallery();
@@ -1467,7 +1502,6 @@
         return;
       }
 
-      // VALIDATION: must have at least one employee + notes or photos
       const names = selectedEmployeeNames();
       const notesEl = $('#detailNotesCompletion');
       const notes = notesEl ? notesEl.value.trim() : '';
@@ -1717,6 +1751,56 @@
       rec.onerror = ()=>{ active=false; setMic(false); };
     }
 
+    /* ------------ range modal wiring ------------ */
+
+    function openRangeModal(){
+      const rangeModal = $('#rangeModal');
+      const startHidden = $('#detailWorkRangeStart');
+      const endHidden = $('#detailWorkRangeEnd');
+      const startInput = $('#rangeStartInput');
+      const endInput = $('#rangeEndInput');
+
+      if(!rangeModal || !startHidden || !endHidden || !startInput || !endInput) return;
+
+      startInput.value = startHidden.value || '';
+      endInput.value = endHidden.value || '';
+
+      rangeModal.hidden = false;
+    }
+
+    function closeRangeModal(){
+      const rangeModal = $('#rangeModal');
+      if(rangeModal) rangeModal.hidden = true;
+    }
+
+    function saveRangeModal(){
+      const startHidden = $('#detailWorkRangeStart');
+      const endHidden = $('#detailWorkRangeEnd');
+      const startInput = $('#rangeStartInput');
+      const endInput = $('#rangeEndInput');
+
+      if(!startHidden || !endHidden || !startInput || !endInput) return;
+
+      startHidden.value = startInput.value || '';
+      endHidden.value = endInput.value || '';
+      updateRangeDisplayFromHidden();
+      closeRangeModal();
+    }
+
+    function clearRangeModal(){
+      const startHidden = $('#detailWorkRangeStart');
+      const endHidden = $('#detailWorkRangeEnd');
+      const startInput = $('#rangeStartInput');
+      const endInput = $('#rangeEndInput');
+
+      if(startHidden) startHidden.value = '';
+      if(endHidden) endHidden.value = '';
+      if(startInput) startInput.value = '';
+      if(endInput) endInput.value = '';
+      updateRangeDisplayFromHidden();
+      closeRangeModal();
+    }
+
     /* ------------ boot ------------ */
 
     (async function boot(){
@@ -1768,6 +1852,12 @@
         photoInput.addEventListener('change', handlePhotoFiles);
       }
 
+      // range display click
+      const rangeDisplay = $('#detailWorkRangeDisplay');
+      if(rangeDisplay){
+        rangeDisplay.addEventListener('click', openRangeModal);
+      }
+
       // bullets (location / photos)
       const bulletsEl = $('#detailBullets');
       if(bulletsEl){
@@ -1786,7 +1876,7 @@
               openPhotoLightbox(urls[0]);
             }else{
               const addBtn = $('#detailAddPhotosBtn');
-              if(addBtn) addBtn.focus();
+              if(addBtn) addBtn.scrollIntoView({behavior:'smooth',block:'center'});
             }
           }
         });
@@ -1846,6 +1936,28 @@
         });
       }
 
+      // range modal wiring
+      const rangeModal = $('#rangeModal');
+      const rangeCancel = $('#rangeModalCancel');
+      const rangeSave = $('#rangeModalSave');
+      const rangeClear = $('#rangeModalClear');
+      if(rangeModal){
+        rangeModal.addEventListener('click', (ev)=>{
+          if(ev.target === rangeModal){
+            closeRangeModal();
+          }
+        });
+      }
+      if(rangeCancel){
+        rangeCancel.addEventListener('click', closeRangeModal);
+      }
+      if(rangeSave){
+        rangeSave.addEventListener('click', saveRangeModal);
+      }
+      if(rangeClear){
+        rangeClear.addEventListener('click', clearRangeModal);
+      }
+
       // submitted-by combo open/close
       const empBtn = $('#detailSubmittedByBtn');
       const empPanel = $('#detailSubmittedByPanel');
@@ -1867,6 +1979,11 @@
       // ESC handling
       document.addEventListener('keydown', (ev)=>{
         if(ev.key === 'Escape'){
+          const rangeModalNow = $('#rangeModal');
+          if(rangeModalNow && !rangeModalNow.hidden){
+            closeRangeModal();
+            return;
+          }
           const statusModalNow = $('#statusModal');
           if(statusModalNow && !statusModalNow.hidden){
             statusModalNow.hidden = true;
@@ -2000,12 +2117,10 @@
               </div>
 
               <div class="wo-detail-row">
-                <label class="wo-detail-label">Time worked on job</label>
-                <div class="wo-detail-row wo-date-range-inline">
-                  <input id="detailWorkRangeStart" type="date" class="wo-detail-input" />
-                  <span class="wo-date-range-sep">to</span>
-                  <input id="detailWorkRangeEnd" type="date" class="wo-detail-input" />
-                </div>
+                <label class="wo-detail-label" for="detailWorkRangeDisplay">Time worked on job</label>
+                <input id="detailWorkRangeDisplay" class="wo-detail-input" type="text" readonly placeholder="Tap to select dates" />
+                <input id="detailWorkRangeStart" type="hidden" />
+                <input id="detailWorkRangeEnd" type="hidden" />
               </div>
               <div class="wo-detail-helper">
                 Use one date for single-day work, or both dates for a range.
@@ -2102,6 +2217,37 @@
         <div class="wo-status-modal-footer">
           <button type="button" id="statusModalCancel" class="btn-outline">Back</button>
           <button type="button" id="statusModalSave" class="btn-primary">Save status</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Time range modal -->
+    <div id="rangeModal" class="wo-status-modal" hidden>
+      <div class="wo-status-modal-panel" role="dialog" aria-modal="true">
+        <div class="wo-status-modal-header">
+          <h2>Time worked on job</h2>
+          <p class="muted" style="font-size:0.86rem;">
+            Choose the dates work was performed on this job.
+          </p>
+        </div>
+        <div class="wo-status-options">
+          <label class="wo-status-option">
+            <div>
+              <div><strong>Start date</strong></div>
+              <input type="date" id="rangeStartInput" class="wo-detail-input" />
+            </div>
+          </label>
+          <label class="wo-status-option">
+            <div>
+              <div><strong>End date</strong></div>
+              <input type="date" id="rangeEndInput" class="wo-detail-input" />
+            </div>
+          </label>
+        </div>
+        <div class="wo-status-modal-footer">
+          <button type="button" id="rangeModalClear" class="btn-outline">Clear</button>
+          <button type="button" id="rangeModalCancel" class="btn-outline">Cancel</button>
+          <button type="button" id="rangeModalSave" class="btn-primary">Save dates</button>
         </div>
       </div>
     </div>
