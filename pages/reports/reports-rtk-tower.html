@@ -69,7 +69,7 @@
       gap:14px;
     }
 
-    /* Toolbar */
+    /* Toolbar + back / print buttons */
     .toolbar{
       display:flex;
       flex-wrap:wrap;
@@ -292,10 +292,10 @@
     }
 
     .tower-fields-block{
-      margin-top:10px;
+      margin-top:8px;
       padding-top:8px;
       border-top:1px solid var(--border);
-      font-size:0.9rem;
+      font-size:0.92rem;
     }
     .tower-fields-label{
       font-size:0.8rem;
@@ -303,6 +303,9 @@
       letter-spacing:0.06em;
       opacity:0.7;
       margin-bottom:4px;
+    }
+    .tower-fields-body{
+      margin-top:2px;
     }
     .tower-farm-group{
       margin-top:4px;
@@ -338,10 +341,33 @@
       margin-left:6px;
     }
 
+    /* Little summary when detail closes */
+    .rtk-summary{
+      margin-top:6px;
+      font-size:0.8rem;
+      opacity:0;
+      transition:opacity .16s ease;
+    }
+    .rtk-summary--show{
+      opacity:0.9;
+    }
+
+    /* Bottom print button */
     .bottom-actions{
       margin-top:16px;
       display:flex;
       justify-content:flex-end;
+    }
+
+    /* Hidden iframe for print */
+    #fv-print-frame{
+      position:fixed;
+      right:0;
+      bottom:0;
+      width:0;
+      height:0;
+      border:0;
+      visibility:hidden;
     }
   </style>
 
@@ -360,7 +386,8 @@
     import {
       ready,
       getFirestore,
-      collection, getDocs
+      collection, getDocs,
+      doc, getDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -368,7 +395,8 @@
     const CONFIG = {
       TOWER_COLLECTION: 'rtkTowers',
       FIELD_COLLECTION: 'fields',
-      FARM_COLLECTION:  'farms'
+      FARM_COLLECTION:  'farms',
+      COMPANY_DOC_PATH: ['company','main']
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -376,17 +404,23 @@
 
     const STATE = {
       db: null,
+      company: null,
       towers: [],          // [{id, data, fields:[], farmIds:Set}]
       filteredTowers: null,
       selectedId: null,
-      farmMap: new Map(),  // farmId -> farmName
-      farmFilterOptions: new Set()
+      farmMap: new Map()   // farmId -> farmName
     };
 
     function escapeHtml(str){
       return String(str || '').replace(/[&<>"']/g, m => (
         { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
       ));
+    }
+
+    function formatNumber(n){
+      const num = Number(n);
+      if(!Number.isFinite(num)) return '0';
+      return num.toLocaleString();
     }
 
     function getWorkingTowers(){
@@ -422,7 +456,7 @@
       }
 
       for(const tower of towers){
-        const d = tower.data;
+        const d = tower.data || {};
         const towerName = d.name || 'Unnamed tower';
         const freq = d.frequencyMHz ? `${d.frequencyMHz} MHz` : 'Frequency not set';
         const network = d.networkId ? `Network ${d.networkId}` : 'Network not set';
@@ -441,12 +475,12 @@
                 ${d.networkId ? ` · <span>${escapeHtml(String(d.networkId))}</span>` : ''}
               </div>
               <div class="wo-sub">
-                ${escapeHtml(freq)}${d.uid ? ` · UID ${escapeHtml(String(d.uid).slice(-6))}` : ''}
+                ${escapeHtml(freq)}${d.uid ? ` · UID ${escapeHtml(String(d.uid).slice(-6))}` : ''}<br>
+                ${escapeHtml(network)}
               </div>
               <div class="wo-meta">
                 <span><span class="wo-meta-label">Fields</span> ${fieldCount}</span>
                 <span><span class="wo-meta-label">Farms</span> ${farmCount}</span>
-                ${d.status ? `<span><span class="wo-meta-label">Status</span> ${escapeHtml(String(d.status))}</span>` : ''}
               </div>
             </div>
           </div>
@@ -479,7 +513,7 @@
         return;
       }
 
-      const d = tower.data;
+      const d = tower.data || {};
       const towerName = d.name || 'Unnamed tower';
       panel.dataset.id = tower.id;
       $('.wo-detail-title', panel).textContent = towerName;
@@ -512,10 +546,10 @@
       if(!tower.fields.length){
         fieldsBody.textContent = 'No fields are currently linked to this tower.';
       }else{
-        // group fields by farm
         const farmGroups = new Map();
         tower.fields.forEach(f => {
-          const farmId = f.data.farmId || 'unknown';
+          const fd = f.data || {};
+          const farmId = fd.farmId || 'unknown';
           if(!farmGroups.has(farmId)) farmGroups.set(farmId, []);
           farmGroups.get(farmId).push(f);
         });
@@ -534,13 +568,15 @@
               <div class="tower-farm-title">${escapeHtml(farmName)}</div>
               <ul class="tower-field-list">
                 ${fieldArr.map(f=>{
-                  const fd = f.data;
+                  const fd = f.data || {};
                   const parts = [];
                   if(fd.county) parts.push(fd.county);
                   if(fd.state)  parts.push(fd.state);
                   const loc = parts.join(', ');
-                  const acres = (fd.tillable || fd.tillableAcres || fd.acres);
-                  const acresText = (acres && acres > 0) ? ` · ${acres} tillable ac` : '';
+                  const acres = fd.tillable ?? fd.tillableAcres ?? fd.acres;
+                  const acresText = (acres && Number(acres) > 0)
+                    ? ` · ${escapeHtml(String(acres))} tillable ac`
+                    : '';
                   return `<li>${escapeHtml(fd.name || 'Unnamed field')}${loc ? ' · ' + escapeHtml(loc) : ''}${acresText}</li>`;
                 }).join('')}
               </ul>
@@ -551,11 +587,25 @@
 
       const footer = $('.wo-detail-footer', panel);
       footer.innerHTML = `
-        Current status:
-        <span class="wo-detail-pill">${escapeHtml(status)}</span>
+        Coverage summary:
+        <span class="wo-detail-pill">${tower.fields.length} field${tower.fields.length === 1 ? '' : 's'} on ${tower.farmIds.size} farm${tower.farmIds.size === 1 ? '' : 's'}</span>
       `;
 
       panel.style.display = 'flex';
+    }
+
+    function showSummaryToast(tower){
+      const toast = $('#rtkSummary');
+      if(!toast || !tower) return;
+
+      const d = tower.data || {};
+      const name = d.name || 'Unnamed tower';
+      const fields = tower.fields.length;
+      const farms  = tower.farmIds.size;
+
+      toast.textContent = `${name}: ${fields} field${fields === 1 ? '' : 's'} on ${farms} farm${farms === 1 ? '' : 's'}.`;
+      toast.classList.add('rtk-summary--show');
+      setTimeout(()=> toast.classList.remove('rtk-summary--show'), 3500);
     }
 
     function applyFilters(){
@@ -566,23 +616,18 @@
       const q = (searchEl?.value || '').trim().toLowerCase();
 
       const filtered = STATE.towers.filter(tower => {
-        // farm filter: tower must have at least one field on that farm
         if(farmFilter !== 'all' && !tower.farmIds.has(farmFilter)){
           return false;
         }
 
         if(q){
-          const d = tower.data;
-          const hayParts = [
-            d.name,
-            d.networkId,
-            d.frequencyMHz
-          ];
+          const d = tower.data || {};
+          const hayParts = [d.name, d.networkId, d.frequencyMHz];
 
           tower.fields.forEach(f=>{
-            const fd = f.data;
+            const fd = f.data || {};
             hayParts.push(fd.name, fd.county, fd.state);
-            const farmName = STATE.farmMap.get(fd.data?.farmId || fd.farmId) || '';
+            const farmName = STATE.farmMap.get(fd.farmId) || '';
             hayParts.push(farmName);
           });
 
@@ -616,6 +661,498 @@
         });
     }
 
+    async function loadCompanyHeader(){
+      if (STATE.company) return STATE.company;
+      try{
+        const [col,id] = CONFIG.COMPANY_DOC_PATH;
+        const ref = doc(STATE.db, col, id);
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = d.name || '';
+        const address = [
+          d.addressStreet || '',
+          [d.addressCity, d.addressState].filter(Boolean).join(', '),
+          d.addressZip || ''
+        ].filter(Boolean).join(' · ');
+        const phone = d.phone || '';
+        const email = d.email || '';
+        STATE.company = { name, address, phone, email };
+      }catch(e){
+        console.warn('[rtk-report] failed to load company header', e);
+        STATE.company = { name:'', address:'', phone:'', email:'' };
+      }
+      return STATE.company;
+    }
+
+    function summarizeFilters(){
+      const farmSel   = $('#filterFarm');
+      const searchEl  = $('#filterSearch');
+
+      let farmLabel = 'All farms';
+      if (farmSel && farmSel.value !== 'all'){
+        const id = farmSel.value;
+        farmLabel = STATE.farmMap.get(id) || 'Selected farm';
+      }
+      const searchVal = (searchEl?.value || '').trim();
+      const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
+
+      return `${farmLabel} • ${searchLabel}`;
+    }
+
+    function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totalTowers, totalFields, totalFarms, towers }){
+      const avgFields = totalTowers ? (totalFields / totalTowers).toFixed(1) : '0.0';
+
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RTK Tower Coverage</title>
+  <style>
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--fv-text);
+      background:var(--fv-bg);
+    }
+    body{
+      display:flex;
+      justify-content:center;
+      padding:24px 12px;
+    }
+    .page{
+      width:100%;
+      max-width:900px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.15);
+      padding:24px 28px 28px;
+    }
+    .report-header{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      gap:16px;
+      align-items:center;
+      border-bottom:2px solid var(--fv-green);
+      padding-bottom:14px;
+      margin-bottom:18px;
+    }
+    .report-logo{
+      width:64px;
+      height:64px;
+      border-radius:16px;
+      border:1px solid var(--fv-border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:26px;
+      font-weight:800;
+      color:#fff;
+      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+    }
+    .report-logo span{letter-spacing:0.02em;}
+    .company-block{min-width:0;}
+    .company-name{
+      font-size:18px;
+      font-weight:800;
+      margin:0 0 2px;
+    }
+    .company-line{
+      font-size:12px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-meta-top{
+      text-align:right;
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .report-meta-top strong{color:var(--fv-text);}
+    .report-title-block{margin-bottom:16px;}
+    .report-title{
+      font-size:20px;
+      font-weight:800;
+      margin:4px 0 4px;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+    }
+    .report-subtitle{
+      font-size:13px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-summary-strip{
+      margin-top:12px;
+      padding:8px 10px;
+      border-radius:10px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
+      border:1px solid rgba(59,126,70,0.20);
+      font-size:11px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 16px;
+    }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      white-space:nowrap;
+    }
+    .summary-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-weight:600;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .summary-value{
+      font-weight:600;
+      font-size:11px;
+    }
+    .section{margin-top:18px;}
+    .section-heading-row{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .section-title-main{
+      font-size:15px;
+      font-weight:700;
+      letter-spacing:0.03em;
+      text-transform:uppercase;
+    }
+    .section-note{
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .kpi-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:6px;
+    }
+    .kpi-card{
+      flex:1 1 140px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      padding:8px 10px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #ffffff);
+    }
+    .kpi-label{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--fv-muted);
+      margin-bottom:2px;
+    }
+    .kpi-value{
+      font-size:16px;
+      font-weight:800;
+    }
+    .kpi-footnote{
+      font-size:10px;
+      color:var(--fv-muted);
+      margin-top:2px;
+    }
+    .section-title{
+      font-size:13px;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .section-body{
+      font-size:12px;
+      line-height:1.5;
+    }
+    .tower-block{margin-top:10px;}
+    .tower-title{
+      font-size:13px;
+      font-weight:700;
+      margin:8px 0 4px;
+    }
+    .tower-subtitle{
+      font-size:11px;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .table-wrap{
+      margin-top:4px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      overflow:hidden;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:11px;
+    }
+    thead{
+      background:#F9FAFB;
+    }
+    th, td{
+      padding:6px 8px;
+      border-bottom:1px solid #E5E7EB;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:10px;
+      color:#4B5563;
+      border-bottom:1px solid #D1D5DB;
+    }
+    tr:nth-child(even) td{
+      background:#F9FAFB;
+    }
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid #D1D5DB;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:#6B7280;
+    }
+    .footer-left{max-width:60%;}
+    .footer-right{text-align:right;}
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{
+        max-width:none;
+        border-radius:0;
+        box-shadow:none;
+        padding:12mm 14mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="report-header">
+      <div class="report-logo">
+        <span>DF</span>
+      </div>
+      <div class="company-block">
+        <p class="company-name">${escapeHtml(company.name || '')}</p>
+        <p class="company-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="report-meta-top">
+        <div><strong>RTK Tower Coverage</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <section class="report-title-block">
+      <h1 class="report-title">RTK Tower Coverage</h1>
+      <p class="report-subtitle">Towers with their covered farms and fields.</p>
+
+      <div class="report-summary-strip">
+        <div class="summary-pill">
+          <span class="summary-label">Filters</span>
+          <span class="summary-value">${escapeHtml(filterSummary)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Towers</span>
+          <span class="summary-value">${formatNumber(totalTowers)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Fields</span>
+          <span class="summary-value">${formatNumber(totalFields)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Farms</span>
+          <span class="summary-value">${formatNumber(totalFarms)}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading-row">
+        <div class="section-title-main">Key Metrics</div>
+        <div class="section-note">Snapshot at the time of report generation.</div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">RTK Towers</div>
+          <div class="kpi-value">${formatNumber(totalTowers)}</div>
+          <div class="kpi-footnote">Total towers in this report</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Farms Covered</div>
+          <div class="kpi-value">${formatNumber(totalFarms)}</div>
+          <div class="kpi-footnote">Unique farms with at least one linked field</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Avg Fields per Tower</div>
+          <div class="kpi-value">${avgFields}</div>
+          <div class="kpi-footnote">Fields linked across all towers</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Detail by Tower</h2>
+      <div class="section-body">
+        ${towers.map(tower => {
+          const d = tower.data || {};
+          const towerName = d.name || 'Unnamed tower';
+          const freq = d.frequencyMHz ? d.frequencyMHz + ' MHz' : 'Frequency not set';
+          const network = d.networkId ? 'Network ' + d.networkId : 'Network not set';
+          const fields = tower.fields || [];
+          const farmIds = tower.farmIds || new Set();
+
+          const farmGroups = new Map();
+          fields.forEach(f => {
+            const fd = f.data || {};
+            const farmId = fd.farmId || 'unknown';
+            if(!farmGroups.has(farmId)) farmGroups.set(farmId, []);
+            farmGroups.get(farmId).push(f);
+          });
+
+          const farmBlocks = Array.from(farmGroups.entries())
+            .sort((a,b)=>{
+              const nameA = STATE.farmMap.get(a[0]) || 'Unknown farm';
+              const nameB = STATE.farmMap.get(b[0]) || 'Unknown farm';
+              return nameA.localeCompare(nameB);
+            })
+            .map(([farmId, fieldArr])=>{
+              const farmName = STATE.farmMap.get(farmId) || 'Unknown farm';
+              return `
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="width:26%">Farm</th>
+                        <th style="width:32%">Field</th>
+                        <th style="width:22%">County / State</th>
+                        <th style="width:20%">Tillable ac</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${fieldArr.map(f => {
+                        const fd = f.data || {};
+                        const parts = [];
+                        if(fd.county) parts.push(fd.county);
+                        if(fd.state)  parts.push(fd.state);
+                        const loc = parts.join(', ');
+                        const acres = fd.tillable ?? fd.tillableAcres ?? fd.acres;
+                        return `
+                          <tr>
+                            <td>${escapeHtml(farmName)}</td>
+                            <td>${escapeHtml(fd.name || 'Unnamed field')}</td>
+                            <td>${escapeHtml(loc)}</td>
+                            <td>${acres ? escapeHtml(String(acres)) : ''}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              `;
+            }).join('');
+
+          return `
+            <div class="tower-block">
+              <div class="tower-title">${escapeHtml(towerName)}</div>
+              <p class="tower-subtitle">
+                ${escapeHtml(freq)} · ${escapeHtml(network)}
+                · ${fields.length} field${fields.length === 1 ? '' : 's'} on ${farmIds.size} farm${farmIds.size === 1 ? '' : 's'}
+              </p>
+              ${farmBlocks || '<p class="tower-subtitle">No fields linked to this tower.</p>'}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </section>
+
+    <footer class="report-footer">
+      <div class="footer-left">
+        Internal use only. Verify RTK tower frequencies, networks, and coverage before changing configurations.
+      </div>
+      <div class="footer-right">
+        FarmVista • RTK Tower Coverage • ${escapeHtml(runDateOnly || '')}
+      </div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
+
+    async function handlePrintClick(){
+      const towers = getWorkingTowers();
+      if (!towers.length){
+        alert('No RTK towers match the current filters to print.');
+        return;
+      }
+
+      const company = await loadCompanyHeader();
+      const now = new Date();
+      const runStr = now.toLocaleString();
+      const runDateOnly = now.toLocaleDateString();
+
+      const filterSummary = summarizeFilters();
+      const totalTowers = towers.length;
+      const totalFields = towers.reduce((sum,t)=> sum + t.fields.length, 0);
+      const farmIds = new Set();
+      towers.forEach(t => t.farmIds.forEach(id => farmIds.add(id)));
+      const totalFarms = farmIds.size;
+
+      const html = buildPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        filterSummary,
+        totalTowers,
+        totalFields,
+        totalFarms,
+        towers
+      });
+
+      let iframe = document.getElementById('fv-print-frame');
+      if (!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        try{
+          win.focus();
+          win.print();
+        }catch(err){
+          console.warn('[rtk-report] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 400);
+    }
+
     async function loadData(){
       const db = STATE.db;
 
@@ -627,7 +1164,7 @@
         STATE.farmMap.set(docSnap.id, d.name || 'Unnamed farm');
       });
 
-      // Fields (only ones with rtkTowerId)
+      // Fields with rtkTowerId
       const fieldSnap = await getDocs(collection(db, CONFIG.FIELD_COLLECTION));
       const fieldByTower = new Map(); // towerId -> [fieldDoc]
 
@@ -653,7 +1190,6 @@
         };
       });
 
-      // Sort by tower name
       towers.sort((a,b)=>{
         const na = (a.data.name || '').toString().toLowerCase();
         const nb = (b.data.name || '').toString().toLowerCase();
@@ -673,14 +1209,15 @@
       const backBtn = document.getElementById('btnBack');
       if(backBtn){
         backBtn.addEventListener('click', () => {
-          // send them back to RTK Towers hub (adjust if different)
-          location.href = '/Farm-vista/pages/equipment/equipment-starfire.html';
+          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
         });
       }
 
       $('#woDetailClose').addEventListener('click', () => {
+        const tower = STATE.towers.find(x => x.id === STATE.selectedId);
         STATE.selectedId = null;
         clearDetails();
+        if(tower) showSummaryToast(tower);
       });
 
       try{
@@ -712,6 +1249,11 @@
         const metaEl = $('#towerMeta');
         if(metaEl) metaEl.textContent = 'Error loading towers';
       }
+
+      const printTop = $('#btnPrint');
+      const printBottom = $('#btnPrintBottom');
+      if (printTop)    printTop.addEventListener('click', handlePrintClick);
+      if (printBottom) printBottom.addEventListener('click', handlePrintClick);
     })();
   </script>
 </head>
@@ -725,7 +1267,7 @@
           <div>
             <h1>RTK Tower Coverage</h1>
             <p class="muted">
-              See each RTK tower with the farms and fields that use it. Tap a tower card to view detailed coverage.
+              Review RTK towers by network and frequency, with farms and fields listed under each tower. Tap a card to see full coverage details.
             </p>
           </div>
         </header>
@@ -734,7 +1276,10 @@
           <div class="toolbar">
             <div class="toolbar-left">
               <button id="btnBack" type="button" class="btn btn-quiet">
-                ← Back
+                ← Back to Reports
+              </button>
+              <button id="btnPrint" type="button" class="btn btn-primary">
+                Print / Save PDF
               </button>
             </div>
             <div class="page-header-meta" id="towerMeta">
@@ -765,6 +1310,9 @@
             </button>
           </div>
 
+          <!-- Little inline summary when you close the detail "tab" -->
+          <div id="rtkSummary" class="rtk-summary" aria-live="polite"></div>
+
           <section aria-label="RTK towers">
             <div class="wo-empty">
               Loading RTK tower coverage…
@@ -792,17 +1340,21 @@
             </div>
 
             <div class="wo-detail-footer">
-              <!-- status pill by JS -->
+              <!-- status / coverage pill by JS -->
             </div>
           </section>
 
           <div class="bottom-actions">
-            <!-- reserved for future actions if needed -->
+            <button id="btnPrintBottom" type="button" class="btn btn-primary">
+              Print / Save PDF
+            </button>
           </div>
         </div>
       </section>
     </div>
+
+    <!-- Hidden iframe used for print so we don't open a new tab -->
+    <iframe id="fv-print-frame"></iframe>
   </fv-shell>
 </body>
 </html>
-
