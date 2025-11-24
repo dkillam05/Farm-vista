@@ -262,14 +262,14 @@
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    /* ========== Detail overlay ========== */
+    /* ========== Detail overlay (modal style) ========== */
 
     .wo-detail-overlay {
       position:fixed;
       inset:0;
       padding:16px;
       box-sizing:border-box;
-      background:color-mix(in srgb, #000 45%, transparent);
+      background:rgba(0,0,0,0.55);
       display:flex;
       align-items:center;
       justify-content:center;
@@ -279,9 +279,9 @@
     .wo-detail-panel {
       width:min(700px, 100% - 24px);
       max-height:90vh;
-      border-radius:16px;
+      border-radius:18px;
       background:var(--surface-raised, var(--card-surface, var(--surface)));
-      box-shadow:var(--shadow-strong, 0 18px 45px rgba(0,0,0,0.35));
+      box-shadow:0 18px 45px rgba(0,0,0,0.38);
       padding:14px 16px 10px;
       display:flex;
       flex-direction:column;
@@ -293,6 +293,8 @@
       align-items:flex-start;
       justify-content:space-between;
       gap:10px;
+      border-bottom:1px solid var(--border-soft, var(--border));
+      padding-bottom:6px;
     }
 
     .wo-detail-title {
@@ -315,6 +317,10 @@
       cursor:pointer;
       padding:4px;
       border-radius:999px;
+    }
+
+    .wo-detail-close:hover{
+      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
     }
 
     .wo-detail-content{
@@ -441,6 +447,14 @@
       cursor:pointer;
     }
 
+    .btn-outline:hover{
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .btn-primary:hover{
+      filter:brightness(1.05);
+    }
+
     /* Photos section */
     .wo-detail-photos{
       margin-top:8px;
@@ -553,6 +567,28 @@
       }
     }
 
+    function formatDurationLabel(startDate, endDate, isCompleted){
+      if(!startDate || !endDate) return '';
+      const diffMs = endDate.getTime() - startDate.getTime();
+      if(diffMs <= 0) return '';
+
+      const diffHours = diffMs / (1000 * 60 * 60);
+      const diffDays  = diffHours / 24;
+
+      let core;
+      if(diffDays >= 1){
+        const daysRounded = Math.round(diffDays * 10) / 10;
+        core = `${daysRounded} day${daysRounded === 1 ? '' : 's'}`;
+      }else{
+        const hoursRounded = Math.round(diffHours * 10) / 10;
+        core = `${hoursRounded} hour${hoursRounded === 1 ? '' : 's'}`;
+      }
+
+      return isCompleted
+        ? `Completed in ${core}`
+        : `Open for ${core} so far`;
+    }
+
     function renderPhotoGallery(){
       const gallery = $('#detailPhotoGallery');
       const hint = $('#detailPhotoHint');
@@ -602,16 +638,21 @@
       const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email))
                         || data.createdByName || data.createdBy || '';
       const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
-      const when = ts && ts.toDate ? ts.toDate() : null;
+      const when = ts && ts.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
       const status = (data[CONFIG.STATUS_FIELD] || '').toString() || CONFIG.STATUS_PENDING;
 
       const originalNotes = data.details || data.description || data.notes || '';
+
+      const completedAtRaw = data.completedAt || data.completedOn || null;
+      const completedDate = completedAtRaw && completedAtRaw.toDate ? completedAtRaw.toDate() :
+                            (completedAtRaw ? new Date(completedAtRaw) : null);
 
       const overlay = $('#woDetailOverlay');
       const titleEl = $('#detailTitle');
       const subEl   = $('#detailSub');
       const chipsEl = $('#detailChips');
       const createdEl = $('#detailCreated');
+      const durationEl = $('#detailDuration');
       const statusSel = $('#detailStatusSelect');
       const origNotesEl = $('#detailNotesOriginal');
       const compNotesEl = $('#detailNotesCompletion');
@@ -649,7 +690,15 @@
 
       if(createdEl){
         createdEl.textContent = when
-          ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`
+          ? `${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`
+          : '';
+      }
+
+      if(durationEl){
+        const isCompleted = status === CONFIG.STATUS_DONE;
+        const end = isCompleted && completedDate ? completedDate : (when ? new Date() : null);
+        durationEl.textContent = (when && end)
+          ? formatDurationLabel(when, end, isCompleted)
           : '';
       }
 
@@ -773,6 +822,11 @@
         updates[CONFIG.STATUS_FIELD] = newStatus;
       }
 
+      const oldStatus = item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING;
+      if(newStatus === CONFIG.STATUS_DONE && oldStatus !== CONFIG.STATUS_DONE){
+        updates.completedAt = serverTimestamp();
+      }
+
       // Only write photos field if we actually have something (keeps old docs clean)
       if(STATE.currentPhotos && STATE.currentPhotos.length){
         updates.photos = STATE.currentPhotos;
@@ -785,8 +839,8 @@
         // Update local copy so the data stays in sync if reopened
         Object.assign(item.data, updates);
 
-        // If status changed to completed, drop from list; otherwise refresh chip text
         if(newStatus === CONFIG.STATUS_DONE){
+          // Completed → drop from list
           STATE.items = STATE.items.filter(x => x.id !== item.id);
           renderList();
         }else if(newStatus){
@@ -825,7 +879,7 @@
         const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email))
                           || data.createdByName || data.createdBy || '';
         const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
-        const when = ts && ts.toDate ? ts.toDate() : null;
+        const when = ts && ts.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
         const status = (data[CONFIG.STATUS_FIELD] || '').toString();
 
         const card = document.createElement('article');
@@ -885,15 +939,23 @@
           select.value = CONFIG.STATUS_PENDING;
         }
 
+        const originalStatus = status || CONFIG.STATUS_PENDING;
+
         // Status change handler
         select.addEventListener('change', async (ev) => {
           const newStatus = ev.target.value;
 
+          const updates = {
+            [CONFIG.STATUS_FIELD]: newStatus,
+            updatedAt: serverTimestamp()
+          };
+
+          if(newStatus === CONFIG.STATUS_DONE && originalStatus !== CONFIG.STATUS_DONE){
+            updates.completedAt = serverTimestamp();
+          }
+
           try{
-            await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), {
-              [CONFIG.STATUS_FIELD]: newStatus,
-              updatedAt: serverTimestamp()
-            });
+            await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), updates);
 
             if(newStatus === CONFIG.STATUS_DONE){
               // Completed → drop from list
@@ -902,13 +964,14 @@
             }else{
               // Keep in list, update chip + local status
               item.data[CONFIG.STATUS_FIELD] = newStatus;
+              Object.assign(item.data, updates);
               if(chip) chip.textContent = newStatus;
             }
           }catch(err){
             console.error('Failed to update status:', err);
             alert('Could not update work order status. Please try again.');
             // revert dropdown
-            ev.target.value = status || CONFIG.STATUS_PENDING;
+            ev.target.value = originalStatus || CONFIG.STATUS_PENDING;
           }
         });
 
@@ -1068,7 +1131,7 @@
 
     <!-- Detail overlay -->
     <div id="woDetailOverlay" class="wo-detail-overlay" hidden>
-      <div class="wo-detail-panel" role="dialog" aria-modal="true">
+      <div class="wo-detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
         <header class="wo-detail-header">
           <div>
             <div id="detailTitle" class="wo-detail-title">Field · Farm</div>
@@ -1085,6 +1148,10 @@
             <div>
               <div class="wo-detail-label">Created</div>
               <div id="detailCreated" style="font-size:0.82rem;"></div>
+            </div>
+            <div>
+              <div class="wo-detail-label">Timing</div>
+              <div id="detailDuration" style="font-size:0.82rem;"></div>
             </div>
             <div>
               <div class="wo-detail-label">Status</div>
