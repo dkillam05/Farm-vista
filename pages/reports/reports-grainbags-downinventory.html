@@ -385,8 +385,8 @@
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      // 👇 if your grain bag collection name is different, change this:
-      COLLECTION_PATH: 'grainBags',
+      EVENTS_COLLECTION: 'grain_bag_events',
+      FIELDS_COLLECTION: 'fields',
       COMPANY_DOC_PATH: ['company','main']
     };
 
@@ -394,12 +394,13 @@
     const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
     const STATE = {
-      items: [],        // { id, data:{ fieldId, fieldName, farmName, bagLabel, capacity, onHand, cropType, cropYear, moisture, lastUpdatedBy, lastUpdatedAt, location } }
+      items: [],        // derived inventory rows
       filteredItems: null,
       selectedId: null,
       db: null,
       company: null,
-      fieldMap: new Map(),  // fieldId -> fieldName
+      fieldMap: new Map(), // fieldId -> { fieldName, farmId, farmName }
+      farmMap: new Map(),  // farmId -> farmName
       cropSet: new Set()
     };
 
@@ -427,32 +428,53 @@
       return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
     }
 
-    function groupItemsByCropField(items){
-      const cropMap = new Map(); // crop -> Map(fieldName -> [items])
+    // === Bag bushel estimate (per-foot) ===
+    // Adjust these numbers if you have a specific cheat-sheet.
+    function estimateBuPerFoot(diameterFt){
+      const d = Number(diameterFt) || 0;
+      if(d >= 12) return 60;    // approx bu/ft for 12'
+      if(d >= 11) return 50;    // approx for 11'
+      if(d >= 10) return 39;    // approx for 10'
+      if(d >= 9)  return 30;    // approx for 9'
+      if(d > 0)   return 25;    // fallback
+      return 0;
+    }
+
+    function groupItemsByFarmCropField(items){
+      // Farm -> Crop -> Field -> [items]
+      const farmMap = new Map();
 
       items.forEach(it => {
         const d = it.data;
+        const farm = (d.farmName || 'Unknown farm').toString();
         const crop = (d.cropType || 'Unknown crop').toString();
         const field = (d.fieldName || 'Unknown field').toString();
 
+        if(!farmMap.has(farm)) farmMap.set(farm, new Map());
+        const cropMap = farmMap.get(farm);
         if(!cropMap.has(crop)) cropMap.set(crop, new Map());
         const fieldMap = cropMap.get(crop);
         if(!fieldMap.has(field)) fieldMap.set(field, []);
         fieldMap.get(field).push(it);
       });
 
-      // sort fields and bags
-      const cropsArr = Array.from(cropMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
-      cropsArr.forEach(([, fieldMap]) => {
-        Array.from(fieldMap.entries()).forEach(([fieldName, arr]) => {
-          arr.sort((a,b) => {
-            const la = String(a.data.bagLabel || '').localeCompare(String(b.data.bagLabel || ''));
-            return la;
+      // sort farms, crops, fields
+      const farmsArr = Array.from(farmMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
+      farmsArr.forEach(([, cropMap]) => {
+        Array.from(cropMap.entries()).forEach(([, fieldMap]) => {
+          Array.from(fieldMap.entries()).forEach(([fieldName, arr]) => {
+            arr.sort((a,b) => {
+              const da = a.data.datePlaced || null;
+              const db = b.data.datePlaced || null;
+              const ta = da ? da.getTime() : 0;
+              const tb = db ? db.getTime() : 0;
+              return ta - tb;
+            });
           });
         });
       });
 
-      return cropsArr; // [ [cropName, Map(fieldName -> [items])] , ... ]
+      return farmsArr; // [ [farmName, Map(cropName -> Map(fieldName -> [items]))] , ... ]
     }
 
     function renderList(){
@@ -462,85 +484,98 @@
 
       listEl.innerHTML = '';
 
-      const items = getWorkingItems().filter(it => Number(it.data.onHand || 0) > 0);
+      const items = getWorkingItems().filter(it => {
+        const d = it.data;
+        return (d.totalBags > 0) && (d.onHandBu > 0);
+      });
 
       if(!items.length){
         emptyEl.style.display = 'block';
         emptyEl.textContent = 'No grain currently on hand in field grain bags for the selected filters.';
-        if(summaryEl) summaryEl.textContent = '0 bu on hand';
+        if(summaryEl) summaryEl.textContent = '0 bu estimated on hand';
         return;
       }
 
       emptyEl.style.display = 'none';
 
-      const totalOnHand = items.reduce((sum,it) => sum + (Number(it.data.onHand) || 0), 0);
-      const totalCapacity = items.reduce((sum,it) => sum + (Number(it.data.capacity) || 0), 0);
+      const totalOnHandBu = items.reduce((sum,it) => sum + (Number(it.data.onHandBu) || 0), 0);
+      const totalCapacityBu = items.reduce((sum,it) => sum + (Number(it.data.capacityBu) || 0), 0);
+      const farms = new Set(items.map(it => it.data.farmId || it.data.farmName));
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
-      const crops = new Set(items.map(it => (it.data.cropType || 'Unknown crop')));
-      const bagsCount = items.length;
+      const bagEntries = items.length;
 
-      const pct = totalCapacity > 0 ? (totalOnHand / totalCapacity) * 100 : 0;
-      const pctStr = totalCapacity > 0 ? `${pct.toFixed(1)}% full` : 'N/A';
+      const pct = totalCapacityBu > 0 ? (totalOnHandBu / totalCapacityBu) * 100 : 0;
+      const pctStr = totalCapacityBu > 0 ? `${pct.toFixed(1)}% of bag capacity` : 'Capacity N/A';
 
       if(summaryEl){
-        summaryEl.textContent = `${formatNumber(totalOnHand)} bu on hand across ${bagsCount} bag${bagsCount === 1 ? '' : 's'} in ${fields.size} field${fields.size === 1 ? '' : 's'} (${pctStr})`;
+        summaryEl.textContent =
+          `${formatNumber(totalOnHandBu)} bu (estimated) on hand across ${bagEntries} bag entr${bagEntries===1?'y':'ies'} in ${fields.size} field${fields.size===1?'':'s'} on ${farms.size} farm${farms.size===1?'':'s'} (${pctStr})`;
       }
 
-      const grouped = groupItemsByCropField(items);
+      const grouped = groupItemsByFarmCropField(items);
 
-      for(const [cropName, fieldMap] of grouped){
-        const cropHeading = document.createElement('div');
-        cropHeading.className = 'group-heading';
-        cropHeading.textContent = cropName;
-        listEl.appendChild(cropHeading);
+      for(const [farmName, cropMap] of grouped){
+        const farmHeading = document.createElement('div');
+        farmHeading.className = 'group-heading';
+        farmHeading.textContent = farmName;
+        listEl.appendChild(farmHeading);
 
-        const fieldsArr = Array.from(fieldMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
+        const cropsArr = Array.from(cropMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
 
-        for(const [fieldName, bags] of fieldsArr){
-          const fieldHeading = document.createElement('div');
-          fieldHeading.className = 'site-heading';
-          fieldHeading.textContent = fieldName;
-          listEl.appendChild(fieldHeading);
+        for(const [cropName, fieldMap] of cropsArr){
+          const fieldsArr = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
 
-          for(const item of bags){
-            const d = item.data;
-            const cap = Number(d.capacity) || 0;
-            const onHand = Number(d.onHand) || 0;
-            const pctFull = cap > 0 ? (onHand / cap) * 100 : 0;
-            const moisture = d.moisture ?? null;
+          for(const [fieldName, bags] of fieldsArr){
+            const siteHeading = document.createElement('div');
+            siteHeading.className = 'site-heading';
+            siteHeading.textContent = `${cropName} • ${fieldName}`;
+            listEl.appendChild(siteHeading);
 
-            const card = document.createElement('article');
-            card.className = 'wo-card';
-            card.dataset.id = item.id;
+            for(const item of bags){
+              const d = item.data;
+              const full = Number(d.fullBags) || 0;
+              const partial = Number(d.partialBags) || 0;
+              const bu = Number(d.onHandBu) || 0;
 
-            card.innerHTML = `
-              <div class="wo-row-top">
-                <div class="wo-main">
-                  <div class="wo-title">
-                    Bag ${d.bagLabel ? d.bagLabel : item.id} · ${cropName}
-                  </div>
-                  <div class="wo-sub">
-                    ${formatNumber(onHand)} bu on hand${cap > 0 ? ` of ${formatNumber(cap)} bu capacity (${pctFull.toFixed(1)}% full)` : ''}
-                  </div>
-                  <div class="wo-meta">
-                    <span><span class="wo-meta-label">Field</span> ${fieldName}</span>
-                    ${d.farmName ? `<span><span class="wo-meta-label">Farm</span> ${d.farmName}</span>` : ''}
-                    ${d.cropYear ? `<span><span class="wo-meta-label">Crop year</span> ${d.cropYear}</span>` : ''}
-                    ${moisture !== null && moisture !== undefined ? `<span><span class="wo-meta-label">Moisture</span> ${moisture}%</span>` : ''}
-                    ${d.location ? `<span><span class="wo-meta-label">Location</span> ${d.location}</span>` : ''}
-                    ${d.lastUpdatedAt ? `<span><span class="wo-meta-label">Updated</span> ${formatDate(d.lastUpdatedAt)}</span>` : ''}
-                    ${d.lastUpdatedBy ? `<span><span class="wo-meta-label">By</span> ${d.lastUpdatedBy}</span>` : ''}
+              const card = document.createElement('article');
+              card.className = 'wo-card';
+              card.dataset.id = item.id;
+
+              card.innerHTML = `
+                <div class="wo-row-top">
+                  <div class="wo-main">
+                    <div class="wo-title">
+                      ${d.skuBrand || 'Bag'} · ${d.skuSizeFeet ? d.skuSizeFeet + ' ft' : ''}${d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : ''}
+                    </div>
+                    <div class="wo-sub">
+                      ${full} full, ${partial} partial · approx ${formatNumber(bu)} bu on hand
+                    </div>
+                    <div class="wo-meta">
+                      <span><span class="wo-meta-label">Farm</span> ${farmName}</span>
+                      <span><span class="wo-meta-label">Field</span> ${fieldName}</span>
+                      <span><span class="wo-meta-label">Crop year</span> ${d.cropYear || '—'}</span>
+                      ${d.cropMoisture !== null && d.cropMoisture !== undefined
+                        ? `<span><span class="wo-meta-label">Moisture</span> ${d.cropMoisture}%</span>` : ''}
+                      ${d.skuLocation
+                        ? `<span><span class="wo-meta-label">Location</span> ${d.skuLocation}</span>` : ''}
+                      ${d.datePlaced
+                        ? `<span><span class="wo-meta-label">Placed</span> ${formatDate(d.datePlaced)}</span>` : ''}
+                      ${d.priority
+                        ? `<span><span class="wo-meta-label">Priority</span> ${d.priority}</span>` : ''}
+                      ${d.submittedByName
+                        ? `<span><span class="wo-meta-label">Submitted by</span> ${d.submittedByName}</span>` : ''}
+                    </div>
                   </div>
                 </div>
-              </div>
-            `;
+              `;
 
-            card.addEventListener('click', () => {
-              STATE.selectedId = item.id;
-              renderDetails();
-            });
+              card.addEventListener('click', () => {
+                STATE.selectedId = item.id;
+                renderDetails();
+              });
 
-            listEl.appendChild(card);
+              listEl.appendChild(card);
+            }
           }
         }
       }
@@ -565,142 +600,219 @@
       }
 
       const d = item.data;
-      const crop  = d.cropType || 'Unknown crop';
-      const field = d.fieldName || 'Unknown field';
-      const farm  = d.farmName || '';
-      const cap   = Number(d.capacity) || 0;
-      const onHand = Number(d.onHand) || 0;
-      const pctFull = cap > 0 ? (onHand / cap) * 100 : 0;
-      const moisture = d.moisture ?? null;
-      const cropYear = d.cropYear || '';
-      const updatedAt = d.lastUpdatedAt || null;
-      const updatedStr = updatedAt ? formatDateTime(updatedAt) : 'Unknown';
-      const updatedBy  = d.lastUpdatedBy || 'Unknown';
-      const location   = d.location || '';
 
       panel.dataset.id = item.id;
       $('.wo-detail-title', panel).textContent =
-        `Bag ${d.bagLabel || item.id} · ${field}`;
+        `${d.skuBrand || 'Bag'} · ${d.skuSizeFeet ? d.skuSizeFeet + ' ft' : ''}${d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : ''}`;
 
       const grid = $('.wo-detail-grid', panel);
       grid.innerHTML = `
         <div>
-          <div class="wo-detail-item-label">Field</div>
-          <div class="wo-detail-item-value">${field}</div>
-        </div>
-        <div>
           <div class="wo-detail-item-label">Farm</div>
-          <div class="wo-detail-item-value">${farm || 'Not recorded'}</div>
+          <div class="wo-detail-item-value">${d.farmName || 'Unknown farm'}</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">Bag label</div>
-          <div class="wo-detail-item-value">${d.bagLabel || item.id}</div>
+          <div class="wo-detail-item-label">Field</div>
+          <div class="wo-detail-item-value">${d.fieldName || 'Unknown field'}</div>
         </div>
         <div>
           <div class="wo-detail-item-label">Crop</div>
-          <div class="wo-detail-item-value">${crop}</div>
+          <div class="wo-detail-item-value">${d.cropType || 'Unknown crop'}</div>
         </div>
         <div>
           <div class="wo-detail-item-label">Crop year</div>
-          <div class="wo-detail-item-value">${cropYear || 'Not recorded'}</div>
+          <div class="wo-detail-item-value">${d.cropYear || 'Not recorded'}</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">Grain on hand</div>
-          <div class="wo-detail-item-value">${formatNumber(onHand)} bu</div>
+          <div class="wo-detail-item-label">Full bags</div>
+          <div class="wo-detail-item-value">${d.fullBags}</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">Capacity</div>
-          <div class="wo-detail-item-value">${cap ? formatNumber(cap) + ' bu' : 'Not set'}</div>
+          <div class="wo-detail-item-label">Partial bags</div>
+          <div class="wo-detail-item-value">${d.partialBags}</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">% full</div>
-          <div class="wo-detail-item-value">${cap > 0 ? pctFull.toFixed(1) + '%' : 'N/A'}</div>
+          <div class="wo-detail-item-label">Estimated on hand</div>
+          <div class="wo-detail-item-value">${formatNumber(d.onHandBu)} bu</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">Moisture</div>
-          <div class="wo-detail-item-value">${moisture !== null && moisture !== undefined ? moisture + '%' : 'Not recorded'}</div>
+          <div class="wo-detail-item-label">Bag capacity</div>
+          <div class="wo-detail-item-value">
+            ${d.capacityBu ? formatNumber(d.capacityBu) + ' bu (all full/partial at full length)' : 'Not calculated'}
+          </div>
         </div>
         <div>
-          <div class="wo-detail-item-label">Last updated</div>
-          <div class="wo-detail-item-value">${updatedStr}<br><span style="opacity:.8">By ${updatedBy}</span></div>
+          <div class="wo-detail-item-label">Bag SKU</div>
+          <div class="wo-detail-item-value">
+            ${d.skuBrand || 'Bag'}
+            ${d.skuSizeFeet ? ' · ' + d.skuSizeFeet + ' ft' : ''}
+            ${d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : ''}
+          </div>
         </div>
         <div>
           <div class="wo-detail-item-label">Location notes</div>
-          <div class="wo-detail-item-value">${location || 'Not recorded'}</div>
+          <div class="wo-detail-item-value">${d.skuLocation || 'Not recorded'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Moisture</div>
+          <div class="wo-detail-item-value">${d.cropMoisture !== null && d.cropMoisture !== undefined ? d.cropMoisture + '%' : 'Not recorded'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Date placed</div>
+          <div class="wo-detail-item-value">${d.datePlaced ? formatDate(d.datePlaced) : 'Not recorded'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Priority</div>
+          <div class="wo-detail-item-value">${d.priority || 'Not set'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Last updated</div>
+          <div class="wo-detail-item-value">
+            ${d.updatedAt ? formatDateTime(d.updatedAt) : 'Unknown'}
+            ${d.updatedBy ? '<br><span style="opacity:.8">By ' + d.updatedBy + '</span>' : ''}
+          </div>
         </div>
       `;
 
       $('.wo-detail-notes-body', panel).textContent =
-        'This panel shows the last known crop, crop year, and grain on hand for this grain bag. Any manual or ticket-driven inventory changes will update these values.';
+        d.notes || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry. Pick-up events will reduce the full/partial counts and may eventually mark this entry as fully picked up.';
 
       const footer = $('.wo-detail-footer', panel);
+      const pct = (d.capacityBu > 0) ? (d.onHandBu / d.capacityBu) * 100 : null;
       footer.innerHTML = `
         Current fill level:
-        <span class="wo-detail-pill">${cap > 0 ? pctFull.toFixed(1) + '% of ' + formatNumber(cap) + ' bu' : 'Capacity not set'}</span>
+        <span class="wo-detail-pill">
+          ${d.onHandBu ? formatNumber(d.onHandBu) + ' bu estimated' : 'On-hand not calculated'}
+          ${pct !== null ? ' · approx ' + pct.toFixed(1) + '% of capacity' : ''}
+        </span>
       `;
 
       panel.style.display = 'flex';
     }
 
-    async function loadGrainBags(){
+    async function loadFieldsMap(){
       const db = STATE.db;
-      const ref = collection(db, CONFIG.COLLECTION_PATH);
+      const ref = collection(db, CONFIG.FIELDS_COLLECTION);
+      const map = new Map();
+
+      try{
+        const snap = await getDocs(ref);
+        snap.forEach(docSnap => {
+          const data = docSnap.data() || {};
+          const fieldId = docSnap.id;
+          const fieldName = data.name || 'Unnamed field';
+          const farmId = data.farmId || data.farm?.id || fieldId; // fallback
+          const farmName = data.farmName || data.farm?.name || 'Unknown farm';
+          map.set(fieldId, { fieldId, fieldName, farmId, farmName });
+        });
+      }catch(err){
+        console.warn('Error loading fields for grain bag inventory:', err);
+      }
+
+      STATE.fieldMap = map;
+    }
+
+    async function loadGrainBagInventory(){
+      const db = STATE.db;
+      const ref = collection(db, CONFIG.EVENTS_COLLECTION);
 
       try{
         const snap = await getDocs(ref);
         const items = [];
 
         snap.forEach(docSnap => {
-          const data = docSnap.data() || {};
-          const id = docSnap.id;
+          const x = docSnap.data() || {};
+          if(x.type !== 'putDown') return;
+          if(x.status === 'pickedUp') return; // fully closed
 
-          const cap = Number(data.capacity || data.capacityBu || 0);
-          const onHand = Number(data.onHand || data.onHandBu || 0);
-          const cropType = data.cropType || data.lastCropType || '';
-          const moist = data.moisture ?? data.lastCropMoisture ?? null;
-          const updatedMs = data.lastUpdatedMs || null;
+          const counts = x.counts || {};
+          const full = Number(counts.full || 0);
+          const partial = Number(counts.partial || 0);
+          const totalBags = full + partial;
+          if(totalBags <= 0) return;
+
+          const fieldId = x.field?.id || null;
+          const fieldInfo = fieldId ? STATE.fieldMap.get(fieldId) : null;
+          const fieldName = x.field?.name || fieldInfo?.fieldName || 'Unknown field';
+          const farmId = fieldInfo?.farmId || fieldId || 'unknown';
+          const farmName = fieldInfo?.farmName || 'Unknown farm';
+
+          const cropType = x.cropType || x.crop || 'Unknown crop';
+          const cropYear = x.cropYear || null;
+
+          // Bag SKU
+          const sku = x.bagSku || {};
+          const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
+          const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
+          const skuBrand = sku.brand || 'Bag';
+          const skuLocation = sku.location || '';
+
+          const buPerFoot = estimateBuPerFoot(diameterFt);
+          const capPerBagBu = (sizeFeet > 0 && buPerFoot > 0) ? sizeFeet * buPerFoot : 0;
+
+          const capacityBu = capPerBagBu * (full + partial);
+          const onHandBagEq = full + 0.5 * partial;
+          const onHandBu = capPerBagBu > 0 ? onHandBagEq * capPerBagBu : 0;
+
+          // Dates
           let updatedAt = null;
-          if(updatedMs && Number.isFinite(Number(updatedMs))){
-            updatedAt = new Date(Number(updatedMs));
+          const rawUpdated = x.updatedAt || x.createdAt || null;
+          if(rawUpdated && typeof rawUpdated.toDate === 'function'){
+            updatedAt = rawUpdated.toDate();
+          }else if(typeof rawUpdated === 'number'){
+            updatedAt = new Date(rawUpdated);
           }
 
+          let datePlaced = null;
+          if(typeof x.datePlaced === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.datePlaced)){
+            datePlaced = new Date(x.datePlaced + 'T00:00:00');
+          }
+
+          const submittedByName =
+            x.submittedBy?.name ||
+            x.submittedBy?.email ||
+            '';
+
+          const updatedBy = submittedByName;
+
           items.push({
-            id,
+            id: docSnap.id,
             data: {
-              fieldId: data.fieldId || '',
-              fieldName: data.fieldName || 'Unknown field',
-              farmName: data.farmName || '',
-              bagLabel: data.bagLabel || data.label || '',
-              capacity: cap,
-              onHand,
+              farmId,
+              farmName,
+              fieldId,
+              fieldName,
               cropType,
-              cropYear: data.cropYear || '',
-              moisture: moist,
-              lastUpdatedBy: data.lastUpdatedBy || '',
-              lastUpdatedAt: updatedAt,
-              location: data.location || data.locationNotes || ''
+              cropYear,
+              datePlaced,
+              cropMoisture: (x.cropMoisture !== undefined ? x.cropMoisture : null),
+              skuBrand,
+              skuSizeFeet: sizeFeet || null,
+              skuDiameterFt: diameterFt || null,
+              skuLocation,
+              fullBags: full,
+              partialBags: partial,
+              totalBags,
+              buPerFoot,
+              capPerBagBu,
+              capacityBu,
+              onHandBu,
+              priority: x.priority || null,
+              notes: x.notes || '',
+              submittedByName,
+              updatedAt,
+              updatedBy
             }
           });
+
+          // track sets
+          STATE.cropSet.add(cropType || 'Unknown crop');
+          STATE.farmMap.set(farmId, farmName);
         });
 
         STATE.items = items;
-        STATE.fieldMap = new Map();
-        STATE.cropSet = new Set();
-
-        items.forEach(it => {
-          const d = it.data;
-          const fieldKey = d.fieldId || d.fieldName;
-          if(fieldKey){
-            STATE.fieldMap.set(fieldKey, d.fieldName || 'Unknown field');
-          }
-          if(d.cropType){
-            STATE.cropSet.add(d.cropType);
-          } else {
-            STATE.cropSet.add('Unknown crop');
-          }
-        });
       }catch(err){
-        console.error('Error loading grain bag inventory:', err);
+        console.error('Error loading grain bag events:', err);
         const emptyEl = $('.wo-empty');
         emptyEl.style.display = 'block';
         emptyEl.textContent = 'Error loading grain bag inventory. Check console or Firestore rules.';
@@ -711,9 +823,11 @@
 
     function populateFiltersFromItems(){
       const cropSel = $('#filterCrop');
+      const farmSel = $('#filterFarm');
       const fieldSel = $('#filterField');
-      if(!cropSel || !fieldSel) return;
+      if(!cropSel || !farmSel || !fieldSel) return;
 
+      // crops
       cropSel.innerHTML = '<option value="all">All crops</option>';
       const crops = Array.from(STATE.cropSet).filter(Boolean).sort((a,b)=>a.localeCompare(b));
       crops.forEach(crop => {
@@ -723,46 +837,61 @@
         cropSel.appendChild(opt);
       });
 
-      fieldSel.innerHTML = '<option value="all">All fields</option>';
-      Array.from(STATE.fieldMap.entries())
+      // farms
+      farmSel.innerHTML = '<option value="all">All farms</option>';
+      Array.from(STATE.farmMap.entries())
         .sort((a,b)=> (a[1] || '').localeCompare(b[1] || ''))
         .forEach(([id,label]) => {
           const opt = document.createElement('option');
           opt.value = id;
           opt.textContent = label;
-          fieldSel.appendChild(opt);
+          farmSel.appendChild(opt);
         });
+
+      // fields (only ones present in items)
+      fieldSel.innerHTML = '<option value="all">All fields</option>';
+      const usedFieldIds = new Set(STATE.items.map(it => it.data.fieldId).filter(Boolean));
+      const fieldEntries = Array.from(STATE.fieldMap.entries())
+        .filter(([id]) => usedFieldIds.has(id))
+        .sort((a,b)=> (a[1].fieldName || '').localeCompare(b[1].fieldName || ''));
+
+      fieldEntries.forEach(([id,meta]) => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = meta.fieldName;
+        fieldSel.appendChild(opt);
+      });
     }
 
     function applyFilters(){
       const cropSel  = $('#filterCrop');
+      const farmSel  = $('#filterFarm');
       const fieldSel = $('#filterField');
       const searchEl = $('#filterSearch');
 
-      const cropFilter = (cropSel?.value || 'all');
+      const cropFilter  = (cropSel?.value || 'all');
+      const farmFilter  = (farmSel?.value || 'all');
       const fieldFilter = (fieldSel?.value || 'all');
       const q = (searchEl?.value || '').trim().toLowerCase();
 
       const filtered = STATE.items.filter(it => {
         const d = it.data;
 
-        // only show bags with grain on hand
-        if(!(Number(d.onHand) > 0)) return false;
+        if(!(d.totalBags > 0 && d.onHandBu > 0)) return false;
 
-        const cropName = d.cropType || 'Unknown crop';
-        if(cropFilter !== 'all' && cropName !== cropFilter) return false;
-
-        const fieldKey = d.fieldId || d.fieldName;
-        if(fieldFilter !== 'all' && fieldKey !== fieldFilter) return false;
+        if(cropFilter !== 'all' && (d.cropType || 'Unknown crop') !== cropFilter) return false;
+        if(farmFilter !== 'all' && (d.farmId || '') !== farmFilter) return false;
+        if(fieldFilter !== 'all' && (d.fieldId || '') !== fieldFilter) return false;
 
         if(q){
           const hay = [
-            d.fieldName,
             d.farmName,
-            d.bagLabel,
-            cropName,
-            d.location,
-            d.lastUpdatedBy
+            d.fieldName,
+            d.cropType,
+            d.cropYear,
+            d.skuBrand,
+            d.skuLocation,
+            d.submittedByName
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -808,7 +937,7 @@
       let min = Infinity;
       let max = -Infinity;
       items.forEach(it => {
-        const d = it.data.lastUpdatedAt;
+        const d = it.data.updatedAt;
         if(!d) return;
         const t = d.getTime();
         if(t < min) min = t;
@@ -825,6 +954,7 @@
 
     function summarizeFilters(){
       const cropSel  = $('#filterCrop');
+      const farmSel  = $('#filterFarm');
       const fieldSel = $('#filterField');
       const searchEl = $('#filterSearch');
 
@@ -832,46 +962,61 @@
         ? 'All crops'
         : `Crop: ${cropSel.value}`;
 
+      let farmLabel = 'All farms';
+      if (farmSel && farmSel.value !== 'all'){
+        const id = farmSel.value;
+        farmLabel = STATE.farmMap.get(id) || 'Selected farm';
+      }
+
       let fieldLabel = 'All fields';
       if (fieldSel && fieldSel.value !== 'all'){
         const id = fieldSel.value;
-        fieldLabel = STATE.fieldMap.get(id) || 'Selected field';
+        const meta = STATE.fieldMap.get(id);
+        fieldLabel = meta?.fieldName || 'Selected field';
       }
 
       const searchVal = (searchEl?.value || '').trim();
       const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
 
-      return `${cropLabel} • ${fieldLabel} • ${searchLabel}`;
+      return `${cropLabel} • ${farmLabel} • ${fieldLabel} • ${searchLabel}`;
     }
 
     function groupForPdf(items){
-      const cropMap = new Map(); // crop -> Map(fieldName -> [items])
+      const farmMap = new Map(); // farm -> crop -> field -> [items]
       items.forEach(it => {
         const d = it.data;
+        const farm = d.farmName || 'Unknown farm';
         const crop = d.cropType || 'Unknown crop';
         const field = d.fieldName || 'Unknown field';
 
+        if(!farmMap.has(farm)) farmMap.set(farm, new Map());
+        const cropMap = farmMap.get(farm);
         if(!cropMap.has(crop)) cropMap.set(crop, new Map());
         const fieldMap = cropMap.get(crop);
         if(!fieldMap.has(field)) fieldMap.set(field, []);
         fieldMap.get(field).push(it);
       });
 
-      const crops = Array.from(cropMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
-      crops.forEach(([, fieldMap]) => {
-        Array.from(fieldMap.entries()).forEach(([fieldName, arr]) => {
-          arr.sort((a,b) => {
-            const la = String(a.data.bagLabel || '').localeCompare(String(b.data.bagLabel || ''));
-            return la;
+      const farms = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+      farms.forEach(([, cropMap]) => {
+        Array.from(cropMap.entries()).forEach(([, fieldMap]) => {
+          Array.from(fieldMap.entries()).forEach(([fieldName, arr]) => {
+            arr.sort((a,b) => {
+              const da = a.data.datePlaced || null;
+              const db = b.data.datePlaced || null;
+              const ta = da ? da.getTime() : 0;
+              const tb = db ? db.getTime() : 0;
+              return ta - tb;
+            });
           });
         });
       });
 
-      return crops; // [ [cropName, Map(fieldName -> [items])] ]
+      return farms; // [ [farmName, Map(crop -> Map(field -> [items]))] ]
     }
 
     async function handlePrintClick(){
-      const items = getWorkingItems().filter(it => Number(it.data.onHand || 0) > 0);
+      const items = getWorkingItems().filter(it => it.data.totalBags > 0 && it.data.onHandBu > 0);
       if (!items.length){
         alert('No grain bag inventory matches the current filters to print.');
         return;
@@ -883,12 +1028,12 @@
       const runStr = formatDateTime(now);
       const runDateOnly = formatDate(now);
 
-      const totalOnHand = items.reduce((sum,it) => sum + (Number(it.data.onHand) || 0), 0);
-      const totalCapacity = items.reduce((sum,it) => sum + (Number(it.data.capacity) || 0), 0);
+      const totalOnHandBu = items.reduce((sum,it) => sum + (Number(it.data.onHandBu) || 0), 0);
+      const totalCapacityBu = items.reduce((sum,it) => sum + (Number(it.data.capacityBu) || 0), 0);
+      const farms = new Set(items.map(it => it.data.farmId || it.data.farmName));
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
-      const crops = new Set(items.map(it => it.data.cropType || 'Unknown crop'));
-      const bagsCount = items.length;
-      const pct = totalCapacity > 0 ? (totalOnHand / totalCapacity) * 100 : 0;
+      const bagEntries = items.length;
+      const pct = totalCapacityBu > 0 ? (totalOnHandBu / totalCapacityBu) * 100 : 0;
 
       const dateRange = computeDateRange(items);
       const filterSummary = summarizeFilters();
@@ -901,11 +1046,11 @@
         dateRange,
         filterSummary,
         totalRecords,
-        totalOnHand,
-        totalCapacity,
+        totalOnHandBu,
+        totalCapacityBu,
         pct,
+        farmCount: farms.size,
         fieldCount: fields.size,
-        cropCount: crops.size,
         grouped
       });
 
@@ -942,11 +1087,11 @@
       dateRange,
       filterSummary,
       totalRecords,
-      totalOnHand,
-      totalCapacity,
+      totalOnHandBu,
+      totalCapacityBu,
       pct,
+      farmCount,
       fieldCount,
-      cropCount,
       grouped
     }){
       return `<!doctype html>
@@ -1212,7 +1357,7 @@
 
     <section class="report-title-block">
       <h1 class="report-title">Grain Bag Inventory</h1>
-      <p class="report-subtitle">Current grain on hand in field grain bags, grouped by crop, field, and bag.</p>
+      <p class="report-subtitle">Estimated grain on hand in field grain bags, grouped by farm, crop, and field.</p>
 
       <div class="report-summary-strip">
         <div class="summary-pill">
@@ -1224,7 +1369,7 @@
           <span class="summary-value">${escapeHtml(filterSummary)}</span>
         </div>
         <div class="summary-pill">
-          <span class="summary-label">Bag records</span>
+          <span class="summary-label">Bag entries</span>
           <span class="summary-value">${totalRecords}</span>
         </div>
       </div>
@@ -1233,79 +1378,86 @@
     <section class="section">
       <div class="section-heading-row">
         <div class="section-title-main">Key Metrics</div>
-        <div class="section-note">Snapshot at the time of report generation.</div>
+        <div class="section-note">Snapshot at the time of report generation. Bushels are estimated from bag length and diameter.</div>
       </div>
       <div class="kpi-row">
         <div class="kpi-card">
-          <div class="kpi-label">Grain on hand in bags</div>
-          <div class="kpi-value">${formatNumber(totalOnHand)} bu</div>
-          <div class="kpi-footnote">Across all grain bags currently holding grain</div>
+          <div class="kpi-label">Estimated grain on hand</div>
+          <div class="kpi-value">${formatNumber(totalOnHandBu)} bu</div>
+          <div class="kpi-footnote">Across all open grain bag entries</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Tracked capacity</div>
-          <div class="kpi-value">${formatNumber(totalCapacity)} bu</div>
-          <div class="kpi-footnote">${totalCapacity > 0 ? ('Approx. ' + pct.toFixed(1) + '% full') : 'Capacity not fully defined'}</div>
+          <div class="kpi-label">Tracked bag capacity</div>
+          <div class="kpi-value">${formatNumber(totalCapacityBu)} bu</div>
+          <div class="kpi-footnote">${totalCapacityBu > 0 ? ('Approx. ' + pct.toFixed(1) + '% filled') : 'Capacity not fully defined'}</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Fields & crops</div>
-          <div class="kpi-value">${fieldCount} fields / ${cropCount} crops</div>
-          <div class="kpi-footnote">Fields with non-zero grain on hand in bags</div>
+          <div class="kpi-label">Farms & fields</div>
+          <div class="kpi-value">${farmCount} farms / ${fieldCount} fields</div>
+          <div class="kpi-footnote">Locations with non-zero estimated grain on hand</div>
         </div>
       </div>
     </section>
 
     <section class="section">
-      <h2 class="section-title">Detail by Crop, Field, and Bag</h2>
+      <h2 class="section-title">Detail by Farm, Crop, Field, and Bag</h2>
       <div class="section-body">
-        ${grouped.map(([cropName, fieldMap]) => {
-          const fieldsArr = Array.from(fieldMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
-          const bagCount = fieldsArr.reduce((sum, [, arr]) => sum + arr.length, 0);
+        ${grouped.map(([farmName, cropMap]) => {
+          const cropsArr = Array.from(cropMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+          const bagCount = cropsArr.reduce((sum, [, fieldMap]) =>
+            sum + Array.from(fieldMap.values()).reduce((s, arr) => s + arr.length, 0), 0);
           return `
           <div class="crop-block">
-            <div class="farm-title">${escapeHtml(cropName)}</div>
-            <p class="farm-subtitle">${bagCount} bag${bagCount === 1 ? '' : 's'} currently holding this crop.</p>
-            ${fieldsArr.map(([fieldName, arr]) => {
-              const fieldTotalOnHand = arr.reduce((s,it)=> s + (Number(it.data.onHand) || 0), 0);
+            <div class="farm-title">${escapeHtml(farmName)}</div>
+            <p class="farm-subtitle">${bagCount} bag entr${bagCount===1?'y':'ies'} currently open on this farm.</p>
+            ${cropsArr.map(([cropName, fieldMap]) => {
+              const fieldsArr = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
               return `
-                <div class="farm-subtitle" style="margin-top:4px;"><strong>${escapeHtml(fieldName)}</strong> • ${formatNumber(fieldTotalOnHand)} bu on hand</div>
-                <div class="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th style="width:14%">Bag label</th>
-                        <th style="width:16%">On hand (bu)</th>
-                        <th style="width:16%">Capacity (bu)</th>
-                        <th style="width:10%">% full</th>
-                        <th style="width:12%">Crop year</th>
-                        <th style="width:12%">Moisture</th>
-                        <th style="width:16%">Last updated</th>
-                        <th>Updated by</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${arr.map(it => {
-                        const d = it.data;
-                        const cap = Number(d.capacity) || 0;
-                        const onHand = Number(d.onHand) || 0;
-                        const pctFull = cap > 0 ? (onHand / cap) * 100 : 0;
-                        const moist = d.moisture ?? null;
-                        const updated = d.lastUpdatedAt || null;
-                        return `
+                <div class="farm-subtitle" style="margin-top:6px;"><strong>${escapeHtml(cropName)}</strong></div>
+                ${fieldsArr.map(([fieldName, arr]) => {
+                  const fieldTotal = arr.reduce((s,it)=> s + (Number(it.data.onHandBu) || 0), 0);
+                  return `
+                    <div class="farm-subtitle" style="margin-left:8px;margin-top:2px;">
+                      <strong>${escapeHtml(fieldName)}</strong> • approx ${formatNumber(fieldTotal)} bu on hand
+                    </div>
+                    <div class="table-wrap" style="margin-left:8px;">
+                      <table>
+                        <thead>
                           <tr>
-                            <td>${escapeHtml(String(d.bagLabel || it.id))}</td>
-                            <td class="cell-right">${formatNumber(onHand)}</td>
-                            <td class="cell-right">${formatNumber(cap)}</td>
-                            <td class="cell-right">${cap > 0 ? pctFull.toFixed(1) + '%' : ''}</td>
-                            <td>${d.cropYear ? escapeHtml(String(d.cropYear)) : ''}</td>
-                            <td>${moist !== null && moist !== undefined ? moist + '%' : ''}</td>
-                            <td>${updated ? escapeHtml(formatDate(updated)) : ''}</td>
-                            <td>${escapeHtml(d.lastUpdatedBy || '')}</td>
+                            <th style="width:18%">Bag SKU</th>
+                            <th style="width:10%">Full</th>
+                            <th style="width:10%">Partial</th>
+                            <th style="width:18%">Est. on hand (bu)</th>
+                            <th style="width:14%">Bag capacity (bu)</th>
+                            <th style="width:10%">Crop year</th>
+                            <th style="width:12%">Moisture</th>
+                            <th style="width:16%">Placed</th>
                           </tr>
-                        `;
-                      }).join('')}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          ${arr.map(it => {
+                            const d = it.data;
+                            return `
+                              <tr>
+                                <td>${escapeHtml((d.skuBrand || 'Bag') +
+                                  (d.skuSizeFeet ? ' · ' + d.skuSizeFeet + ' ft' : '') +
+                                  (d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : '')
+                                )}</td>
+                                <td class="cell-right">${d.fullBags}</td>
+                                <td class="cell-right">${d.partialBags}</td>
+                                <td class="cell-right">${formatNumber(d.onHandBu)}</td>
+                                <td class="cell-right">${d.capacityBu ? formatNumber(d.capacityBu) : ''}</td>
+                                <td>${d.cropYear ? escapeHtml(String(d.cropYear)) : ''}</td>
+                                <td>${d.cropMoisture !== null && d.cropMoisture !== undefined ? d.cropMoisture + '%' : ''}</td>
+                                <td>${d.datePlaced ? escapeHtml(formatDate(d.datePlaced)) : ''}</td>
+                              </tr>
+                            `;
+                          }).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  `;
+                }).join('')}
               `;
             }).join('')}
           </div>
@@ -1316,7 +1468,7 @@
 
     <footer class="report-footer">
       <div class="footer-left">
-        Internal use only. Inventory values reflect the last recorded movements and manual adjustments in FarmVista.
+        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated based on bag length and diameter; adjust conversion factors as needed for your operation.
       </div>
       <div class="footer-right">
         FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
@@ -1346,20 +1498,24 @@
         clearDetails();
       });
 
-      await loadGrainBags();
+      await loadFieldsMap();
+      await loadGrainBagInventory();
       populateFiltersFromItems();
 
       const cropSel  = $('#filterCrop');
+      const farmSel  = $('#filterFarm');
       const fieldSel = $('#filterField');
       const searchEl = $('#filterSearch');
       const clearBtn = $('#filterClear');
 
       if(cropSel)  cropSel.addEventListener('change', applyFilters);
+      if(farmSel)  farmSel.addEventListener('change', applyFilters);
       if(fieldSel) fieldSel.addEventListener('change', applyFilters);
       if(searchEl) searchEl.addEventListener('input', applyFilters);
       if(clearBtn){
         clearBtn.addEventListener('click', () => {
           if(cropSel)  cropSel.value  = 'all';
+          if(farmSel)  farmSel.value  = 'all';
           if(fieldSel) fieldSel.value = 'all';
           if(searchEl) searchEl.value = '';
           applyFilters();
@@ -1385,8 +1541,8 @@
           <div>
             <h1>Grain Bag Inventory</h1>
             <p class="muted">
-              Live view of grain currently on hand in field grain bags, grouped by crop, field, and bag label.
-              Tap a row to see bag details and last update info.
+              Live estimated view of grain stored in field grain bags, grouped by farm, crop, and field.
+              Tap a row to see bag details and the assumptions behind the estimate.
             </p>
           </div>
         </header>
@@ -1415,6 +1571,13 @@
             </div>
 
             <div class="filter-field">
+              <label class="filter-label" for="filterFarm">Farm</label>
+              <select id="filterFarm" class="filter-select">
+                <option value="all">All farms</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
               <label class="filter-label" for="filterField">Field</label>
               <select id="filterField" class="filter-select">
                 <option value="all">All fields</option>
@@ -1427,7 +1590,7 @@
                 id="filterSearch"
                 class="filter-input"
                 type="search"
-                placeholder="Search field, farm, bag label, crop, updated by…"
+                placeholder="Search farm, field, crop, bag SKU, submitted by…"
               />
             </div>
 
@@ -1479,4 +1642,3 @@
   </fv-shell>
 </body>
 </html>
-
