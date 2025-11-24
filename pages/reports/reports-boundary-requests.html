@@ -116,7 +116,7 @@
       opacity:0.8;
     }
 
-    /* Filters (simple) */
+    /* Filters */
     .filters{
       display:flex;
       flex-wrap:wrap;
@@ -231,7 +231,7 @@
       font-weight:600;
     }
 
-    /* Detail panel (in same hero card) */
+    /* Detail panel */
     .wo-detail-panel {
       margin-top:10px;
       border-radius:10px;
@@ -370,20 +370,9 @@
       filteredItems: null,
       selectedId: null,
       db: null,
-      company: null
+      company: null,
+      farmMap: new Map()
     };
-
-    function getTimeFromAny(v){
-      if(!v) return 0;
-      try{
-        if(v.toMillis) return v.toMillis();
-        if(v.toDate) return v.toDate().getTime();
-        if(typeof v === 'number') return v;
-        return new Date(v).getTime() || 0;
-      }catch{
-        return 0;
-      }
-    }
 
     function normalizeStatus(s){
       return String(s || '').trim().replace(/\.+$/,'').toLowerCase();
@@ -436,7 +425,6 @@
 
       emptyEl.style.display = 'none';
 
-      // Stats: open count + farms
       const open = items.filter(it => normalizeStatus(it.data.status) === 'open');
       const farmIds = new Set(open.map(it => it.data.farmId || it.data.farm).filter(Boolean));
 
@@ -565,7 +553,6 @@
         const snap = await getDocs(ref);
         const items = snap.docs.map(docSnap => {
           const data = docSnap.data() || {};
-          // normalize createdAt
           let createdIso = null;
           if (data.timestampISO){
             createdIso = data.timestampISO;
@@ -593,10 +580,9 @@
         items.sort((a,b) => {
           const ta = a.data._createdAtDate ? a.data._createdAtDate.getTime() : 0;
           const tb = b.data._createdAtDate ? b.data._createdAtDate.getTime() : 0;
-          return tb - ta; // newest first
+          return tb - ta;
         });
 
-        // Compute oldest-open age for debug
         const open = items.filter(it => normalizeStatus(it.data.status) === 'open');
         if(open.length){
           const now = Date.now();
@@ -609,6 +595,18 @@
         }
 
         STATE.items = items;
+
+        // build farm map for filter & PDF
+        STATE.farmMap = new Map();
+        items.forEach(it=>{
+          const d = it.data;
+          if(!d.farm) return;
+          const key = d.farmId || d.farm;
+          if(!key) return;
+          if(!STATE.farmMap.has(key)){
+            STATE.farmMap.set(key, d.farm);
+          }
+        });
       }catch(err){
         console.error('Error loading boundary_requests:', err);
         const emptyEl = $('.wo-empty');
@@ -619,7 +617,6 @@
       }
     }
 
-    // --- Filters & sorting used for list AND PDF ---
     function applyFilters(){
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
@@ -659,17 +656,10 @@
     }
 
     function populateFarmFilterFromItems(){
-      const farms = new Map();
-      STATE.items.forEach(it => {
-        const d = it.data;
-        if(!d.farm) return;
-        farms.set(d.farmId || d.farm, d.farm);
-      });
       const farmSelEl = $('#filterFarm');
       if (!farmSelEl) return;
-      // clear existing options except "all"
       farmSelEl.innerHTML = '<option value="all">All farms</option>';
-      Array.from(farms.entries())
+      Array.from(STATE.farmMap.entries())
         .sort((a,b)=> (a[1] || '').localeCompare(b[1] || ''))
         .forEach(([id,label])=>{
           const opt = document.createElement('option');
@@ -679,7 +669,6 @@
         });
     }
 
-    // --- Company header for PDF ---
     async function loadCompanyHeader(){
       if (STATE.company) return STATE.company;
       try{
@@ -688,15 +677,17 @@
         const snap = await getDoc(ref);
         const d = snap.exists() ? (snap.data() || {}) : {};
         const name = d.name || '';
-        const addr = [
+        const address = [
           d.addressStreet || '',
           [d.addressCity, d.addressState].filter(Boolean).join(', '),
           d.addressZip || ''
         ].filter(Boolean).join(' · ');
-        STATE.company = { name, address: addr };
+        const phone = d.phone || '';
+        const email = d.email || '';
+        STATE.company = { name, address, phone, email };
       }catch(e){
         console.warn('[boundary-report] failed to load company header', e);
-        STATE.company = { name: '', address: '' };
+        STATE.company = { name:'', address:'', phone:'', email:'' };
       }
       return STATE.company;
     }
@@ -738,6 +729,43 @@
       return farms;
     }
 
+    function summarizeFilters(){
+      const statusSel = $('#filterStatus');
+      const farmSel   = $('#filterFarm');
+      const searchEl  = $('#filterSearch');
+
+      const statusLabel = statusSel?.value === 'all' ? 'All statuses' : 'Open only';
+      let farmLabel = 'All farms';
+      if (farmSel && farmSel.value !== 'all'){
+        const id = farmSel.value;
+        farmLabel = STATE.farmMap.get(id) || 'Selected farm';
+      }
+      const searchVal = (searchEl?.value || '').trim();
+      const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
+
+      return `${statusLabel} • ${farmLabel} • ${searchLabel}`;
+    }
+
+    function computeDateRange(items){
+      if (!items.length) return '';
+      let min = Infinity;
+      let max = -Infinity;
+      items.forEach(it=>{
+        const d = it.data._createdAtDate;
+        if(!d) return;
+        const t = d.getTime();
+        if(t < min) min = t;
+        if(t > max) max = t;
+      });
+      if(!Number.isFinite(min) || !Number.isFinite(max)) return '';
+      const dMin = new Date(min);
+      const dMax = new Date(max);
+      if (dMin.toDateString() === dMax.toDateString()){
+        return formatDate(dMin);
+      }
+      return `${formatDate(dMin)} – ${formatDate(dMax)}`;
+    }
+
     async function handlePrintClick(){
       const items = getWorkingItems();
       if (!items.length){
@@ -749,79 +777,393 @@
       const grouped = groupForPdf(items);
       const now = new Date();
       const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const openItems = items.filter(it => normalizeStatus(it.data.status) === 'open');
+      const openCount = openItems.length;
+      const farmCount = new Set(openItems.map(it => it.data.farmId || it.data.farm).filter(Boolean)).size;
+
+      let oldestOpenAge = '';
+      if (openItems.length){
+        const nowMs = Date.now();
+        const oldestMs = openItems.reduce((min,it)=>{
+          const d = it.data._createdAtDate;
+          const t = d ? d.getTime() : nowMs;
+          return t < min ? t : min;
+        }, nowMs);
+        oldestOpenAge = formatAgeMs(nowMs - oldestMs);
+      }
+
+      const dateRange = computeDateRange(items);
+      const filterSummary = summarizeFilters();
+
+      const totalRecords = items.length;
 
       const htmlParts = [];
-      htmlParts.push(`
-<!doctype html>
+      htmlParts.push(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Field Boundary Fix Requests</title>
   <style>
-    body{ font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin:24px; color:#111827; }
-    h1{ font-size:20px; margin:0 0 4px; }
-    h2{ font-size:16px; margin:18px 0 6px; border-bottom:1px solid #e5e7eb; padding-bottom:3px; }
-    .company{ font-size:13px; margin-bottom:12px; }
-    .meta{ font-size:12px; color:#4b5563; margin-bottom:16px; }
-    table{ width:100%; border-collapse:collapse; margin-top:4px; page-break-inside:avoid; }
-    th,td{ font-size:11px; border:1px solid #e5e7eb; padding:4px 6px; vertical-align:top; }
-    th{ background:#f3f4f6; text-align:left; }
-    .notes{ white-space:pre-wrap; }
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--fv-text);
+      background:var(--fv-bg);
+    }
+    body{
+      display:flex;
+      justify-content:center;
+      padding:24px 12px;
+    }
+    .page{
+      width:100%;
+      max-width:900px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.15);
+      padding:24px 28px 28px;
+    }
+    .report-header{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      gap:16px;
+      align-items:center;
+      border-bottom:2px solid var(--fv-green);
+      padding-bottom:14px;
+      margin-bottom:18px;
+    }
+    .report-logo{
+      width:64px;
+      height:64px;
+      border-radius:16px;
+      border:1px solid var(--fv-border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:26px;
+      font-weight:800;
+      color:#fff;
+      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+    }
+    .report-logo span{letter-spacing:0.02em;}
+    .company-block{min-width:0;}
+    .company-name{
+      font-size:18px;
+      font-weight:800;
+      margin:0 0 2px;
+    }
+    .company-line{
+      font-size:12px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-meta-top{
+      text-align:right;
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .report-meta-top strong{color:var(--fv-text);}
+    .report-title-block{margin-bottom:16px;}
+    .report-title{
+      font-size:20px;
+      font-weight:800;
+      margin:4px 0 4px;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+    }
+    .report-subtitle{
+      font-size:13px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-summary-strip{
+      margin-top:12px;
+      padding:8px 10px;
+      border-radius:10px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
+      border:1px solid rgba(59,126,70,0.20);
+      font-size:11px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 16px;
+    }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      white-space:nowrap;
+    }
+    .summary-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-weight:600;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .summary-value{
+      font-weight:600;
+      font-size:11px;
+    }
+    .section{margin-top:18px;}
+    .section-heading-row{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .section-title-main{
+      font-size:15px;
+      font-weight:700;
+      letter-spacing:0.03em;
+      text-transform:uppercase;
+    }
+    .section-note{
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .kpi-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:6px;
+    }
+    .kpi-card{
+      flex:1 1 140px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      padding:8px 10px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #ffffff);
+    }
+    .kpi-label{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--fv-muted);
+      margin-bottom:2px;
+    }
+    .kpi-value{
+      font-size:16px;
+      font-weight:800;
+    }
+    .kpi-footnote{
+      font-size:10px;
+      color:var(--fv-muted);
+      margin-top:2px;
+    }
+    .section-title{
+      font-size:13px;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .section-body{
+      font-size:12px;
+      line-height:1.5;
+    }
+    .farm-block{margin-top:10px;}
+    .farm-title{
+      font-size:13px;
+      font-weight:700;
+      margin:8px 0 4px;
+    }
+    .farm-subtitle{
+      font-size:11px;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .table-wrap{
+      margin-top:4px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      overflow:hidden;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:11px;
+    }
+    thead{
+      background:#F9FAFB;
+    }
+    th, td{
+      padding:6px 8px;
+      border-bottom:1px solid #E5E7EB;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:10px;
+      color:#4B5563;
+      border-bottom:1px solid #D1D5DB;
+    }
+    tr:nth-child(even) td{
+      background:#F9FAFB;
+    }
+    .cell-right{text-align:right;}
+    .notes{white-space:pre-wrap;}
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid var(--fv-border);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .footer-left{max-width:60%;}
+    .footer-right{text-align:right;}
     @media print{
-      body{ margin:12mm; }
-      .no-print{ display:none !important; }
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{
+        max-width:none;
+        border-radius:0;
+        box-shadow:none;
+        padding:12mm 14mm;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="company">
-    ${company.name ? `<strong>${escapeHtml(company.name)}</strong><br>` : ''}
-    ${company.address ? `${escapeHtml(company.address)}<br>` : ''}
-  </div>
-  <div class="meta">
-    Field Boundary Fix Requests &nbsp;•&nbsp; Generated ${escapeHtml(runStr)}
-  </div>
-`);
+  <div class="page">
+    <header class="report-header">
+      <div class="report-logo">
+        <span>DF</span>
+      </div>
+      <div class="company-block">
+        <p class="company-name">${escapeHtml(company.name || '')}</p>
+        <p class="company-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="report-meta-top">
+        <div><strong>Field Boundary Fix Requests</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
 
-      grouped.forEach(([farmName, arr])=>{
-        htmlParts.push(`<h2>${escapeHtml(farmName)}</h2>`);
-        htmlParts.push(`
-<table>
-  <thead>
-    <tr>
-      <th style="width:12%">Field</th>
-      <th style="width:9%">Scope</th>
-      <th style="width:9%">Type</th>
-      <th style="width:9%">Status</th>
-      <th style="width:16%">Submitted By</th>
-      <th style="width:10%">Date</th>
-      <th>Notes</th>
-    </tr>
-  </thead>
-  <tbody>
-`);
-        arr.forEach(it=>{
-          const d = it.data;
-          const created = d._createdAtDate || null;
-          htmlParts.push(`
-    <tr>
-      <td>${escapeHtml(d.field || '')}</td>
-      <td>${escapeHtml(d.scope || '')}</td>
-      <td>${escapeHtml(d.boundaryType || '')}</td>
-      <td>${escapeHtml(d.status || '')}</td>
-      <td>${escapeHtml((d.submittedBy || '') + (d.submittedByEmail ? ' · ' + d.submittedByEmail : ''))}</td>
-      <td>${escapeHtml(created ? formatDate(created) : '')}</td>
-      <td class="notes">${escapeHtml(d.notes || '')}</td>
-    </tr>
-`);
-        });
-        htmlParts.push(`
-  </tbody>
-</table>
-`);
-      });
+    <section class="report-title-block">
+      <h1 class="report-title">Field Boundary Fix Requests</h1>
+      <p class="report-subtitle">Open and recent boundary correction requests grouped by farm and field.</p>
 
-      htmlParts.push(`
+      <div class="report-summary-strip">
+        <div class="summary-pill">
+          <span class="summary-label">Date range</span>
+          <span class="summary-value">${escapeHtml(dateRange || 'All dates')}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Filters</span>
+          <span class="summary-value">${escapeHtml(filterSummary)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Records</span>
+          <span class="summary-value">${totalRecords}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading-row">
+        <div class="section-title-main">Key Metrics</div>
+        <div class="section-note">Snapshot at the time of report generation.</div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Open Requests</div>
+          <div class="kpi-value">${openCount}</div>
+          <div class="kpi-footnote">Total open boundary fix requests</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Farms With Open Requests</div>
+          <div class="kpi-value">${farmCount}</div>
+          <div class="kpi-footnote">Unique farms with at least one open request</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Oldest Open Age</div>
+          <div class="kpi-value">${escapeHtml(oldestOpenAge || 'N/A')}</div>
+          <div class="kpi-footnote">Age of the oldest open request</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Detail by Farm</h2>
+      <div class="section-body">
+        ${grouped.map(([farmName, arr]) => {
+          const openHere = arr.filter(it => normalizeStatus(it.data.status) === 'open').length;
+          const totalHere = arr.length;
+          return `
+          <div class="farm-block">
+            <div class="farm-title">${escapeHtml(farmName)}</div>
+            <p class="farm-subtitle">${openHere} open of ${totalHere} total requests for this farm.</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:12%">Field</th>
+                    <th style="width:9%">Scope</th>
+                    <th style="width:9%">Type</th>
+                    <th style="width:9%">Status</th>
+                    <th style="width:18%">Submitted By</th>
+                    <th style="width:12%">Date</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${arr.map(it => {
+                    const d = it.data;
+                    const created = d._createdAtDate || null;
+                    const submitLine = (d.submittedBy || '') + (d.submittedByEmail ? ' · ' + d.submittedByEmail : '');
+                    return `
+                      <tr>
+                        <td>${escapeHtml(d.field || '')}</td>
+                        <td>${escapeHtml(d.scope || '')}</td>
+                        <td>${escapeHtml(d.boundaryType || '')}</td>
+                        <td>${escapeHtml(d.status || '')}</td>
+                        <td>${escapeHtml(submitLine || '')}</td>
+                        <td>${escapeHtml(created ? formatDate(created) : '')}</td>
+                        <td class="notes">${escapeHtml(d.notes || '')}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          `;
+        }).join('')}
+      </div>
+    </section>
+
+    <footer class="report-footer">
+      <div class="footer-left">
+        Internal use only. Please verify boundary fixes in your GIS system before finalizing changes.
+      </div>
+      <div class="footer-right">
+        FarmVista • Field Boundary Fix Requests • ${escapeHtml(runDateOnly || '')}
+      </div>
+    </footer>
+  </div>
 </body>
 </html>`);
 
@@ -836,7 +1178,6 @@
       w.document.write(html);
       w.document.close();
       w.focus();
-      // Give the browser a moment to render before printing
       setTimeout(()=>{ try{ w.print(); }catch(_){/* ignore */} }, 400);
     }
 
@@ -862,7 +1203,6 @@
       await loadBoundaryRequests();
       populateFarmFilterFromItems();
 
-      // wire filters
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
@@ -880,10 +1220,8 @@
         });
       }
 
-      // initial filter/render
       applyFilters();
 
-      // Print buttons
       const printTop = $('#btnPrint');
       const printBottom = $('#btnPrintBottom');
       if (printTop)    printTop.addEventListener('click', handlePrintClick);
@@ -922,7 +1260,6 @@
             </div>
           </div>
 
-          <!-- Simple filters -->
           <div class="filters">
             <div class="filter-field">
               <label class="filter-label" for="filterStatus">Status</label>
