@@ -165,7 +165,7 @@
       max-width:420px;
     }
 
-    /* Combo styles (match RTK report) */
+    /* Combo styles (same pattern as RTK page) */
     .buttonish{
       width:100%;
       font:inherit;
@@ -218,11 +218,13 @@
       display:none;
     }
     .combo-panel.show{ display:block; }
+
     .combo-panel .list{
       max-height:var(--combo-max-h);
       overflow:auto;
       border-top:1px solid var(--border);
     }
+
     .combo-item{
       padding:var(--combo-item-pad);
       border-bottom:1px solid var(--border);
@@ -852,38 +854,62 @@
     }
 
     /* ======================
-       Simple combo helper
+       Combo helpers (copied from RTK report pattern)
        ====================== */
 
     function closeAllCombos(except=null){
-      $$('.combo-panel.show').forEach(p => {
-        if(p !== except) p.classList.remove('show');
-      });
+      $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
     }
     document.addEventListener('click', () => closeAllCombos());
-    document.addEventListener('keydown', e => {
-      if(e.key === 'Escape') closeAllCombos();
-    });
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') closeAllCombos(); });
 
-    function makeCombo({ btn, panel, list, items=[], placeholder='Select', onPick }){
+    function makeCombo({
+      btn,
+      panel,
+      list,
+      searchInput = null,           // not used here, but kept for signature parity
+      placeholder = 'All',
+      includeAll = false,
+      items = [],
+      formatter = x => String(x?.label ?? x),
+      onPick
+    }){
       if(!btn || !panel || !list) return null;
 
       let currentItems = Array.isArray(items) ? items.slice() : [];
+      let selectedId = null;
 
-      function render(){
-        if(!currentItems.length){
-          list.innerHTML = `<div class="combo-empty">(no options)</div>`;
-          return;
+      panel.addEventListener('click', e => e.stopPropagation());
+      panel.addEventListener('mousedown', e => e.stopPropagation());
+
+      function render(q=''){
+        const qq = (q || '').toLowerCase();
+        const rows = [];
+
+        if(includeAll && (!qq || 'all'.includes(qq))){
+          rows.push(`<div class="combo-item" data-id="__all__">All</div>`);
         }
-        list.innerHTML = currentItems.map(x =>
-          `<div class="combo-item" data-id="${escapeHtml(String(x.id))}">${escapeHtml(x.name)}</div>`
-        ).join('');
+
+        currentItems.forEach(x => {
+          const label = formatter(x) || '';
+          if(!qq || label.toLowerCase().includes(qq)){
+            rows.push(
+              `<div class="combo-item" data-id="${escapeHtml(String(x.id))}">${escapeHtml(label)}</div>`
+            );
+          }
+        });
+
+        list.innerHTML = rows.join('') || `<div class="combo-empty">(no options)</div>`;
       }
 
       function open(){
         closeAllCombos(panel);
         panel.classList.add('show');
-        render();
+        render('');
+        if(searchInput){
+          searchInput.value = '';
+          searchInput.focus();
+        }
       }
 
       function close(){
@@ -899,23 +925,47 @@
         const row = e.target.closest('.combo-item');
         if(!row) return;
         const id = row.dataset.id;
-        const item = currentItems.find(x => String(x.id) === id);
-        if(!item) return;
-        btn.textContent = item.name || placeholder;
-        onPick?.(item);
+
+        if(id === '__all__'){
+          selectedId = 'all';
+          btn.textContent = placeholder;
+          onPick?.(null);
+          close();
+          return;
+        }
+
+        const it = currentItems.find(x => String(x.id) === id);
+        if(!it) return;
+
+        selectedId = String(it.id);
+        btn.textContent = formatter(it);
+        onPick?.(it);
         close();
       });
 
-      render();
+      if(searchInput){
+        searchInput.addEventListener('input', e => render(e.target.value));
+      }
+
+      // initial render
+      render('');
 
       return {
         setItems(arr){
           currentItems = Array.isArray(arr) ? arr.slice() : [];
-          render();
+          render(searchInput ? searchInput.value : '');
         },
         setValue(id){
-          const item = currentItems.find(x => String(x.id) === String(id));
-          btn.textContent = item ? (item.name || placeholder) : placeholder;
+          selectedId = !id ? null : String(id);
+          if(!selectedId || selectedId === 'all'){
+            btn.textContent = placeholder;
+          }else{
+            const it = currentItems.find(x => String(x.id) === selectedId);
+            btn.textContent = it ? formatter(it) : placeholder;
+          }
+        },
+        getValue(){
+          return selectedId || 'all';
         }
       };
     }
@@ -1094,10 +1144,8 @@
     }
 
     function applyFilters(){
-      // Normalize location value defensively
       let location = (STATE.filters.location || 'all').toString().toLowerCase();
-      if(location.startsWith('mounted')) location = 'mounted';
-      if(location.startsWith('in storage')) location = 'storage';
+      if(location === '__all__') location = 'all';
 
       const q = (STATE.filters.search || '').trim().toLowerCase();
 
@@ -1149,26 +1197,27 @@
         });
       }
 
-      // Location dropdown combo
+      // Location dropdown combo (using same helper as RTK report)
       const locBtn   = $('#locBtn');
       const locPanel = $('#locPanel');
       const locList  = $('#locList');
 
       const locItems = [
-        { id: 'all',     name: 'All locations' },
-        { id: 'mounted', name: 'Mounted on equipment' },
-        { id: 'storage', name: 'In storage only' }
+        { id: 'all',     label: 'All locations' },
+        { id: 'mounted', label: 'Mounted on equipment' },
+        { id: 'storage', label: 'In storage only' }
       ];
 
       const locCombo = makeCombo({
         btn: locBtn,
         panel: locPanel,
         list: locList,
-        items: locItems,
         placeholder: 'All locations',
+        includeAll: false,
+        items: locItems,
+        formatter: x => x.label,
         onPick: it => {
-          // Force-clean the id we store
-          const id = (it.id || 'all').toString().toLowerCase();
+          const id = (it?.id || 'all').toString().toLowerCase();
           STATE.filters.location = id;
           applyFilters();
         }
