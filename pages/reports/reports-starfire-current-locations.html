@@ -359,7 +359,7 @@
       receivers: [],      // [{id,label,locName,locType,locSince,duration,lastMoveDate,lastMover}]
       filtered: null,
       filters: {
-        location: 'all',  // all | mounted | storage
+        location: 'all',  // 'all' | 'mounted' | 'storage'
         search: ''
       }
     };
@@ -436,11 +436,12 @@
     }
 
     function summarizeFilters(){
-      const { location, search } = STATE.filters;
+      const rawLoc = (STATE.filters.location || 'all').toString().toLowerCase();
       let locLabel = 'All locations';
-      if(location === 'mounted') locLabel = 'Mounted on equipment';
-      if(location === 'storage') locLabel = 'In storage only';
+      if(rawLoc === 'mounted') locLabel = 'Mounted on equipment';
+      if(rawLoc === 'storage') locLabel = 'In storage only';
 
+      const search = STATE.filters.search || '';
       const searchLabel = search
         ? `Search: "${search}"`
         : 'No text filter';
@@ -1093,8 +1094,12 @@
     }
 
     function applyFilters(){
-      const { location, search } = STATE.filters;
-      const q = (search || '').trim().toLowerCase();
+      // Normalize location value defensively
+      let location = (STATE.filters.location || 'all').toString().toLowerCase();
+      if(location.startsWith('mounted')) location = 'mounted';
+      if(location.startsWith('in storage')) location = 'storage';
+
+      const q = (STATE.filters.search || '').trim().toLowerCase();
 
       const filtered = STATE.receivers.filter(r => {
         if(location === 'mounted' && r.locType !== 'mounted') return false;
@@ -1162,7 +1167,9 @@
         items: locItems,
         placeholder: 'All locations',
         onPick: it => {
-          STATE.filters.location = it.id;
+          // Force-clean the id we store
+          const id = (it.id || 'all').toString().toLowerCase();
+          STATE.filters.location = id;
           applyFilters();
         }
       });
