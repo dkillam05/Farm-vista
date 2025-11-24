@@ -21,7 +21,6 @@
       --accent: #2F6C3C;
     }
 
-    /* Make sure anything with [hidden] is actually hidden, even inside fv-shell */
     [hidden] {
       display: none !important;
     }
@@ -127,7 +126,7 @@
       border-radius:999px;
     }
 
-    /* ========== Work-order cards ========== */
+    /* Work-order cards */
 
     .wo-list {
       display:flex;
@@ -207,7 +206,6 @@
       font-weight:600;
     }
 
-    /* Status select on the right */
     .wo-status-wrap {
       flex:0 0 auto;
       display:flex;
@@ -262,7 +260,7 @@
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    /* ========== Detail overlay (modal style) ========== */
+    /* Detail overlay */
 
     .wo-detail-overlay {
       position:fixed;
@@ -407,6 +405,13 @@
       white-space:pre-wrap;
     }
 
+    .wo-detail-divider{
+      height:3px;
+      margin:10px -4px 10px;
+      border-radius:999px;
+      background:linear-gradient(90deg,#3B7E46,#AFCF71);
+    }
+
     .wo-detail-textarea {
       width:100%;
       min-height:80px;
@@ -421,7 +426,7 @@
       box-sizing:border-box;
       white-space:pre-wrap;
       overflow-wrap:break-word;
-      overflow-x:hidden; /* kill horizontal scrollbar */
+      overflow-x:hidden;
     }
 
     .wo-detail-row {
@@ -486,7 +491,8 @@
       filter:brightness(1.05);
     }
 
-    /* Completion card (new form area) */
+    /* Completion card */
+
     .wo-detail-completion{
       margin-top:4px;
       padding:8px 10px 10px;
@@ -494,20 +500,53 @@
       background:color-mix(in srgb, var(--surface) 94%, #000 6%);
       border:1px solid var(--border-soft,var(--border));
     }
+
     .wo-detail-completion .wo-detail-section:first-of-type{
       border-top:none;
       padding-top:4px;
       margin-top:0;
     }
 
-    /* Photos section */
-    .wo-detail-photos{
-      margin-top:8px;
+    .wo-detail-completion-title{
+      font-size:0.9rem;
+      font-weight:700;
+      margin:0 0 4px;
     }
+
     .wo-detail-helper{
       font-size:0.76rem;
       opacity:0.8;
-      margin-top:2px;
+      margin-top:4px;
+    }
+
+    .wo-detail-notes-wrap{
+      position:relative;
+    }
+
+    .wo-detail-notes-wrap textarea{
+      padding-right:36px;
+    }
+
+    .wo-dictation-btn{
+      position:absolute;
+      right:6px;
+      bottom:6px;
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      border:1px solid var(--border-soft,var(--border));
+      background:var(--surface);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0.9rem;
+      cursor:pointer;
+    }
+
+    /* Photos */
+
+    .wo-detail-photos{
+      margin-top:8px;
     }
     .wo-detail-gallery{
       margin-top:6px;
@@ -533,6 +572,7 @@
     }
 
     /* Photo lightbox */
+
     .wo-photo-lightbox{
       position:fixed;
       inset:0;
@@ -569,6 +609,7 @@
     }
 
     /* Map lightbox */
+
     .wo-map-lightbox{
       position:fixed;
       inset:0;
@@ -609,6 +650,7 @@
     }
 
     /* Status choice modal */
+
     .wo-status-modal{
       position:fixed;
       inset:0;
@@ -711,8 +753,8 @@
       currentLocationUrl: ''
     };
 
-    // Lazy-load storage API so we don't break page if it's not wired yet
     let storageApi = null;
+
     async function getStorageApi(){
       if(storageApi) return storageApi;
       try{
@@ -758,21 +800,12 @@
       const diffMs = endDate.getTime() - startDate.getTime();
       if(diffMs <= 0) return '';
 
-      const diffHours = diffMs / (1000 * 60 * 60);
-      const diffDays  = diffHours / 24;
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      let days = Math.round(diffDays);
+      if(days < 1) days = 1;
 
-      let core;
-      if(diffDays >= 1){
-        const daysRounded = Math.round(diffDays * 10) / 10;
-        core = `${daysRounded} day${daysRounded === 1 ? '' : 's'}`;
-      }else{
-        const hoursRounded = Math.round(diffHours * 10) / 10;
-        core = `${hoursRounded} hour${hoursRounded === 1 ? '' : 's'}`;
-      }
-
-      return isCompleted
-        ? `Completed in ${core}`
-        : `Open for ${core} so far`;
+      const label = days === 1 ? '1 Day' : `${days} Days`;
+      return isCompleted ? `Completed ${label}` : `Open ${label}`;
     }
 
     function openPhotoLightbox(url){
@@ -892,6 +925,21 @@
       }
     }
 
+    function isoDateFromField(fieldValue){
+      if(!fieldValue) return '';
+      if(fieldValue.toDate){
+        return fieldValue.toDate().toISOString().slice(0,10);
+      }
+      if(typeof fieldValue === 'string' && fieldValue.length >= 10){
+        return fieldValue.slice(0,10);
+      }
+      try{
+        const d = new Date(fieldValue);
+        if(!isNaN(d.getTime())) return d.toISOString().slice(0,10);
+      }catch{}
+      return '';
+    }
+
     function openDetail(item){
       STATE.currentItem = item;
       const data = item.data;
@@ -923,10 +971,13 @@
       const createdEl = $('#detailCreated');
       const durationEl = $('#detailDuration');
       const origNotesEl = $('#detailNotesOriginal');
-      const compNotesEl = $('#detailNotesCompletion');
-      const whoTypeSel  = $('#detailWhoType');
-      const whoNamesInp = $('#detailWhoNames');
       const completedOnEl = $('#detailCompletedOn');
+
+      const submittedByInp = $('#detailSubmittedBy');
+      const workDateInp = $('#detailWorkDate');
+      const workStartInp = $('#detailWorkRangeStart');
+      const workEndInp = $('#detailWorkRangeEnd');
+      const compNotesEl = $('#detailNotesCompletion');
 
       if(titleEl){
         titleEl.textContent = farm ? `${field} · ${farm}` : field;
@@ -984,25 +1035,33 @@
         origNotesEl.textContent = originalNotes || 'No original description was provided.';
       }
 
+      if(submittedByInp){
+        submittedByInp.value =
+          data.completionSubmittedBy ||
+          data.assignedWorkersNote ||
+          STATE.currentUserName ||
+          '';
+      }
+
+      if(workDateInp){
+        let val = isoDateFromField(data.completionWorkDate);
+        if(!val){
+          const today = new Date();
+          val = today.toISOString().slice(0,10);
+        }
+        workDateInp.value = val;
+      }
+      if(workStartInp){
+        workStartInp.value = isoDateFromField(data.completionWorkStart);
+      }
+      if(workEndInp){
+        workEndInp.value = isoDateFromField(data.completionWorkEnd);
+      }
+
       if(compNotesEl){
         compNotesEl.value = data.completionNotes || '';
       }
 
-      // Worker assignment
-      if(whoTypeSel){
-        whoTypeSel.value = data.assignedWorkerType || 'employee';
-      }
-      if(whoNamesInp){
-        if(data.assignedWorkersNote){
-          whoNamesInp.value = data.assignedWorkersNote;
-        }else if(STATE.currentUserName){
-          whoNamesInp.value = STATE.currentUserName;
-        }else{
-          whoNamesInp.value = '';
-        }
-      }
-
-      // Photos: accept several possible fields
       const existingPhotos =
         data.photos ||
         data.photoUrls ||
@@ -1076,8 +1135,10 @@
       if(!item || !STATE.db) return;
 
       const compNotesEl = $('#detailNotesCompletion');
-      const whoTypeSel  = $('#detailWhoType');
-      const whoNamesInp = $('#detailWhoNames');
+      const submittedByInp = $('#detailSubmittedBy');
+      const workDateInp = $('#detailWorkDate');
+      const workStartInp = $('#detailWorkRangeStart');
+      const workEndInp = $('#detailWorkRangeEnd');
 
       const updates = {
         updatedAt: serverTimestamp(),
@@ -1087,11 +1148,28 @@
       if(compNotesEl){
         updates.completionNotes = compNotesEl.value.trim();
       }
-      if(whoTypeSel){
-        updates.assignedWorkerType = whoTypeSel.value || 'employee';
+      if(submittedByInp){
+        updates.completionSubmittedBy = submittedByInp.value.trim();
       }
-      if(whoNamesInp){
-        updates.assignedWorkersNote = whoNamesInp.value.trim();
+
+      function dateFromInput(inp){
+        if(!inp || !inp.value) return null;
+        const d = new Date(inp.value + 'T12:00:00');
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      const workDateVal = dateFromInput(workDateInp);
+      if(workDateVal){
+        updates.completionWorkDate = workDateVal;
+      }
+
+      const workStartVal = dateFromInput(workStartInp);
+      if(workStartVal){
+        updates.completionWorkStart = workStartVal;
+      }
+      const workEndVal = dateFromInput(workEndInp);
+      if(workEndVal){
+        updates.completionWorkEnd = workEndVal;
       }
 
       const currentStatus = item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING;
@@ -1099,20 +1177,17 @@
         updates.completedAt = serverTimestamp();
       }
 
-      // Only write photos field if we actually have something
       if(STATE.currentPhotos && STATE.currentPhotos.length){
         updates.photos = STATE.currentPhotos;
-        updates.photoUrls = STATE.currentPhotos; // mirror for compatibility
+        updates.photoUrls = STATE.currentPhotos;
       }
 
       try {
         await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, item.id), updates);
 
-        // Update local copy so the data stays in sync
         Object.assign(item.data, updates);
 
         if(newStatus === CONFIG.STATUS_DONE){
-          // Completed → drop from list
           STATE.items = STATE.items.filter(x => x.id !== item.id);
           renderList();
         }else{
@@ -1136,7 +1211,6 @@
         return;
       }
       if(!modal || !inProgRadio || !doneRadio){
-        // Fallback: just keep in progress
         applyDetailSave(item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_INPROG);
         return;
       }
@@ -1149,7 +1223,6 @@
         inProgRadio.checked = true;
         doneRadio.checked = false;
       }else{
-        // Pending → default to In Progress
         inProgRadio.checked = true;
         doneRadio.checked = false;
       }
@@ -1233,7 +1306,6 @@
         const select = card.querySelector('.wo-status-select');
         const chip   = card.querySelector('.wo-status-chip');
 
-        // Set dropdown to current status
         if(status === CONFIG.STATUS_INPROG){
           select.value = CONFIG.STATUS_INPROG;
         }else if(status === CONFIG.STATUS_DONE){
@@ -1244,7 +1316,6 @@
 
         const originalStatus = status || CONFIG.STATUS_PENDING;
 
-        // Status change handler (card-level quick change)
         select.addEventListener('change', async (ev) => {
           const newStatus = ev.target.value;
 
@@ -1261,11 +1332,9 @@
             await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), updates);
 
             if(newStatus === CONFIG.STATUS_DONE){
-              // Completed → drop from list
               STATE.items = STATE.items.filter(x => x.id !== id);
               renderList();
             }else{
-              // Keep in list, update chip + local status
               item.data[CONFIG.STATUS_FIELD] = newStatus;
               Object.assign(item.data, updates);
               if(chip) chip.textContent = newStatus;
@@ -1273,12 +1342,10 @@
           }catch(err){
             console.error('Failed to update status:', err);
             alert('Could not update work order status. Please try again.');
-            // revert dropdown
             ev.target.value = originalStatus || CONFIG.STATUS_PENDING;
           }
         });
 
-        // Card click -> open detail view (ignore clicks directly on the status select)
         card.addEventListener('click', (ev) => {
           if(ev.target.closest('.wo-status-select')) return;
           openDetail(item);
@@ -1310,7 +1377,6 @@
           data: d.data()
         }));
 
-        // Sort newest → oldest by createdAt / dateSubmitted / timestamp
         items.sort((a,b) => {
           const ta = getTime(a.data.createdAt || a.data.dateSubmitted || a.data.timestamp);
           const tb = getTime(b.data.createdAt || b.data.dateSubmitted || b.data.timestamp);
@@ -1331,6 +1397,41 @@
       }
     }
 
+    function setupDictation(){
+      const btn = $('#detailDictationBtn');
+      const textarea = $('#detailNotesCompletion');
+      if(!btn || !textarea) return;
+
+      let recognition = null;
+      try{
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if(SpeechRecognition){
+          recognition = new SpeechRecognition();
+          recognition.continuous = false;
+          recognition.interimResults = false;
+          recognition.lang = 'en-US';
+        }
+      }catch{/* ignore */}
+
+      btn.addEventListener('click', () => {
+        if(!recognition){
+          alert('Voice dictation is not available on this device/browser yet.');
+          return;
+        }
+        recognition.start();
+      });
+
+      if(recognition){
+        recognition.addEventListener('result', (event) => {
+          const transcript = Array.from(event.results)
+            .map(r => r[0].transcript)
+            .join(' ');
+          const sep = textarea.value && !textarea.value.endsWith(' ') ? ' ' : '';
+          textarea.value = textarea.value + sep + transcript;
+        });
+      }
+    }
+
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
@@ -1339,7 +1440,6 @@
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      // Back button
       const backBtn = document.getElementById('btnBack');
       if(backBtn){
         backBtn.addEventListener('click', () => {
@@ -1381,7 +1481,6 @@
         photoInput.addEventListener('change', handlePhotoFiles);
       }
 
-      // Bullets click (location / photos)
       const bulletsEl = $('#detailBullets');
       if(bulletsEl){
         bulletsEl.addEventListener('click', (ev)=>{
@@ -1405,7 +1504,6 @@
         });
       }
 
-      // Photo lightbox events
       const lb = $('#photoLightbox');
       if(lb){
         lb.addEventListener('click', (ev)=>{
@@ -1419,7 +1517,6 @@
         lbClose.addEventListener('click', closePhotoLightbox);
       }
 
-      // Map lightbox events
       const mapLb = $('#mapLightbox');
       if(mapLb){
         mapLb.addEventListener('click', (ev)=>{
@@ -1433,7 +1530,6 @@
         mapClose.addEventListener('click', closeMapLightbox);
       }
 
-      // Status modal events
       const statusModal = $('#statusModal');
       const statusCancel = $('#statusModalCancel');
       const statusSave = $('#statusModalSave');
@@ -1459,7 +1555,6 @@
         });
       }
 
-      // ESC to close things
       document.addEventListener('keydown', (ev)=>{
         if(ev.key === 'Escape'){
           const statusModalNow = $('#statusModal');
@@ -1481,6 +1576,7 @@
         }
       });
 
+      setupDictation();
       await loadActiveWorkOrders();
     })();
   </script>
@@ -1540,7 +1636,7 @@
         </header>
 
         <div class="wo-detail-content">
-          <!-- SUMMARY (top half) -->
+          <!-- SUMMARY -->
           <section class="wo-detail-summary">
             <div class="wo-detail-grid">
               <div id="detailChips"></div>
@@ -1553,9 +1649,7 @@
                 <div id="detailDuration" style="font-size:0.82rem;"></div>
               </div>
             </div>
-            <ul id="detailBullets" class="wo-detail-bullets">
-              <!-- Status / location / photos summary -->
-            </ul>
+            <ul id="detailBullets" class="wo-detail-bullets"></ul>
             <div class="wo-detail-section wo-detail-section-inline">
               <h3>Original request</h3>
               <div id="detailNotesOriginal" class="wo-detail-notes">
@@ -1564,21 +1658,34 @@
             </div>
           </section>
 
-          <!-- COMPLETION FORM (bottom half) -->
+          <div class="wo-detail-divider"></div>
+
+          <!-- COMPLETION FORM -->
           <div class="wo-detail-completion">
+            <h3 class="wo-detail-completion-title">Field Maintenance Work Order</h3>
+
             <div class="wo-detail-section">
-              <h3>Who’s doing the work?</h3>
-              <div class="wo-detail-row" style="margin-bottom:6px;">
-                <label class="wo-detail-label" for="detailWhoType">Work done by</label>
-                <select id="detailWhoType" class="wo-detail-select">
-                  <option value="employee">Employees</option>
-                  <option value="subcontractor">Sub-contractor</option>
-                </select>
-              </div>
               <div class="wo-detail-row">
-                <label class="wo-detail-label" for="detailWhoNames">Who is working on it?</label>
-                <input id="detailWhoNames" class="wo-detail-input"
-                  placeholder="Names / crew (comma-separated; defaults to logged-in user)" />
+                <label class="wo-detail-label" for="detailSubmittedBy">Submitted by</label>
+                <input id="detailSubmittedBy" class="wo-detail-input"
+                  placeholder="Names (comma-separated; defaults to logged-in user)" />
+              </div>
+
+              <div class="wo-detail-row">
+                <label class="wo-detail-label" for="detailWorkDate">Date</label>
+                <input id="detailWorkDate" type="date" class="wo-detail-input" />
+              </div>
+
+              <div class="wo-detail-row">
+                <label class="wo-detail-label" for="detailWorkRangeStart">Time worked on job</label>
+                <div class="wo-detail-row" style="flex:1 1 auto; gap:6px;">
+                  <input id="detailWorkRangeStart" type="date" class="wo-detail-input" />
+                  <span style="font-size:0.8rem;">to</span>
+                  <input id="detailWorkRangeEnd" type="date" class="wo-detail-input" />
+                </div>
+              </div>
+              <div class="wo-detail-helper">
+                Use one date for single-day work, or both dates for a range.
               </div>
             </div>
 
@@ -1589,8 +1696,11 @@
                 <div id="detailCompletedOn" style="font-size:0.82rem;"></div>
               </div>
 
-              <textarea id="detailNotesCompletion" class="wo-detail-textarea"
-                placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
+              <div class="wo-detail-notes-wrap">
+                <textarea id="detailNotesCompletion" class="wo-detail-textarea"
+                  placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
+                <button type="button" id="detailDictationBtn" class="wo-dictation-btn" aria-label="Dictate notes">🎤</button>
+              </div>
 
               <div class="wo-detail-photos">
                 <div class="wo-detail-row">
