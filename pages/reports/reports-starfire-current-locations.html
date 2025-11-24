@@ -19,6 +19,14 @@
       --card-max: 1200px;
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
+
+      /* combo globals to match other reports */
+      --combo-gap: 4px;
+      --combo-radius: 12px;
+      --combo-btn-radius: 10px;
+      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad: 10px 8px;
+      --combo-max-h: 50vh;
     }
 
     body{
@@ -38,6 +46,8 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      /* allow combo panels to extend outside hero */
+      overflow:visible;
     }
     .hero-head{
       display:grid;
@@ -155,24 +165,80 @@
       max-width:420px;
     }
 
-    /* Location pill select */
-    .location-pills{
-      display:flex;
-      gap:6px;
-      flex-wrap:wrap;
-      font-size:0.8rem;
-    }
-    .location-pill{
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:5px 10px;
-      cursor:pointer;
+    /* Combo styles (match RTK report) */
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:0.9rem;
+      color:var(--text);
       background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:8px 12px;
+      outline:none;
+      cursor:pointer;
+      text-align:left;
+      position:relative;
+      padding-right:42px;
+      min-height:32px;
     }
-    .location-pill.is-active{
-      border-color:#2F6C3C;
-      background:rgba(47,108,60,.12);
-      font-weight:700;
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .combo{ position:relative; }
+
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+
+    .combo-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:5; /* under footer but above hero */
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+      font-size:0.9rem;
+    }
+    .combo-item:hover{
+      background:rgba(0,0,0,.04);
+    }
+    .combo-item:last-child{
+      border-bottom:none;
+    }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+      font-size:0.85rem;
     }
 
     /* List + cards */
@@ -785,6 +851,75 @@
     }
 
     /* ======================
+       Simple combo helper
+       ====================== */
+
+    function closeAllCombos(except=null){
+      $$('.combo-panel.show').forEach(p => {
+        if(p !== except) p.classList.remove('show');
+      });
+    }
+    document.addEventListener('click', () => closeAllCombos());
+    document.addEventListener('keydown', e => {
+      if(e.key === 'Escape') closeAllCombos();
+    });
+
+    function makeCombo({ btn, panel, list, items=[], placeholder='Select', onPick }){
+      if(!btn || !panel || !list) return null;
+
+      let currentItems = Array.isArray(items) ? items.slice() : [];
+
+      function render(){
+        if(!currentItems.length){
+          list.innerHTML = `<div class="combo-empty">(no options)</div>`;
+          return;
+        }
+        list.innerHTML = currentItems.map(x =>
+          `<div class="combo-item" data-id="${escapeHtml(String(x.id))}">${escapeHtml(x.name)}</div>`
+        ).join('');
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render();
+      }
+
+      function close(){
+        panel.classList.remove('show');
+      }
+
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e => {
+        const row = e.target.closest('.combo-item');
+        if(!row) return;
+        const id = row.dataset.id;
+        const item = currentItems.find(x => String(x.id) === id);
+        if(!item) return;
+        btn.textContent = item.name || placeholder;
+        onPick?.(item);
+        close();
+      });
+
+      render();
+
+      return {
+        setItems(arr){
+          currentItems = Array.isArray(arr) ? arr.slice() : [];
+          render();
+        },
+        setValue(id){
+          const item = currentItems.find(x => String(x.id) === String(id));
+          btn.textContent = item ? (item.name || placeholder) : placeholder;
+        }
+      };
+    }
+
+    /* ======================
        Firestore load
        ====================== */
 
@@ -981,15 +1116,6 @@
       renderList();
     }
 
-    function setLocationFilter(value){
-      STATE.filters.location = value;
-      // update pills
-      $$('.location-pill').forEach(p => {
-        p.classList.toggle('is-active', p.dataset.value === value);
-      });
-      applyFilters();
-    }
-
     /* ======================
        Boot
        ====================== */
@@ -1018,12 +1144,29 @@
         });
       }
 
-      // Location pills
-      $$('.location-pill').forEach(p => {
-        p.addEventListener('click', () => {
-          setLocationFilter(p.dataset.value || 'all');
-        });
+      // Location dropdown combo
+      const locBtn   = $('#locBtn');
+      const locPanel = $('#locPanel');
+      const locList  = $('#locList');
+
+      const locItems = [
+        { id: 'all',     name: 'All locations' },
+        { id: 'mounted', name: 'Mounted on equipment' },
+        { id: 'storage', name: 'In storage only' }
+      ];
+
+      const locCombo = makeCombo({
+        btn: locBtn,
+        panel: locPanel,
+        list: locList,
+        items: locItems,
+        placeholder: 'All locations',
+        onPick: it => {
+          STATE.filters.location = it.id;
+          applyFilters();
+        }
       });
+      locCombo?.setValue('all');
 
       $('#btnPrint')?.addEventListener('click', handlePrintClick);
       $('#btnPrintBottom')?.addEventListener('click', handlePrintClick);
@@ -1086,20 +1229,17 @@
             </div>
           </div>
 
-          <!-- LOCATION FILTER PILLS -->
+          <!-- LOCATION DROPDOWN (combo) -->
           <div class="filters filters-bottom">
             <div class="filter-field">
-              <label class="filter-label">Location filter</label>
-              <div class="location-pills">
-                <button type="button" class="location-pill is-active" data-value="all">
-                  All locations
-                </button>
-                <button type="button" class="location-pill" data-value="mounted">
-                  Mounted on equipment
-                </button>
-                <button type="button" class="location-pill" data-value="storage">
-                  In storage only
-                </button>
+              <label class="filter-label" for="locBtn">Location</label>
+              <div class="combo" id="locCombo">
+                <div class="combo-anchor">
+                  <button id="locBtn" class="buttonish has-caret" type="button">All locations</button>
+                  <div class="combo-panel" id="locPanel" role="listbox" aria-label="Location list">
+                    <div class="list" id="locList"></div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1125,4 +1265,3 @@
   </fv-shell>
 </body>
 </html>
-
