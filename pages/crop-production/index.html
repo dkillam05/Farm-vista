@@ -14,7 +14,7 @@
   <!-- Early theme boot (prevents flash) -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- Firebase config + FVData (needed for KPI badge) -->
+  <!-- Firebase config + FVData (needed for KPI badges) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/fv-data.js"></script>
 
@@ -151,6 +151,28 @@
         </div>
       </a>
 
+      <!-- ============================
+           KPI: Active Field Trials
+           ============================ -->
+      <a
+        href="trials/trials-edit.html"
+        class="dash-kpi dash-kpi-empty"
+        id="trials-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Field Trials</div>
+            <div class="dash-kpi-title">
+              Active crop trials &amp; check strips
+            </div>
+          </div>
+          <div class="dash-kpi-count" id="trials-count">–</div>
+        </div>
+        <div class="dash-kpi-sub" id="trials-sub">
+          Checking for active field trials…
+        </div>
+      </a>
+
       <div class="card cp-overview-card" style="max-width:780px;">
         <h2 class="card-title">Overview</h2>
         <ul class="list">
@@ -230,7 +252,6 @@
             await FVData.ready();
           }
 
-          // Match how other KPIs query Firestore:
           // Count docs where status == "pending" OR status == "in progress"
           const [pendingDocs, inProgDocs] = await Promise.all([
             FVData.getWhere("fieldMaintenance", "status", "==", "pending",     { limit: 500 }) || [],
@@ -251,6 +272,64 @@
       loadActive();
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") loadActive();
+      });
+    })();
+  </script>
+
+  <!-- ===========================================
+       Field Trials KPI JS (active trials)
+       =========================================== -->
+  <script>
+    (function(){
+      "use strict";
+
+      const kpiEl   = document.getElementById("trials-kpi");
+      const countEl = document.getElementById("trials-count");
+      const subEl   = document.getElementById("trials-sub");
+
+      if (!kpiEl || !countEl || !subEl) return;
+
+      function applyState(count){
+        const n = Number(count) || 0;
+        countEl.textContent = n.toString();
+
+        if (!n){
+          kpiEl.classList.add("dash-kpi-empty");
+          subEl.textContent = "No active field trials found.";
+        }else{
+          kpiEl.classList.remove("dash-kpi-empty");
+          subEl.textContent = n === 1
+            ? "field trial currently active."
+            : "field trials currently active.";
+        }
+      }
+
+      async function loadTrials(){
+        try{
+          if (!window.FVData || typeof FVData.list !== "function"){
+            console.warn("[crop-production] FVData.list not available for trials KPI.");
+            applyState(0);
+            return;
+          }
+
+          if (typeof FVData.ready === "function"){
+            await FVData.ready();
+          }
+
+          // For now, treat every document in fieldTrials as an active trial
+          const trials = await FVData.list("fieldTrials") || [];
+          const n = Array.isArray(trials) ? trials.length : 0;
+
+          applyState(n);
+        }catch(err){
+          console.warn("[crop-production] failed to load field trials KPI:", err);
+          applyState(0);
+        }
+      }
+
+      loadTrials();
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") loadTrials();
       });
     })();
   </script>
