@@ -322,7 +322,7 @@
       ready,
       getFirestore, getAuth,
       collection, getDocs, doc, updateDoc,
-      serverTimestamp, query, orderBy
+      serverTimestamp, query, orderBy, where
     } from '/Farm-vista/js/firebase-init.js';
     import NAV_MENU from '/Farm-vista/js/menu.js';
 
@@ -466,19 +466,20 @@
         const prodGroup = setupChildren.find(x => x.id === 'setup-products');
         const prodChildren = prodGroup?.children || [];
 
-        // Optional explicit overrides by menu id (in case labels change)
+        // Explicit overrides by menu id for inventory collections
         const OVERRIDE_COLLECTIONS = {
           'setup-prod-seed':       'productsSeed',
           'setup-prod-chemical':   'productsChemical',
           'setup-prod-fertilizer': 'productsFertilizer',
-          'setup-prod-grainbags':  'productsGrainBags'
+          // IMPORTANT: manual removal for bags uses inventoryGrainBagMovements
+          'setup-prod-grainbags':  'inventoryGrainBagMovements'
         };
 
         for(const child of prodChildren){
           const label = child.label || '';
           let collection = OVERRIDE_COLLECTIONS[child.id];
           if(!collection){
-            const clean = String(label).replace(/\s+/g,''); // "Grain Bags" -> "GrainBags"
+            const clean = String(label).replace(/\s+/g,'');
             if(clean) collection = 'products' + clean;
           }
           if(collection){
@@ -506,11 +507,11 @@
           { id:'productsSeed',       label:'Seed',        collection:'productsSeed' },
           { id:'productsFertilizer', label:'Fertilizer',  collection:'productsFertilizer' },
           { id:'productsChemical',   label:'Chemical',    collection:'productsChemical' },
-          { id:'productsGrainBags',  label:'Grain Bags',  collection:'productsGrainBags' }
+          { id:'setup-prod-grainbags', label:'Grain Bags', collection:'inventoryGrainBagMovements' }
         ];
       }
 
-      // Category combo (from menu)
+      // Category combo
       const catCombo = makeCombo({
         btn:   $("#catBtn"),
         panel: $("#catPanel"),
@@ -591,7 +592,6 @@
           const reason = $("#reason").value.trim();
           const userEmail = auth.currentUser?.email || "(unknown user)";
 
-          // Strict confirmation
           const summary =
             `You are about to perform a MANUAL inventory REMOVAL.\n\n` +
             `Category: ${category.label}\n` +
@@ -650,6 +650,13 @@
          Load products by type
          ---------------------- */
       async function loadProductsForCategory(db, cat){
+        if(cat.collection === 'inventoryGrainBagMovements'){
+          return loadGrainBagInventory(db, cat);
+        }
+        return loadGenericProducts(db, cat);
+      }
+
+      async function loadGenericProducts(db, cat){
         const prodHelp = $("#prodHelp");
         const prodBtn  = $("#prodBtn");
         prodHelp.textContent = "Loading products…";
@@ -670,7 +677,6 @@
             const data = d.data() || {};
             const name = String(data.name || data.productName || data.displayName || "").trim();
             const unit = data.unit || data.units || data.uom || "";
-            // Try to infer which field stores quantity
             let qtyField = null;
             let qtyValue = 0;
             for(const key of QTY_FIELDS){
@@ -705,6 +711,67 @@
           throw err;
         }
       }
+
+      async function loadGrainBagInventory(db, cat){
+        const prodHelp = $("#prodHelp");
+        const prodBtn  = $("#prodBtn");
+        prodHelp.textContent = "Loading grain bag inventory…";
+        prodBtn.disabled = true;
+
+        const items = [];
+        try{
+          const baseCol = collection(db, 'inventoryGrainBagMovements');
+          let snap;
+          try{
+            // Prefer active records ordered by brand
+            snap = await getDocs(query(baseCol, where('status','==','active'), orderBy('brand')));
+          }catch(e){
+            console.warn("Active/brand-ordered grain bag query failed, falling back:", e.message);
+            snap = await getDocs(baseCol);
+          }
+
+          snap.forEach(d=>{
+            const data = d.data() || {};
+            const brand = String(data.brand || "").trim();
+            const dia   = data.diameterFt;
+            const len   = data.lengthFt || data.sizeFeet;
+            const loc   = data.location;
+            const onHand = Number(data.onHand ?? 0) || 0;
+
+            // Only show SKUs we actually have on hand
+            if(onHand <= 0) return;
+
+            const parts = [];
+            if(brand) parts.push(brand);
+            if(dia || len) parts.push(`${dia ? dia + " ft" : ""}${dia && len ? " x " : ""}${len ? len + " ft" : ""}`.trim());
+            if(loc) parts.push(String(loc));
+
+            const label = parts.filter(Boolean).join(" • ") || d.id;
+
+            items.push({
+              id: d.id,
+              name: label,
+              displayName: label,
+              unit: 'bags',
+              qtyField: 'onHand',
+              qtyValue: onHand
+            });
+          });
+
+          items.sort((a,b)=> (a.displayName||"").localeCompare(b.displayName||""));
+
+          state.combos.product.setItems(items);
+          prodHelp.textContent = `${items.length} items`;
+          prodBtn.disabled = items.length === 0;
+          if(items.length === 0){
+            $("#currentQty").value = "—";
+            $("#currentHelp").textContent = "No grain bag inventory records found.";
+          }
+        }catch(err){
+          prodHelp.textContent = "Error loading grain bag inventory.";
+          throw err;
+        }
+      }
     })();
   </script>
 
@@ -712,9 +779,10 @@
        NOTES
        ===========================
        • Categories are built from menu.js → Setup › Products.
-       • Firestore collection name is derived as:
-           'products' + (menu label with spaces removed),
-         with an explicit override map for current four categories.
+       • Grain Bags category uses collection: inventoryGrainBagMovements
+         and adjusts the "onHand" field per document.
+       • Seed / Chemical / Fertilizer use their products collections and
+         will show 0 on-hand until you add inventory tracking for them.
        • Manual removals never allow going below zero and require typing
          “REMOVE” before Firestore is updated.
   -->
