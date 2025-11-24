@@ -639,62 +639,70 @@
 
   <!-- ===========================================
        Field boundary requests KPI JS (dashboard)
+       (direct Firestore, not FVData)
        =========================================== -->
-  <script>
-  (function(){
-    "use strict";
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs
+    } from '/Farm-vista/js/firebase-init.js';
 
-    const kpiEl   = document.getElementById("boundary-kpi");
-    const countEl = document.getElementById("boundary-kpi-count");
-    const subEl   = document.getElementById("boundary-kpi-sub");
+    (async function(){
+      "use strict";
 
-    if (!kpiEl || !countEl || !subEl) return;
+      const kpiEl   = document.getElementById("boundary-kpi");
+      const countEl = document.getElementById("boundary-kpi-count");
+      const subEl   = document.getElementById("boundary-kpi-sub");
 
-    function applyState(count){
-      const n = Number(count) || 0;
-      countEl.textContent = n.toString();
+      if (!kpiEl || !countEl || !subEl) return;
 
-      if (!n){
-        kpiEl.classList.add("dash-kpi-empty");
-        subEl.textContent = "No field boundary fixes pending.";
-      }else{
-        kpiEl.classList.remove("dash-kpi-empty");
-        subEl.textContent = n === 1
-          ? "boundary fix request awaiting review."
-          : "boundary fix requests awaiting review.";
-      }
-    }
+      function applyState(count){
+        const n = Number(count) || 0;
+        countEl.textContent = n.toString();
 
-    async function loadBoundaryRequests(){
-      try{
-        if (!window.FVData || typeof FVData.list !== "function"){
-          console.warn("[dashboard] FVData.list not available for boundary KPI.");
-          applyState(0);
-          return;
+        if (!n){
+          kpiEl.classList.add("dash-kpi-empty");
+          subEl.textContent = "No field boundary fixes pending.";
+        }else{
+          kpiEl.classList.remove("dash-kpi-empty");
+          subEl.textContent = n === 1
+            ? "boundary fix request awaiting review."
+            : "boundary fix requests awaiting review.";
         }
-
-        await FVData.ready();
-
-        // Pull all boundary requests and treat "Open" and "Open." (and any trailing periods) as open
-        const docs = await FVData.list("boundary_requests", { limit: 500, mine: false }) || [];
-        const openDocs = docs.filter(d => {
-          const raw = (d.status || (d.data && d.data.status) || "").toString().trim();
-          const normalized = raw.replace(/\.+$/,"").toLowerCase(); // strip trailing dots
-          return normalized === "open";
-        });
-
-        applyState(openDocs.length);
-      }catch(err){
-        console.warn("[dashboard] failed to load boundary KPI:", err);
-        applyState(0);
       }
-    }
 
-    loadBoundaryRequests();
-    document.addEventListener("visibilitychange", ()=>{
-      if (document.visibilityState === "visible") loadBoundaryRequests();
-    });
-  })();
+      async function loadBoundaryRequests(){
+        try{
+          await ready;
+          const db = getFirestore();
+          const colRef = collection(db, 'boundary_requests');
+          const snap = await getDocs(colRef);
+
+          let openCount = 0;
+
+          snap.forEach(docSnap => {
+            const d = docSnap.data() || {};
+            const raw = (d.status || "").toString().trim();
+            const normalized = raw.replace(/\.+$/,"").toLowerCase(); // strip trailing dots
+            if (normalized === "open") {
+              openCount += 1;
+            }
+          });
+
+          applyState(openCount);
+        }catch(err){
+          console.warn("[dashboard] failed to load boundary KPI:", err);
+          applyState(0);
+        }
+      }
+
+      await loadBoundaryRequests();
+      document.addEventListener("visibilitychange", ()=>{
+        if (document.visibilityState === "visible") loadBoundaryRequests();
+      });
+    })();
   </script>
 
   <!-- ===========================================
