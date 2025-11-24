@@ -190,7 +190,19 @@
       <div class="section-h">MAINTENANCE</div>
       <a class="row js-conn" href="#" tabindex="-1" aria-disabled="true" title="Shows Online only when network and cloud are both ready"><div class="left"><div class="ico">🌐</div><div class="txt">Connection: <span class="js-conn-text">Checking…</span></div></div><div class="chev">•</div></a>
       <a class="row js-update-row" href="#"><div class="left"><div class="ico">⟳</div><div class="txt">Check for updates</div></div><div class="chev">›</div></a>
-      <a class="row" href="#" id="logoutRow"><div class="left"><div class="ico">⏻</div><div class="txt" id="logoutLabel">Logout</div></div><div class="chev">›</div></a>
+      <a class="row" href="#" id="logoutRow">
+        <div class="left">
+          <div class="ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M10 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M14 8l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M11 12h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="txt" id="logoutLabel">Logout</div>
+        </div>
+        <div class="chev">›</div>
+      </a>
     </div>
   </section>
 
@@ -574,7 +586,7 @@
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
       } else {
-        const alreadyHasHome = (()=> {
+        const alreadyHasHome = (()=>{
           const links = this._collectAllLinks(filtered);
           return links.some(l => this._looksLikeHome(l));
         })();
