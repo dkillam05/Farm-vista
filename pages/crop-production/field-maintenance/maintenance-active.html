@@ -19,6 +19,7 @@
       --card-max: 1200px;
       --page-bottom-gap: 96px;
       --accent: #2F6C3C;
+
       --combo-gap:4px;
       --combo-radius:12px;
       --combo-btn-radius:10px;
@@ -443,6 +444,22 @@
       font-size:0.82rem;
     }
 
+    .wo-detail-row-2{
+      width:100%;
+    }
+    .wo-detail-col{
+      flex:1 1 0;
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    @media (max-width:640px){
+      .wo-detail-row-2{
+        flex-direction:column;
+      }
+    }
+
     .wo-detail-select,
     .wo-detail-input {
       font:inherit;
@@ -523,7 +540,7 @@
       font-size:0.8rem;
     }
 
-    /* Mic button (copied style) */
+    /* Mic button */
 
     .wo-detail-notes-wrap{
       position:relative;
@@ -929,12 +946,21 @@
 
     /* ------------ employees dropdown ------------ */
 
+    function selectedEmployeeNames(){
+      const names = [];
+      for(const emp of STATE.employees){
+        if(STATE.selectedEmployeeIds.has(emp.id)){
+          names.push(emp.fullName);
+        }
+      }
+      return names;
+    }
+
     function updateSubmittedByUI(){
       const btn = $('#detailSubmittedByBtn');
       const listEl = $('#detailSubmittedByList');
       if(!btn || !listEl) return;
 
-      // Build list
       listEl.innerHTML = '';
       if(!STATE.employees.length){
         listEl.innerHTML = `<div class="combo-empty">No employees found.</div>`;
@@ -969,12 +995,11 @@
         }
       }
 
-      // Button label
-      const selected = STATE.employees.filter(e => STATE.selectedEmployeeIds.has(e.id));
+      const selected = selectedEmployeeNames();
       if(selected.length){
-        btn.textContent = selected.map(e => e.fullName).join(', ');
+        btn.textContent = selected.join(', ');
       }else{
-        btn.textContent = 'Names (comma-separated; defaults to logged-in user)';
+        btn.textContent = 'Select employees…';
       }
     }
 
@@ -994,7 +1019,6 @@
           };
         }).sort((a,b)=>a.fullName.localeCompare(b.fullName));
 
-        // Default selection to logged-in user if found
         STATE.selectedEmployeeIds.clear();
         if(STATE.currentUserEmail){
           const match = STATE.employees.find(e => e.email === STATE.currentUserEmail);
@@ -1005,16 +1029,6 @@
       }catch(err){
         console.error('Error loading employees:', err);
       }
-    }
-
-    function selectedEmployeeNames(){
-      const names = [];
-      for(const emp of STATE.employees){
-        if(STATE.selectedEmployeeIds.has(emp.id)){
-          names.push(emp.fullName);
-        }
-      }
-      return names;
     }
 
     /* ------------ summary bullets ------------ */
@@ -1037,7 +1051,8 @@
         data.locationUrl ||
         data.mapUrl ||
         data.mapLink ||
-        data.boundaryUrl
+        data.boundaryUrl ||
+        (data.location && typeof data.location.lat === 'number' && typeof data.location.lng === 'number')
       );
 
       const hasPhotos = STATE.currentPhotos && STATE.currentPhotos.length > 0;
@@ -1051,6 +1066,8 @@
       const liLoc = document.createElement('li');
       if(hasLocation && STATE.currentLocationUrl){
         liLoc.innerHTML = `<button type="button" class="summary-link js-location-link">Location mapped</button>`;
+      }else if(hasLocation){
+        liLoc.textContent = 'Location mapped';
       }else{
         liLoc.textContent = 'No location mapped';
       }
@@ -1129,6 +1146,12 @@
 
       STATE.currentLocationUrl =
         data.locationUrl || data.mapUrl || data.mapLink || data.boundaryUrl || '';
+
+      // if only location object exists, build a Google maps URL
+      if(!STATE.currentLocationUrl && data.location && typeof data.location.lat==='number' && typeof data.location.lng==='number'){
+        const {lat,lng} = data.location;
+        STATE.currentLocationUrl = `https://www.google.com/maps?q=${lat},${lng}&z=18&output=embed`;
+      }
 
       const overlay = $('#woDetailOverlay');
       const titleEl = $('#detailTitle');
@@ -1256,7 +1279,6 @@
         const emp = STATE.employees.find(e => e.fullName === name);
         if(emp) STATE.selectedEmployeeIds.add(emp.id);
       }
-      // If still none selected, default logged-in user by email
       if(!STATE.selectedEmployeeIds.size && STATE.currentUserEmail){
         const match = STATE.employees.find(e => e.email === STATE.currentUserEmail);
         if(match) STATE.selectedEmployeeIds.add(match.id);
@@ -1431,6 +1453,22 @@
       if(!item){
         return;
       }
+
+      // VALIDATION: must have at least one employee + notes or photos
+      const names = selectedEmployeeNames();
+      const notesEl = $('#detailNotesCompletion');
+      const notes = notesEl ? notesEl.value.trim() : '';
+      const hasPhotos = STATE.currentPhotos && STATE.currentPhotos.length>0;
+
+      if(!names.length){
+        alert('Please select at least one person in "Submitted by" before saving.');
+        return;
+      }
+      if(!notes && !hasPhotos){
+        alert('Please add notes or attach at least one photo before saving this work order.');
+        return;
+      }
+
       if(!modal || !inProgRadio || !doneRadio){
         applyDetailSave(item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_INPROG);
         return;
@@ -1928,23 +1966,25 @@
             <h3 class="wo-detail-completion-title">Field Maintenance Work Order</h3>
 
             <div class="wo-detail-section">
-              <div class="wo-detail-row">
-                <label class="wo-detail-label" for="detailSubmittedByBtn">Submitted by</label>
-                <div class="combo">
-                  <div class="combo-anchor">
-                    <button id="detailSubmittedByBtn" type="button" class="buttonish has-caret">
-                      Names (comma-separated; defaults to logged-in user)
-                    </button>
-                    <div id="detailSubmittedByPanel" class="combo-panel">
-                      <div id="detailSubmittedByList" class="list"></div>
+              <div class="wo-detail-row wo-detail-row-2">
+                <div class="wo-detail-col">
+                  <label class="wo-detail-label" for="detailSubmittedByBtn">Submitted by</label>
+                  <div class="combo">
+                    <div class="combo-anchor">
+                      <button id="detailSubmittedByBtn" type="button" class="buttonish has-caret">
+                        Select employees…
+                      </button>
+                      <div id="detailSubmittedByPanel" class="combo-panel">
+                        <div id="detailSubmittedByList" class="list"></div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div class="wo-detail-row">
-                <label class="wo-detail-label" for="detailWorkDate">Date</label>
-                <input id="detailWorkDate" type="date" class="wo-detail-input" />
+                <div class="wo-detail-col">
+                  <label class="wo-detail-label" for="detailWorkDate">Date</label>
+                  <input id="detailWorkDate" type="date" class="wo-detail-input" />
+                </div>
               </div>
 
               <div class="wo-detail-row">
