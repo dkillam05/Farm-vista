@@ -860,7 +860,28 @@
       currentUserEmail: ''
     };
 
-    /* ------------ helpers ------------ */
+    /* ------------ helpers (copied style from maintenance-add) ------------ */
+
+    function titleCase(s){
+      return String(s||"").replace(/\s+/g," ").trim().split(" ")
+        .filter(Boolean)
+        .map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase())
+        .join(" ");
+    }
+
+    function nameFromEmail(email){
+      const local = String(email||"").split("@")[0]||"";
+      if(!local) return "";
+      if(/[._-]/.test(local)){
+        return titleCase(
+          local.replace(/[0-9]+/g," ")
+               .split(/[._-]+/)
+               .join(" ")
+        );
+      }
+      const spaced = local.replace(/([a-z])([A-Z])/g,"$1 $2");
+      return titleCase(spaced || local);
+    }
 
     function getTime(ts){
       if(!ts) return 0;
@@ -888,20 +909,33 @@
     }
 
     function detectCurrentUser(){
-      let name = '';
+      let label = '';
       let email = '';
+
       try{
-        const w = window;
-        if(w.FV_AUTH && w.FV_AUTH.user){
-          name = w.FV_AUTH.user.displayName || '';
-          email = w.FV_AUTH.user.email || '';
-        }else if(w.FV_CONTEXT && w.FV_CONTEXT.user){
-          name = w.FV_CONTEXT.user.name || '';
-          email = w.FV_CONTEXT.user.email || '';
+        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        if(ctx){
+          if(ctx.displayName || ctx.email) label = ctx.displayName || ctx.email || label;
+          if(ctx.email) email = ctx.email;
         }
       }catch{/* ignore */}
 
-      STATE.currentUserName = name || '';
+      if(!label){
+        try{
+          const u = window.firebaseAuth && window.firebaseAuth.currentUser;
+          if(u){
+            label = u.displayName || u.email || label;
+            if(u.email) email = u.email;
+          }
+        }catch{/* ignore */}
+      }
+
+      if(label && label.includes("@")){
+        label = nameFromEmail(label);
+      }
+      label = titleCase(label || "");
+
+      STATE.currentUserName = label || '';
       STATE.currentUserEmail = email || '';
     }
 
@@ -948,7 +982,7 @@
       lb.hidden = true;
     }
 
-    /* ------------ employees dropdown ------------ */
+    /* ------------ employees dropdown (multi-select) ------------ */
 
     function selectedEmployeeNames(){
       const names = [];
@@ -1025,6 +1059,7 @@
 
         STATE.selectedEmployeeIds.clear();
 
+        // match logged-in user by email, then by fullName
         if(STATE.currentUserEmail){
           const byEmail = STATE.employees.find(e => e.email === STATE.currentUserEmail);
           if(byEmail) STATE.selectedEmployeeIds.add(byEmail.id);
@@ -1303,7 +1338,7 @@
         compNotesEl.value = data.completionNotes || '';
       }
 
-      // Submitted by
+      // Submitted by: start from doc if present, otherwise logged-in user
       STATE.selectedEmployeeIds.clear();
       let selectedNames = [];
 
@@ -1320,6 +1355,15 @@
       for(const name of selectedNames){
         const emp = STATE.employees.find(e => e.fullName === name);
         if(emp) STATE.selectedEmployeeIds.add(emp.id);
+      }
+      // if still nothing, try email/fullName against employees again
+      if(!STATE.selectedEmployeeIds.size && STATE.currentUserEmail){
+        const byEmail = STATE.employees.find(e => e.email === STATE.currentUserEmail);
+        if(byEmail) STATE.selectedEmployeeIds.add(byEmail.id);
+      }
+      if(!STATE.selectedEmployeeIds.size && STATE.currentUserName){
+        const byName = STATE.employees.find(e => e.fullName === STATE.currentUserName);
+        if(byName) STATE.selectedEmployeeIds.add(byName.id);
       }
       updateSubmittedByUI();
 
@@ -1852,13 +1896,11 @@
         photoInput.addEventListener('change', handlePhotoFiles);
       }
 
-      // range display click
       const rangeDisplay = $('#detailWorkRangeDisplay');
       if(rangeDisplay){
         rangeDisplay.addEventListener('click', openRangeModal);
       }
 
-      // bullets (location / photos)
       const bulletsEl = $('#detailBullets');
       if(bulletsEl){
         bulletsEl.addEventListener('click', (ev)=>{
@@ -1882,7 +1924,6 @@
         });
       }
 
-      // photo lightbox
       const lb = $('#photoLightbox');
       if(lb){
         lb.addEventListener('click', (ev)=>{
@@ -1896,7 +1937,6 @@
         lbClose.addEventListener('click', closePhotoLightbox);
       }
 
-      // map lightbox
       const mapLb = $('#mapLightbox');
       if(mapLb){
         mapLb.addEventListener('click', (ev)=>{
@@ -1910,7 +1950,6 @@
         mapClose.addEventListener('click', closeMapLightbox);
       }
 
-      // status modal
       const statusModal = $('#statusModal');
       const statusCancel = $('#statusModalCancel');
       const statusSave = $('#statusModalSave');
@@ -1936,7 +1975,6 @@
         });
       }
 
-      // range modal wiring
       const rangeModal = $('#rangeModal');
       const rangeCancel = $('#rangeModalCancel');
       const rangeSave = $('#rangeModalSave');
@@ -1958,7 +1996,6 @@
         rangeClear.addEventListener('click', clearRangeModal);
       }
 
-      // submitted-by combo open/close
       const empBtn = $('#detailSubmittedByBtn');
       const empPanel = $('#detailSubmittedByPanel');
       if(empBtn && empPanel){
@@ -1976,7 +2013,6 @@
         });
       }
 
-      // ESC handling
       document.addEventListener('keydown', (ev)=>{
         if(ev.key === 'Escape'){
           const rangeModalNow = $('#rangeModal');
@@ -2003,7 +2039,6 @@
         }
       });
 
-      // Mic on Notes
       wireMic('detailDictationBtn', 'detailNotesCompletion');
 
       await loadEmployees();
