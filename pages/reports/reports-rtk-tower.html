@@ -151,6 +151,14 @@
       color:var(--muted,#9CA3AF);
     }
 
+    .filters-top .filter-field{
+      flex:1 1 100%;
+    }
+
+    .filters-bottom{
+      align-items:flex-end;
+    }
+
     /* Tower list cards */
     .wo-list {
       display:flex;
@@ -507,7 +515,7 @@
 
     function renderDetails(){
       const panel = $('.wo-detail-panel');
-      const tower = STATE.towers.find(x => x.id === STATE.selectedId);
+      const tower = getWorkingTowers().find(x => x.id === STATE.selectedId);
       if(!tower){
         clearDetails();
         return;
@@ -544,7 +552,7 @@
       fieldsBody.innerHTML = '';
 
       if(!tower.fields.length){
-        fieldsBody.textContent = 'No fields are currently linked to this tower.';
+        fieldsBody.textContent = 'No fields are currently linked to this tower (under the current filters).';
       }else{
         const farmGroups = new Map();
         tower.fields.forEach(f => {
@@ -603,28 +611,54 @@
       const fields = tower.fields.length;
       const farms  = tower.farmIds.size;
 
-      toast.textContent = `${name}: ${fields} field${fields === 1 ? '' : 's'} on ${farms} farm${farms === 1 ? '' : 's'}.`;
+      toast.textContent = `${name}: ${fields} field${fields === 1 ? '' : 's'} on ${farms} farm${farms === 1 ? '' : 's'} (under current filters).`;
       toast.classList.add('rtk-summary--show');
       setTimeout(()=> toast.classList.remove('rtk-summary--show'), 3500);
     }
 
     function applyFilters(){
-      const farmSel  = $('#filterFarm');
-      const searchEl = $('#filterSearch');
+      const farmSel   = $('#filterFarm');
+      const towerSel  = $('#filterTower');
+      const searchEl  = $('#filterSearch');
 
-      const farmFilter = farmSel?.value || 'all';
-      const q = (searchEl?.value || '').trim().toLowerCase();
+      const farmFilter  = farmSel?.value || 'all';
+      const towerFilter = towerSel?.value || 'all';
+      const q           = (searchEl?.value || '').trim().toLowerCase();
 
-      const filtered = STATE.towers.filter(tower => {
-        if(farmFilter !== 'all' && !tower.farmIds.has(farmFilter)){
-          return false;
+      const filtered = [];
+
+      for(const baseTower of STATE.towers){
+        const d = baseTower.data || {};
+
+        // Tower filter: skip towers that are not the selected one
+        if(towerFilter !== 'all' && baseTower.id !== towerFilter){
+          continue;
         }
 
+        // Start with all fields for this tower
+        let fields = baseTower.fields;
+
+        // Farm filter: only keep fields from that farm
+        if(farmFilter !== 'all'){
+          fields = fields.filter(f => {
+            const fd = f.data || {};
+            return (fd.farmId || 'unknown') === farmFilter;
+          });
+
+          // If no fields remain for this tower under that farm, skip tower entirely
+          if(!fields.length){
+            continue;
+          }
+        }
+
+        // Build farmIds from the filtered fields
+        const farmIds = new Set(fields.map(f => (f.data || {}).farmId).filter(Boolean));
+
+        // Search filter (tower + filtered fields + farm names)
         if(q){
-          const d = tower.data || {};
           const hayParts = [d.name, d.networkId, d.frequencyMHz];
 
-          tower.fields.forEach(f=>{
+          fields.forEach(f=>{
             const fd = f.data || {};
             hayParts.push(fd.name, fd.county, fd.state);
             const farmName = STATE.farmMap.get(fd.farmId) || '';
@@ -632,14 +666,23 @@
           });
 
           const hay = hayParts.filter(Boolean).join(' ').toLowerCase();
-          if(!hay.includes(q)) return false;
+          if(!hay.includes(q)){
+            continue;
+          }
         }
 
-        return true;
-      });
+        const towerClone = {
+          id: baseTower.id,
+          data: d,
+          fields,
+          farmIds
+        };
+        filtered.push(towerClone);
+      }
 
       STATE.filteredTowers = filtered;
       renderList();
+      clearDetails();
     }
 
     function populateFarmFilterFromTowers(){
@@ -658,6 +701,26 @@
           opt.value = id;
           opt.textContent = name;
           farmSelEl.appendChild(opt);
+        });
+    }
+
+    function populateTowerFilter(){
+      const towerSelEl = $('#filterTower');
+      if(!towerSelEl) return;
+
+      towerSelEl.innerHTML = '<option value="all">All towers</option>';
+      STATE.towers
+        .slice()
+        .sort((a,b)=>{
+          const na = (a.data.name || '').toString().toLowerCase();
+          const nb = (b.data.name || '').toString().toLowerCase();
+          return na.localeCompare(nb);
+        })
+        .forEach(t=>{
+          const opt = document.createElement('option');
+          opt.value = t.id;
+          opt.textContent = t.data.name || 'Unnamed tower';
+          towerSelEl.appendChild(opt);
         });
     }
 
@@ -686,6 +749,7 @@
 
     function summarizeFilters(){
       const farmSel   = $('#filterFarm');
+      const towerSel  = $('#filterTower');
       const searchEl  = $('#filterSearch');
 
       let farmLabel = 'All farms';
@@ -693,10 +757,17 @@
         const id = farmSel.value;
         farmLabel = STATE.farmMap.get(id) || 'Selected farm';
       }
+
+      let towerLabel = 'All towers';
+      if (towerSel && towerSel.value !== 'all'){
+        const t = STATE.towers.find(x => x.id === towerSel.value);
+        towerLabel = t?.data?.name || 'Selected tower';
+      }
+
       const searchVal = (searchEl?.value || '').trim();
       const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
 
-      return `${farmLabel} • ${searchLabel}`;
+      return `${farmLabel} • ${towerLabel} • ${searchLabel}`;
     }
 
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totalTowers, totalFields, totalFarms, towers }){
@@ -964,7 +1035,7 @@
 
     <section class="report-title-block">
       <h1 class="report-title">RTK Tower Coverage</h1>
-      <p class="report-subtitle">Towers with their covered farms and fields.</p>
+      <p class="report-subtitle">Towers with their covered farms and fields, based on current filters.</p>
 
       <div class="report-summary-strip">
         <div class="summary-pill">
@@ -995,7 +1066,7 @@
         <div class="kpi-card">
           <div class="kpi-label">RTK Towers</div>
           <div class="kpi-value">${formatNumber(totalTowers)}</div>
-          <div class="kpi-footnote">Total towers in this report</div>
+          <div class="kpi-footnote">Towers included after filters</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Farms Covered</div>
@@ -1005,7 +1076,7 @@
         <div class="kpi-card">
           <div class="kpi-label">Avg Fields per Tower</div>
           <div class="kpi-value">${avgFields}</div>
-          <div class="kpi-footnote">Fields linked across all towers</div>
+          <div class="kpi-footnote">Across towers in this report</div>
         </div>
       </div>
     </section>
@@ -1078,7 +1149,11 @@
                 ${escapeHtml(freq)} · ${escapeHtml(network)}
                 · ${fields.length} field${fields.length === 1 ? '' : 's'} on ${farmIds.size} farm${farmIds.size === 1 ? '' : 's'}
               </p>
-              ${farmBlocks || '<p class="tower-subtitle">No fields linked to this tower.</p>'}
+              ${
+                fields.length
+                  ? farmBlocks
+                  : '<p class="tower-subtitle">No fields linked to this tower under the current filters.</p>'
+              }
             </div>
           `;
         }).join('')}
@@ -1214,7 +1289,7 @@
       }
 
       $('#woDetailClose').addEventListener('click', () => {
-        const tower = STATE.towers.find(x => x.id === STATE.selectedId);
+        const tower = getWorkingTowers().find(x => x.id === STATE.selectedId);
         STATE.selectedId = null;
         clearDetails();
         if(tower) showSummaryToast(tower);
@@ -1223,16 +1298,20 @@
       try{
         await loadData();
         populateFarmFilterFromTowers();
+        populateTowerFilter();
 
         const farmSel   = $('#filterFarm');
+        const towerSel  = $('#filterTower');
         const searchEl  = $('#filterSearch');
         const clearBtn  = $('#filterClear');
 
         if(farmSel)  farmSel.addEventListener('change', applyFilters);
+        if(towerSel) towerSel.addEventListener('change', applyFilters);
         if(searchEl) searchEl.addEventListener('input', applyFilters);
         if(clearBtn){
           clearBtn.addEventListener('click', () => {
             if(farmSel)  farmSel.value  = 'all';
+            if(towerSel) towerSel.value = 'all';
             if(searchEl) searchEl.value = '';
             STATE.filteredTowers = null;
             clearDetails();
@@ -1287,14 +1366,8 @@
             </div>
           </div>
 
-          <div class="filters">
-            <div class="filter-field">
-              <label class="filter-label" for="filterFarm">Farm</label>
-              <select id="filterFarm" class="filter-select">
-                <option value="all">All farms</option>
-              </select>
-            </div>
-
+          <!-- SEARCH ROW -->
+          <div class="filters filters-top">
             <div class="filter-field">
               <label class="filter-label" for="filterSearch">Search</label>
               <input
@@ -1303,6 +1376,23 @@
                 type="search"
                 placeholder="Search tower, farm, or field…"
               />
+            </div>
+          </div>
+
+          <!-- FARM + TOWER + CLEAR ROW -->
+          <div class="filters filters-bottom">
+            <div class="filter-field">
+              <label class="filter-label" for="filterFarm">Farm</label>
+              <select id="filterFarm" class="filter-select">
+                <option value="all">All farms</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterTower">Tower</label>
+              <select id="filterTower" class="filter-select">
+                <option value="all">All towers</option>
+              </select>
             </div>
 
             <button id="filterClear" type="button" class="btn btn-quiet">
