@@ -218,7 +218,7 @@
     };
 
     const escapeHTML = s => String(s||"").replace(/[&<>"']/g,
-      m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m])
+      m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])
     );
 
     async function waitForAuthReady(timeoutMs=5000){
@@ -275,50 +275,47 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    // Build a towerId -> Set(fieldNames) map with ONE pass over fields
-    async function buildUsageMap(){
-      const usage = new Map();
+    // Query Firestore for fields that use a given tower id
+    async function fieldsUsingTower(towerId){
+      const names = new Set();
       try{
-        const fields = await FVData.list('fields', { limit: 5000 }) || [];
-        for(const f of fields){
-          const cand = f.rtkTowerId ?? f.rtkId ?? f.rtk ?? null;
-          if(!cand) continue;
-          let towerKey = null;
-          if(typeof cand === 'string'){
-            towerKey = cand;
-          }else if(typeof cand === 'object' && cand){
-            towerKey = cand.id || cand._id || null;
-          }
-          if(!towerKey) continue;
-          const name = String(f.name || f.fieldName || '(Unnamed field)').trim();
-          if(!usage.has(towerKey)) usage.set(towerKey, new Set());
-          usage.get(towerKey).add(name);
-        }
+        const [byTowerId, byLegacyId] = await Promise.all([
+          FVData.getWhere('fields','rtkTowerId','==', towerId, { limit: 5000 }),
+          FVData.getWhere('fields','rtkId','==', towerId, { limit: 5000 })
+        ]);
+
+        (byTowerId || []).forEach(f=>{
+          const nm = String(f.name || f.fieldName || '(Unnamed field)').trim();
+          if(nm) names.add(nm);
+        });
+        (byLegacyId || []).forEach(f=>{
+          const nm = String(f.name || f.fieldName || '(Unnamed field)').trim();
+          if(nm) names.add(nm);
+        });
       }catch(e){
-        console.warn('Failed to build usage map', e);
+        console.warn('fieldsUsingTower failed for', towerId, e);
       }
-      return usage;
+      return Array.from(names).sort((a,b)=>a.localeCompare(b, undefined, {sensitivity:'base'}));
     }
 
     async function loadAll(){
       try{
-        const [usageMap, towersRaw] = await Promise.all([
-          buildUsageMap(),
-          FVData.list('rtkTowers', { limit: 2000 }) || []
-        ]);
+        const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
 
-        towers = (towersRaw || []).map(t => {
-          const set = usageMap.get(t.id) || new Set();
-          const inUse = Array.from(set).sort((a,b)=>a.localeCompare(b, undefined, {sensitivity:'base'}));
-          return {
-            id: t.id,
-            name: String(t.name || '').trim(),
-            networkId: typeof t.networkId === 'number' ? t.networkId : parseInt(t.networkId, 10) || 0,
-            frequencyMHz: String(t.frequencyMHz || '').trim(),
-            inUse
-          };
-        }).sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
+        const enriched = await Promise.all(
+          (towersRaw || []).map(async t=>{
+            const inUse = await fieldsUsingTower(t.id);
+            return {
+              id: t.id,
+              name: String(t.name || '').trim(),
+              networkId: typeof t.networkId === 'number' ? t.networkId : parseInt(t.networkId, 10) || 0,
+              frequencyMHz: String(t.frequencyMHz || '').trim(),
+              inUse
+            };
+          })
+        );
 
+        towers = enriched.sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
         renderDict();
       }catch(e){
         console.error(e);
@@ -386,7 +383,6 @@
       $("editNet").value  = pad4(t.networkId || 0);
       $("editFreq").value = t.frequencyMHz || '';
 
-      // usage list
       editUsageList.innerHTML = '';
       if(t.inUse.length){
         editUsageHelp.textContent = `In use by ${t.inUse.length} field${t.inUse.length===1?'':'s'}:`;
