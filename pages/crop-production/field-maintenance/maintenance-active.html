@@ -356,19 +356,8 @@
       opacity:0.9;
     }
 
-    .wo-detail-section {
-      border-top:1px solid var(--border-soft, var(--border));
-      padding-top:10px;
-      margin-top:4px;
-    }
-
-    .wo-detail-section h3 {
-      font-size:0.88rem;
-      margin:0 0 4px;
-    }
-
     .wo-detail-summary{
-      padding-bottom:6px;
+      padding-bottom:8px;
       border-bottom:1px solid var(--border-soft,var(--border));
     }
 
@@ -381,6 +370,36 @@
     }
     .wo-detail-bullets li+li{
       margin-top:2px;
+    }
+
+    .summary-link{
+      border:none;
+      background:none;
+      padding:0;
+      margin:0;
+      font:inherit;
+      color:inherit;
+      text-decoration:underline;
+      text-decoration-thickness:1px;
+      text-underline-offset:2px;
+      cursor:pointer;
+    }
+
+    .wo-detail-section {
+      border-top:1px solid var(--border-soft, var(--border));
+      padding-top:10px;
+      margin-top:4px;
+    }
+
+    .wo-detail-section-inline{
+      border-top:none;
+      padding-top:8px;
+      margin-top:8px;
+    }
+
+    .wo-detail-section h3 {
+      font-size:0.88rem;
+      margin:0 0 4px;
     }
 
     .wo-detail-notes {
@@ -467,6 +486,20 @@
       filter:brightness(1.05);
     }
 
+    /* Completion card (new form area) */
+    .wo-detail-completion{
+      margin-top:4px;
+      padding:8px 10px 10px;
+      border-radius:14px;
+      background:color-mix(in srgb, var(--surface) 94%, #000 6%);
+      border:1px solid var(--border-soft,var(--border));
+    }
+    .wo-detail-completion .wo-detail-section:first-of-type{
+      border-top:none;
+      padding-top:4px;
+      margin-top:0;
+    }
+
     /* Photos section */
     .wo-detail-photos{
       margin-top:8px;
@@ -535,6 +568,95 @@
       cursor:pointer;
     }
 
+    /* Map lightbox */
+    .wo-map-lightbox{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.8);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:10000;
+    }
+    .wo-map-lightbox-inner{
+      position:relative;
+      max-width:95vw;
+      max-height:95vh;
+      width:min(900px,95vw);
+      height:min(600px,90vh);
+    }
+    .wo-map-lightbox-inner iframe{
+      width:100%;
+      height:100%;
+      display:block;
+      border-radius:12px;
+      border:none;
+      box-shadow:0 12px 32px rgba(0,0,0,0.6);
+      background:#000;
+    }
+    .wo-map-lightbox-close{
+      position:absolute;
+      top:-12px;
+      right:-12px;
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:none;
+      background:rgba(0,0,0,0.65);
+      color:#fff;
+      font-size:1.2rem;
+      cursor:pointer;
+    }
+
+    /* Status choice modal */
+    .wo-status-modal{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.6);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:10050;
+    }
+    .wo-status-modal-panel{
+      width:min(420px, 90vw);
+      border-radius:18px;
+      background:var(--surface-raised,var(--card-surface,var(--surface)));
+      box-shadow:0 16px 40px rgba(0,0,0,0.4);
+      padding:16px 18px 14px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .wo-status-modal-header h2{
+      font-size:1rem;
+      margin:0 0 4px;
+    }
+    .wo-status-options{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      margin:6px 0 8px;
+    }
+    .wo-status-option{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+      font-size:0.88rem;
+      padding:6px 8px;
+      border-radius:10px;
+      border:1px solid var(--border-soft,var(--border));
+    }
+    .wo-status-option input{
+      margin-top:3px;
+    }
+    .wo-status-modal-footer{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:6px;
+    }
+
     @media (max-width:600px){
       .wo-detail-overlay{
         padding:0;
@@ -585,7 +707,8 @@
       items: [],
       currentItem: null,
       currentPhotos: [],
-      currentUserName: ''
+      currentUserName: '',
+      currentLocationUrl: ''
     };
 
     // Lazy-load storage API so we don't break page if it's not wired yet
@@ -668,32 +791,68 @@
       lb.hidden = true;
     }
 
+    function openMapLightbox(url){
+      const lb = $('#mapLightbox');
+      const frame = $('#mapLightboxFrame');
+      if(!lb || !frame || !url) return;
+      frame.src = url;
+      lb.hidden = false;
+    }
+
+    function closeMapLightbox(){
+      const lb = $('#mapLightbox');
+      const frame = $('#mapLightboxFrame');
+      if(!lb || !frame) return;
+      frame.src = '';
+      lb.hidden = true;
+    }
+
     function updateSummaryBullets(){
       const item = STATE.currentItem;
       const bulletsEl = $('#detailBullets');
       if(!item || !bulletsEl) return;
 
       const data = item.data;
-      const field = data.fieldName || data.field || 'Field not set';
-      const farm  = data.farmName  || data.farm  || '';
-      const status = (data[CONFIG.STATUS_FIELD] || '').toString() || CONFIG.STATUS_PENDING;
+      const statusRaw = (data[CONFIG.STATUS_FIELD] || '').toString() || CONFIG.STATUS_PENDING;
+      let statusLabel = statusRaw;
+      if(statusRaw === CONFIG.STATUS_PENDING) statusLabel = 'Pending';
+      if(statusRaw === CONFIG.STATUS_INPROG)  statusLabel = 'In progress';
+      if(statusRaw === CONFIG.STATUS_DONE)    statusLabel = 'Completed';
 
-      const hasLocation = !!(data.fieldId || data.fieldUid || (field && field !== 'Field not set' && farm));
+      const hasLocation = !!(
+        data.fieldId ||
+        data.fieldUid ||
+        data.locationUrl ||
+        data.mapUrl ||
+        data.mapLink ||
+        data.boundaryUrl
+      );
+
       const hasPhotos = STATE.currentPhotos && STATE.currentPhotos.length > 0;
 
-      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
-
       bulletsEl.innerHTML = '';
-      const lines = [
-        `Status: ${statusLabel}`,
-        hasLocation ? 'Location mapped' : 'No location mapped',
-        hasPhotos ? 'Photos attached' : 'No photos attached'
-      ];
-      for(const text of lines){
-        const li = document.createElement('li');
-        li.textContent = text;
-        bulletsEl.appendChild(li);
+
+      const liStatus = document.createElement('li');
+      liStatus.textContent = `Status: ${statusLabel}`;
+      bulletsEl.appendChild(liStatus);
+
+      const liLoc = document.createElement('li');
+      if(hasLocation && STATE.currentLocationUrl){
+        liLoc.innerHTML = `<button type="button" class="summary-link js-location-link">Location mapped</button>`;
+      }else{
+        liLoc.textContent = 'No location mapped';
       }
+      bulletsEl.appendChild(liLoc);
+
+      const liPhotos = document.createElement('li');
+      if(hasPhotos){
+        const count = STATE.currentPhotos.length;
+        liPhotos.innerHTML =
+          `<button type="button" class="summary-link js-photos-link">${count} photo${count===1?'':'s'} attached</button>`;
+      }else{
+        liPhotos.textContent = 'No photos attached';
+      }
+      bulletsEl.appendChild(liPhotos);
     }
 
     function renderPhotoGallery(){
@@ -708,7 +867,6 @@
         if(hint){
           hint.textContent = 'Attach photos of what needs to be done or what was completed.';
         }
-        updateSummaryBullets();
         return;
       }
 
@@ -732,8 +890,6 @@
         btn.appendChild(img);
         gallery.appendChild(btn);
       }
-
-      updateSummaryBullets();
     }
 
     function openDetail(item){
@@ -756,6 +912,9 @@
       const completedAtRaw = data.completedAt || data.completedOn || null;
       const completedDate = completedAtRaw && completedAtRaw.toDate ? completedAtRaw.toDate() :
                             (completedAtRaw ? new Date(completedAtRaw) : null);
+
+      STATE.currentLocationUrl =
+        data.locationUrl || data.mapUrl || data.mapLink || data.boundaryUrl || '';
 
       const overlay = $('#woDetailOverlay');
       const titleEl = $('#detailTitle');
@@ -869,6 +1028,7 @@
       document.body.style.overflow = '';
       STATE.currentItem = null;
       STATE.currentPhotos = [];
+      STATE.currentLocationUrl = '';
     }
 
     async function handlePhotoFiles(ev){
@@ -908,9 +1068,10 @@
 
       STATE.currentPhotos = urls;
       renderPhotoGallery();
+      updateSummaryBullets();
     }
 
-    async function saveDetailUpdates(){
+    async function applyDetailSave(newStatus){
       const item = STATE.currentItem;
       if(!item || !STATE.db) return;
 
@@ -919,7 +1080,8 @@
       const whoNamesInp = $('#detailWhoNames');
 
       const updates = {
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        [CONFIG.STATUS_FIELD]: newStatus
       };
 
       if(compNotesEl){
@@ -932,19 +1094,7 @@
         updates.assignedWorkersNote = whoNamesInp.value.trim();
       }
 
-      // Decide status via confirm dialog
       const currentStatus = item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING;
-      let newStatus = currentStatus;
-
-      if(currentStatus !== CONFIG.STATUS_DONE){
-        const isCompleted = window.confirm(
-          'Is this job completed?\n\nOK = Mark as Completed\nCancel = Keep as In Progress'
-        );
-        newStatus = isCompleted ? CONFIG.STATUS_DONE : CONFIG.STATUS_INPROG;
-      }
-
-      updates[CONFIG.STATUS_FIELD] = newStatus;
-
       if(newStatus === CONFIG.STATUS_DONE && currentStatus !== CONFIG.STATUS_DONE){
         updates.completedAt = serverTimestamp();
       }
@@ -974,6 +1124,37 @@
         console.error('Failed to save detail updates:', err);
         alert('Could not save updates. Please try again.');
       }
+    }
+
+    function saveDetailUpdates(){
+      const item = STATE.currentItem;
+      const modal = $('#statusModal');
+      const inProgRadio = $('#statusChoiceInProg');
+      const doneRadio = $('#statusChoiceDone');
+
+      if(!item){
+        return;
+      }
+      if(!modal || !inProgRadio || !doneRadio){
+        // Fallback: just keep in progress
+        applyDetailSave(item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_INPROG);
+        return;
+      }
+
+      const currentStatus = item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING;
+      if(currentStatus === CONFIG.STATUS_DONE){
+        doneRadio.checked = true;
+        inProgRadio.checked = false;
+      }else if(currentStatus === CONFIG.STATUS_INPROG){
+        inProgRadio.checked = true;
+        doneRadio.checked = false;
+      }else{
+        // Pending → default to In Progress
+        inProgRadio.checked = true;
+        doneRadio.checked = false;
+      }
+
+      modal.hidden = false;
     }
 
     function renderList(){
@@ -1200,6 +1381,30 @@
         photoInput.addEventListener('change', handlePhotoFiles);
       }
 
+      // Bullets click (location / photos)
+      const bulletsEl = $('#detailBullets');
+      if(bulletsEl){
+        bulletsEl.addEventListener('click', (ev)=>{
+          const locBtn = ev.target.closest('.js-location-link');
+          const photosBtn = ev.target.closest('.js-photos-link');
+          if(locBtn){
+            if(STATE.currentLocationUrl){
+              openMapLightbox(STATE.currentLocationUrl);
+            }
+            return;
+          }
+          if(photosBtn){
+            const urls = STATE.currentPhotos || [];
+            if(urls.length){
+              openPhotoLightbox(urls[0]);
+            }else{
+              const addBtn = $('#detailAddPhotosBtn');
+              if(addBtn) addBtn.focus();
+            }
+          }
+        });
+      }
+
       // Photo lightbox events
       const lb = $('#photoLightbox');
       if(lb){
@@ -1214,11 +1419,61 @@
         lbClose.addEventListener('click', closePhotoLightbox);
       }
 
-      // ESC to close detail or photo
+      // Map lightbox events
+      const mapLb = $('#mapLightbox');
+      if(mapLb){
+        mapLb.addEventListener('click', (ev)=>{
+          if(ev.target === mapLb){
+            closeMapLightbox();
+          }
+        });
+      }
+      const mapClose = $('#mapLightboxClose');
+      if(mapClose){
+        mapClose.addEventListener('click', closeMapLightbox);
+      }
+
+      // Status modal events
+      const statusModal = $('#statusModal');
+      const statusCancel = $('#statusModalCancel');
+      const statusSave = $('#statusModalSave');
+      if(statusModal){
+        statusModal.addEventListener('click', (ev)=>{
+          if(ev.target === statusModal){
+            statusModal.hidden = true;
+          }
+        });
+      }
+      if(statusCancel && statusModal){
+        statusCancel.addEventListener('click', ()=>{
+          statusModal.hidden = true;
+        });
+      }
+      if(statusSave && statusModal){
+        statusSave.addEventListener('click', async ()=>{
+          const doneRadio = $('#statusChoiceDone');
+          const chosen =
+            doneRadio && doneRadio.checked ? CONFIG.STATUS_DONE : CONFIG.STATUS_INPROG;
+          statusModal.hidden = true;
+          await applyDetailSave(chosen);
+        });
+      }
+
+      // ESC to close things
       document.addEventListener('keydown', (ev)=>{
         if(ev.key === 'Escape'){
-          const lbNow = $('#photoLightbox');
-          if(lbNow && !lbNow.hidden){
+          const statusModalNow = $('#statusModal');
+          if(statusModalNow && !statusModalNow.hidden){
+            statusModalNow.hidden = true;
+            return;
+          }
+          const mapLbNow = $('#mapLightbox');
+          if(mapLbNow && !mapLbNow.hidden){
+            closeMapLightbox();
+            return;
+          }
+          const photoLbNow = $('#photoLightbox');
+          if(photoLbNow && !photoLbNow.hidden){
             closePhotoLightbox();
             return;
           }
@@ -1301,56 +1556,57 @@
             <ul id="detailBullets" class="wo-detail-bullets">
               <!-- Status / location / photos summary -->
             </ul>
-          </section>
-
-          <section class="wo-detail-section">
-            <h3>Original request</h3>
-            <div id="detailNotesOriginal" class="wo-detail-notes">
-              No original description was provided.
+            <div class="wo-detail-section wo-detail-section-inline">
+              <h3>Original request</h3>
+              <div id="detailNotesOriginal" class="wo-detail-notes">
+                No original description was provided.
+              </div>
             </div>
           </section>
 
           <!-- COMPLETION FORM (bottom half) -->
-          <section class="wo-detail-section">
-            <h3>Who’s doing the work?</h3>
-            <div class="wo-detail-row" style="margin-bottom:6px;">
-              <label class="wo-detail-label" for="detailWhoType">Work done by</label>
-              <select id="detailWhoType" class="wo-detail-select">
-                <option value="employee">Employees</option>
-                <option value="subcontractor">Sub-contractor</option>
-              </select>
-            </div>
-            <div class="wo-detail-row">
-              <label class="wo-detail-label" for="detailWhoNames">Who is working on it?</label>
-              <input id="detailWhoNames" class="wo-detail-input"
-                placeholder="Names / crew (comma-separated; defaults to logged-in user)" />
-            </div>
-          </section>
-
-          <section class="wo-detail-section">
-            <h3>Work performed / completion notes</h3>
-            <div class="wo-detail-row" style="margin-bottom:4px;">
-              <div class="wo-detail-label">Completed on</div>
-              <div id="detailCompletedOn" style="font-size:0.82rem;"></div>
-            </div>
-
-            <textarea id="detailNotesCompletion" class="wo-detail-textarea"
-              placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
-
-            <div class="wo-detail-photos">
+          <div class="wo-detail-completion">
+            <div class="wo-detail-section">
+              <h3>Who’s doing the work?</h3>
+              <div class="wo-detail-row" style="margin-bottom:6px;">
+                <label class="wo-detail-label" for="detailWhoType">Work done by</label>
+                <select id="detailWhoType" class="wo-detail-select">
+                  <option value="employee">Employees</option>
+                  <option value="subcontractor">Sub-contractor</option>
+                </select>
+              </div>
               <div class="wo-detail-row">
-                <span class="wo-detail-label">Photos</span>
-                <button type="button" id="detailAddPhotosBtn" class="btn-outline btn-small">
-                  Add photos
-                </button>
-                <input type="file" id="detailPhotoInput" accept="image/*" multiple hidden />
+                <label class="wo-detail-label" for="detailWhoNames">Who is working on it?</label>
+                <input id="detailWhoNames" class="wo-detail-input"
+                  placeholder="Names / crew (comma-separated; defaults to logged-in user)" />
               </div>
-              <div id="detailPhotoHint" class="wo-detail-helper">
-                Attach photos of what needs to be done or what was completed.
-              </div>
-              <div id="detailPhotoGallery" class="wo-detail-gallery"></div>
             </div>
-          </section>
+
+            <div class="wo-detail-section">
+              <h3>Work performed / completion notes</h3>
+              <div class="wo-detail-row" style="margin-bottom:4px;">
+                <div class="wo-detail-label">Completed on</div>
+                <div id="detailCompletedOn" style="font-size:0.82rem;"></div>
+              </div>
+
+              <textarea id="detailNotesCompletion" class="wo-detail-textarea"
+                placeholder="Add notes about what was done, parts used, follow-up needed, etc."></textarea>
+
+              <div class="wo-detail-photos">
+                <div class="wo-detail-row">
+                  <span class="wo-detail-label">Photos</span>
+                  <button type="button" id="detailAddPhotosBtn" class="btn-outline btn-small">
+                    Add photos
+                  </button>
+                  <input type="file" id="detailPhotoInput" accept="image/*" multiple hidden />
+                </div>
+                <div id="detailPhotoHint" class="wo-detail-helper">
+                  Attach photos of what needs to be done or what was completed.
+                </div>
+                <div id="detailPhotoGallery" class="wo-detail-gallery"></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <footer class="wo-detail-footer">
@@ -1367,6 +1623,48 @@
           ×
         </button>
         <img id="photoLightboxImg" src="" alt="Work order photo" />
+      </div>
+    </div>
+
+    <!-- Map lightbox -->
+    <div id="mapLightbox" class="wo-map-lightbox" hidden>
+      <div class="wo-map-lightbox-inner">
+        <button type="button" id="mapLightboxClose" class="wo-map-lightbox-close" aria-label="Close map">
+          ×
+        </button>
+        <iframe id="mapLightboxFrame" src="" title="Work order location"></iframe>
+      </div>
+    </div>
+
+    <!-- Status choice modal -->
+    <div id="statusModal" class="wo-status-modal" hidden>
+      <div class="wo-status-modal-panel" role="dialog" aria-modal="true">
+        <div class="wo-status-modal-header">
+          <h2>Set work order status</h2>
+          <p class="muted" style="font-size:0.86rem;">
+            Choose how you want to save this work order.
+          </p>
+        </div>
+        <div class="wo-status-options">
+          <label class="wo-status-option">
+            <input type="radio" name="statusChoice" id="statusChoiceInProg" value="in progress">
+            <div>
+              <div><strong>Keep In Progress</strong></div>
+              <div>Work is started but not finished yet.</div>
+            </div>
+          </label>
+          <label class="wo-status-option">
+            <input type="radio" name="statusChoice" id="statusChoiceDone" value="completed">
+            <div>
+              <div><strong>Mark Completed</strong></div>
+              <div>Job is fully done and ready to close.</div>
+            </div>
+          </label>
+        </div>
+        <div class="wo-status-modal-footer">
+          <button type="button" id="statusModalCancel" class="btn-outline">Back</button>
+          <button type="button" id="statusModalSave" class="btn-primary">Save status</button>
+        </div>
       </div>
     </div>
   </fv-shell>
