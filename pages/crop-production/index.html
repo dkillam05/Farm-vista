@@ -14,7 +14,7 @@
   <!-- Early theme boot (prevents flash) -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- Firebase config + FVData (needed for KPI badges) -->
+  <!-- Firebase config + FVData (needed for Field Maintenance KPI) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/fv-data.js"></script>
 
@@ -277,18 +277,23 @@
   </script>
 
   <!-- ===========================================
-       Field Trials KPI JS (active trials)
+       Field Trials KPI JS (status == "active")
        =========================================== -->
-  <script>
-    (function(){
-      "use strict";
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      query,
+      where
+    } from '/Farm-vista/js/firebase-init.js';
 
-      const kpiEl   = document.getElementById("trials-kpi");
-      const countEl = document.getElementById("trials-count");
-      const subEl   = document.getElementById("trials-sub");
+    const kpiEl   = document.getElementById("trials-kpi");
+    const countEl = document.getElementById("trials-count");
+    const subEl   = document.getElementById("trials-sub");
 
-      if (!kpiEl || !countEl || !subEl) return;
-
+    if (kpiEl && countEl && subEl) {
       function applyState(count){
         const n = Number(count) || 0;
         countEl.textContent = n.toString();
@@ -306,17 +311,16 @@
 
       async function loadTrials(){
         try{
-          // Use Firestore directly (same pattern as boundary-requests KPI fix)
-          if (!window.firebase || typeof firebase.firestore !== "function"){
-            console.warn("[crop-production] firebase.firestore not available for trials KPI.");
-            applyState(0);
-            return;
-          }
+          // Ensure Firebase is initialized
+          await ready;
+          const db = getFirestore();
 
-          const db = firebase.firestore();
-          const snap = await db.collection("fieldTrials").get();
-          const n = snap && typeof snap.size === "number" ? snap.size : 0;
+          // Only count trials where status == "active"
+          const trialsRef = collection(db, "fieldTrials");
+          const q = query(trialsRef, where("status", "==", "active"));
+          const snap = await getDocs(q);
 
+          const n = typeof snap.size === "number" ? snap.size : 0;
           applyState(n);
         }catch(err){
           console.warn("[crop-production] failed to load field trials KPI:", err);
@@ -328,7 +332,7 @@
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") loadTrials();
       });
-    })();
+    }
   </script>
 
   <noscript>
