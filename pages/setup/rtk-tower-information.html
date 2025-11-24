@@ -93,6 +93,16 @@
     .dialog-body{padding:14px;display:grid;gap:12px;}
     .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
+
+    .usage-list{
+      list-style:disc;
+      margin:6px 0 0 18px;
+      padding:0;
+      display:grid;
+      gap:4px;
+      font-size:13px;
+      color:var(--muted,#67706B);
+    }
   </style>
 </head>
 <body>
@@ -177,7 +187,12 @@
           <label for="editFreq">Radio Frequency (MHz)</label>
           <input id="editFreq" class="input" inputmode="decimal" placeholder="450.12345">
         </div>
-        <div class="help" id="editUsage">Usage not loaded on this screen.</div>
+
+        <div class="field">
+          <label>Fields using this tower</label>
+          <div class="help" id="editUsageHelp">Loading usage…</div>
+          <ul id="editUsageList" class="usage-list"></ul>
+        </div>
       </div>
       <div class="dialog-footer">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -203,7 +218,7 @@
     };
 
     const escapeHTML = s => String(s||"").replace(/[&<>"']/g,
-      m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])
+      m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m])
     );
 
     async function waitForAuthReady(timeoutMs=5000){
@@ -260,15 +275,50 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
+    // Build a towerId -> Set(fieldNames) map with ONE pass over fields
+    async function buildUsageMap(){
+      const usage = new Map();
+      try{
+        const fields = await FVData.list('fields', { limit: 5000 }) || [];
+        for(const f of fields){
+          const cand = f.rtkTowerId ?? f.rtkId ?? f.rtk ?? null;
+          if(!cand) continue;
+          let towerKey = null;
+          if(typeof cand === 'string'){
+            towerKey = cand;
+          }else if(typeof cand === 'object' && cand){
+            towerKey = cand.id || cand._id || null;
+          }
+          if(!towerKey) continue;
+          const name = String(f.name || f.fieldName || '(Unnamed field)').trim();
+          if(!usage.has(towerKey)) usage.set(towerKey, new Set());
+          usage.get(towerKey).add(name);
+        }
+      }catch(e){
+        console.warn('Failed to build usage map', e);
+      }
+      return usage;
+    }
+
     async function loadAll(){
       try{
-        const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
-        towers = towersRaw.map(t => ({
-          id: t.id,
-          name: String(t.name || '').trim(),
-          networkId: typeof t.networkId === 'number' ? t.networkId : parseInt(t.networkId, 10) || 0,
-          frequencyMHz: String(t.frequencyMHz || '').trim()
-        })).sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
+        const [usageMap, towersRaw] = await Promise.all([
+          buildUsageMap(),
+          FVData.list('rtkTowers', { limit: 2000 }) || []
+        ]);
+
+        towers = (towersRaw || []).map(t => {
+          const set = usageMap.get(t.id) || new Set();
+          const inUse = Array.from(set).sort((a,b)=>a.localeCompare(b, undefined, {sensitivity:'base'}));
+          return {
+            id: t.id,
+            name: String(t.name || '').trim(),
+            networkId: typeof t.networkId === 'number' ? t.networkId : parseInt(t.networkId, 10) || 0,
+            frequencyMHz: String(t.frequencyMHz || '').trim(),
+            inUse
+          };
+        }).sort((a,b)=> a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
+
         renderDict();
       }catch(e){
         console.error(e);
@@ -294,9 +344,13 @@
       rows.forEach(t=>{
         const card = document.createElement('div');
         card.className = 'tower-card';
+        const usageChip = t.inUse.length
+          ? `<span class="chip">${t.inUse.length} field${t.inUse.length===1?'':'s'}</span>`
+          : `<span class="chip">not in use</span>`;
         card.innerHTML = `
           <div class="tower-row">
             <div class="tower-name">${escapeHTML(t.name)}</div>
+            ${usageChip}
           </div>
           <div class="tower-row mono" style="font-size:14px">
             <div>NET ${pad4(t.networkId)}</div>
@@ -304,11 +358,14 @@
           </div>
           <div class="tower-row" style="gap:8px">
             <button class="btn" data-act="edit">View / Edit</button>
-            <button class="btn btn-danger" data-act="delete">Delete</button>
+            <button class="btn btn-danger" data-act="delete"${t.inUse.length ? ' disabled' : ''}>Delete</button>
           </div>
         `;
         card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEdit(t.id));
-        card.querySelector('[data-act="delete"]').addEventListener('click', ()=> tryDelete(t.id));
+        const delBtn = card.querySelector('[data-act="delete"]');
+        if(!t.inUse.length){
+          delBtn.addEventListener('click', ()=> tryDelete(t.id));
+        }
         dictList.appendChild(card);
       });
     }
@@ -317,8 +374,10 @@
     $("reload").addEventListener('click', async ()=>{ await loadAll(); });
 
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete");
+    const editUsageHelp = $("editUsageHelp"), editUsageList = $("editUsageList");
+
     function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("editName").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
+    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; editUsageList.innerHTML=''; }
 
     function openEdit(id){
       const t = towers.find(x=>x.id===id); if(!t) return;
@@ -326,8 +385,22 @@
       $("editName").value = t.name || '';
       $("editNet").value  = pad4(t.networkId || 0);
       $("editFreq").value = t.frequencyMHz || '';
-      $("editUsage").textContent = 'Usage not loaded on this screen.';
-      mdDelete.disabled = false;
+
+      // usage list
+      editUsageList.innerHTML = '';
+      if(t.inUse.length){
+        editUsageHelp.textContent = `In use by ${t.inUse.length} field${t.inUse.length===1?'':'s'}:`;
+        t.inUse.forEach(name=>{
+          const li = document.createElement('li');
+          li.textContent = name;
+          editUsageList.appendChild(li);
+        });
+        mdDelete.disabled = true;
+      }else{
+        editUsageHelp.textContent = 'Not currently used by any fields.';
+        mdDelete.disabled = false;
+      }
+
       openModal();
     }
 
@@ -355,6 +428,10 @@
 
     async function tryDelete(id){
       const t = towers.find(x=>x.id===id); if(!t) return;
+      if(t.inUse && t.inUse.length){
+        alert('This tower is assigned to fields and cannot be deleted.');
+        return;
+      }
       if(!confirm(`Delete RTK tower "${t.name}"? This cannot be undone.`)) return;
       try{
         await FVData.ready(); await waitForAuthReady();
