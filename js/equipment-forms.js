@@ -162,14 +162,6 @@ Usage (from any page):
         visibleForTypes: ['planter', 'tillage', 'corn-head', 'draper-head']
       }),
 
-      // NEW: Planter lifetime acres (monitor)
-      numField('totalAcres', 'Total Acres', {
-        step: '1',
-        inputmode: 'numeric',
-        placeholder: 'Lifetime acres from monitor',
-        visibleForTypes: ['planter']
-      }),
-
       // Row count for planters and corn heads
       numField('numRows', 'Number of Rows', {
         step: '1',
@@ -184,6 +176,14 @@ Usage (from any page):
         inputmode: 'numeric',
         placeholder: 'e.g. 30',
         visibleForTypes: ['planter', 'corn-head']
+      }),
+      
+      // NEW: Planter lifetime acres (monitor)
+      numField('totalAcres', 'Total Acres', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'Lifetime acres from monitor',
+        visibleForTypes: ['planter']
       }),
 
       // NEW: Planter lifetime hours (monitor)
