@@ -124,6 +124,41 @@
       padding-inline:10px;
     }
 
+    /* Status filter chips */
+
+    .status-filter{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+
+    .status-filter-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+    }
+
+    .status-chip{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.8rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 80%, var(--border) 20%);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      user-select:none;
+    }
+
+    .status-chip.is-active{
+      border-color:var(--accent);
+      background:color-mix(in srgb, var(--accent) 14%, var(--surface) 86%);
+      font-weight:600;
+    }
+
     /* Trial list */
 
     .trial-list{
@@ -549,13 +584,16 @@
       COLLECTION_TRIALS: 'fieldTrials',
       STATUS_FIELD:  'status',
       STATUS_PENDING:'pending',
+      STATUS_ACTIVE: 'active',
+      STATUS_COMPLETED:'completed',
       ADD_FIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-add.html'
     };
 
     const STATE = {
       db: null,
       items: [],
-      selectedId: null
+      selectedId: null,
+      filterStatus: null
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -583,6 +621,15 @@
       }catch{
         return 0;
       }
+    }
+
+    function getStatusLabel(code){
+      if(!code) return '';
+      const c = String(code).toLowerCase();
+      if(c === CONFIG.STATUS_PENDING)   return 'Pending';
+      if(c === CONFIG.STATUS_ACTIVE)    return 'Active';
+      if(c === CONFIG.STATUS_COMPLETED) return 'Completed';
+      return code;
     }
 
     function isImageUrl(url){
@@ -781,7 +828,7 @@
       if(footer){
         footer.innerHTML = `
           Current status:
-          <span class="trial-detail-pill">${status || 'unknown'}</span>
+          <span class="trial-detail-pill">${getStatusLabel(status) || 'unknown'}</span>
         `;
       }
 
@@ -797,12 +844,15 @@
 
       listEl.innerHTML = '';
 
+      const statusLabel = getStatusLabel(STATE.filterStatus || CONFIG.STATUS_PENDING);
+      const labelLower  = statusLabel ? statusLabel.toLowerCase() : 'pending';
+
       if(!STATE.items.length){
         if(emptyEl) {
           emptyEl.style.display = 'block';
-          emptyEl.textContent = 'No pending trials right now. New field trials will appear here after they are created.';
+          emptyEl.textContent = `No ${labelLower} trials right now.`;
         }
-        if(countEl) countEl.textContent = '0 pending trials';
+        if(countEl) countEl.textContent = `0 ${labelLower} trials`;
         clearDetails();
         return;
       }
@@ -820,14 +870,16 @@
         const crop = d.crop || '';
         const trialType = d.trialType || '';
         const operationTask = d.operationTask || '';
-        const statusRaw = (d.status || '').toString() || 'pending';
+        const statusRaw = (d.status || '').toString() || CONFIG.STATUS_PENDING;
         const createdAt = d.createdAt || null;
         const when = createdAt && createdAt.toDate ? createdAt.toDate()
                    : (createdAt ? new Date(createdAt) : null);
 
+        const statusLower = statusRaw.toLowerCase();
         const friendlyStatus =
-          statusRaw.toLowerCase() === 'active'  ? 'Active'  :
-          statusRaw.toLowerCase() === 'pending' ? 'Pending' :
+          statusLower === CONFIG.STATUS_ACTIVE    ? 'Active'    :
+          statusLower === CONFIG.STATUS_PENDING   ? 'Pending'   :
+          statusLower === CONFIG.STATUS_COMPLETED ? 'Completed' :
           statusRaw;
 
         const card = document.createElement('article');
@@ -865,7 +917,7 @@
             </div>
             <div class="trial-status-chip">${friendlyStatus}</div>
           </div>
-        `;
+        ";
 
         // Clicking the card opens details
         card.addEventListener('click', () => {
@@ -887,16 +939,19 @@
       }
 
       if(countEl){
-        countEl.textContent = `${STATE.items.length} pending trial${STATE.items.length === 1 ? '' : 's'}`;
+        countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
       }
     }
 
-    async function loadPendingTrials(){
+    async function loadTrials(statusCode){
       const db  = STATE.db;
       const ref = collection(db, CONFIG.COLLECTION_TRIALS);
+      const status = (statusCode || CONFIG.STATUS_PENDING).toString().toLowerCase();
+
+      STATE.filterStatus = status;
 
       try{
-        const qRef = query(ref, where(CONFIG.STATUS_FIELD, '==', CONFIG.STATUS_PENDING));
+        const qRef = query(ref, where(CONFIG.STATUS_FIELD, '==', status));
         const snap = await getDocs(qRef);
 
         const items = snap.docs.map(d => ({
@@ -916,11 +971,12 @@
         console.error('Error loading trials:', err);
         const emptyEl = $('.trial-empty');
         const countEl = $('#trialCount');
+        const labelLower = getStatusLabel(status).toLowerCase();
         if(emptyEl){
-          emptyEl.textContent = 'Error loading trials. Check console or Firestore indexes.';
+          emptyEl.textContent = `Error loading ${labelLower} trials. Check console or Firestore indexes.`;
           emptyEl.style.display = 'block';
         }
-        if(countEl) countEl.textContent = 'Error loading trials';
+        if(countEl) countEl.textContent = `Error loading ${labelLower} trials`;
         clearDetails();
       }
     }
@@ -928,6 +984,7 @@
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
+      STATE.filterStatus = CONFIG.STATUS_PENDING;
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -962,7 +1019,26 @@
         fileCloseBtn.addEventListener('click', closeFileViewer);
       }
 
-      await loadPendingTrials();
+      // Status filter wiring
+      const statusButtons = $$('.status-chip');
+      statusButtons.forEach(btn => {
+        const s = (btn.dataset.status || '').toLowerCase();
+        if(s === STATE.filterStatus){
+          btn.classList.add('is-active');
+        }
+        btn.addEventListener('click', () => {
+          const status = (btn.dataset.status || '').toLowerCase();
+          if(!status || status === STATE.filterStatus) return;
+          STATE.filterStatus = status;
+          statusButtons.forEach(b => {
+            b.classList.toggle('is-active', b === btn);
+          });
+          clearDetails();
+          loadTrials(status);
+        });
+      });
+
+      await loadTrials(STATE.filterStatus);
     })();
   </script>
 </head>
@@ -976,7 +1052,7 @@
           <div>
             <h1>Edit Field Trials</h1>
             <p class="muted">
-              Review and open pending field trials. Add Fields is handled on a separate page.
+              Review and open field trials. Use the status filter to switch between Pending, Active, and Completed.
             </p>
           </div>
         </header>
@@ -987,13 +1063,20 @@
               <button id="btnBack" type="button" class="btn btn-quiet">
                 ← Back to Trials
               </button>
+
+              <div class="status-filter" role="radiogroup" aria-label="Filter trials by status">
+                <span class="status-filter-label">Status</span>
+                <button type="button" class="status-chip is-active" data-status="pending">Pending</button>
+                <button type="button" class="status-chip" data-status="active">Active</button>
+                <button type="button" class="status-chip" data-status="completed">Completed</button>
+              </div>
             </div>
             <div class="toolbar-right">
               <span id="trialCount">0 pending trials</span>
             </div>
           </div>
 
-          <section aria-label="Pending field trials">
+          <section aria-label="Field trials">
             <div class="trial-empty">
               No pending trials right now.
             </div>
