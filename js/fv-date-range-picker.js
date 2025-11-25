@@ -17,10 +17,6 @@
 //        • applyRangeBtn     (Apply button)
 //        • closeCalBtn       (X / close button)
 //
-//      Optional (if present, they’ll work; if not, no-op):
-//        • prevMonthBtn      (previous month button)
-//        • nextMonthBtn      (next month button)
-//
 //   If required elements aren’t present, this script quietly no-ops.
 //
 //   It also exposes a tiny global, window.FVDateRangePicker, in case
@@ -35,20 +31,18 @@
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
 
-    // Grab elements
+    // Grab required elements
     const jobInput      = document.getElementById('jobRangeInput');
     const popover       = document.getElementById('calendarPopover');
     const monthSelect   = document.getElementById('monthSelect');
     const yearSelect    = document.getElementById('yearSelect');
-    const prevBtn       = document.getElementById('prevMonthBtn'); // optional
-    const nextBtn       = document.getElementById('nextMonthBtn'); // optional
     const daysContainer = document.getElementById('calDays');
     const rangeSummary  = document.getElementById('rangeSummary');
     const clearBtn      = document.getElementById('clearRangeBtn');
     const applyBtn      = document.getElementById('applyRangeBtn');
     const closeBtn      = document.getElementById('closeCalBtn');
 
-    // Required elements check (prev/next are optional now)
+    // Required elements check
     if (!jobInput || !popover || !monthSelect || !yearSelect ||
         !daysContainer || !rangeSummary || !clearBtn ||
         !applyBtn || !closeBtn) {
@@ -96,8 +90,8 @@
 
     function buildYearOptions() {
       const currentYear = new Date().getFullYear();
-      const startYear = currentYear - 5;
-      const endYear   = currentYear + 5;
+      const startYear   = currentYear - 5;
+      const endYear     = currentYear + 5;
       yearSelect.innerHTML = '';
       for (let y = startYear; y <= endYear; y++) {
         const opt = document.createElement('option');
@@ -122,14 +116,14 @@
       yearSelect.value  = String(viewYear);
       daysContainer.innerHTML = '';
 
-      const firstOfMonth  = new Date(viewYear, viewMonth, 1);
-      const startWeekday  = firstOfMonth.getDay();
-      const daysInMonth   = new Date(viewYear, viewMonth + 1, 0).getDate();
+      const firstOfMonth = new Date(viewYear, viewMonth, 1);
+      const startWeekday = firstOfMonth.getDay();
+      const daysInMonth  = new Date(viewYear, viewMonth + 1, 0).getDate();
 
       // previous month padding days
-      const prevMonth     = viewMonth === 0 ? 11 : viewMonth - 1;
-      const prevYear      = viewMonth === 0 ? viewYear - 1 : viewYear;
-      const daysInPrevMon = new Date(prevYear, prevMonth + 1, 0).getDate();
+      const prevMonth        = viewMonth === 0 ? 11 : viewMonth - 1;
+      const prevYear         = viewMonth === 0 ? viewYear - 1 : viewYear;
+      const daysInPrevMonth  = new Date(prevYear, prevMonth + 1, 0).getDate();
 
       const totalCells = 42; // 6 weeks x 7 days
 
@@ -141,7 +135,7 @@
 
         if (cell < startWeekday) {
           // previous month
-          const dayNum = daysInPrevMon - (startWeekday - 1 - cell);
+          const dayNum = daysInPrevMonth - (startWeekday - 1 - cell);
           dayCell.textContent = dayNum;
           dayCell.classList.add('other-month');
           cellDate = new Date(prevYear, prevMonth, dayNum);
@@ -216,31 +210,6 @@
     }
 
     // ----------------- Event wiring -----------------
-
-    // Optional arrow buttons (some pages might still use them)
-    if (prevBtn) {
-      prevBtn.addEventListener('click', function () {
-        if (viewMonth === 0) {
-          viewMonth = 11;
-          viewYear--;
-        } else {
-          viewMonth--;
-        }
-        renderCalendar();
-      });
-    }
-
-    if (nextBtn) {
-      nextBtn.addEventListener('click', function () {
-        if (viewMonth === 11) {
-          viewMonth = 0;
-          viewYear++;
-        } else {
-          viewMonth++;
-        }
-        renderCalendar();
-      });
-    }
 
     monthSelect.addEventListener('change', function () {
       viewMonth = parseInt(this.value, 10);
