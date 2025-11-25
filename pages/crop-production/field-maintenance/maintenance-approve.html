@@ -608,85 +608,6 @@
       return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') || u.endsWith('.gif') || u.endsWith('.webp');
     }
 
-    async function loadStoragePhotos(docId, attGrid){
-      try{
-        // Import storage SDK + our firebase-init (for app)
-        const [storageMod, core] = await Promise.all([
-          import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js'),
-          import('/Farm-vista/js/firebase-init.js')
-        ]);
-
-        const { getStorage, ref, listAll, getDownloadURL } = storageMod;
-        const app = core.getApp ? core.getApp() : null;
-
-        const storage = app ? getStorage(app) : getStorage();
-        if(!storage || !ref || !listAll || !getDownloadURL){
-          throw new Error('Storage not initialized');
-        }
-
-        const folderRef = ref(storage, `fieldMaintenance/${docId}`);
-        const res = await listAll(folderRef);
-
-        attGrid.innerHTML = '';
-
-        if(!res.items.length){
-          const empty = document.createElement('div');
-          empty.className = 'wo-attachment-empty';
-          empty.textContent = 'No files or photos attached.';
-          attGrid.appendChild(empty);
-          return;
-        }
-
-        for(const item of res.items){
-          const url = await getDownloadURL(item);
-
-          const itemEl = document.createElement('div');
-          itemEl.className = 'wo-attachment-item';
-
-          const thumb = document.createElement('div');
-          thumb.className = 'wo-attachment-thumb';
-
-          if(isImageUrl(url)){
-            const img = document.createElement('img');
-            img.src = url;
-            img.alt = item.name || 'Photo';
-            thumb.appendChild(img);
-          }else{
-            thumb.textContent = 'FILE';
-          }
-
-          const meta = document.createElement('div');
-          meta.className = 'wo-attachment-meta';
-
-          const nameEl = document.createElement('div');
-          nameEl.className = 'wo-attachment-name';
-          nameEl.textContent = item.name || 'Attachment';
-
-          const linkEl = document.createElement('a');
-          linkEl.className = 'wo-attachment-link';
-          linkEl.href = url;
-          linkEl.target = '_blank';
-          linkEl.rel = 'noopener noreferrer';
-          linkEl.textContent = 'Open';
-
-          meta.appendChild(nameEl);
-          meta.appendChild(linkEl);
-
-          itemEl.appendChild(thumb);
-          itemEl.appendChild(meta);
-
-          attGrid.appendChild(itemEl);
-        }
-      }catch(err){
-        console.error('Error loading storage photos:', err);
-        attGrid.innerHTML = '';
-        const errEl = document.createElement('div');
-        errEl.className = 'wo-attachment-empty';
-        errEl.textContent = 'Error loading files or photos.';
-        attGrid.appendChild(errEl);
-      }
-    }
-
     function renderDetails(){
       const panel = $('.wo-detail-panel');
       const item = STATE.items.find(x => x.id === STATE.selectedId);
@@ -753,18 +674,7 @@
       // Attachments (doc-level arrays first)
       const attachments = [];
 
-      if(Array.isArray(data.attachments)){
-        for(const a of data.attachments){
-          if(!a) continue;
-          attachments.push({
-            url: a.url || a.href || '',
-            name: a.name || a.fileName || 'Attachment',
-            type: a.type || a.mimeType || ''
-          });
-        }
-      }
-
-      // New: explicit photoUrls array from doc (if you add it later)
+      // photoUrls: your new field
       if(Array.isArray(data.photoUrls)){
         for(const url of data.photoUrls){
           if(!url) continue;
@@ -772,6 +682,17 @@
             url,
             name: 'Photo',
             type: 'image'
+          });
+        }
+      }
+
+      if(Array.isArray(data.attachments)){
+        for(const a of data.attachments){
+          if(!a) continue;
+          attachments.push({
+            url: a.url || a.href || '',
+            name: a.name || a.fileName || 'Attachment',
+            type: a.type || a.mimeType || ''
           });
         }
       }
@@ -845,13 +766,10 @@
             attGrid.appendChild(itemEl);
           }
         } else if(photoCount > 0){
-          const loading = document.createElement('div');
-          loading.className = 'wo-attachment-empty';
-          loading.textContent = 'Loading photos...';
-          attGrid.appendChild(loading);
-
-          // Try to pull from Storage folder fieldMaintenance/{docId}
-          loadStoragePhotos(item.id, attGrid);
+          const info = document.createElement('div');
+          info.className = 'wo-attachment-empty';
+          info.textContent = 'This work order has photos saved, but no links are available.';
+          attGrid.appendChild(info);
         } else {
           const empty = document.createElement('div');
           empty.className = 'wo-attachment-empty';
