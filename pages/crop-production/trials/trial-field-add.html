@@ -204,6 +204,12 @@
       display:block;
     }
 
+    .input-error{
+      border-color:#b3261e !important;
+      box-shadow:0 0 0 1px rgba(179,38,30,.3);
+      background:rgba(179,38,30,.03);
+    }
+
     /* Mic button (dictation) */
     .ta-wrap{
       position:relative;
@@ -489,7 +495,7 @@
       selectedFarm: null,
       selectedField: null,
       selectedFieldMaxAcres: null,
-      pendingFields: []   // array of {farm, field, acres, notes}
+      pendingFields: []   // { farm, field, acres, notes }
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -498,9 +504,9 @@
     let toastEl;
     let errorBox;
 
-    // farm/field combos
+    // combos
     let farmCombo, fieldCombo;
-    let fieldFarmBtn, fieldFarmPanel, fieldFarmList;
+    let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
     let fieldFieldBtn, fieldFieldPanel, fieldFieldList, fieldFieldSearch;
 
     // inputs
@@ -850,6 +856,9 @@
     function addFieldToPending(ev){
       ev.preventDefault();
       showError("");
+      if(trialAcresInput){
+        trialAcresInput.classList.remove("input-error");
+      }
 
       const farm = STATE.selectedFarm;
       const field = STATE.selectedField;
@@ -873,6 +882,7 @@
       let acres = acresStr ? Number(acresStr) : null;
       if(acresStr && isNaN(acres)){
         showError("Trial acres must be a number.");
+        trialAcresInput.classList.add("input-error");
         return;
       }
       if(acres != null){
@@ -882,9 +892,11 @@
       const maxAcres = STATE.selectedFieldMaxAcres;
       if(maxAcres != null && acres != null && acres > maxAcres + 0.0001){
         showError(`Trial acres cannot be more than the field tillable acres (${maxAcres}).`);
+        trialAcresInput.classList.add("input-error");
         return;
       }
 
+      // all good, add to pending list
       STATE.pendingFields.push({
         farm,
         field,
@@ -893,20 +905,27 @@
       });
 
       renderPendingList();
-
-      // reset just acres + notes; keep farm/field in case they add another strip on same field
-      trialAcresInput.value = "";
-      notesInput.value = "";
-      if(trialAcresHelp && maxAcres != null){
-        trialAcresHelp.textContent =
-          `Max trial acres for this field: ${maxAcres}. Trial acres cannot be more than the tillable acres.`;
-      }
       showToast("Field added to this trial. Remember to Save Fields at the bottom when you’re done.");
+
+      // reset to "new page" state: clear farm/field/acres/notes
+      STATE.selectedFarm = null;
+      STATE.selectedField = null;
+      STATE.selectedFieldMaxAcres = null;
+
+      refreshFarmCombo();
+      refreshFieldComboForFarm(null);
+
+      trialAcresInput.value = "";
+      if(trialAcresHelp) trialAcresHelp.textContent = "";
+      notesInput.value = "";
     }
 
     async function saveAllFields(ev){
       ev.preventDefault();
       showError("");
+      if(trialAcresInput){
+        trialAcresInput.classList.remove("input-error");
+      }
 
       if(!STATE.pendingFields.length){
         showError("No fields to save. Add at least one field to this trial.");
@@ -935,7 +954,6 @@
           });
         }
 
-        // mark trial active
         const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, trialId);
         await updateDoc(trialRef, {
           status: "active",
@@ -950,18 +968,6 @@
         console.error("Error saving fields:", err);
         showError("Error saving fields: " + (err && (err.message || err.code) || "Unknown error"));
         if(saveBtn) saveBtn.disabled = false;
-      }
-    }
-
-    function getTime(ts){
-      if(!ts) return 0;
-      try{
-        if(ts.toMillis) return ts.toMillis();
-        if(ts.toDate)   return ts.toDate().getTime();
-        if(ts instanceof Date) return ts.getTime();
-        return new Date(ts).getTime() || 0;
-      }catch{
-        return 0;
       }
     }
 
@@ -990,6 +996,7 @@
       fieldFarmBtn    = document.getElementById("fieldFarmBtn");
       fieldFarmPanel  = document.getElementById("fieldFarmPanel");
       fieldFarmList   = document.getElementById("fieldFarmList");
+      fieldFarmSearch = document.getElementById("fieldFarmSearch");
 
       fieldFieldBtn   = document.getElementById("fieldFieldBtn");
       fieldFieldPanel = document.getElementById("fieldFieldPanel");
@@ -1048,6 +1055,7 @@
         btn: fieldFarmBtn,
         panel: fieldFarmPanel,
         list: fieldFarmList,
+        searchInput: fieldFarmSearch,
         searchable: true,
         formatter: x=>x.label,
         onPick: farm=>{
@@ -1066,7 +1074,6 @@
         onPick: item=>{
           STATE.selectedField = item.raw;
 
-          // snap farm
           if(item.raw.farmId){
             const farm = STATE.farms.find(f=>f.id === item.raw.farmId);
             if(farm){
@@ -1151,6 +1158,9 @@
                   — Select farm —
                 </button>
                 <div id="fieldFarmPanel" class="combo-panel" role="listbox" aria-label="Farm list">
+                  <div class="search">
+                    <input id="fieldFarmSearch" type="search" placeholder="Search farms…" />
+                  </div>
                   <div class="list" id="fieldFarmList"></div>
                 </div>
               </div>
@@ -1174,21 +1184,12 @@
             </div>
           </div>
 
-          <!-- Trial acres + status text -->
-          <div class="row">
-            <div class="field">
-              <label for="trialAcres">Trial Acres</label>
-              <input id="trialAcres" class="input no-spin" type="number" step="0.01"
-                     placeholder="Acres in this field that are part of the trial" />
-              <div id="trialAcresHelp" class="helper"></div>
-            </div>
-
-            <div class="field">
-              <label>Status</label>
-              <div class="helper">
-                When the fields listed below are saved, this trial will move to <strong>Active</strong>.
-              </div>
-            </div>
+          <!-- Trial acres -->
+          <div class="field">
+            <label for="trialAcres">Trial Acres</label>
+            <input id="trialAcres" class="input no-spin" type="number" step="0.01"
+                   placeholder="Acres in this field that are part of the trial" />
+            <div id="trialAcresHelp" class="helper"></div>
           </div>
 
           <!-- Notes -->
