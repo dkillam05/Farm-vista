@@ -610,18 +610,20 @@
 
     async function loadStoragePhotos(docId, attGrid){
       try{
-        // Try to dynamically grab storage helpers from firebase-init.js
-        const mod = await import('/Farm-vista/js/firebase-init.js');
-        const getStorage = mod.getStorage;
-        const ref = mod.ref || mod.storageRef;
-        const listAll = mod.listAll;
-        const getDownloadURL = mod.getDownloadURL;
+        // Import storage SDK + our firebase-init (for app)
+        const [storageMod, core] = await Promise.all([
+          import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js'),
+          import('/Farm-vista/js/firebase-init.js')
+        ]);
 
-        if(!getStorage || !ref || !listAll || !getDownloadURL){
-          throw new Error('Storage helpers not exported');
+        const { getStorage, ref, listAll, getDownloadURL } = storageMod;
+        const app = core.getApp ? core.getApp() : null;
+
+        const storage = app ? getStorage(app) : getStorage();
+        if(!storage || !ref || !listAll || !getDownloadURL){
+          throw new Error('Storage not initialized');
         }
 
-        const storage = getStorage();
         const folderRef = ref(storage, `fieldMaintenance/${docId}`);
         const res = await listAll(folderRef);
 
@@ -762,6 +764,19 @@
         }
       }
 
+      // New: explicit photoUrls array from doc (if you add it later)
+      if(Array.isArray(data.photoUrls)){
+        for(const url of data.photoUrls){
+          if(!url) continue;
+          attachments.push({
+            url,
+            name: 'Photo',
+            type: 'image'
+          });
+        }
+      }
+
+      // Legacy photos[] support
       if(Array.isArray(data.photos)){
         for(const url of data.photos){
           if(!url) continue;
