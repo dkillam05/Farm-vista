@@ -170,6 +170,7 @@
     .wo-main {
       flex:1 1 auto;
       min-width:0;
+      padding-right:110px; /* space for Start Job button */
     }
 
     .wo-title {
@@ -226,6 +227,31 @@
       font-size:0.78rem;
       text-transform:uppercase;
       letter-spacing:0.06em;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    /* Start Job button on card */
+    .wo-card-actions{
+      position:absolute;
+      top:10px;
+      right:12px;
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+
+    .wo-start-btn{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:5px 12px;
+      font-size:0.78rem;
+      font-weight:700;
+      background:var(--surface-strong, var(--surface));
+      cursor:pointer;
+      white-space:nowrap;
+    }
+
+    .wo-start-btn:hover{
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
@@ -465,6 +491,143 @@
       max-height:100%;
       display:block;
     }
+
+    /* Start Job modal */
+    .job-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100010;
+    }
+    .job-modal.show{
+      display:flex;
+    }
+    .job-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.55);
+    }
+    .job-sheet{
+      position:relative;
+      max-width:min(560px, 94vw);
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:16px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:14px 16px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      z-index:1;
+      overflow:auto;
+    }
+    .job-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+    .job-title{
+      font-size:1.05rem;
+      font-weight:700;
+    }
+    .job-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .job-subtitle{
+      font-size:0.86rem;
+      opacity:0.9;
+    }
+    .job-form{
+      display:grid;
+      gap:10px;
+      margin-top:4px;
+      font-size:0.9rem;
+    }
+    .job-field{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .job-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.75;
+    }
+    .job-input,
+    .job-textarea,
+    .job-select{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:7px 9px;
+      font:inherit;
+      background:var(--surface);
+      resize:vertical;
+      min-height:38px;
+    }
+    .job-textarea{
+      min-height:80px;
+    }
+    .job-range-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+    .job-range-row span{
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+    .job-actions{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+    .job-btn{
+      border-radius:12px;
+      border:1px solid var(--border);
+      padding:8px 14px;
+      font-size:0.9rem;
+      font-weight:700;
+      background:var(--surface);
+      cursor:pointer;
+    }
+    .job-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
+    }
+    .job-btn-primary:disabled{
+      opacity:0.6;
+      cursor:default;
+    }
+    .job-mic-row{
+      display:flex;
+      justify-content:flex-end;
+      margin-top:4px;
+    }
+    .job-mic-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.8rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .job-note-hint{
+      font-size:0.8rem;
+      opacity:0.75;
+    }
   </style>
 
   <script>
@@ -501,7 +664,8 @@
     const STATE = {
       db: null,
       items: [],
-      selectedId: null
+      selectedId: null,
+      jobForId: null
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -514,6 +678,22 @@
     let photoModalImg = null;
     let photoModalBackdrop = null;
     let photoModalCloseBtn = null;
+
+    // Start Job modal refs
+    let jobModal = null;
+    let jobModalBackdrop = null;
+    let jobModalCloseBtn = null;
+    let jobForm = null;
+    let jobWoLabel = null;
+    let jobSubmittedByInput = null;
+    let jobStartDateInput = null;
+    let jobEndDateInput = null;
+    let jobCrewInput = null;
+    let jobNotesInput = null;
+    let jobPhotosInput = null;
+    let jobCancelBtn = null;
+    let jobSaveBtn = null;
+    let jobMicBtn = null;
 
     function getTime(ts){
       if(!ts) return 0;
@@ -856,6 +1036,9 @@
           statusRaw;
 
         card.innerHTML = `
+          <div class="wo-card-actions">
+            <button type="button" class="wo-start-btn">Start Job</button>
+          </div>
           <div class="wo-row-top">
             <div class="wo-main">
               <div class="wo-title">
@@ -891,6 +1074,14 @@
           STATE.selectedId = id;
           renderDetails();
         });
+
+        const startBtn = card.querySelector('.wo-start-btn');
+        if(startBtn){
+          startBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openJobModal(item);
+          });
+        }
 
         listEl.appendChild(card);
       }
@@ -937,6 +1128,70 @@
       }
     }
 
+    // ---- Start Job modal helpers ----
+
+    function openJobModal(item){
+      if(!jobModal || !jobForm) return;
+
+      STATE.jobForId = item.id;
+
+      const data = item.data;
+      const field = data.fieldName || data.field || 'Field not set';
+      const farm  = data.farmName  || data.farm  || '';
+      const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email))
+                        || data.createdByName || data.createdBy || '';
+
+      jobForm.reset();
+
+      if(jobWoLabel){
+        jobWoLabel.textContent = farm ? `${field} · ${farm}` : field;
+      }
+
+      const todayISO = new Date().toISOString().slice(0,10);
+      if(jobStartDateInput) jobStartDateInput.value = todayISO;
+      if(jobEndDateInput) jobEndDateInput.value = todayISO;
+
+      if(jobSubmittedByInput){
+        // For now, default to the existing submittedBy; we can swap to logged-in user
+        // once we wire in the same logic as maintenance-add.html
+        jobSubmittedByInput.value = createdBy || '';
+      }
+
+      jobModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeJobModal(){
+      if(!jobModal) return;
+      jobModal.classList.remove('show');
+      document.body.style.overflow = '';
+      STATE.jobForId = null;
+    }
+
+    function handleJobSubmit(ev){
+      ev.preventDefault();
+      if(!STATE.jobForId) {
+        closeJobModal();
+        return;
+      }
+
+      const payload = {
+        workOrderId: STATE.jobForId,
+        submittedBy: jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '',
+        projectStart: jobStartDateInput ? jobStartDateInput.value : '',
+        projectEnd:   jobEndDateInput ? jobEndDateInput.value : '',
+        crew:         jobCrewInput ? jobCrewInput.value.trim() : '',
+        notes:        jobNotesInput ? jobNotesInput.value.trim() : '',
+        photoFiles:   jobPhotosInput && jobPhotosInput.files ? Array.from(jobPhotosInput.files).map(f => f.name) : [],
+        createdAt:    new Date().toISOString()
+      };
+
+      console.log('Start Job payload (wire this to Firestore when ready):', payload);
+      // TODO: Write payload to Firestore / subcollection once schema is defined.
+
+      closeJobModal();
+    }
+
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
@@ -963,7 +1218,13 @@
         photoModalCloseBtn.addEventListener('click', closePhotoViewer);
       }
       document.addEventListener('keydown', (ev)=>{
-        if(ev.key === 'Escape') closePhotoViewer();
+        if(ev.key === 'Escape'){
+          if(jobModal && jobModal.classList.contains('show')){
+            closeJobModal();
+          }else{
+            closePhotoViewer();
+          }
+        }
       });
 
       const closeDetailBtn = $('#woDetailClose');
@@ -972,6 +1233,44 @@
           STATE.selectedId = null;
           clearDetails();
         });
+      }
+
+      // Wire Start Job modal refs
+      jobModal = $('#jobModal');
+      jobModalBackdrop = $('#jobModalBackdrop');
+      jobModalCloseBtn = $('#jobModalClose');
+      jobForm = $('#jobForm');
+      jobWoLabel = $('#jobWoLabel');
+      jobSubmittedByInput = $('#jobSubmittedBy');
+      jobStartDateInput = $('#jobStartDate');
+      jobEndDateInput = $('#jobEndDate');
+      jobCrewInput = $('#jobCrew');
+      jobNotesInput = $('#jobNotes');
+      jobPhotosInput = $('#jobPhotos');
+      jobCancelBtn = $('#jobCancel');
+      jobSaveBtn = $('#jobSave');
+      jobMicBtn = $('#jobMic');
+
+      if(jobModalBackdrop){
+        jobModalBackdrop.addEventListener('click', closeJobModal);
+      }
+      if(jobModalCloseBtn){
+        jobModalCloseBtn.addEventListener('click', closeJobModal);
+      }
+      if(jobCancelBtn){
+        jobCancelBtn.addEventListener('click', (ev)=>{
+          ev.preventDefault();
+          closeJobModal();
+        });
+      }
+      if(jobForm){
+        jobForm.addEventListener('submit', handleJobSubmit);
+      }
+
+      // If your global dictation helper uses data-target, this should hook in
+      if(jobMicBtn && jobNotesInput){
+        jobMicBtn.dataset.target = 'jobNotes';
+        jobNotesInput.id = 'jobNotes';
       }
 
       await loadActiveWorkOrders();
@@ -1061,6 +1360,64 @@
       <div class="photo-img-wrap">
         <img id="photoModalImg" src="" alt="Work order photo"/>
       </div>
+    </div>
+  </div>
+
+  <!-- Start Job modal -->
+  <div id="jobModal" class="job-modal" role="dialog" aria-modal="true" aria-label="Start job for work order">
+    <div id="jobModalBackdrop" class="job-backdrop"></div>
+    <div class="job-sheet">
+      <div class="job-header">
+        <div>
+          <div class="job-title">Start Job</div>
+          <div class="job-subtitle" id="jobWoLabel"></div>
+        </div>
+        <button id="jobModalClose" type="button" class="job-close-btn">Close</button>
+      </div>
+
+      <form id="jobForm" class="job-form">
+        <div class="job-field">
+          <label class="job-label" for="jobSubmittedBy">Submitted by</label>
+          <input id="jobSubmittedBy" class="job-input" type="text" readonly />
+        </div>
+
+        <div class="job-field">
+          <div class="job-label">Project dates</div>
+          <div class="job-range-row">
+            <input id="jobStartDate" class="job-input" type="date" />
+            <span>to</span>
+            <input id="jobEndDate" class="job-input" type="date" />
+          </div>
+        </div>
+
+        <div class="job-field">
+          <label class="job-label" for="jobCrew">Crew members</label>
+          <input id="jobCrew" class="job-input" type="text" placeholder="Select or list employees working on this project" />
+        </div>
+
+        <div class="job-field">
+          <label class="job-label" for="jobNotes">Notes from the field</label>
+          <textarea id="jobNotes" class="job-textarea" placeholder="Add notes about work being done..."></textarea>
+          <div class="job-mic-row">
+            <button id="jobMic" type="button" class="job-mic-btn" data-target="jobNotes">
+              Dictate notes
+            </button>
+          </div>
+          <div class="job-note-hint">
+            Your operators can add quick notes here while they are working.
+          </div>
+        </div>
+
+        <div class="job-field">
+          <label class="job-label" for="jobPhotos">Photos</label>
+          <input id="jobPhotos" class="job-input" type="file" accept="image/*" multiple />
+        </div>
+
+        <div class="job-actions">
+          <button id="jobCancel" type="button" class="job-btn">Cancel</button>
+          <button id="jobSave" type="submit" class="job-btn job-btn-primary">Start Job</button>
+        </div>
+      </form>
     </div>
   </div>
 </body>
