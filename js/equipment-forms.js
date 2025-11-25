@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2025-11-13d
+Rev: 2025-11-13d + Planter acres/hours
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -162,6 +162,14 @@ Usage (from any page):
         visibleForTypes: ['planter', 'tillage', 'corn-head', 'draper-head']
       }),
 
+      // NEW: Planter lifetime acres (monitor)
+      numField('totalAcres', 'Total Acres', {
+        step: '1',
+        inputmode: 'numeric',
+        placeholder: 'Lifetime acres from monitor',
+        visibleForTypes: ['planter']
+      }),
+
       // Row count for planters and corn heads
       numField('numRows', 'Number of Rows', {
         step: '1',
@@ -178,7 +186,15 @@ Usage (from any page):
         visibleForTypes: ['planter', 'corn-head']
       }),
 
-      // New: StarFire-capable pill for "some implements"
+      // NEW: Planter lifetime hours (monitor)
+      numField('totalHours', 'Total Hours', {
+        step: '0.1',
+        inputmode: 'decimal',
+        placeholder: 'Lifetime hours from monitor',
+        visibleForTypes: ['planter']
+      }),
+
+      // StarFire-capable pill for "some implements"
       toggleField('starfireCapable', 'StarFire GPS Capable?', {
         visibleForTypes: ['planter', 'grain-cart', 'corn-head', 'draper-head', 'other']
       }),
