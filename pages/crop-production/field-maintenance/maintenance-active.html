@@ -523,7 +523,7 @@
       gap:10px;
       z-index:1;
       overflow-y:auto;
-      overflow-x:hidden; /* kill horizontal scroll */
+      overflow-x:hidden;
     }
     .job-header{
       display:flex;
@@ -579,7 +579,7 @@
     }
     .job-textarea{
       min-height:80px;
-      padding-right:52px; /* room for mic */
+      padding-right:52px;
     }
     .job-range-row{
       display:flex;
@@ -937,7 +937,7 @@
       ready,
       getFirestore,
       collection, query, where, getDocs,
-      addDoc, doc, updateDoc, serverTimestamp
+      doc, getDoc, setDoc, updateDoc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -947,7 +947,8 @@
       COLLECTION_PATH: 'fieldMaintenance',
       STATUS_FIELD:    'status',
       STATUS_PENDING:  'pending',
-      STATUS_INPROG:   'in progress'
+      STATUS_INPROG:   'in progress',
+      STATUS_DONE:     'completed'
     };
 
     const STATE = {
@@ -973,6 +974,7 @@
     let jobModalBackdrop = null;
     let jobModalCloseBtn = null;
     let jobForm = null;
+    let jobModalTitle = null;
     let jobWoLabel = null;
     let jobSubmittedByInput = null;
     let jobStartDateInput = null; // reserved
@@ -1317,18 +1319,21 @@
         const when = ts && ts.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
         const statusRaw = (data.status || '').toString() || 'unknown';
 
-        const card = document.createElement('article');
-        card.className = 'wo-card';
-        card.dataset.id = id;
-
         const friendlyStatus =
           statusRaw.toLowerCase() === 'in progress' ? 'In Progress' :
           statusRaw.toLowerCase() === 'pending'     ? 'Pending' :
           statusRaw;
 
+        const card = document.createElement('article');
+        card.className = 'wo-card';
+        card.dataset.id = id;
+        card.dataset.status = statusRaw.toLowerCase();
+
         card.innerHTML = `
           <div class="wo-card-actions">
-            <button type="button" class="wo-start-btn">Start Job</button>
+            <button type="button" class="wo-start-btn">
+              ${friendlyStatus === 'In Progress' ? 'Continue Job' : 'Start Job'}
+            </button>
           </div>
           <div class="wo-row-top">
             <div class="wo-main">
@@ -1571,12 +1576,13 @@
       }, 200);
     }
 
-    function openJobModal(item){
+    async function openJobModal(item){
       if(!jobModal || !jobForm) return;
 
       STATE.jobForId = item.id;
 
       const data = item.data;
+      const statusRaw = (data.status || '').toString().toLowerCase();
       const field = data.fieldName || data.field || 'Field not set';
       const farm  = data.farmName  || data.farm  || '';
 
@@ -1595,7 +1601,35 @@
         jobWoLabel.textContent = farm ? `${field} · ${farm}` : field;
       }
 
+      if(jobModalTitle){
+        jobModalTitle.textContent = statusRaw === CONFIG.STATUS_INPROG ? 'Continue Job' : 'Start Job';
+      }
+
       setJobSubmittedByNow();
+
+      // load existing job doc if present
+      try{
+        const jobRef = doc(STATE.db, 'fieldMaintenanceJobs', STATE.jobForId);
+        const snap = await getDoc(jobRef);
+        if(snap.exists()){
+          const jd = snap.data() || {};
+          if(jobRangeInputEl && jd.projectRange){
+            jobRangeInputEl.value = jd.projectRange;
+          }
+          if(jobNotesInput && jd.notes){
+            jobNotesInput.value = jd.notes;
+          }
+          if(jobCrewListEl && Array.isArray(jd.crew)){
+            const ids = new Set(jd.crew.map(c => c.id));
+            jobCrewListEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+              cb.checked = ids.has(cb.value);
+            });
+            updateCrewButtonLabel();
+          }
+        }
+      }catch(err){
+        console.error('Error loading existing job record:', err);
+      }
 
       jobModal.classList.add('show');
       document.body.style.overflow = 'hidden';
@@ -1623,33 +1657,46 @@
           }))
         : [];
 
-      const payload = {
-        workOrderId: STATE.jobForId,
-        submittedBy: jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '',
-        projectStart: jobStartDateInput ? jobStartDateInput.value : '',
-        projectEnd:   jobEndDateInput ? jobEndDateInput.value : '',
-        projectRange: jobRangeInputEl ? jobRangeInputEl.value : '',
-        crew:         crewSelections,
-        notes:        jobNotesInput ? jobNotesInput.value.trim() : '',
-        photoFileNames: jobPhotosInput && jobPhotosInput.files ? Array.from(jobPhotosInput.files).map(f => f.name) : [],
-        status:       'active',
-        createdAt:    serverTimestamp(),
-        updatedAt:    serverTimestamp()
-      };
+      const notes = jobNotesInput ? jobNotesInput.value.trim() : '';
+      const rangeText = jobRangeInputEl ? jobRangeInputEl.value : '';
+
+      // Simple popup: OK = Completed, Cancel = In Progress
+      const isCompleted = window.confirm('Is this job completed?\nOK = Completed, Cancel = In Progress.');
+      const jobStatus = isCompleted ? CONFIG.STATUS_DONE : CONFIG.STATUS_INPROG;
+
+      const newPhotoNames = jobPhotosInput && jobPhotosInput.files
+        ? Array.from(jobPhotosInput.files).map(f => f.name)
+        : [];
 
       try{
-        // Save job record
-        const jobsCol = collection(STATE.db, 'fieldMaintenanceJobs');
-        await addDoc(jobsCol, payload);
+        const jobRef = doc(STATE.db, 'fieldMaintenanceJobs', STATE.jobForId);
+        const prevSnap = await getDoc(jobRef);
+        const prev = prevSnap.exists() ? prevSnap.data() || {} : {};
 
-        // Update parent work order status to "in progress"
+        const oldNames = Array.isArray(prev.photoFileNames) ? prev.photoFileNames : [];
+        const photoFileNames = [...oldNames, ...newPhotoNames];
+
+        const payload = {
+          workOrderId: STATE.jobForId,
+          submittedBy: jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '',
+          projectRange: rangeText,
+          crew:         crewSelections,
+          notes,
+          photoFileNames,
+          status: jobStatus,
+          updatedAt: serverTimestamp(),
+          createdAt: prev.createdAt || serverTimestamp()
+        };
+
+        await setDoc(jobRef, payload, { merge: true });
+
         const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.jobForId);
         await updateDoc(woRef, {
-          [CONFIG.STATUS_FIELD]: CONFIG.STATUS_INPROG,
+          [CONFIG.STATUS_FIELD]: jobStatus,
           updatedAt: serverTimestamp()
         });
 
-        alert('Job started and saved.');
+        alert('Job saved.');
         closeJobModal();
         await loadActiveWorkOrders();
       }catch(err){
@@ -1706,6 +1753,7 @@
       jobModalBackdrop = $('#jobModalBackdrop');
       jobModalCloseBtn = $('#jobModalClose');
       jobForm = $('#jobForm');
+      jobModalTitle = $('#jobModalTitle');
       jobWoLabel = $('#jobWoLabel');
       jobSubmittedByInput = $('#jobSubmittedBy');
       jobStartDateInput = $('#jobStartDate');
@@ -1838,13 +1886,13 @@
     </div>
   </div>
 
-  <!-- Start Job modal -->
-  <div id="jobModal" class="job-modal" role="dialog" aria-modal="true" aria-label="Start job for work order">
+  <!-- Start / Continue Job modal -->
+  <div id="jobModal" class="job-modal" role="dialog" aria-modal="true" aria-label="Job for work order">
     <div id="jobModalBackdrop" class="job-backdrop"></div>
     <div class="job-sheet">
       <div class="job-header">
         <div>
-          <div class="job-title">Start Job</div>
+          <div id="jobModalTitle" class="job-title">Start Job</div>
           <div class="job-subtitle" id="jobWoLabel"></div>
         </div>
         <button id="jobModalClose" type="button" class="job-close-btn">Close</button>
@@ -1935,7 +1983,7 @@
 
         <div class="job-actions">
           <button id="jobCancel" type="button" class="job-btn">Cancel</button>
-          <button id="jobSave" type="submit" class="job-btn job-btn-primary">Start Job</button>
+          <button id="jobSave" type="submit" class="job-btn job-btn-primary">Save Job</button>
         </div>
       </form>
     </div>
