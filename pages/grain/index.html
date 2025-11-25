@@ -44,6 +44,15 @@
       border-color:var(--accent,#3B7E46);
       transform:translateY(-1px);
     }
+
+    /* 🔒 When a select is open, disable card clicks but keep the select usable */
+    .sum-card.select-open{
+      pointer-events:none;
+    }
+    .sum-card.select-open select{
+      pointer-events:auto;
+    }
+
     .sum-title{
       width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0;
     }
@@ -85,6 +94,13 @@
     .metric{
       display:flex; flex-direction:column; gap:6px; min-width:200px;
     }
+
+    /* Center the overview card */
+    .page .card{
+      max-width:780px;
+      margin-left:auto;
+      margin-right:auto;
+    }
   </style>
 </head>
 <body>
@@ -104,7 +120,7 @@
         and stay on top of what’s stored, what’s hauled, and what’s sold.
       </p>
 
-      <div class="card" style="max-width:780px; margin-left:auto; margin-right:auto;">
+      <div class="card">
         <h2 class="card-title">Overview</h2>
         <ul class="list">
           <li>🛢️&nbsp; Track on-farm inventory by bin and bag</li>
@@ -266,6 +282,33 @@
           if (href) window.location.href = href;
         });
       });
+
+      // While a select is being interacted with, temporarily disable card click
+      function wireSelectBlock(selectEl){
+        if (!selectEl) return;
+        const card = selectEl.closest('.sum-card');
+        if (!card) return;
+
+        // When user taps to open the dropdown
+        selectEl.addEventListener('mousedown', () => {
+          card.classList.add('select-open');
+        });
+        selectEl.addEventListener('touchstart', () => {
+          card.classList.add('select-open');
+        }, { passive:true });
+
+        // When dropdown closes (blur) or value changes
+        selectEl.addEventListener('blur', () => {
+          card.classList.remove('select-open');
+        });
+        selectEl.addEventListener('change', () => {
+          // small delay so iOS can finish handling the change event
+          setTimeout(() => card.classList.remove('select-open'), 100);
+        });
+      }
+
+      wireSelectBlock(binSelCrop);
+      wireSelectBlock(bagSelCrop);
 
       // ====== BINS: sum onHand with optional crop filter (running total, all years) ======
       async function loadBinSummary() {
