@@ -472,6 +472,8 @@
       db: null,
       auth: null,
       user: null,
+      fvUser: null,
+      orgId: null,
       trialId: null,
       trial: null,
       farms: [],
@@ -653,6 +655,12 @@
         }
         STATE.trial = snap.data()||{};
         const t=STATE.trial;
+
+        // If orgId wasn’t set from FVUser for some reason, fall back to trial doc
+        if(!STATE.orgId && t.orgId){
+          STATE.orgId = t.orgId;
+        }
+
         if(trialNameMain) trialNameMain.textContent = t.trialName || "Field Trial";
         if(trialCropMain){
           const bits=[];
@@ -832,15 +840,22 @@
       if(!STATE.user){
         showError("User is not signed in. Please re-login and try again."); return;
       }
+
       const saveBtn=document.getElementById('btnSaveFields');
       if(saveBtn) saveBtn.disabled=true;
+
       try{
         const db=STATE.db;
         const trialId=STATE.trialId;
         const uid=STATE.user.uid;
+        const orgId = STATE.orgId || null;
+
         const fieldsCol=collection(db,CONFIG.COLLECTION_TRIALS,trialId,'fields');
+
         for(const row of STATE.pendingFields){
           await addDoc(fieldsCol,{
+            orgId,                         // <-- important for security rules
+            trialId,
             farmId:row.farm.id,
             farmName:row.farm.name,
             fieldId:row.field.id,
@@ -852,13 +867,19 @@
             createdAt:serverTimestamp()
           });
         }
+
         const trialRef=doc(db,CONFIG.COLLECTION_TRIALS,trialId);
-        await updateDoc(trialRef,{status:'active',updatedAt:serverTimestamp()});
+        await updateDoc(trialRef,{
+          status:'active',
+          updatedAt:serverTimestamp()
+        });
+
         showToast("Fields saved and trial marked Active.");
         setTimeout(()=>{ window.location.href=CONFIG.RETURN_URL; },800);
       }catch(err){
         console.error("Error saving fields:",err);
         showError("Error saving fields: "+(err && (err.message||err.code) || "Unknown error"));
+        const saveBtn=document.getElementById('btnSaveFields');
         if(saveBtn) saveBtn.disabled=false;
       }
     }
@@ -891,6 +912,10 @@
         showError("Unable to load user info. Please refresh.");
         return;
       }
+
+      // Track FV user + org for security rules
+      STATE.fvUser = fvUser;
+      STATE.orgId  = fvUser.orgId || fvUser.org || fvUser.orgID || null;
 
       STATE.db=getFirestore();
 
