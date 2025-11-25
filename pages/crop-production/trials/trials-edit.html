@@ -1,3 +1,4 @@
+<!-- ===== Part 1 of 8: Head, styles, basic helpers (Field Trials) ===== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -62,7 +63,8 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
+      /* allow filter dropdowns to extend outside the hero card */
+      overflow:visible;
     }
     .hero-head{
       display:grid;
@@ -230,7 +232,8 @@
       border:1px solid var(--border);
       border-radius:var(--combo-radius);
       box-shadow:var(--combo-shadow);
-      z-index:9999;
+      /* lower z-index so dropdowns can sit behind the footer, not on top of it */
+      z-index:40;
       padding:8px;
       display:none;
     }
@@ -637,11 +640,314 @@
       }
     })();
   </script>
+  <!-- End Part 1 of 8 -->
+
+      <!-- ===== Part 2 of 8: Trial detail overlay HTML (Add Field button theme, Mark Completed footer shell) ===== -->
+
+    <!-- Trial detail overlay -->
+    <div id="trialOverlay" class="trial-overlay" hidden>
+      <div id="trialPanel" class="trial-panel scroll-panel" role="dialog" aria-modal="true" aria-labelledby="trialHdrTitle">
+        <header id="trialHdrClickArea" class="trial-panel-header" title="Tap to edit trial details">
+          <div>
+            <div id="trialHdrTitle" class="trial-panel-title">Trial name</div>
+            <div id="trialHdrSub" class="trial-panel-sub">Year · Crop · Trial type</div>
+            <div id="trialHdrChips" class="trial-header-chips"></div>
+          </div>
+          <!-- Close button (Mark Completed button currently injected by JS near header, will be moved to footer in later part) -->
+          <button type="button" id="trialCloseBtn" class="trial-panel-close" aria-label="Close trial">
+            ×
+          </button>
+        </header>
+
+        <div class="trial-section">
+          <div class="trial-footer">
+            <div>
+              <div id="trialMetaCreated"></div>
+            </div>
+            <div>
+              <span class="trial-status-chip" id="trialMetaStatus">Active</span>
+            </div>
+          </div>
+        </div>
+
+        <section class="trial-section">
+          <h3>Trial-level notes</h3>
+          <div id="trialNotes" class="trial-notes">
+            No trial-level notes yet.
+          </div>
+        </section>
+
+        <!-- Green gradient divider like Field Maintenance popup -->
+        <div class="modal-divider"></div>
+
+        <section class="trial-section">
+          <h3>Fields in this trial</h3>
+          <div id="trialMetaFields" class="help-text">0 fields in this trial</div>
+          <div id="trialFieldsList" class="pill-list" style="margin-top:6px;"></div>
+        </section>
+
+        <section class="trial-section">
+          <button type="button" id="openAddFieldModalBtn" class="btn btn-quiet btn-small">
+            Add Field
+          </button>
+        </section>
+
+        <!-- Bottom-right Mark Completed shell; wired up in Part 3 -->
+        <section class="trial-section">
+          <div class="trial-footer">
+            <div></div>
+            <div>
+              <button
+                type="button"
+                id="trialMarkCompletedBtn"
+                class="btn btn-quiet btn-small"
+                hidden
+              >
+                Mark Completed
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <!-- End Part 2 of 8 -->
+
+  <!-- ===== Part 3 of 8: Trial detail JS – move Mark Completed to bottom-right, no emoji, theme button ===== -->
+
+  /* ============ Trial Detail overlay with MARK COMPLETED button ============ */
+  function openTrialDetail(item){
+    STATE.currentTrial = item;
+    const overlay = $('#trialOverlay');
+    const d = item.data || {};
+
+    const titleEl = $('#trialHdrTitle');
+    const subEl   = $('#trialHdrSub');
+    const chipsEl = $('#trialHdrChips');
+    const notesEl = $('#trialNotes');
+    const createdEl = $('#trialMetaCreated');
+    const statusEl  = $('#trialMetaStatus');
+    const fieldsCountEl = $('#trialMetaFields');
+
+    const trialName = d.trialName || 'Untitled trial';
+    const cropYear = d.cropYear || null;
+    const cropLabelRaw = d.cropLabel || d.cropCode || '';
+    const typeLabelRaw = d.trialTypeLabel || d.trialType || '';
+    const opTaskRaw = d.operationTaskLabel || d.operationTaskCode || '';
+    const cropLabel = smartLabel(cropLabelRaw);
+    const typeLabel = smartLabel(typeLabelRaw);
+    const opTask = smartLabel(opTaskRaw);
+
+    const statusRaw = d.status || 'active';
+    const bucket = statusBucket(statusRaw);
+    const fieldCount = d.fieldCount || (Array.isArray(d.fields)? d.fields.length : 0);
+    const ts = d.createdAt || null;
+    const when = ts && ts.toDate ? ts.toDate() : null;
+
+    if(titleEl) titleEl.textContent = trialName;
+    if(subEl){
+      const pieces = [];
+      if(cropYear) pieces.push(cropYear);
+      if(cropLabel) pieces.push(cropLabel);
+      if(typeLabel) pieces.push(typeLabel);
+      subEl.textContent = pieces.join(' · ') || 'Trial details';
+    }
+
+    /* STATUS CHIP */
+    if(statusEl){
+      statusEl.textContent = bucketLabel(bucket);
+    }
+
+    /* Configure bottom-right “Mark Completed” button (no emoji, theme style) */
+    insertMarkCompletedButton(bucket === 'completed');
+
+    if(chipsEl){
+      chipsEl.innerHTML = '';
+      if(opTask){
+        const span = document.createElement('span');
+        span.className = 'chip';
+        span.innerHTML = `<span class="chip-label">Operation</span> ${opTask}`;
+        chipsEl.appendChild(span);
+      }
+      const fcSpan = document.createElement('span');
+      fcSpan.className = 'chip';
+      fcSpan.innerHTML = `<span class="chip-label">Fields</span> ${fieldCount}`;
+      chipsEl.appendChild(fcSpan);
+    }
+
+    if(notesEl){
+      const n = d.notes || '';
+      notesEl.textContent = n || 'No trial-level notes yet.';
+    }
+    if(createdEl){
+      createdEl.textContent = when
+        ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`
+        : '';
+    }
+    if(fieldsCountEl){
+      fieldsCountEl.textContent = `${fieldCount} field${fieldCount===1?'':'s'} in this trial`;
+    }
+
+    STATE.currentFieldIdx = null;
+    renderFieldsList(d);
+
+    overlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function insertMarkCompletedButton(isCompleted){
+    const btn = $('#trialMarkCompletedBtn');
+    if(!btn) return;
+
+    // If trial already completed, hide the button
+    if(isCompleted){
+      btn.hidden = true;
+      btn.onclick = null;
+      return;
+    }
+
+    // Show themed button, no emoji
+    btn.hidden = false;
+    btn.textContent = 'Mark Completed';
+    btn.className = 'btn btn-quiet btn-small';
+
+    btn.onclick = async (ev)=>{
+      ev.stopPropagation();
+      await markTrialCompleted();
+    };
+  }
+
+  async function markTrialCompleted(){
+    const item = STATE.currentTrial;
+    if(!item || !STATE.db) return;
+
+    try{
+      await updateDoc(doc(STATE.db,'fieldTrials',item.id), {
+        status: 'completed',
+        updatedAt: serverTimestamp()
+      });
+
+      item.data.status = 'completed';
+      showToast('Trial marked completed.');
+
+      closeTrialDetail();
+      applyFilters();
+    }catch(err){
+      console.error('Failed to mark completed:', err);
+      alert('Could not update trial status.');
+    }
+  }
+
+  /* ===== End Part 3 of 8 ===== */
+
+    <!-- ===== Part 4 of 8: Field overlay button theming + “Add Yield Data” label ===== -->
+
+    <!-- Field-in-Trial overlay (includes yield blocks) -->
+    <div id="fieldOverlay" class="field-overlay" hidden>
+      <div class="field-panel scroll-panel" role="dialog" aria-modal="true">
+        <header class="field-header">
+          <div>
+            <div id="fieldTitle" class="field-title">Field · Farm</div>
+            <div id="fieldSub" class="field-sub">Farm</div>
+            <div id="fieldTrialBadge" class="help-text" style="margin-top:4px;">Trial · Year · Crop</div>
+          </div>
+          <button type="button" id="fieldCloseBtn" class="trial-panel-close" aria-label="Close">×</button>
+        </header>
+
+        <section class="trial-section">
+          <h3>Trial info for this field</h3>
+          <div class="field-grid">
+            <div class="field">
+              <label for="fieldVariety">Variety / hybrid (for this field)</label>
+              <input id="fieldVariety" class="input" placeholder="e.g. P1742Q" />
+            </div>
+            <div class="field">
+              <label for="fieldPlacement">Placement / application</label>
+              <input id="fieldPlacement" class="input" placeholder="e.g. South end, across rows" />
+            </div>
+            <div class="field">
+              <label for="fieldPlantingDate">Planting date</label>
+              <input id="fieldPlantingDate" type="date" class="input" />
+            </div>
+            <div class="field">
+              <label for="fieldTrialAcres">Trial acres (for this field)</label>
+              <input id="fieldTrialAcres" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 12.5" />
+              <div class="help-text">Acres of this field that are actually in the trial.</div>
+            </div>
+            <div class="field" style="grid-column:1/-1;">
+              <label for="fieldNotes">Field-specific notes</label>
+              <textarea id="fieldNotes" class="textarea" placeholder="Pop, passes, planter rows, etc."></textarea>
+            </div>
+          </div>
+          <div id="fieldInfoError" class="trial-error" hidden></div>
+          <div style="margin-top:6px;">
+            <!-- Themed button (non-green) -->
+            <button type="button" id="fieldSaveInfoBtn" class="btn btn-quiet btn-small">
+              Save field trial info
+            </button>
+          </div>
+        </section>
+
+        <section class="trial-section">
+          <div class="yield-header-row">
+            <h3>Yield blocks for this field</h3>
+            <!-- Renamed + de-greened: “Add Yield Data” -->
+            <button type="button" id="openYieldFormBtn" class="btn btn-quiet btn-small">
+              Add Yield Data
+            </button>
+          </div>
+
+          <div id="yieldForm" hidden>
+            <div class="yield-grid" style="margin-top:6px;">
+              <div class="field">
+                <label for="yBlockAcres">Block acres</label>
+                <input id="yBlockAcres" type="number" step="0.01" min="0" inputmode="decimal" class="input" placeholder="e.g. 12.5" />
+              </div>
+              <div class="field">
+                <label for="yBlockLbs">Pounds of grain</label>
+                <input id="yBlockLbs" type="text" inputmode="numeric" pattern="[0-9,]*" class="input" placeholder="e.g. 65,000" />
+              </div>
+              <div class="field">
+                <label for="yBlockMoisture">Moisture (%)</label>
+                <input id="yBlockMoisture" type="number" step="0.01" min="5" max="40" inputmode="decimal" class="input" placeholder="e.g. 21.0" />
+              </div>
+              <div class="field">
+                <label for="yBlockCombines"># combines (info only)</label>
+                <input id="yBlockCombines" type="number" step="1" min="0" inputmode="numeric" class="input" placeholder="e.g. 2" />
+              </div>
+            </div>
+            <div class="field" style="margin-top:6px;">
+              <label for="yBlockNotes">Notes (optional)</label>
+              <textarea id="yBlockNotes" class="textarea" placeholder="Strip name, direction, program label, etc."></textarea>
+            </div>
+            <div id="yBlockYieldHelper" class="help-text" style="margin-top:4px;">
+              Enter acres, pounds, and moisture to see calculated yield.
+            </div>
+            <div id="fieldYieldError" class="trial-error" hidden></div>
+            <div style="margin-top:6px;">
+              <!-- Themed button (non-green) -->
+              <button type="button" id="saveYieldBlockBtn" class="btn btn-quiet btn-small">
+                Save yield block
+              </button>
+            </div>
+          </div>
+
+          <div id="yieldList" class="yield-list"></div>
+        </section>
+
+        <footer class="trial-footer" style="margin-top:8px;">
+          <button type="button" id="fieldCancelBtn" class="btn btn-quiet btn-small">Close</button>
+        </footer>
+      </div>
+    </div>
+    <!-- End Part 4 of 8 -->
+
+   <!-- ===== Part 5 of 8: Yield block remove/delete behavior (desktop button + prep for swipe) ===== -->
+
   <script type="module">
     import {
       ready as fbReady,
       getFirestore,
-      collection, getDocs, doc, updateDoc, addDoc,
+      collection, getDocs, doc, updateDoc, addDoc, deleteDoc,
       query, orderBy,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
@@ -667,290 +973,196 @@
       currentYieldEditId: null // null = add mode, id = edit mode
     };
 
-    /* ============ Helpers ============ */
-    function showToast(msg='Saved.', ms=4500){
-      const t = $('#toast');
-      if(!t) return;
-      t.textContent = msg;
-      t.classList.remove('show');
-      void t.offsetWidth;
-      t.classList.add('show');
-      setTimeout(()=>t.classList.remove('show'), ms);
-    }
+    /* ... (all existing helpers and functions above renderYieldList stay the same) ... */
 
-    function smartLabel(str){
-      if(!str) return '';
-      const s = String(str);
-      if(s === s.toUpperCase() || s.includes('_')){
-        const cleaned = s.replace(/_/g,' ');
-        return cleaned.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
-      }
-      return s;
-    }
+    function renderYieldList(){
+      const listEl = $('#yieldList');
+      if(!listEl) return;
 
-    function stripCommas(val){
-      return (val || '').replace(/,/g,'');
-    }
-
-    /* ============ Combos ============ */
-    function closeAllCombos(except=null){
-      $$('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
-    }
-    document.addEventListener('click', ()=> closeAllCombos());
-    document.addEventListener('keydown', e=>{
-      if(e.key==='Escape') closeAllCombos();
-    });
-
-    function makeCombo({btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick}){
-      if(!btn || !panel || !list) return null;
-
-      panel.addEventListener('click', e=> e.stopPropagation());
-      panel.addEventListener('mousedown', e=> e.stopPropagation());
-
-      let _items = Array.isArray(items)? items.slice():[];
-
-      function render(q=""){
-        const qq = (q||"").toLowerCase();
-        const filtered = _items.filter(x=>{
-          const lbl = formatter(x).toLowerCase();
-          return !qq || lbl.includes(qq);
-        });
-        list.innerHTML = filtered.length
-          ? filtered.map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`).join('')
-          : `<div class="combo-empty">(no matches)</div>`;
-      }
-
-      function open(){
-        closeAllCombos(panel);
-        panel.classList.add('show');
-        render('');
-        if(searchable){
-          const inp = panel.querySelector('input');
-          if(inp){ inp.value=''; inp.focus(); }
-        }
-      }
-      function close(){ panel.classList.remove('show'); }
-
-      btn.addEventListener('click', e=>{
-        e.stopPropagation();
-        panel.classList.contains('show') ? close() : open();
-      });
-
-      list.addEventListener('mousedown', e=>{
-        const row = e.target.closest('.combo-item');
-        if(!row) return;
-        const id = row.dataset.id;
-        const it = _items.find(x=>String(x.id)===id);
-        if(!it) return;
-        onPick?.(it);
-        close();
-      });
-
-      if(searchable){
-        const s = panel.querySelector('input');
-        if(s) s.addEventListener('input', e=> render(e.target.value));
-      }
-
-      return {
-        setItems(arr){
-          _items = Array.isArray(arr)? arr.slice():[];
-          render('');
-        },
-        open, close
-      };
-    }
-
-    /* ============ Filters ============ */
-    function initFilterCombos(){
-      const nowYear = new Date().getFullYear();
-      const years = [nowYear-1, nowYear, nowYear+1, nowYear+2].map(v=>({
-        id:String(v), label:String(v), value:v
-      }));
-
-      const yearCombo = makeCombo({
-        btn:  $('#fltYearBtn'),
-        panel:$('#fltYearPanel'),
-        list: $('#fltYearList'),
-        items: years,
-        searchable:false,
-        formatter:x=>x.label,
-        onPick(it){
-          STATE.filters.year = it.value;
-          $('#fltYearBtn').textContent = it.label;
-          applyFilters();
-        }
-      });
-      STATE.combos.year = yearCombo;
-
-      const types = [
-        { id:'ALL',       label:'All trial types',           value:null },
-        { id:'SEED',      label:'Seed / Hybrid / Variety',   value:'SEED' },
-        { id:'FUNGICIDE', label:'Fungicide Program',         value:'FUNGICIDE' },
-        { id:'FERTILITY', label:'Fertility / Nutrient',      value:'FERTILITY' },
-        { id:'BIO',       label:'Biological / Additive',     value:'BIOLOGICAL' },
-        { id:'OTHER',     label:'Other',                     value:'OTHER' }
-      ];
-
-      const typeCombo = makeCombo({
-        btn:  $('#fltTypeBtn'),
-        panel:$('#fltTypePanel'),
-        list: $('#fltTypeList'),
-        items: types,
-        searchable:false,
-        formatter:x=>x.label,
-        onPick(it){
-          STATE.filters.type = it.value;
-          $('#fltTypeBtn').textContent = it.label;
-          applyFilters();
-        }
-      });
-      STATE.combos.type = typeCombo;
-
-      $('#fltYearBtn').textContent = 'All years';
-      $('#fltTypeBtn').textContent = 'All trial types';
-
-      const statusSel = $('#fltStatus');
-      if(statusSel){
-        statusSel.addEventListener('change', ()=>{
-          STATE.filters.status = statusSel.value || 'active';
-          applyFilters();
-        });
-      }
-    }
-
-    function statusBucket(statusRaw){
-      const s = (statusRaw || '').toString().toLowerCase();
-      if(s === 'completed' || s === 'done' || s === 'archived'){
-        return 'completed';
-      }
-      return 'active';
-    }
-
-    function bucketLabel(bucket){
-      return bucket === 'completed' ? 'Completed' : 'Active';
-    }
-
-    function applyFilters(){
-      const { status, year, type } = STATE.filters;
-      let arr = STATE.trials.slice();
-
-      arr = arr.filter(item=>{
-        const d = item.data || {};
-
-        const bucket = statusBucket(d.status);
-        if(status !== 'all' && bucket !== status) return false;
-
-        if(year != null){
-          const cy = d.cropYear || d.year || null;
-          if(Number(cy) !== Number(year)) return false;
-        }
-
-        if(type){
-          const t = (d.trialType || '').toString().toUpperCase();
-          if(t !== type) return false;
-        }
-
-        return true;
-      });
-
-      arr.sort((a,b)=>{
-        const ta = (a.data.createdAt && a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0);
-        const tb = (b.data.createdAt && b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0);
-        return tb - ta;
-      });
-
-      STATE.filtered = arr;
-      renderTrialList();
-    }
-
-    /* ============ Load trials ============ */
-    async function loadTrials(){
-      const db = STATE.db;
-      const listCol = collection(db,'fieldTrials');
-      const snap = await getDocs(query(listCol, orderBy('createdAt','desc')));
-      const items = [];
-      snap.forEach(d=>{
-        items.push({id:d.id, data:d.data() || {}});
-      });
-      STATE.trials = items;
-      applyFilters();
-    }
-
-    function renderTrialList(){
-      const listEl  = $('#trialList');
-      const emptyEl = $('#trialEmpty');
-      const countEl = $('#trialCount');
-
-      listEl.innerHTML = '';
-
-      if(!STATE.filtered.length){
-        if(emptyEl) emptyEl.hidden = false;
-        if(countEl) countEl.textContent = '0 trials match filters';
+      if(!STATE.currentFieldYields.length){
+        listEl.innerHTML = '<div class="help-text">No yield blocks saved for this field yet.</div>';
         return;
       }
-      if(emptyEl) emptyEl.hidden = true;
 
-      for(const item of STATE.filtered){
-        const d = item.data || {};
-        const id = item.id;
+      listEl.innerHTML = STATE.currentFieldYields.map(y=>{
+        const d = y.data || {};
+        const acres = d.blockAcres ?? '?';
+        const lbs   = d.lbs ?? '?';
+        const moist = d.moisture ?? '?';
+        const wet   = d.yieldWet?.toFixed?.(1) ?? '?';
+        const adj   = d.yieldAdj?.toFixed?.(1) ?? '?';
+        const combines = d.combines ? `· # combines: ${d.combines}` : '';
+        const notes = d.notes ? `<div class="help-text">${d.notes}</div>` : '';
 
-        const trialName = d.trialName || d.name || 'Untitled trial';
-        const cropYear = d.cropYear || d.year || null;
-        const cropLabelRaw = d.cropLabel || d.cropCode || '';
-        const typeLabelRaw = d.trialTypeLabel || d.trialType || '';
-        const opTaskRaw = d.operationTaskLabel || d.operationTaskCode || '';
-
-        const cropLabel = smartLabel(cropLabelRaw);
-        const typeLabel = smartLabel(typeLabelRaw);
-        const opTask = smartLabel(opTaskRaw);
-
-        const fieldCount = d.fieldCount || (Array.isArray(d.fields)? d.fields.length : 0);
-        const statusRaw = d.status || 'active';
-        const bucket = statusBucket(statusRaw);
-        const ts = d.createdAt || null;
-        const when = ts && ts.toDate ? ts.toDate() : null;
-
-        const card = document.createElement('article');
-        card.className = 'trial-card';
-        card.dataset.id = id;
-
-        card.innerHTML = `
-          <div class="trial-row-top">
-            <div class="trial-main">
-              <div class="trial-title">
-                ${trialName}
+        return `
+          <div class="yield-pill" data-yid="${y.id}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <div>
+                <div>
+                  <span class="fw-bold">${acres} ac</span> · ${lbs} lbs · ${moist}%
+                </div>
+                <div class="help-text">
+                  Yield: ${wet} bu/ac (wet), ${adj} bu/ac adj. ${combines}
+                </div>
+                ${notes}
               </div>
-              <div class="trial-sub">
-                ${cropYear ? cropYear : 'Year ?'} · ${cropLabel || 'Crop ?'} · ${typeLabel || 'Type ?'}
-              </div>
-              <div class="trial-meta">
-                ${fieldCount ? `
-                  <span><span class="trial-meta-label">Fields</span> ${fieldCount}</span>
-                ` : ''}
-                ${opTask ? `
-                  <span><span class="trial-meta-label">Operation</span> ${opTask}</span>
-                ` : ''}
-              </div>
+              <!-- Desktop-visible Remove button -->
+              <button
+                type="button"
+                class="btn btn-quiet btn-small yield-pill-remove"
+                aria-label="Remove yield block"
+              >
+                Remove
+              </button>
             </div>
-            <div>
-              <div class="trial-status-chip">${bucketLabel(bucket)}</div>
-            </div>
-          </div>
-          <div class="trial-bottom-row">
-            <div>${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}` : ''}</div>
-            <div>${bucketLabel(bucket)}</div>
           </div>
         `;
+      }).join('');
+    }
 
-        /* CLICK OPENS DETAIL */
-        card.addEventListener('click', ()=> openTrialDetail(item));
-        listEl.appendChild(card);
-      }
+    async function deleteYieldBlock(yieldId){
+      const item = STATE.currentTrial;
+      const db = STATE.db;
+      if(!item || !db || !yieldId) return;
 
-      if(countEl){
-        countEl.textContent = `${STATE.filtered.length} trial${STATE.filtered.length===1?'':'s'} match filters`;
+      const confirmDelete = window.confirm('Remove this yield data block?');
+      if(!confirmDelete) return;
+
+      try{
+        await deleteDoc(doc(db,'fieldTrials', item.id, 'yieldBlocks', yieldId));
+
+        // Remove from local STATE and re-render
+        STATE.currentFieldYields = STATE.currentFieldYields.filter(y=>y.id !== yieldId);
+        renderYieldList();
+        showToast('Yield block removed.');
+      }catch(err){
+        console.error('Failed to delete yield block:', err);
+        const errEl = $('#fieldYieldError');
+        if(errEl){
+          errEl.textContent = `Error removing yield block: ${err.message}`;
+          errEl.hidden = false;
+        }
       }
     }
+
+    /* ... inside boot() after other listeners ... */
+
+    (async function boot(){
+      await Promise.all([
+        fbReady,
+        window.FVData && window.FVData.ready ? window.FVData.ready() : Promise.resolve()
+      ]);
+
+      const db  = getFirestore();
+      STATE.db = db;
+
+      const shell = document.querySelector('fv-shell');
+      if(shell) shell.nav = NAV_MENU;
+
+      $('#btnBack')?.addEventListener('click', ()=>{
+        location.href = '/Farm-vista/pages/crop-production/trials.html';
+      });
+
+      initFilterCombos();
+      initAddFieldCombos();
+
+      await loadFarmsAndFields();
+      await loadTrials();
+
+      /* ... existing overlay bindings ... */
+
+      // Click to edit OR delete yield blocks
+      $('#yieldList')?.addEventListener('click', e=>{
+        const removeBtn = e.target.closest('.yield-pill-remove');
+        if(removeBtn){
+          const pill = removeBtn.closest('.yield-pill');
+          if(!pill) return;
+          const yid = pill.dataset.yid;
+          if(yid) deleteYieldBlock(yid);
+          return; // don’t fall through to edit
+        }
+
+        const pill = e.target.closest('.yield-pill');
+        if(!pill) return;
+        const yid = pill.dataset.yid;
+        const yItem = STATE.currentFieldYields.find(y=>y.id === yid);
+        if(yItem) openYieldEdit(yItem);
+      });
+
+      window.addEventListener('online', ()=> showToast('Back online — syncing…', 3500));
+      window.addEventListener('offline',()=> showToast('Currently offline — using saved data', 3500));
+    })();
+ </script>
+    /* ===== End Part 5 of 8 ===== */
+ 
+  <!-- ===== Part 6 of 8: Completion validation modal + logic (Mark Completed) ===== -->
+
+  <!-- 🔹 New “Missing Yield Data” modal (put this with your other modals, e.g. under Edit Trial modal) -->
+  <div id="completionModalOverlay" class="modal-overlay" hidden>
+    <div class="modal-panel scroll-panel" role="dialog" aria-modal="true" aria-labelledby="completionModalTitle">
+      <header class="modal-header">
+        <h2 id="completionModalTitle">Missing Yield Data</h2>
+        <button type="button" id="completionModalCloseX" class="trial-panel-close" aria-label="Close">×</button>
+      </header>
+
+      <p class="help-text">
+        The following fields do not have yield data saved. They will stay part of this trial,
+        but they will <strong>not</strong> appear in the yield results.
+      </p>
+
+      <ul id="completionMissingList" class="pill-list" style="margin-top:8px;">
+        <!-- Filled by JS -->
+      </ul>
+
+      <div class="trial-error" id="completionModalError" hidden></div>
+
+      <div class="modal-actions">
+        <button type="button" id="completionCancelBtn" class="btn btn-quiet btn-small">
+          Cancel
+        </button>
+        <button type="button" id="completionConfirmBtn" class="btn btn-quiet btn-small">
+          Mark Complete Anyway
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- 🔸 End Missing Yield Data modal -->
+
+
+  <script type="module">
+    import {
+      ready as fbReady,
+      getFirestore,
+      collection, getDocs, doc, updateDoc, addDoc, deleteDoc,
+      query, orderBy,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const $  = (sel, root=document)=>root.querySelector(sel);
+    const $$ = (sel, root=document)=>Array.from(root.querySelectorAll(sel));
+
+    /* 🔹 Updated STATE to track completion validation */
+    const STATE = {
+      db: null,
+      trials: [],
+      filtered: [],
+      filters: {
+        status: 'active',  // 'active' | 'completed' | 'all'
+        year: null,
+        type: null
+      },
+      combos: {},
+      currentTrial: null,
+      currentFieldIdx: null,
+      currentFieldYields: [],
+      currentYieldEditId: null, // null = add mode, id = edit mode
+      completionMissingFields: []  // array of { fieldName, farmName }
+    };
+
+    /* ... all your existing helper functions (showToast, smartLabel, combos, filters, list, etc.) stay the same ... */
+
 
     /* ============ Trial Detail overlay with MARK COMPLETED button ============ */
     function openTrialDetail(item){
@@ -995,7 +1207,7 @@
         statusEl.textContent = bucketLabel(bucket);
       }
 
-      /* ADD GREEN “MARK COMPLETED” BUTTON IN HEADER */
+      /* Configure bottom-right “Mark Completed” button (no emoji, theme style) */
       insertMarkCompletedButton(bucket === 'completed');
 
       if(chipsEl){
@@ -1033,36 +1245,114 @@
     }
 
     function insertMarkCompletedButton(isCompleted){
-      const header = $('#trialHdrClickArea');
-      if(!header) return;
+      const btn = $('#trialMarkCompletedBtn');
+      if(!btn) return;
 
-      /* Remove existing button if any */
-      const oldBtn = document.getElementById('btnMarkCompleted');
-      if(oldBtn) oldBtn.remove();
+      if(isCompleted){
+        btn.hidden = true;
+        btn.onclick = null;
+        return;
+      }
 
-      /* If already completed, do not show button */
-      if(isCompleted) return;
+      // Show themed button, no emoji
+      btn.hidden = false;
+      btn.textContent = 'Mark Completed';
+      btn.className = 'btn btn-quiet btn-small';
 
-      const btn = document.createElement('button');
-      btn.id = 'btnMarkCompleted';
-      btn.textContent = '✔ Mark Completed';
-      btn.style.background = '#3B7E46';
-      btn.style.color = '#fff';
-      btn.style.border = 'none';
-      btn.style.padding = '6px 12px';
-      btn.style.borderRadius = '999px';
-      btn.style.fontSize = '0.82rem';
-      btn.style.fontWeight = '700';
-      btn.style.cursor = 'pointer';
-
-      btn.addEventListener('click', async (ev)=>{
-        ev.stopPropagation();
-        await markTrialCompleted();
-      });
-
-      header.appendChild(btn);
+      btn.onclick = handleMarkCompletedClick;
     }
 
+    /* 🔹 Figure out which fields are missing yield data */
+    async function computeMissingYieldFields(item){
+      const db = STATE.db;
+      if(!db || !item) return [];
+
+      const d = item.data || {};
+      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
+      if(!fieldsArr.length) return [];
+
+      // Load yieldBlocks for this trial
+      const col = collection(db,'fieldTrials', item.id, 'yieldBlocks');
+      const snap = await getDocs(col);
+      const withYield = new Set();
+
+      snap.forEach(docSnap=>{
+        const y = docSnap.data() || {};
+        if(y.fieldId){
+          withYield.add(String(y.fieldId));
+        }
+      });
+
+      const missing = [];
+      for(const f of fieldsArr){
+        const fid = f.fieldId ? String(f.fieldId) : null;
+        if(!fid || !withYield.has(fid)){
+          missing.push({
+            fieldName: f.fieldName || 'Field ?',
+            farmName: f.farmName || ''
+          });
+        }
+      }
+      return missing;
+    }
+
+    function openCompletionModal(missing){
+      const overlay = $('#completionModalOverlay');
+      const listEl  = $('#completionMissingList');
+      const errEl   = $('#completionModalError');
+      if(!overlay || !listEl) return;
+
+      listEl.innerHTML = missing.map(m=>{
+        const label = m.farmName
+          ? `${m.fieldName} · ${m.farmName}`
+          : m.fieldName;
+        return `<li class="field-pill"><span class="field-pill-main">${label}</span></li>`;
+      }).join('');
+
+      if(!missing.length){
+        listEl.innerHTML = '<li class="help-text">All fields have yield data.</li>';
+      }
+
+      if(errEl){
+        errEl.textContent = '';
+        errEl.hidden = true;
+      }
+
+      overlay.hidden = false;
+    }
+
+    function closeCompletionModal(){
+      const overlay = $('#completionModalOverlay');
+      if(overlay) overlay.hidden = true;
+    }
+
+    /* 🔹 Click handler for Mark Completed (runs validation first) */
+    async function handleMarkCompletedClick(ev){
+      ev.stopPropagation();
+      const item = STATE.currentTrial;
+      if(!item || !STATE.db) return;
+
+      try{
+        const missing = await computeMissingYieldFields(item);
+        STATE.completionMissingFields = missing;
+
+        if(missing.length){
+          openCompletionModal(missing);
+        }else{
+          await markTrialCompleted();
+        }
+      }catch(err){
+        console.error('Error during completion validation:', err);
+        const errEl = $('#completionModalError');
+        if(errEl){
+          errEl.textContent = `Error checking yield data: ${err.message}`;
+          errEl.hidden = false;
+          openCompletionModal([]); // show modal so error is visible
+        }
+      }
+    }
+
+    /* 🔹 Actual write of status=completed (called after confirm or no-missing case) */
     async function markTrialCompleted(){
       const item = STATE.currentTrial;
       if(!item || !STATE.db) return;
@@ -1076,6 +1366,7 @@
         item.data.status = 'completed';
         showToast('Trial marked completed.');
 
+        closeCompletionModal();
         closeTrialDetail();
         applyFilters();
       }catch(err){
@@ -1084,728 +1375,8 @@
       }
     }
 
-    function closeTrialDetail(){
-      const overlay = $('#trialOverlay');
-      if(overlay) overlay.hidden = true;
-      document.body.style.overflow = '';
-      STATE.currentTrial = null;
-      STATE.currentFieldIdx = null;
-    }
+    /* ... your existing renderFieldsList, field overlay, yield helpers, renderYieldList, saveYieldBlock, etc. stay the same (including Part 5 remove logic) ... */
 
-    /* RENDER FIELDS */
-    function renderFieldsList(trialData){
-      const listEl = $('#trialFieldsList');
-      if(!listEl) return;
-
-      const arr = Array.isArray(trialData.fields) ? trialData.fields : [];
-      if(!arr.length){
-        listEl.innerHTML = '<div class="help-text">No fields added yet. Use “Add field to trial” below.</div>';
-        return;
-      }
-
-      listEl.innerHTML = arr.map((f,idx)=>`
-        <button type="button" class="field-pill" data-idx="${idx}">
-          <div>
-            <div class="field-pill-main">
-              ${f.fieldName || 'Field ?'}${f.farmName ? ' · '+f.farmName : ''}
-            </div>
-            <div class="field-pill-sub">
-              ${(f.variety) ? f.variety + ' · ' : ''}
-              ${f.trialAcres ? (f.trialAcres + ' ac') : ''}
-            </div>
-          </div>
-        </button>
-      `).join('');
-    }
-    /* OPEN FIELD OVERLAY */
-    function openFieldOverlay(fieldIdx){
-      const item = STATE.currentTrial;
-      if(!item) return;
-
-      const d = item.data || {};
-      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
-      const fieldObj = fieldsArr[fieldIdx];
-      if(!fieldObj) return;
-
-      STATE.currentFieldIdx = fieldIdx;
-      STATE.currentFieldYields = [];
-      STATE.currentYieldEditId = null;
-
-      const overlay = $('#fieldOverlay');
-      if(!overlay) return;
-
-      $('#fieldTitle').textContent = fieldObj.fieldName || 'Field';
-      $('#fieldSub').textContent   = fieldObj.farmName || '';
-      $('#fieldTrialBadge').textContent =
-        `${d.trialName || 'Trial'} • ${d.cropYear || ''} ${smartLabel(d.cropLabel || d.cropCode || '')}`.trim();
-
-      $('#fieldTrialAcres').value   = fieldObj.trialAcres != null ? fieldObj.trialAcres : '';
-      $('#fieldNotes').value        = fieldObj.notes || '';
-      $('#fieldVariety').value      = fieldObj.variety || '';
-      $('#fieldPlacement').value    = fieldObj.placement || '';
-      $('#fieldPlantingDate').value = fieldObj.plantingDate || '';
-
-      $('#fieldYieldError').hidden = true;
-
-      // Reset yield form
-      $('#yBlockAcres').value = '';
-      $('#yBlockLbs').value = '';
-      $('#yBlockMoisture').value = '';
-      $('#yBlockCombines').value = '';
-      $('#yBlockNotes').value = '';
-      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
-      $('#yieldForm').hidden = true;
-
-      $('#yieldList').innerHTML = '<div class="help-text">Loading yield blocks…</div>';
-
-      overlay.hidden = false;
-      loadYieldBlocksForField().catch(err=>{
-        console.error('Error loading yields:', err);
-        $('#yieldList').innerHTML = '<div class="help-text">No yield blocks saved for this field yet.</div>';
-      });
-    }
-
-    function closeFieldOverlay(){
-      $('#fieldOverlay').hidden = true;
-      STATE.currentFieldIdx = null;
-      STATE.currentFieldYields = [];
-      STATE.currentYieldEditId = null;
-    }
-
-    /* SAVE FIELD TRIAL INFO */
-    async function saveFieldTrialInfo(){
-      const item = STATE.currentTrial;
-      const db = STATE.db;
-      if(!item || !db) return;
-
-      const d = item.data || {};
-      const idx = STATE.currentFieldIdx;
-      const arr = Array.isArray(d.fields) ? d.fields.slice() : [];
-      const fieldObj = arr[idx];
-      if(!fieldObj) return;
-
-      const acresRaw    = $('#fieldTrialAcres').value.trim();
-      const notesVal    = $('#fieldNotes').value.trim();
-      const varietyVal  = $('#fieldVariety').value.trim();
-      const placementVal= $('#fieldPlacement').value.trim();
-      const plantingVal = $('#fieldPlantingDate').value.trim();
-      const errEl       = $('#fieldInfoError');
-
-      let acresNum = null;
-      if(acresRaw){
-        const n = Number(acresRaw);
-        if(Number.isNaN(n) || n <= 0){
-          errEl.textContent = 'Trial acres must be a positive number.';
-          errEl.hidden = false;
-          return;
-        }
-        acresNum = n;
-      }
-
-      errEl.hidden = true;
-
-      // Update object
-      fieldObj.trialAcres  = acresNum;
-      fieldObj.notes       = notesVal || null;
-      fieldObj.variety     = varietyVal || null;
-      fieldObj.placement   = placementVal || null;
-      fieldObj.plantingDate= plantingVal || null;
-      arr[idx] = fieldObj;
-
-      try{
-        await updateDoc(doc(db,'fieldTrials',item.id), {
-          fields: arr,
-          updatedAt: serverTimestamp()
-        });
-
-        d.fields = arr;
-        renderFieldsList(d);
-        showToast('Field trial info updated.');
-      }catch(err){
-        console.error('Failed to save field info:', err);
-        errEl.textContent = `Error saving: ${err.message}`;
-        errEl.hidden = false;
-      }
-    }
-
-    /* YIELD CALCULATION HELPERS */
-    function computeYield(acres, lbs, moisture){
-      if(!acres || !lbs) return null;
-      const wetBu = lbs / 56;
-      const wetYld = wetBu / acres;
-      let adjYld = wetYld;
-      if(moisture != null && !Number.isNaN(moisture)){
-        const std = 15.5;
-        if(moisture > std){
-          const shrinkFactor = (100 - moisture) / (100 - std);
-          adjYld = wetYld * shrinkFactor;
-        }
-      }
-      return { wet: wetYld, adj: adjYld };
-    }
-
-    function updateYieldHelper(){
-      const acres = Number($('#yBlockAcres').value || '0');
-      const lbsVal = stripCommas($('#yBlockLbs').value || '0');
-      const lbs = Number(lbsVal || '0');
-      const mVal = $('#yBlockMoisture').value;
-      const m = mVal ? Number(mVal) : null;
-
-      const helper = $('#yBlockYieldHelper');
-      const res = computeYield(acres, lbs, m);
-      if(!res){
-        helper.textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
-        return;
-      }
-      helper.textContent = 
-        `Approx yield: ${res.wet.toFixed(1)} bu/ac (wet), ${res.adj.toFixed(1)} bu/ac (to 15.5%).`;
-    }
-
-    /* LOAD YIELD BLOCKS */
-    async function loadYieldBlocksForField(){
-      const item = STATE.currentTrial;
-      const db = STATE.db;
-      const idx = STATE.currentFieldIdx;
-      if(!item || !db || idx==null) return;
-
-      const d = item.data || {};
-      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
-      const fieldObj = fieldsArr[idx];
-      if(!fieldObj) return;
-
-      const col = collection(db,'fieldTrials', item.id, 'yieldBlocks');
-      const snap = await getDocs(col);
-      const arr = [];
-      snap.forEach(docSnap=>{
-        const y = docSnap.data() || {};
-        if(y.fieldId === fieldObj.fieldId){
-          arr.push({id:docSnap.id, data:y});
-        }
-      });
-
-      arr.sort((a,b)=>{
-        const ta = a.data.createdAt && a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0;
-        const tb = b.data.createdAt && b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0;
-        return tb - ta;
-      });
-
-      STATE.currentFieldYields = arr;
-      renderYieldList();
-    }
-
-    function renderYieldList(){
-      const listEl = $('#yieldList');
-      if(!listEl) return;
-
-      if(!STATE.currentFieldYields.length){
-        listEl.innerHTML = '<div class="help-text">No yield blocks saved for this field yet.</div>';
-        return;
-      }
-
-      listEl.innerHTML = STATE.currentFieldYields.map(y=>{
-        const d = y.data || {};
-        return `
-          <div class="yield-pill" data-yid="${y.id}">
-            <div>
-              <span class="fw-bold">${d.blockAcres ?? '?'} ac</span> · ${d.lbs ?? '?'} lbs · ${d.moisture ?? '?'}%
-            </div>
-            <div class="help-text">
-              Yield: ${d.yieldWet?.toFixed?.(1) ?? '?'} bu/ac (wet),
-              ${d.yieldAdj?.toFixed?.(1) ?? '?'} bu/ac adj.
-              ${d.combines ? `· # combines: ${d.combines}` : ''}
-            </div>
-            ${d.notes ? `<div class="help-text">${d.notes}</div>`:''}
-          </div>
-        `;
-      }).join('');
-    }
-
-    /* OPEN NEW YIELD FORM */
-    function openYieldFormNew(){
-      $('#yBlockAcres').value = '';
-      $('#yBlockLbs').value = '';
-      $('#yBlockMoisture').value = '';
-      $('#yBlockCombines').value = '';
-      $('#yBlockNotes').value = '';
-      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
-      $('#fieldYieldError').hidden = true;
-      $('#yieldForm').hidden = false;
-    }
-
-    /* EDIT EXISTING YIELD */
-    function openYieldEdit(yItem){
-      const d = yItem.data || {};
-
-      STATE.currentYieldEditId = yItem.id;
-
-      $('#yBlockAcres').value = d.blockAcres ?? '';
-      $('#yBlockLbs').value = d.lbs != null ? Number(d.lbs).toLocaleString() : '';
-      $('#yBlockMoisture').value = d.moisture ?? '';
-      $('#yBlockCombines').value = d.combines ?? '';
-      $('#yBlockNotes').value = d.notes ?? '';
-      $('#fieldYieldError').hidden = true;
-
-      $('#yieldForm').hidden = false;
-      updateYieldHelper();
-    }
-
-    /* SAVE YIELD BLOCK */
-    async function saveYieldBlock(){
-      const item = STATE.currentTrial;
-      const db = STATE.db;
-      const idx = STATE.currentFieldIdx;
-      if(!item || !db || idx==null) return;
-
-      const d = item.data || {};
-      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
-      const fieldObj = fieldsArr[idx];
-      if(!fieldObj) return;
-
-      const acresRaw = $('#yBlockAcres').value.trim();
-      const lbsRaw   = stripCommas($('#yBlockLbs').value.trim());
-      const mRaw     = $('#yBlockMoisture').value.trim();
-      const combRaw  = $('#yBlockCombines').value.trim();
-      const note     = $('#yBlockNotes').value.trim();
-      const errEl    = $('#fieldYieldError');
-
-      const acres    = Number(acresRaw);
-      const lbs      = Number(lbsRaw);
-      const m        = mRaw ? Number(mRaw) : null;
-      const combines = combRaw ? Number(combRaw) : null;
-
-      if(Number.isNaN(acres) || acres<=0){
-        errEl.textContent = 'Block acres must be positive.';
-        errEl.hidden = false;
-        return;
-      }
-      if(Number.isNaN(lbs) || lbs<=0){
-        errEl.textContent = 'Pounds must be positive.';
-        errEl.hidden = false;
-        return;
-      }
-      if(m != null){
-        if(Number.isNaN(m) || m < 5 || m > 40){
-          errEl.textContent = 'Moisture must be 5–40%.';
-          errEl.hidden = false;
-          return;
-        }
-        if(!/^\d+(\.\d{1,2})?$/.test(mRaw)){
-          errEl.textContent = 'Moisture max 2 decimals.';
-          errEl.hidden = false;
-          return;
-        }
-      }
-
-      errEl.hidden = true;
-
-      const yieldRes = computeYield(acres, lbs, m);
-      const baseData = {
-        trialId: item.id,
-        fieldId: fieldObj.fieldId,
-        fieldName: fieldObj.fieldName || null,
-        farmName: fieldObj.farmName || null,
-        blockAcres: acres,
-        lbs,
-        moisture: m,
-        combines: combines || null,
-        yieldWet: yieldRes ? yieldRes.wet : null,
-        yieldAdj: yieldRes ? yieldRes.adj : null,
-        notes: note || null,
-        uid: window.FVData?.uid?.() || null
-      };
-
-      try{
-        if(STATE.currentYieldEditId){
-          await updateDoc(
-            doc(db,'fieldTrials',item.id,'yieldBlocks',STATE.currentYieldEditId),
-            {...baseData, updatedAt: serverTimestamp()}
-          );
-
-          const idxY = STATE.currentFieldYields.findIndex(y=>y.id === STATE.currentYieldEditId);
-          if(idxY !== -1){
-            STATE.currentFieldYields[idxY].data = {...STATE.currentFieldYields[idxY].data, ...baseData};
-          }
-
-          renderYieldList();
-          showToast('Yield updated.');
-        }else{
-          const docData = {...baseData, createdAt: serverTimestamp()};
-          const ref = await addDoc(collection(db,'fieldTrials',item.id,'yieldBlocks'), docData);
-          STATE.currentFieldYields.unshift({id:ref.id, data:docData});
-          renderYieldList();
-
-          $('#yBlockAcres').value='';
-          $('#yBlockLbs').value='';
-          $('#yBlockMoisture').value='';
-          $('#yBlockCombines').value='';
-          $('#yBlockNotes').value='';
-          updateYieldHelper();
-          showToast('Yield saved.');
-        }
-      }catch(err){
-        console.error('Failed to save yield block:', err);
-        errEl.textContent = `Error saving: ${err.message}`;
-        errEl.hidden = false;
-      }
-    }
-    /* ===== Modal select helpers (for Edit Trial) ===== */
-    function ensureOptionSelected(selectEl, value, label){
-      if(!selectEl) return;
-      if(value === undefined || value === null || value === '') return;
-      const val = String(value);
-      let opt = Array.from(selectEl.options).find(o => String(o.value) === val);
-      if(!opt){
-        opt = document.createElement('option');
-        opt.value = val;
-        opt.textContent = label || val;
-        selectEl.appendChild(opt);
-      }
-      selectEl.value = val;
-    }
-
-    function mapTrialTypeLabelToCode(label){
-      if(!label) return null;
-      const t = label.toString().toLowerCase();
-      if(t.includes('seed') || t.includes('hybrid') || t.includes('variety')) return 'SEED';
-      if(t.includes('fungicide')) return 'FUNGICIDE';
-      if(t.includes('fertility') || t.includes('nutrient')) return 'FERTILITY';
-      if(t.includes('biological') || t.includes('additive')) return 'BIOLOGICAL';
-      return 'OTHER';
-    }
-
-    function mapOpLabelToCode(label){
-      if(!label) return null;
-      const t = label.toString().toLowerCase();
-      if(t.includes('plant')) return 'PLANTING';
-      if(t.includes('spray')) return 'SPRAYING';
-      if(t.includes('aerial')) return 'AERIAL_APP';
-      if(t.includes('fert')) return 'FERTILIZER';
-      return 'OTHER';
-    }
-
-    /* ============ Edit Trial modal ============ */
-    function openEditTrialModal(){
-      const item = STATE.currentTrial;
-      if(!item) return;
-      const d = item.data || {};
-
-      const modal = $('#editTrialOverlay');
-      if(!modal) return;
-
-      $('#editTrialName').value = d.trialName || '';
-      $('#editTrialNotes').value = d.notes || d.trialNotes || '';
-
-      const yearSel = $('#editCropYear');
-      const yearVal = d.cropYear || d.cropYearLabel || d.year || '';
-      if(yearSel){
-        yearSel.value = yearVal ? String(yearVal) : '';
-        if(!yearSel.value && yearVal){
-          ensureOptionSelected(yearSel, yearVal, yearVal);
-        }
-      }
-
-      const cropSel = $('#editCrop');
-      let cropCodeSaved = d.cropCode || d.crop || '';
-      let cropLabelSaved = d.cropLabel || d.cropName || cropCodeSaved;
-      if(!cropCodeSaved && cropLabelSaved){
-        cropCodeSaved = cropLabelSaved.toUpperCase();
-      }
-      if(cropSel){
-        cropSel.value = cropCodeSaved || '';
-        if(!cropSel.value && cropCodeSaved){
-          ensureOptionSelected(cropSel, cropCodeSaved, smartLabel(cropLabelSaved || cropCodeSaved));
-        }
-      }
-
-      const trialSel = $('#editTrialType');
-      let trialCodeSaved = d.trialType || d.trialTypeCode || mapTrialTypeLabelToCode(d.trialTypeLabel);
-      let trialLabelSaved = d.trialTypeLabel || trialCodeSaved;
-      if(trialSel){
-        trialSel.value = trialCodeSaved || '';
-        if(!trialSel.value && trialCodeSaved){
-          ensureOptionSelected(trialSel, trialCodeSaved, smartLabel(trialLabelSaved || trialCodeSaved));
-        }
-      }
-
-      const opSel = $('#editOpTask');
-      let opCodeSaved = d.operationTaskCode || d.operationTask || mapOpLabelToCode(d.operationTaskLabel);
-      let opLabelSaved = d.operationTaskLabel || opCodeSaved;
-      if(opSel){
-        opSel.value = opCodeSaved || '';
-        if(!opSel.value && opCodeSaved){
-          ensureOptionSelected(opSel, opCodeSaved, smartLabel(opLabelSaved || opCodeSaved));
-        }
-      }
-
-      // Status selector (Active / Completed)
-      const statusSel = $('#editStatus');
-      const statusVal = (d.status || 'active').toString().toLowerCase();
-      if(statusSel){
-        statusSel.value = statusVal === 'completed' ? 'completed' : 'active';
-      }
-
-      $('#editTrialError').textContent = '';
-      $('#editTrialError').hidden = true;
-
-      modal.hidden = false;
-    }
-
-    function closeEditTrialModal(){
-      const modal = $('#editTrialOverlay');
-      if(modal) modal.hidden = true;
-    }
-
-    async function saveEditTrial(){
-      const item = STATE.currentTrial;
-      if(!item || !STATE.db) return;
-
-      const name = $('#editTrialName').value.trim();
-      const notes = $('#editTrialNotes').value.trim();
-      const errEl = $('#editTrialError');
-
-      if(!name){
-        errEl.textContent = 'Trial name is required.';
-        errEl.hidden = false;
-        return;
-      }
-
-      const yearSel = $('#editCropYear');
-      const yearVal = yearSel ? yearSel.value : '';
-      const yearNum = yearVal ? Number(yearVal) : null;
-
-      const cropSel = $('#editCrop');
-      const cropCode = cropSel ? (cropSel.value || null) : null;
-      const cropLabel = cropCode
-        ? (cropSel.options[cropSel.selectedIndex]?.textContent || cropCode)
-        : null;
-
-      const trialSel = $('#editTrialType');
-      const typeCode = trialSel ? (trialSel.value || null) : null;
-      const typeLabel = typeCode
-        ? (trialSel.options[trialSel.selectedIndex]?.textContent || typeCode)
-        : null;
-
-      const opSel = $('#editOpTask');
-      const opCode = opSel ? (opSel.value || null) : null;
-      const opLabel = opCode
-        ? (opSel.options[opSel.selectedIndex]?.textContent || opCode)
-        : null;
-
-      const statusSel = $('#editStatus');
-      const statusVal = statusSel ? (statusSel.value || 'active') : 'active';
-
-      const updates = {
-        trialName: name,
-        notes,
-        cropYear: yearNum,
-        cropYearLabel: yearVal || null,
-        cropCode: cropCode,
-        cropLabel: cropLabel,
-        trialType: typeCode,
-        trialTypeLabel: typeLabel,
-        operationTaskCode: opCode,
-        operationTaskLabel: opLabel,
-        status: statusVal,
-        updatedAt: serverTimestamp()
-      };
-
-      try{
-        await updateDoc(doc(STATE.db,'fieldTrials',item.id), updates);
-        Object.assign(item.data, updates);
-        closeEditTrialModal();
-        openTrialDetail(item);   // refresh popup
-        applyFilters();          // refresh list/status filter
-        showToast('Trial details updated.');
-      }catch(err){
-        console.error('Failed to update trial:', err);
-        errEl.textContent = `Failed to save: ${err.message}`;
-        errEl.hidden = false;
-      }
-    }
-
-    /* ============ Farms & Fields (Add Field flow) ============ */
-    let allFarms = [];
-    let allFields = [];
-    let farmCombo = null;
-    let fieldCombo = null;
-
-    async function loadFarmsAndFields(){
-      const db = STATE.db;
-      const farmHelp = $('#trialAddFarmHelp');
-      const fieldHelp = $('#trialAddFieldHelp');
-
-      try{
-        if(farmHelp) farmHelp.textContent = 'Loading farms…';
-        const farmsSnap = await getDocs(collection(db,'farms'));
-        const farms = [];
-        farmsSnap.forEach(d=>{
-          const x = d.data() || {};
-          const name = String(x.name || x.farmName || '').trim();
-          if(name) farms.push({id:d.id, label:name});
-        });
-        farms.sort((a,b)=>a.label.localeCompare(b.label));
-        allFarms = farms;
-        farmCombo?.setItems(allFarms);
-        if(farmHelp) farmHelp.textContent = farms.length ? `${farms.length} farm(s) loaded.` : 'No farms found.';
-
-        if(fieldHelp) fieldHelp.textContent = 'Loading fields…';
-        const fieldsSnap = await getDocs(collection(db,'fields'));
-        const fields = [];
-        fieldsSnap.forEach(d=>{
-          const x = d.data() || {};
-          const name = String(x.name || x.fieldName || '').trim();
-          const farmId = x.farmId || x.farm || null;
-          if(name){
-            fields.push({
-              id:d.id,
-              label:name,
-              farmId:farmId || null
-            });
-          }
-        });
-        fields.sort((a,b)=>a.label.localeCompare(b.label));
-        allFields = fields;
-        fieldCombo?.setItems(allFields);
-        if(fieldHelp) fieldHelp.textContent = fields.length ? `${fields.length} field(s) loaded.` : 'No fields found.';
-      }catch(err){
-        console.error('Error loading farms/fields:', err);
-        if(farmHelp) farmHelp.textContent = 'Error loading farms.';
-        if(fieldHelp) fieldHelp.textContent = 'Error loading fields.';
-      }
-    }
-
-    function initAddFieldCombos(){
-      farmCombo = makeCombo({
-        btn:  $('#trialAddFarmBtn'),
-        panel:$('#trialAddFarmPanel'),
-        list: $('#trialAddFarmList'),
-        items: [],
-        searchable:true,
-        formatter:x=>x.label,
-        onPick(it){
-          $('#trialAddFarmBtn').textContent = it.label;
-          $('#trialAddFarmHelp').textContent = 'Farm selected.';
-          const subset = allFields.filter(f=>f.farmId === it.id);
-          fieldCombo.setItems(subset.length ? subset : allFields);
-          $('#trialAddFieldBtn').textContent = '— Select field —';
-          $('#trialAddFieldHelp').textContent = subset.length
-            ? `${subset.length} field(s) on this farm.`
-            : `${allFields.length} field(s) loaded.`;
-        }
-      });
-
-      fieldCombo = makeCombo({
-        btn:  $('#trialAddFieldBtn'),
-        panel:$('#trialAddFieldPanel'),
-        list: $('#trialAddFieldList'),
-        items: [],
-        searchable:true,
-        formatter:x=>x.label,
-        onPick(it){
-          $('#trialAddFieldBtn').textContent = it.label;
-          $('#trialAddFieldHelp').textContent = 'Field selected.';
-        }
-      });
-    }
-
-    function openAddFieldModal(){
-      const overlay = $('#addFieldOverlay');
-      if(!overlay) return;
-      $('#trialAddFieldError').textContent = '';
-      $('#trialAddFieldError').hidden = true;
-      overlay.hidden = false;
-    }
-
-    function closeAddFieldModal(){
-      const overlay = $('#addFieldOverlay');
-      if(overlay) overlay.hidden = true;
-    }
-
-    async function handleAddFieldToTrial(){
-      const item = STATE.currentTrial;
-      const db = STATE.db;
-      if(!item || !db) return;
-
-      const farmLabel   = $('#trialAddFarmBtn').textContent.trim();
-      const fieldLabel  = $('#trialAddFieldBtn').textContent.trim();
-      const acresRaw    = $('#trialAddAcres').value.trim();
-      const varietyVal  = $('#trialAddVariety').value.trim();
-      const placementVal= $('#trialAddPlacement').value.trim();
-      const plantingVal = $('#trialAddPlantingDate').value.trim();
-      const notesVal    = $('#trialAddFieldNotes').value.trim();
-      const errEl       = $('#trialAddFieldError');
-
-      const farmObj  = allFarms.find(f=>f.label === farmLabel);
-      const fieldObj = allFields.find(f=>f.label === fieldLabel);
-
-      if(!farmObj){
-        errEl.textContent = 'Select a farm.';
-        errEl.hidden = false;
-        return;
-      }
-      if(!fieldObj){
-        errEl.textContent = 'Select a field.';
-        errEl.hidden = false;
-        return;
-      }
-
-      let trialAcres = null;
-      if(acresRaw){
-        const n = Number(acresRaw);
-        if(Number.isNaN(n) || n <= 0){
-          errEl.textContent = 'Trial acres must be a positive number.';
-          errEl.hidden = false;
-          return;
-        }
-        trialAcres = n;
-      }
-
-      errEl.hidden = true;
-
-      const d = item.data;
-      const fieldsArr = Array.isArray(d.fields) ? d.fields.slice() : [];
-
-      fieldsArr.push({
-        farmId: farmObj.id,
-        farmName: farmObj.label,
-        fieldId: fieldObj.id,
-        fieldName: fieldObj.label,
-        trialAcres,
-        variety: varietyVal || null,
-        placement: placementVal || null,
-        plantingDate: plantingVal || null,
-        notes: notesVal || null
-      });
-
-      try{
-        await updateDoc(doc(db,'fieldTrials',item.id), {
-          fields: fieldsArr,
-          fieldCount: fieldsArr.length,
-          updatedAt: serverTimestamp()
-        });
-        d.fields = fieldsArr;
-        d.fieldCount = fieldsArr.length;
-        renderFieldsList(d);
-        applyFilters();
-
-        $('#trialAddFarmBtn').textContent = '— Select farm —';
-        $('#trialAddFieldBtn').textContent = '— Select field —';
-        $('#trialAddAcres').value = '';
-        $('#trialAddVariety').value = '';
-        $('#trialAddPlacement').value = '';
-        $('#trialAddPlantingDate').value = '';
-        $('#trialAddFieldNotes').value = '';
-        $('#trialAddFarmHelp').textContent = `${allFarms.length} farm(s) loaded.`;
-        $('#trialAddFieldHelp').textContent = `${allFields.length} field(s) loaded.`;
-
-        closeAddFieldModal();
-        showToast('Field added to trial.');
-      }catch(err){
-        console.error('Failed to add field to trial:', err);
-        errEl.textContent = `Error saving: ${err.message}`;
-        errEl.hidden = false;
-      }
-    }
 
     /* ============ Boot ============ */
     (async function boot(){
@@ -1895,8 +1466,17 @@
 
       $('#saveYieldBlockBtn')?.addEventListener('click', saveYieldBlock);
 
-      // Click to edit yield blocks
+      // Click to edit OR delete yield blocks (desktop remove from Part 5)
       $('#yieldList')?.addEventListener('click', e=>{
+        const removeBtn = e.target.closest('.yield-pill-remove');
+        if(removeBtn){
+          const pill = removeBtn.closest('.yield-pill');
+          if(!pill) return;
+          const yid = pill.dataset.yid;
+          if(yid) deleteYieldBlock(yid);
+          return; // don’t fall through to edit
+        }
+
         const pill = e.target.closest('.yield-pill');
         if(!pill) return;
         const yid = pill.dataset.yid;
@@ -1904,295 +1484,23 @@
         if(yItem) openYieldEdit(yItem);
       });
 
+      // Completion modal events
+      $('#completionModalOverlay')?.addEventListener('click', e=>{
+        if(e.target.id === 'completionModalOverlay') closeCompletionModal();
+      });
+      $('#completionModalCloseX')?.addEventListener('click', closeCompletionModal);
+      $('#completionCancelBtn')?.addEventListener('click', closeCompletionModal);
+      $('#completionConfirmBtn')?.addEventListener('click', async ()=>{
+        await markTrialCompleted();
+      });
+
       window.addEventListener('online', ()=> showToast('Back online — syncing…', 3500));
       window.addEventListener('offline',()=> showToast('Currently offline — using saved data', 3500));
     })();
-  </script>
-</head>
-
-<body>
-  <fv-shell>
-    <div class="page">
-      <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">🧪</div>
-          <div>
-            <h1>Field Trials</h1>
-            <p class="muted">
-              Filter by status, crop year, and trial type. Tap a trial to see details,
-              add fields, or manage yield blocks for each field.
-            </p>
-          </div>
-        </header>
-
-        <div class="hero-body">
-          <div class="toolbar">
-            <div class="toolbar-left">
-              <button id="btnBack" type="button" class="btn btn-quiet">
-                ← Back to Trials Portal
-              </button>
-            </div>
-            <div class="toolbar-right">
-              <span id="trialCount">0 trials</span>
-            </div>
-          </div>
-
-          <div class="filters-grid" aria-label="Trial filters">
-            <div class="field">
-              <label for="fltStatus">Status</label>
-              <select id="fltStatus" class="select">
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-                <option value="all">All statuses</option>
-              </select>
-              <div class="help-text">Use this to flip between active and completed trials.</div>
-            </div>
-
-            <div class="field combo">
-              <label for="fltYearBtn">Crop year</label>
-              <div class="combo-anchor">
-                <button id="fltYearBtn" type="button" class="buttonish has-caret">All years</button>
-                <div id="fltYearPanel" class="combo-panel" role="listbox" aria-label="Crop year list">
-                  <div class="list" id="fltYearList"></div>
-                </div>
-              </div>
-              <div class="help-text">Filter to a specific crop year.</div>
-            </div>
-
-            <div class="field combo">
-              <label for="fltTypeBtn">Trial type</label>
-              <div class="combo-anchor">
-                <button id="fltTypeBtn" type="button" class="buttonish has-caret">All trial types</button>
-                <div id="fltTypePanel" class="combo-panel" role="listbox" aria-label="Trial type list">
-                  <div class="list" id="fltTypeList"></div>
-                </div>
-              </div>
-              <div class="help-text">Seed, fungicide, biological, etc.</div>
-            </div>
-          </div>
-
-          <section aria-label="Trials list">
-            <div id="trialEmpty" class="trial-empty">
-              No trials match the current filters. Try changing the status, year, or trial type.
-            </div>
-            <div id="trialList" class="trial-list"></div>
-          </section>
-        </div>
-      </section>
-    </div>
-
-    <!-- Trial detail overlay -->
-    <div id="trialOverlay" class="trial-overlay" hidden>
-      <div id="trialPanel" class="trial-panel scroll-panel" role="dialog" aria-modal="true" aria-labelledby="trialHdrTitle">
-        <header id="trialHdrClickArea" class="trial-panel-header" title="Tap to edit trial details">
-          <div>
-            <div id="trialHdrTitle" class="trial-panel-title">Trial name</div>
-            <div id="trialHdrSub" class="trial-panel-sub">Year · Crop · Trial type</div>
-            <div id="trialHdrChips" class="trial-header-chips"></div>
-          </div>
-          <!-- Close button (Mark Completed button is injected by JS next to this) -->
-          <button type="button" id="trialCloseBtn" class="trial-panel-close" aria-label="Close trial">
-            ×
-          </button>
-        </header>
-
-        <div class="trial-section">
-          <div class="trial-footer">
-            <div>
-              <div id="trialMetaCreated"></div>
-            </div>
-            <div>
-              <span class="trial-status-chip" id="trialMetaStatus">Active</span>
-            </div>
-          </div>
-        </div>
-
-        <section class="trial-section">
-          <h3>Trial-level notes</h3>
-          <div id="trialNotes" class="trial-notes">
-            No trial-level notes yet.
-          </div>
-        </section>
-
-        <!-- Green gradient divider like Field Maintenance popup -->
-        <div class="modal-divider"></div>
-
-        <section class="trial-section">
-          <h3>Fields in this trial</h3>
-          <div id="trialMetaFields" class="help-text">0 fields in this trial</div>
-          <div id="trialFieldsList" class="pill-list" style="margin-top:6px;"></div>
-        </section>
-
-        <section class="trial-section">
-          <button type="button" id="openAddFieldModalBtn" class="btn btn-primary btn-small">
-            + Add field to trial
-          </button>
-        </section>
-      </div>
-    </div>
-
-    <!-- Edit Trial modal -->
-    <div id="editTrialOverlay" class="modal-overlay" hidden>
-      <div class="modal-panel scroll-panel" role="dialog" aria-modal="true">
-        <header class="modal-header">
-          <h2>Edit trial details</h2>
-          <button type="button" id="editTrialCloseX" class="trial-panel-close" aria-label="Close">×</button>
-        </header>
-
-        <div class="field">
-          <label for="editTrialName">Trial name</label>
-          <input id="editTrialName" class="input" placeholder="e.g. Blueprint 2026 Corn Large-Scale Trial" />
-        </div>
-
-        <div class="field">
-          <label for="editCropYear">Crop year</label>
-          <select id="editCropYear" class="select">
-            <option value="">— Leave as-is —</option>
-            <option value="2024">2024</option>
-            <option value="2025">2025</option>
-            <option value="2026">2026</option>
-            <option value="2027">2027</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="editCrop">Crop</label>
-          <select id="editCrop" class="select">
-            <option value="">— Leave as-is —</option>
-            <option value="CORN">Corn</option>
-            <option value="SOY">Soybeans</option>
-            <option value="WHEAT">Wheat</option>
-            <option value="SORGHUM">Sorghum</option>
-            <option value="OTHER">Other</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="editTrialType">Trial type</label>
-          <select id="editTrialType" class="select">
-            <option value="">— Leave as-is —</option>
-            <option value="SEED">Seed / Hybrid / Variety</option>
-            <option value="FUNGICIDE">Fungicide Program</option>
-            <option value="FERTILITY">Fertility / Nutrient</option>
-            <option value="BIOLOGICAL">Biological / Additive</option>
-            <option value="OTHER">Other</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="editOpTask">Operation task</label>
-          <select id="editOpTask" class="select">
-            <option value="">— Leave as-is —</option>
-            <option value="PLANTING">Planting</option>
-            <option value="SPRAYING">Spraying</option>
-            <option value="AERIAL_APP">Aerial Application</option>
-            <option value="FERTILIZER">Fertilizer</option>
-            <option value="OTHER">Other Operation</option>
-          </select>
-        </div>
-
-        <!-- Status selector -->
-        <div class="field">
-          <label for="editStatus">Status</label>
-          <select id="editStatus" class="select">
-            <option value="active">Active</option>
-            <option value="completed">Completed</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="editTrialNotes">Trial-level notes</label>
-          <textarea id="editTrialNotes" class="textarea"
-            placeholder="Overall setup, strip design, programs, etc."></textarea>
-        </div>
-
-        <div id="editTrialError" class="trial-error" hidden></div>
-
-        <div class="modal-actions">
-          <button type="button" id="editTrialCancel" class="btn btn-quiet btn-small">Cancel</button>
-          <button type="button" id="editTrialSave" class="btn btn-primary btn-small">Save changes</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Add Field to Trial modal -->
-    <div id="addFieldOverlay" class="modal-overlay" hidden>
-      <div class="field-panel scroll-panel" role="dialog" aria-modal="true">
-        <header class="field-header">
-          <div>
-            <div class="field-title">Add field to trial</div>
-            <div class="field-sub">Select farm, field, and trial details.</div>
-          </div>
-          <button type="button" id="addFieldCancelBtn" class="trial-panel-close" aria-label="Close">×</button>
-        </header>
-
-        <section class="trial-section">
-          <div class="field-grid">
-            <div class="field combo">
-              <label for="trialAddFarmBtn">Farm</label>
-              <div class="combo-anchor">
-                <button id="trialAddFarmBtn" type="button" class="buttonish has-caret">— Select farm —</button>
-                <div id="trialAddFarmPanel" class="combo-panel" role="listbox" aria-label="Farm list">
-                  <div class="search">
-                    <input id="trialAddFarmSearch" type="search" placeholder="Search farms…" />
-                  </div>
-                  <div class="list" id="trialAddFarmList"></div>
-                </div>
-              </div>
-              <div id="trialAddFarmHelp" class="help-text">Farms loading…</div>
-            </div>
-
-            <div class="field combo">
-              <label for="trialAddFieldBtn">Field</label>
-              <div class="combo-anchor">
-                <button id="trialAddFieldBtn" type="button" class="buttonish has-caret">— Select field —</button>
-                <div id="trialAddFieldPanel" class="combo-panel" role="listbox" aria-label="Field list">
-                  <div class="search">
-                    <input id="trialAddFieldSearch" type="search" placeholder="Search fields…" />
-                  </div>
-                  <div class="list" id="trialAddFieldList"></div>
-                </div>
-              </div>
-              <div id="trialAddFieldHelp" class="help-text">Fields loading…</div>
-            </div>
-
-            <div class="field">
-              <label for="trialAddVariety">Variety / hybrid (for this trial)</label>
-              <input id="trialAddVariety" class="input" placeholder="e.g. P1742Q" />
-            </div>
-
-            <div class="field">
-              <label for="trialAddPlacement">Placement / application of trial product</label>
-              <input id="trialAddPlacement" class="input" placeholder="e.g. East half, top of hill" />
-            </div>
-
-            <div class="field">
-              <label for="trialAddPlantingDate">Planting date</label>
-              <input id="trialAddPlantingDate" type="date" class="input" />
-            </div>
-
-            <div class="field">
-              <label for="trialAddAcres">Trial acres (optional)</label>
-              <input id="trialAddAcres" type="number" step="0.01" min="0" inputmode="decimal" class="input" placeholder="e.g. 12.5" />
-              <div class="help-text">Acres of this field that are actually in the trial.</div>
-            </div>
-
-            <div class="field" style="grid-column:1/-1;">
-              <label for="trialAddFieldNotes">Field-specific notes (optional)</label>
-              <textarea id="trialAddFieldNotes" class="textarea" placeholder="Pop, passes, treatment details…"></textarea>
-            </div>
-          </div>
-
-          <div id="trialAddFieldError" class="trial-error" hidden></div>
-
-          <div style="margin-top:10px;display:flex;justify-content:flex-end;">
-            <button type="button" id="trialAddFieldBtnSave" class="btn btn-primary btn-small">
-              Save field to trial
-            </button>
-          </div>
-        </section>
-      </div>
-    </div>
+</script>
+    /* ===== End Part 6 of 8 ===== */
+  
+    <!-- ===== Part 7 of 8: Field overlay Variety / Placement dropdowns (no free text) ===== -->
 
     <!-- Field-in-Trial overlay (includes yield blocks) -->
     <div id="fieldOverlay" class="field-overlay" hidden>
@@ -2209,14 +1517,37 @@
         <section class="trial-section">
           <h3>Trial info for this field</h3>
           <div class="field-grid">
-            <div class="field">
-              <label for="fieldVariety">Variety / hybrid (for this field)</label>
-              <input id="fieldVariety" class="input" placeholder="e.g. P1742Q" />
+            <!-- Variety dropdown (no free text) -->
+            <div class="field combo">
+              <label for="fieldVarietyBtn">Variety / hybrid (for this field)</label>
+              <div class="combo-anchor">
+                <button id="fieldVarietyBtn" type="button" class="buttonish has-caret">
+                  — Select variety —
+                </button>
+                <div id="fieldVarietyPanel" class="combo-panel" role="listbox" aria-label="Variety list">
+                  <div class="search">
+                    <input id="fieldVarietySearch" type="search" placeholder="Search varieties…" />
+                  </div>
+                  <div class="list" id="fieldVarietyList"></div>
+                </div>
+              </div>
+              <div id="fieldVarietyHelp" class="help-text">Varieties not loaded yet.</div>
             </div>
-            <div class="field">
-              <label for="fieldPlacement">Placement / application</label>
-              <input id="fieldPlacement" class="input" placeholder="e.g. South end, across rows" />
+
+            <!-- Placement dropdown (no free text) -->
+            <div class="field combo">
+              <label for="fieldPlacementBtn">Placement / application</label>
+              <div class="combo-anchor">
+                <button id="fieldPlacementBtn" type="button" class="buttonish has-caret">
+                  — Select placement —
+                </button>
+                <div id="fieldPlacementPanel" class="combo-panel" role="listbox" aria-label="Placement list">
+                  <div class="list" id="fieldPlacementList"></div>
+                </div>
+              </div>
+              <div id="fieldPlacementHelp" class="help-text">Choose where this trial sits in the field.</div>
             </div>
+
             <div class="field">
               <label for="fieldPlantingDate">Planting date</label>
               <input id="fieldPlantingDate" type="date" class="input" />
@@ -2233,7 +1564,115 @@
           </div>
           <div id="fieldInfoError" class="trial-error" hidden></div>
           <div style="margin-top:6px;">
-            <button type="button" id="fieldSaveInfoBtn" class="btn btn-primary btn-small">
+            <!-- Themed button (non-green) -->
+            <button type="button" id="fieldSaveInfoBtn" class="btn btn-quiet btn-small">
+              Save field trial info
+            </button>
+          </div>
+        </section>
+
+        <!-- (Yield section from earlier parts stays the same) -->
+        <section class="trial-section">
+          <div class="yield-header-row">
+            <h3>Yield blocks for this field</h3>
+            <button type="button" id="openYieldFormBtn" class="btn btn-quiet btn-small">
+              Add Yield Data
+            </button>
+          </div>
+
+          <!-- ... yield form + list from earlier parts ... -->
+          <div id="yieldForm" hidden>
+            <!-- unchanged from Part 4 -->
+          </div>
+
+          <div id="yieldList" class="yield-list"></div>
+        </section>
+
+        <footer class="trial-footer" style="margin-top:8px;">
+          <button type="button" id="fieldCancelBtn" class="btn btn-quiet btn-small">Close</button>
+        </footer>
+      </div>
+    </div>
+    <!-- End Part 7 of 8 (HTML section) -->
+
+    <!-- ===== Part 8 of 8: Field-level + Yield-block attachments, swipe-to-delete ===== -->
+
+    <!-- 🔹 UPDATED Field-in-Trial overlay (adds Attachments under notes) -->
+    <div id="fieldOverlay" class="field-overlay" hidden>
+      <div class="field-panel scroll-panel" role="dialog" aria-modal="true">
+        <header class="field-header">
+          <div>
+            <div id="fieldTitle" class="field-title">Field · Farm</div>
+            <div id="fieldSub" class="field-sub">Farm</div>
+            <div id="fieldTrialBadge" class="help-text" style="margin-top:4px;">Trial · Year · Crop</div>
+          </div>
+          <button type="button" id="fieldCloseBtn" class="trial-panel-close" aria-label="Close">×</button>
+        </header>
+
+        <section class="trial-section">
+          <h3>Trial info for this field</h3>
+          <div class="field-grid">
+            <!-- Variety dropdown from Part 7 -->
+            <div class="field combo">
+              <label for="fieldVarietyBtn">Variety / hybrid (for this field)</label>
+              <div class="combo-anchor">
+                <button id="fieldVarietyBtn" type="button" class="buttonish has-caret">
+                  — Select variety —
+                </button>
+                <div id="fieldVarietyPanel" class="combo-panel" role="listbox" aria-label="Variety list">
+                  <div class="search">
+                    <input id="fieldVarietySearch" type="search" placeholder="Search varieties…" />
+                  </div>
+                  <div class="list" id="fieldVarietyList"></div>
+                </div>
+              </div>
+              <div id="fieldVarietyHelp" class="help-text">Varieties not loaded yet.</div>
+            </div>
+
+            <!-- Placement dropdown from Part 7 -->
+            <div class="field combo">
+              <label for="fieldPlacementBtn">Placement / application</label>
+              <div class="combo-anchor">
+                <button id="fieldPlacementBtn" type="button" class="buttonish has-caret">
+                  — Select placement —
+                </button>
+                <div id="fieldPlacementPanel" class="combo-panel" role="listbox" aria-label="Placement list">
+                  <div class="list" id="fieldPlacementList"></div>
+                </div>
+              </div>
+              <div id="fieldPlacementHelp" class="help-text">Choose where this trial sits in the field.</div>
+            </div>
+
+            <div class="field">
+              <label for="fieldPlantingDate">Planting date</label>
+              <input id="fieldPlantingDate" type="date" class="input" />
+            </div>
+            <div class="field">
+              <label for="fieldTrialAcres">Trial acres (for this field)</label>
+              <input id="fieldTrialAcres" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 12.5" />
+              <div class="help-text">Acres of this field that are actually in the trial.</div>
+            </div>
+
+            <div class="field" style="grid-column:1/-1;">
+              <label for="fieldNotes">Field-specific notes</label>
+              <textarea id="fieldNotes" class="textarea" placeholder="Pop, passes, planter rows, etc."></textarea>
+            </div>
+
+            <!-- 🔹 NEW: Field-level attachments block -->
+            <div class="field" style="grid-column:1/-1;">
+              <label>Attachments</label>
+              <div class="help-text">Photos and files that support this field’s setup.</div>
+              <div id="fieldAttachmentsList" class="pill-list" style="margin-top:4px;"></div>
+              <button type="button" id="fieldAddAttachmentBtn" class="btn btn-quiet btn-small" style="margin-top:4px;">
+                Add Attachments
+              </button>
+              <input id="fieldAttachmentInput" type="file" multiple hidden />
+            </div>
+          </div>
+
+          <div id="fieldInfoError" class="trial-error" hidden></div>
+          <div style="margin-top:6px;">
+            <button type="button" id="fieldSaveInfoBtn" class="btn btn-quiet btn-small">
               Save field trial info
             </button>
           </div>
@@ -2242,8 +1681,8 @@
         <section class="trial-section">
           <div class="yield-header-row">
             <h3>Yield blocks for this field</h3>
-            <button type="button" id="openYieldFormBtn" class="btn btn-primary btn-small">
-              + Add yield block
+            <button type="button" id="openYieldFormBtn" class="btn btn-quiet btn-small">
+              Add Yield Data
             </button>
           </div>
 
@@ -2266,16 +1705,29 @@
                 <input id="yBlockCombines" type="number" step="1" min="0" inputmode="numeric" class="input" placeholder="e.g. 2" />
               </div>
             </div>
+
             <div class="field" style="margin-top:6px;">
               <label for="yBlockNotes">Notes (optional)</label>
               <textarea id="yBlockNotes" class="textarea" placeholder="Strip name, direction, program label, etc."></textarea>
             </div>
+
+            <!-- 🔹 NEW: Per-yield-block attachments -->
+            <div class="field" style="margin-top:6px;">
+              <label>Supporting documents</label>
+              <div class="help-text">Photos/files tied to this specific yield block.</div>
+              <div id="yBlockAttachmentsList" class="pill-list" style="margin-top:4px;"></div>
+              <button type="button" id="yBlockAddAttachmentBtn" class="btn btn-quiet btn-small">
+                Add Supporting Documents
+              </button>
+              <input id="yBlockAttachmentInput" type="file" multiple hidden />
+            </div>
+
             <div id="yBlockYieldHelper" class="help-text" style="margin-top:4px;">
               Enter acres, pounds, and moisture to see calculated yield.
             </div>
             <div id="fieldYieldError" class="trial-error" hidden></div>
             <div style="margin-top:6px;">
-              <button type="button" id="saveYieldBlockBtn" class="btn btn-primary btn-small">
+              <button type="button" id="saveYieldBlockBtn" class="btn btn-quiet btn-small">
                 Save yield block
               </button>
             </div>
@@ -2289,8 +1741,6 @@
         </footer>
       </div>
     </div>
-  </fv-shell>
+    <!-- 🔸 End HTML for Part 8 of 8 -->
 
-  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
-</body>
-</html>
+  
