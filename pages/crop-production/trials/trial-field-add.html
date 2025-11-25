@@ -457,7 +457,7 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, getDoc
+      collection, getDocs, getDoc, doc   // <-- doc is back
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -492,7 +492,7 @@
     let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
     let fieldFieldBtn, fieldFieldPanel, fieldFieldList, fieldFieldSearch;
     let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine;
-    let trialAcesInput, trialAcresInput, trialAcresHelp, notesInput, micBtn;
+    let trialAcresInput, trialAcresHelp, notesInput, micBtn;
     let pendingListEl;
 
     async function waitForAuthReady() {
@@ -648,6 +648,7 @@
     async function loadTrial(){
       if(!STATE.trialId) return;
       try{
+        console.log('[AddFieldToTrial] Loading trial', STATE.trialId);
         const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
         const snap = await getDoc(refDoc);
         if(!snap.exists()){
@@ -848,7 +849,8 @@
         const trialId = STATE.trialId;
         const basePath = `${CONFIG.COLLECTION_TRIALS}/${trialId}/fields`;
 
-        // Use FVData helpers so org/meta match your security rules
+        console.log('[AddFieldToTrial] Saving fields to', basePath, 'count', STATE.pendingFields.length);
+
         await FVData.ready();
 
         for(const row of STATE.pendingFields){
@@ -864,7 +866,6 @@
           await FVData.addDocWithMeta(basePath, payload);
         }
 
-        // Mark trial active with meta
         await FVData.updateDocWithMeta(
           `${CONFIG.COLLECTION_TRIALS}/${trialId}`,
           { status: 'active' }
@@ -893,6 +894,7 @@
       errorBox=document.getElementById('errBox');
 
       STATE.trialId=getQueryParam('trialId');
+      console.log('[AddFieldToTrial] trialId from URL =', STATE.trialId);
       if(!STATE.trialId){
         showError("Missing trialId in URL. Use this page from the Trials screen.");
         return;
@@ -904,6 +906,7 @@
       }
 
       const fvUser = await waitForFVUser();
+      console.log('[AddFieldToTrial] fvUser =', fvUser);
       if(!fvUser){
         showError("Unable to load user info. Please refresh.");
         return;
@@ -911,6 +914,7 @@
 
       STATE.fvUser = fvUser;
       STATE.orgId  = fvUser.orgId || fvUser.org || fvUser.orgID || null;
+      console.log('[AddFieldToTrial] orgId =', STATE.orgId);
 
       STATE.db=getFirestore();
 
