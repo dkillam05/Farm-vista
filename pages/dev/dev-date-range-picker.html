@@ -1,0 +1,347 @@
+<!-- =====================================================================
+Example Dev Page – fv-date-range-picker.js
+Save somewhere like:
+/Farm-vista/pages/dev/dev-date-range-picker.html
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Dev Date Range Picker (JS Test)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS FOR FARMVISTA -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root {
+      --picker-bg: #ffffff;
+      --picker-border: #d0d5dd;
+      --picker-header-bg: #f3f4f6;
+      --picker-text: #111827;
+      --picker-muted: #6b7280;
+      --picker-day-hover: #e5e7eb;
+      --picker-radius: 10px;
+      --accent: #2f6c3c; /* FarmVista green */
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--page-bg, #f3f4f6);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .dev-wrapper {
+      width: 100%;
+      max-width: 420px;
+      padding: 16px;
+    }
+
+    .field-label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+      color: var(--picker-muted);
+    }
+
+    .range-input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--picker-border);
+      background: #ffffff;
+      color: var(--picker-text);
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+
+    .range-input::placeholder {
+      color: #9ca3af;
+    }
+
+    .range-input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .calendar-popover {
+      margin-top: 10px;
+      background: var(--picker-bg);
+      border-radius: var(--picker-radius);
+      border: 1px solid var(--picker-border);
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+      color: var(--picker-text);
+      width: 330px;
+      max-width: 100%;
+      overflow: visible; /* allow dropdowns to extend past container */
+    }
+
+    .cal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--picker-header-bg);
+      border-radius: var(--picker-radius) var(--picker-radius) 0 0;
+      font-size: 0.85rem;
+      overflow: visible; /* prevent clipping of dropdown menus */
+    }
+
+    .cal-title {
+      font-size: 0.8rem;
+      color: var(--picker-muted);
+    }
+
+    .cal-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .cal-select {
+      background: #ffffff;
+      border: 1px solid var(--picker-border);
+      border-radius: 4px;
+      color: var(--picker-text);
+      padding: 2px 4px;
+      font-size: 0.8rem;
+      max-width: 140px;
+      white-space: nowrap;
+      overflow-x: hidden; /* no horizontal scroll inside select */
+    }
+
+    .cal-nav-btn {
+      border: none;
+      background: transparent;
+      color: var(--picker-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+
+    .cal-nav-btn:hover {
+      background: var(--picker-day-hover);
+      color: var(--picker-text);
+    }
+
+    .cal-close-btn {
+      border: none;
+      background: transparent;
+      color: var(--picker-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 999px;
+      font-size: 1rem;
+      margin-left: 4px;
+    }
+
+    .cal-close-btn:hover {
+      background: var(--picker-day-hover);
+      color: var(--picker-text);
+    }
+
+    .cal-body {
+      padding: 8px 10px 10px;
+    }
+
+    .cal-weekdays,
+    .cal-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      font-size: 0.75rem;
+    }
+
+    .cal-weekday {
+      text-align: center;
+      color: var(--picker-muted);
+      padding: 4px 0;
+    }
+
+    .cal-day {
+      position: relative;
+      width: 100%;
+      padding: 6px 0;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 16px;
+      z-index: 1;
+      color: var(--picker-text);
+      user-select: none;
+    }
+
+    .cal-day.other-month {
+      color: #9ca3af;
+    }
+
+    .cal-day:hover {
+      background: var(--picker-day-hover);
+    }
+
+    .cal-day.in-range::before,
+    .cal-day.range-start::before,
+    .cal-day.range-end::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      border-radius: 16px;
+      background: var(--accent);
+      opacity: 0.12;
+      z-index: -1;
+    }
+
+    .cal-day.range-start::before {
+      border-radius: 16px 0 0 16px;
+    }
+
+    .cal-day.range-end::before {
+      border-radius: 0 16px 16px 0;
+    }
+
+    .cal-day.single-day::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      border-radius: 16px;
+      background: var(--accent);
+      opacity: 0.9;
+      z-index: -1;
+    }
+
+    .cal-day.single-day {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .cal-day.start-selected::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      border-radius: 16px;
+      background: var(--accent);
+      opacity: 0.9;
+      z-index: -1;
+    }
+
+    .cal-day.start-selected {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .cal-day.range-start,
+    .cal-day.range-end,
+    .cal-day.in-range {
+      color: #0b1120;
+      font-weight: 600;
+    }
+
+    .cal-day.range-start,
+    .cal-day.range-end {
+      background: rgba(47, 108, 60, 0.12);
+    }
+
+    .cal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-top: 1px solid var(--picker-border);
+      border-radius: 0 0 var(--picker-radius) var(--picker-radius);
+      font-size: 0.75rem;
+      color: var(--picker-muted);
+    }
+
+    .cal-footer span {
+      opacity: 0.9;
+    }
+
+    .cal-footer-buttons {
+      display: flex;
+      gap: 6px;
+    }
+
+    .cal-btn {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      border: 1px solid var(--picker-border);
+      background: #ffffff;
+      color: var(--picker-muted);
+      cursor: pointer;
+    }
+
+    .cal-btn:hover {
+      background: var(--picker-day-hover);
+      color: var(--picker-text);
+    }
+
+    .cal-btn-primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #ffffff;
+    }
+
+    .cal-btn-primary:hover {
+      filter: brightness(1.05);
+    }
+  </style>
+</head>
+<body>
+  <div class="dev-wrapper">
+    <label for="jobRangeInput" class="field-label">Job worked date range</label>
+    <input id="jobRangeInput" class="range-input" type="text" readonly placeholder="Select date range" />
+
+    <!-- Calendar popover – markup expected by fv-date-range-picker.js -->
+    <div id="calendarPopover" class="calendar-popover" style="display:none;">
+      <div class="cal-header">
+        <div>
+          <div class="cal-title">Pick job start and end dates</div>
+          <div class="cal-controls">
+            <button type="button" class="cal-nav-btn" id="prevMonthBtn">&#9664;</button>
+            <select id="monthSelect" class="cal-select"></select>
+            <select id="yearSelect" class="cal-select"></select>
+            <button type="button" class="cal-nav-btn" id="nextMonthBtn">&#9654;</button>
+          </div>
+        </div>
+        <button type="button" class="cal-close-btn" id="closeCalBtn">&times;</button>
+      </div>
+      <div class="cal-body">
+        <div class="cal-weekdays">
+          <div class="cal-weekday">Sun</div>
+          <div class="cal-weekday">Mon</div>
+          <div class="cal-weekday">Tue</div>
+          <div class="cal-weekday">Wed</div>
+          <div class="cal-weekday">Thu</div>
+          <div class="cal-weekday">Fri</div>
+          <div class="cal-weekday">Sat</div>
+        </div>
+        <div id="calDays" class="cal-days"></div>
+      </div>
+      <div class="cal-footer">
+        <span id="rangeSummary">No dates selected</span>
+        <div class="cal-footer-buttons">
+          <button type="button" class="cal-btn" id="clearRangeBtn">Clear</button>
+          <button type="button" class="cal-btn cal-btn-primary" id="applyRangeBtn">Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reusable JS (no inline calendar logic here) -->
+  <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
+</body>
+</html>
