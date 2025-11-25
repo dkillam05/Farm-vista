@@ -20,12 +20,12 @@
       --page-bottom-gap: 96px;
       --accent: #2F6C3C;
 
-      --combo-gap: 4px;
-      --combo-radius: 12px;
-      --combo-btn-radius: 10px;
-      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
-      --combo-item-pad: 10px 8px;
-      --combo-max-h: 50vh;
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
     }
 
     html{-webkit-text-size-adjust:100%}
@@ -713,6 +713,11 @@
       cursor:pointer;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
+    .field-mic-btn.mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
     .field-note-hint{
       font-size:0.8rem;
       opacity:0.75;
@@ -900,6 +905,74 @@
           DATA = Array.isArray(arr) ? arr : [];
           render("");
         }
+      };
+    }
+
+    // ---------- mic / dictation helper ----------
+
+    function wireMic(btnId, textareaId){
+      const btn = document.getElementById(btnId);
+      const ta  = document.getElementById(textareaId);
+      if(!btn || !ta) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        // Hide mic if browser doesn't support it
+        btn.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on)=>{
+        btn.classList.toggle('mic-active', on);
+        btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
+      };
+
+      btn.addEventListener('click', ()=>{
+        if(!active){
+          baseText = ta.value ? (ta.value + ' ') : '';
+          try{
+            rec.start();
+            active = true;
+            setMic(true);
+          }catch(err){
+            console.error('SpeechRecognition start error:', err);
+          }
+        }else{
+          try{
+            rec.stop();
+            rec.abort();
+          }catch{}
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev)=>{
+        let txt = '';
+        for(let i=ev.resultIndex; i<ev.results.length; i++){
+          txt += ev.results[i][0].transcript;
+        }
+        ta.value = baseText + txt;
+      };
+
+      rec.onend = ()=>{
+        active = false;
+        setMic(false);
+      };
+
+      rec.onerror = (e)=>{
+        console.error('SpeechRecognition error:', e);
+        active = false;
+        setMic(false);
       };
     }
 
@@ -1286,6 +1359,13 @@
     }
 
     function refreshFieldComboForFarm(farmId){
+      STATE.selectedFarmId = farmId || null;
+      STATE.selectedField = null;
+      STATE.selectedFieldMaxAcres = null;
+
+      if(fieldFieldBtn) fieldFieldBtn.textContent = '— Select field —';
+      if(fieldAcresHelp) fieldAcresHelp.textContent = '';
+
       const items = STATE.fields
         .filter(f => {
           if(!farmId) return true;
@@ -1299,15 +1379,6 @@
         .sort((a,b)=>a.label.localeCompare(b.label));
 
       fieldCombo && fieldCombo.setItems(items);
-
-      STATE.selectedField = null;
-      STATE.selectedFieldMaxAcres = null;
-      if(fieldFieldBtn){
-        fieldFieldBtn.textContent = '— Select field —';
-      }
-      if(fieldAcresHelp){
-        fieldAcresHelp.textContent = '';
-      }
     }
 
     // ---------- Add Field modal ----------
@@ -1376,6 +1447,12 @@
         return;
       }
 
+      // extra safety: enforce farm/field match
+      if(fieldObj.farmId && fieldObj.farmId !== STATE.selectedFarmId){
+        alert('Selected field does not belong to the selected farm. Please choose a matching farm and field.');
+        return;
+      }
+
       const acresStr = fieldAcresInput.value.trim();
       const notes    = fieldNotesInput.value.trim();
 
@@ -1417,7 +1494,7 @@
         await loadPendingTrials(); // trial drops off pending list
       }catch(err){
         console.error('Error adding field to trial:', err);
-        alert('Error saving field. See console for details.');
+        alert('Error saving field: ' + (err && (err.message || err.code) || 'Unknown error (check console).'));
       }
     }
 
@@ -1493,10 +1570,12 @@
         fieldForm.addEventListener('submit', handleFieldSubmit);
       }
 
-      // dictation hook for notes (your global mic script can target this)
-      if(fieldMicBtn && fieldNotesInput){
+      // dictation hookup
+      if(fieldNotesInput){
         fieldNotesInput.id = 'fieldNotes';
-        fieldMicBtn.dataset.target = 'fieldNotes';
+      }
+      if(fieldMicBtn){
+        wireMic('fieldMic', 'fieldNotes');
       }
 
       // combos
@@ -1504,12 +1583,11 @@
         btn: fieldFarmBtn,
         panel: fieldFarmPanel,
         list: fieldFarmList,
-        searchable: true,
         searchInput: null,
+        searchable: true,
         formatter: x => x.label,
         onPick: farm => {
-          fieldFarmBtn.textContent = farm.label;
-          STATE.selectedFarmId = farm.id;
+          if(fieldFarmBtn) fieldFarmBtn.textContent = farm.label;
           refreshFieldComboForFarm(farm.id);
         }
       });
@@ -1522,8 +1600,21 @@
         searchable: true,
         formatter: x => x.label,
         onPick: it => {
-          fieldFieldBtn.textContent = it.label;
+          if(fieldFieldBtn) fieldFieldBtn.textContent = it.label;
           STATE.selectedField = it.raw;
+
+          // set farm to match field's farmId if possible
+          if(it.raw.farmId){
+            const farm = STATE.farms.find(f => f.id === it.raw.farmId);
+            if(farm){
+              if(fieldFarmBtn) fieldFarmBtn.textContent = farm.name;
+              refreshFieldComboForFarm(farm.id);
+              // keep this field selected after refresh
+              STATE.selectedField = it.raw;
+              if(fieldFieldBtn) fieldFieldBtn.textContent = it.label;
+            }
+          }
+
           const max = it.raw.tillable != null ? it.raw.tillable : null;
           STATE.selectedFieldMaxAcres = max;
           if(max != null && fieldAcresHelp){
@@ -1531,20 +1622,6 @@
               `Max trial acres for this field: ${max}. Trial acres cannot be more than the tillable acres.`;
           }else if(fieldAcresHelp){
             fieldAcresHelp.textContent = '';
-          }
-
-          // if field has farmId and farm isn't set yet, backfill farm
-          if(it.raw.farmId && !STATE.selectedFarmId){
-            const farm = STATE.farms.find(f => f.id === it.raw.farmId);
-            if(farm){
-              STATE.selectedFarmId = farm.id;
-              fieldFarmBtn.textContent = farm.name;
-              refreshFieldComboForFarm(farm.id);
-              // keep the chosen field as selected
-              STATE.selectedField = it.raw;
-              STATE.selectedFieldMaxAcres = max;
-              fieldFieldBtn.textContent = it.label;
-            }
           }
         }
       });
