@@ -440,27 +440,6 @@
       85%{opacity:1}
       100%{opacity:0}
     }
-
-    /* Debug panel */
-    .debug-panel{
-      border:1px dashed var(--border);
-      border-radius:10px;
-      padding:8px 10px;
-      background:var(--surface);
-      box-shadow:none;
-      font-size:12px;
-    }
-    .debug-panel summary{
-      cursor:pointer;
-      font-weight:700;
-    }
-    #debugLog{
-      white-space:pre-wrap;
-      margin-top:6px;
-      max-height:260px;
-      overflow:auto;
-      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    }
   </style>
 
   <script>
@@ -950,40 +929,6 @@
       }
     }
 
-    /* ----------- DIAGNOSTIC WRITE TEST BUTTON ----------- */
-    async function runSecurityDiag(){
-      showError('');
-      if(!STATE.trialId){
-        showError("No trialId in URL, cannot run diagnostics.");
-        return;
-      }
-      const testPath = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/diagTest`;
-      try{
-        await FVData.ready();
-        diag('securityDiag.write.start', {
-          trialId: STATE.trialId,
-          testPath,
-          userUid: STATE.user && STATE.user.uid,
-          orgId: STATE.orgId
-        });
-        await FVData.addDocWithMeta(testPath, {
-          kind: 'trialFieldsDiag',
-          ts: Date.now()
-        });
-        diag('securityDiag.write.success', { testPath });
-        showToast('Diag write OK');
-      }catch(err){
-        console.error('Diag write failed:', err);
-        diag('securityDiag.write.error', {
-          testPath,
-          code: err.code,
-          message: err.message,
-          stack: err.stack
-        });
-        showError('Diag write failed: ' + (err.code || err.message || err));
-      }
-    }
-
     (async function boot(){
       await ready;
 
@@ -1057,7 +1002,6 @@
       const btnAddField = document.getElementById("btnAddField");
       const btnSaveAll  = document.getElementById("btnSaveFields");
       const btnCancel   = document.getElementById("btnCancel");
-      const btnDiag     = document.getElementById("btnRunDiag");
 
       if(btnBack){
         btnBack.addEventListener("click", ()=>{ window.location.href=CONFIG.RETURN_URL; });
@@ -1070,9 +1014,6 @@
       }
       if(btnSaveAll){
         btnSaveAll.addEventListener("click", saveAllFields);
-      }
-      if(btnDiag){
-        btnDiag.addEventListener("click", runSecurityDiag);
       }
 
       if(trialAcresInput){
@@ -1260,18 +1201,6 @@
           <button id="btnSaveFields" type="button" class="btn btn-primary">Save Fields</button>
         </div>
       </section>
-
-      <!-- Debug helper panel -->
-      <details class="debug-panel" open>
-        <summary>Debug info &amp; diagnostic tools</summary>
-        <div style="margin:6px 0 4px;display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="btnRunDiag" type="button" class="btn btn-quiet" style="min-width:auto;padding:6px 10px;font-size:12px;">
-            Run Diag Test (write)
-          </button>
-          <span class="muted" style="font-size:12px;">Use this in dev only. Check DevTools console for more detail.</span>
-        </div>
-        <pre id="debugLog"></pre>
-      </details>
     </div>
   </fv-shell>
 
