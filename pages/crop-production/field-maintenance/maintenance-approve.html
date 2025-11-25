@@ -69,7 +69,7 @@
       gap:14px;
     }
 
-    /* Toolbar + back button (match edit page behavior) */
+    /* Toolbar + back button */
     .toolbar{
       display:flex;
       flex-wrap:wrap;
@@ -249,7 +249,7 @@
       cursor:pointer;
     }
 
-    /* Detail panel (still inside same hero card) */
+    /* Detail panel */
     .wo-detail-panel {
       margin-top:10px;
       border-radius:10px;
@@ -440,15 +440,16 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, getDocs, updateDoc, doc
+      collection, query, where, getDocs, updateDoc, doc,
+      getStorage, ref as storageRef, listAll, getDownloadURL
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      COLLECTION_PATH: 'fieldMaintenance', // same as maintenance-add.html
+      COLLECTION_PATH: 'fieldMaintenance',
       STATUS_FIELD:   'status',
-      NEEDS_APPROVAL_STATUS: 'needs approved', // EXACT string used in maintenance-add
+      NEEDS_APPROVAL_STATUS: 'needs approved',
       PENDING_STATUS: 'pending'
     };
 
@@ -562,12 +563,10 @@
           pill.dataset.on = on ? 'true' : 'false';
 
           if(on){
-            // Change status → pending, then remove from list for speed
             try{
               await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), {
                 [CONFIG.STATUS_FIELD]: CONFIG.PENDING_STATUS
               });
-              // Optimistically drop from UI
               STATE.items = STATE.items.filter(x => x.id !== id);
               if(STATE.selectedId === id){
                 STATE.selectedId = null;
@@ -576,7 +575,6 @@
               renderList();
             }catch(err){
               console.error('Failed to update status:', err);
-              // revert UI
               pill.dataset.on = 'false';
               ev.target.checked = false;
               alert('Could not update work order status. Please try again.');
@@ -611,6 +609,72 @@
       return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') || u.endsWith('.gif') || u.endsWith('.webp');
     }
 
+    async function loadStoragePhotos(docId, attGrid){
+      try{
+        const storage = getStorage();
+        const folderRef = storageRef(storage, `fieldMaintenance/${docId}`);
+        const res = await listAll(folderRef);
+
+        attGrid.innerHTML = '';
+
+        if(!res.items.length){
+          const empty = document.createElement('div');
+          empty.className = 'wo-attachment-empty';
+          empty.textContent = 'No files or photos attached.';
+          attGrid.appendChild(empty);
+          return;
+        }
+
+        for(const item of res.items){
+          const url = await getDownloadURL(item);
+
+          const itemEl = document.createElement('div');
+          itemEl.className = 'wo-attachment-item';
+
+          const thumb = document.createElement('div');
+          thumb.className = 'wo-attachment-thumb';
+
+          if(isImageUrl(url)){
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = item.name || 'Photo';
+            thumb.appendChild(img);
+          }else{
+            thumb.textContent = 'FILE';
+          }
+
+          const meta = document.createElement('div');
+          meta.className = 'wo-attachment-meta';
+
+          const nameEl = document.createElement('div');
+          nameEl.className = 'wo-attachment-name';
+          nameEl.textContent = item.name || 'Attachment';
+
+          const linkEl = document.createElement('a');
+          linkEl.className = 'wo-attachment-link';
+          linkEl.href = url;
+          linkEl.target = '_blank';
+          linkEl.rel = 'noopener noreferrer';
+          linkEl.textContent = 'Open';
+
+          meta.appendChild(nameEl);
+          meta.appendChild(linkEl);
+
+          itemEl.appendChild(thumb);
+          itemEl.appendChild(meta);
+
+          attGrid.appendChild(itemEl);
+        }
+      }catch(err){
+        console.error('Error loading storage photos:', err);
+        attGrid.innerHTML = '';
+        const errEl = document.createElement('div');
+        errEl.className = 'wo-attachment-empty';
+        errEl.textContent = 'Error loading files or photos.';
+        attGrid.appendChild(errEl);
+      }
+    }
+
     function renderDetails(){
       const panel = $('.wo-detail-panel');
       const item = STATE.items.find(x => x.id === STATE.selectedId);
@@ -627,6 +691,7 @@
       const equip = data.equipmentName || data.equipment || '';
       const acres = data.acres || data.area || null;
       const status = data[CONFIG.STATUS_FIELD] || '';
+      const photoCount = data.photoCount || 0;
       const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email)) || data.createdByName || data.createdBy || '';
       const when = (data.createdAt && data.createdAt.toDate) ? data.createdAt.toDate()
                  : (data.dateSubmitted && data.dateSubmitted.toDate) ? data.dateSubmitted.toDate()
@@ -673,7 +738,7 @@
 
       $('.wo-detail-notes-body', panel).textContent = notes || 'No additional notes recorded.';
 
-      // Attachments (files + photos)
+      // Attachments (first look for inline arrays – future-proof)
       const attachments = [];
 
       if(Array.isArray(data.attachments)){
@@ -712,14 +777,12 @@
       const attGrid = $('#woDetailAttachments');
       if(attGrid){
         attGrid.innerHTML = '';
-        if(!attachments.length){
-          const empty = document.createElement('div');
-          empty.className = 'wo-attachment-empty';
-          empty.textContent = 'No files or photos attached.';
-          attGrid.appendChild(empty);
-        }else{
+
+        if(attachments.length){
+          // Render inline attachments from doc
           for(const att of attachments){
             if(!att.url) continue;
+
             const itemEl = document.createElement('div');
             itemEl.className = 'wo-attachment-item';
 
@@ -757,6 +820,20 @@
 
             attGrid.appendChild(itemEl);
           }
+        }else if(photoCount > 0){
+          // Use Storage folder fieldMaintenance/{docId}
+          const loading = document.createElement('div');
+          loading.className = 'wo-attachment-empty';
+          loading.textContent = 'Loading photos...';
+          attGrid.appendChild(loading);
+
+          // Fire and forget – async updates the same grid
+          loadStoragePhotos(item.id, attGrid);
+        }else{
+          const empty = document.createElement('div');
+          empty.className = 'wo-attachment-empty';
+          empty.textContent = 'No files or photos attached.';
+          attGrid.appendChild(empty);
         }
       }
 
@@ -828,7 +905,6 @@
           data: d.data()
         }));
 
-        // sort newest first by createdAt
         items.sort((a,b) => {
           const ta = getTime(a.data.createdAt || a.data.dateSubmitted || a.data.timestamp);
           const tb = getTime(b.data.createdAt || b.data.dateSubmitted || b.data.timestamp);
@@ -854,7 +930,6 @@
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      // Back button (match edit page destination)
       const backBtn = document.getElementById('btnBack');
       if(backBtn){
         backBtn.addEventListener('click', () => {
