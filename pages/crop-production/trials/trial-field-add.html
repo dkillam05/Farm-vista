@@ -440,6 +440,27 @@
       85%{opacity:1}
       100%{opacity:0}
     }
+
+    /* Debug panel */
+    .debug-panel{
+      border:1px dashed var(--border);
+      border-radius:10px;
+      padding:8px 10px;
+      background:var(--surface);
+      box-shadow:none;
+      font-size:12px;
+    }
+    .debug-panel summary{
+      cursor:pointer;
+      font-weight:700;
+    }
+    #debugLog{
+      white-space:pre-wrap;
+      margin-top:6px;
+      max-height:260px;
+      overflow:auto;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
   </style>
 
   <script>
@@ -457,7 +478,7 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, getDoc, doc   // <-- doc is back
+      collection, getDocs, getDoc, doc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -487,13 +508,32 @@
 
     const $  = (sel, root=document) => root.querySelector(sel);
 
-    let toastEl, errorBox;
+    let toastEl, errorBox, debugLogEl;
     let farmCombo, fieldCombo;
     let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
     let fieldFieldBtn, fieldFieldPanel, fieldFieldList, fieldFieldSearch;
     let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine;
     let trialAcresInput, trialAcresHelp, notesInput, micBtn;
     let pendingListEl;
+
+    /* ------------------ DIAGNOSTIC HELPER ------------------ */
+    function diag(label, payload){
+      const ts = new Date();
+      const time = ts.toISOString().split('T')[1].replace('Z','');
+      let line = time + '  ' + label;
+      if(typeof payload !== 'undefined'){
+        try{
+          line += '  ' + JSON.stringify(payload, null, 2);
+        }catch{
+          line += '  ' + String(payload);
+        }
+      }
+      console.log('[AddFieldToTrial]', label, payload ?? '');
+      if(!debugLogEl) debugLogEl = document.getElementById('debugLog');
+      if(debugLogEl){
+        debugLogEl.textContent += line + '\n\n';
+      }
+    }
 
     async function waitForAuthReady() {
       const auth = getAuth();
@@ -541,6 +581,7 @@
     }
 
     function showError(msg){
+      if(!errorBox) errorBox = document.getElementById('errBox');
       if(!errorBox) return;
       if(msg){
         errorBox.textContent = msg;
@@ -648,11 +689,12 @@
     async function loadTrial(){
       if(!STATE.trialId) return;
       try{
-        console.log('[AddFieldToTrial] Loading trial', STATE.trialId);
+        diag('loadTrial.start', { trialId: STATE.trialId });
         const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
         const snap = await getDoc(refDoc);
         if(!snap.exists()){
           showError("This trial could not be found. It may have been deleted.");
+          diag('loadTrial.missing', {});
           return;
         }
         STATE.trial = snap.data()||{};
@@ -660,6 +702,7 @@
 
         if(!STATE.orgId && t.orgId){
           STATE.orgId = t.orgId;
+          diag('loadTrial.orgIdFromTrial', { orgId: STATE.orgId });
         }
 
         if(trialNameMain) trialNameMain.textContent = t.trialName || "Field Trial";
@@ -681,8 +724,10 @@
           if(t.check) parts.push(`Check: ${t.check}`);
           trialTreatmentLine.textContent = parts.join("  |  ") || "";
         }
+        diag('loadTrial.success', { trialName: t.trialName || null });
       }catch(err){
         console.error("Error loading trial:",err);
+        diag('loadTrial.error', { code: err.code, message: err.message });
         showError("Unable to load trial details. You can still add a field, but some labels may be missing.");
       }
     }
@@ -699,8 +744,10 @@
         });
         farms.sort((a,b)=>a.name.localeCompare(b.name));
         STATE.farms=farms;
+        diag('loadFarms.ok', { count: farms.length });
       }catch(err){
         console.error("Error loading farms:",err);
+        diag('loadFarms.error', { code: err.code, message: err.message });
         STATE.farms=[];
       }
       try{
@@ -722,8 +769,10 @@
           });
         });
         STATE.fields=fields;
+        diag('loadFields.ok', { count: fields.length });
       }catch(err){
         console.error("Error loading fields:",err);
+        diag('loadFields.error', { code: err.code, message: err.message });
         STATE.fields=[];
       }
     }
@@ -819,6 +868,12 @@
         return;
       }
       STATE.pendingFields.push({farm,field,acres,notes});
+      diag('addFieldToPending', {
+        farmId: farm.id,
+        fieldId: field.id,
+        acres,
+        notesLen: notes.length
+      });
       renderPendingList();
       showToast("Field added to this trial. Remember to Save Fields at the bottom when you’re done.");
       STATE.selectedFarm=null;
@@ -849,7 +904,13 @@
         const trialId = STATE.trialId;
         const basePath = `${CONFIG.COLLECTION_TRIALS}/${trialId}/fields`;
 
-        console.log('[AddFieldToTrial] Saving fields to', basePath, 'count', STATE.pendingFields.length);
+        diag('saveAllFields.start', {
+          trialId,
+          basePath,
+          pendingCount: STATE.pendingFields.length,
+          userUid: STATE.user.uid,
+          orgId: STATE.orgId
+        });
 
         await FVData.ready();
 
@@ -863,38 +924,90 @@
             trialAcres: row.acres!=null?row.acres:null,
             notes: row.notes || null
           };
+          diag('saveAllFields.addDoc', { basePath, payload });
           await FVData.addDocWithMeta(basePath, payload);
         }
 
+        diag('saveAllFields.updateTrial', { path: `${CONFIG.COLLECTION_TRIALS}/${trialId}` });
         await FVData.updateDocWithMeta(
           `${CONFIG.COLLECTION_TRIALS}/${trialId}`,
           { status: 'active' }
         );
 
+        diag('saveAllFields.success', {});
         showToast("Fields saved and trial marked Active.");
         setTimeout(()=>{ window.location.href=CONFIG.RETURN_URL; },800);
       }catch(err){
         console.error("Error saving fields:",err);
+        diag('saveAllFields.error', {
+          code: err.code,
+          message: err.message,
+          stack: err.stack
+        });
         showError("Error saving fields: "+(err && (err.message||err.code) || "Unknown error"));
-        const saveBtn=document.getElementById('btnSaveFields');
-        if(saveBtn) saveBtn.disabled=false;
+        const saveBtn2=document.getElementById('btnSaveFields');
+        if(saveBtn2) saveBtn2.disabled=false;
+      }
+    }
+
+    /* ----------- DIAGNOSTIC WRITE TEST BUTTON ----------- */
+    async function runSecurityDiag(){
+      showError('');
+      if(!STATE.trialId){
+        showError("No trialId in URL, cannot run diagnostics.");
+        return;
+      }
+      const testPath = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/diagTest`;
+      try{
+        await FVData.ready();
+        diag('securityDiag.write.start', {
+          trialId: STATE.trialId,
+          testPath,
+          userUid: STATE.user && STATE.user.uid,
+          orgId: STATE.orgId
+        });
+        await FVData.addDocWithMeta(testPath, {
+          kind: 'trialFieldsDiag',
+          ts: Date.now()
+        });
+        diag('securityDiag.write.success', { testPath });
+        showToast('Diag write OK');
+      }catch(err){
+        console.error('Diag write failed:', err);
+        diag('securityDiag.write.error', {
+          testPath,
+          code: err.code,
+          message: err.message,
+          stack: err.stack
+        });
+        showError('Diag write failed: ' + (err.code || err.message || err));
       }
     }
 
     (async function boot(){
       await ready;
 
+      toastEl=document.getElementById('toast');
+      errorBox=document.getElementById('errBox');
+      debugLogEl=document.getElementById('debugLog');
+
+      diag('boot.start', { href: window.location.href });
+
       STATE.auth = getAuth();
       STATE.user = await waitForAuthReady();
+
+      if(STATE.user){
+        diag('boot.user', { uid: STATE.user.uid, email: STATE.user.email });
+      }else{
+        diag('boot.user.missing', {});
+      }
+
+      STATE.trialId=getQueryParam('trialId');
+      diag('boot.trialId', { trialId: STATE.trialId });
 
       const shell=document.querySelector('fv-shell');
       if(shell && NAV_MENU) shell.nav=NAV_MENU;
 
-      toastEl=document.getElementById('toast');
-      errorBox=document.getElementById('errBox');
-
-      STATE.trialId=getQueryParam('trialId');
-      console.log('[AddFieldToTrial] trialId from URL =', STATE.trialId);
       if(!STATE.trialId){
         showError("Missing trialId in URL. Use this page from the Trials screen.");
         return;
@@ -906,7 +1019,7 @@
       }
 
       const fvUser = await waitForFVUser();
-      console.log('[AddFieldToTrial] fvUser =', fvUser);
+      diag('boot.fvUser', fvUser || { missing:true });
       if(!fvUser){
         showError("Unable to load user info. Please refresh.");
         return;
@@ -914,7 +1027,7 @@
 
       STATE.fvUser = fvUser;
       STATE.orgId  = fvUser.orgId || fvUser.org || fvUser.orgID || null;
-      console.log('[AddFieldToTrial] orgId =', STATE.orgId);
+      diag('boot.orgId', { orgId: STATE.orgId });
 
       STATE.db=getFirestore();
 
@@ -944,6 +1057,7 @@
       const btnAddField = document.getElementById("btnAddField");
       const btnSaveAll  = document.getElementById("btnSaveFields");
       const btnCancel   = document.getElementById("btnCancel");
+      const btnDiag     = document.getElementById("btnRunDiag");
 
       if(btnBack){
         btnBack.addEventListener("click", ()=>{ window.location.href=CONFIG.RETURN_URL; });
@@ -956,6 +1070,9 @@
       }
       if(btnSaveAll){
         btnSaveAll.addEventListener("click", saveAllFields);
+      }
+      if(btnDiag){
+        btnDiag.addEventListener("click", runSecurityDiag);
       }
 
       if(trialAcresInput){
@@ -1024,8 +1141,10 @@
         refreshFarmCombo();
         refreshFieldComboForFarm(null);
         renderPendingList();
+        diag('boot.complete', {});
       }catch(err){
         console.error("Initial load error:",err);
+        diag('boot.error', { code: err.code, message: err.message });
         showError("Error loading data. Check console or network.");
       }
     })();
@@ -1141,6 +1260,18 @@
           <button id="btnSaveFields" type="button" class="btn btn-primary">Save Fields</button>
         </div>
       </section>
+
+      <!-- Debug helper panel -->
+      <details class="debug-panel" open>
+        <summary>Debug info &amp; diagnostic tools</summary>
+        <div style="margin:6px 0 4px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="btnRunDiag" type="button" class="btn btn-quiet" style="min-width:auto;padding:6px 10px;font-size:12px;">
+            Run Diag Test (write)
+          </button>
+          <span class="muted" style="font-size:12px;">Use this in dev only. Check DevTools console for more detail.</span>
+        </div>
+        <pre id="debugLog"></pre>
+      </details>
     </div>
   </fv-shell>
 
