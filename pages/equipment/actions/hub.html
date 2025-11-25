@@ -1,9 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/hub.html  (FULL FILE)
-Rev: 2025-11-18b
-StarFire tweak:
- • For type=starfire, hide Service Records & Pre-Season buttons
- • Middle button becomes "Update Location" and links to starfire-location.html?id=...
+Rev: 2025-11-24c
+Update:
+ • Add Combine-only "Calculators" section with quick links to:
+    - Combine Grain Loss
+    - Combine Yield Check
+    - Combine Yield Calibration
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -167,6 +169,21 @@ StarFire tweak:
             <a id="linkMetric" class="btn" href="#">Update Engine Hours</a>
             <a id="linkMaint"  class="btn" href="#">Service Records</a>
             <a id="linkPre"    class="btn" href="#">Pre-Season Checklist</a>
+          </div>
+
+          <!-- Combine-only calculators -->
+          <div class="card" id="combineCalcs" hidden>
+            <div>
+              <h3 style="margin:0 0 4px;font-size:16px;font-weight:800;">Calculators</h3>
+              <p class="muted" style="margin:0 0 8px;font-size:13px;">
+                Quick access to grain loss, yield checks, and yield calibration for this combine.
+              </p>
+            </div>
+            <div class="actions">
+              <a id="linkCalcLoss"        class="btn" href="#">Combine Grain Loss</a>
+              <a id="linkCalcYieldCheck"  class="btn" href="#">Combine Yield Check</a>
+              <a id="linkCalcYieldCal"    class="btn" href="#">Combine Yield Calibration</a>
+            </div>
           </div>
 
           <!-- Archived state -->
@@ -500,12 +517,15 @@ StarFire tweak:
 
       $('eqCard').hidden = false;
 
+      const calcCard = $('combineCalcs');
+
       // Archived state vs links
       const isArchived = (String(d.status||'').toLowerCase() === 'archived') || (d.archived === true);
       if(isArchived){
         const name = mm || 'This unit';
         $('archivedMsg').textContent = `“${name}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
         $('archivedCard').hidden = false;
+        if (calcCard) calcCard.hidden = true; // no calculators for archived units
         // Keep primary fnLinks hidden when archived
       }else{
         // Configure button labels & visibility
@@ -539,6 +559,33 @@ StarFire tweak:
           // Hide Service Records & Pre-Season for StarFire
           $('linkMaint').hidden = true;
           $('linkPre').hidden   = true;
+
+          if (calcCard) calcCard.hidden = true; // calculators not relevant for StarFire
+        } else {
+          // --- Combine-only Calculators wiring
+          if (typeKey === 'combine' && calcCard) {
+            const lossLink   = $('linkCalcLoss');
+            const checkLink  = $('linkCalcYieldCheck');
+            const calibLink  = $('linkCalcYieldCal');
+            const basePath   = '/Farm-vista/pages/calculators';
+
+            if (lossLink) {
+              lossLink.href =
+                `${basePath}/calc-combine-grain-loss.html?equipmentId=${encodeURIComponent(id)}`;
+            }
+            if (checkLink) {
+              checkLink.href =
+                `${basePath}/calc-combine-yield.html?equipmentId=${encodeURIComponent(id)}`;
+            }
+            if (calibLink) {
+              calibLink.href =
+                `${basePath}/calc-combine-yield-calibration.html?equipmentId=${encodeURIComponent(id)}`;
+            }
+
+            calcCard.hidden = false;
+          } else if (calcCard) {
+            calcCard.hidden = true;
+          }
         }
 
         $('fnLinks').hidden = false;
