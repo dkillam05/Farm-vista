@@ -62,7 +62,8 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
+      /* IMPORTANT: allow filter combos to extend outside the hero */
+      /* overflow:hidden;  <-- removed */
     }
     .hero-head{
       display:grid;
@@ -230,7 +231,8 @@
       border:1px solid var(--border);
       border-radius:var(--combo-radius);
       box-shadow:var(--combo-shadow);
-      z-index:9999;
+      /* LOWER z-index so footer stays on top of filters */
+      z-index:800;
       padding:8px;
       display:none;
     }
@@ -517,6 +519,14 @@
       opacity:0.85;
     }
 
+    /* Bottom-right actions on trial panel */
+    .trial-panel-actions{
+      margin-top:6px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+
     /* Green gradient divider like Field Maintenance popup */
     .modal-divider{
       height:3px;
@@ -595,6 +605,28 @@
       border:1px solid var(--border);
       padding:6px 8px;
       background:var(--card-surface,var(--surface));
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:8px;
+    }
+    .yield-pill-main{
+      flex:1 1 auto;
+      min-width:0;
+    }
+
+    .yield-delete-btn{
+      border:none;
+      background:transparent;
+      color:var(--muted,#67706B);
+      font-size:0.78rem;
+      cursor:pointer;
+      padding:2px 4px;
+      border-radius:999px;
+      white-space:nowrap;
+    }
+    .yield-delete-btn:hover{
+      background:rgba(0,0,0,.05);
     }
 
     /* Yield header row for button placement */
@@ -625,6 +657,56 @@
 
     .text-danger{color:#b00020;}
     .fw-bold{font-weight:700;}
+
+    /* Attachments */
+    .attachment-chips{
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+      margin-top:4px;
+    }
+    .attachment-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-size:0.78rem;
+    }
+    .attachment-thumb{
+      width:28px;
+      height:28px;
+      border-radius:8px;
+      background-size:cover;
+      background-position:center;
+      background-color:#ddd;
+      flex-shrink:0;
+    }
+    .attachment-chip a{
+      max-width:160px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      font-weight:600;
+    }
+    .attachment-remove{
+      border:none;
+      background:transparent;
+      cursor:pointer;
+      font-size:0.9rem;
+      line-height:1;
+      padding:0 2px;
+    }
+    .attachment-input-row{
+      display:flex;
+      gap:6px;
+      margin-top:4px;
+    }
+    .attachment-input-row .input{
+      flex:1 1 auto;
+    }
   </style>
 
   <script>
@@ -641,7 +723,7 @@
     import {
       ready as fbReady,
       getFirestore,
-      collection, getDocs, doc, updateDoc, addDoc,
+      collection, getDocs, doc, updateDoc, addDoc, deleteDoc,
       query, orderBy,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
@@ -664,7 +746,10 @@
       currentTrial: null,
       currentFieldIdx: null,
       currentFieldYields: [],
-      currentYieldEditId: null // null = add mode, id = edit mode
+      currentYieldEditId: null, // null = add mode, id = edit mode
+      currentFieldAttachments: [],
+      currentYieldAttachments: [],
+      completionMissingFields: []
     };
 
     /* ============ Helpers ============ */
@@ -995,8 +1080,11 @@
         statusEl.textContent = bucketLabel(bucket);
       }
 
-      /* ADD GREEN “MARK COMPLETED” BUTTON IN HEADER */
-      insertMarkCompletedButton(bucket === 'completed');
+      /* Show/hide Mark Completed button (no emoji, bottom-right) */
+      const mcBtn = $('#btnMarkCompleted');
+      if(mcBtn){
+        mcBtn.hidden = (bucket === 'completed');
+      }
 
       if(chipsEl){
         chipsEl.innerHTML = '';
@@ -1032,35 +1120,28 @@
       document.body.style.overflow = 'hidden';
     }
 
-    function insertMarkCompletedButton(isCompleted){
-      const header = $('#trialHdrClickArea');
-      if(!header) return;
+    async function findFieldsWithoutYield(item){
+      const db = STATE.db;
+      if(!db || !item) return [];
+      const d = item.data || {};
+      const fieldsArr = Array.isArray(d.fields) ? d.fields : [];
+      if(!fieldsArr.length) return [];
 
-      /* Remove existing button if any */
-      const oldBtn = document.getElementById('btnMarkCompleted');
-      if(oldBtn) oldBtn.remove();
-
-      /* If already completed, do not show button */
-      if(isCompleted) return;
-
-      const btn = document.createElement('button');
-      btn.id = 'btnMarkCompleted';
-      btn.textContent = '✔ Mark Completed';
-      btn.style.background = '#3B7E46';
-      btn.style.color = '#fff';
-      btn.style.border = 'none';
-      btn.style.padding = '6px 12px';
-      btn.style.borderRadius = '999px';
-      btn.style.fontSize = '0.82rem';
-      btn.style.fontWeight = '700';
-      btn.style.cursor = 'pointer';
-
-      btn.addEventListener('click', async (ev)=>{
-        ev.stopPropagation();
-        await markTrialCompleted();
+      const col = collection(db,'fieldTrials', item.id, 'yieldBlocks');
+      const snap = await getDocs(col);
+      const hasYield = new Set();
+      snap.forEach(docSnap=>{
+        const y = docSnap.data() || {};
+        if(y.fieldId) hasYield.add(y.fieldId);
       });
 
-      header.appendChild(btn);
+      const missing = [];
+      for(const f of fieldsArr){
+        const fid = f.fieldId;
+        if(!fid) continue;
+        if(!hasYield.has(fid)) missing.push(f);
+      }
+      return missing;
     }
 
     async function markTrialCompleted(){
@@ -1084,6 +1165,44 @@
       }
     }
 
+    async function handleMarkCompletedClick(){
+      const item = STATE.currentTrial;
+      if(!item) return;
+
+      const overlay = $('#completeCheckOverlay');
+      const listEl = $('#completeCheckMissingList');
+      const errEl = $('#completeCheckError');
+      if(errEl){ errEl.hidden = true; errEl.textContent = ''; }
+
+      try{
+        const missing = await findFieldsWithoutYield(item);
+        if(!missing.length){
+          await markTrialCompleted();
+          return;
+        }
+
+        STATE.completionMissingFields = missing;
+
+        if(listEl){
+          listEl.innerHTML = missing.map(f=>`
+            <div class="field-pill">
+              <div class="field-pill-main">
+                ${f.fieldName || 'Field ?'}${f.farmName ? ' · '+f.farmName : ''}
+              </div>
+            </div>
+          `).join('');
+        }
+
+        if(overlay) overlay.hidden = false;
+      }catch(err){
+        console.error('Failed completion check:', err);
+        if(errEl){
+          errEl.textContent = 'Could not check yield data. You can try again.';
+          errEl.hidden = false;
+        }
+      }
+    }
+
     function closeTrialDetail(){
       const overlay = $('#trialOverlay');
       if(overlay) overlay.hidden = true;
@@ -1099,24 +1218,85 @@
 
       const arr = Array.isArray(trialData.fields) ? trialData.fields : [];
       if(!arr.length){
-        listEl.innerHTML = '<div class="help-text">No fields added yet. Use “Add field to trial” below.</div>';
+        listEl.innerHTML = '<div class="help-text">No fields added yet. Use "Add Field" below.</div>';
         return;
       }
 
-      listEl.innerHTML = arr.map((f,idx)=>`
+      listEl.innerHTML = arr.map((f,idx)=>{
+        const varText = f.variety || f.varietyLabel || '';
+        const acresText = f.trialAcres ? (f.trialAcres + ' ac') : '';
+        return `
         <button type="button" class="field-pill" data-idx="${idx}">
           <div>
             <div class="field-pill-main">
               ${f.fieldName || 'Field ?'}${f.farmName ? ' · '+f.farmName : ''}
             </div>
             <div class="field-pill-sub">
-              ${(f.variety) ? f.variety + ' · ' : ''}
-              ${f.trialAcres ? (f.trialAcres + ' ac') : ''}
+              ${varText ? varText + (acresText ? ' · ' : '') : ''}
+              ${acresText}
             </div>
           </div>
         </button>
-      `).join('');
+        `;
+      }).join('');
     }
+
+    /* Field attachments helpers */
+    function renderFieldAttachments(){
+      const wrap = $('#fieldAttachmentsList');
+      if(!wrap) return;
+      const arr = STATE.currentFieldAttachments || [];
+
+      if(!arr.length){
+        wrap.innerHTML = '<div class="help-text">No attachments added yet.</div>';
+        return;
+      }
+
+      wrap.innerHTML = arr.map((att, idx)=>{
+        const url = att.url || '';
+        const label = att.label || url || `Attachment ${idx+1}`;
+        const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(url);
+        return `
+          <div class="attachment-chip" data-idx="${idx}">
+            ${isImg && url ? `<div class="attachment-thumb" style="background-image:url('${url}')"></div>` : ''}
+            ${url
+              ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+              : `<span>${label}</span>`
+            }
+            <button type="button" class="attachment-remove" aria-label="Remove attachment">×</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    /* Yield attachments helpers */
+    function renderYieldAttachments(){
+      const wrap = $('#yBlockAttachmentsList');
+      if(!wrap) return;
+      const arr = STATE.currentYieldAttachments || [];
+
+      if(!arr.length){
+        wrap.innerHTML = '<div class="help-text">No attachments added yet.</div>';
+        return;
+      }
+
+      wrap.innerHTML = arr.map((att, idx)=>{
+        const url = att.url || '';
+        const label = att.label || url || `Attachment ${idx+1}`;
+        const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(url);
+        return `
+          <div class="attachment-chip" data-idx="${idx}">
+            ${isImg && url ? `<div class="attachment-thumb" style="background-image:url('${url}')"></div>` : ''}
+            ${url
+              ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+              : `<span>${label}</span>`
+            }
+            <button type="button" class="attachment-remove" aria-label="Remove attachment">×</button>
+          </div>
+        `;
+      }).join('');
+    }
+
     /* OPEN FIELD OVERLAY */
     function openFieldOverlay(fieldIdx){
       const item = STATE.currentTrial;
@@ -1130,6 +1310,9 @@
       STATE.currentFieldIdx = fieldIdx;
       STATE.currentFieldYields = [];
       STATE.currentYieldEditId = null;
+      STATE.currentFieldAttachments = Array.isArray(fieldObj.attachments)
+        ? fieldObj.attachments.slice()
+        : [];
 
       const overlay = $('#fieldOverlay');
       if(!overlay) return;
@@ -1141,8 +1324,8 @@
 
       $('#fieldTrialAcres').value   = fieldObj.trialAcres != null ? fieldObj.trialAcres : '';
       $('#fieldNotes').value        = fieldObj.notes || '';
-      $('#fieldVariety').value      = fieldObj.variety || '';
-      $('#fieldPlacement').value    = fieldObj.placement || '';
+      $('#fieldVariety').value      = fieldObj.variety || fieldObj.varietyLabel || '';
+      $('#fieldPlacement').value    = fieldObj.placement || fieldObj.placementLabel || '';
       $('#fieldPlantingDate').value = fieldObj.plantingDate || '';
 
       $('#fieldYieldError').hidden = true;
@@ -1158,6 +1341,8 @@
 
       $('#yieldList').innerHTML = '<div class="help-text">Loading yield blocks…</div>';
 
+      renderFieldAttachments();
+
       overlay.hidden = false;
       loadYieldBlocksForField().catch(err=>{
         console.error('Error loading yields:', err);
@@ -1170,6 +1355,7 @@
       STATE.currentFieldIdx = null;
       STATE.currentFieldYields = [];
       STATE.currentYieldEditId = null;
+      STATE.currentFieldAttachments = [];
     }
 
     /* SAVE FIELD TRIAL INFO */
@@ -1184,12 +1370,12 @@
       const fieldObj = arr[idx];
       if(!fieldObj) return;
 
-      const acresRaw    = $('#fieldTrialAcres').value.trim();
-      const notesVal    = $('#fieldNotes').value.trim();
-      const varietyVal  = $('#fieldVariety').value.trim();
-      const placementVal= $('#fieldPlacement').value.trim();
-      const plantingVal = $('#fieldPlantingDate').value.trim();
-      const errEl       = $('#fieldInfoError');
+      const acresRaw     = $('#fieldTrialAcres').value.trim();
+      const notesVal     = $('#fieldNotes').value.trim();
+      const varietyVal   = $('#fieldVariety').value.trim();
+      const placementVal = $('#fieldPlacement').value.trim();
+      const plantingVal  = $('#fieldPlantingDate').value.trim();
+      const errEl        = $('#fieldInfoError');
 
       let acresNum = null;
       if(acresRaw){
@@ -1205,11 +1391,17 @@
       errEl.hidden = true;
 
       // Update object
-      fieldObj.trialAcres  = acresNum;
-      fieldObj.notes       = notesVal || null;
-      fieldObj.variety     = varietyVal || null;
-      fieldObj.placement   = placementVal || null;
-      fieldObj.plantingDate= plantingVal || null;
+      fieldObj.trialAcres    = acresNum;
+      fieldObj.notes         = notesVal || null;
+      fieldObj.variety       = varietyVal || null;
+      fieldObj.varietyLabel  = varietyVal || null;
+      fieldObj.placement     = placementVal || null;
+      fieldObj.placementLabel= placementVal || null;
+      fieldObj.plantingDate  = plantingVal || null;
+      fieldObj.attachments   = (STATE.currentFieldAttachments && STATE.currentFieldAttachments.length)
+        ? STATE.currentFieldAttachments.slice()
+        : [];
+
       arr[idx] = fieldObj;
 
       try{
@@ -1257,7 +1449,7 @@
         helper.textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
         return;
       }
-      helper.textContent = 
+      helper.textContent =
         `Approx yield: ${res.wet.toFixed(1)} bu/ac (wet), ${res.adj.toFixed(1)} bu/ac (to 15.5%).`;
     }
 
@@ -1304,17 +1496,39 @@
 
       listEl.innerHTML = STATE.currentFieldYields.map(y=>{
         const d = y.data || {};
+        const atts = Array.isArray(d.attachments) ? d.attachments : [];
+        const attHtml = atts.length
+          ? `<div class="attachment-chips" style="margin-top:4px;">
+              ${atts.map((att, idx)=>{
+                const url = att.url || '';
+                const label = att.label || url || `Attachment ${idx+1}`;
+                return `
+                  <div class="attachment-chip">
+                    ${url
+                      ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+                      : `<span>${label}</span>`
+                    }
+                  </div>
+                `;
+              }).join('')}
+            </div>`
+          : '';
+
         return `
           <div class="yield-pill" data-yid="${y.id}">
-            <div>
-              <span class="fw-bold">${d.blockAcres ?? '?'} ac</span> · ${d.lbs ?? '?'} lbs · ${d.moisture ?? '?'}%
+            <div class="yield-pill-main">
+              <div>
+                <span class="fw-bold">${d.blockAcres ?? '?'} ac</span> · ${d.lbs ?? '?'} lbs · ${d.moisture ?? '?'}%
+              </div>
+              <div class="help-text">
+                Yield: ${d.yieldWet?.toFixed?.(1) ?? '?'} bu/ac (wet),
+                ${d.yieldAdj?.toFixed?.(1) ?? '?'} bu/ac adj.
+                ${d.combines ? `· # combines: ${d.combines}` : ''}
+              </div>
+              ${d.notes ? `<div class="help-text">${d.notes}</div>`:''}
+              ${attHtml}
             </div>
-            <div class="help-text">
-              Yield: ${d.yieldWet?.toFixed?.(1) ?? '?'} bu/ac (wet),
-              ${d.yieldAdj?.toFixed?.(1) ?? '?'} bu/ac adj.
-              ${d.combines ? `· # combines: ${d.combines}` : ''}
-            </div>
-            ${d.notes ? `<div class="help-text">${d.notes}</div>`:''}
+            <button type="button" class="yield-delete-btn" data-yid="${y.id}">Remove</button>
           </div>
         `;
       }).join('');
@@ -1327,9 +1541,13 @@
       $('#yBlockMoisture').value = '';
       $('#yBlockCombines').value = '';
       $('#yBlockNotes').value = '';
-      $('#yBlockYieldHelper').textContent = 'Enter acres, pounds, and moisture to see calculated yield.';
+      $('#yBlockAttachmentUrl').value = '';
+      STATE.currentYieldAttachments = [];
+      renderYieldAttachments();
+
       $('#fieldYieldError').hidden = true;
       $('#yieldForm').hidden = false;
+      updateYieldHelper();
     }
 
     /* EDIT EXISTING YIELD */
@@ -1337,16 +1555,40 @@
       const d = yItem.data || {};
 
       STATE.currentYieldEditId = yItem.id;
+      STATE.currentYieldAttachments = Array.isArray(d.attachments)
+        ? d.attachments.slice()
+        : [];
 
       $('#yBlockAcres').value = d.blockAcres ?? '';
       $('#yBlockLbs').value = d.lbs != null ? Number(d.lbs).toLocaleString() : '';
       $('#yBlockMoisture').value = d.moisture ?? '';
       $('#yBlockCombines').value = d.combines ?? '';
       $('#yBlockNotes').value = d.notes ?? '';
+      $('#yBlockAttachmentUrl').value = '';
       $('#fieldYieldError').hidden = true;
 
       $('#yieldForm').hidden = false;
+      renderYieldAttachments();
       updateYieldHelper();
+    }
+
+    /* DELETE YIELD BLOCK */
+    async function deleteYieldBlock(yid){
+      const item = STATE.currentTrial;
+      const db = STATE.db;
+      if(!item || !db) return;
+      const ok = confirm('Remove this yield block?');
+      if(!ok) return;
+
+      try{
+        await deleteDoc(doc(db,'fieldTrials',item.id,'yieldBlocks',yid));
+        STATE.currentFieldYields = STATE.currentFieldYields.filter(y=>y.id !== yid);
+        renderYieldList();
+        showToast('Yield block removed.');
+      }catch(err){
+        console.error('Failed to delete yield block:', err);
+        alert('Could not delete yield block.');
+      }
     }
 
     /* SAVE YIELD BLOCK */
@@ -1372,6 +1614,9 @@
       const lbs      = Number(lbsRaw);
       const m        = mRaw ? Number(mRaw) : null;
       const combines = combRaw ? Number(combRaw) : null;
+      const attachments = (STATE.currentYieldAttachments && STATE.currentYieldAttachments.length)
+        ? STATE.currentYieldAttachments.slice()
+        : [];
 
       if(Number.isNaN(acres) || acres<=0){
         errEl.textContent = 'Block acres must be positive.';
@@ -1411,6 +1656,7 @@
         yieldWet: yieldRes ? yieldRes.wet : null,
         yieldAdj: yieldRes ? yieldRes.adj : null,
         notes: note || null,
+        attachments,
         uid: window.FVData?.uid?.() || null
       };
 
@@ -1439,6 +1685,9 @@
           $('#yBlockMoisture').value='';
           $('#yBlockCombines').value='';
           $('#yBlockNotes').value='';
+          $('#yBlockAttachmentUrl').value='';
+          STATE.currentYieldAttachments = [];
+          renderYieldAttachments();
           updateYieldHelper();
           showToast('Yield saved.');
         }
@@ -1448,6 +1697,7 @@
         errEl.hidden = false;
       }
     }
+
     /* ===== Modal select helpers (for Edit Trial) ===== */
     function ensureOptionSelected(selectEl, value, label){
       if(!selectEl) return;
@@ -1772,9 +2022,12 @@
         fieldName: fieldObj.label,
         trialAcres,
         variety: varietyVal || null,
+        varietyLabel: varietyVal || null,
         placement: placementVal || null,
+        placementLabel: placementVal || null,
         plantingDate: plantingVal || null,
-        notes: notesVal || null
+        notes: notesVal || null,
+        attachments: []  // start empty
       });
 
       try{
@@ -1838,6 +2091,23 @@
 
       $('#trialHdrClickArea')?.addEventListener('click', openEditTrialModal);
 
+      // Mark Completed button (bottom-right, no emoji)
+      $('#btnMarkCompleted')?.addEventListener('click', e=>{
+        e.stopPropagation();
+        handleMarkCompletedClick();
+      });
+
+      // Completion-check modal
+      $('#completeCheckOverlay')?.addEventListener('click', e=>{
+        if(e.target.id === 'completeCheckOverlay') $('#completeCheckOverlay').hidden = true;
+      });
+      $('#completeCheckCloseX')?.addEventListener('click', ()=> $('#completeCheckOverlay').hidden = true);
+      $('#completeCheckCancel')?.addEventListener('click', ()=> $('#completeCheckOverlay').hidden = true);
+      $('#completeCheckConfirm')?.addEventListener('click', async ()=>{
+        await markTrialCompleted();
+        $('#completeCheckOverlay').hidden = true;
+      });
+
       // Edit Trial modal
       $('#editTrialOverlay')?.addEventListener('click', e=>{
         if(e.target.id === 'editTrialOverlay') closeEditTrialModal();
@@ -1869,6 +2139,28 @@
       $('#fieldCancelBtn')?.addEventListener('click', closeFieldOverlay);
       $('#fieldSaveInfoBtn')?.addEventListener('click', saveFieldTrialInfo);
 
+      // Field attachments
+      $('#fieldAddAttachmentBtn')?.addEventListener('click', ()=>{
+        const input = $('#fieldAttachmentInput');
+        if(!input) return;
+        const url = input.value.trim();
+        if(!url) return;
+        STATE.currentFieldAttachments = STATE.currentFieldAttachments || [];
+        STATE.currentFieldAttachments.push({url, label:url});
+        input.value = '';
+        renderFieldAttachments();
+      });
+      $('#fieldAttachmentsList')?.addEventListener('click', e=>{
+        const btn = e.target.closest('.attachment-remove');
+        if(!btn) return;
+        const chip = btn.closest('.attachment-chip');
+        if(!chip) return;
+        const idx = Number(chip.dataset.idx);
+        if(Number.isNaN(idx)) return;
+        STATE.currentFieldAttachments.splice(idx,1);
+        renderFieldAttachments();
+      });
+
       // Yield form open, editing, and input events
       $('#openYieldFormBtn')?.addEventListener('click', openYieldFormNew);
 
@@ -1893,10 +2185,40 @@
         });
       }
 
+      // Yield attachments
+      $('#yBlockAddAttachmentBtn')?.addEventListener('click', ()=>{
+        const input = $('#yBlockAttachmentUrl');
+        if(!input) return;
+        const url = input.value.trim();
+        if(!url) return;
+        STATE.currentYieldAttachments = STATE.currentYieldAttachments || [];
+        STATE.currentYieldAttachments.push({url, label:url});
+        input.value = '';
+        renderYieldAttachments();
+      });
+      $('#yBlockAttachmentsList')?.addEventListener('click', e=>{
+        const btn = e.target.closest('.attachment-remove');
+        if(!btn) return;
+        const chip = btn.closest('.attachment-chip');
+        if(!chip) return;
+        const idx = Number(chip.dataset.idx);
+        if(Number.isNaN(idx)) return;
+        STATE.currentYieldAttachments.splice(idx,1);
+        renderYieldAttachments();
+      });
+
       $('#saveYieldBlockBtn')?.addEventListener('click', saveYieldBlock);
 
-      // Click to edit yield blocks
+      // Click to edit / delete yield blocks
       $('#yieldList')?.addEventListener('click', e=>{
+        const delBtn = e.target.closest('.yield-delete-btn');
+        if(delBtn){
+          e.stopPropagation();
+          const yid = delBtn.dataset.yid;
+          if(yid) deleteYieldBlock(yid);
+          return;
+        }
+
         const pill = e.target.closest('.yield-pill');
         if(!pill) return;
         const yid = pill.dataset.yid;
@@ -1990,7 +2312,7 @@
             <div id="trialHdrSub" class="trial-panel-sub">Year · Crop · Trial type</div>
             <div id="trialHdrChips" class="trial-header-chips"></div>
           </div>
-          <!-- Close button (Mark Completed button is injected by JS next to this) -->
+          <!-- Close button -->
           <button type="button" id="trialCloseBtn" class="trial-panel-close" aria-label="Close trial">
             ×
           </button>
@@ -2024,9 +2346,18 @@
         </section>
 
         <section class="trial-section">
-          <button type="button" id="openAddFieldModalBtn" class="btn btn-primary btn-small">
-            + Add field to trial
+          <button type="button" id="openAddFieldModalBtn" class="btn btn-quiet btn-small">
+            Add Field
           </button>
+        </section>
+
+        <!-- Bottom-right actions, including Mark Completed -->
+        <section class="trial-section">
+          <div class="trial-panel-actions">
+            <button type="button" id="btnMarkCompleted" class="btn btn-primary btn-small">
+              Mark Completed
+            </button>
+          </div>
         </section>
       </div>
     </div>
@@ -2111,6 +2442,28 @@
         <div class="modal-actions">
           <button type="button" id="editTrialCancel" class="btn btn-quiet btn-small">Cancel</button>
           <button type="button" id="editTrialSave" class="btn btn-primary btn-small">Save changes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Completion validation modal -->
+    <div id="completeCheckOverlay" class="modal-overlay" hidden>
+      <div class="modal-panel scroll-panel" role="dialog" aria-modal="true">
+        <header class="modal-header">
+          <h2>Complete trial?</h2>
+          <button type="button" id="completeCheckCloseX" class="trial-panel-close" aria-label="Close">×</button>
+        </header>
+
+        <p class="help-text">
+          These fields stay in the trial but will not appear in yield results.
+        </p>
+
+        <div id="completeCheckMissingList" class="pill-list" style="margin-top:6px;"></div>
+        <div id="completeCheckError" class="trial-error" hidden></div>
+
+        <div class="modal-actions">
+          <button type="button" id="completeCheckCancel" class="btn btn-quiet btn-small">Cancel</button>
+          <button type="button" id="completeCheckConfirm" class="btn btn-primary btn-small">Mark Complete Anyway</button>
         </div>
       </div>
     </div>
@@ -2230,10 +2583,22 @@
               <label for="fieldNotes">Field-specific notes</label>
               <textarea id="fieldNotes" class="textarea" placeholder="Pop, passes, planter rows, etc."></textarea>
             </div>
+
+            <!-- Field-level attachments -->
+            <div class="field" style="grid-column:1/-1;">
+              <label>Attachments (photos/files)</label>
+              <div id="fieldAttachmentsList" class="attachment-chips"></div>
+              <div class="attachment-input-row">
+                <input id="fieldAttachmentInput" class="input" placeholder="Paste attachment URL or filename…" />
+                <button type="button" id="fieldAddAttachmentBtn" class="btn btn-small">Add</button>
+              </div>
+              <div class="help-text">Attachments are saved with this field.</div>
+            </div>
           </div>
           <div id="fieldInfoError" class="trial-error" hidden></div>
           <div style="margin-top:6px;">
-            <button type="button" id="fieldSaveInfoBtn" class="btn btn-primary btn-small">
+            <!-- Non-green theme button -->
+            <button type="button" id="fieldSaveInfoBtn" class="btn btn-small">
               Save field trial info
             </button>
           </div>
@@ -2242,8 +2607,9 @@
         <section class="trial-section">
           <div class="yield-header-row">
             <h3>Yield blocks for this field</h3>
-            <button type="button" id="openYieldFormBtn" class="btn btn-primary btn-small">
-              + Add yield block
+            <!-- Non-green, no emoji -->
+            <button type="button" id="openYieldFormBtn" class="btn btn-small">
+              Add Yield Data
             </button>
           </div>
 
@@ -2270,12 +2636,25 @@
               <label for="yBlockNotes">Notes (optional)</label>
               <textarea id="yBlockNotes" class="textarea" placeholder="Strip name, direction, program label, etc."></textarea>
             </div>
+
+            <!-- Yield-block attachments -->
+            <div class="field" style="margin-top:6px;">
+              <label for="yBlockAttachmentUrl">Attachments (photos/files)</label>
+              <div class="attachment-input-row">
+                <input id="yBlockAttachmentUrl" class="input" placeholder="Paste attachment URL…" />
+                <button type="button" id="yBlockAddAttachmentBtn" class="btn btn-small">Add</button>
+              </div>
+              <div id="yBlockAttachmentsList" class="attachment-chips"></div>
+              <div class="help-text">Attachments are stored with this yield block.</div>
+            </div>
+
             <div id="yBlockYieldHelper" class="help-text" style="margin-top:4px;">
               Enter acres, pounds, and moisture to see calculated yield.
             </div>
             <div id="fieldYieldError" class="trial-error" hidden></div>
             <div style="margin-top:6px;">
-              <button type="button" id="saveYieldBlockBtn" class="btn btn-primary btn-small">
+              <!-- Non-green -->
+              <button type="button" id="saveYieldBlockBtn" class="btn btn-small">
                 Save yield block
               </button>
             </div>
