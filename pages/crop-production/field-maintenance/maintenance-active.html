@@ -695,7 +695,7 @@
       border-color:#2F6C3C;
     }
 
-    /* Date range picker styles */
+    /* Date range picker styles (height tightened so it fits nicer) */
     .calendar-popover {
       margin-top: 10px;
       background: #ffffff;
@@ -705,13 +705,16 @@
       color: #111827;
       width: 100%;
       max-width: 100%;
+      max-height: 340px;
+      display:flex;
+      flex-direction:column;
     }
 
     .cal-header {
       display: flex;
       align-items: center;
       justify-content:space-between;
-      padding: 10px 12px;
+      padding: 8px 10px;
       background: #f3f4f6;
       border-radius: 10px 10px 0 0;
       font-size: 0.85rem;
@@ -770,7 +773,10 @@
     }
 
     .cal-body {
-      padding: 8px 10px 10px;
+      padding: 6px 10px 8px;
+      flex:1 1 auto;
+      max-height: 210px;       /* so it doesn't blow up the modal */
+      overflow-y:auto;
     }
 
     .cal-weekdays,
@@ -876,7 +882,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 10px;
+      padding: 6px 10px;
       border-top: 1px solid #d0d5dd;
       border-radius: 0 0 10px 10px;
       font-size: 0.75rem;
@@ -915,6 +921,66 @@
 
     .cal-btn-primary:hover {
       filter: brightness(1.05);
+    }
+
+    /* Job status modal (Completed / In Progress popup) */
+    .status-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100030;
+    }
+    .status-modal.show{
+      display:flex;
+    }
+    .status-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.55);
+    }
+    .status-sheet{
+      position:relative;
+      width:min(360px, 90vw);
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:14px 16px 12px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      z-index:1;
+    }
+    .status-title{
+      font-size:1rem;
+      font-weight:700;
+      margin-bottom:4px;
+    }
+    .status-text{
+      font-size:0.9rem;
+      opacity:0.9;
+    }
+    .status-buttons{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:8px;
+    }
+    .status-btn{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 12px;
+      font-size:0.85rem;
+      font-weight:700;
+      background:var(--surface);
+      cursor:pointer;
+    }
+    .status-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
     }
   </style>
 
@@ -956,7 +1022,8 @@
       items: [],
       selectedId: null,
       jobForId: null,
-      employees: []
+      employees: [],
+      pendingJobBase: null   // {crewSelections, notes, rangeText, newPhotoNames}
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -987,6 +1054,13 @@
     let jobCancelBtn = null;
     let jobSaveBtn = null;
     let jobRangeInputEl = null;
+
+    // Status popup modal refs
+    let jobStatusModal = null;
+    let jobStatusBackdrop = null;
+    let jobStatusCompletedBtn = null;
+    let jobStatusInProgressBtn = null;
+    let jobStatusCancelBtn = null;
 
     function getTime(ts){
       if(!ts) return 0;
@@ -1587,6 +1661,7 @@
       const farm  = data.farmName  || data.farm  || '';
 
       jobForm.reset();
+      STATE.pendingJobBase = null;
 
       if(jobCrewListEl){
         Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]')).forEach(cb => cb.checked = false);
@@ -1643,30 +1718,24 @@
       closeCrewPanel();
     }
 
-    async function handleJobSubmit(ev){
-      ev.preventDefault();
-      if(!STATE.jobForId) {
-        closeJobModal();
+    function openJobStatusModal(){
+      if(!jobStatusModal) return;
+      jobStatusModal.classList.add('show');
+    }
+
+    function closeJobStatusModal(){
+      if(!jobStatusModal) return;
+      jobStatusModal.classList.remove('show');
+    }
+
+    async function saveJobWithStatus(jobStatus){
+      if(!STATE.jobForId || !STATE.pendingJobBase){
+        closeJobStatusModal();
         return;
       }
 
-      const crewSelections = jobCrewListEl
-        ? Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]:checked')).map(cb => ({
-            id: cb.value,
-            name: cb.dataset.name || ''
-          }))
-        : [];
-
-      const notes = jobNotesInput ? jobNotesInput.value.trim() : '';
-      const rangeText = jobRangeInputEl ? jobRangeInputEl.value : '';
-
-      // Simple popup: OK = Completed, Cancel = In Progress
-      const isCompleted = window.confirm('Is this job completed?\nOK = Completed, Cancel = In Progress.');
-      const jobStatus = isCompleted ? CONFIG.STATUS_DONE : CONFIG.STATUS_INPROG;
-
-      const newPhotoNames = jobPhotosInput && jobPhotosInput.files
-        ? Array.from(jobPhotosInput.files).map(f => f.name)
-        : [];
+      const { crewSelections, notes, rangeText, newPhotoNames } = STATE.pendingJobBase;
+      const submittedBy = jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '';
 
       try{
         const jobRef = doc(STATE.db, 'fieldMaintenanceJobs', STATE.jobForId);
@@ -1678,7 +1747,7 @@
 
         const payload = {
           workOrderId: STATE.jobForId,
-          submittedBy: jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '',
+          submittedBy,
           projectRange: rangeText,
           crew:         crewSelections,
           notes,
@@ -1696,13 +1765,42 @@
           updatedAt: serverTimestamp()
         });
 
-        alert('Job saved.');
+        STATE.pendingJobBase = null;
+        closeJobStatusModal();
         closeJobModal();
         await loadActiveWorkOrders();
       }catch(err){
         console.error('Error saving job record:', err);
+        STATE.pendingJobBase = null;
+        closeJobStatusModal();
         alert('Failed to save job. Check console / Firestore rules.');
       }
+    }
+
+    async function handleJobSubmit(ev){
+      ev.preventDefault();
+      if(!STATE.jobForId) {
+        closeJobModal();
+        return;
+      }
+
+      const crewSelections = jobCrewListEl
+        ? Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]:checked')).map(cb => ({
+            id: cb.value,
+            name: cb.dataset.name || ''
+          }))
+        : [];
+
+      const notes = jobNotesInput ? jobNotesInput.value.trim() : '';
+      const rangeText = jobRangeInputEl ? jobRangeInputEl.value : '';
+
+      const newPhotoNames = jobPhotosInput && jobPhotosInput.files
+        ? Array.from(jobPhotosInput.files).map(f => f.name)
+        : [];
+
+      STATE.pendingJobBase = { crewSelections, notes, rangeText, newPhotoNames };
+
+      openJobStatusModal();
     }
 
     (async function boot(){
@@ -1732,7 +1830,9 @@
       }
       document.addEventListener('keydown', (ev)=>{
         if(ev.key === 'Escape'){
-          if(jobModal && jobModal.classList.contains('show')){
+          if(jobStatusModal && jobStatusModal.classList.contains('show')){
+            closeJobStatusModal();
+          }else if(jobModal && jobModal.classList.contains('show')){
             closeJobModal();
           }else{
             closePhotoViewer();
@@ -1767,6 +1867,13 @@
       jobSaveBtn        = $('#jobSave');
       jobRangeInputEl   = $('#jobRangeInput');
 
+      // Status modal refs
+      jobStatusModal       = $('#jobStatusModal');
+      jobStatusBackdrop    = $('#jobStatusBackdrop');
+      jobStatusCompletedBtn= $('#jobStatusCompleted');
+      jobStatusInProgressBtn=$('#jobStatusInProgress');
+      jobStatusCancelBtn   = $('#jobStatusCancel');
+
       if(jobModalBackdrop){
         jobModalBackdrop.addEventListener('click', closeJobModal);
       }
@@ -1781,6 +1888,20 @@
       }
       if(jobForm){
         jobForm.addEventListener('submit', handleJobSubmit);
+      }
+
+      // Status modal events
+      if(jobStatusBackdrop){
+        jobStatusBackdrop.addEventListener('click', closeJobStatusModal);
+      }
+      if(jobStatusCancelBtn){
+        jobStatusCancelBtn.addEventListener('click', closeJobStatusModal);
+      }
+      if(jobStatusCompletedBtn){
+        jobStatusCompletedBtn.addEventListener('click', ()=>saveJobWithStatus(CONFIG.STATUS_DONE));
+      }
+      if(jobStatusInProgressBtn){
+        jobStatusInProgressBtn.addEventListener('click', ()=>saveJobWithStatus(CONFIG.STATUS_INPROG));
       }
 
       // Dictation for notes
@@ -1913,10 +2034,8 @@
                 <div>
                   <div class="cal-title">Pick job start and end dates</div>
                   <div class="cal-controls">
-                    <button type="button" class="cal-nav-btn" id="prevMonthBtn">&#9664;</button>
                     <select id="monthSelect" class="cal-select"></select>
                     <select id="yearSelect" class="cal-select"></select>
-                    <button type="button" class="cal-nav-btn" id="nextMonthBtn">&#9654;</button>
                   </div>
                 </div>
                 <button type="button" class="cal-close-btn" id="closeCalBtn">&times;</button>
@@ -1986,6 +2105,22 @@
           <button id="jobSave" type="submit" class="job-btn job-btn-primary">Save Job</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Job status modal (Completed / In Progress) -->
+  <div id="jobStatusModal" class="status-modal" role="dialog" aria-modal="true" aria-label="Set job status">
+    <div id="jobStatusBackdrop" class="status-backdrop"></div>
+    <div class="status-sheet">
+      <div class="status-title">Set Job Status</div>
+      <div class="status-text">
+        Is this job <strong>completed</strong> or is it still <strong>in progress</strong>?
+      </div>
+      <div class="status-buttons">
+        <button id="jobStatusCancel" type="button" class="status-btn">Cancel</button>
+        <button id="jobStatusInProgress" type="button" class="status-btn">In Progress</button>
+        <button id="jobStatusCompleted" type="button" class="status-btn status-btn-primary">Completed</button>
+      </div>
     </div>
   </div>
 </body>
