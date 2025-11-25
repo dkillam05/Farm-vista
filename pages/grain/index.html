@@ -36,22 +36,6 @@
       display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
       transition:box-shadow 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
     }
-    .sum-card[data-report-link]{
-      cursor:pointer;
-    }
-    .sum-card[data-report-link]:hover{
-      box-shadow:var(--shadow-strong,var(--shadow));
-      border-color:var(--accent,#3B7E46);
-      transform:translateY(-1px);
-    }
-
-    /* 🔒 When a select is open, disable card clicks but keep the select usable */
-    .sum-card.select-open{
-      pointer-events:none;
-    }
-    .sum-card.select-open select{
-      pointer-events:auto;
-    }
 
     .sum-title{
       width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0;
@@ -101,6 +85,31 @@
       margin-left:auto;
       margin-right:auto;
     }
+
+    /* View report button (neutral, non-blue) */
+    .btn-report{
+      margin-top:8px;
+      padding:6px 12px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(255,255,255,0.04);
+      font-size:13px;
+      font-weight:600;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    .btn-report:hover{
+      border-color:var(--accent,#3B7E46);
+      box-shadow:var(--shadow-soft,var(--shadow));
+    }
+    .btn-report-icon{
+      font-size:14px;
+      line-height:1;
+    }
   </style>
 </head>
 <body>
@@ -133,12 +142,10 @@
 
       <!-- ===========================
            SUMMARY 1: GRAIN BIN INVENTORY
-           (clickable → bin inventory report)
            =========================== -->
       <section
         class="sum-card"
         aria-label="Grain Bin Inventory summary"
-        data-report-link="/Farm-vista/pages/reports/reports-grainbin-inventory.html"
       >
         <div class="sum-title">Grain Bin Inventory</div>
 
@@ -159,16 +166,23 @@
             <div id="bin-bushels" class="big">— bu</div>
           </div>
         </div>
+
+        <button
+          type="button"
+          class="btn-report"
+          data-report-link="/Farm-vista/pages/reports/reports-grainbin-inventory.html"
+        >
+          <span class="btn-report-icon">📄</span>
+          <span>View Full Report</span>
+        </button>
       </section>
 
       <!-- ===========================
            SUMMARY 2: GRAIN BAG INVENTORY (FIELD GRAIN)
-           (clickable → bag down-inventory report)
            =========================== -->
       <section
         class="sum-card"
         aria-label="Grain Bag Inventory summary"
-        data-report-link="/Farm-vista/pages/reports/reports-grainbags-downinventory.html"
       >
         <div class="sum-title">Grain Bag Inventory (grain in field bags)</div>
 
@@ -193,6 +207,15 @@
             <div id="bag-bushels" class="big">— bu</div>
           </div>
         </div>
+
+        <button
+          type="button"
+          class="btn-report"
+          data-report-link="/Farm-vista/pages/reports/reports-grainbags-downinventory.html"
+        >
+          <span class="btn-report-icon">📄</span>
+          <span>View Full Report</span>
+        </button>
       </section>
 
       <!-- Contracts / Tickets placeholders -->
@@ -272,43 +295,15 @@
       const bagBushelsEl = document.getElementById('bag-bushels');
       const bagSelCrop   = document.getElementById('bag-crop');
 
-      // Clickable summary cards → reports (ignore clicks on interactive controls)
-      const reportCards = document.querySelectorAll('.sum-card[data-report-link]');
-      reportCards.forEach(card => {
-        card.addEventListener('click', (e) => {
-          // Don't navigate if user is interacting with form controls/links
-          if (e.target.closest('select, option, button, input, label, a, textarea')) return;
-          const href = card.getAttribute('data-report-link');
+      // View report buttons (ONLY these navigate)
+      const reportButtons = document.querySelectorAll('.btn-report[data-report-link]');
+      reportButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const href = btn.getAttribute('data-report-link');
           if (href) window.location.href = href;
         });
       });
-
-      // While a select is being interacted with, temporarily disable card click
-      function wireSelectBlock(selectEl){
-        if (!selectEl) return;
-        const card = selectEl.closest('.sum-card');
-        if (!card) return;
-
-        // When user taps to open the dropdown
-        selectEl.addEventListener('mousedown', () => {
-          card.classList.add('select-open');
-        });
-        selectEl.addEventListener('touchstart', () => {
-          card.classList.add('select-open');
-        }, { passive:true });
-
-        // When dropdown closes (blur) or value changes
-        selectEl.addEventListener('blur', () => {
-          card.classList.remove('select-open');
-        });
-        selectEl.addEventListener('change', () => {
-          // small delay so iOS can finish handling the change event
-          setTimeout(() => card.classList.remove('select-open'), 100);
-        });
-      }
-
-      wireSelectBlock(binSelCrop);
-      wireSelectBlock(bagSelCrop);
 
       // ====== BINS: sum onHand with optional crop filter (running total, all years) ======
       async function loadBinSummary() {
