@@ -19,7 +19,6 @@
       --card-max: 900px;
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
-
       --combo-gap:4px;
       --combo-radius:12px;
       --combo-btn-radius:10px;
@@ -210,7 +209,6 @@
       background:rgba(179,38,30,.03);
     }
 
-    /* Mic button (dictation) */
     .ta-wrap{
       position:relative;
     }
@@ -245,7 +243,6 @@
       display:block;
     }
 
-    /* Trial Acres – no spinners */
     .no-spin::-webkit-outer-spin-button,
     .no-spin::-webkit-inner-spin-button{
       -webkit-appearance:none;
@@ -254,8 +251,6 @@
     .no-spin{
       -moz-appearance:textfield;
     }
-
-    /* Combos */
 
     .combo{ position:relative; }
     .buttonish{
@@ -338,8 +333,6 @@
       color:#67706B;
     }
 
-    /* Pending fields list */
-
     .fields-hero{
       border:1px solid var(--border);
       border-radius:18px;
@@ -393,27 +386,16 @@
       font-size:0.82rem;
       color:var(--muted,#67706B);
     }
-    .field-card-meta{
-      font-size:0.82rem;
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px 10px;
-      color:var(--muted,#67706B);
-    }
     .field-card-note{
       font-size:0.85rem;
       color:var(--muted,#67706B);
     }
-    .field-card-badge{
-      font-size:0.75rem;
-      padding:2px 7px;
-      border-radius:999px;
-      border:1px solid var(--border);
-    }
+
     .field-card-actions{
       display:flex;
       gap:6px;
     }
+
     .btn-small{
       padding:4px 8px;
       min-width:auto;
@@ -497,26 +479,54 @@
       selectedFarm: null,
       selectedField: null,
       selectedFieldMaxAcres: null,
-      pendingFields: []   // { farm, field, acres, notes }
+      pendingFields: []
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
-    let toastEl;
-    let errorBox;
-
-    // combos
+    let toastEl, errorBox;
     let farmCombo, fieldCombo;
     let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
     let fieldFieldBtn, fieldFieldPanel, fieldFieldList, fieldFieldSearch;
-
-    // inputs
     let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine;
-    let trialAcresInput, trialAcresHelp, notesInput, micBtn;
-
-    // pending list
+    let trialAcesInput, trialAcresInput, trialAcresHelp, notesInput, micBtn;
     let pendingListEl;
+
+    async function waitForAuthReady() {
+      const auth = getAuth();
+      let tries = 40;
+      return await new Promise(resolve => {
+        const int = setInterval(() => {
+          if (auth.currentUser) {
+            clearInterval(int);
+            resolve(auth.currentUser);
+          }
+          if (--tries <= 0) {
+            clearInterval(int);
+            resolve(null);
+          }
+        }, 100);
+      });
+    }
+
+    async function waitForFVUser() {
+      let tries = 40;
+      return await new Promise(resolve => {
+        const int = setInterval(() => {
+          try{
+            const fv = window.FVUserContext?.get?.();
+            if(fv && fv.email){
+              clearInterval(int);
+              resolve(fv);
+            }
+          }catch{}
+          if(--tries <= 0){
+            clearInterval(int);
+            resolve(null);
+          }
+        },100);
+      });
+    }
 
     function showToast(msg="Saved.", ms=3200){
       if(!toastEl) return;
@@ -549,139 +559,87 @@
 
     function wireMic(btn, ta){
       if(!btn || !ta) return;
-
       const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
-      if(!ok){
-        btn.style.display = 'none';
-        return;
-      }
-
+      if(!ok){ btn.style.display='none'; return; }
       const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
       const rec = new Rec();
-      rec.lang = 'en-US';
-      rec.interimResults = true;
-      rec.continuous = false;
-
-      let active = false;
-      let baseText = '';
-
-      const setMic = (on)=>{
+      rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
+      let active=false, baseText='';
+      const setMic = on=>{
         btn.classList.toggle('mic-active', on);
         btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
       };
-
       btn.addEventListener('click', ()=>{
         if(!active){
-          baseText = ta.value ? (ta.value + ' ') : '';
-          try{
-            rec.start();
-            active = true;
-            setMic(true);
-          }catch(err){
-            console.error('SpeechRecognition start error:', err);
-          }
+          baseText = ta.value ? ta.value + ' ' : '';
+          try{ rec.start(); active=true; setMic(true); }catch{}
         }else{
-          try{
-            rec.stop();
-            rec.abort();
-          }catch{}
-          active = false;
-          setMic(false);
+          try{ rec.stop(); rec.abort(); }catch{}
+          active=false; setMic(false);
         }
       });
-
-      rec.onresult = (ev)=>{
-        let txt = '';
-        for(let i=ev.resultIndex; i<ev.results.length; i++){
-          txt += ev.results[i][0].transcript;
-        }
+      rec.onresult = ev=>{
+        let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++) txt+=ev.results[i][0].transcript;
         ta.value = baseText + txt;
       };
-
-      rec.onend = ()=>{
-        active = false;
-        setMic(false);
-      };
-
-      rec.onerror = (e)=>{
-        console.error('SpeechRecognition error:', e);
-        active = false;
-        setMic(false);
-      };
+      rec.onend = ()=>{ active=false; setMic(false); };
+      rec.onerror = ()=>{ active=false; setMic(false); };
     }
 
     function closeAllCombos(exceptPanel=null){
-      $$('.combo-panel.show').forEach(p=>{
-        if(p !== exceptPanel) p.classList.remove('show');
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==exceptPanel) p.classList.remove('show');
       });
     }
 
     document.addEventListener('click', ()=> closeAllCombos());
     document.addEventListener('keydown', e=>{
-      if(e.key === 'Escape'){
-        closeAllCombos();
-      }
+      if(e.key==='Escape') closeAllCombos();
     });
 
-    function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
-      if(!btn || !panel || !list) return;
-
-      panel.addEventListener('click', e=> e.stopPropagation());
-      panel.addEventListener('mousedown', e=> e.stopPropagation());
-
-      let DATA = items || [];
-
-      function render(q=""){
-        const qq = (q||"").toLowerCase();
-        const rows = (DATA || []).filter(x=>{
-          const label = formatter(x).toLowerCase();
+    function makeCombo({btn,panel,list,searchInput=null,items=[],searchable=false,formatter=x=>String(x.label||x.name||x),onPick}){
+      if(!btn||!panel||!list) return;
+      panel.addEventListener('click',e=>e.stopPropagation());
+      panel.addEventListener('mousedown',e=>e.stopPropagation());
+      let DATA = items||[];
+      function render(q=''){
+        const qq=(q||'').toLowerCase();
+        const rows=(DATA||[]).filter(x=>{
+          const label=formatter(x).toLowerCase();
           return !qq || label.includes(qq);
         });
-        let html = "";
+        let html='';
         if(rows.length){
-          html += rows.map(x => `<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`).join('');
+          html=rows.map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`).join('');
         }else{
-          html += `<div class="combo-empty">(no matches)</div>`;
+          html=`<div class="combo-empty">(no matches)</div>`;
         }
-        list.innerHTML = html;
+        list.innerHTML=html;
       }
-
       function open(){
         closeAllCombos(panel);
         panel.classList.add('show');
-        render("");
+        render('');
         if(searchable && searchInput){
-          searchInput.value = "";
-          searchInput.focus();
+          searchInput.value=''; searchInput.focus();
         }
       }
       function close(){ panel.classList.remove('show'); }
-
-      btn.addEventListener('click', e=>{
+      btn.addEventListener('click',e=>{
         e.stopPropagation();
-        panel.classList.contains('show') ? close() : open();
+        panel.classList.contains('show')?close():open();
       });
-
-      list.addEventListener('mousedown', e=>{
-        const row = e.target.closest('.combo-item');
-        if(!row) return;
-        const id = row.dataset.id;
-        const it = (DATA || []).find(x => String(x.id) === id);
+      list.addEventListener('mousedown',e=>{
+        const row=e.target.closest('.combo-item'); if(!row) return;
+        const id=row.dataset.id;
+        const it=(DATA||[]).find(x=>String(x.id)===id);
         if(!it) return;
-        onPick?.(it);
-        close();
+        onPick?.(it); close();
       });
-
       if(searchable && searchInput){
-        searchInput.addEventListener('input', e=>render(e.target.value));
+        searchInput.addEventListener('input',e=>render(e.target.value));
       }
-
-      return {
-        setItems(arr){
-          DATA = Array.isArray(arr) ? arr : [];
-          render("");
-        }
-      };
+      return { setItems(arr){ DATA=Array.isArray(arr)?arr:[]; render(''); } };
     }
 
     async function loadTrial(){
@@ -693,305 +651,231 @@
           showError("This trial could not be found. It may have been deleted.");
           return;
         }
-        STATE.trial = snap.data() || {};
-
-        const t = STATE.trial;
-        if(trialNameMain){
-          trialNameMain.textContent = t.trialName || "Field Trial";
-        }
-
+        STATE.trial = snap.data()||{};
+        const t=STATE.trial;
+        if(trialNameMain) trialNameMain.textContent = t.trialName || "Field Trial";
         if(trialCropMain){
-          const bits = [];
-          if(t.cropYear != null) bits.push(t.cropYear);
+          const bits=[];
+          if(t.cropYear!=null) bits.push(t.cropYear);
           if(t.crop) bits.push(t.crop);
           trialCropMain.textContent = bits.join(" • ") || "—";
         }
-
         if(trialTypeLine){
-          const parts = [];
+          const parts=[];
           if(t.trialType) parts.push(`Type: ${t.trialType}`);
           if(t.operationTask) parts.push(`Operation: ${t.operationTask}`);
           trialTypeLine.textContent = parts.join("  |  ") || "";
         }
-
         if(trialTreatmentLine){
-          const parts = [];
+          const parts=[];
           if(t.treatmentProduct) parts.push(`Treatment: ${t.treatmentProduct}`);
           if(t.check) parts.push(`Check: ${t.check}`);
           trialTreatmentLine.textContent = parts.join("  |  ") || "";
         }
       }catch(err){
-        console.error("Error loading trial:", err);
+        console.error("Error loading trial:",err);
         showError("Unable to load trial details. You can still add a field, but some labels may be missing.");
       }
     }
 
     async function loadFarmsAndFields(){
-      const db = STATE.db;
+      const db=STATE.db;
       try{
         const farmSnap = await getDocs(collection(db, CONFIG.COLLECTION_FARMS));
-        const farms = [];
-        farmSnap.forEach(docSnap=>{
-          const data = docSnap.data() || {};
-          const name = inferName(data);
-          if(!name) return;
-          farms.push({ id: docSnap.id, name:String(name) });
+        const farms=[];
+        farmSnap.forEach(d=>{
+          const data=d.data()||{};
+          const name=inferName(data);
+          if(name) farms.push({id:d.id,name:String(name)});
         });
         farms.sort((a,b)=>a.name.localeCompare(b.name));
-        STATE.farms = farms;
+        STATE.farms=farms;
       }catch(err){
-        console.error("Error loading farms:", err);
-        STATE.farms = [];
+        console.error("Error loading farms:",err);
+        STATE.farms=[];
       }
-
       try{
         const fieldSnap = await getDocs(collection(db, CONFIG.COLLECTION_FIELDS));
-        const fields = [];
-        fieldSnap.forEach(docSnap=>{
-          const data = docSnap.data() || {};
-          const fieldName = inferName(data);
+        const fields=[];
+        fieldSnap.forEach(d=>{
+          const data=d.data()||{};
+          const fieldName=inferName(data);
           if(!fieldName) return;
-          const farmId = data.farmId || data.farmDocId || data.farm || null;
-          const farmName = data.farmName || data.farm || "";
-          const tillable =
-            data.tillable ??
-            data.tillableAcres ??
-            data.acres ??
-            null;
+          const farmId=data.farmId||data.farmDocId||data.farm||null;
+          const farmName=data.farmName||data.farm||"";
+          const tillable=data.tillable ?? data.tillableAcres ?? data.acres ?? null;
           fields.push({
-            id: docSnap.id,
+            id:d.id,
             fieldName:String(fieldName),
             farmId,
             farmName: farmName ? String(farmName) : null,
-            tillable: tillable != null ? Number(tillable) : null
+            tillable: tillable!=null ? Number(tillable) : null
           });
         });
-        STATE.fields = fields;
+        STATE.fields=fields;
       }catch(err){
-        console.error("Error loading fields:", err);
-        STATE.fields = [];
+        console.error("Error loading fields:",err);
+        STATE.fields=[];
       }
     }
 
     function refreshFarmCombo(){
       if(!farmCombo) return;
-      const items = STATE.farms.map(f=>({
-        id: f.id,
-        label: f.name
-      }));
+      const items=STATE.farms.map(f=>({id:f.id,label:f.name}));
       farmCombo.setItems(items);
     }
 
     function refreshFieldComboForFarm(farmId){
-      STATE.selectedFarm = STATE.farms.find(f=>f.id === farmId) || null;
+      STATE.selectedFarm = STATE.farms.find(f=>f.id===farmId) || null;
       STATE.selectedField = null;
       STATE.selectedFieldMaxAcres = null;
-
-      if(fieldFarmBtn){
-        fieldFarmBtn.textContent = STATE.selectedFarm ? STATE.selectedFarm.name : "— Select farm —";
-      }
-      if(fieldFieldBtn){
-        fieldFieldBtn.textContent = "— Select field —";
-      }
-      if(trialAcresHelp){
-        trialAcresHelp.textContent = "";
-      }
-
+      if(fieldFarmBtn) fieldFarmBtn.textContent = STATE.selectedFarm ? STATE.selectedFarm.name : "— Select farm —";
+      if(fieldFieldBtn) fieldFieldBtn.textContent = "— Select field —";
+      if(trialAcresHelp) trialAcresHelp.textContent = "";
       if(!fieldCombo) return;
-
       const items = STATE.fields
-        .filter(f => !farmId || f.farmId === farmId)
-        .map(f => ({
-          id: f.id,
-          label: f.farmName ? `${f.farmName} • ${f.fieldName}` : f.fieldName,
-          raw: f
+        .filter(f=>!farmId || f.farmId===farmId)
+        .map(f=>({
+          id:f.id,
+          label:f.farmName ? `${f.farmName} • ${f.fieldName}` : f.fieldName,
+          raw:f
         }))
         .sort((a,b)=>a.label.localeCompare(b.label));
-
       fieldCombo.setItems(items);
     }
 
     function renderPendingList(){
       if(!pendingListEl) return;
-      pendingListEl.innerHTML = "";
-
+      pendingListEl.innerHTML='';
       if(!STATE.pendingFields.length){
         pendingListEl.innerHTML = `<div class="field-list-empty">No fields added yet. Use <strong>Add Field</strong> above to start building this trial.</div>`;
         return;
       }
-
-      STATE.pendingFields.forEach((row, idx)=>{
-        const div = document.createElement("div");
-        div.className = "field-card";
-
-        const farmField = `${row.farm.name} • ${row.field.fieldName}`;
-        const acresText = row.acres != null ? `${row.acres.toFixed(2)} ac` : "—";
-
-        div.innerHTML = `
+      STATE.pendingFields.forEach((row,idx)=>{
+        const div=document.createElement('div');
+        div.className='field-card';
+        const farmField=`${row.farm.name} • ${row.field.fieldName}`;
+        const acresText=row.acres!=null?`${row.acres.toFixed(2)} ac`:'—';
+        div.innerHTML=`
           <div class="field-card-top">
             <div>
               <div class="field-card-title">${farmField}</div>
               <div class="field-card-sub">
                 Trial acres: <strong>${acresText}</strong>
-                ${row.field.tillable != null ? ` (Max tillable: ${row.field.tillable})` : ""}
+                ${row.field.tillable!=null?` (Max tillable: ${row.field.tillable})`:''}
               </div>
             </div>
             <div class="field-card-actions">
               <button type="button" class="btn btn-small" data-idx="${idx}">Remove</button>
             </div>
           </div>
-          ${row.notes ? `<div class="field-card-note">${row.notes}</div>` : ""}
+          ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
         `;
-
-        const removeBtn = div.querySelector("button[data-idx]");
+        const removeBtn=div.querySelector('button[data-idx]');
         if(removeBtn){
-          removeBtn.addEventListener("click", ()=>{
+          removeBtn.addEventListener('click',()=>{
             STATE.pendingFields.splice(idx,1);
             renderPendingList();
           });
         }
-
         pendingListEl.appendChild(div);
       });
     }
 
-    function addFieldToPending(ev){
-      ev.preventDefault();
-      showError("");
-      if(trialAcresInput){
-        trialAcresInput.classList.remove("input-error");
-      }
-
-      const farm = STATE.selectedFarm;
-      const field = STATE.selectedField;
-
-      if(!farm){
-        showError("Please select a farm.");
-        return;
-      }
-      if(!field){
-        showError("Please select a field.");
-        return;
-      }
-      if(field.farmId && field.farmId !== farm.id){
+    function addFieldToPending(e){
+      e.preventDefault();
+      showError('');
+      if(trialAcresInput) trialAcresInput.classList.remove('input-error');
+      const farm=STATE.selectedFarm;
+      const field=STATE.selectedField;
+      if(!farm){ showError("Please select a farm."); return; }
+      if(!field){ showError("Please select a field."); return; }
+      if(field.farmId && field.farmId!==farm.id){
         showError("Selected field does not belong to the selected farm. Please choose a matching farm and field.");
         return;
       }
-
-      const acresStr = trialAcresInput.value.trim();
-      const notes    = notesInput.value.trim();
-
-      let acres = acresStr ? Number(acresStr) : null;
+      const acresStr=trialAcresInput.value.trim();
+      const notes=notesInput.value.trim();
+      let acres=acresStr?Number(acresStr):null;
       if(acresStr && isNaN(acres)){
         showError("Trial acres must be a number.");
-        trialAcresInput.classList.add("input-error");
+        trialAcresInput.classList.add('input-error');
         return;
       }
-      if(acres != null){
-        acres = Math.round(acres * 100) / 100; // 2 decimals
-      }
-
-      const maxAcres = STATE.selectedFieldMaxAcres;
-      if(maxAcres != null && acres != null && acres > maxAcres + 0.0001){
+      if(acres!=null) acres=Math.round(acres*100)/100;
+      const maxAcres=STATE.selectedFieldMaxAcres;
+      if(maxAcres!=null && acres!=null && acres>maxAcres+0.0001){
         showError(`Trial acres cannot be more than the field tillable acres (${maxAcres}).`);
-        trialAcresInput.classList.add("input-error");
+        trialAcresInput.classList.add('input-error');
         return;
       }
-
-      STATE.pendingFields.push({
-        farm,
-        field,
-        acres,
-        notes
-      });
-
+      STATE.pendingFields.push({farm,field,acres,notes});
       renderPendingList();
       showToast("Field added to this trial. Remember to Save Fields at the bottom when you’re done.");
-
-      // reset to fresh state
-      STATE.selectedFarm = null;
-      STATE.selectedField = null;
-      STATE.selectedFieldMaxAcres = null;
-
+      STATE.selectedFarm=null;
+      STATE.selectedField=null;
+      STATE.selectedFieldMaxAcres=null;
       refreshFarmCombo();
       refreshFieldComboForFarm(null);
-
-      trialAcresInput.value = "";
-      if(trialAcresHelp) trialAcresHelp.textContent = "";
-      notesInput.value = "";
+      trialAcresInput.value='';
+      if(trialAcresHelp) trialAcresHelp.textContent='';
+      notesInput.value='';
     }
 
-    async function saveAllFields(ev){
-      ev.preventDefault();
-      showError("");
-      if(trialAcresInput){
-        trialAcresInput.classList.remove("input-error");
-      }
-
+    async function saveAllFields(e){
+      e.preventDefault();
+      showError('');
+      if(trialAcresInput) trialAcresInput.classList.remove('input-error');
       if(!STATE.pendingFields.length){
-        showError("No fields to save. Add at least one field to this trial.");
-        return;
+        showError("No fields to save. Add at least one field to this trial."); return;
       }
-
       if(!STATE.user){
-        showError("User is not signed in. Please re-login and try again.");
-        return;
+        showError("User is not signed in. Please re-login and try again."); return;
       }
-
-      const saveBtn = document.getElementById("btnSaveFields");
-      if(saveBtn) saveBtn.disabled = true;
-
+      const saveBtn=document.getElementById('btnSaveFields');
+      if(saveBtn) saveBtn.disabled=true;
       try{
-        const db = STATE.db;
-        const trialId = STATE.trialId;
-        const uid = STATE.user.uid;
-
-        const fieldsCol = collection(db, CONFIG.COLLECTION_TRIALS, trialId, "fields");
-
+        const db=STATE.db;
+        const trialId=STATE.trialId;
+        const uid=STATE.user.uid;
+        const fieldsCol=collection(db,CONFIG.COLLECTION_TRIALS,trialId,'fields');
         for(const row of STATE.pendingFields){
-          await addDoc(fieldsCol, {
-            farmId: row.farm.id,
-            farmName: row.farm.name,
-            fieldId: row.field.id,
-            fieldName: row.field.fieldName,
-            tillable: row.field.tillable != null ? row.field.tillable : null,
-            trialAcres: row.acres != null ? row.acres : null,
-            notes: row.notes || null,
-            uid: uid,                       // <---- Ownership for your rules
-            createdAt: serverTimestamp()
+          await addDoc(fieldsCol,{
+            farmId:row.farm.id,
+            farmName:row.farm.name,
+            fieldId:row.field.id,
+            fieldName:row.field.fieldName,
+            tillable:row.field.tillable!=null?row.field.tillable:null,
+            trialAcres:row.acres!=null?row.acres:null,
+            notes:row.notes||null,
+            uid,
+            createdAt:serverTimestamp()
           });
         }
-
-        const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, trialId);
-        await updateDoc(trialRef, {
-          status: "active",
-          updatedAt: serverTimestamp()
-        });
-
+        const trialRef=doc(db,CONFIG.COLLECTION_TRIALS,trialId);
+        await updateDoc(trialRef,{status:'active',updatedAt:serverTimestamp()});
         showToast("Fields saved and trial marked Active.");
-        setTimeout(()=>{
-          window.location.href = CONFIG.RETURN_URL;
-        }, 800);
+        setTimeout(()=>{ window.location.href=CONFIG.RETURN_URL; },800);
       }catch(err){
-        console.error("Error saving fields:", err);
-        showError("Error saving fields: " + (err && (err.message || err.code) || "Unknown error"));
-        if(saveBtn) saveBtn.disabled = false;
+        console.error("Error saving fields:",err);
+        showError("Error saving fields: "+(err && (err.message||err.code) || "Unknown error"));
+        if(saveBtn) saveBtn.disabled=false;
       }
     }
 
     (async function boot(){
       await ready;
-      STATE.db   = getFirestore();
+
       STATE.auth = getAuth();
-      STATE.user = STATE.auth.currentUser;
+      STATE.user = await waitForAuthReady();
 
-      const shell = document.querySelector('fv-shell');
-      if(shell && NAV_MENU) shell.nav = NAV_MENU;
+      const shell=document.querySelector('fv-shell');
+      if(shell && NAV_MENU) shell.nav=NAV_MENU;
 
-      toastEl  = document.getElementById("toast");
-      errorBox = document.getElementById("errBox");
+      toastEl=document.getElementById('toast');
+      errorBox=document.getElementById('errBox');
 
-      STATE.trialId = getQueryParam("trialId");
+      STATE.trialId=getQueryParam('trialId');
       if(!STATE.trialId){
         showError("Missing trialId in URL. Use this page from the Trials screen.");
         return;
@@ -1002,7 +886,14 @@
         return;
       }
 
-      // DOM refs
+      const fvUser = await waitForFVUser();
+      if(!fvUser){
+        showError("Unable to load user info. Please refresh.");
+        return;
+      }
+
+      STATE.db=getFirestore();
+
       trialNameMain      = document.getElementById("trialNameMain");
       trialCropMain      = document.getElementById("trialCropMain");
       trialTypeLine      = document.getElementById("trialTypeLine");
@@ -1031,14 +922,10 @@
       const btnCancel   = document.getElementById("btnCancel");
 
       if(btnBack){
-        btnBack.addEventListener("click", ()=>{
-          window.location.href = CONFIG.RETURN_URL;
-        });
+        btnBack.addEventListener("click", ()=>{ window.location.href=CONFIG.RETURN_URL; });
       }
       if(btnCancel){
-        btnCancel.addEventListener("click", ()=>{
-          window.location.href = CONFIG.RETURN_URL;
-        });
+        btnCancel.addEventListener("click", ()=>{ window.location.href=CONFIG.RETURN_URL; });
       }
       if(btnAddField){
         btnAddField.addEventListener("click", addFieldToPending);
@@ -1049,12 +936,10 @@
 
       if(trialAcresInput){
         trialAcresInput.addEventListener("blur", ()=>{
-          const v = trialAcresInput.value.trim();
+          const v=trialAcresInput.value.trim();
           if(!v) return;
-          const n = Number(v);
-          if(!isNaN(n)){
-            trialAcresInput.value = (Math.round(n * 100) / 100).toFixed(2);
-          }
+          const n=Number(v);
+          if(!isNaN(n)) trialAcresInput.value=(Math.round(n*100)/100).toFixed(2);
         });
       }
 
@@ -1063,51 +948,48 @@
         wireMic(micBtn, notesInput);
       }
 
-      // combos
       farmCombo = makeCombo({
-        btn: fieldFarmBtn,
-        panel: fieldFarmPanel,
-        list: fieldFarmList,
-        searchInput: fieldFarmSearch,
-        searchable: true,
-        formatter: x=>x.label,
-        onPick: farm=>{
-          STATE.selectedFarm = STATE.farms.find(f=>f.id === farm.id) || null;
-          refreshFieldComboForFarm(farm.id);
+        btn:fieldFarmBtn,
+        panel:fieldFarmPanel,
+        list:fieldFarmList,
+        searchInput:fieldFarmSearch,
+        searchable:true,
+        formatter:x=>x.label,
+        onPick:f=>{
+          STATE.selectedFarm=STATE.farms.find(ff=>ff.id===f.id)||null;
+          refreshFieldComboForFarm(f.id);
         }
       });
 
       fieldCombo = makeCombo({
-        btn: fieldFieldBtn,
-        panel: fieldFieldPanel,
-        list: fieldFieldList,
-        searchInput: fieldFieldSearch,
-        searchable: true,
-        formatter: x=>x.label,
-        onPick: item=>{
-          STATE.selectedField = item.raw;
-
+        btn:fieldFieldBtn,
+        panel:fieldFieldPanel,
+        list:fieldFieldList,
+        searchInput:fieldFieldSearch,
+        searchable:true,
+        formatter:x=>x.label,
+        onPick:item=>{
+          STATE.selectedField=item.raw;
           if(item.raw.farmId){
-            const farm = STATE.farms.find(f=>f.id === item.raw.farmId);
+            const farm=STATE.farms.find(f=>f.id===item.raw.farmId);
             if(farm){
-              STATE.selectedFarm = farm;
+              STATE.selectedFarm=farm;
               refreshFieldComboForFarm(farm.id);
-              STATE.selectedField = item.raw;
-              if(fieldFieldBtn) fieldFieldBtn.textContent = item.label;
+              STATE.selectedField=item.raw;
+              if(fieldFieldBtn) fieldFieldBtn.textContent=item.label;
             }else if(fieldFieldBtn){
-              fieldFieldBtn.textContent = item.label;
+              fieldFieldBtn.textContent=item.label;
             }
           }else if(fieldFieldBtn){
-            fieldFieldBtn.textContent = item.label;
+            fieldFieldBtn.textContent=item.label;
           }
-
-          const max = item.raw.tillable != null ? item.raw.tillable : null;
-          STATE.selectedFieldMaxAcres = max;
-          if(max != null && trialAcresHelp){
-            trialAcresHelp.textContent =
+          const max=item.raw.tillable!=null?item.raw.tillable:null;
+          STATE.selectedFieldMaxAcres=max;
+          if(max!=null && trialAcresHelp){
+            trialAcresHelp.textContent=
               `Max trial acres for this field: ${max}. Trial acres cannot be more than the tillable acres.`;
           }else if(trialAcresHelp){
-            trialAcresHelp.textContent = '';
+            trialAcresHelp.textContent='';
           }
         }
       });
@@ -1119,7 +1001,7 @@
         refreshFieldComboForFarm(null);
         renderPendingList();
       }catch(err){
-        console.error("Initial load error:", err);
+        console.error("Initial load error:",err);
         showError("Error loading data. Check console or network.");
       }
     })();
@@ -1129,7 +1011,6 @@
 <body>
   <fv-shell>
     <div class="wrap">
-      <!-- TOP HERO: trial details + add-field form -->
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧪</div>
@@ -1145,7 +1026,6 @@
         <div class="body">
           <div id="errBox" class="error-box"></div>
 
-          <!-- Trial summary + Back -->
           <div class="top-row">
             <div class="trial-summary">
               <div class="trial-summary-title" id="trialNameMain">Loading trial…</div>
@@ -1162,7 +1042,6 @@
             </div>
           </div>
 
-          <!-- Farm / Field -->
           <div class="row">
             <div class="field combo">
               <label for="fieldFarmBtn">Farm</label>
@@ -1197,7 +1076,6 @@
             </div>
           </div>
 
-          <!-- Trial acres -->
           <div class="field">
             <label for="trialAcres">Trial Acres</label>
             <input id="trialAcres" class="input no-spin" type="number" step="0.01"
@@ -1205,7 +1083,6 @@
             <div id="trialAcresHelp" class="helper"></div>
           </div>
 
-          <!-- Notes -->
           <div class="field">
             <label for="notes">Notes</label>
             <div class="ta-wrap">
@@ -1220,7 +1097,6 @@
             <div class="helper">Optional, but really helpful when you come back to review results.</div>
           </div>
 
-          <!-- Add Field button for current row -->
           <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
             <button id="btnAddField" type="button" class="btn btn-primary">
               Add Field
@@ -1229,7 +1105,6 @@
         </div>
       </section>
 
-      <!-- SECOND HERO: pending fields + Save -->
       <section class="fields-hero">
         <header class="fields-head">
           <h2>Fields in this trial (pending save)</h2>
