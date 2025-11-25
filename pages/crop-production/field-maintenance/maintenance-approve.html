@@ -440,7 +440,7 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, getDocs, updateDoc, doc,
+      collection, query, where, getDocs, updateDoc, doc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -610,8 +610,19 @@
 
     async function loadStoragePhotos(docId, attGrid){
       try{
+        // Try to dynamically grab storage helpers from firebase-init.js
+        const mod = await import('/Farm-vista/js/firebase-init.js');
+        const getStorage = mod.getStorage;
+        const ref = mod.ref || mod.storageRef;
+        const listAll = mod.listAll;
+        const getDownloadURL = mod.getDownloadURL;
+
+        if(!getStorage || !ref || !listAll || !getDownloadURL){
+          throw new Error('Storage helpers not exported');
+        }
+
         const storage = getStorage();
-        const folderRef = storageRef(storage, `fieldMaintenance/${docId}`);
+        const folderRef = ref(storage, `fieldMaintenance/${docId}`);
         const res = await listAll(folderRef);
 
         attGrid.innerHTML = '';
@@ -737,7 +748,7 @@
 
       $('.wo-detail-notes-body', panel).textContent = notes || 'No additional notes recorded.';
 
-      // Attachments (first look for inline arrays – future-proof)
+      // Attachments (doc-level arrays first)
       const attachments = [];
 
       if(Array.isArray(data.attachments)){
@@ -778,7 +789,6 @@
         attGrid.innerHTML = '';
 
         if(attachments.length){
-          // Render inline attachments from doc
           for(const att of attachments){
             if(!att.url) continue;
 
@@ -819,18 +829,21 @@
 
             attGrid.appendChild(itemEl);
           }
-} else if(photoCount > 0){
-  const info = document.createElement('div');
-  info.className = 'wo-attachment-empty';
-  info.textContent = 'Photos are saved with this work order, viewer not wired yet.';
-  attGrid.appendChild(info);
-} else {
-  const empty = document.createElement('div');
-  empty.className = 'wo-attachment-empty';
-  empty.textContent = 'No files or photos attached.';
-  attGrid.appendChild(empty);
-}
+        } else if(photoCount > 0){
+          const loading = document.createElement('div');
+          loading.className = 'wo-attachment-empty';
+          loading.textContent = 'Loading photos...';
+          attGrid.appendChild(loading);
 
+          // Try to pull from Storage folder fieldMaintenance/{docId}
+          loadStoragePhotos(item.id, attGrid);
+        } else {
+          const empty = document.createElement('div');
+          empty.className = 'wo-attachment-empty';
+          empty.textContent = 'No files or photos attached.';
+          attGrid.appendChild(empty);
+        }
+      }
 
       const footer = $('.wo-detail-footer', panel);
       footer.innerHTML = `
