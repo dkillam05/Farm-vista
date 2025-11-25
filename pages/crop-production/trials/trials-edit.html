@@ -1,1 +1,1085 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Edit Field Trials</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
+    }
+
+    html{-webkit-text-size-adjust:100%}
+    body{
+      background: var(--app-bg, var(--surface));
+      overflow-x:hidden;
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+      display:grid;
+      gap:16px;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .toolbar-right{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+
+    /* Trial list */
+
+    .trial-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .trial-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .trial-card {
+      position:relative;
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+      cursor:pointer;
+    }
+
+    .trial-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .trial-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .trial-main {
+      flex:1 1 auto;
+      min-width:0;
+      padding-right:110px; /* space for Add Fields button */
+    }
+
+    .trial-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .trial-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .trial-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .trial-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .trial-meta-label {
+      font-weight:600;
+    }
+
+    .trial-bottom-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+
+    .trial-status-chip {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    /* Add Fields button on card */
+    .trial-card-actions{
+      position:absolute;
+      top:10px;
+      right:12px;
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+
+    .trial-add-btn{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:5px 12px;
+      font-size:0.78rem;
+      font-weight:700;
+      background:var(--surface-strong, var(--surface));
+      cursor:pointer;
+      white-space:nowrap;
+    }
+
+    .trial-add-btn:hover{
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    /* Detail panel */
+    .trial-detail-panel {
+      margin-top:10px;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .trial-detail-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .trial-detail-title {
+      font-weight:700;
+      font-size:1rem;
+    }
+
+    .trial-detail-close {
+      border:none;
+      outline:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+    }
+
+    .trial-detail-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:6px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+
+    @media (min-width:700px) {
+      .trial-detail-grid {
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .trial-detail-item-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .trial-detail-item-value {
+      font-size:0.92rem;
+    }
+
+    .trial-detail-notes {
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+
+    .trial-detail-notes-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .trial-detail-notes-body {
+      margin-top:2px;
+    }
+
+    .trial-detail-footer {
+      margin-top:10px;
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .trial-detail-pill {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
+    }
+
+    /* Add Field modal */
+    .field-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100010;
+    }
+    .field-modal.show{
+      display:flex;
+    }
+    .field-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.55);
+    }
+    .field-sheet{
+      position:relative;
+      max-width:min(560px, 94vw);
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:16px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:14px 16px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      z-index:1;
+      overflow:auto;
+    }
+    .field-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+    .field-title{
+      font-size:1.05rem;
+      font-weight:700;
+    }
+    .field-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .field-subtitle{
+      font-size:0.86rem;
+      opacity:0.9;
+    }
+    .field-form{
+      display:grid;
+      gap:10px;
+      margin-top:4px;
+      font-size:0.9rem;
+    }
+    .field-group{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .field-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.75;
+    }
+    .field-input,
+    .field-textarea{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:7px 9px;
+      font:inherit;
+      background:var(--surface);
+      resize:vertical;
+      min-height:38px;
+    }
+    .field-textarea{
+      min-height:80px;
+    }
+    .field-actions{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+    .field-btn{
+      border-radius:12px;
+      border:1px solid var(--border);
+      padding:8px 14px;
+      font-size:0.9rem;
+      font-weight:700;
+      background:var(--surface);
+      cursor:pointer;
+    }
+    .field-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
+    }
+    .field-btn-primary:disabled{
+      opacity:0.6;
+      cursor:default;
+    }
+    .field-mic-row{
+      display:flex;
+      justify-content:flex-end;
+      margin-top:4px;
+    }
+    .field-mic-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.8rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .field-note-hint{
+      font-size:0.8rem;
+      opacity:0.75;
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+    }
+    .toast.show{
+      display:block;
+      animation:fadeout 5s forwards;
+    }
+    @keyframes fadeout{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
+    }
+
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, query, where, getDocs,
+      addDoc, doc, updateDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'fieldTrials',
+      STATUS_FIELD: 'status',
+      STATUS_PENDING: 'pending',
+      STATUS_ACTIVE: 'active'
+    };
+
+    const STATE = {
+      db: null,
+      items: [],
+      selectedId: null,
+      fieldForId: null
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    // Modal refs
+    let fieldModal, fieldBackdrop, fieldCloseBtn, fieldForm;
+    let fieldTrialLabel, fieldFarmInput, fieldFieldInput, fieldAcresInput;
+    let fieldNotesInput, fieldMicBtn, fieldCancelBtn, fieldSaveBtn;
+
+    let toastEl;
+
+    function showToast(msg="Saved.", ms=4000){
+      if(!toastEl) return;
+      toastEl.textContent = msg;
+      toastEl.classList.remove('show');
+      void toastEl.offsetWidth;
+      toastEl.classList.add('show');
+      setTimeout(()=>toastEl.classList.remove('show'), ms);
+    }
+
+    function getTime(ts){
+      if(!ts) return 0;
+      try{
+        if(ts.toMillis) return ts.toMillis();
+        if(ts.toDate)   return ts.toDate().getTime();
+        if(ts instanceof Date) return ts.getTime();
+        return new Date(ts).getTime() || 0;
+      }catch{
+        return 0;
+      }
+    }
+
+    function clearDetails(){
+      const panel = $('.trial-detail-panel');
+      if(!panel) return;
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      const titleEl = $('.trial-detail-title', panel);
+      if(titleEl) titleEl.textContent = 'Trial Details';
+      const grid = $('.trial-detail-grid', panel);
+      if(grid) grid.innerHTML = '';
+      const notesBody = $('.trial-detail-notes-body', panel);
+      if(notesBody) notesBody.textContent = '';
+      const footer = $('.trial-detail-footer', panel);
+      if(footer) footer.innerHTML = '';
+    }
+
+    function renderDetails(){
+      const panel = $('.trial-detail-panel');
+      if(!panel) return;
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){
+        clearDetails();
+        return;
+      }
+
+      const d = item.data;
+
+      const title = d.trialName || 'Field Trial';
+      const cropYear = d.cropYear ?? null;
+      const crop = d.crop || '';
+      const trialType = d.trialType || '';
+      const operationTask = d.operationTask || '';
+      const treatment = d.treatmentProduct || '';
+      const check = d.check || '';
+      const status = d[CONFIG.STATUS_FIELD] || '';
+      const createdBy = d.createdByName || d.createdByEmail || '';
+      const when = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate()
+                 : (d.createdAt ? new Date(d.createdAt) : null);
+      const notes = d.notes || '';
+
+      panel.dataset.id = item.id;
+
+      const titleEl = $('.trial-detail-title', panel);
+      if(titleEl){
+        titleEl.textContent = title;
+      }
+
+      const grid = $('.trial-detail-grid', panel);
+      if(grid){
+        grid.innerHTML = `
+          ${cropYear !== null || crop ? `
+          <div>
+            <div class="trial-detail-item-label">Crop Year / Crop</div>
+            <div class="trial-detail-item-value">
+              ${cropYear !== null ? cropYear : ''}${cropYear && crop ? ' • ' : ''}${crop}
+            </div>
+          </div>` : ''}
+
+          ${trialType ? `
+          <div>
+            <div class="trial-detail-item-label">Trial Type</div>
+            <div class="trial-detail-item-value">${trialType}</div>
+          </div>` : ''}
+
+          ${operationTask ? `
+          <div>
+            <div class="trial-detail-item-label">Operation</div>
+            <div class="trial-detail-item-value">${operationTask}</div>
+          </div>` : ''}
+
+          ${treatment ? `
+          <div>
+            <div class="trial-detail-item-label">Treatment Product</div>
+            <div class="trial-detail-item-value">${treatment}</div>
+          </div>` : ''}
+
+          ${check ? `
+          <div>
+            <div class="trial-detail-item-label">Check</div>
+            <div class="trial-detail-item-value">${check}</div>
+          </div>` : ''}
+
+          ${createdBy ? `
+          <div>
+            <div class="trial-detail-item-label">Created By</div>
+            <div class="trial-detail-item-value">${createdBy}</div>
+          </div>` : ''}
+
+          ${when ? `
+          <div>
+            <div class="trial-detail-item-label">Created</div>
+            <div class="trial-detail-item-value">${when.toLocaleString()}</div>
+          </div>` : ''}
+        `;
+      }
+
+      const notesBody = $('.trial-detail-notes-body', panel);
+      if(notesBody){
+        notesBody.textContent = notes || 'No additional notes recorded.';
+      }
+
+      const footer = $('.trial-detail-footer', panel);
+      if(footer){
+        footer.innerHTML = `
+          Current status:
+          <span class="trial-detail-pill">${status || 'unknown'}</span>
+        `;
+      }
+
+      panel.style.display = 'flex';
+    }
+
+    function renderList(){
+      const listEl  = $('.trial-list');
+      const emptyEl = $('.trial-empty');
+      const countEl = $('#trialCount');
+
+      listEl.innerHTML = '';
+
+      if(!STATE.items.length){
+        if(emptyEl) {
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'No pending trials right now. New field trials will appear here after they are created.';
+        }
+        if(countEl) countEl.textContent = '0 pending trials';
+        clearDetails();
+        return;
+      }
+
+      if(emptyEl){
+        emptyEl.style.display = 'none';
+      }
+
+      for(const item of STATE.items){
+        const d = item.data;
+        const id = item.id;
+
+        const title = d.trialName || 'Field Trial';
+        const cropYear = d.cropYear ?? null;
+        const crop = d.crop || '';
+        const trialType = d.trialType || '';
+        const operationTask = d.operationTask || '';
+        const statusRaw = (d.status || '').toString() || 'pending';
+        const createdAt = d.createdAt || null;
+        const when = createdAt && createdAt.toDate ? createdAt.toDate()
+                   : (createdAt ? new Date(createdAt) : null);
+
+        const friendlyStatus =
+          statusRaw.toLowerCase() === 'active'  ? 'Active'  :
+          statusRaw.toLowerCase() === 'pending' ? 'Pending' :
+          statusRaw;
+
+        const card = document.createElement('article');
+        card.className = 'trial-card';
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <div class="trial-card-actions">
+            <button type="button" class="trial-add-btn">Add Fields</button>
+          </div>
+
+          <div class="trial-row-top">
+            <div class="trial-main">
+              <div class="trial-title">
+                ${title}
+              </div>
+              <div class="trial-sub">
+                ${cropYear !== null ? cropYear : ''}${cropYear && crop ? ' • ' : ''}${crop}
+                ${trialType ? ` • ${trialType}` : ''}
+              </div>
+              <div class="trial-meta">
+                ${operationTask ? `
+                  <span><span class="trial-meta-label">Operation</span> ${operationTask}</span>
+                ` : ''}
+                ${trialType ? `
+                  <span><span class="trial-meta-label">Type</span> ${trialType}</span>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+
+          <div class="trial-bottom-row">
+            <div>
+              ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
+            </div>
+            <div class="trial-status-chip">${friendlyStatus}</div>
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          STATE.selectedId = id;
+          renderDetails();
+        });
+
+        const addBtn = card.querySelector('.trial-add-btn');
+        if(addBtn){
+          addBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openFieldModal(item);
+          });
+        }
+
+        listEl.appendChild(card);
+      }
+
+      if(countEl){
+        countEl.textContent = `${STATE.items.length} pending trial${STATE.items.length === 1 ? '' : 's'}`;
+      }
+    }
+
+    async function loadPendingTrials(){
+      const db  = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const qRef = query(ref, where(CONFIG.STATUS_FIELD, '==', CONFIG.STATUS_PENDING));
+        const snap = await getDocs(qRef);
+
+        const items = snap.docs.map(d => ({
+          id: d.id,
+          data: d.data()
+        }));
+
+        items.sort((a,b) => {
+          const ta = getTime(a.data.createdAt);
+          const tb = getTime(b.data.createdAt);
+          return tb - ta;
+        });
+
+        STATE.items = items;
+        renderList();
+      }catch(err){
+        console.error('Error loading trials:', err);
+        const emptyEl = $('.trial-empty');
+        const countEl = $('#trialCount');
+        if(emptyEl){
+          emptyEl.textContent = 'Error loading trials. Check console or Firestore indexes.';
+          emptyEl.style.display = 'block';
+        }
+        if(countEl) countEl.textContent = 'Error loading trials';
+        clearDetails();
+      }
+    }
+
+    // ---- Add Field modal helpers ----
+
+    function openFieldModal(item){
+      if(!fieldModal || !fieldForm) return;
+
+      STATE.fieldForId = item.id;
+      const d = item.data;
+
+      fieldForm.reset();
+
+      const cropYear = d.cropYear ?? null;
+      const crop = d.crop || '';
+      const trialName = d.trialName || 'Field Trial';
+
+      if(fieldTrialLabel){
+        const pieces = [];
+        pieces.push(trialName);
+        const sub = [
+          cropYear !== null ? cropYear : null,
+          crop || null
+        ].filter(Boolean).join(' • ');
+        if(sub) pieces.push(sub);
+        fieldTrialLabel.textContent = pieces.join(' — ');
+      }
+
+      fieldModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeFieldModal(){
+      if(!fieldModal) return;
+      fieldModal.classList.remove('show');
+      document.body.style.overflow = '';
+      STATE.fieldForId = null;
+    }
+
+    async function handleFieldSubmit(ev){
+      ev.preventDefault();
+      if(!STATE.fieldForId) {
+        closeFieldModal();
+        return;
+      }
+
+      const farmName  = fieldFarmInput ? fieldFarmInput.value.trim()  : '';
+      const fieldName = fieldFieldInput ? fieldFieldInput.value.trim() : '';
+      const acresStr  = fieldAcresInput ? fieldAcresInput.value.trim() : '';
+      const notes     = fieldNotesInput ? fieldNotesInput.value.trim() : '';
+
+      if(!farmName || !fieldName){
+        alert('Please enter both a farm and field name.');
+        return;
+      }
+
+      const acres = acresStr ? Number(acresStr) : null;
+
+      const db = STATE.db;
+      const trialId = STATE.fieldForId;
+
+      try{
+        // Add child field record
+        const fieldsCol = collection(db, CONFIG.COLLECTION_PATH, trialId, 'fields');
+        await addDoc(fieldsCol, {
+          farmName,
+          fieldName,
+          acres: isNaN(acres) ? null : acres,
+          notes: notes || null,
+          createdAt: serverTimestamp()
+        });
+
+        // Update trial status to active
+        const trialRef = doc(db, CONFIG.COLLECTION_PATH, trialId);
+        await updateDoc(trialRef, {
+          status: CONFIG.STATUS_ACTIVE,
+          updatedAt: serverTimestamp()
+        });
+
+        showToast('Field added and trial marked Active.');
+        closeFieldModal();
+        await loadPendingTrials(); // reload list (trial will drop off this page)
+      }catch(err){
+        console.error('Error adding field to trial:', err);
+        alert('Error saving field. See console for details.');
+      }
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      toastEl = document.getElementById('toast');
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/crop-production/trials.html';
+        });
+      }
+
+      const closeDetailBtn = $('#trialDetailClose');
+      if(closeDetailBtn){
+        closeDetailBtn.addEventListener('click', () => {
+          STATE.selectedId = null;
+          clearDetails();
+        });
+      }
+
+      // Wire Add Field modal refs
+      fieldModal      = $('#fieldModal');
+      fieldBackdrop   = $('#fieldBackdrop');
+      fieldCloseBtn   = $('#fieldModalClose');
+      fieldForm       = $('#fieldForm');
+      fieldTrialLabel = $('#fieldTrialLabel');
+      fieldFarmInput  = $('#fieldFarm');
+      fieldFieldInput = $('#fieldField');
+      fieldAcresInput = $('#fieldAcres');
+      fieldNotesInput = $('#fieldNotes');
+      fieldMicBtn     = $('#fieldMic');
+      fieldCancelBtn  = $('#fieldCancel');
+      fieldSaveBtn    = $('#fieldSave');
+
+      if(fieldBackdrop){
+        fieldBackdrop.addEventListener('click', closeFieldModal);
+      }
+      if(fieldCloseBtn){
+        fieldCloseBtn.addEventListener('click', closeFieldModal);
+      }
+      if(fieldCancelBtn){
+        fieldCancelBtn.addEventListener('click', (ev)=>{
+          ev.preventDefault();
+          closeFieldModal();
+        });
+      }
+      if(fieldForm){
+        fieldForm.addEventListener('submit', handleFieldSubmit);
+      }
+
+      // Dictation hook for notes (matches your other pages)
+      if(fieldMicBtn && fieldNotesInput){
+        fieldNotesInput.id = 'fieldNotes';
+        fieldMicBtn.dataset.target = 'fieldNotes';
+      }
+
+      document.addEventListener('keydown', (ev)=>{
+        if(ev.key === 'Escape' && fieldModal && fieldModal.classList.contains('show')){
+          closeFieldModal();
+        }
+      });
+
+      await loadPendingTrials();
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧪</div>
+          <div>
+            <h1>Edit Field Trials</h1>
+            <p class="muted">
+              Add fields to <strong>pending</strong> trials. Once you add at least one field,
+              the trial will move to <strong>Active</strong>.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Trials
+              </button>
+            </div>
+            <div class="toolbar-right">
+              <span id="trialCount">0 pending trials</span>
+            </div>
+          </div>
+
+          <section aria-label="Pending field trials">
+            <div class="trial-empty">
+              No pending trials right now.
+            </div>
+            <div class="trial-list"></div>
+          </section>
+
+          <section class="trial-detail-panel" aria-label="Trial details">
+            <div class="trial-detail-header">
+              <div class="trial-detail-title">Trial Details</div>
+              <button type="button" id="trialDetailClose" class="trial-detail-close">
+                Close
+              </button>
+            </div>
+
+            <div class="trial-detail-grid">
+              <!-- filled by JS -->
+            </div>
+
+            <div class="trial-detail-notes">
+              <div class="trial-detail-notes-label">Trial Notes</div>
+              <div class="trial-detail-notes-body"></div>
+            </div>
+
+            <div class="trial-detail-footer">
+              <!-- status pill by JS -->
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Add Field modal -->
+  <div id="fieldModal" class="field-modal" role="dialog" aria-modal="true" aria-label="Add field to trial">
+    <div id="fieldBackdrop" class="field-backdrop"></div>
+    <div class="field-sheet">
+      <div class="field-header">
+        <div>
+          <div class="field-title">Add Field</div>
+          <div class="field-subtitle" id="fieldTrialLabel"></div>
+        </div>
+        <button id="fieldModalClose" type="button" class="field-close-btn">Close</button>
+      </div>
+
+      <form id="fieldForm" class="field-form">
+        <div class="field-group">
+          <label class="field-label" for="fieldFarm">Farm</label>
+          <input id="fieldFarm" class="field-input" type="text" placeholder="Farm name" />
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="fieldField">Field</label>
+          <input id="fieldField" class="field-input" type="text" placeholder="Field name" />
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="fieldAcres">Acres</label>
+          <input id="fieldAcres" class="field-input" type="number" step="0.01" placeholder="Acres in this field" />
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="fieldNotes">Notes</label>
+          <textarea id="fieldNotes" class="field-textarea" placeholder="Any notes about this field in the trial..."></textarea>
+          <div class="field-mic-row">
+            <button id="fieldMic" type="button" class="field-mic-btn" data-target="fieldNotes">
+              Dictate notes
+            </button>
+          </div>
+          <div class="field-note-hint">
+            Use this for placement notes, strips, or anything the guys need to remember.
+          </div>
+        </div>
+
+        <div class="field-actions">
+          <button id="fieldCancel" type="button" class="field-btn">Cancel</button>
+          <button id="fieldSave" type="submit" class="field-btn field-btn-primary">Save Field</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
