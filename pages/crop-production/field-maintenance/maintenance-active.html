@@ -255,7 +255,7 @@
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    /* Detail panel (copied from Approve page) */
+    /* Detail panel */
     .wo-detail-panel {
       margin-top:10px;
       border-radius:10px;
@@ -573,6 +573,8 @@
       background:var(--surface);
       resize:vertical;
       min-height:38px;
+      width:100%;
+      box-sizing:border-box;
     }
     .job-textarea{
       min-height:80px;
@@ -629,7 +631,27 @@
       opacity:0.75;
     }
 
-    /* Date range picker styles (same look as dev page) */
+    /* Crew list (checkbox list) */
+    .job-crew-list{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 8px;
+      max-height:150px;
+      overflow:auto;
+      background:var(--surface);
+    }
+    .job-crew-item{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      margin-bottom:4px;
+      font-size:0.9rem;
+    }
+    .job-crew-item input[type="checkbox"]{
+      accent-color:var(--accent);
+    }
+
+    /* Date range picker styles */
     .calendar-popover {
       margin-top: 10px;
       background: #ffffff;
@@ -644,7 +666,7 @@
     .cal-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content:space-between;
       padding: 10px 12px;
       background: #f3f4f6;
       border-radius: 10px 10px 0 0;
@@ -741,7 +763,6 @@
       background: #e5e7eb;
     }
 
-    /* Range background pill for full range */
     .cal-day.in-range::before,
     .cal-day.range-start::before,
     .cal-day.range-end::before {
@@ -763,7 +784,6 @@
       border-radius: 0 16px 16px 0;
     }
 
-    /* When start = end, make it a full pill */
     .cal-day.single-day::before {
       content: "";
       position: absolute;
@@ -780,7 +800,6 @@
       font-weight: 600;
     }
 
-    /* First click – highlight start date clearly */
     .cal-day.start-selected::before {
       content: "";
       position: absolute;
@@ -877,13 +896,13 @@
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
+    import { wireDictation } from '/Farm-vista/js/fv-dictation.js';
 
     const CONFIG = {
       COLLECTION_PATH: 'fieldMaintenance',
       STATUS_FIELD:    'status',
       STATUS_PENDING:  'pending',
       STATUS_INPROG:   'in progress'
-      // we do NOT show "completed" here
     };
 
     const STATE = {
@@ -912,15 +931,15 @@
     let jobForm = null;
     let jobWoLabel = null;
     let jobSubmittedByInput = null;
-    let jobStartDateInput = null; // no longer in DOM, kept for backwards compatibility
-    let jobEndDateInput = null;   // no longer in DOM, kept for backwards compatibility
-    let jobCrewInput = null;      // now a multi-select
+    let jobStartDateInput = null; // kept for future use if needed
+    let jobEndDateInput = null;
+    let jobCrewListEl = null;
     let jobNotesInput = null;
     let jobPhotosInput = null;
     let jobCancelBtn = null;
     let jobSaveBtn = null;
     let jobMicBtn = null;
-    let jobRangeInputEl = null;   // date range display input
+    let jobRangeInputEl = null;
 
     function getTime(ts){
       if(!ts) return 0;
@@ -1358,51 +1377,62 @@
     async function loadEmployees(){
       try{
         const db = STATE.db;
-        const ref = collection(db, 'teamsEmployees'); // adjust collection name if needed
+        // Use your root "employees" collection
+        const ref = collection(db, 'employees');
         const snap = await getDocs(ref);
         STATE.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        populateCrewSelect();
+        populateCrewList();
       }catch(err){
         console.error('Error loading employees for crew list:', err);
-        populateCrewSelect(true);
+        populateCrewList(true);
       }
     }
 
-    function populateCrewSelect(error=false){
-      if(!jobCrewInput) return;
-      jobCrewInput.innerHTML = '';
+    function populateCrewList(error=false){
+      if(!jobCrewListEl) return;
+      jobCrewListEl.innerHTML = '';
 
       if(error){
-        const opt = document.createElement('option');
-        opt.disabled = true;
-        opt.textContent = 'Error loading employees';
-        jobCrewInput.appendChild(opt);
+        const div = document.createElement('div');
+        div.className = 'job-note-hint';
+        div.textContent = 'Error loading employees.';
+        jobCrewListEl.appendChild(div);
         return;
       }
 
       if(!STATE.employees.length){
-        const opt = document.createElement('option');
-        opt.disabled = true;
-        opt.textContent = 'No employees found';
-        jobCrewInput.appendChild(opt);
+        const div = document.createElement('div');
+        div.className = 'job-note-hint';
+        div.textContent = 'No employees found.';
+        jobCrewListEl.appendChild(div);
         return;
       }
 
       const sorted = [...STATE.employees].sort((a,b)=>{
-        const an = (a.name || a.fullName || a.displayName || '').toLowerCase();
-        const bn = (b.name || b.fullName || b.displayName || '').toLowerCase();
+        const an = (a.fullName || a.name || `${a.firstName || ''} ${a.lastName || ''}`).trim().toLowerCase();
+        const bn = (b.fullName || b.name || `${b.firstName || ''} ${b.lastName || ''}`).trim().toLowerCase();
         return an.localeCompare(bn);
       });
 
       for(const emp of sorted){
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = emp.name || emp.fullName || emp.displayName || 'Unnamed';
-        jobCrewInput.appendChild(opt);
+        const displayName = (emp.fullName || emp.name || `${emp.firstName || ''} ${emp.lastName || ''}`).trim() || emp.id;
+
+        const label = document.createElement('label');
+        label.className = 'job-crew-item';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = emp.id;
+        cb.dataset.name = displayName;
+
+        const span = document.createElement('span');
+        span.textContent = displayName;
+
+        label.appendChild(cb);
+        label.appendChild(span);
+        jobCrewListEl.appendChild(label);
       }
     }
-
-    // ---- Start Job modal helpers ----
 
     function openJobModal(item){
       if(!jobModal || !jobForm) return;
@@ -1417,7 +1447,13 @@
 
       jobForm.reset();
 
-      // Clear date range display (actual selection handled by fv-date-range-picker)
+      // clear checkbox selections
+      if(jobCrewListEl){
+        Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
+          cb.checked = false;
+        });
+      }
+
       if(jobRangeInputEl){
         jobRangeInputEl.value = '';
       }
@@ -1427,8 +1463,6 @@
       }
 
       if(jobSubmittedByInput){
-        // For now, default to the existing submittedBy; we can swap to logged-in user
-        // once we wire in the same logic as maintenance-add.html
         jobSubmittedByInput.value = createdBy || '';
       }
 
@@ -1450,17 +1484,20 @@
         return;
       }
 
-      const crewIds = jobCrewInput
-        ? Array.from(jobCrewInput.selectedOptions).map(o => o.value)
+      const crewSelections = jobCrewListEl
+        ? Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]:checked')).map(cb => ({
+            id: cb.value,
+            name: cb.dataset.name || ''
+          }))
         : [];
 
       const payload = {
         workOrderId: STATE.jobForId,
         submittedBy: jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '',
-        projectStart: jobStartDateInput ? jobStartDateInput.value : '', // currently unused (no inputs)
-        projectEnd:   jobEndDateInput ? jobEndDateInput.value : '',     // currently unused (no inputs)
+        projectStart: jobStartDateInput ? jobStartDateInput.value : '',
+        projectEnd:   jobEndDateInput ? jobEndDateInput.value : '',
         projectRange: jobRangeInputEl ? jobRangeInputEl.value : '',
-        crew:         crewIds,
+        crew:         crewSelections,
         notes:        jobNotesInput ? jobNotesInput.value.trim() : '',
         photoFiles:   jobPhotosInput && jobPhotosInput.files ? Array.from(jobPhotosInput.files).map(f => f.name) : [],
         createdAt:    new Date().toISOString()
@@ -1522,15 +1559,15 @@
       jobForm = $('#jobForm');
       jobWoLabel = $('#jobWoLabel');
       jobSubmittedByInput = $('#jobSubmittedBy');
-      jobStartDateInput = $('#jobStartDate'); // will be null, kept for compatibility
-      jobEndDateInput = $('#jobEndDate');     // will be null, kept for compatibility
-      jobCrewInput = $('#jobCrew');
-      jobNotesInput = $('#jobNotes');
-      jobPhotosInput = $('#jobPhotos');
-      jobCancelBtn = $('#jobCancel');
-      jobSaveBtn = $('#jobSave');
-      jobMicBtn = $('#jobMic');
-      jobRangeInputEl = $('#jobRangeInput');
+      jobStartDateInput = $('#jobStartDate'); // (not present in DOM, kept for compatibility)
+      jobEndDateInput   = $('#jobEndDate');
+      jobCrewListEl     = $('#jobCrewList');
+      jobNotesInput     = $('#jobNotes');
+      jobPhotosInput    = $('#jobPhotos');
+      jobCancelBtn      = $('#jobCancel');
+      jobSaveBtn        = $('#jobSave');
+      jobMicBtn         = $('#jobMic');
+      jobRangeInputEl   = $('#jobRangeInput');
 
       if(jobModalBackdrop){
         jobModalBackdrop.addEventListener('click', closeJobModal);
@@ -1548,11 +1585,8 @@
         jobForm.addEventListener('submit', handleJobSubmit);
       }
 
-      // If your global dictation helper uses data-target, this should hook in
-      if(jobMicBtn && jobNotesInput){
-        jobMicBtn.dataset.target = 'jobNotes';
-        jobNotesInput.id = 'jobNotes';
-      }
+      // Dictation for notes using shared helper
+      wireDictation('jobMic', 'jobNotes');
 
       await loadEmployees();
       await loadActiveWorkOrders();
@@ -1670,7 +1704,6 @@
           <div class="job-label">Project dates</div>
           <div class="job-range-row">
             <input id="jobRangeInput" class="job-input" type="text" readonly placeholder="Select date range" />
-            <!-- Calendar popover -->
             <div id="calendarPopover" class="calendar-popover" style="display:none;">
               <div class="cal-header">
                 <div>
@@ -1708,12 +1741,12 @@
         </div>
 
         <div class="job-field">
-          <label class="job-label" for="jobCrew">Crew members</label>
-          <select id="jobCrew" class="job-select" multiple size="4">
-            <!-- options injected from Firestore -->
-          </select>
+          <label class="job-label">Crew members</label>
+          <div id="jobCrewList" class="job-crew-list">
+            <!-- checkboxes injected by JS -->
+          </div>
           <div class="job-note-hint">
-            Hold Ctrl / Cmd to select multiple employees.
+            Select everyone who worked on this job.
           </div>
         </div>
 
@@ -1721,7 +1754,7 @@
           <label class="job-label" for="jobNotes">Notes from the field</label>
           <textarea id="jobNotes" class="job-textarea" placeholder="Add notes about work being done..."></textarea>
           <div class="job-mic-row">
-            <button id="jobMic" type="button" class="job-mic-btn" data-target="jobNotes">
+            <button id="jobMic" type="button" class="job-mic-btn">
               Dictate notes
             </button>
           </div>
