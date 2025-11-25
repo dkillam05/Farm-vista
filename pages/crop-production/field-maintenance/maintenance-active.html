@@ -587,10 +587,6 @@
       gap:8px;
       align-items:flex-start;
     }
-    .job-range-row span{
-      font-size:0.8rem;
-      opacity:0.8;
-    }
     .job-actions{
       margin-top:4px;
       display:flex;
@@ -620,14 +616,47 @@
       opacity:0.75;
     }
 
-    /* Crew list (checkbox list – mobile friendly) */
-    .job-crew-list{
-      border-radius:10px;
-      border:1px solid var(--border);
-      padding:6px 8px;
-      max-height:150px;
-      overflow:auto;
+    /* Crew dropdown with checkboxes */
+    .job-crew-wrap{
+      position:relative;
+      width:100%;
+    }
+    .job-crew-btn{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      cursor:pointer;
+      text-align:left;
       background:var(--surface);
+    }
+    .job-crew-btn::after{
+      content:"";
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      margin-left:8px;
+    }
+    .job-crew-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + 4px);
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      padding:6px 8px;
+      z-index:100020;
+      display:none;
+    }
+    .job-crew-panel.show{
+      display:block;
+    }
+    .job-crew-list{
+      max-height:180px;
+      overflow:auto;
     }
     .job-crew-item{
       display:flex;
@@ -675,7 +704,7 @@
       box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
       color: #111827;
       width: 100%;
-      max-width: 100%; /* no overflow */
+      max-width: 100%;
     }
 
     .cal-header {
@@ -907,7 +936,8 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, getDocs
+      collection, query, where, getDocs,
+      addDoc, doc, updateDoc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -948,6 +978,8 @@
     let jobStartDateInput = null; // reserved
     let jobEndDateInput = null;
     let jobCrewListEl = null;
+    let jobCrewBtn = null;
+    let jobCrewPanel = null;
     let jobNotesInput = null;
     let jobPhotosInput = null;
     let jobCancelBtn = null;
@@ -1444,6 +1476,48 @@
         label.appendChild(span);
         jobCrewListEl.appendChild(label);
       }
+
+      updateCrewButtonLabel();
+    }
+
+    // ---------- crew dropdown UI ----------
+    function updateCrewButtonLabel(){
+      if(!jobCrewBtn || !jobCrewListEl) return;
+      const checked = Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]:checked'));
+      if(!checked.length){
+        jobCrewBtn.textContent = 'Select crew…';
+      }else if(checked.length === 1){
+        jobCrewBtn.textContent = checked[0].dataset.name || '1 selected';
+      }else{
+        jobCrewBtn.textContent = `${checked.length} selected`;
+      }
+    }
+
+    function closeCrewPanel(){
+      if(jobCrewPanel) jobCrewPanel.classList.remove('show');
+    }
+
+    function setupCrewDropdown(){
+      if(!jobCrewBtn || !jobCrewPanel || !jobCrewListEl) return;
+
+      jobCrewBtn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const open = jobCrewPanel.classList.contains('show');
+        if(open){
+          jobCrewPanel.classList.remove('show');
+        }else{
+          jobCrewPanel.classList.add('show');
+        }
+      });
+
+      jobCrewPanel.addEventListener('click', (e)=>e.stopPropagation());
+
+      document.addEventListener('click', ()=>closeCrewPanel());
+      document.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape') closeCrewPanel();
+      });
+
+      jobCrewListEl.addEventListener('change', updateCrewButtonLabel);
     }
 
     // ---------- Submitted-by from logged-in user ----------
@@ -1511,6 +1585,7 @@
       if(jobCrewListEl){
         Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]')).forEach(cb => cb.checked = false);
       }
+      updateCrewButtonLabel();
 
       if(jobRangeInputEl){
         jobRangeInputEl.value = '';
@@ -1531,9 +1606,10 @@
       jobModal.classList.remove('show');
       document.body.style.overflow = '';
       STATE.jobForId = null;
+      closeCrewPanel();
     }
 
-    function handleJobSubmit(ev){
+    async function handleJobSubmit(ev){
       ev.preventDefault();
       if(!STATE.jobForId) {
         closeJobModal();
@@ -1555,14 +1631,31 @@
         projectRange: jobRangeInputEl ? jobRangeInputEl.value : '',
         crew:         crewSelections,
         notes:        jobNotesInput ? jobNotesInput.value.trim() : '',
-        photoFiles:   jobPhotosInput && jobPhotosInput.files ? Array.from(jobPhotosInput.files).map(f => f.name) : [],
-        createdAt:    new Date().toISOString()
+        photoFileNames: jobPhotosInput && jobPhotosInput.files ? Array.from(jobPhotosInput.files).map(f => f.name) : [],
+        status:       'active',
+        createdAt:    serverTimestamp(),
+        updatedAt:    serverTimestamp()
       };
 
-      console.log('Start Job payload (wire this to Firestore when ready):', payload);
-      // TODO: Write payload to Firestore / subcollection once schema is defined.
+      try{
+        // Save job record
+        const jobsCol = collection(STATE.db, 'fieldMaintenanceJobs');
+        await addDoc(jobsCol, payload);
 
-      closeJobModal();
+        // Update parent work order status to "in progress"
+        const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.jobForId);
+        await updateDoc(woRef, {
+          [CONFIG.STATUS_FIELD]: CONFIG.STATUS_INPROG,
+          updatedAt: serverTimestamp()
+        });
+
+        alert('Job started and saved.');
+        closeJobModal();
+        await loadActiveWorkOrders();
+      }catch(err){
+        console.error('Error saving job record:', err);
+        alert('Failed to save job. Check console / Firestore rules.');
+      }
     }
 
     (async function boot(){
@@ -1618,6 +1711,8 @@
       jobStartDateInput = $('#jobStartDate');
       jobEndDateInput   = $('#jobEndDate');
       jobCrewListEl     = $('#jobCrewList');
+      jobCrewBtn        = $('#jobCrewBtn');
+      jobCrewPanel      = $('#jobCrewPanel');
       jobNotesInput     = $('#jobNotes');
       jobPhotosInput    = $('#jobPhotos');
       jobCancelBtn      = $('#jobCancel');
@@ -1643,7 +1738,12 @@
       // Dictation for notes
       wireDictation('jobMic', 'jobNotes');
 
+      // Crew dropdown behavior
+      setupCrewDropdown();
+
+      // Submitted by from logged-in user
       setupJobSubmittedBy();
+
       await loadEmployees();
       await loadActiveWorkOrders();
     })();
@@ -1798,8 +1898,15 @@
 
         <div class="job-field">
           <label class="job-label">Crew members</label>
-          <div id="jobCrewList" class="job-crew-list">
-            <!-- checkboxes injected by JS -->
+          <div class="job-crew-wrap">
+            <button id="jobCrewBtn" type="button" class="job-input job-crew-btn">
+              Select crew…
+            </button>
+            <div id="jobCrewPanel" class="job-crew-panel">
+              <div id="jobCrewList" class="job-crew-list">
+                <!-- checkboxes injected by JS -->
+              </div>
+            </div>
           </div>
           <div class="job-note-hint">
             Select everyone who worked on this job.
