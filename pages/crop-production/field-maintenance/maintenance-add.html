@@ -1,7 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-add.html
-FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
-           + location picker + related work orders + detail viewer
+FULL FILE – dev-style combos + Topic editor + location picker + related WOs
+         – now with photo upload to Storage + photoUrls on document
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -323,7 +323,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       content:" *";
     }
 
-    /* === Topic editor modal (simplified version of equipment modal) === */
+    /* === Topic editor modal === */
     .modal{
       position:fixed;
       inset:0;
@@ -586,7 +586,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       padding:6px 0 2px;
     }
 
-    /* === Work Order Detail modal === */
+    /* === Work Order Detail modal (read-only viewer) === */
     .detail-body{
       padding:14px 16px;
       display:flex;
@@ -799,7 +799,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
             </div>
           </div>
 
-          <!-- Photos (lazy upload) -->
+          <!-- Photos (with upload) -->
           <div class="row-1">
             <div class="field">
               <label for="photos">Photos (optional)</label>
@@ -858,7 +858,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
     </div>
   </div>
 
-  <!-- Map modal (no header, Cancel + Save at bottom) -->
+  <!-- Map modal -->
   <div id="mapModal" class="modal" role="dialog" aria-modal="true">
     <div class="backdrop" data-close></div>
     <div class="sheet">
@@ -883,7 +883,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
     </div>
   </div>
 
-  <!-- Work Order Detail modal (read-only viewer) -->
+  <!-- Work Order Detail modal (for related WOs list) -->
   <div id="woDetailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="woDetailTitle">
     <div class="backdrop" data-close></div>
     <div class="sheet">
@@ -930,7 +930,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Google Maps JS (same key you confirmed works on dev page) -->
+  <!-- Google Maps JS -->
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 
   <script type="module">
@@ -945,7 +945,11 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       query,
       where,
       orderBy,
-      limit
+      limit,
+      getStorage,
+      ref,
+      uploadBytes,
+      getDownloadURL
     } from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
@@ -970,6 +974,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       const t = $("toast");
       t.textContent = msg;
       t.classList.remove("show");
+      void t.offsetWidth;
       t.classList.add("show");
       setTimeout(()=>t.classList.remove("show"), 3200);
     };
@@ -1136,19 +1141,19 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
 
     async function loadFarms(){
       const snap = await getDocs(collection(DB, "farms"));
-      state.farms = snap.docs.map(doc => {
-        const data = doc.data() || {};
-        return { id: doc.id, name: inferName(data) };
+      state.farms = snap.docs.map(docSnap => {
+        const data = docSnap.data() || {};
+        return { id: docSnap.id, name: inferName(data) };
       }).sort((a,b)=>a.name.localeCompare(b.name));
       farmCombo && farmCombo.setItems(state.farms);
     }
 
     async function loadFields(){
       const snap = await getDocs(collection(DB, "fields"));
-      state.fields = snap.docs.map(doc => {
-        const data = doc.data() || {};
+      state.fields = snap.docs.map(docSnap => {
+        const data = docSnap.data() || {};
         const farmId = data.farmId || data.farm || data.farmDocId || null;
-        return { id: doc.id, name: inferName(data), farmId };
+        return { id: docSnap.id, name: inferName(data), farmId };
       }).sort((a,b)=>a.name.localeCompare(b.name));
       refreshFieldComboForFarm(state.farm ? state.farm.id : null);
     }
@@ -1156,10 +1161,10 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
     async function loadTopics(){
       try{
         const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
-        const all = snap.docs.map(doc=>{
-          const data = doc.data() || {};
+        const all = snap.docs.map(docSnap=>{
+          const data = docSnap.data() || {};
           return {
-            id: doc.id,
+            id: docSnap.id,
             label: inferName(data),
             isArchived: !!data.isArchived
           };
@@ -1229,7 +1234,6 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
     }
 
     function setupAuth(){
-      // Just poll context/firebaseAuth until we get a user or give up
       let tries = 30;
       const timer = setInterval(()=>{
         if(setSubmittedByNow() || --tries<=0) clearInterval(timer);
@@ -1261,7 +1265,7 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       sync();
     }
 
-    /* --- mic dictation for both Notes + Priority Reason --- */
+    /* --- mic dictation for Notes + Priority Reason --- */
     function wireMic(buttonId, textareaId){
       const btn = $(buttonId);
       const ta  = $(textareaId);
@@ -1349,7 +1353,6 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
 
     function setupActions(){
       $("btnCancel").addEventListener("click", ()=>{
-        // Go back to main maintenance page
         location.href = "/Farm-vista/pages/crop-production/maintenance.html";
       });
       $("btnSave").addEventListener("click", saveMaintenance);
@@ -1485,12 +1488,11 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       listEl.innerHTML = "";
 
       try{
-        const ref = collection(DB, "fieldMaintenance");
+        const refCol = collection(DB, "fieldMaintenance");
 
-        // Query by status only (auto-indexed), then filter by fieldId + sort in JS
         const qSnap = await getDocs(
           query(
-            ref,
+            refCol,
             where("status", "in", ["needs approved", "pending"])
           )
         );
@@ -1517,7 +1519,6 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
           };
         });
 
-        // Filter down to this field
         const docs = allRows.filter(r => r.fieldId === fieldId);
 
         if(!docs.length){
@@ -1525,7 +1526,6 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
           return;
         }
 
-        // Sort newest first by createdAt if possible
         docs.sort((a,b)=>{
           const getTime = (x)=>{
             if(!x) return 0;
@@ -1605,52 +1605,67 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
 
       const photosEl = $("woDetailPhotos");
       photosEl.innerHTML = "";
-      const count = data.photoCount || (Array.isArray(data.photoUrls) ? data.photoUrls.length : 0);
+      const urls = Array.isArray(data.photoUrls) ? data.photoUrls : [];
+      const count = data.photoCount || urls.length || 0;
 
-      if(count && Array.isArray(data.photoUrls)){
-        data.photoUrls.forEach(url=>{
+      if(urls.length){
+        urls.forEach(url=>{
           const div = document.createElement("div");
           div.className = "detail-photo";
+          const link = document.createElement("a");
+          link.href = url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+
           const img = document.createElement("img");
           img.src = url;
           img.alt = "Photo";
-          div.appendChild(img);
+
+          link.appendChild(img);
+          div.appendChild(link);
           photosEl.appendChild(div);
         });
       }else if(count){
         const div = document.createElement("div");
         div.className = "detail-photo";
-        div.textContent = `${count} photo${count===1?"":"s"}`;
+        div.textContent = `${count} photo${count===1?"":"s"} (no preview links stored)`;
         photosEl.appendChild(div);
       }
 
       const mapShell = $("woDetailMapShell");
-      if(data.location && typeof data.location.lat === "number" && typeof data.location.lng === "number" && window.google && window.google.maps){
+      if(
+        data.location &&
+        typeof data.location.lat === "number" &&
+        typeof data.location.lng === "number" &&
+        window.google &&
+        window.google.maps
+      ){
         mapShell.style.display = "";
         const el = $("woDetailMap");
+        const center = { lat:data.location.lat, lng:data.location.lng };
         if(!detailMap){
           detailMap = new google.maps.Map(el, {
-            center: { lat:data.location.lat, lng:data.location.lng },
+            center,
             zoom: 18,
             mapTypeId: "satellite",
             disableDefaultUI:true,
             zoomControl:true
           });
           detailMarker = new google.maps.Marker({
-            position: { lat:data.location.lat, lng:data.location.lng },
+            position: center,
             map: detailMap
           });
         }else{
           detailMap.setMapTypeId("satellite");
           detailMap.setZoom(18);
-          detailMap.setCenter({ lat:data.location.lat, lng:data.location.lng });
+          detailMap.setCenter(center);
           if(!detailMarker){
             detailMarker = new google.maps.Marker({
-              position: { lat:data.location.lat, lng:data.location.lng },
+              position: center,
               map: detailMap
             });
           }else{
-            detailMarker.setPosition({ lat:data.location.lat, lng:data.location.lng });
+            detailMarker.setPosition(center);
           }
         }
       }else{
@@ -1661,8 +1676,8 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
     async function openWoDetailById(id){
       if(!id || !DB) return;
       try{
-        const ref = doc(DB, "fieldMaintenance", id);
-        const snap = await getDoc(ref);
+        const refDoc = doc(DB, "fieldMaintenance", id);
+        const snap = await getDoc(refDoc);
         if(!snap.exists()){
           showErr("Work order not found.");
           return;
@@ -1709,6 +1724,56 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       }
     }
 
+    /* ---------- Upload photos + update doc with URLs ---------- */
+    async function uploadWorkOrderPhotos(docId){
+      const input = $("photos");
+      const files = Array.from(input?.files || []);
+      if(!files.length) return { photoUrls: [], photoCount: 0 };
+
+      // If Storage isn't loaded (stub mode / offline), just bail gracefully
+      if(!window.FV_HAS_STORAGE){
+        console.warn("[FV] Storage not available; skipping photo upload.");
+        return { photoUrls: [], photoCount: files.length };
+      }
+
+      const storage = getStorage();
+      if(!storage){
+        console.warn("[FV] getStorage() returned null.");
+        return { photoUrls: [], photoCount: files.length };
+      }
+
+      const urls = [];
+      let index = 0;
+
+      for(const file of files){
+        try{
+          const cleanName = (file.name || "photo").replace(/\s+/g,"-");
+          const path = `fieldMaintenance/${docId}/${Date.now()}-${index}-${cleanName}`;
+          const fileRef = ref(storage, path);
+          await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(fileRef);
+          urls.push(url);
+          index++;
+        }catch(err){
+          console.error("uploadWorkOrderPhotos: single file failed", err);
+        }
+      }
+
+      try{
+        const refDoc = doc(DB, "fieldMaintenance", docId);
+        await updateDoc(refDoc, {
+          photoUrls: urls,
+          photoCount: urls.length,
+          updatedAt: serverTimestamp()
+        });
+      }catch(err){
+        console.error("uploadWorkOrderPhotos: updateDoc failed", err);
+      }
+
+      return { photoUrls: urls, photoCount: urls.length };
+    }
+
+    /* ---------- Save maintenance ---------- */
     async function saveMaintenance(){
       showErr("");
       const btn = $("btnSave");
@@ -1748,6 +1813,8 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
         const farm = state.farm;
         const field = state.field;
         const topic = state.topic;
+        const fileInput = $("photos");
+        const rawCount = fileInput && fileInput.files ? fileInput.files.length : 0;
 
         const payload = {
           farmId,
@@ -1765,7 +1832,8 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
             email: $("submittedEmail").value || null
           },
           dateSubmitted: serverTimestamp(),
-          photoCount: $("photos").files ? $("photos").files.length : 0,
+          // Temporary count; we will correct after upload
+          photoCount: rawCount,
           status: "needs approved",
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
@@ -1778,10 +1846,22 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
           };
         }
 
-        await addDoc(collection(DB, "fieldMaintenance"), payload);
+        const refCol = collection(DB, "fieldMaintenance");
+        const newDocRef = await addDoc(refCol, payload);
 
-        showToast("Field maintenance saved.");
-        // After toast, go back to main maintenance page
+        let uploadInfo = null;
+        try{
+          uploadInfo = await uploadWorkOrderPhotos(newDocRef.id);
+        }catch(err){
+          console.error("Photo upload failed", err);
+        }
+
+        const extraMsg = uploadInfo && uploadInfo.photoUrls && uploadInfo.photoUrls.length
+          ? " Photos uploaded."
+          : "";
+
+        showToast("Field maintenance saved." + extraMsg);
+
         setTimeout(()=>{
           location.href="/Farm-vista/pages/crop-production/maintenance.html";
         }, 800);
@@ -1814,10 +1894,10 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
 
       try{
         const snap = await getDocs(collection(DB, "fieldMaintenanceTopics"));
-        const items = snap.docs.map(doc=>{
-          const data = doc.data() || {};
+        const items = snap.docs.map(docSnap=>{
+          const data = docSnap.data() || {};
           return {
-            id: doc.id,
+            id: docSnap.id,
             name: inferName(data),
             isArchived: !!data.isArchived
           };
@@ -1899,9 +1979,9 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
         if(!name) return;
         if(name === origName && archived === origArchived) return;
 
-        const ref = doc(DB, "fieldMaintenanceTopics", id);
+        const refDoc = doc(DB, "fieldMaintenanceTopics", id);
         ops.push(
-          updateDoc(ref, {
+          updateDoc(refDoc, {
             name,
             nameLower: name.toLowerCase(),
             isArchived: archived,
@@ -1984,7 +2064,6 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
       setupLocationPicker();
       setupWoDetailModal();
 
-      // Combos first
       farmCombo = makeCombo({
         btn: $("farmBtn"),
         panel: $("farmPanel"),
@@ -2013,7 +2092,6 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
             selectFarmById(it.farmId);
             refreshFieldComboForFarm(it.farmId);
           }
-          // Load related work orders whenever field changes
           loadRelatedWorkOrders(it.id);
         }
       });
@@ -2037,15 +2115,14 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
           if(!name) return;
 
           try{
-            const ref = await addDoc(collection(DB,"fieldMaintenanceTopics"),{
+            const refDoc = await addDoc(collection(DB,"fieldMaintenanceTopics"),{
               name,
               nameLower: name.toLowerCase(),
               isArchived:false,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             });
-            // Set current topic to the newly created one
-            state.topic = { id: ref.id, name, label: name };
+            state.topic = { id: refDoc.id, name, label: name };
             $("topicBtn").textContent = name;
             await loadTopics();
             showToast("Topic added.");
@@ -2056,7 +2133,6 @@ FULL FILE – dev-style combos + Topic editor modal + Add New + extra mic
         }
       });
 
-      // Topic modal wiring
       $("openTopics").addEventListener("click", openTopicModal);
       TopicEditor.saveBtn.addEventListener("click", saveAllTopics);
       TopicEditor.addBtn.addEventListener("click", addNewTopicModal);
