@@ -511,7 +511,7 @@
     }
     .job-sheet{
       position:relative;
-      max-width:min(560px, 94vw);
+      max-width:min(520px, 94vw);
       max-height:90vh;
       background:var(--surface);
       border-radius:16px;
@@ -522,7 +522,8 @@
       flex-direction:column;
       gap:10px;
       z-index:1;
-      overflow:auto;
+      overflow-y:auto;
+      overflow-x:hidden; /* kill horizontal scroll */
     }
     .job-header{
       display:flex;
@@ -619,6 +620,26 @@
       opacity:0.75;
     }
 
+    /* Crew list (checkbox list – mobile friendly) */
+    .job-crew-list{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 8px;
+      max-height:150px;
+      overflow:auto;
+      background:var(--surface);
+    }
+    .job-crew-item{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      margin-bottom:4px;
+      font-size:0.9rem;
+    }
+    .job-crew-item input[type="checkbox"]{
+      accent-color:var(--accent);
+    }
+
     /* mic button like maintenance-add */
     .ta-wrap{
       position:relative;
@@ -635,6 +656,7 @@
       display:grid;
       place-items:center;
       cursor:pointer;
+      color:var(--text);
     }
     .mic-btn[disabled]{ opacity:.6; cursor:not-allowed; }
     .mic-svg{ width:18px; height:18px; display:block; }
@@ -652,8 +674,8 @@
       border: 1px solid #d0d5dd;
       box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
       color: #111827;
-      width: 330px;
-      max-width: 100%;
+      width: 100%;
+      max-width: 100%; /* no overflow */
     }
 
     .cal-header {
@@ -907,7 +929,6 @@
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
     let detailMap = null;
     let detailMarker = null;
@@ -924,14 +945,13 @@
     let jobForm = null;
     let jobWoLabel = null;
     let jobSubmittedByInput = null;
-    let jobStartDateInput = null; // kept for future use if needed
+    let jobStartDateInput = null; // reserved
     let jobEndDateInput = null;
-    let jobCrewSelect = null;
+    let jobCrewListEl = null;
     let jobNotesInput = null;
     let jobPhotosInput = null;
     let jobCancelBtn = null;
     let jobSaveBtn = null;
-    let jobMicBtn = null;
     let jobRangeInputEl = null;
 
     function getTime(ts){
@@ -1373,30 +1393,30 @@
         const ref = collection(db, 'employees');
         const snap = await getDocs(ref);
         STATE.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        populateCrewSelect();
+        populateCrewList();
       }catch(err){
         console.error('Error loading employees for crew list:', err);
-        populateCrewSelect(true);
+        populateCrewList(true);
       }
     }
 
-    function populateCrewSelect(error=false){
-      if(!jobCrewSelect) return;
-      jobCrewSelect.innerHTML = '';
+    function populateCrewList(error=false){
+      if(!jobCrewListEl) return;
+      jobCrewListEl.innerHTML = '';
 
       if(error){
-        const opt = document.createElement('option');
-        opt.disabled = true;
-        opt.textContent = 'Error loading employees';
-        jobCrewSelect.appendChild(opt);
+        const div = document.createElement('div');
+        div.className = 'job-note-hint';
+        div.textContent = 'Error loading employees.';
+        jobCrewListEl.appendChild(div);
         return;
       }
 
       if(!STATE.employees.length){
-        const opt = document.createElement('option');
-        opt.disabled = true;
-        opt.textContent = 'No employees found';
-        jobCrewSelect.appendChild(opt);
+        const div = document.createElement('div');
+        div.className = 'job-note-hint';
+        div.textContent = 'No employees found.';
+        jobCrewListEl.appendChild(div);
         return;
       }
 
@@ -1408,10 +1428,21 @@
 
       for(const emp of sorted){
         const displayName = (emp.fullName || emp.name || `${emp.firstName || ''} ${emp.lastName || ''}`).trim() || emp.id;
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = displayName;
-        jobCrewSelect.appendChild(opt);
+
+        const label = document.createElement('label');
+        label.className = 'job-crew-item';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = emp.id;
+        cb.dataset.name = displayName;
+
+        const span = document.createElement('span');
+        span.textContent = displayName;
+
+        label.appendChild(cb);
+        label.appendChild(span);
+        jobCrewListEl.appendChild(label);
       }
     }
 
@@ -1477,8 +1508,8 @@
 
       jobForm.reset();
 
-      if(jobCrewSelect){
-        Array.from(jobCrewSelect.options).forEach(o => o.selected = false);
+      if(jobCrewListEl){
+        Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]')).forEach(cb => cb.checked = false);
       }
 
       if(jobRangeInputEl){
@@ -1489,7 +1520,6 @@
         jobWoLabel.textContent = farm ? `${field} · ${farm}` : field;
       }
 
-      // Submitted by = logged-in user (already set by setupJobSubmittedBy)
       setJobSubmittedByNow();
 
       jobModal.classList.add('show');
@@ -1510,10 +1540,10 @@
         return;
       }
 
-      const crewSelections = jobCrewSelect
-        ? Array.from(jobCrewSelect.selectedOptions).map(opt => ({
-            id: opt.value,
-            name: opt.textContent || ''
+      const crewSelections = jobCrewListEl
+        ? Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]:checked')).map(cb => ({
+            id: cb.value,
+            name: cb.dataset.name || ''
           }))
         : [];
 
@@ -1585,14 +1615,13 @@
       jobForm = $('#jobForm');
       jobWoLabel = $('#jobWoLabel');
       jobSubmittedByInput = $('#jobSubmittedBy');
-      jobStartDateInput = $('#jobStartDate'); // (not present in DOM, kept for compatibility)
+      jobStartDateInput = $('#jobStartDate');
       jobEndDateInput   = $('#jobEndDate');
-      jobCrewSelect     = $('#jobCrew');
+      jobCrewListEl     = $('#jobCrewList');
       jobNotesInput     = $('#jobNotes');
       jobPhotosInput    = $('#jobPhotos');
       jobCancelBtn      = $('#jobCancel');
       jobSaveBtn        = $('#jobSave');
-      jobMicBtn         = $('#jobMic');
       jobRangeInputEl   = $('#jobRangeInput');
 
       if(jobModalBackdrop){
@@ -1611,12 +1640,10 @@
         jobForm.addEventListener('submit', handleJobSubmit);
       }
 
-      // Dictation for notes using shared helper + mic icon
+      // Dictation for notes
       wireDictation('jobMic', 'jobNotes');
 
-      // Populate submitted-by from logged-in user
       setupJobSubmittedBy();
-
       await loadEmployees();
       await loadActiveWorkOrders();
     })();
@@ -1770,12 +1797,12 @@
         </div>
 
         <div class="job-field">
-          <label class="job-label" for="jobCrew">Crew members</label>
-          <select id="jobCrew" class="job-select" multiple size="4">
-            <!-- options injected by JS -->
-          </select>
+          <label class="job-label">Crew members</label>
+          <div id="jobCrewList" class="job-crew-list">
+            <!-- checkboxes injected by JS -->
+          </div>
           <div class="job-note-hint">
-            Hold Ctrl / Cmd to select multiple employees.
+            Select everyone who worked on this job.
           </div>
         </div>
 
@@ -1785,3 +1812,26 @@
             <textarea id="jobNotes" class="job-textarea" placeholder="Add notes about work being done..."></textarea>
             <button id="jobMic" type="button" class="mic-btn" aria-label="Start dictation for notes">
               <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="job-note-hint">
+            Your operators can add quick notes here while they are working.
+          </div>
+        </div>
+
+        <div class="job-field">
+          <label class="job-label" for="jobPhotos">Photos</label>
+          <input id="jobPhotos" class="job-input" type="file" accept="image/*" multiple />
+        </div>
+
+        <div class="job-actions">
+          <button id="jobCancel" type="button" class="job-btn">Cancel</button>
+          <button id="jobSave" type="submit" class="job-btn job-btn-primary">Start Job</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
