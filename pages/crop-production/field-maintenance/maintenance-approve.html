@@ -226,7 +226,7 @@
       position:relative;
       width:20px;
       height:20px;
-      border-radius:999px;
+      border-radius:10px;
       background:var(--card-surface, #fff);
       box-shadow:0 1px 2px rgba(0,0,0,.35);
       transform:translateX(0);
@@ -368,6 +368,7 @@
       align-items:center;
       justify-content:center;
       font-size:0.8rem;
+      cursor:pointer;
     }
 
     .wo-attachment-thumb img{
@@ -394,8 +395,11 @@
 
     .wo-attachment-link{
       font-size:0.8rem;
-      text-decoration:underline;
       cursor:pointer;
+      border:none;
+      background:transparent;
+      padding:0;
+      text-align:left;
       color:var(--accent);
     }
 
@@ -419,6 +423,67 @@
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       font-size:0.8rem;
       margin-left:6px;
+    }
+
+    /* Photo viewer modal */
+    .photo-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+    }
+    .photo-modal.show{
+      display:flex;
+    }
+    .photo-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.6);
+    }
+    .photo-sheet{
+      position:relative;
+      max-width:90vw;
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:8px 10px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      z-index:1;
+    }
+    .photo-close-row{
+      display:flex;
+      justify-content:flex-end;
+      margin-bottom:4px;
+    }
+    .photo-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
+    }
+    .photo-img-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:#000;
+      max-width:calc(90vw - 20px);
+      max-height:calc(80vh - 40px);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .photo-img-wrap img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
     }
   </style>
 
@@ -461,6 +526,14 @@
       db: null
     };
 
+    let detailMap = null;
+    let detailMarker = null;
+
+    let photoModal = null;
+    let photoModalImg = null;
+    let photoModalBackdrop = null;
+    let photoModalCloseBtn = null;
+
     function getTime(ts){
       if(!ts) return 0;
       try{
@@ -471,6 +544,26 @@
       }catch{
         return 0;
       }
+    }
+
+    function isImageUrl(url){
+      if(!url || typeof url !== 'string') return false;
+      const u = url.split('?')[0].toLowerCase();
+      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') || u.endsWith('.gif') || u.endsWith('.webp');
+    }
+
+    function openPhotoViewer(url){
+      if(!photoModal || !photoModalImg || !url) return;
+      photoModalImg.src = url;
+      photoModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closePhotoViewer(){
+      if(!photoModal) return;
+      photoModal.classList.remove('show');
+      if(photoModalImg) photoModalImg.src = '';
+      document.body.style.overflow = '';
     }
 
     function renderList(){
@@ -597,15 +690,6 @@
       if(attGrid){
         attGrid.innerHTML = '';
       }
-    }
-
-    let detailMap = null;
-    let detailMarker = null;
-
-    function isImageUrl(url){
-      if(!url || typeof url !== 'string') return false;
-      const u = url.split('?')[0].toLowerCase();
-      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') || u.endsWith('.gif') || u.endsWith('.webp');
     }
 
     function renderDetails(){
@@ -750,12 +834,28 @@
             nameEl.className = 'wo-attachment-name';
             nameEl.textContent = att.name || 'Attachment';
 
-            const linkEl = document.createElement('a');
+            const linkEl = document.createElement('button');
+            linkEl.type = 'button';
             linkEl.className = 'wo-attachment-link';
-            linkEl.href = att.url;
-            linkEl.target = '_blank';
-            linkEl.rel = 'noopener noreferrer';
-            linkEl.textContent = 'Open';
+            linkEl.textContent = 'View';
+
+            // Wire up viewer
+            if(att.type === 'image' || isImageUrl(att.url)){
+              thumb.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openPhotoViewer(att.url);
+              });
+              linkEl.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openPhotoViewer(att.url);
+              });
+            }else{
+              // Non-image attachments: open in new tab
+              linkEl.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                window.open(att.url, '_blank', 'noopener');
+              });
+            }
 
             meta.appendChild(nameEl);
             meta.appendChild(linkEl);
@@ -878,6 +978,21 @@
         });
       }
 
+      photoModal = $('#photoModal');
+      photoModalImg = $('#photoModalImg');
+      photoModalBackdrop = $('#photoModalBackdrop');
+      photoModalCloseBtn = $('#photoModalClose');
+
+      if(photoModalBackdrop){
+        photoModalBackdrop.addEventListener('click', closePhotoViewer);
+      }
+      if(photoModalCloseBtn){
+        photoModalCloseBtn.addEventListener('click', closePhotoViewer);
+      }
+      document.addEventListener('keydown', (ev)=>{
+        if(ev.key === 'Escape') closePhotoViewer();
+      });
+
       await loadWorkOrders();
 
       const closeBtn = $('#woDetailClose');
@@ -960,5 +1075,18 @@
       </section>
     </div>
   </fv-shell>
+
+  <!-- Photo viewer modal -->
+  <div id="photoModal" class="photo-modal" role="dialog" aria-modal="true" aria-label="Work order photo">
+    <div id="photoModalBackdrop" class="photo-backdrop"></div>
+    <div class="photo-sheet">
+      <div class="photo-close-row">
+        <button id="photoModalClose" type="button" class="photo-close-btn">Close</button>
+      </div>
+      <div class="photo-img-wrap">
+        <img id="photoModalImg" src="" alt="Work order photo"/>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
