@@ -329,6 +329,81 @@
       margin-top:2px;
     }
 
+    /* Attachments section */
+    .wo-detail-attachments{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+
+    .wo-detail-attachments-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+
+    .wo-attachments-grid{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .wo-attachment-item{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+    }
+
+    .wo-attachment-thumb{
+      width:64px;
+      height:64px;
+      border-radius:10px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0.8rem;
+    }
+
+    .wo-attachment-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    .wo-attachment-meta{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+
+    .wo-attachment-name{
+      font-size:0.9rem;
+      font-weight:600;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .wo-attachment-link{
+      font-size:0.8rem;
+      text-decoration:underline;
+      cursor:pointer;
+      color:var(--accent);
+    }
+
+    .wo-attachment-empty{
+      font-size:0.86rem;
+      opacity:0.8;
+    }
+
     .wo-detail-footer {
       margin-top:10px;
       font-size:0.8rem;
@@ -358,7 +433,7 @@
     })();
   </script>
 
-  <!-- Google Maps for detail location (optional) -->
+  <!-- Google Maps for detail location -->
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 
   <script type="module">
@@ -504,7 +579,7 @@
               // revert UI
               pill.dataset.on = 'false';
               ev.target.checked = false;
-              alert('Could not update work order status. Please try again.');
+              alert('Could not update work order status. Please try again.';
             }
           }
         });
@@ -521,10 +596,20 @@
       $('.wo-detail-grid', panel).innerHTML = '';
       $('.wo-detail-notes-body', panel).textContent = '';
       $('.wo-detail-footer', panel).innerHTML = '';
+      const attGrid = $('#woDetailAttachments');
+      if(attGrid){
+        attGrid.innerHTML = '';
+      }
     }
 
     let detailMap = null;
     let detailMarker = null;
+
+    function isImageUrl(url){
+      if(!url || typeof url !== 'string') return false;
+      const u = url.split('?')[0].toLowerCase();
+      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') || u.endsWith('.gif') || u.endsWith('.webp');
+    }
 
     function renderDetails(){
       const panel = $('.wo-detail-panel');
@@ -587,6 +672,93 @@
       `;
 
       $('.wo-detail-notes-body', panel).textContent = notes || 'No additional notes recorded.';
+
+      // Attachments (files + photos)
+      const attachments = [];
+
+      if(Array.isArray(data.attachments)){
+        for(const a of data.attachments){
+          if(!a) continue;
+          attachments.push({
+            url: a.url || a.href || '',
+            name: a.name || a.fileName || 'Attachment',
+            type: a.type || a.mimeType || ''
+          });
+        }
+      }
+
+      if(Array.isArray(data.photos)){
+        for(const url of data.photos){
+          if(!url) continue;
+          attachments.push({
+            url,
+            name: 'Photo',
+            type: 'image'
+          });
+        }
+      }
+
+      if(Array.isArray(data.files)){
+        for(const f of data.files){
+          if(!f) continue;
+          attachments.push({
+            url: f.url || f.href || '',
+            name: f.name || f.fileName || 'File',
+            type: f.type || f.mimeType || ''
+          });
+        }
+      }
+
+      const attGrid = $('#woDetailAttachments');
+      if(attGrid){
+        attGrid.innerHTML = '';
+        if(!attachments.length){
+          const empty = document.createElement('div');
+          empty.className = 'wo-attachment-empty';
+          empty.textContent = 'No files or photos attached.';
+          attGrid.appendChild(empty);
+        }else{
+          for(const att of attachments){
+            if(!att.url) continue;
+            const itemEl = document.createElement('div');
+            itemEl.className = 'wo-attachment-item';
+
+            const thumb = document.createElement('div');
+            thumb.className = 'wo-attachment-thumb';
+
+            if(att.type === 'image' || isImageUrl(att.url)){
+              const img = document.createElement('img');
+              img.src = att.url;
+              img.alt = att.name || 'Attachment';
+              thumb.appendChild(img);
+            }else{
+              thumb.textContent = 'FILE';
+            }
+
+            const meta = document.createElement('div');
+            meta.className = 'wo-attachment-meta';
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'wo-attachment-name';
+            nameEl.textContent = att.name || 'Attachment';
+
+            const linkEl = document.createElement('a');
+            linkEl.className = 'wo-attachment-link';
+            linkEl.href = att.url;
+            linkEl.target = '_blank';
+            linkEl.rel = 'noopener noreferrer';
+            linkEl.textContent = 'Open';
+
+            meta.appendChild(nameEl);
+            meta.appendChild(linkEl);
+
+            itemEl.appendChild(thumb);
+            itemEl.appendChild(meta);
+
+            attGrid.appendChild(itemEl);
+          }
+        }
+      }
 
       const footer = $('.wo-detail-footer', panel);
       footer.innerHTML = `
@@ -751,6 +923,13 @@
             <div class="wo-detail-notes">
               <div class="wo-detail-notes-label">Notes</div>
               <div class="wo-detail-notes-body"></div>
+            </div>
+
+            <div class="wo-detail-attachments">
+              <div class="wo-detail-attachments-label">Files &amp; Photos</div>
+              <div class="wo-attachments-grid" id="woDetailAttachments">
+                <!-- filled by JS -->
+              </div>
             </div>
 
             <div class="wo-detail-footer">
