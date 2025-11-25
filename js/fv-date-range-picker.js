@@ -7,18 +7,21 @@
 //        <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 //
 //   2) Make sure the page has the standard markup IDs:
+//
 //        • jobRangeInput     (readonly text input)
 //        • calendarPopover   (popover container)
 //        • monthSelect       (select for month)
 //        • yearSelect        (select for year)
-//        • prevMonthBtn      (previous month button)
-//        • nextMonthBtn      (next month button)
 //        • rangeSummary      (footer summary span)
 //        • clearRangeBtn     (Clear button)
 //        • applyRangeBtn     (Apply button)
 //        • closeCalBtn       (X / close button)
 //
-//   If those elements aren’t present, this script quietly no-ops.
+//      Optional (if present, they’ll work; if not, no-op):
+//        • prevMonthBtn      (previous month button)
+//        • nextMonthBtn      (next month button)
+//
+//   If required elements aren’t present, this script quietly no-ops.
 //
 //   It also exposes a tiny global, window.FVDateRangePicker, in case
 //   you ever want to re-init manually: FVDateRangePicker.init();
@@ -32,22 +35,23 @@
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
 
-    // Grab required elements (if input is missing, abort for this page)
-    const jobInput     = document.getElementById('jobRangeInput');
-    const popover      = document.getElementById('calendarPopover');
-    const monthSelect  = document.getElementById('monthSelect');
-    const yearSelect   = document.getElementById('yearSelect');
-    const prevBtn      = document.getElementById('prevMonthBtn');
-    const nextBtn      = document.getElementById('nextMonthBtn');
-    const daysContainer= document.getElementById('calDays');
-    const rangeSummary = document.getElementById('rangeSummary');
-    const clearBtn     = document.getElementById('clearRangeBtn');
-    const applyBtn     = document.getElementById('applyRangeBtn');
-    const closeBtn     = document.getElementById('closeCalBtn');
+    // Grab elements
+    const jobInput      = document.getElementById('jobRangeInput');
+    const popover       = document.getElementById('calendarPopover');
+    const monthSelect   = document.getElementById('monthSelect');
+    const yearSelect    = document.getElementById('yearSelect');
+    const prevBtn       = document.getElementById('prevMonthBtn'); // optional
+    const nextBtn       = document.getElementById('nextMonthBtn'); // optional
+    const daysContainer = document.getElementById('calDays');
+    const rangeSummary  = document.getElementById('rangeSummary');
+    const clearBtn      = document.getElementById('clearRangeBtn');
+    const applyBtn      = document.getElementById('applyRangeBtn');
+    const closeBtn      = document.getElementById('closeCalBtn');
 
+    // Required elements check (prev/next are optional now)
     if (!jobInput || !popover || !monthSelect || !yearSelect ||
-        !prevBtn || !nextBtn || !daysContainer || !rangeSummary ||
-        !clearBtn || !applyBtn || !closeBtn) {
+        !daysContainer || !rangeSummary || !clearBtn ||
+        !applyBtn || !closeBtn) {
       // Markup not present on this page – safe no-op
       return;
     }
@@ -114,8 +118,8 @@
     }
 
     function renderCalendar() {
-      monthSelect.value = viewMonth;
-      yearSelect.value = viewYear;
+      monthSelect.value = String(viewMonth);
+      yearSelect.value  = String(viewYear);
       daysContainer.innerHTML = '';
 
       const firstOfMonth  = new Date(viewYear, viewMonth, 1);
@@ -190,7 +194,7 @@
       if (!rangeStart || (rangeStart && rangeEnd)) {
         // start new range
         rangeStart = date;
-        rangeEnd = null;
+        rangeEnd   = null;
       } else if (rangeStart && !rangeEnd) {
         if (compareDates(date, rangeStart) < 0) {
           // clicked before start — make new start
@@ -213,25 +217,30 @@
 
     // ----------------- Event wiring -----------------
 
-    prevBtn.addEventListener('click', function () {
-      if (viewMonth === 0) {
-        viewMonth = 11;
-        viewYear--;
-      } else {
-        viewMonth--;
-      }
-      renderCalendar();
-    });
+    // Optional arrow buttons (some pages might still use them)
+    if (prevBtn) {
+      prevBtn.addEventListener('click', function () {
+        if (viewMonth === 0) {
+          viewMonth = 11;
+          viewYear--;
+        } else {
+          viewMonth--;
+        }
+        renderCalendar();
+      });
+    }
 
-    nextBtn.addEventListener('click', function () {
-      if (viewMonth === 11) {
-        viewMonth = 0;
-        viewYear++;
-      } else {
-        viewMonth++;
-      }
-      renderCalendar();
-    });
+    if (nextBtn) {
+      nextBtn.addEventListener('click', function () {
+        if (viewMonth === 11) {
+          viewMonth = 0;
+          viewYear++;
+        } else {
+          viewMonth++;
+        }
+        renderCalendar();
+      });
+    }
 
     monthSelect.addEventListener('change', function () {
       viewMonth = parseInt(this.value, 10);
