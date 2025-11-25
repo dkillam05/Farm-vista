@@ -471,7 +471,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore,
+      getFirestore, getAuth,
       collection, getDocs, getDoc,
       addDoc, updateDoc, doc,
       serverTimestamp
@@ -488,6 +488,8 @@
 
     const STATE = {
       db: null,
+      auth: null,
+      user: null,
       trialId: null,
       trial: null,
       farms: [],
@@ -896,7 +898,6 @@
         return;
       }
 
-      // all good, add to pending list
       STATE.pendingFields.push({
         farm,
         field,
@@ -907,7 +908,7 @@
       renderPendingList();
       showToast("Field added to this trial. Remember to Save Fields at the bottom when you’re done.");
 
-      // reset to "new page" state: clear farm/field/acres/notes
+      // reset to fresh state
       STATE.selectedFarm = null;
       STATE.selectedField = null;
       STATE.selectedFieldMaxAcres = null;
@@ -932,12 +933,18 @@
         return;
       }
 
+      if(!STATE.user){
+        showError("User is not signed in. Please re-login and try again.");
+        return;
+      }
+
       const saveBtn = document.getElementById("btnSaveFields");
       if(saveBtn) saveBtn.disabled = true;
 
       try{
         const db = STATE.db;
         const trialId = STATE.trialId;
+        const uid = STATE.user.uid;
 
         const fieldsCol = collection(db, CONFIG.COLLECTION_TRIALS, trialId, "fields");
 
@@ -950,6 +957,7 @@
             tillable: row.field.tillable != null ? row.field.tillable : null,
             trialAcres: row.acres != null ? row.acres : null,
             notes: row.notes || null,
+            uid: uid,                       // <---- Ownership for your rules
             createdAt: serverTimestamp()
           });
         }
@@ -973,7 +981,9 @@
 
     (async function boot(){
       await ready;
-      STATE.db = getFirestore();
+      STATE.db   = getFirestore();
+      STATE.auth = getAuth();
+      STATE.user = STATE.auth.currentUser;
 
       const shell = document.querySelector('fv-shell');
       if(shell && NAV_MENU) shell.nav = NAV_MENU;
@@ -984,6 +994,11 @@
       STATE.trialId = getQueryParam("trialId");
       if(!STATE.trialId){
         showError("Missing trialId in URL. Use this page from the Trials screen.");
+        return;
+      }
+
+      if(!STATE.user){
+        showError("User is not signed in. Please log in again.");
         return;
       }
 
@@ -1032,7 +1047,6 @@
         btnSaveAll.addEventListener("click", saveAllFields);
       }
 
-      // round to 2 decimals on blur
       if(trialAcresInput){
         trialAcresInput.addEventListener("blur", ()=>{
           const v = trialAcresInput.value.trim();
@@ -1044,7 +1058,6 @@
         });
       }
 
-      // mic
       if(notesInput && micBtn){
         notesInput.classList.add("with-mic");
         wireMic(micBtn, notesInput);
@@ -1207,7 +1220,7 @@
             <div class="helper">Optional, but really helpful when you come back to review results.</div>
           </div>
 
-          <!-- Add Field button for this single row -->
+          <!-- Add Field button for current row -->
           <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
             <button id="btnAddField" type="button" class="btn btn-primary">
               Add Field
