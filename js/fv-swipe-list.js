@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/fv-swipe-list.js
-Rev: 2025-11-26a
+Rev: 2025-11-26b
 
 Reusable swipeable-list helper for FarmVista.
 
@@ -86,10 +86,16 @@ export function initSwipeList(rootSelectorOrEl, options = {}) {
       ? document.querySelector(rootSelectorOrEl)
       : rootSelectorOrEl;
 
-  if (!root) return;
+  if (!root) {
+    console.warn('fv-swipe-list: root not found for', rootSelectorOrEl);
+    return;
+  }
 
   const items = Array.from(root.querySelectorAll(itemSelector));
-  if (!items.length) return;
+  if (!items.length) {
+    console.warn('fv-swipe-list: no items found with selector', itemSelector);
+    return;
+  }
 
   const ACTION_WIDTH = 88;      // px, width of action buttons
   const OPEN_THRESHOLD = 40;    // px, drag needed to "snap" open
@@ -110,6 +116,7 @@ export function initSwipeList(rootSelectorOrEl, options = {}) {
   items.forEach((item) => {
     const original = item;
     const parent = original.parentElement;
+    if (!parent) return;
 
     const row = document.createElement('div');
     row.className = 'fv-swipe-row';
@@ -153,13 +160,17 @@ export function initSwipeList(rootSelectorOrEl, options = {}) {
     const content = document.createElement('div');
     content.className = 'fv-swipe-content';
 
-    // Move original item into content wrapper.
-    content.appendChild(original);
+    // Build row structure first.
     row.appendChild(actions);
     row.appendChild(content);
 
-    // Replace original in DOM.
+    // IMPORTANT FIX:
+    // Replace the original element in the DOM with our new row
+    // *before* we move the original into the content wrapper.
     parent.replaceChild(row, original);
+
+    // Now move the original item into the content wrapper.
+    content.appendChild(original);
 
     // Keep references.
     const rowState = {
@@ -322,4 +333,6 @@ export function initSwipeList(rootSelectorOrEl, options = {}) {
       closeOpenRow(null);
     }
   });
+
+  console.log(`fv-swipe-list: initialized ${rows.length} row(s)`);
 }
