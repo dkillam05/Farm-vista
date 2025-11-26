@@ -51,7 +51,8 @@
       border-radius:18px;
       background:var(--surface);
       box-shadow:var(--shadow,0 12px 28px rgba(0,0,0,.12));
-      overflow:hidden;
+      /* allow dropdowns to extend past the card */
+      overflow:visible;
     }
 
     .hero-head{
@@ -312,7 +313,8 @@
       box-shadow:var(--combo-shadow);
       padding:8px;
       display:none;
-      z-index:9999;
+      /* let footer sit on top of long dropdowns */
+      z-index:10;
     }
     .combo-panel.show{
       display:block;
@@ -397,6 +399,7 @@
       gap:4px;
       font-size:0.9rem;
       touch-action:pan-y;
+      position:relative;
     }
     .field-card-top{
       display:flex;
@@ -421,6 +424,39 @@
       gap:6px;
     }
 
+    /* Mobile swipe actions */
+    .field-card-mobile-actions{
+      position:absolute;
+      right:8px;
+      top:50%;
+      transform:translateY(-50%);
+      display:none;
+      gap:8px;
+    }
+    .field-card-mobile-actions button{
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:none;
+      display:grid;
+      place-items:center;
+      background:var(--surface);
+      box-shadow:0 2px 6px rgba(0,0,0,.18);
+      padding:0;
+      cursor:pointer;
+    }
+    .field-card-mobile-actions .icon-trash{
+      color:#b3261e;
+    }
+    .field-card-mobile-actions .icon-check{
+      color:#2F6C3C;
+    }
+    .field-card-mobile-actions svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
     .fields-actions{
       margin-top:4px;
       display:flex;
@@ -433,6 +469,16 @@
       font-size:0.78rem;
       color:var(--muted,#67706B);
       margin-top:4px;
+    }
+
+    /* Phone behavior: hide desktop buttons, show swipe icons */
+    @media (max-width: 720px){
+      .field-card-actions{
+        display:none;
+      }
+      .field-card.show-mobile-actions .field-card-mobile-actions{
+        display:flex;
+      }
     }
 
     .toast{
@@ -487,7 +533,8 @@
       COLLECTION_TRIALS: 'fieldTrials',
       COLLECTION_FARMS:  'farms',
       COLLECTION_FIELDS: 'fields',
-      RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html'
+      RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html',
+      YIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield.html'
     };
 
     const STATE = {
@@ -517,8 +564,9 @@
     let trialAcresInput, trialAcresHelp, notesInput, micBtn;
     let existingListEl, pendingListEl;
 
-    // for "tap again to discard" navigation
+    // for "tap again" behaviors
     let lastNavTime = 0;
+    let lastMobileRemoveTime = 0;
 
     /* ------------------ DIAGNOSTIC HELPER ------------------ */
     function diag(label, payload){
@@ -841,9 +889,15 @@
       fieldCombo.setItems(items);
     }
 
-    // ------------------- REMOVE HELPERS + SWIPE -------------------
+    // ------------------- MOBILE SWIPE HELPERS -------------------
 
-    function wireSwipeToDelete(cardEl, type, idx){
+    function closeAllMobileActions(exceptCard=null){
+      document.querySelectorAll('.field-card.show-mobile-actions').forEach(el=>{
+        if(el!==exceptCard) el.classList.remove('show-mobile-actions');
+      });
+    }
+
+    function wireSwipeActions(cardEl){
       if(!cardEl) return;
       let startX=0, startY=0, dx=0, dy=0, active=false;
 
@@ -866,15 +920,17 @@
       cardEl.addEventListener('touchend', ()=>{
         if(!active) return;
         active=false;
-        // swipe left, mostly horizontal, threshold ~40px
-        if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && dx < 0){
-          if(type==='existing') removeExistingField(idx);
-          else removePendingField(idx);
+        // swipe RIGHT, mostly horizontal, threshold ~40px
+        if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && dx > 0){
+          closeAllMobileActions(cardEl);
+          cardEl.classList.toggle('show-mobile-actions');
         }
       });
 
       cardEl.addEventListener('touchcancel', ()=>{ active=false; });
     }
+
+    // ------------------- REMOVE HELPERS -------------------
 
     function removePendingField(idx){
       const row = STATE.pendingFields[idx];
@@ -907,6 +963,38 @@
       }
     }
 
+    // mobile-only remove with "Are you sure?" toast
+    function handleMobileRemove(type, idx){
+      const now = Date.now();
+      if(now - lastMobileRemoveTime > 2500){
+        lastMobileRemoveTime = now;
+        showToast("Are you sure? Tap the trash again to remove.");
+        return;
+      }
+      lastMobileRemoveTime = 0;
+      if(type === 'existing'){
+        removeExistingField(idx);
+      }else{
+        removePendingField(idx);
+      }
+    }
+
+    // ------------------- YIELD NAV HELPERS -------------------
+
+    function openYieldForExisting(idx){
+      const row = STATE.existingFields[idx];
+      if(!row) return;
+      const trialId = STATE.trialId || '';
+      const fieldDocId = row.docId || '';
+      const url = `${CONFIG.YIELD_URL}?trialId=${encodeURIComponent(trialId)}&fieldDocId=${encodeURIComponent(fieldDocId)}`;
+      window.location.href = url;
+    }
+
+    function openYieldForPending(){
+      // Pending fields are not saved yet – avoid sending them to yield entry
+      showToast("Field Added - Not Save Yet. Save fields before adding yield.");
+    }
+
     function renderFieldLists(){
       if(!existingListEl || !pendingListEl) return;
 
@@ -934,18 +1022,46 @@
                 </div>
               </div>
               <div class="field-card-actions">
+                <button type="button" class="btn btn-small" data-existing-yield="${idx}">Add Yield</button>
                 <button type="button" class="btn btn-small btn-danger" data-existing-idx="${idx}">Remove</button>
               </div>
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
+            <div class="field-card-mobile-actions">
+              <button type="button" class="icon-trash" data-existing-mobile-remove="${idx}" aria-label="Remove field">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 3h6a1 1 0 0 1 1 1v2h3v2h-1v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8H4V6h3V4a1 1 0 0 1 1-1zm1 3h4V5h-4v1zm-1 4v8h2v-8H9zm4 0v8h2v-8h-2z"/>
+                </svg>
+              </button>
+              <button type="button" class="icon-check" data-existing-mobile-yield="${idx}" aria-label="Add yield">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9.5 17.5 5 13l1.4-1.4 3.1 3.09 8.1-8.09L19 8l-9.5 9.5z"/>
+                </svg>
+              </button>
+            </div>
           `;
 
           const removeBtn = div.querySelector('button[data-existing-idx]');
           if(removeBtn){
             removeBtn.addEventListener('click', ()=> removeExistingField(idx));
           }
-          wireSwipeToDelete(div, 'existing', idx);
 
+          const yieldBtn = div.querySelector('button[data-existing-yield]');
+          if(yieldBtn){
+            yieldBtn.addEventListener('click', ()=> openYieldForExisting(idx));
+          }
+
+          const mobileRemoveBtn = div.querySelector('button[data-existing-mobile-remove]');
+          if(mobileRemoveBtn){
+            mobileRemoveBtn.addEventListener('click', ()=> handleMobileRemove('existing', idx));
+          }
+
+          const mobileYieldBtn = div.querySelector('button[data-existing-mobile-yield]');
+          if(mobileYieldBtn){
+            mobileYieldBtn.addEventListener('click', ()=> openYieldForExisting(idx));
+          }
+
+          wireSwipeActions(div);
           frag.appendChild(div);
         });
 
@@ -975,17 +1091,45 @@
                 </div>
               </div>
               <div class="field-card-actions">
+                <button type="button" class="btn btn-small" data-pending-yield="${idx}">Add Yield</button>
                 <button type="button" class="btn btn-small btn-danger" data-pending-idx="${idx}">Remove</button>
               </div>
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
+            <div class="field-card-mobile-actions">
+              <button type="button" class="icon-trash" data-pending-mobile-remove="${idx}" aria-label="Remove field">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 3h6a1 1 0 0 1 1 1v2h3v2h-1v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8H4V6h3V4a1 1 0 0 1 1-1zm1 3h4V5h-4v1zm-1 4v8h2v-8H9zm4 0v8h2v-8h-2z"/>
+                </svg>
+              </button>
+              <button type="button" class="icon-check" data-pending-mobile-yield="${idx}" aria-label="Add yield">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9.5 17.5 5 13l1.4-1.4 3.1 3.09 8.1-8.09L19 8l-9.5 9.5z"/>
+                </svg>
+              </button>
+            </div>
           `;
           const removeBtn=div.querySelector('button[data-pending-idx]');
           if(removeBtn){
             removeBtn.addEventListener('click',()=> removePendingField(idx));
           }
-          wireSwipeToDelete(div, 'pending', idx);
 
+          const yieldBtn = div.querySelector('button[data-pending-yield]');
+          if(yieldBtn){
+            yieldBtn.addEventListener('click', ()=> openYieldForPending());
+          }
+
+          const mobileRemoveBtn = div.querySelector('button[data-pending-mobile-remove]');
+          if(mobileRemoveBtn){
+            mobileRemoveBtn.addEventListener('click', ()=> handleMobileRemove('pending', idx));
+          }
+
+          const mobileYieldBtn = div.querySelector('button[data-pending-mobile-yield]');
+          if(mobileYieldBtn){
+            mobileYieldBtn.addEventListener('click', ()=> openYieldForPending());
+          }
+
+          wireSwipeActions(div);
           pendingListEl.appendChild(div);
         });
       }else{
@@ -1056,7 +1200,10 @@
         notesLen: notes.length
       });
       renderFieldLists();
-      showToast("Field added to this trial. Remember to Save Fields at the bottom when you’re done.");
+
+      // *** UPDATED TOAST TEXT PER YOUR REQUEST ***
+      showToast("Field Added - Not Save Yet");
+
       STATE.selectedFarm=null;
       STATE.selectedField=null;
       STATE.selectedFieldMaxAcres=null;
@@ -1407,7 +1554,7 @@
           <div id="existingFieldList"></div>
           <div id="pendingFieldList"></div>
           <div class="fields-swipe-hint">
-            On a phone, swipe left on a field card to remove it. On desktop, use the Remove button.
+            On a phone, swipe right on a field card to reveal Remove and Add Yield icons. On desktop, use the buttons.
           </div>
         </div>
         <div class="fields-actions">
