@@ -401,6 +401,7 @@
       display:grid;
       grid-template-columns:repeat(3, minmax(0,1fr));
       gap:8px;
+      align-items:flex-end;
     }
     @media (max-width:640px){
       .yield-block-grid{
@@ -412,6 +413,7 @@
       display:grid;
       grid-template-columns:repeat(2, minmax(0,1fr));
       gap:10px;
+      align-items:stretch;
     }
     @media (max-width:640px){
       .yield-block-two-col{
@@ -906,8 +908,11 @@
         card.className = 'yield-block-card';
 
         if(block.type === 'combine'){
-          const check = block.check || { acres:'', moisture:'', poundsRaw:'' };
-          const trial = block.trial || { acres:'', moisture:'', poundsRaw:'' };
+          block.check = block.check || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
+          block.trial = block.trial || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
+
+          const check = block.check;
+          const trial = block.trial;
 
           card.innerHTML = `
             <div class="yield-block-head">
@@ -980,42 +985,36 @@
             });
           }
 
-          const inputs = {
-            'check-acres':   v => { block.check.acres    = sanitizeDecimal(v,2); },
-            'check-moisture':v => { block.check.moisture = sanitizeDecimal(v,2); },
-            'check-pounds':  v => {
-              const digits = v.replace(/[^\d]/g,'');
-              block.check.poundsRaw = digits;
-              return formatPounds(digits);
-            },
-            'trial-acres':   v => { block.trial.acres    = sanitizeDecimal(v,2); },
-            'trial-moisture':v => { block.trial.moisture = sanitizeDecimal(v,2); },
-            'trial-pounds':  v => {
-              const digits = v.replace(/[^\d]/g,'');
-              block.trial.poundsRaw = digits;
-              return formatPounds(digits);
-            }
-          };
-
-          Object.keys(inputs).forEach(role => {
+          const wireDecimal = (role, sideKey, prop) => {
             const el = card.querySelector(`[data-role="${role}"]`);
             if(!el) return;
-            el.addEventListener('input', e=>{
-              const handler = inputs[role];
-              let val = e.target.value;
-              const ret = handler(val);
-              if(ret !== undefined){
-                e.target.value = ret;
-              }else{
-                // for decimals, push sanitized value back
-                if(role.includes('acres') || role.includes('moisture')){
-                  e.target.value = handler(e.target.value);
-                }
-              }
+            el.addEventListener('input', e => {
+              const cleaned = sanitizeDecimal(e.target.value, 2);
+              block[sideKey][prop] = cleaned;
+              e.target.value = cleaned;
               recalcCombine(block, card);
-              renderFieldList(); // refresh summary line
+              renderFieldList();
             });
-          });
+          };
+
+          const wirePounds = (role, sideKey) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              const digits = e.target.value.replace(/[^\d]/g,'');
+              block[sideKey].poundsRaw = digits;
+              e.target.value = formatPounds(digits);
+              recalcCombine(block, card);
+              renderFieldList();
+            });
+          };
+
+          wireDecimal('check-acres', 'check', 'acres');
+          wireDecimal('check-moisture', 'check', 'moisture');
+          wireDecimal('trial-acres', 'trial', 'acres');
+          wireDecimal('trial-moisture', 'trial', 'moisture');
+          wirePounds('check-pounds', 'check');
+          wirePounds('trial-pounds', 'trial');
 
           // Initial calc
           recalcCombine(block, card);
@@ -1136,11 +1135,43 @@
       renderFieldList();
     }
 
+    function validateBlocksForField(fieldId){
+      const blocks = STATE.yieldData[fieldId] || [];
+      if(!blocks.length){
+        showError('Add at least one trial block or close without saving.');
+        return false;
+      }
+
+      let ok = true;
+      for(const block of blocks){
+        if(block.type !== 'combine') continue;
+        const c = block.check || {};
+        const t = block.trial || {};
+        const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+        const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+        if(!(hasC && hasT)){
+          ok = false;
+          break;
+        }
+      }
+
+      if(!ok){
+        showError('Each trial block must have valid acres, moisture, and pounds for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
+      }
+
+      return ok;
+    }
+
     async function saveYieldForSelectedField(){
       if(!STATE.selectedField || !STATE.db || !STATE.trialId) return;
       const fieldId = STATE.selectedField.docId;
       const key = fieldId;
       const blocks = STATE.yieldData[key] || [];
+
+      // 1) Validate all blocks before touching Firestore
+      if(!validateBlocksForField(fieldId)){
+        return;
+      }
 
       try{
         showError('');
@@ -1187,7 +1218,11 @@
         renderFieldList();
       }catch(err){
         console.error('Error saving yield data:', err);
-        showError('Unable to save yield data. Please try again.');
+        if(err && (err.code === 'permission-denied' || err.code === 7)){
+          showError('Firestore rules are blocking writes to yield data (permission denied). Your blocks stay on this page but are not saved in the cloud yet.');
+        }else{
+          showError('Unable to save yield data. Please try again.');
+        }
       }
     }
 
@@ -1225,7 +1260,11 @@
       if(btnModalOk){
         btnModalOk.addEventListener('click', async () => {
           await saveYieldForSelectedField();
-          closeYieldModal();
+          // Only close if there isn't a validation or rules error
+          const hasError = errBox && errBox.classList.contains('show');
+          if(!hasError){
+            closeYieldModal();
+          }
         });
       }
       if(modalBackdrop){
