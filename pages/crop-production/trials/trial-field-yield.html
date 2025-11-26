@@ -226,7 +226,7 @@
       color:var(--muted,#67706B);
     }
     .field-card-note{
-      font-size:0.85rem;
+      font-size:0.83rem;
       color:var(--muted,#67706B);
     }
 
@@ -362,7 +362,7 @@
       background:var(--card-surface,var(--surface));
       padding:10px 12px;
       display:grid;
-      gap:8px;
+      gap:10px;
       font-size:0.88rem;
     }
     .yield-block-head{
@@ -381,11 +381,20 @@
     .yield-block-remove{
       border:none;
       background:transparent;
-      color:#b3261e;
-      font-size:1.1rem;
+      color:var(--muted,#67706B);
+      font-size:0;
       line-height:1;
       cursor:pointer;
-      padding:2px 4px;
+      padding:4px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .yield-block-remove svg{
+      width:18px;
+      height:18px;
+      display:block;
     }
 
     .yield-block-grid{
@@ -397,6 +406,32 @@
       .yield-block-grid{
         grid-template-columns:1fr;
       }
+    }
+
+    .yield-block-two-col{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+    }
+    @media (max-width:640px){
+      .yield-block-two-col{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .yield-subcard{
+      border-radius:10px;
+      border:1px dashed var(--border);
+      padding:8px 10px;
+      display:grid;
+      gap:6px;
+    }
+    .yield-subcard-title{
+      font-size:0.8rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      color:var(--muted,#67706B);
     }
 
     .field-mini{
@@ -466,7 +501,8 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, getDoc, doc
+      collection, getDocs, getDoc, doc,
+      addDoc, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -484,8 +520,7 @@
       trial: null,
       fields: [],
       selectedField: null,
-      // Local-only yield data:
-      // { [fieldDocId]: [ { id, type, acres, moisture, poundsRaw, yieldBuAc } ] }
+      // yieldData: { [fieldDocId]: [ { id, type, check:{...}, trial:{...} } ] }
       yieldData: {}
     };
 
@@ -602,6 +637,196 @@
       }
     }
 
+    async function loadAllYieldBlocks(){
+      if(!STATE.trialId || !STATE.fields.length) return;
+      try{
+        for(const row of STATE.fields){
+          const path = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields/${row.docId}/yieldBlocks`;
+          const snap = await getDocs(collection(STATE.db, path));
+          if(snap.empty) continue;
+          const blocks = [];
+          snap.forEach(ds => {
+            const d = ds.data() || {};
+            const check = d.check || {};
+            const trial = d.trial || {};
+            blocks.push({
+              id: ds.id,
+              type: d.blockType || 'combine',
+              check: {
+                acres: check.acres != null ? String(check.acres) : '',
+                moisture: check.moisture != null ? String(check.moisture) : '',
+                poundsRaw: check.pounds != null ? String(check.pounds) : '',
+                yieldBuAc: check.yieldBuAc != null ? Number(check.yieldBuAc) : null
+              },
+              trial: {
+                acres: trial.acres != null ? String(trial.acres) : '',
+                moisture: trial.moisture != null ? String(trial.moisture) : '',
+                poundsRaw: trial.pounds != null ? String(trial.pounds) : '',
+                yieldBuAc: trial.yieldBuAc != null ? Number(trial.yieldBuAc) : null
+              }
+            });
+          });
+          if(blocks.length){
+            STATE.yieldData[row.docId] = blocks;
+          }
+        }
+      }catch(err){
+        console.error("Error loading yield blocks:", err);
+      }
+    }
+
+    function sanitizeDecimal(value, maxDecimals=2){
+      if(!value) return '';
+      let v = String(value).replace(/[^0-9.]/g,'');
+      const parts = v.split('.');
+      if(parts.length > 2){
+        v = parts[0] + '.' + parts.slice(1).join('');
+      }
+      let [intPart, decPart=''] = v.split('.');
+      if(maxDecimals >= 0 && decPart.length > maxDecimals){
+        decPart = decPart.slice(0, maxDecimals);
+      }
+      if(intPart === '' && decPart !== ''){
+        intPart = '0';
+      }
+      return decPart ? `${intPart}.${decPart}` : intPart;
+    }
+
+    function formatPounds(digits){
+      if(!digits) return '';
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    function getCropKind(){
+      const c = (STATE.trial?.crop || "").toLowerCase();
+      if(c.includes("soy")) return "soy";
+      if(c.includes("corn")) return "corn";
+      return "other";
+    }
+
+    function recalcCombine(block, card){
+      const cropKind = getCropKind();
+      const stdWeight = cropKind === 'soy' ? 60 : 56;
+      const stdMoist  = cropKind === 'soy' ? 13 : 15;
+
+      const yields = { check: null, trial: null };
+      const errors = [];
+
+      ['check','trial'].forEach(side => {
+        const data = block[side] || {};
+        const label = side === 'check' ? 'Check' : 'Trial';
+
+        let acresInput = null;
+        let moistInput = null;
+        let poundsInput = null;
+
+        if(card){
+          acresInput  = card.querySelector(`[data-role="${side}-acres"]`);
+          moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
+          poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
+          [acresInput, moistInput, poundsInput].forEach(el=>{
+            if(el) el.classList.remove('input-error');
+          });
+        }
+
+        const acres    = data.acres !== '' && data.acres != null ? Number(data.acres) : NaN;
+        const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
+        const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
+
+        data.yieldBuAc = null;
+
+        if(!acres && !moisture && !pounds){
+          return; // side empty
+        }
+
+        if(!acres || !moisture || !pounds){
+          errors.push(`${label}: enter acres, moisture, and pounds.`);
+          return;
+        }
+
+        if(acres <= 0){
+          errors.push(`${label}: acres must be greater than 0.`);
+          if(acresInput) acresInput.classList.add('input-error');
+        }
+        if(moisture < 5 || moisture > 40){
+          errors.push(`${label}: moisture must be between 5% and 40%.`);
+          if(moistInput) moistInput.classList.add('input-error');
+        }
+        if(pounds <= 0){
+          errors.push(`${label}: pounds of grain must be greater than 0.`);
+          if(poundsInput) poundsInput.classList.add('input-error');
+        }
+
+        if(errors.length) return;
+
+        const dryMatter = pounds * (100 - moisture) / 100;
+        const stdWetPounds = dryMatter / (1 - stdMoist/100);
+        const bushels = stdWetPounds / stdWeight;
+        const yld = bushels / acres;
+
+        data.yieldBuAc = yld;
+        yields[side] = yld;
+
+        if(cropKind === 'corn' && (yld < 50 || yld > 400)){
+          errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
+        }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
+          errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
+        }
+      });
+
+      if(card){
+        const yieldTextEl = card.querySelector('[data-role="yieldText"]');
+        const errorTextEl = card.querySelector('[data-role="errorText"]');
+
+        if(yieldTextEl){
+          let txt = '';
+          if(yields.check == null && yields.trial == null){
+            txt = 'Enter acres, moisture, and pounds for Check and/or Trial.';
+          }else{
+            const parts = [];
+            if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
+            if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
+            if(yields.check != null && yields.trial != null){
+              const diff = yields.trial - yields.check;
+              const sign = diff >= 0 ? '+' : '−';
+              parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+            }
+            txt = parts.join('  |  ');
+          }
+          yieldTextEl.textContent = txt;
+        }
+        if(errorTextEl){
+          errorTextEl.textContent = errors.join(' ');
+        }
+      }
+
+      return { yields, errors };
+    }
+
+    function getFieldYieldSummary(fieldDocId){
+      const blocks = STATE.yieldData[fieldDocId] || [];
+      if(!blocks.length) return '';
+
+      const lines = [];
+      blocks.forEach((block, idx)=>{
+        const c = block.check?.yieldBuAc;
+        const t = block.trial?.yieldBuAc;
+        if(c == null && t == null) return;
+
+        const parts = [];
+        if(c != null) parts.push(`Check ${c.toFixed(1)} bu/ac`);
+        if(t != null) parts.push(`Trial ${t.toFixed(1)} bu/ac`);
+        if(c != null && t != null){
+          const diff = t - c;
+          const sign = diff >= 0 ? '+' : '−';
+          parts.push(`Diff ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+        }
+        lines.push(`Block ${idx+1}: ${parts.join(' • ')}`);
+      });
+
+      return lines.join('<br>');
+    }
+
     function renderFieldList(){
       if(!fieldListEl) return;
       fieldListEl.innerHTML = '';
@@ -630,6 +855,7 @@
         div.className = 'field-card';
 
         const acresText = row.trialAcres != null ? `${row.trialAcres.toFixed(2)} ac` : '—';
+        const summaryHtml = getFieldYieldSummary(row.docId);
 
         div.innerHTML = `
           <div class="field-card-top">
@@ -640,7 +866,11 @@
                 ${row.tillable != null ? ` (Max tillable: ${row.tillable})` : ''}
               </div>
               ${blockCount
-                ? `<div class="field-card-sub">${blockCount} trial block${blockCount===1?'':'s'} added (local)</div>`
+                ? `<div class="field-card-sub">${blockCount} trial block${blockCount===1?'':'s'} added</div>`
+                : ''
+              }
+              ${summaryHtml
+                ? `<div class="field-card-note">${summaryHtml}</div>`
                 : ''
               }
             </div>
@@ -654,97 +884,6 @@
         div.addEventListener('click', () => openYieldModal(row));
         fieldListEl.appendChild(div);
       });
-    }
-
-    function formatPounds(digits){
-      if(!digits) return '';
-      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    }
-
-    function getCropKind(){
-      const c = (STATE.trial?.crop || "").toLowerCase();
-      if(c.includes("soy")) return "soy";
-      if(c.includes("corn")) return "corn";
-      return "other";
-    }
-
-    function recalcCombine(block, card){
-      const acresInput   = card.querySelector('[data-role="acres"]');
-      const moistInput   = card.querySelector('[data-role="moisture"]');
-      const poundsInput  = card.querySelector('[data-role="pounds"]');
-      const yieldTextEl  = card.querySelector('[data-role="yieldText"]');
-      const errorTextEl  = card.querySelector('[data-role="errorText"]');
-
-      [acresInput, moistInput, poundsInput].forEach(el=>{
-        if(el) el.classList.remove('input-error');
-      });
-      if(yieldTextEl) yieldTextEl.textContent = '';
-      if(errorTextEl) errorTextEl.textContent = '';
-
-      const acres = block.acres != null && block.acres !== '' ? Number(block.acres) : NaN;
-      const moisture = block.moisture != null && block.moisture !== '' ? Number(block.moisture) : NaN;
-      const pounds = block.poundsRaw ? Number(block.poundsRaw) : NaN;
-
-      if(!acres || !moisture || !pounds){
-        if(yieldTextEl) yieldTextEl.textContent = 'Enter acres, moisture, and pounds to estimate yield.';
-        return;
-      }
-
-      let error = '';
-
-      if(acres <= 0){
-        error = 'Acres must be greater than 0.';
-        if(acresInput) acresInput.classList.add('input-error');
-      }
-
-      if(moisture < 5 || moisture > 40){
-        if(error) error += ' ';
-        error += 'Moisture must be between 5% and 40%.';
-        if(moistInput) moistInput.classList.add('input-error');
-      }
-
-      if(pounds <= 0){
-        if(error) error += ' ';
-        error += 'Pounds of grain must be greater than 0.';
-        if(poundsInput) poundsInput.classList.add('input-error');
-      }
-
-      if(error){
-        if(errorTextEl) errorTextEl.textContent = error;
-        return;
-      }
-
-      const cropKind = getCropKind();
-      const stdWeight = cropKind === 'soy' ? 60 : 56;
-      const stdMoist  = cropKind === 'soy' ? 13 : 15;
-
-      // Dry to 0% moisture, then re-wet to standard moisture.
-      const dryMatter = pounds * (100 - moisture) / 100;
-      const stdWetPounds = dryMatter / (1 - stdMoist/100);
-      const bushels = stdWetPounds / stdWeight;
-      const yld = bushels / acres;
-
-      block.yieldBuAc = yld;
-
-      if(yieldTextEl){
-        yieldTextEl.textContent = `Approx. yield (to ${stdMoist}%): ${yld.toFixed(1)} bu/ac`;
-      }
-
-      // Range checks
-      let rangeError = '';
-      if(cropKind === 'corn'){
-        if(yld < 50 || yld > 400){
-          rangeError = 'Yield seems out of range for corn (50–400 bu/ac). Please double-check values.';
-        }
-      }else if(cropKind === 'soy'){
-        if(yld < 20 || yld > 150){
-          rangeError = 'Yield seems out of range for soybeans (20–150 bu/ac). Please double-check values.';
-        }
-      }
-
-      if(rangeError && errorTextEl){
-        errorTextEl.textContent = rangeError;
-      }
     }
 
     function renderBlocksForField(fieldRow){
@@ -767,32 +906,65 @@
         card.className = 'yield-block-card';
 
         if(block.type === 'combine'){
+          const check = block.check || { acres:'', moisture:'', poundsRaw:'' };
+          const trial = block.trial || { acres:'', moisture:'', poundsRaw:'' };
+
           card.innerHTML = `
             <div class="yield-block-head">
               <div>
                 <div class="yield-block-title">Block ${idx+1} – Combine Yield Data</div>
                 <div class="yield-block-sub">
-                  Trial block only. Acres, moisture, and pounds of grain.
+                  Each block tracks both Check and Trial passes for this field.
                 </div>
               </div>
-              <button type="button" class="yield-block-remove" aria-label="Remove block">✕</button>
+              <button type="button" class="yield-block-remove" aria-label="Remove block">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+                </svg>
+              </button>
             </div>
-            <div class="yield-block-grid">
-              <label class="field-mini">
-                <span>Acres</span>
-                <input type="number" step="0.01" class="input" data-role="acres"
-                  value="${block.acres ?? ''}" />
-              </label>
-              <label class="field-mini">
-                <span>Moisture %</span>
-                <input type="number" step="0.1" class="input" data-role="moisture"
-                  value="${block.moisture ?? ''}" />
-              </label>
-              <label class="field-mini">
-                <span>Pounds of grain</span>
-                <input type="text" inputmode="numeric" class="input" data-role="pounds"
-                  value="${formatPounds(block.poundsRaw || '')}" />
-              </label>
+            <div class="yield-block-two-col">
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Check</div>
+                <div class="yield-block-grid">
+                  <label class="field-mini">
+                    <span>Acres</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="check-acres"
+                      value="${check.acres ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="check-moisture"
+                      value="${check.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Pounds of grain</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="check-pounds"
+                      value="${formatPounds(check.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Trial</div>
+                <div class="yield-block-grid">
+                  <label class="field-mini">
+                    <span>Acres</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="trial-acres"
+                      value="${trial.acres ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="trial-moisture"
+                      value="${trial.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Pounds of grain</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="trial-pounds"
+                      value="${formatPounds(trial.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
             </div>
             <div class="yield-block-footer">
               <span class="yield-block-yield" data-role="yieldText"></span>
@@ -800,31 +972,7 @@
             </div>
           `;
 
-          const acresInput = card.querySelector('[data-role="acres"]');
-          const moistInput = card.querySelector('[data-role="moisture"]');
-          const poundsInput = card.querySelector('[data-role="pounds"]');
           const removeBtn = card.querySelector('.yield-block-remove');
-
-          if(acresInput){
-            acresInput.addEventListener('input', e=>{
-              block.acres = e.target.value;
-              recalcCombine(block, card);
-            });
-          }
-          if(moistInput){
-            moistInput.addEventListener('input', e=>{
-              block.moisture = e.target.value;
-              recalcCombine(block, card);
-            });
-          }
-          if(poundsInput){
-            poundsInput.addEventListener('input', e=>{
-              const digits = e.target.value.replace(/[^\d]/g,'');
-              block.poundsRaw = digits;
-              e.target.value = formatPounds(digits);
-              recalcCombine(block, card);
-            });
-          }
           if(removeBtn){
             removeBtn.addEventListener('click', (ev)=>{
               ev.stopPropagation();
@@ -832,6 +980,44 @@
             });
           }
 
+          const inputs = {
+            'check-acres':   v => { block.check.acres    = sanitizeDecimal(v,2); },
+            'check-moisture':v => { block.check.moisture = sanitizeDecimal(v,2); },
+            'check-pounds':  v => {
+              const digits = v.replace(/[^\d]/g,'');
+              block.check.poundsRaw = digits;
+              return formatPounds(digits);
+            },
+            'trial-acres':   v => { block.trial.acres    = sanitizeDecimal(v,2); },
+            'trial-moisture':v => { block.trial.moisture = sanitizeDecimal(v,2); },
+            'trial-pounds':  v => {
+              const digits = v.replace(/[^\d]/g,'');
+              block.trial.poundsRaw = digits;
+              return formatPounds(digits);
+            }
+          };
+
+          Object.keys(inputs).forEach(role => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e=>{
+              const handler = inputs[role];
+              let val = e.target.value;
+              const ret = handler(val);
+              if(ret !== undefined){
+                e.target.value = ret;
+              }else{
+                // for decimals, push sanitized value back
+                if(role.includes('acres') || role.includes('moisture')){
+                  e.target.value = handler(e.target.value);
+                }
+              }
+              recalcCombine(block, card);
+              renderFieldList(); // refresh summary line
+            });
+          });
+
+          // Initial calc
           recalcCombine(block, card);
 
         }else if(block.type === 'weight'){
@@ -843,7 +1029,11 @@
                   This will use the Combine Yield Check calculator you already built. We’ll wire the fields in the next step.
                 </div>
               </div>
-              <button type="button" class="yield-block-remove" aria-label="Remove block">✕</button>
+              <button type="button" class="yield-block-remove" aria-label="Remove block">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+                </svg>
+              </button>
             </div>
           `;
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -890,8 +1080,8 @@
       yieldSummaryEl.innerHTML = `
         <div>${parts.join('<br>')}</div>
         <div class="muted">
-          Add one or more trial blocks for this field. Each block can be based on
-          <strong>Combine Yield Data</strong> or <strong>Weight Data</strong>.
+          Add one or more trial blocks for this field. Each block tracks <strong>Check</strong> vs
+          <strong>Trial</strong> yields based on combine data.
         </div>
       `;
 
@@ -929,13 +1119,76 @@
       STATE.yieldData[key].push({
         id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
         type,
-        acres: '',
-        moisture: '',
-        poundsRaw: '',
-        yieldBuAc: null
+        check: {
+          acres: '',
+          moisture: '',
+          poundsRaw: '',
+          yieldBuAc: null
+        },
+        trial: {
+          acres: '',
+          moisture: '',
+          poundsRaw: '',
+          yieldBuAc: null
+        }
       });
       renderBlocksForField(STATE.selectedField);
       renderFieldList();
+    }
+
+    async function saveYieldForSelectedField(){
+      if(!STATE.selectedField || !STATE.db || !STATE.trialId) return;
+      const fieldId = STATE.selectedField.docId;
+      const key = fieldId;
+      const blocks = STATE.yieldData[key] || [];
+
+      try{
+        showError('');
+        const colPath = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields/${fieldId}/yieldBlocks`;
+        const colRef = collection(STATE.db, colPath);
+
+        // wipe existing
+        const existing = await getDocs(colRef);
+        const dels = [];
+        existing.forEach(ds => {
+          dels.push(deleteDoc(ds.ref));
+        });
+        if(dels.length){
+          await Promise.all(dels);
+        }
+
+        // write current blocks
+        const writes = [];
+        blocks.forEach((block, index)=>{
+          const data = {
+            blockType: block.type || 'combine',
+            order: index,
+            check: {
+              acres: block.check?.acres ? Number(block.check.acres) : null,
+              moisture: block.check?.moisture ? Number(block.check.moisture) : null,
+              pounds: block.check?.poundsRaw ? Number(block.check.poundsRaw) : null,
+              yieldBuAc: block.check?.yieldBuAc != null ? Number(block.check.yieldBuAc) : null
+            },
+            trial: {
+              acres: block.trial?.acres ? Number(block.trial.acres) : null,
+              moisture: block.trial?.moisture ? Number(block.trial.moisture) : null,
+              pounds: block.trial?.poundsRaw ? Number(block.trial.poundsRaw) : null,
+              yieldBuAc: block.trial?.yieldBuAc != null ? Number(block.trial.yieldBuAc) : null
+            }
+          };
+          writes.push(addDoc(colRef, data));
+        });
+
+        if(writes.length){
+          await Promise.all(writes);
+        }
+
+        showToast('Yield data saved for this field.');
+        renderFieldList();
+      }catch(err){
+        console.error('Error saving yield data:', err);
+        showError('Unable to save yield data. Please try again.');
+      }
     }
 
     (async function boot(){
@@ -970,7 +1223,10 @@
         });
       }
       if(btnModalOk){
-        btnModalOk.addEventListener('click', closeYieldModal);
+        btnModalOk.addEventListener('click', async () => {
+          await saveYieldForSelectedField();
+          closeYieldModal();
+        });
       }
       if(modalBackdrop){
         modalBackdrop.addEventListener('click', (e)=>{
@@ -1024,6 +1280,8 @@
 
       await loadTrial();
       await loadFields();
+      await loadAllYieldBlocks();
+      renderFieldList();
 
       if(STATE.fieldDocId && STATE.fields.length){
         const row = STATE.fields.find(f => f.docId === STATE.fieldDocId);
@@ -1045,7 +1303,7 @@
             <h1>Trial Field Yields</h1>
             <p class="muted">
               Review the fields in this trial and tap one to open a yield pop-up. This version dries corn to 15% and
-              soybeans to 13% and lets you build trial blocks without saving yet.
+              soybeans to 13% and lets you build trial blocks, compare Check vs Trial, and save yield data for each field.
             </p>
           </div>
         </header>
@@ -1120,7 +1378,7 @@
         <div id="yieldBlocksWrap"></div>
       </div>
       <div class="modal-footer">
-        <button id="btnYieldOk" type="button" class="btn btn-primary">OK</button>
+        <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close</button>
       </div>
     </div>
   </div>
