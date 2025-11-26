@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/fv-swipe-list.js
-Rev: 2025-11-26b
+Rev: 2025-11-26c
 
 Reusable swipeable-list helper for FarmVista.
 
@@ -160,16 +160,14 @@ export function initSwipeList(rootSelectorOrEl, options = {}) {
     const content = document.createElement('div');
     content.className = 'fv-swipe-content';
 
-    // Build row structure first.
+    // Build row structure.
     row.appendChild(actions);
     row.appendChild(content);
 
-    // IMPORTANT FIX:
-    // Replace the original element in the DOM with our new row
-    // *before* we move the original into the content wrapper.
-    parent.replaceChild(row, original);
-
-    // Now move the original item into the content wrapper.
+    // ✅ SAFE WRAP PATTERN (no replaceChild)
+    // 1) Insert the new row before the original item.
+    // 2) Move the original item inside the content wrapper.
+    parent.insertBefore(row, original);
     content.appendChild(original);
 
     // Keep references.
