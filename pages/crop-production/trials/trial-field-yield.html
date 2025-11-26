@@ -81,7 +81,7 @@
       display:flex;
       flex-wrap:wrap;
       align-items:flex-start;
-      justify-content:space-between;
+      justify-content:flex-start;
       gap:10px 16px;
     }
 
@@ -101,10 +101,9 @@
       color:var(--muted,#67706B);
     }
 
-    .top-row-actions{
+    .top-row-actions-left{
       display:flex;
-      align-items:flex-end;
-      justify-content:flex-end;
+      justify-content:flex-start;
     }
 
     .btn{
@@ -265,7 +264,7 @@
       100%{opacity:0}
     }
 
-    /* Simple modal for yield pop-up */
+    /* Modal */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -379,6 +378,15 @@
       font-size:0.8rem;
       color:var(--muted,#67706B);
     }
+    .yield-block-remove{
+      border:none;
+      background:transparent;
+      color:#b3261e;
+      font-size:1.1rem;
+      line-height:1;
+      cursor:pointer;
+      padding:2px 4px;
+    }
 
     .yield-block-grid{
       display:grid;
@@ -476,7 +484,7 @@
       trial: null,
       fields: [],
       selectedField: null,
-      // yieldData is in-memory only for now:
+      // Local-only yield data:
       // { [fieldDocId]: [ { id, type, acres, moisture, poundsRaw, yieldBuAc } ] }
       yieldData: {}
     };
@@ -615,6 +623,9 @@
       fieldListEl.appendChild(label);
 
       STATE.fields.forEach((row) => {
+        const blocks = STATE.yieldData[row.docId] || [];
+        const blockCount = blocks.length;
+
         const div = document.createElement('div');
         div.className = 'field-card';
 
@@ -628,6 +639,10 @@
                 Trial acres: <strong>${acresText}</strong>
                 ${row.tillable != null ? ` (Max tillable: ${row.tillable})` : ''}
               </div>
+              ${blockCount
+                ? `<div class="field-card-sub">${blockCount} trial block${blockCount===1?'':'s'} added (local)</div>`
+                : ''
+              }
             </div>
             <div>
               <span class="btn btn-small">View / Add Yield</span>
@@ -648,8 +663,8 @@
 
     function getCropKind(){
       const c = (STATE.trial?.crop || "").toLowerCase();
-      if(c.includes("corn")) return "corn";
       if(c.includes("soy")) return "soy";
+      if(c.includes("corn")) return "corn";
       return "other";
     }
 
@@ -699,15 +714,20 @@
         return;
       }
 
-      // Simple approximate yield – we can refine later if needed.
       const cropKind = getCropKind();
       const stdWeight = cropKind === 'soy' ? 60 : 56;
-      const bushels = pounds / stdWeight;
+      const stdMoist  = cropKind === 'soy' ? 13 : 15;
+
+      // Dry to 0% moisture, then re-wet to standard moisture.
+      const dryMatter = pounds * (100 - moisture) / 100;
+      const stdWetPounds = dryMatter / (1 - stdMoist/100);
+      const bushels = stdWetPounds / stdWeight;
       const yld = bushels / acres;
+
       block.yieldBuAc = yld;
 
       if(yieldTextEl){
-        yieldTextEl.textContent = `Approx. yield: ${yld.toFixed(1)} bu/ac`;
+        yieldTextEl.textContent = `Approx. yield (to ${stdMoist}%): ${yld.toFixed(1)} bu/ac`;
       }
 
       // Range checks
@@ -755,6 +775,7 @@
                   Trial block only. Acres, moisture, and pounds of grain.
                 </div>
               </div>
+              <button type="button" class="yield-block-remove" aria-label="Remove block">✕</button>
             </div>
             <div class="yield-block-grid">
               <label class="field-mini">
@@ -782,6 +803,7 @@
           const acresInput = card.querySelector('[data-role="acres"]');
           const moistInput = card.querySelector('[data-role="moisture"]');
           const poundsInput = card.querySelector('[data-role="pounds"]');
+          const removeBtn = card.querySelector('.yield-block-remove');
 
           if(acresInput){
             acresInput.addEventListener('input', e=>{
@@ -803,8 +825,13 @@
               recalcCombine(block, card);
             });
           }
+          if(removeBtn){
+            removeBtn.addEventListener('click', (ev)=>{
+              ev.stopPropagation();
+              removeTrialBlock(fieldRow, idx);
+            });
+          }
 
-          // Initial calc if values already there
           recalcCombine(block, card);
 
         }else if(block.type === 'weight'){
@@ -816,12 +843,29 @@
                   This will use the Combine Yield Check calculator you already built. We’ll wire the fields in the next step.
                 </div>
               </div>
+              <button type="button" class="yield-block-remove" aria-label="Remove block">✕</button>
             </div>
           `;
+          const removeBtn = card.querySelector('.yield-block-remove');
+          if(removeBtn){
+            removeBtn.addEventListener('click', (ev)=>{
+              ev.stopPropagation();
+              removeTrialBlock(fieldRow, idx);
+            });
+          }
         }
 
         yieldBlocksWrap.appendChild(card);
       });
+    }
+
+    function removeTrialBlock(fieldRow, idx){
+      const key = fieldRow.docId;
+      const arr = STATE.yieldData[key];
+      if(!arr || !arr[idx]) return;
+      arr.splice(idx,1);
+      renderBlocksForField(fieldRow);
+      renderFieldList();
     }
 
     function openYieldModal(row){
@@ -851,7 +895,6 @@
         </div>
       `;
 
-      // Ensure yield blocks exist for this field
       const key = row.docId;
       if(!STATE.yieldData[key]){
         STATE.yieldData[key] = [];
@@ -892,6 +935,7 @@
         yieldBuAc: null
       });
       renderBlocksForField(STATE.selectedField);
+      renderFieldList();
     }
 
     (async function boot(){
@@ -981,8 +1025,6 @@
       await loadTrial();
       await loadFields();
 
-      // If we arrived from the Add Field page with a specific fieldDocId,
-      // auto-open that field's modal.
       if(STATE.fieldDocId && STATE.fields.length){
         const row = STATE.fields.find(f => f.docId === STATE.fieldDocId);
         if(row){
@@ -1002,14 +1044,20 @@
           <div>
             <h1>Trial Field Yields</h1>
             <p class="muted">
-              Review the fields in this trial and tap one to open a yield pop-up. This first version wires up
-              the layout and basic trial blocks; we’ll keep layering in the details.
+              Review the fields in this trial and tap one to open a yield pop-up. This version dries corn to 15% and
+              soybeans to 13% and lets you build trial blocks without saving yet.
             </p>
           </div>
         </header>
 
         <div class="body">
           <div id="errBox" class="error-box"></div>
+
+          <div class="top-row-actions-left">
+            <button id="btnBack" type="button" class="btn btn-quiet">
+              ← Back to Trials
+            </button>
+          </div>
 
           <div class="top-row">
             <div class="trial-summary">
@@ -1020,11 +1068,6 @@
               <div class="trial-summary-line" id="trialTypeLine"></div>
               <div class="trial-summary-line" id="trialTreatmentLine"></div>
               <div class="trial-summary-line" id="trialFieldCount"></div>
-            </div>
-            <div class="top-row-actions">
-              <button id="btnBack" type="button" class="btn btn-quiet">
-                ← Back to Trials
-              </button>
             </div>
           </div>
         </div>
