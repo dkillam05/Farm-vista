@@ -185,6 +185,73 @@
       color:#b00020;
       font-weight:700;
     }
+
+    .hidden{
+      display:none!important;
+    }
+
+    /* Seed trial type modal */
+    .seed-type-modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.45);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:99998;
+    }
+    .seed-type-modal-backdrop.show{
+      display:flex;
+    }
+    .seed-type-modal{
+      background:var(--surface);
+      border-radius:16px;
+      border:1px solid var(--border);
+      max-width:420px;
+      width:90%;
+      padding:18px 18px 14px;
+      box-shadow:var(--shadow,0 16px 40px rgba(0,0,0,.35));
+    }
+    .seed-type-modal h2{
+      margin:0 0 8px;
+      font-size:1.05rem;
+    }
+    .seed-type-modal p{
+      margin:0 0 12px;
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+    .seed-type-options{
+      display:grid;
+      gap:8px;
+      margin-bottom:10px;
+    }
+    .seed-type-option{
+      display:flex;
+      gap:8px;
+      align-items:flex-start;
+      padding:8px 9px;
+      border-radius:10px;
+      border:1px solid var(--border-subtle,rgba(0,0,0,0.06));
+      background:var(--card-surface,var(--surface));
+    }
+    .seed-type-option input[type="radio"]{
+      margin-top:2px;
+    }
+    .seed-type-option-label{
+      font-size:0.92rem;
+    }
+    .seed-type-modal-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:6px;
+    }
+    .seed-type-error{
+      margin-top:4px;
+      font-size:0.8rem;
+      color:#b00020;
+    }
   </style>
 </head>
 
@@ -211,6 +278,9 @@
               ← Back to Trials
             </a>
           </div>
+
+          <!-- Hidden seed trial type (Two products vs Multiple Hybrid) -->
+          <input type="hidden" id="seedTrialType" value=""/>
 
           <!-- Row 1: Crop year + crop -->
           <div class="row">
@@ -268,7 +338,7 @@
           </div>
 
           <!-- Row 3: Treatment product + check -->
-          <div class="row">
+          <div class="row" id="rowTreatmentCheck">
             <div class="field">
               <label for="treatmentProduct">Treatment Product</label>
               <input id="treatmentProduct" class="input" placeholder="Type treatment or product name"/>
@@ -302,7 +372,7 @@
 
           <!-- Bottom actions -->
           <div class="actions">
-            <button id="btnClear" class="btn" type="button">Clear / Back to Portal</button>
+            <button id="btnClear" class="btn" type="button">Cancel</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save Trial</button>
           </div>
         </div>
@@ -312,6 +382,33 @@
 
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Seed Type Modal -->
+  <div id="seedTypeModal" class="seed-type-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="seedTypeTitle">
+    <div class="seed-type-modal">
+      <h2 id="seedTypeTitle">What type of seed trial is this?</h2>
+      <p>Choose how this Seed Varieties trial is structured. We’ll use this later on the edit pages.</p>
+      <div class="seed-type-options">
+        <label class="seed-type-option">
+          <input type="radio" name="seedTrialChoice" value="Two products compared">
+          <div class="seed-type-option-label">
+            Two products compared
+          </div>
+        </label>
+        <label class="seed-type-option">
+          <input type="radio" name="seedTrialChoice" value="Multiple Hybrid Trial">
+          <div class="seed-type-option-label">
+            Multiple Hybrid Trial
+          </div>
+        </label>
+      </div>
+      <div id="seedTypeError" class="seed-type-error" hidden></div>
+      <div class="seed-type-modal-actions">
+        <button type="button" class="btn btn-ghost" id="seedTypeCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="seedTypeConfirm">Continue</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===========================
        FIREBASE WIRING
@@ -362,6 +459,45 @@
       sel.value = String(y);
     }
 
+    function applySeedTrialTypeUI(){
+      const trialType = $("trialType").value;
+      const seedType = $("seedTrialType").value;
+      const rowTC = $("rowTreatmentCheck");
+
+      if (trialType === "Seed Varieties" && seedType === "Multiple Hybrid Trial"){
+        // Hide treatment/check for multiple hybrid trials
+        rowTC.classList.add("hidden");
+        $("treatmentProduct").value = "";
+        $("check").value = "";
+      } else {
+        // All other cases: show the row
+        rowTC.classList.remove("hidden");
+      }
+    }
+
+    function openSeedTypeModal(){
+      const backdrop = $("seedTypeModal");
+      if (!backdrop) return;
+      backdrop.classList.add("show");
+      // Clear previous error
+      const err = $("seedTypeError");
+      if (err){
+        err.textContent = "";
+        err.hidden = true;
+      }
+      // Reset radios
+      const radios = document.querySelectorAll('input[name="seedTrialChoice"]');
+      radios.forEach(r => { r.checked = false; });
+      // Focus first radio if available
+      if (radios[0]) radios[0].focus();
+    }
+
+    function closeSeedTypeModal(){
+      const backdrop = $("seedTypeModal");
+      if (!backdrop) return;
+      backdrop.classList.remove("show");
+    }
+
     async function handleSave(db, auth){
       $("err").hidden = true;
       $("err").textContent = "";
@@ -369,6 +505,7 @@
       const cropYear       = $("cropYear").value;
       const crop           = $("crop").value;
       const trialType      = $("trialType").value;
+      const seedTrialType  = $("seedTrialType").value;
       const operationTask  = $("operationTask").value;
       const trialName      = $("trialName").value.trim();
       const treatmentProd  = $("treatmentProduct").value.trim();
@@ -385,6 +522,10 @@
       }
       if (!trialType){
         alert("Please select a trial type."); return;
+      }
+      if (trialType === "Seed Varieties" && !seedTrialType){
+        alert("Please choose the seed trial type (Two products compared vs Multiple Hybrid Trial).");
+        return;
       }
       if (!operationTask){
         alert("Please select an operation task."); return;
@@ -403,10 +544,15 @@
         treatmentProduct: treatmentProd || null,
         check: check || null,
         notes: notes || null,
-        status: 'pending',           // NEW: default status
+        status: 'pending',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
+
+      // Only set seedTrialType for Seed Varieties
+      if (trialType === "Seed Varieties"){
+        baseDoc.seedTrialType = seedTrialType || null;
+      }
 
       if (user){
         baseDoc.createdByUid = user.uid;
@@ -464,17 +610,71 @@
 
       buildYearOptions();
 
+      // Seed type modal buttons
+      const cancelBtn  = $("seedTypeCancel");
+      const confirmBtn = $("seedTypeConfirm");
+
+      if (cancelBtn){
+        cancelBtn.addEventListener("click", ()=>{
+          // Reset type + hidden value and close modal
+          $("trialType").value = "";
+          $("seedTrialType").value = "";
+          applySeedTrialTypeUI();
+          closeSeedTypeModal();
+        });
+      }
+
+      if (confirmBtn){
+        confirmBtn.addEventListener("click", ()=>{
+          const choice = document.querySelector('input[name="seedTrialChoice"]:checked');
+          const err = $("seedTypeError");
+          if (!choice){
+            if (err){
+              err.textContent = "Please choose an option.";
+              err.hidden = false;
+            }
+            return;
+          }
+          if (err){
+            err.textContent = "";
+            err.hidden = true;
+          }
+          $("seedTrialType").value = choice.value;
+          closeSeedTypeModal();
+          applySeedTrialTypeUI();
+        });
+      }
+
+      // Trial type change handler
+      $("trialType").addEventListener("change", (e)=>{
+        const val = e.target.value;
+        if (val === "Seed Varieties"){
+          // If no seed trial type chosen yet, ask the question
+          if (!$("seedTrialType").value){
+            openSeedTypeModal();
+          } else {
+            applySeedTrialTypeUI();
+          }
+        } else {
+          // Any non-seed-varieties trial clears this extra flag
+          $("seedTrialType").value = "";
+          applySeedTrialTypeUI();
+        }
+      });
+
       $("btnSave").addEventListener("click", () => handleSave(db, auth));
       $("btnClear").addEventListener("click", () => goPortal());
 
       $("btnBackTop").addEventListener("click", (e)=>{
-        // regular link works; this is just to be explicit if we ever add JS routing
         e.preventDefault();
         goPortal();
       });
 
       window.addEventListener('online', () => showToast("Back online — syncing…", 4000));
       window.addEventListener('offline', () => showToast("Currently offline — using saved data", 4000));
+
+      // Initial UI state
+      applySeedTrialTypeUI();
     })();
   </script>
 </body>
