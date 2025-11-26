@@ -536,6 +536,9 @@
       font-size:0.8rem;
       font-weight:600;
     }
+    .yield-block-notes-dictation{
+      position:relative;
+    }
     .yield-block-notes-textarea{
       width:100%;
       min-height:60px;
@@ -547,12 +550,42 @@
       border:1px solid var(--border);
       border-radius:9px;
       padding:8px 10px;
+      padding-right:48px; /* room for mic */
       box-sizing:border-box;
       outline:none;
     }
     .yield-block-notes-textarea:focus{
       box-shadow:0 0 0 1px rgba(47,108,60,.28);
       border-color:var(--accent);
+    }
+
+    /* Dictation mic button (matches other pages) */
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:36px;
+      height:36px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+    }
+    .mic-btn[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .mic-btn.mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
+    .mic-svg{
+      width:18px;
+      height:18px;
+      display:block;
     }
 
     /* Attachments section */
@@ -607,6 +640,7 @@
       align-items:center;
       justify-content:center;
       background:var(--surface-soft,var(--surface));
+      cursor:pointer;
     }
     .yield-block-thumb img{
       width:100%;
@@ -625,6 +659,32 @@
       white-space:nowrap;
       text-overflow:ellipsis;
       overflow:hidden;
+    }
+
+    /* Image lightbox for attachment thumbs */
+    .img-lightbox{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.75);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:10000;
+    }
+    .img-lightbox.show{
+      display:flex;
+    }
+    .img-lightbox-inner{
+      max-width:96vw;
+      max-height:90vh;
+    }
+    .img-lightbox-inner img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+      border-radius:12px;
+      box-shadow:0 18px 45px rgba(0,0,0,.5);
+      background:#000;
     }
   </style>
 
@@ -685,6 +745,7 @@
     let modalBackdrop, modalTitleEl, modalBodyEl;
     let yieldSummaryEl, yieldBlocksWrap, addBlockBtn;
     let blockTypeDialog, blockTypeConfirmBtn, blockTypeCancelBtn;
+    let imgLightbox, imgLightboxImg;
 
     function getQueryParam(name){
       const params = new URLSearchParams(window.location.search);
@@ -736,6 +797,20 @@
 
     function getBlockStoragePath(trialId, fieldId, blockDocId, fileName){
       return `trialUploads/${trialId}/${fieldId}/${blockDocId}/${fileName}`;
+    }
+
+    function showImageLightbox(url, altText){
+      if(!imgLightbox || !imgLightboxImg) return;
+      imgLightboxImg.src = url;
+      imgLightboxImg.alt = altText || 'Attachment image';
+      imgLightbox.classList.add('show');
+    }
+
+    function hideImageLightbox(){
+      if(!imgLightbox || !imgLightboxImg) return;
+      imgLightbox.classList.remove('show');
+      imgLightboxImg.src = '';
+      imgLightboxImg.alt = '';
     }
 
     async function loadTrial(){
@@ -1211,26 +1286,32 @@
           return;
         }
         block.attachments.forEach(att => {
-          const wrapper = document.createElement('div');
-          wrapper.className = 'yield-block-att-item';
+          const isImageThumb = att.url && att.contentType && att.contentType.startsWith('image/');
 
-          const hasImageThumb = att.url && att.contentType && att.contentType.startsWith('image/');
-          if(hasImageThumb){
+          if(isImageThumb){
+            const wrapper = document.createElement('div');
+            wrapper.className = 'yield-block-att-item';
+
             const thumb = document.createElement('div');
             thumb.className = 'yield-block-thumb';
             const img = document.createElement('img');
             img.src = att.url;
             img.alt = att.name || 'image';
             thumb.appendChild(img);
+
+            thumb.addEventListener('click', (ev)=>{
+              ev.stopPropagation();
+              showImageLightbox(att.url, att.name || 'Attachment image');
+            });
+
             wrapper.appendChild(thumb);
+            listEl.appendChild(wrapper);
+          }else{
+            const pill = document.createElement('div');
+            pill.className = 'yield-block-att-pill';
+            pill.textContent = att.name || 'file';
+            listEl.appendChild(pill);
           }
-
-          const label = document.createElement('div');
-          label.className = 'yield-block-att-item-label';
-          label.textContent = att.name || 'file';
-          wrapper.appendChild(label);
-
-          listEl.appendChild(wrapper);
         });
       }
 
@@ -1378,9 +1459,15 @@
             <div class="yield-block-notes">
               <div class="yield-block-notes-head">
                 <span class="yield-block-notes-label">Block Notes</span>
-                <button id="${micId}" type="button" aria-label="Dictate notes"></button>
               </div>
-              <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+              <div class="yield-block-notes-dictation">
+                <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+                <button id="${micId}" type="button" class="mic-btn" aria-label="Dictate notes">
+                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div class="yield-block-attachments">
@@ -1564,9 +1651,15 @@
             <div class="yield-block-notes">
               <div class="yield-block-notes-head">
                 <span class="yield-block-notes-label">Block Notes</span>
-                <button id="${micId}" type="button" aria-label="Dictate notes"></button>
               </div>
-              <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+              <div class="yield-block-notes-dictation">
+                <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+                <button id="${micId}" type="button" class="mic-btn" aria-label="Dictate notes">
+                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div class="yield-block-attachments">
@@ -1952,6 +2045,9 @@
       blockTypeConfirmBtn = $('#btnBlockTypeConfirm');
       blockTypeCancelBtn  = $('#btnBlockTypeCancel');
 
+      imgLightbox = $('#imgLightbox');
+      imgLightboxImg = $('#imgLightboxImg');
+
       const btnBack = $('#btnBack');
       const btnModalOk = $('#btnYieldOk');
       const btnModalClose = $('#btnYieldClose');
@@ -1983,9 +2079,18 @@
       }
       document.addEventListener('keydown', (e)=>{
         if(e.key === 'Escape'){
+          hideImageLightbox();
           closeYieldModal();
         }
       });
+
+      if(imgLightbox){
+        imgLightbox.addEventListener('click', (e)=>{
+          if(e.target === imgLightbox){
+            hideImageLightbox();
+          }
+        });
+      }
 
       if(addBlockBtn){
         addBlockBtn.addEventListener('click', showBlockTypeDialog);
@@ -2132,6 +2237,13 @@
       <div class="modal-footer">
         <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Image lightbox -->
+  <div id="imgLightbox" class="img-lightbox" role="dialog" aria-modal="true">
+    <div class="img-lightbox-inner">
+      <img id="imgLightboxImg" alt="Attachment image" />
     </div>
   </div>
 
