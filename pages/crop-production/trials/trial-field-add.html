@@ -13,6 +13,7 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <!-- Swipe styles for shared helper -->
   <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
   <!-- FVData helpers -->
@@ -422,6 +423,13 @@
       gap:6px;
     }
 
+    /* On phone: hide the desktop action buttons, rely on swipe */
+    @media (max-width: 720px){
+      .field-card-actions{
+        display:none;
+      }
+    }
+
     .fields-actions{
       margin-top:4px;
       display:flex;
@@ -522,7 +530,6 @@
 
     let lastNavTime = 0;
 
-    /* ------------------ DIAGNOSTIC HELPER ------------------ */
     function diag(label, payload){
       const ts = new Date();
       const time = ts.toISOString().split('T')[1].replace('Z','');
@@ -843,8 +850,6 @@
       fieldCombo.setItems(items);
     }
 
-    // ------------------- REMOVE HELPERS -------------------
-
     function removePendingField(idx){
       const row = STATE.pendingFields[idx];
       if(!row) return;
@@ -876,8 +881,6 @@
       }
     }
 
-    // ------------------- YIELD NAV HELPERS -------------------
-
     function openYieldForExisting(idx){
       const row = STATE.existingFields[idx];
       if(!row) return;
@@ -892,43 +895,48 @@
     }
 
     function applySwipeToLists(){
-      if(existingListEl){
-        initSwipeList(existingListEl, {
-          itemSelector: '.fv-swipe-item[data-kind="existing"]',
-          leftAction: {
-            label: 'Add Yield',
-            onAction: (itemEl) => {
-              const idx = Number(itemEl.dataset.index);
-              if(!Number.isNaN(idx)) openYieldForExisting(idx);
+      try{
+        if(existingListEl){
+          initSwipeList(existingListEl, {
+            itemSelector: '.fv-swipe-item[data-kind="existing"]',
+            leftAction: {
+              label: 'Add Yield',
+              onAction: (itemEl) => {
+                const idx = Number(itemEl.dataset.index);
+                if(!Number.isNaN(idx)) openYieldForExisting(idx);
+              }
+            },
+            rightAction: {
+              label: 'Remove',
+              onAction: (itemEl) => {
+                const idx = Number(itemEl.dataset.index);
+                if(!Number.isNaN(idx)) removeExistingField(idx);
+              }
             }
-          },
-          rightAction: {
-            label: 'Remove',
-            onAction: (itemEl) => {
-              const idx = Number(itemEl.dataset.index);
-              if(!Number.isNaN(idx)) removeExistingField(idx);
-            }
-          }
-        });
-      }
+          });
+        }
 
-      if(pendingListEl){
-        initSwipeList(pendingListEl, {
-          itemSelector: '.fv-swipe-item[data-kind="pending"]',
-          leftAction: {
-            label: 'Add Yield',
-            onAction: () => {
-              openYieldForPending();
+        if(pendingListEl){
+          initSwipeList(pendingListEl, {
+            itemSelector: '.fv-swipe-item[data-kind="pending"]',
+            leftAction: {
+              label: 'Add Yield',
+              onAction: () => {
+                openYieldForPending();
+              }
+            },
+            rightAction: {
+              label: 'Remove',
+              onAction: (itemEl) => {
+                const idx = Number(itemEl.dataset.index);
+                if(!Number.isNaN(idx)) removePendingField(idx);
+              }
             }
-          },
-          rightAction: {
-            label: 'Remove',
-            onAction: (itemEl) => {
-              const idx = Number(itemEl.dataset.index);
-              if(!Number.isNaN(idx)) removePendingField(idx);
-            }
-          }
-        });
+          });
+        }
+      }catch(err){
+        // Important: don't kill the whole page if swipe wiring has a bug.
+        diag('applySwipeToLists.error', { message: err.message, stack: err.stack });
       }
     }
 
@@ -1046,7 +1054,7 @@
         }
       }
 
-      // Apply swipe behavior after lists are built
+      // Try to enable swipe, but don't let it break the page
       applySwipeToLists();
     }
 
@@ -1342,15 +1350,16 @@
         await loadTrial();
         await loadFarmsAndFields();
         await loadExistingTrialFields();
-        refreshFarmCombo();
-        refreshFieldComboForFarm(null);
-        renderFieldLists();
-        diag('boot.complete', {});
       }catch(err){
         console.error("Initial load error:",err);
-        diag('boot.error', { code: err.code, message: err.message });
-        showError("Error loading data. Check console or network.");
+        diag('boot.load.error', { code: err.code, message: err.message });
+        showError("Error loading data. Some lists may be incomplete.");
       }
+
+      refreshFarmCombo();
+      refreshFieldComboForFarm(null);
+      renderFieldLists();
+      diag('boot.complete', {});
     })();
   </script>
 </head>
@@ -1460,7 +1469,7 @@
           <div id="existingFieldList"></div>
           <div id="pendingFieldList"></div>
           <div class="fields-swipe-hint">
-            On a phone, swipe right on a field card to add yield and swipe left to remove it from this list. On desktop, use the buttons.
+            On a phone, swipe right on a field card to add yield, and swipe left to remove it from this list. On desktop, use the buttons.
           </div>
         </div>
         <div class="fields-actions">
