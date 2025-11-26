@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- FVData helpers (same pattern as Farms page) -->
+  <!-- FVData helpers -->
   <script src="/Farm-vista/js/fv-data.js"></script>
 
   <style>
@@ -359,7 +359,15 @@
     .fields-body{
       padding:14px 16px 12px;
       display:grid;
-      gap:10px;
+      gap:12px;
+    }
+
+    .field-list-label{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--muted,#67706B);
+      margin-bottom:4px;
     }
 
     .field-list-empty{
@@ -482,7 +490,8 @@
       selectedFarm: null,
       selectedField: null,
       selectedFieldMaxAcres: null,
-      pendingFields: []
+      existingFields: [],   // already saved
+      pendingFields: []     // new this session
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -493,7 +502,10 @@
     let fieldFieldBtn, fieldFieldPanel, fieldFieldList, fieldFieldSearch;
     let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine;
     let trialAcresInput, trialAcresHelp, notesInput, micBtn;
-    let pendingListEl;
+    let existingListEl, pendingListEl;
+
+    // for "tap again to discard" navigation
+    let lastNavTime = 0;
 
     /* ------------------ DIAGNOSTIC HELPER ------------------ */
     function diag(label, payload){
@@ -756,6 +768,41 @@
       }
     }
 
+    async function loadExistingTrialFields(){
+      if(!STATE.db || !STATE.trialId) return;
+      try{
+        const path = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields`;
+        const snap = await getDocs(collection(STATE.db, path));
+        const rows=[];
+        snap.forEach(d=>{
+          const data = d.data() || {};
+          const farm = {
+            id:   data.farmId || null,
+            name: data.farmName || 'Unknown farm'
+          };
+          const field = {
+            id:        data.fieldId || null,
+            fieldName: data.fieldName || 'Unknown field',
+            tillable:  data.tillable != null ? Number(data.tillable) : null
+          };
+          const acres = data.trialAcres != null ? Number(data.trialAcres) : null;
+          rows.push({
+            docId: d.id,
+            farm,
+            field,
+            acres,
+            notes: data.notes || ''
+          });
+        });
+        STATE.existingFields = rows;
+        diag('loadExistingTrialFields.ok', { count: rows.length });
+      }catch(err){
+        console.error("Error loading trial fields:", err);
+        diag('loadExistingTrialFields.error', { code: err.code, message: err.message });
+        STATE.existingFields = [];
+      }
+    }
+
     function refreshFarmCombo(){
       if(!farmCombo) return;
       const items=STATE.farms.map(f=>({id:f.id,label:f.name}));
@@ -781,42 +828,109 @@
       fieldCombo.setItems(items);
     }
 
-    function renderPendingList(){
-      if(!pendingListEl) return;
-      pendingListEl.innerHTML='';
-      if(!STATE.pendingFields.length){
-        pendingListEl.innerHTML = `<div class="field-list-empty">No fields added yet. Use <strong>Add Field</strong> above to start building this trial.</div>`;
-        return;
-      }
-      STATE.pendingFields.forEach((row,idx)=>{
-        const div=document.createElement('div');
-        div.className='field-card';
-        const farmField=`${row.farm.name} • ${row.field.fieldName}`;
-        const acresText=row.acres!=null?`${row.acres.toFixed(2)} ac`:'—';
-        div.innerHTML=`
-          <div class="field-card-top">
-            <div>
-              <div class="field-card-title">${farmField}</div>
-              <div class="field-card-sub">
-                Trial acres: <strong>${acresText}</strong>
-                ${row.field.tillable!=null?` (Max tillable: ${row.field.tillable})`:''}
+    function renderFieldLists(){
+      if(!existingListEl || !pendingListEl) return;
+
+      // Existing (saved) fields
+      existingListEl.innerHTML = '';
+      if(STATE.existingFields.length){
+        const frag = document.createDocumentFragment();
+        const label = document.createElement('div');
+        label.className = 'field-list-label';
+        label.textContent = 'Already saved fields';
+        frag.appendChild(label);
+
+        STATE.existingFields.forEach(row=>{
+          const div = document.createElement('div');
+          div.className = 'field-card';
+          const farmField = `${row.farm.name} • ${row.field.fieldName}`;
+          const acresText = row.acres!=null ? `${row.acres.toFixed(2)} ac` : '—';
+          div.innerHTML = `
+            <div class="field-card-top">
+              <div>
+                <div class="field-card-title">${farmField}</div>
+                <div class="field-card-sub">
+                  Trial acres: <strong>${acresText}</strong>
+                  ${row.field.tillable!=null?` (Max tillable: ${row.field.tillable})`:''}
+                </div>
               </div>
             </div>
-            <div class="field-card-actions">
-              <button type="button" class="btn btn-small" data-idx="${idx}">Remove</button>
+            ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
+          `;
+          frag.appendChild(div);
+        });
+
+        existingListEl.appendChild(frag);
+      }
+
+      // Pending (new) fields
+      pendingListEl.innerHTML = '';
+      if(STATE.pendingFields.length){
+        const label = document.createElement('div');
+        label.className = 'field-list-label';
+        label.textContent = 'New fields (pending save)';
+        pendingListEl.appendChild(label);
+
+        STATE.pendingFields.forEach((row,idx)=>{
+          const div=document.createElement('div');
+          div.className='field-card';
+          const farmField=`${row.farm.name} • ${row.field.fieldName}`;
+          const acresText=row.acres!=null?`${row.acres.toFixed(2)} ac`:'—';
+          div.innerHTML=`
+            <div class="field-card-top">
+              <div>
+                <div class="field-card-title">${farmField}</div>
+                <div class="field-card-sub">
+                  Trial acres: <strong>${acresText}</strong>
+                  ${row.field.tillable!=null?` (Max tillable: ${row.field.tillable})`:''}
+                </div>
+              </div>
+              <div class="field-card-actions">
+                <button type="button" class="btn btn-small" data-idx="${idx}">Remove</button>
+              </div>
             </div>
-          </div>
-          ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
-        `;
-        const removeBtn=div.querySelector('button[data-idx]');
-        if(removeBtn){
-          removeBtn.addEventListener('click',()=>{
-            STATE.pendingFields.splice(idx,1);
-            renderPendingList();
-          });
+            ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
+          `;
+          const removeBtn=div.querySelector('button[data-idx]');
+          if(removeBtn){
+            removeBtn.addEventListener('click',()=>{
+              STATE.pendingFields.splice(idx,1);
+              renderFieldLists();
+            });
+          }
+          pendingListEl.appendChild(div);
+        });
+      }else{
+        if(!STATE.existingFields.length){
+          pendingListEl.innerHTML =
+            `<div class="field-list-empty">No fields added yet. Use <strong>Add Field</strong> above to start building this trial.</div>`;
+        }else{
+          pendingListEl.innerHTML =
+            `<div class="field-list-empty">No new fields added yet. Use <strong>Add Field</strong> above to add more fields to this trial.</div>`;
         }
-        pendingListEl.appendChild(div);
-      });
+      }
+    }
+
+    function formHasUnsavedStuff(){
+      if(STATE.pendingFields.length) return true;
+      if(trialAcresInput && trialAcresInput.value.trim()) return true;
+      if(notesInput && notesInput.value.trim()) return true;
+      if(STATE.selectedFarm || STATE.selectedField) return true;
+      return false;
+    }
+
+    function handleNavBack(){
+      if(!formHasUnsavedStuff()){
+        window.location.href = CONFIG.RETURN_URL;
+        return;
+      }
+      const now = Date.now();
+      if(now - lastNavTime < 2500){
+        window.location.href = CONFIG.RETURN_URL;
+      }else{
+        lastNavTime = now;
+        showToast("You have unsaved fields. Tap again to discard and go back.");
+      }
     }
 
     function addFieldToPending(e){
@@ -853,16 +967,22 @@
         acres,
         notesLen: notes.length
       });
-      renderPendingList();
+      renderFieldLists();
       showToast("Field added to this trial. Remember to Save Fields at the bottom when you’re done.");
       STATE.selectedFarm=null;
       STATE.selectedField=null;
       STATE.selectedFieldMaxAcres=null;
       refreshFarmCombo();
       refreshFieldComboForFarm(null);
-      trialAcresInput.value='';
-      if(trialAcresHelp) trialAcresHelp.textContent='';
-      notesInput.value='';
+      if(trialAcresInput){
+        trialAcresInput.value='';
+      }
+      if(trialAcresHelp){
+        trialAcresHelp.textContent='';
+      }
+      if(notesInput){
+        notesInput.value='';
+      }
     }
 
     async function saveAllFields(e){
@@ -870,7 +990,7 @@
       showError('');
       if(trialAcresInput) trialAcresInput.classList.remove('input-error');
       if(!STATE.pendingFields.length){
-        showError("No fields to save. Add at least one field to this trial."); return;
+        showError("No new fields to save. Add at least one field to this trial."); return;
       }
       if(!STATE.user){
         showError("User is not signed in. Please re-login and try again."); return;
@@ -996,6 +1116,7 @@
       notesInput      = document.getElementById("notes");
       micBtn          = document.getElementById("notesMic");
 
+      existingListEl  = document.getElementById("existingFieldList");
       pendingListEl   = document.getElementById("pendingFieldList");
 
       const btnBack     = document.getElementById("btnBack");
@@ -1004,10 +1125,10 @@
       const btnCancel   = document.getElementById("btnCancel");
 
       if(btnBack){
-        btnBack.addEventListener("click", ()=>{ window.location.href=CONFIG.RETURN_URL; });
+        btnBack.addEventListener("click", handleNavBack);
       }
       if(btnCancel){
-        btnCancel.addEventListener("click", ()=>{ window.location.href=CONFIG.RETURN_URL; });
+        btnCancel.addEventListener("click", handleNavBack);
       }
       if(btnAddField){
         btnAddField.addEventListener("click", addFieldToPending);
@@ -1079,9 +1200,10 @@
       try{
         await loadTrial();
         await loadFarmsAndFields();
+        await loadExistingTrialFields();
         refreshFarmCombo();
         refreshFieldComboForFarm(null);
-        renderPendingList();
+        renderFieldLists();
         diag('boot.complete', {});
       }catch(err){
         console.error("Initial load error:",err);
@@ -1191,10 +1313,11 @@
 
       <section class="fields-hero">
         <header class="fields-head">
-          <h2>Fields in this trial (pending save)</h2>
+          <h2>Fields in this trial</h2>
         </header>
-        <div class="fields-body" id="pendingFieldList">
-          <!-- filled by JS -->
+        <div class="fields-body">
+          <div id="existingFieldList"></div>
+          <div id="pendingFieldList"></div>
         </div>
         <div class="fields-actions">
           <button id="btnCancel" type="button" class="btn">Cancel</button>
