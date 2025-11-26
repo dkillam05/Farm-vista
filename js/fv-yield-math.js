@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/fv-yield-math.js
-Rev: 2025-11-26a
+Rev: 2025-11-26b
 
 Shared yield-math helpers for FarmVista.
 
@@ -8,6 +8,9 @@ Goals:
 - Single source of truth for "true shrink" yield math.
 - Trials page can dry corn to 15.0% and beans to 13.0%.
 - Combine Yield calculator can keep using 15.5% corn standard.
+- IMPORTANT: Going drier than the standard DOES NOT increase yield
+  (no "over-dry credit"). Anything under the target moisture is treated
+  as the standard in the math so bushels never inflate.
 
 Usage example (trials page):
 
@@ -54,13 +57,16 @@ export function normalizeCropKind(raw) {
 }
 
 /**
- * Core "true shrink" yield calculation.
+ * Core "true shrink" yield calculation with NO over-dry credit.
  *
  * 1. Take wet weight @ wet moisture.
- * 2. Convert to dry matter.
- * 3. Re-hydrate to standard moisture.
- * 4. Convert to bushels (test weight).
- * 5. Divide by acres for bu/ac.
+ * 2. Clamp moisture to [0, 60].
+ * 3. If moisture is below standard, treat it AS the standard in the math
+ *    so you never gain yield just by being too dry.
+ * 4. Convert to dry matter using that effective moisture.
+ * 5. Re-hydrate to standard moisture.
+ * 6. Convert to bushels (test weight).
+ * 7. Divide by acres for bu/ac.
  *
  * Returns null if any inputs are missing/invalid.
  */
@@ -83,15 +89,24 @@ export function calcTrueYield({
   const M = Number(wetMoisturePct);
   const A = Number(acres);
 
-  if (!(W > 0 && A > 0) || Number.isNaN(M)) {
+  // Basic guards
+  if (!(W > 0 && A > 0) || Number.isNaN(M) || Number.isNaN(stdMoist)) {
+    return null;
+  }
+  if (stdMoist < 0 || stdMoist > 60) {
     return null;
   }
 
-  // Clamp moisture to a sane range just to avoid wild math
+  // Clamp actual input moisture to a sane range
   const mClamped = Math.min(Math.max(M, 0), 60);
 
-  // Dry matter (lb) at 0% moisture
-  const dryMatter = W * (100 - mClamped) / 100;
+  // 🚫 NO OVER-DRY CREDIT:
+  // If actual moisture is BELOW the chosen standard, we use the STANDARD
+  // in the math so yield cannot increase just because grain is drier.
+  const mUsed = Math.max(mClamped, stdMoist);
+
+  // Dry matter (lb) at 0% moisture, using the effective moisture
+  const dryMatter = W * (100 - mUsed) / 100;
 
   // Pounds at the chosen standard moisture
   const stdWetPounds = dryMatter / (1 - stdMoist / 100);
@@ -103,9 +118,10 @@ export function calcTrueYield({
   return {
     cropKind: kind,
     testWeight: tw,
-    stdMoist,          // actual standard used
+    stdMoist,              // standard moisture actually used
     wetWeightLbs: W,
-    wetMoisturePct: mClamped,
+    wetMoisturePct: mClamped,   // actual (clamped) input moisture
+    effectiveMoistPct: mUsed,   // moisture used in the math (>= stdMoist)
     acres: A,
     bushels,
     yieldBuAc
