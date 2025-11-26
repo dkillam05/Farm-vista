@@ -278,7 +278,7 @@
       display:none;
     }
     .modal{
-      max-width:720px;          /* a bit wider */
+      max-width:720px;
       width:96vw;
       background:var(--surface);
       border-radius:16px;
@@ -324,7 +324,7 @@
       font-size:0.9rem;
       display:grid;
       gap:10px;
-      max-height:78vh;          /* taller */
+      max-height:78vh;
       overflow-y:auto;
     }
     .modal-footer{
@@ -538,7 +538,7 @@
     .yield-block-att-list{
       display:flex;
       flex-wrap:wrap;
-      gap:4px;
+      gap:6px;
     }
     .yield-block-att-pill{
       border-radius:999px;
@@ -546,7 +546,7 @@
       padding:3px 8px;
       font-size:0.75rem;
       background:var(--surface-soft,var(--surface));
-      max-width:100%;
+      max-width:180px;
       white-space:nowrap;
       text-overflow:ellipsis;
       overflow:hidden;
@@ -560,6 +560,36 @@
     .yield-block-att-hint{
       font-size:0.75rem;
       color:var(--muted,#67706B);
+    }
+    .yield-block-thumb{
+      width:52px;
+      height:52px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      flex-shrink:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:var(--surface-soft,var(--surface));
+    }
+    .yield-block-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+    .yield-block-att-item{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      max-width:220px;
+    }
+    .yield-block-att-item-label{
+      font-size:0.75rem;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
     }
   </style>
 
@@ -580,7 +610,8 @@
       ready,
       getFirestore, getAuth,
       collection, getDocs, getDoc, doc,
-      addDoc, deleteDoc
+      addDoc, deleteDoc, setDoc,
+      getStorage, ref, uploadBytes, getDownloadURL
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -595,6 +626,7 @@
     };
 
     const STRIP_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50];
+    const MAX_ATTACH_PER_BLOCK = 5;
 
     const STATE = {
       db: null,
@@ -665,11 +697,15 @@
       return 30;
     }
 
+    function getBlockStoragePath(trialId, fieldId, blockDocId, fileName){
+      return `trialUploads/${trialId}/${fieldId}/${blockDocId}/${fileName}`;
+    }
+
     async function loadTrial(){
       if(!STATE.trialId) return;
       try{
-        const ref = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
-        const snap = await getDoc(ref);
+        const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
+        const snap = await getDoc(refDoc);
         if(!snap.exists()){
           showError("This trial could not be found. It may have been deleted.");
           return;
@@ -739,6 +775,12 @@
             const d = ds.data() || {};
             const check = d.check || {};
             const trial = d.trial || {};
+            const attRaw = Array.isArray(d.attachments) ? d.attachments : [];
+            const attachments = attRaw.map(a => ({
+              name: a.name || 'file',
+              url: a.url || null,
+              contentType: a.contentType || null
+            }));
             blocks.push({
               id: ds.id,
               type: d.blockType || 'combine',
@@ -758,7 +800,7 @@
                 lengthFt: trial.lengthFt != null ? String(trial.lengthFt) : '',
                 widthFt: trial.widthFt != null ? String(trial.widthFt) : ''
               },
-              attachments: Array.isArray(d.attachments) ? d.attachments : []
+              attachments
             });
           });
           if(blocks.length){
@@ -799,7 +841,7 @@
           moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
           poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
           [acresInput, moistInput, poundsInput].forEach(el=>{
-            if(el) el.classList.remove('input-error');
+            if(el) el && el.classList.remove('input-error');
           });
         }
 
@@ -1105,6 +1147,15 @@
       });
     }
 
+    function serializeAttachmentsForFirestore(block){
+      if(!Array.isArray(block.attachments)) return [];
+      return block.attachments.map(att => ({
+        name: att.name || 'file',
+        url: att.url || null,
+        contentType: att.contentType || null
+      }));
+    }
+
     function renderAttachments(block, card){
       block.attachments = block.attachments || [];
       const listEl = card.querySelector('[data-role="attList"]');
@@ -1112,7 +1163,7 @@
 
       if(!listEl || !inputEl) return;
 
-      function refreshList(){
+      function renderList(){
         listEl.innerHTML = '';
         if(!block.attachments.length){
           const span = document.createElement('span');
@@ -1122,24 +1173,59 @@
           return;
         }
         block.attachments.forEach(att => {
-          const pill = document.createElement('span');
-          pill.className = 'yield-block-att-pill';
-          pill.textContent = att.name || 'file';
-          listEl.appendChild(pill);
+          const wrapper = document.createElement('div');
+          wrapper.className = 'yield-block-att-item';
+
+          const hasImageThumb = att.url && att.contentType && att.contentType.startsWith('image/');
+          if(hasImageThumb){
+            const thumb = document.createElement('div');
+            thumb.className = 'yield-block-thumb';
+            const img = document.createElement('img');
+            img.src = att.url;
+            img.alt = att.name || 'image';
+            thumb.appendChild(img);
+            wrapper.appendChild(thumb);
+          }
+
+          const label = document.createElement('div');
+          label.className = 'yield-block-att-item-label';
+          label.textContent = att.name || 'file';
+          wrapper.appendChild(label);
+
+          listEl.appendChild(wrapper);
         });
       }
 
       inputEl.addEventListener('change', e => {
         const files = Array.from(e.target.files || []);
-        for(const f of files){
-          if(block.attachments.length >= 5) break;
-          block.attachments.push({ name: f.name });
+        if(!files.length) return;
+
+        const room = MAX_ATTACH_PER_BLOCK - block.attachments.length;
+        if(room <= 0){
+          showToast(`Max ${MAX_ATTACH_PER_BLOCK} attachments per block.`);
+          e.target.value = '';
+          return;
         }
+
+        const toAdd = files.slice(0, room);
+        toAdd.forEach(f => {
+          block.attachments.push({
+            name: f.name,
+            file: f,
+            contentType: f.type || null,
+            url: null
+          });
+        });
+
+        if(files.length > room){
+          showToast(`Only ${room} more attachment(s) allowed (max ${MAX_ATTACH_PER_BLOCK} per block).`);
+        }
+
         e.target.value = '';
-        refreshList();
+        renderList();
       });
 
-      refreshList();
+      renderList();
     }
 
     function renderBlocksForField(fieldRow){
@@ -1164,6 +1250,7 @@
         if(block.type === 'combine'){
           block.check = block.check || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
           block.trial = block.trial || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
+          block.attachments = block.attachments || [];
 
           const check = block.check;
           const trial = block.trial;
@@ -1230,14 +1317,14 @@
               <span class="yield-block-error" data-role="errorText"></span>
             </div>
             <div class="yield-block-attachments">
-              <div class="yield-block-att-title">Attachments (max 5 per block)</div>
+              <div class="yield-block-att-title">Attachments (max ${MAX_ATTACH_PER_BLOCK} per block)</div>
               <div class="yield-block-att-list" data-role="attList"></div>
               <div class="yield-block-att-actions">
                 <label class="btn btn-small btn-inline">
                   + Add Files
                   <input type="file" data-role="attInput" multiple accept="image/*,application/pdf" style="display:none" />
                 </label>
-                <span class="yield-block-att-hint">Files are tracked by name in this version; upload wiring comes next.</span>
+                <span class="yield-block-att-hint">Images show as thumbnails, PDFs and others show as labels.</span>
               </div>
             </div>
           `;
@@ -1296,7 +1383,6 @@
           wirePounds('check-pounds', 'check');
           wirePounds('trial-pounds', 'trial');
 
-          // Initial calc
           recalcCombine(block, card);
           renderAttachments(block, card);
 
@@ -1317,6 +1403,7 @@
             poundsRaw: '',
             yieldBuAc: null
           };
+          block.attachments = block.attachments || [];
 
           const check = block.check;
           const trial = block.trial;
@@ -1407,14 +1494,14 @@
               <span class="yield-block-error" data-role="errorText"></span>
             </div>
             <div class="yield-block-attachments">
-              <div class="yield-block-att-title">Attachments (max 5 per block)</div>
+              <div class="yield-block-att-title">Attachments (max ${MAX_ATTACH_PER_BLOCK} per block)</div>
               <div class="yield-block-att-list" data-role="attList"></div>
               <div class="yield-block-att-actions">
                 <label class="btn btn-small btn-inline">
                   + Add Files
                   <input type="file" data-role="attInput" multiple accept="image/*,application/pdf" style="display:none" />
                 </label>
-                <span class="yield-block-att-hint">Files are tracked by name in this version; upload wiring comes next.</span>
+                <span class="yield-block-att-hint">Images show as thumbnails, PDFs and others show as labels.</span>
               </div>
             </div>
           `;
@@ -1535,7 +1622,7 @@
         <div>${parts.join('<br>')}</div>
         <div class="muted">
           Add one or more trial blocks for this field. Each block can be based on <strong>Combine Yield Data</strong>
-          or <strong>Weight Data</strong>, with Check vs Trial passes.
+          or <strong>Weight Data</strong>, with Check vs Trial passes and up to ${MAX_ATTACH_PER_BLOCK} attachments.
         </div>
       `;
 
@@ -1653,6 +1740,34 @@
       return ok;
     }
 
+    async function uploadNewAttachmentsForBlock(fieldId, block, blockDocId){
+      const storage = getStorage();
+      block.attachments = block.attachments || [];
+      const uploads = [];
+
+      for(const att of block.attachments){
+        if(att.file){
+          const safeName = att.name || att.file.name || 'file';
+          const path = getBlockStoragePath(STATE.trialId, fieldId, blockDocId, safeName);
+          const fileRef = ref(storage, path);
+          const fileObj = att.file;
+          uploads.push(
+            uploadBytes(fileRef, fileObj).then(snap =>
+              getDownloadURL(snap.ref).then(url => {
+                att.url = url;
+                att.contentType = fileObj.type || null;
+                delete att.file;
+              })
+            )
+          );
+        }
+      }
+
+      if(uploads.length){
+        await Promise.all(uploads);
+      }
+    }
+
     // Return true on success, false on any validation or Firestore error
     async function saveYieldForSelectedField(){
       if(!STATE.selectedField || !STATE.db || !STATE.trialId) return false;
@@ -1669,7 +1784,7 @@
         const colPath = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields/${fieldId}/yieldBlocks`;
         const colRef = collection(STATE.db, colPath);
 
-        // wipe existing
+        // wipe existing Firestore docs (Storage cleanup can be added later if needed)
         const existing = await getDocs(colRef);
         const dels = [];
         existing.forEach(ds => {
@@ -1679,9 +1794,16 @@
           await Promise.all(dels);
         }
 
-        // write current blocks
+        // For each block, upload any new attachments, then write doc with URLs
         const writes = [];
-        blocks.forEach((block, index)=>{
+        for(let index = 0; index < blocks.length; index++){
+          const block = blocks[index];
+          const blockDocRef = doc(colRef);   // new doc
+          const blockDocId  = blockDocRef.id;
+
+          // Upload any new local files for this block
+          await uploadNewAttachmentsForBlock(fieldId, block, blockDocId);
+
           const check = block.check || {};
           const trial = block.trial || {};
 
@@ -1704,10 +1826,11 @@
               lengthFt: trial.lengthFt ? Number(trial.lengthFt) : null,
               widthFt: trial.widthFt ? Number(trial.widthFt) : null
             },
-            attachments: Array.isArray(block.attachments) ? block.attachments : []
+            attachments: serializeAttachmentsForFirestore(block)
           };
-          writes.push(addDoc(colRef, data));
-        });
+
+          writes.push(setDoc(blockDocRef, data));
+        }
 
         if(writes.length){
           await Promise.all(writes);
@@ -1847,8 +1970,8 @@
             <h1>Trial Field Yields</h1>
             <p class="muted">
               Review the fields in this trial and tap one to open a yield pop-up. This version dries corn to 15% and
-              soybeans to 13%, supports combine or strip-weight blocks, and lets you compare Check vs Trial and save yield
-              data for each field.
+              soybeans to 13%, supports combine or strip-weight blocks, and lets you compare Check vs Trial, attach
+              photos and PDFs, and save yield data for each field.
             </p>
           </div>
         </header>
@@ -1884,7 +2007,7 @@
           <div id="trialFieldList"></div>
           <div class="fields-hint">
             Tap a field card to open the yield pop-up. Each field can have many trial blocks, and every block
-            can be based on combine yield data or strip weight data.
+            can be based on combine yield data or strip weight data, with up to ${MAX_ATTACH_PER_BLOCK} attachments.
           </div>
         </div>
       </section>
