@@ -146,6 +146,19 @@
       cursor:not-allowed;
     }
 
+    .btn-small{
+      padding:4px 8px;
+      min-width:auto;
+      font-size:0.8rem;
+      border-radius:999px;
+    }
+
+    .btn-danger{
+      border-color:#b3261e;
+      color:#b3261e!important;
+      background:rgba(179,38,30,.06);
+    }
+
     .row{
       display:grid;
       gap:10px;
@@ -357,7 +370,7 @@
       font-size:1rem;
     }
     .fields-body{
-      padding:14px 16px 12px;
+      padding:14px 16px 8px;
       display:grid;
       gap:12px;
     }
@@ -383,6 +396,7 @@
       display:grid;
       gap:4px;
       font-size:0.9rem;
+      touch-action:pan-y;
     }
     .field-card-top{
       display:flex;
@@ -407,19 +421,18 @@
       gap:6px;
     }
 
-    .btn-small{
-      padding:4px 8px;
-      min-width:auto;
-      font-size:0.8rem;
-      border-radius:999px;
-    }
-
     .fields-actions{
       margin-top:4px;
       display:flex;
       justify-content:flex-end;
       gap:10px;
       padding:0 16px 14px;
+    }
+
+    .fields-swipe-hint{
+      font-size:0.78rem;
+      color:var(--muted,#67706B);
+      margin-top:4px;
     }
 
     .toast{
@@ -465,7 +478,7 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, getDoc, doc
+      collection, getDocs, getDoc, doc, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -828,6 +841,72 @@
       fieldCombo.setItems(items);
     }
 
+    // ------------------- REMOVE HELPERS + SWIPE -------------------
+
+    function wireSwipeToDelete(cardEl, type, idx){
+      if(!cardEl) return;
+      let startX=0, startY=0, dx=0, dy=0, active=false;
+
+      cardEl.addEventListener('touchstart', e=>{
+        if(!e.touches || !e.touches.length) return;
+        const t=e.touches[0];
+        startX=t.clientX;
+        startY=t.clientY;
+        dx=dy=0;
+        active=true;
+      }, { passive:true });
+
+      cardEl.addEventListener('touchmove', e=>{
+        if(!active || !e.touches || !e.touches.length) return;
+        const t=e.touches[0];
+        dx=t.clientX - startX;
+        dy=t.clientY - startY;
+      }, { passive:true });
+
+      cardEl.addEventListener('touchend', ()=>{
+        if(!active) return;
+        active=false;
+        // swipe left, mostly horizontal, threshold ~40px
+        if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && dx < 0){
+          if(type==='existing') removeExistingField(idx);
+          else removePendingField(idx);
+        }
+      });
+
+      cardEl.addEventListener('touchcancel', ()=>{ active=false; });
+    }
+
+    function removePendingField(idx){
+      const row = STATE.pendingFields[idx];
+      if(!row) return;
+      STATE.pendingFields.splice(idx,1);
+      renderFieldLists();
+      showToast("Field removed.");
+    }
+
+    async function removeExistingField(idx){
+      const row = STATE.existingFields[idx];
+      if(!row) return;
+      const ok = window.confirm("Remove this field from the trial? This doesn't delete the field itself.");
+      if(!ok) return;
+
+      try{
+        diag('removeExistingField.start', {
+          trialId: STATE.trialId,
+          docId: row.docId
+        });
+        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId, 'fields', row.docId));
+        STATE.existingFields.splice(idx,1);
+        renderFieldLists();
+        showToast("Field removed from this trial.");
+        diag('removeExistingField.success', {});
+      }catch(err){
+        console.error("Error removing field:", err);
+        diag('removeExistingField.error', { code: err.code, message: err.message });
+        showError("Error removing field from trial: " + (err && (err.message || err.code) || "Unknown error"));
+      }
+    }
+
     function renderFieldLists(){
       if(!existingListEl || !pendingListEl) return;
 
@@ -840,7 +919,7 @@
         label.textContent = 'Already saved fields';
         frag.appendChild(label);
 
-        STATE.existingFields.forEach(row=>{
+        STATE.existingFields.forEach((row,idx)=>{
           const div = document.createElement('div');
           div.className = 'field-card';
           const farmField = `${row.farm.name} • ${row.field.fieldName}`;
@@ -854,9 +933,19 @@
                   ${row.field.tillable!=null?` (Max tillable: ${row.field.tillable})`:''}
                 </div>
               </div>
+              <div class="field-card-actions">
+                <button type="button" class="btn btn-small btn-danger" data-existing-idx="${idx}">Remove</button>
+              </div>
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
           `;
+
+          const removeBtn = div.querySelector('button[data-existing-idx]');
+          if(removeBtn){
+            removeBtn.addEventListener('click', ()=> removeExistingField(idx));
+          }
+          wireSwipeToDelete(div, 'existing', idx);
+
           frag.appendChild(div);
         });
 
@@ -886,18 +975,17 @@
                 </div>
               </div>
               <div class="field-card-actions">
-                <button type="button" class="btn btn-small" data-idx="${idx}">Remove</button>
+                <button type="button" class="btn btn-small btn-danger" data-pending-idx="${idx}">Remove</button>
               </div>
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
           `;
-          const removeBtn=div.querySelector('button[data-idx]');
+          const removeBtn=div.querySelector('button[data-pending-idx]');
           if(removeBtn){
-            removeBtn.addEventListener('click',()=>{
-              STATE.pendingFields.splice(idx,1);
-              renderFieldLists();
-            });
+            removeBtn.addEventListener('click',()=> removePendingField(idx));
           }
+          wireSwipeToDelete(div, 'pending', idx);
+
           pendingListEl.appendChild(div);
         });
       }else{
@@ -1318,6 +1406,9 @@
         <div class="fields-body">
           <div id="existingFieldList"></div>
           <div id="pendingFieldList"></div>
+          <div class="fields-swipe-hint">
+            On a phone, swipe left on a field card to remove it. On desktop, use the Remove button.
+          </div>
         </div>
         <div class="fields-actions">
           <button id="btnCancel" type="button" class="btn">Cancel</button>
