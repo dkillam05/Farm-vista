@@ -567,7 +567,8 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, getDocs
+      collection,
+      getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -583,9 +584,12 @@
 
     const STATE = {
       db: null,
-      items: [],
+      allItems: [],      // all trials from Firestore
+      items: [],         // filtered trials for the current view
       selectedId: null,
-      filterStatus: null
+      filterStatus: null,
+      loaded: false,
+      pendingFilter: null
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -818,7 +822,7 @@
       panel.style.display = 'flex';
     }
 
-    // ---------- List ----------
+    // ---------- List & filtering ----------
 
     function renderList(){
       const listEl  = $('.trial-list');
@@ -929,24 +933,56 @@
       }
     }
 
-    async function loadTrials(statusCode){
+    function applyFilter(statusCode){
+      const raw = statusCode || CONFIG.STATUS_PENDING;
+      const status = String(raw).toLowerCase();
+
+      STATE.filterStatus = status;
+
+      // Sync dropdown
+      const sel = $('#trialStatusFilter');
+      if(sel && sel.value !== status){
+        sel.value = status;
+      }
+
+      // If data not loaded yet, remember desired filter and show loading text
+      if(!STATE.loaded){
+        STATE.pendingFilter = status;
+
+        const emptyEl = $('.trial-empty');
+        const countEl = $('#trialCount');
+        const listEl  = $('.trial-list');
+
+        if(listEl) listEl.innerHTML = '';
+        if(emptyEl){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'Loading trials...';
+        }
+        if(countEl){
+          countEl.textContent = 'Loading trials...';
+        }
+        clearDetails();
+        return;
+      }
+
+      const filtered = STATE.allItems.filter(item => {
+        const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
+        return s === status;
+      });
+
+      STATE.items = filtered;
+      clearDetails();
+      renderList();
+    }
+
+    async function loadAllTrials(){
       const db  = STATE.db;
       if(!db) return;
 
       const ref = collection(db, CONFIG.COLLECTION_TRIALS);
-      const status = (statusCode || CONFIG.STATUS_PENDING).toString().toLowerCase();
-
-      STATE.filterStatus = status;
-
-      // keep dropdown in sync
-      const sel = $('#trialStatusFilter');
-      if(sel){
-        sel.value = status;
-      }
 
       try{
-        const qRef = query(ref, where(CONFIG.STATUS_FIELD, '==', status));
-        const snap = await getDocs(qRef);
+        const snap = await getDocs(ref);
 
         const items = snap.docs.map(d => ({
           id: d.id,
@@ -959,18 +995,21 @@
           return tb - ta;
         });
 
-        STATE.items = items;
-        renderList();
+        STATE.allItems = items;
+        STATE.loaded = true;
+
+        // Use whatever filter was requested last, or default to pending
+        const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_PENDING;
+        applyFilter(desired);
       }catch(err){
         console.error('Error loading trials:', err);
         const emptyEl = $('.trial-empty');
         const countEl = $('#trialCount');
-        const labelLower = getStatusLabel(status).toLowerCase();
         if(emptyEl){
-          emptyEl.textContent = `Error loading ${labelLower} trials. Check console or Firestore indexes.`;
+          emptyEl.textContent = 'Error loading trials. Check console or Firestore indexes.';
           emptyEl.style.display = 'block';
         }
-        if(countEl) countEl.textContent = `Error loading ${labelLower} trials`;
+        if(countEl) countEl.textContent = 'Error loading trials';
         clearDetails();
       }
     }
@@ -979,6 +1018,8 @@
       await ready;
       STATE.db = getFirestore();
       STATE.filterStatus = CONFIG.STATUS_PENDING;
+      STATE.loaded = false;
+      STATE.pendingFilter = null;
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -1019,12 +1060,12 @@
         statusSelect.value = STATE.filterStatus;
         statusSelect.addEventListener('change', () => {
           const val = (statusSelect.value || CONFIG.STATUS_PENDING).toLowerCase();
-          clearDetails();
-          loadTrials(val);
+          applyFilter(val);
         });
       }
 
-      await loadTrials(STATE.filterStatus);
+      // Start initial loading (will call applyFilter when done)
+      await loadAllTrials();
     })();
   </script>
 </head>
@@ -1052,7 +1093,7 @@
               </button>
             </div>
             <div class="toolbar-right">
-              <span id="trialCount">0 pending trials</span>
+              <span id="trialCount">Loading trials...</span>
             </div>
           </div>
         </div>
@@ -1071,7 +1112,7 @@
       <!-- TRIAL LIST + DETAILS -->
       <section aria-label="Field trials">
         <div class="trial-empty">
-          No pending trials right now.
+          Loading trials...
         </div>
         <div class="trial-list"></div>
       </section>
