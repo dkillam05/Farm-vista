@@ -520,9 +520,44 @@
       color:var(--muted,#67706B);
     }
 
+    /* Notes section */
+    .yield-block-notes{
+      margin-top:4px;
+      display:grid;
+      gap:4px;
+    }
+    .yield-block-notes-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .yield-block-notes-label{
+      font-size:0.8rem;
+      font-weight:600;
+    }
+    .yield-block-notes-textarea{
+      width:100%;
+      min-height:60px;
+      resize:vertical;
+      font:inherit;
+      font-size:0.9rem;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:9px;
+      padding:8px 10px;
+      box-sizing:border-box;
+      outline:none;
+    }
+    .yield-block-notes-textarea:focus{
+      box-shadow:0 0 0 1px rgba(47,108,60,.28);
+      border-color:var(--accent);
+    }
+
     /* Attachments section */
     .yield-block-attachments{
-      margin-top:4px;
+      margin-top:8px;
       padding-top:8px;
       border-top:1px dashed var(--border);
       display:grid;
@@ -620,6 +655,8 @@
       normalizeCropKind
     } from '/Farm-vista/js/fv-yield-math.js';
 
+    import { wireDictation } from '/Farm-vista/js/fv-dictation.js';
+
     const CONFIG = {
       COLLECTION_TRIALS: 'fieldTrials',
       RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html'
@@ -636,7 +673,7 @@
       trial: null,
       fields: [],
       selectedField: null,
-      // yieldData: { [fieldDocId]: [ { id, type, check:{...}, trial:{...}, attachments:[] } ] }
+      // yieldData: { [fieldDocId]: [ { id, type, check:{...}, trial:{...}, notes:'', attachments:[] } ] }
       yieldData: {}
     };
 
@@ -800,6 +837,7 @@
                 lengthFt: trial.lengthFt != null ? String(trial.lengthFt) : '',
                 widthFt: trial.widthFt != null ? String(trial.widthFt) : ''
               },
+              notes: d.notes || '',
               attachments
             });
           });
@@ -1228,6 +1266,21 @@
       renderList();
     }
 
+    function renderNotes(block, card, notesId, micId){
+      block.notes = block.notes || '';
+      const ta = card.querySelector(`#${notesId}`);
+      const micBtn = card.querySelector(`#${micId}`);
+      if(ta){
+        ta.value = block.notes;
+        ta.addEventListener('input', e => {
+          block.notes = e.target.value;
+        });
+      }
+      if(micBtn && ta){
+        wireDictation(micId, notesId);
+      }
+    }
+
     function renderBlocksForField(fieldRow){
       if(!yieldBlocksWrap) return;
       const key = fieldRow.docId;
@@ -1247,10 +1300,15 @@
         const card = document.createElement('div');
         card.className = 'yield-block-card';
 
+        // Unique ids for notes + mic per block
+        const notesId = `notes-${fieldRow.docId}-${idx}`;
+        const micId   = `mic-notes-${fieldRow.docId}-${idx}`;
+
         if(block.type === 'combine'){
           block.check = block.check || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
           block.trial = block.trial || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
           block.attachments = block.attachments || [];
+          block.notes = block.notes || '';
 
           const check = block.check;
           const trial = block.trial;
@@ -1316,6 +1374,15 @@
               <span class="yield-block-yield" data-role="yieldText"></span>
               <span class="yield-block-error" data-role="errorText"></span>
             </div>
+
+            <div class="yield-block-notes">
+              <div class="yield-block-notes-head">
+                <span class="yield-block-notes-label">Block Notes</span>
+                <button id="${micId}" type="button" aria-label="Dictate notes"></button>
+              </div>
+              <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+            </div>
+
             <div class="yield-block-attachments">
               <div class="yield-block-att-title">Attachments (max ${MAX_ATTACH_PER_BLOCK} per block)</div>
               <div class="yield-block-att-list" data-role="attList"></div>
@@ -1337,20 +1404,18 @@
             });
           }
 
-          // Allow user to type decimals themselves, up to 1 place after the dot.
+          // decimals to tenths
           const wireDecimal = (role, sideKey, prop) => {
             const el = card.querySelector(`[data-role="${role}"]`);
             if(!el) return;
             el.addEventListener('input', e => {
               let v = e.target.value;
 
-              // Keep digits and a single decimal point
               v = v.replace(/[^0-9.]/g,'');
               const parts = v.split('.');
               if(parts.length > 2){
                 v = parts[0] + '.' + parts.slice(1).join('');
               }
-              // Limit to 1 digit after the decimal
               if(v.includes('.')){
                 const [intPart, fracRaw=''] = v.split('.');
                 const frac = fracRaw.slice(0, 1);
@@ -1384,6 +1449,7 @@
           wirePounds('trial-pounds', 'trial');
 
           recalcCombine(block, card);
+          renderNotes(block, card, notesId, micId);
           renderAttachments(block, card);
 
         }else if(block.type === 'weight'){
@@ -1404,6 +1470,7 @@
             yieldBuAc: null
           };
           block.attachments = block.attachments || [];
+          block.notes = block.notes || '';
 
           const check = block.check;
           const trial = block.trial;
@@ -1493,6 +1560,15 @@
               <span class="yield-block-yield" data-role="yieldText"></span>
               <span class="yield-block-error" data-role="errorText"></span>
             </div>
+
+            <div class="yield-block-notes">
+              <div class="yield-block-notes-head">
+                <span class="yield-block-notes-label">Block Notes</span>
+                <button id="${micId}" type="button" aria-label="Dictate notes"></button>
+              </div>
+              <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+            </div>
+
             <div class="yield-block-attachments">
               <div class="yield-block-att-title">Attachments (max ${MAX_ATTACH_PER_BLOCK} per block)</div>
               <div class="yield-block-att-list" data-role="attList"></div>
@@ -1583,6 +1659,7 @@
           wirePoundsW('trial-pounds', 'trial');
 
           recalcWeight(block, card);
+          renderNotes(block, card, notesId, micId);
           renderAttachments(block, card);
         }
 
@@ -1622,7 +1699,7 @@
         <div>${parts.join('<br>')}</div>
         <div class="muted">
           Add one or more trial blocks for this field. Each block can be based on <strong>Combine Yield Data</strong>
-          or <strong>Weight Data</strong>, with Check vs Trial passes and up to ${MAX_ATTACH_PER_BLOCK} attachments.
+          or <strong>Weight Data</strong>, with Check vs Trial passes, notes, and up to ${MAX_ATTACH_PER_BLOCK} attachments.
         </div>
       `;
 
@@ -1678,6 +1755,7 @@
             poundsRaw: '',
             yieldBuAc: null
           },
+          notes: '',
           attachments: []
         });
       }else{
@@ -1696,6 +1774,7 @@
             poundsRaw: '',
             yieldBuAc: null
           },
+          notes: '',
           attachments: []
         });
       }
@@ -1801,7 +1880,6 @@
           const blockDocRef = doc(colRef);   // new doc
           const blockDocId  = blockDocRef.id;
 
-          // Upload any new local files for this block
           await uploadNewAttachmentsForBlock(fieldId, block, blockDocId);
 
           const check = block.check || {};
@@ -1826,6 +1904,7 @@
               lengthFt: trial.lengthFt ? Number(trial.lengthFt) : null,
               widthFt: trial.widthFt ? Number(trial.widthFt) : null
             },
+            notes: block.notes || '',
             attachments: serializeAttachmentsForFirestore(block)
           };
 
@@ -1970,8 +2049,8 @@
             <h1>Trial Field Yields</h1>
             <p class="muted">
               Review the fields in this trial and tap one to open a yield pop-up. This version dries corn to 15% and
-              soybeans to 13%, supports combine or strip-weight blocks, and lets you compare Check vs Trial, attach
-              photos and PDFs, and save yield data for each field.
+              soybeans to 13%, supports combine or strip-weight blocks, and lets you compare Check vs Trial, dictate
+              notes, attach photos/PDFs, and save yield data for each field.
             </p>
           </div>
         </header>
@@ -2007,7 +2086,7 @@
           <div id="trialFieldList"></div>
           <div class="fields-hint">
             Tap a field card to open the yield pop-up. Each field can have many trial blocks, and every block
-            can be based on combine yield data or strip weight data, with up to ${MAX_ATTACH_PER_BLOCK} attachments.
+            can be based on combine yield data or strip weight data, with notes and up to ${MAX_ATTACH_PER_BLOCK} attachments.
           </div>
         </div>
       </section>
