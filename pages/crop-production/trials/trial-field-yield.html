@@ -426,9 +426,20 @@
       gap:8px;
       align-items:flex-end;
     }
+
+    .yield-block-grid-4{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0,1fr));
+      gap:8px;
+      align-items:flex-end;
+    }
+
     @media (max-width:640px){
       .yield-block-grid{
         grid-template-columns:1fr;
+      }
+      .yield-block-grid-4{
+        grid-template-columns:repeat(2, minmax(0,1fr));
       }
     }
 
@@ -508,6 +519,48 @@
       font-size:0.82rem;
       color:var(--muted,#67706B);
     }
+
+    /* Attachments section */
+    .yield-block-attachments{
+      margin-top:4px;
+      padding-top:8px;
+      border-top:1px dashed var(--border);
+      display:grid;
+      gap:6px;
+    }
+    .yield-block-att-title{
+      font-size:0.78rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      color:var(--muted,#67706B);
+    }
+    .yield-block-att-list{
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+    }
+    .yield-block-att-pill{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:3px 8px;
+      font-size:0.75rem;
+      background:var(--surface-soft,var(--surface));
+      max-width:100%;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
+    }
+    .yield-block-att-actions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      align-items:center;
+    }
+    .yield-block-att-hint{
+      font-size:0.75rem;
+      color:var(--muted,#67706B);
+    }
   </style>
 
   <!-- Lazy-load fv-shell if needed -->
@@ -541,6 +594,8 @@
       RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html'
     };
 
+    const STRIP_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50];
+
     const STATE = {
       db: null,
       user: null,
@@ -549,7 +604,7 @@
       trial: null,
       fields: [],
       selectedField: null,
-      // yieldData: { [fieldDocId]: [ { id, type, check:{...}, trial:{...} } ] }
+      // yieldData: { [fieldDocId]: [ { id, type, check:{...}, trial:{...}, attachments:[] } ] }
       yieldData: {}
     };
 
@@ -602,6 +657,12 @@
           }
         }, 100);
       });
+    }
+
+    function getDefaultStripWidthFt(){
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+      if(cropKind === 'soy') return 40;
+      return 30;
     }
 
     async function loadTrial(){
@@ -685,14 +746,19 @@
                 acres: check.acres != null ? String(check.acres) : '',
                 moisture: check.moisture != null ? String(check.moisture) : '',
                 poundsRaw: check.pounds != null ? String(check.pounds) : '',
-                yieldBuAc: check.yieldBuAc != null ? Number(check.yieldBuAc) : null
+                yieldBuAc: check.yieldBuAc != null ? Number(check.yieldBuAc) : null,
+                lengthFt: check.lengthFt != null ? String(check.lengthFt) : '',
+                widthFt: check.widthFt != null ? String(check.widthFt) : ''
               },
               trial: {
                 acres: trial.acres != null ? String(trial.acres) : '',
                 moisture: trial.moisture != null ? String(trial.moisture) : '',
                 poundsRaw: trial.pounds != null ? String(trial.pounds) : '',
-                yieldBuAc: trial.yieldBuAc != null ? Number(trial.yieldBuAc) : null
-              }
+                yieldBuAc: trial.yieldBuAc != null ? Number(trial.yieldBuAc) : null,
+                lengthFt: trial.lengthFt != null ? String(trial.lengthFt) : '',
+                widthFt: trial.widthFt != null ? String(trial.widthFt) : ''
+              },
+              attachments: Array.isArray(d.attachments) ? d.attachments : []
             });
           });
           if(blocks.length){
@@ -820,6 +886,133 @@
       return { yields, errors };
     }
 
+    function recalcWeight(block, card){
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+      const stdOverride =
+        cropKind === 'corn' ? 15 :
+        cropKind === 'soy'  ? 13 :
+        undefined;
+
+      const yields = { check: null, trial: null };
+      const errors = [];
+
+      ['check','trial'].forEach(side => {
+        const data = block[side] || {};
+        const label = side === 'check' ? 'Check' : 'Trial';
+
+        let lenInput = null;
+        let widthInput = null;
+        let moistInput = null;
+        let poundsInput = null;
+
+        if(card){
+          lenInput    = card.querySelector(`[data-role="${side}-length"]`);
+          widthInput  = card.querySelector(`[data-role="${side}-width"]`);
+          moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
+          poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
+          [lenInput, widthInput, moistInput, poundsInput].forEach(el=>{
+            if(el) el.classList.remove('input-error');
+          });
+        }
+
+        const lengthFt = data.lengthFt !== '' && data.lengthFt != null ? Number(data.lengthFt) : NaN;
+        const widthFt  = data.widthFt  !== '' && data.widthFt  != null ? Number(data.widthFt)  : NaN;
+        const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
+        const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
+
+        data.yieldBuAc = null;
+
+        if(!lengthFt && !widthFt && !moisture && !pounds){
+          return; // side empty
+        }
+
+        if(!lengthFt || !widthFt || !moisture || !pounds){
+          errors.push(`${label}: enter length, width, moisture, and pounds.`);
+          return;
+        }
+
+        if(lengthFt <= 0){
+          errors.push(`${label}: length must be greater than 0 ft.`);
+          if(lenInput) lenInput.classList.add('input-error');
+        }
+        if(widthFt <= 0){
+          errors.push(`${label}: width must be greater than 0 ft.`);
+          if(widthInput) widthInput.classList.add('input-error');
+        }
+        if(moisture < 5 || moisture > 40){
+          errors.push(`${label}: moisture must be between 5% and 40%.`);
+          if(moistInput) moistInput.classList.add('input-error');
+        }
+        if(pounds <= 0){
+          errors.push(`${label}: pounds of grain must be greater than 0.`);
+          if(poundsInput) poundsInput.classList.add('input-error');
+        }
+
+        if(errors.length) return;
+
+        // area in acres: length(ft) * width(ft) / 43,560
+        const acres = (lengthFt * widthFt) / 43560;
+
+        if(acres <= 0){
+          errors.push(`${label}: computed acres must be greater than 0.`);
+          if(lenInput) lenInput.classList.add('input-error');
+          if(widthInput) widthInput.classList.add('input-error');
+          return;
+        }
+
+        const res = calcTrueYield({
+          cropKind,
+          wetWeightLbs: pounds,
+          wetMoisturePct: moisture,
+          acres,
+          stdMoistOverride: stdOverride
+        });
+
+        if(!res){
+          errors.push(`${label}: unable to compute yield.`);
+          return;
+        }
+
+        const yld = res.yieldBuAc;
+        data.yieldBuAc = yld;
+        yields[side] = yld;
+
+        if(cropKind === 'corn' && (yld < 50 || yld > 400)){
+          errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
+        }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
+          errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
+        }
+      });
+
+      if(card){
+        const yieldTextEl = card.querySelector('[data-role="yieldText"]');
+        const errorTextEl = card.querySelector('[data-role="errorText"]');
+
+        if(yieldTextEl){
+          let txt = '';
+          if(yields.check == null && yields.trial == null){
+            txt = 'Enter length, width, moisture, and pounds for Check and/or Trial.';
+          }else{
+            const parts = [];
+            if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
+            if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
+            if(yields.check != null && yields.trial != null){
+              const diff = yields.trial - yields.check;
+              const sign = diff >= 0 ? '+' : '−';
+              parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+            }
+            txt = parts.join('  |  ');
+          }
+          yieldTextEl.textContent = txt;
+        }
+        if(errorTextEl){
+          errorTextEl.textContent = errors.join(' ');
+        }
+      }
+
+      return { yields, errors };
+    }
+
     function getFieldYieldSummary(fieldDocId){
       const blocks = STATE.yieldData[fieldDocId] || [];
       if(!blocks.length) return '';
@@ -912,6 +1105,43 @@
       });
     }
 
+    function renderAttachments(block, card){
+      block.attachments = block.attachments || [];
+      const listEl = card.querySelector('[data-role="attList"]');
+      const inputEl = card.querySelector('[data-role="attInput"]');
+
+      if(!listEl || !inputEl) return;
+
+      function refreshList(){
+        listEl.innerHTML = '';
+        if(!block.attachments.length){
+          const span = document.createElement('span');
+          span.className = 'yield-block-att-hint';
+          span.textContent = 'No attachments yet.';
+          listEl.appendChild(span);
+          return;
+        }
+        block.attachments.forEach(att => {
+          const pill = document.createElement('span');
+          pill.className = 'yield-block-att-pill';
+          pill.textContent = att.name || 'file';
+          listEl.appendChild(pill);
+        });
+      }
+
+      inputEl.addEventListener('change', e => {
+        const files = Array.from(e.target.files || []);
+        for(const f of files){
+          if(block.attachments.length >= 5) break;
+          block.attachments.push({ name: f.name });
+        }
+        e.target.value = '';
+        refreshList();
+      });
+
+      refreshList();
+    }
+
     function renderBlocksForField(fieldRow){
       if(!yieldBlocksWrap) return;
       const key = fieldRow.docId;
@@ -999,6 +1229,17 @@
               <span class="yield-block-yield" data-role="yieldText"></span>
               <span class="yield-block-error" data-role="errorText"></span>
             </div>
+            <div class="yield-block-attachments">
+              <div class="yield-block-att-title">Attachments (max 5 per block)</div>
+              <div class="yield-block-att-list" data-role="attList"></div>
+              <div class="yield-block-att-actions">
+                <label class="btn btn-small btn-inline">
+                  + Add Files
+                  <input type="file" data-role="attInput" multiple accept="image/*,application/pdf" style="display:none" />
+                </label>
+                <span class="yield-block-att-hint">Files are tracked by name in this version; upload wiring comes next.</span>
+              </div>
+            </div>
           `;
 
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -1009,7 +1250,7 @@
             });
           }
 
-          // Allow user to type decimals themselves, up to 2 places after the dot.
+          // Allow user to type decimals themselves, up to 1 place after the dot.
           const wireDecimal = (role, sideKey, prop) => {
             const el = card.querySelector(`[data-role="${role}"]`);
             if(!el) return;
@@ -1022,10 +1263,10 @@
               if(parts.length > 2){
                 v = parts[0] + '.' + parts.slice(1).join('');
               }
-              // Limit to 2 digits after the decimal
+              // Limit to 1 digit after the decimal
               if(v.includes('.')){
                 const [intPart, fracRaw=''] = v.split('.');
-                const frac = fracRaw.slice(0, 2);
+                const frac = fracRaw.slice(0, 1);
                 v = frac === '' ? intPart + '.' : intPart + '.' + frac;
               }
 
@@ -1057,14 +1298,47 @@
 
           // Initial calc
           recalcCombine(block, card);
+          renderAttachments(block, card);
 
         }else if(block.type === 'weight'){
+          const defaultWidth = String(getDefaultStripWidthFt());
+
+          block.check = block.check || {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          };
+          block.trial = block.trial || {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          };
+
+          const check = block.check;
+          const trial = block.trial;
+
+          if(!check.widthFt) check.widthFt = defaultWidth;
+          if(!trial.widthFt) trial.widthFt = defaultWidth;
+
+          const buildWidthOptions = (selectedVal) => {
+            const sel = String(selectedVal ?? defaultWidth);
+            return STRIP_WIDTH_OPTIONS.map(w => {
+              const wStr = String(w);
+              const selAttr = wStr === sel ? 'selected' : '';
+              return `<option value="${wStr}" ${selAttr}>${wStr}</option>`;
+            }).join('');
+          };
+
           card.innerHTML = `
             <div class="yield-block-head">
               <div>
-                <div class="yield-block-title">Block ${idx+1} – Weight Data</div>
+                <div class="yield-block-title">Block ${idx+1} – Weight Data (Strip)</div>
                 <div class="yield-block-sub">
-                  This will use the Combine Yield Check calculator you already built. We’ll wire the fields in the next step.
+                  Use strip length (ft) and header width to compute acres for Check vs Trial passes.
                 </div>
               </div>
               <button type="button" class="yield-block-remove" aria-label="Remove block">
@@ -1073,7 +1347,78 @@
                 </svg>
               </button>
             </div>
+            <div class="yield-block-two-col">
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Check</div>
+                <div class="yield-block-grid-4">
+                  <label class="field-mini">
+                    <span>Length (ft)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="check-length"
+                      value="${check.lengthFt ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Width (ft)</span>
+                    <select class="input" data-role="check-width">
+                      ${buildWidthOptions(check.widthFt)}
+                    </select>
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="check-moisture"
+                      value="${check.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Weight (Lbs)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="check-pounds"
+                      value="${formatPounds(check.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Trial</div>
+                <div class="yield-block-grid-4">
+                  <label class="field-mini">
+                    <span>Length (ft)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="trial-length"
+                      value="${trial.lengthFt ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Width (ft)</span>
+                    <select class="input" data-role="trial-width">
+                      ${buildWidthOptions(trial.widthFt)}
+                    </select>
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="trial-moisture"
+                      value="${trial.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Weight (Lbs)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="trial-pounds"
+                      value="${formatPounds(trial.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="yield-block-footer">
+              <span class="yield-block-yield" data-role="yieldText"></span>
+              <span class="yield-block-error" data-role="errorText"></span>
+            </div>
+            <div class="yield-block-attachments">
+              <div class="yield-block-att-title">Attachments (max 5 per block)</div>
+              <div class="yield-block-att-list" data-role="attList"></div>
+              <div class="yield-block-att-actions">
+                <label class="btn btn-small btn-inline">
+                  + Add Files
+                  <input type="file" data-role="attInput" multiple accept="image/*,application/pdf" style="display:none" />
+                </label>
+                <span class="yield-block-att-hint">Files are tracked by name in this version; upload wiring comes next.</span>
+              </div>
+            </div>
           `;
+
           const removeBtn = card.querySelector('.yield-block-remove');
           if(removeBtn){
             removeBtn.addEventListener('click', (ev)=>{
@@ -1081,6 +1426,77 @@
               removeTrialBlock(fieldRow, idx);
             });
           }
+
+          const wireInteger = (role, sideKey, prop) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              let v = e.target.value.replace(/[^0-9]/g,'');
+              block[sideKey][prop] = v;
+              e.target.value = v;
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          const wireWidthSelect = (role, sideKey) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('change', e => {
+              block[sideKey].widthFt = e.target.value;
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          const wireDecimalW = (role, sideKey, prop) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              let v = e.target.value;
+
+              v = v.replace(/[^0-9.]/g,'');
+              const parts = v.split('.');
+              if(parts.length > 2){
+                v = parts[0] + '.' + parts.slice(1).join('');
+              }
+              if(v.includes('.')){
+                const [intPart, fracRaw=''] = v.split('.');
+                const frac = fracRaw.slice(0, 1);
+                v = frac === '' ? intPart + '.' : intPart + '.' + frac;
+              }
+
+              block[sideKey][prop] = v;
+              e.target.value = v;
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          const wirePoundsW = (role, sideKey) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              const digits = e.target.value.replace(/[^\d]/g,'');
+              block[sideKey].poundsRaw = digits;
+              e.target.value = formatPounds(digits);
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          wireInteger('check-length', 'check', 'lengthFt');
+          wireWidthSelect('check-width', 'check');
+          wireDecimalW('check-moisture', 'check', 'moisture');
+          wirePoundsW('check-pounds', 'check');
+
+          wireInteger('trial-length', 'trial', 'lengthFt');
+          wireWidthSelect('trial-width', 'trial');
+          wireDecimalW('trial-moisture', 'trial', 'moisture');
+          wirePoundsW('trial-pounds', 'trial');
+
+          recalcWeight(block, card);
+          renderAttachments(block, card);
         }
 
         yieldBlocksWrap.appendChild(card);
@@ -1118,8 +1534,8 @@
       yieldSummaryEl.innerHTML = `
         <div>${parts.join('<br>')}</div>
         <div class="muted">
-          Add one or more trial blocks for this field. Each block tracks <strong>Check</strong> vs
-          <strong>Trial</strong> yields based on combine data.
+          Add one or more trial blocks for this field. Each block can be based on <strong>Combine Yield Data</strong>
+          or <strong>Weight Data</strong>, with Check vs Trial passes.
         </div>
       `;
 
@@ -1154,22 +1570,49 @@
       if(!STATE.yieldData[key]){
         STATE.yieldData[key] = [];
       }
-      STATE.yieldData[key].push({
-        id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
-        type,
-        check: {
-          acres: '',
-          moisture: '',
-          poundsRaw: '',
-          yieldBuAc: null
-        },
-        trial: {
-          acres: '',
-          moisture: '',
-          poundsRaw: '',
-          yieldBuAc: null
-        }
-      });
+
+      const defaultWidth = String(getDefaultStripWidthFt());
+
+      if(type === 'weight'){
+        STATE.yieldData[key].push({
+          id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
+          type: 'weight',
+          check: {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          trial: {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          attachments: []
+        });
+      }else{
+        STATE.yieldData[key].push({
+          id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
+          type: 'combine',
+          check: {
+            acres: '',
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          trial: {
+            acres: '',
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          attachments: []
+        });
+      }
+
       renderBlocksForField(STATE.selectedField);
       renderFieldList();
     }
@@ -1183,19 +1626,28 @@
 
       let ok = true;
       for(const block of blocks){
-        if(block.type !== 'combine') continue;
         const c = block.check || {};
         const t = block.trial || {};
-        const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
-        const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
-        if(!(hasC && hasT)){
-          ok = false;
-          break;
+
+        if(block.type === 'combine'){
+          const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+          const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+          if(!(hasC && hasT)){
+            ok = false;
+            break;
+          }
+        }else if(block.type === 'weight'){
+          const hasC = c.lengthFt && c.widthFt && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+          const hasT = t.lengthFt && t.widthFt && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+          if(!(hasC && hasT)){
+            ok = false;
+            break;
+          }
         }
       }
 
       if(!ok){
-        showError('Each trial block must have valid acres, moisture, and pounds for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
+        showError('Each trial block must have valid data for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
       }
 
       return ok;
@@ -1230,21 +1682,29 @@
         // write current blocks
         const writes = [];
         blocks.forEach((block, index)=>{
+          const check = block.check || {};
+          const trial = block.trial || {};
+
           const data = {
             blockType: block.type || 'combine',
             order: index,
             check: {
-              acres: block.check?.acres ? Number(block.check.acres) : null,
-              moisture: block.check?.moisture ? Number(block.check.moisture) : null,
-              pounds: block.check?.poundsRaw ? Number(block.check.poundsRaw) : null,
-              yieldBuAc: block.check?.yieldBuAc != null ? Number(block.check.yieldBuAc) : null
+              acres: check.acres ? Number(check.acres) : null,
+              moisture: check.moisture ? Number(check.moisture) : null,
+              pounds: check.poundsRaw ? Number(check.poundsRaw) : null,
+              yieldBuAc: check.yieldBuAc != null ? Number(check.yieldBuAc) : null,
+              lengthFt: check.lengthFt ? Number(check.lengthFt) : null,
+              widthFt: check.widthFt ? Number(check.widthFt) : null
             },
             trial: {
-              acres: block.trial?.acres ? Number(block.trial.acres) : null,
-              moisture: block.trial?.moisture ? Number(block.trial.moisture) : null,
-              pounds: block.trial?.poundsRaw ? Number(block.trial.poundsRaw) : null,
-              yieldBuAc: block.trial?.yieldBuAc != null ? Number(block.trial.yieldBuAc) : null
-            }
+              acres: trial.acres ? Number(trial.acres) : null,
+              moisture: trial.moisture ? Number(trial.moisture) : null,
+              pounds: trial.poundsRaw ? Number(trial.poundsRaw) : null,
+              yieldBuAc: trial.yieldBuAc != null ? Number(trial.yieldBuAc) : null,
+              lengthFt: trial.lengthFt ? Number(trial.lengthFt) : null,
+              widthFt: trial.widthFt ? Number(trial.widthFt) : null
+            },
+            attachments: Array.isArray(block.attachments) ? block.attachments : []
           };
           writes.push(addDoc(colRef, data));
         });
@@ -1387,7 +1847,8 @@
             <h1>Trial Field Yields</h1>
             <p class="muted">
               Review the fields in this trial and tap one to open a yield pop-up. This version dries corn to 15% and
-              soybeans to 13% and lets you build trial blocks, compare Check vs Trial, and save yield data for each field.
+              soybeans to 13%, supports combine or strip-weight blocks, and lets you compare Check vs Trial and save yield
+              data for each field.
             </p>
           </div>
         </header>
@@ -1423,7 +1884,7 @@
           <div id="trialFieldList"></div>
           <div class="fields-hint">
             Tap a field card to open the yield pop-up. Each field can have many trial blocks, and every block
-            can be based on combine yield data or weight data.
+            can be based on combine yield data or strip weight data.
           </div>
         </div>
       </section>
