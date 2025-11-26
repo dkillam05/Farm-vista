@@ -81,15 +81,15 @@
       display:flex;
       flex-wrap:wrap;
       gap:10px;
-      align-items:flex-end;
+      align-items:flex-start;
       justify-content:space-between;
     }
 
     .toolbar-left{
       display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:center;
+      flex-direction:column;
+      gap:6px;
+      align-items:flex-start;
     }
 
     .toolbar-right{
@@ -124,39 +124,29 @@
       padding-inline:10px;
     }
 
-    /* Status filter chips */
+    /* Status dropdown */
 
-    .status-filter{
+    .status-filter-wrap{
       display:flex;
-      align-items:center;
-      gap:6px;
-      flex-wrap:wrap;
+      flex-direction:column;
+      gap:3px;
+      font-size:0.85rem;
     }
 
     .status-filter-label{
-      font-size:0.8rem;
+      font-size:0.78rem;
       text-transform:uppercase;
       letter-spacing:0.06em;
       opacity:0.7;
     }
 
-    .status-chip{
-      border-radius:999px;
+    .status-filter-select{
+      min-width:180px;
+      padding:7px 10px;
+      border-radius:10px;
       border:1px solid var(--border);
-      padding:6px 10px;
-      font-size:0.8rem;
-      cursor:pointer;
-      background:color-mix(in srgb, var(--surface) 80%, var(--border) 20%);
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      user-select:none;
-    }
-
-    .status-chip.is-active{
-      border-color:var(--accent);
-      background:color-mix(in srgb, var(--accent) 14%, var(--surface) 86%);
-      font-weight:600;
+      background:var(--card-surface, var(--surface));
+      font-size:0.9rem;
     }
 
     /* Trial list */
@@ -842,9 +832,12 @@
       const emptyEl = $('.trial-empty');
       const countEl = $('#trialCount');
 
+      if(!listEl) return;
+
       listEl.innerHTML = '';
 
-      const statusLabel = getStatusLabel(STATE.filterStatus || CONFIG.STATUS_PENDING);
+      const statusCode  = STATE.filterStatus || CONFIG.STATUS_PENDING;
+      const statusLabel = getStatusLabel(statusCode);
       const labelLower  = statusLabel ? statusLabel.toLowerCase() : 'pending';
 
       if(!STATE.items.length){
@@ -917,7 +910,7 @@
             </div>
             <div class="trial-status-chip">${friendlyStatus}</div>
           </div>
-        ";
+        `;
 
         // Clicking the card opens details
         card.addEventListener('click', () => {
@@ -945,10 +938,18 @@
 
     async function loadTrials(statusCode){
       const db  = STATE.db;
+      if(!db) return;
+
       const ref = collection(db, CONFIG.COLLECTION_TRIALS);
       const status = (statusCode || CONFIG.STATUS_PENDING).toString().toLowerCase();
 
       STATE.filterStatus = status;
+
+      // keep dropdown in sync
+      const sel = $('#trialStatusFilter');
+      if(sel){
+        sel.value = status;
+      }
 
       try{
         const qRef = query(ref, where(CONFIG.STATUS_FIELD, '==', status));
@@ -1019,24 +1020,16 @@
         fileCloseBtn.addEventListener('click', closeFileViewer);
       }
 
-      // Status filter wiring
-      const statusButtons = $$('.status-chip');
-      statusButtons.forEach(btn => {
-        const s = (btn.dataset.status || '').toLowerCase();
-        if(s === STATE.filterStatus){
-          btn.classList.add('is-active');
-        }
-        btn.addEventListener('click', () => {
-          const status = (btn.dataset.status || '').toLowerCase();
-          if(!status || status === STATE.filterStatus) return;
-          STATE.filterStatus = status;
-          statusButtons.forEach(b => {
-            b.classList.toggle('is-active', b === btn);
-          });
+      // Status dropdown wiring
+      const statusSelect = $('#trialStatusFilter');
+      if(statusSelect){
+        statusSelect.value = STATE.filterStatus;
+        statusSelect.addEventListener('change', () => {
+          const val = (statusSelect.value || CONFIG.STATUS_PENDING).toLowerCase();
           clearDetails();
-          loadTrials(status);
+          loadTrials(val);
         });
-      });
+      }
 
       await loadTrials(STATE.filterStatus);
     })();
@@ -1064,13 +1057,16 @@
                 ← Back to Trials
               </button>
 
-              <div class="status-filter" role="radiogroup" aria-label="Filter trials by status">
-                <span class="status-filter-label">Status</span>
-                <button type="button" class="status-chip is-active" data-status="pending">Pending</button>
-                <button type="button" class="status-chip" data-status="active">Active</button>
-                <button type="button" class="status-chip" data-status="completed">Completed</button>
+              <div class="status-filter-wrap">
+                <label for="trialStatusFilter" class="status-filter-label">Status</label>
+                <select id="trialStatusFilter" class="status-filter-select">
+                  <option value="pending">Pending</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                </select>
               </div>
             </div>
+
             <div class="toolbar-right">
               <span id="trialCount">0 pending trials</span>
             </div>
