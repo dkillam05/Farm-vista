@@ -74,7 +74,7 @@
     .body{
       padding:16px;
       display:grid;
-      gap:10px;
+      gap:12px;
     }
 
     .toolbar{
@@ -124,15 +124,14 @@
       padding-inline:10px;
     }
 
-    /* Status dropdown – OUTSIDE hero */
-
+    /* Status dropdown – now INSIDE hero */
     .status-filter-wrap{
       display:flex;
       flex-direction:column;
       gap:3px;
       font-size:0.85rem;
       margin-top:4px;
-      margin-bottom:6px;
+      max-width:220px;
     }
 
     .status-filter-label{
@@ -157,7 +156,7 @@
       display:flex;
       flex-direction:column;
       gap:10px;
-      margin-top:8px;
+      margin-top:4px;
     }
 
     .trial-empty{
@@ -576,6 +575,7 @@
     const CONFIG = {
       COLLECTION_TRIALS: 'fieldTrials',
       STATUS_FIELD:  'status',
+      STATUS_ALL: 'all',
       STATUS_PENDING:'pending',
       STATUS_ACTIVE: 'active',
       STATUS_COMPLETED:'completed',
@@ -613,6 +613,7 @@
     function getStatusLabel(code){
       if(!code) return '';
       const c = String(code).toLowerCase();
+      if(c === CONFIG.STATUS_ALL)       return 'All';
       if(c === CONFIG.STATUS_PENDING)   return 'Pending';
       if(c === CONFIG.STATUS_ACTIVE)    return 'Active';
       if(c === CONFIG.STATUS_COMPLETED) return 'Completed';
@@ -833,16 +834,30 @@
 
       listEl.innerHTML = '';
 
-      const statusCode  = STATE.filterStatus || CONFIG.STATUS_PENDING;
-      const statusLabel = getStatusLabel(statusCode);
-      const labelLower  = statusLabel ? statusLabel.toLowerCase() : 'pending';
+      const statusCode  = STATE.filterStatus || CONFIG.STATUS_ALL;
+
+      let labelLower = '';
+      if(statusCode === CONFIG.STATUS_ALL){
+        labelLower = 'trials';
+      }else{
+        const statusLabel = getStatusLabel(statusCode);
+        labelLower  = statusLabel ? statusLabel.toLowerCase() : 'pending';
+      }
 
       if(!STATE.items.length){
         if(emptyEl) {
           emptyEl.style.display = 'block';
-          emptyEl.textContent = `No ${labelLower} trials right now.`;
+          emptyEl.textContent = statusCode === CONFIG.STATUS_ALL
+            ? 'No trials right now.'
+            : `No ${labelLower} trials right now.`;
         }
-        if(countEl) countEl.textContent = `0 ${labelLower} trials`;
+        if(countEl){
+          if(statusCode === CONFIG.STATUS_ALL){
+            countEl.textContent = '0 trials';
+          }else{
+            countEl.textContent = `0 ${labelLower} trials`;
+          }
+        }
         clearDetails();
         return;
       }
@@ -929,12 +944,16 @@
       }
 
       if(countEl){
-        countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
+        if(statusCode === CONFIG.STATUS_ALL){
+          countEl.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'}`;
+        }else{
+          countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
+        }
       }
     }
 
     function applyFilter(statusCode){
-      const raw = statusCode || CONFIG.STATUS_PENDING;
+      const raw = statusCode || CONFIG.STATUS_ALL;
       const status = String(raw).toLowerCase();
 
       STATE.filterStatus = status;
@@ -965,10 +984,15 @@
         return;
       }
 
-      const filtered = STATE.allItems.filter(item => {
-        const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
-        return s === status;
-      });
+      let filtered;
+      if(status === CONFIG.STATUS_ALL){
+        filtered = STATE.allItems.slice();
+      }else{
+        filtered = STATE.allItems.filter(item => {
+          const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
+          return s === status;
+        });
+      }
 
       STATE.items = filtered;
       clearDetails();
@@ -998,8 +1022,8 @@
         STATE.allItems = items;
         STATE.loaded = true;
 
-        // Use whatever filter was requested last, or default to pending
-        const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_PENDING;
+        // Use whatever filter was requested last, or default to ALL
+        const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
         applyFilter(desired);
       }catch(err){
         console.error('Error loading trials:', err);
@@ -1017,7 +1041,7 @@
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
-      STATE.filterStatus = CONFIG.STATUS_PENDING;
+      STATE.filterStatus = CONFIG.STATUS_ALL;
       STATE.loaded = false;
       STATE.pendingFilter = null;
 
@@ -1059,7 +1083,7 @@
       if(statusSelect){
         statusSelect.value = STATE.filterStatus;
         statusSelect.addEventListener('change', () => {
-          const val = (statusSelect.value || CONFIG.STATUS_PENDING).toLowerCase();
+          const val = (statusSelect.value || CONFIG.STATUS_ALL).toLowerCase();
           applyFilter(val);
         });
       }
@@ -1080,7 +1104,7 @@
           <div>
             <h1>Edit Field Trials</h1>
             <p class="muted">
-              Review and open field trials. Use the status filter to switch between Pending, Active, and Completed.
+              Review and open field trials. Use the status filter to switch between All, Pending, Active, and Completed.
             </p>
           </div>
         </header>
@@ -1096,27 +1120,28 @@
               <span id="trialCount">Loading trials...</span>
             </div>
           </div>
+
+          <!-- STATUS DROPDOWN + LIST INSIDE HERO -->
+          <div class="status-filter-wrap">
+            <label for="trialStatusFilter" class="status-filter-label">Status</label>
+            <select id="trialStatusFilter" class="status-filter-select">
+              <option value="all">All</option>
+              <option value="pending">Pending</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+
+          <section aria-label="Field trials">
+            <div class="trial-empty">
+              Loading trials...
+            </div>
+            <div class="trial-list"></div>
+          </section>
         </div>
       </section>
 
-      <!-- STATUS DROPDOWN BELOW HERO -->
-      <div class="status-filter-wrap">
-        <label for="trialStatusFilter" class="status-filter-label">Status</label>
-        <select id="trialStatusFilter" class="status-filter-select">
-          <option value="pending">Pending</option>
-          <option value="active">Active</option>
-          <option value="completed">Completed</option>
-        </select>
-      </div>
-
-      <!-- TRIAL LIST + DETAILS -->
-      <section aria-label="Field trials">
-        <div class="trial-empty">
-          Loading trials...
-        </div>
-        <div class="trial-list"></div>
-      </section>
-
+      <!-- TRIAL DETAILS PANEL BELOW HERO -->
       <section class="trial-detail-panel" aria-label="Trial details">
         <div class="trial-detail-header">
           <div class="trial-detail-title">Trial Details</div>
