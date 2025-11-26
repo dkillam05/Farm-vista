@@ -849,7 +849,16 @@
       label.textContent = 'Fields in this trial';
       fieldListEl.appendChild(label);
 
-      STATE.fields.forEach((row) => {
+      // Sort A–Z by Farm + Field for easier scanning
+      const sorted = [...STATE.fields].sort((a,b)=>{
+        const A = ((a.farmName || '') + ' ' + (a.fieldName || '')).toLowerCase();
+        const B = ((b.farmName || '') + ' ' + (b.fieldName || '')).toLowerCase();
+        if(A < B) return -1;
+        if(A > B) return 1;
+        return 0;
+      });
+
+      sorted.forEach((row) => {
         const blocks = STATE.yieldData[row.docId] || [];
         const blockCount = blocks.length;
 
@@ -943,7 +952,7 @@
                       value="${check.moisture ?? ''}" />
                   </label>
                   <label class="field-mini">
-                    <span>Pounds of grain</span>
+                    <span>Weight (Lbs)</span>
                     <input type="text" inputmode="numeric" class="input" data-role="check-pounds"
                       value="${formatPounds(check.poundsRaw || '')}" />
                   </label>
@@ -964,7 +973,7 @@
                       value="${trial.moisture ?? ''}" />
                   </label>
                   <label class="field-mini">
-                    <span>Pounds of grain</span>
+                    <span>Weight (Lbs)</span>
                     <input type="text" inputmode="numeric" class="input" data-role="trial-pounds"
                       value="${formatPounds(trial.poundsRaw || '')}" />
                   </label>
@@ -988,10 +997,25 @@
           const wireDecimal = (role, sideKey, prop) => {
             const el = card.querySelector(`[data-role="${role}"]`);
             if(!el) return;
+
+            // live input: keep numeric, max 2 decimals
             el.addEventListener('input', e => {
               const cleaned = sanitizeDecimal(e.target.value, 2);
               block[sideKey][prop] = cleaned;
               e.target.value = cleaned;
+              recalcCombine(block, card);
+              renderFieldList();
+            });
+
+            // on blur: normalize to exactly 2 decimal places if not empty
+            el.addEventListener('blur', e => {
+              const val = e.target.value;
+              if(val === '') return;
+              const num = Number(val);
+              if(Number.isNaN(num)) return;
+              const fixed = num.toFixed(2);
+              block[sideKey][prop] = fixed;
+              e.target.value = fixed;
               recalcCombine(block, card);
               renderFieldList();
             });
@@ -1162,15 +1186,16 @@
       return ok;
     }
 
+    // Return true on success, false on any validation or Firestore error
     async function saveYieldForSelectedField(){
-      if(!STATE.selectedField || !STATE.db || !STATE.trialId) return;
+      if(!STATE.selectedField || !STATE.db || !STATE.trialId) return false;
       const fieldId = STATE.selectedField.docId;
       const key = fieldId;
       const blocks = STATE.yieldData[key] || [];
 
       // 1) Validate all blocks before touching Firestore
       if(!validateBlocksForField(fieldId)){
-        return;
+        return false;
       }
 
       try{
@@ -1216,6 +1241,7 @@
 
         showToast('Yield data saved for this field.');
         renderFieldList();
+        return true;
       }catch(err){
         console.error('Error saving yield data:', err);
         if(err && (err.code === 'permission-denied' || err.code === 7)){
@@ -1223,6 +1249,7 @@
         }else{
           showError('Unable to save yield data. Please try again.');
         }
+        return false;
       }
     }
 
@@ -1259,10 +1286,8 @@
       }
       if(btnModalOk){
         btnModalOk.addEventListener('click', async () => {
-          await saveYieldForSelectedField();
-          // Only close if there isn't a validation or rules error
-          const hasError = errBox && errBox.classList.contains('show');
-          if(!hasError){
+          const ok = await saveYieldForSelectedField();
+          if(ok){
             closeYieldModal();
           }
         });
