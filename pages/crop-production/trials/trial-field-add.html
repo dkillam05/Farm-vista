@@ -58,11 +58,23 @@
 
     .hero-head{
       display:flex;
+      justify-content:space-between;
       align-items:flex-start;
       gap:12px;
       padding:14px 16px;
       border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+
+    .hero-head-main{
+      display:flex;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .hero-head-actions{
+      display:flex;
+      align-items:flex-start;
     }
 
     .hero-head .icon{
@@ -979,16 +991,6 @@
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
           `;
 
-          const removeBtn = div.querySelector('button[data-existing-idx]');
-          if(removeBtn){
-            removeBtn.addEventListener('click', ()=> removeExistingField(idx));
-          }
-
-          const yieldBtn = div.querySelector('button[data-existing-yield]');
-          if(yieldBtn){
-            yieldBtn.addEventListener('click', ()=> openYieldForExisting(idx));
-          }
-
           item.appendChild(div);
           frag.appendChild(item);
         });
@@ -1030,16 +1032,6 @@
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
           `;
-
-          const removeBtn=div.querySelector('button[data-pending-idx]');
-          if(removeBtn){
-            removeBtn.addEventListener('click',()=> removePendingField(idx));
-          }
-
-          const yieldBtn = div.querySelector('button[data-pending-yield]');
-          if(yieldBtn){
-            yieldBtn.addEventListener('click', ()=> openYieldForPending());
-          }
 
           item.appendChild(div);
           pendingListEl.appendChild(item);
@@ -1092,6 +1084,19 @@
         showError("Selected field does not belong to the selected farm. Please choose a matching farm and field.");
         return;
       }
+
+      // Prevent adding the same field twice (existing or pending)
+      const fieldId = field.id;
+      if(fieldId){
+        const alreadyExisting = STATE.existingFields.some(row => row.field && row.field.id === fieldId);
+        const alreadyPending  = STATE.pendingFields.some(row => row.field && row.field.id === fieldId);
+        if(alreadyExisting || alreadyPending){
+          showError("This field is already in this trial. You can't add the same field twice.");
+          showToast("Field already added to this trial.");
+          return;
+        }
+      }
+
       const acresStr=trialAcresInput.value.trim();
       const notes=notesInput.value.trim();
       let acres=acresStr?Number(acresStr):null;
@@ -1286,6 +1291,38 @@
         btnSaveAll.addEventListener("click", saveAllFields);
       }
 
+      // Delegated click handlers so Add Yield / Remove keep working with swipe
+      if(existingListEl){
+        existingListEl.addEventListener('click', (e)=>{
+          const yieldBtn = e.target.closest('button[data-existing-yield]');
+          if(yieldBtn){
+            const idx = Number(yieldBtn.getAttribute('data-existing-yield'));
+            if(!Number.isNaN(idx)) openYieldForExisting(idx);
+            return;
+          }
+          const removeBtn = e.target.closest('button[data-existing-idx]');
+          if(removeBtn){
+            const idx = Number(removeBtn.getAttribute('data-existing-idx'));
+            if(!Number.isNaN(idx)) removeExistingField(idx);
+          }
+        });
+      }
+
+      if(pendingListEl){
+        pendingListEl.addEventListener('click', (e)=>{
+          const yieldBtn = e.target.closest('button[data-pending-yield]');
+          if(yieldBtn){
+            openYieldForPending();
+            return;
+          }
+          const removeBtn = e.target.closest('button[data-pending-idx]');
+          if(removeBtn){
+            const idx = Number(removeBtn.getAttribute('data-pending-idx'));
+            if(!Number.isNaN(idx)) removePendingField(idx);
+          }
+        });
+      }
+
       if(trialAcresInput){
         trialAcresInput.addEventListener("blur", ()=>{
           const v=trialAcresInput.value.trim();
@@ -1369,13 +1406,20 @@
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon" aria-hidden="true">🧪</div>
-          <div>
-            <h1>Add Field to Trial</h1>
-            <p class="muted">
-              Pick a farm and field, then enter the acres that are part of this trial. Trial acres can’t be more
-              than the field’s tillable acres.
-            </p>
+          <div class="hero-head-main">
+            <div class="icon" aria-hidden="true">🧪</div>
+            <div>
+              <h1>Add Field to Trial</h1>
+              <p class="muted">
+                Pick a farm and field, then enter the acres that are part of this trial. Trial acres can’t be more
+                than the field’s tillable acres.
+              </p>
+            </div>
+          </div>
+          <div class="hero-head-actions">
+            <button id="btnBack" type="button" class="btn btn-quiet">
+              ← Back to Trials
+            </button>
           </div>
         </header>
 
@@ -1390,11 +1434,6 @@
               </div>
               <div class="trial-summary-line" id="trialTypeLine"></div>
               <div class="trial-summary-line" id="trialTreatmentLine"></div>
-            </div>
-            <div class="top-row-actions">
-              <button id="btnBack" type="button" class="btn btn-quiet">
-                ← Back to Trials
-              </button>
             </div>
           </div>
 
