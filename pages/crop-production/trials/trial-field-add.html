@@ -13,6 +13,7 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
   <!-- FVData helpers -->
   <script src="/Farm-vista/js/fv-data.js"></script>
@@ -51,7 +52,6 @@
       border-radius:18px;
       background:var(--surface);
       box-shadow:var(--shadow,0 12px 28px rgba(0,0,0,.12));
-      /* allow dropdowns to extend past the card */
       overflow:visible;
     }
 
@@ -313,7 +313,6 @@
       box-shadow:var(--combo-shadow);
       padding:8px;
       display:none;
-      /* let footer sit on top of long dropdowns */
       z-index:10;
     }
     .combo-panel.show{
@@ -398,7 +397,6 @@
       display:grid;
       gap:4px;
       font-size:0.9rem;
-      touch-action:pan-y;
       position:relative;
     }
     .field-card-top{
@@ -424,39 +422,6 @@
       gap:6px;
     }
 
-    /* Mobile swipe actions */
-    .field-card-mobile-actions{
-      position:absolute;
-      right:8px;
-      top:50%;
-      transform:translateY(-50%);
-      display:none;
-      gap:8px;
-    }
-    .field-card-mobile-actions button{
-      width:32px;
-      height:32px;
-      border-radius:999px;
-      border:none;
-      display:grid;
-      place-items:center;
-      background:var(--surface);
-      box-shadow:0 2px 6px rgba(0,0,0,.18);
-      padding:0;
-      cursor:pointer;
-    }
-    .field-card-mobile-actions .icon-trash{
-      color:#b3261e;
-    }
-    .field-card-mobile-actions .icon-check{
-      color:#2F6C3C;
-    }
-    .field-card-mobile-actions svg{
-      width:18px;
-      height:18px;
-      display:block;
-    }
-
     .fields-actions{
       margin-top:4px;
       display:flex;
@@ -469,16 +434,6 @@
       font-size:0.78rem;
       color:var(--muted,#67706B);
       margin-top:4px;
-    }
-
-    /* Phone behavior: hide desktop buttons, show swipe icons */
-    @media (max-width: 720px){
-      .field-card-actions{
-        display:none;
-      }
-      .field-card.show-mobile-actions .field-card-mobile-actions{
-        display:flex;
-      }
     }
 
     .toast{
@@ -528,6 +483,7 @@
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
+    import { initSwipeList } from '/Farm-vista/js/fv-swipe-list.js';
 
     const CONFIG = {
       COLLECTION_TRIALS: 'fieldTrials',
@@ -564,9 +520,7 @@
     let trialAcresInput, trialAcresHelp, notesInput, micBtn;
     let existingListEl, pendingListEl;
 
-    // for "tap again" behaviors
     let lastNavTime = 0;
-    let lastMobileRemoveTime = 0;
 
     /* ------------------ DIAGNOSTIC HELPER ------------------ */
     function diag(label, payload){
@@ -889,47 +843,6 @@
       fieldCombo.setItems(items);
     }
 
-    // ------------------- MOBILE SWIPE HELPERS -------------------
-
-    function closeAllMobileActions(exceptCard=null){
-      document.querySelectorAll('.field-card.show-mobile-actions').forEach(el=>{
-        if(el!==exceptCard) el.classList.remove('show-mobile-actions');
-      });
-    }
-
-    function wireSwipeActions(cardEl){
-      if(!cardEl) return;
-      let startX=0, startY=0, dx=0, dy=0, active=false;
-
-      cardEl.addEventListener('touchstart', e=>{
-        if(!e.touches || !e.touches.length) return;
-        const t=e.touches[0];
-        startX=t.clientX;
-        startY=t.clientY;
-        dx=dy=0;
-        active=true;
-      }, { passive:true });
-
-      cardEl.addEventListener('touchmove', e=>{
-        if(!active || !e.touches || !e.touches.length) return;
-        const t=e.touches[0];
-        dx=t.clientX - startX;
-        dy=t.clientY - startY;
-      }, { passive:true });
-
-      cardEl.addEventListener('touchend', ()=>{
-        if(!active) return;
-        active=false;
-        // swipe RIGHT, mostly horizontal, threshold ~40px
-        if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && dx > 0){
-          closeAllMobileActions(cardEl);
-          cardEl.classList.toggle('show-mobile-actions');
-        }
-      });
-
-      cardEl.addEventListener('touchcancel', ()=>{ active=false; });
-    }
-
     // ------------------- REMOVE HELPERS -------------------
 
     function removePendingField(idx){
@@ -963,22 +876,6 @@
       }
     }
 
-    // mobile-only remove with "Are you sure?" toast
-    function handleMobileRemove(type, idx){
-      const now = Date.now();
-      if(now - lastMobileRemoveTime > 2500){
-        lastMobileRemoveTime = now;
-        showToast("Are you sure? Tap the trash again to remove.");
-        return;
-      }
-      lastMobileRemoveTime = 0;
-      if(type === 'existing'){
-        removeExistingField(idx);
-      }else{
-        removePendingField(idx);
-      }
-    }
-
     // ------------------- YIELD NAV HELPERS -------------------
 
     function openYieldForExisting(idx){
@@ -991,8 +888,48 @@
     }
 
     function openYieldForPending(){
-      // Pending fields are not saved yet – avoid sending them to yield entry
       showToast("Field Added - Not Save Yet. Save fields before adding yield.");
+    }
+
+    function applySwipeToLists(){
+      if(existingListEl){
+        initSwipeList(existingListEl, {
+          itemSelector: '.fv-swipe-item[data-kind="existing"]',
+          leftAction: {
+            label: 'Add Yield',
+            onAction: (itemEl) => {
+              const idx = Number(itemEl.dataset.index);
+              if(!Number.isNaN(idx)) openYieldForExisting(idx);
+            }
+          },
+          rightAction: {
+            label: 'Remove',
+            onAction: (itemEl) => {
+              const idx = Number(itemEl.dataset.index);
+              if(!Number.isNaN(idx)) removeExistingField(idx);
+            }
+          }
+        });
+      }
+
+      if(pendingListEl){
+        initSwipeList(pendingListEl, {
+          itemSelector: '.fv-swipe-item[data-kind="pending"]',
+          leftAction: {
+            label: 'Add Yield',
+            onAction: () => {
+              openYieldForPending();
+            }
+          },
+          rightAction: {
+            label: 'Remove',
+            onAction: (itemEl) => {
+              const idx = Number(itemEl.dataset.index);
+              if(!Number.isNaN(idx)) removePendingField(idx);
+            }
+          }
+        });
+      }
     }
 
     function renderFieldLists(){
@@ -1008,6 +945,11 @@
         frag.appendChild(label);
 
         STATE.existingFields.forEach((row,idx)=>{
+          const item = document.createElement('div');
+          item.className = 'fv-swipe-item';
+          item.dataset.kind = 'existing';
+          item.dataset.index = String(idx);
+
           const div = document.createElement('div');
           div.className = 'field-card';
           const farmField = `${row.farm.name} • ${row.field.fieldName}`;
@@ -1027,18 +969,6 @@
               </div>
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
-            <div class="field-card-mobile-actions">
-              <button type="button" class="icon-trash" data-existing-mobile-remove="${idx}" aria-label="Remove field">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M9 3h6a1 1 0 0 1 1 1v2h3v2h-1v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8H4V6h3V4a1 1 0 0 1 1-1zm1 3h4V5h-4v1zm-1 4v8h2v-8H9zm4 0v8h2v-8h-2z"/>
-                </svg>
-              </button>
-              <button type="button" class="icon-check" data-existing-mobile-yield="${idx}" aria-label="Add yield">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M9.5 17.5 5 13l1.4-1.4 3.1 3.09 8.1-8.09L19 8l-9.5 9.5z"/>
-                </svg>
-              </button>
-            </div>
           `;
 
           const removeBtn = div.querySelector('button[data-existing-idx]');
@@ -1051,18 +981,8 @@
             yieldBtn.addEventListener('click', ()=> openYieldForExisting(idx));
           }
 
-          const mobileRemoveBtn = div.querySelector('button[data-existing-mobile-remove]');
-          if(mobileRemoveBtn){
-            mobileRemoveBtn.addEventListener('click', ()=> handleMobileRemove('existing', idx));
-          }
-
-          const mobileYieldBtn = div.querySelector('button[data-existing-mobile-yield]');
-          if(mobileYieldBtn){
-            mobileYieldBtn.addEventListener('click', ()=> openYieldForExisting(idx));
-          }
-
-          wireSwipeActions(div);
-          frag.appendChild(div);
+          item.appendChild(div);
+          frag.appendChild(item);
         });
 
         existingListEl.appendChild(frag);
@@ -1077,6 +997,11 @@
         pendingListEl.appendChild(label);
 
         STATE.pendingFields.forEach((row,idx)=>{
+          const item = document.createElement('div');
+          item.className = 'fv-swipe-item';
+          item.dataset.kind = 'pending';
+          item.dataset.index = String(idx);
+
           const div=document.createElement('div');
           div.className='field-card';
           const farmField=`${row.farm.name} • ${row.field.fieldName}`;
@@ -1096,19 +1021,8 @@
               </div>
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
-            <div class="field-card-mobile-actions">
-              <button type="button" class="icon-trash" data-pending-mobile-remove="${idx}" aria-label="Remove field">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M9 3h6a1 1 0 0 1 1 1v2h3v2h-1v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8H4V6h3V4a1 1 0 0 1 1-1zm1 3h4V5h-4v1zm-1 4v8h2v-8H9zm4 0v8h2v-8h-2z"/>
-                </svg>
-              </button>
-              <button type="button" class="icon-check" data-pending-mobile-yield="${idx}" aria-label="Add yield">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M9.5 17.5 5 13l1.4-1.4 3.1 3.09 8.1-8.09L19 8l-9.5 9.5z"/>
-                </svg>
-              </button>
-            </div>
           `;
+
           const removeBtn=div.querySelector('button[data-pending-idx]');
           if(removeBtn){
             removeBtn.addEventListener('click',()=> removePendingField(idx));
@@ -1119,18 +1033,8 @@
             yieldBtn.addEventListener('click', ()=> openYieldForPending());
           }
 
-          const mobileRemoveBtn = div.querySelector('button[data-pending-mobile-remove]');
-          if(mobileRemoveBtn){
-            mobileRemoveBtn.addEventListener('click', ()=> handleMobileRemove('pending', idx));
-          }
-
-          const mobileYieldBtn = div.querySelector('button[data-pending-mobile-yield]');
-          if(mobileYieldBtn){
-            mobileYieldBtn.addEventListener('click', ()=> openYieldForPending());
-          }
-
-          wireSwipeActions(div);
-          pendingListEl.appendChild(div);
+          item.appendChild(div);
+          pendingListEl.appendChild(item);
         });
       }else{
         if(!STATE.existingFields.length){
@@ -1141,6 +1045,9 @@
             `<div class="field-list-empty">No new fields added yet. Use <strong>Add Field</strong> above to add more fields to this trial.</div>`;
         }
       }
+
+      // Apply swipe behavior after lists are built
+      applySwipeToLists();
     }
 
     function formHasUnsavedStuff(){
@@ -1201,7 +1108,6 @@
       });
       renderFieldLists();
 
-      // *** UPDATED TOAST TEXT PER YOUR REQUEST ***
       showToast("Field Added - Not Save Yet");
 
       STATE.selectedFarm=null;
@@ -1554,7 +1460,7 @@
           <div id="existingFieldList"></div>
           <div id="pendingFieldList"></div>
           <div class="fields-swipe-hint">
-            On a phone, swipe right on a field card to reveal Remove and Add Yield icons. On desktop, use the buttons.
+            On a phone, swipe right on a field card to add yield and swipe left to remove it from this list. On desktop, use the buttons.
           </div>
         </div>
         <div class="fields-actions">
