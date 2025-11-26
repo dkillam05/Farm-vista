@@ -451,6 +451,74 @@
       margin-top:4px;
     }
 
+    /* Overlapping trials hero */
+    .overlap-hero{
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 18px rgba(0,0,0,.06));
+      overflow:hidden;
+    }
+    .overlap-head{
+      padding:10px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .overlap-head h2{
+      margin:0;
+      font-size:0.96rem;
+    }
+    .overlap-badge{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid #b3261e;
+      color:#b3261e;
+      background:rgba(179,38,30,.06);
+      white-space:nowrap;
+    }
+    .overlap-body{
+      padding:12px 16px 12px;
+      display:grid;
+      gap:8px;
+    }
+    .overlap-summary{
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
+    }
+    .overlap-row{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:8px 10px;
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+      font-size:0.86rem;
+    }
+    .overlap-row-main{
+      display:grid;
+      gap:2px;
+    }
+    .overlap-row-title{
+      font-weight:700;
+    }
+    .overlap-row-sub{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+    .overlap-row-meta{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+      white-space:nowrap;
+      padding-top:2px;
+    }
+
     .toast{
       position:fixed;
       left:50%;
@@ -522,7 +590,8 @@
       selectedField: null,
       selectedFieldMaxAcres: null,
       existingFields: [],   // already saved
-      pendingFields: []     // new this session
+      pendingFields: [],    // new this session
+      overlaps: []          // overlapping trials using same fields + crop year
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -534,8 +603,10 @@
     let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine;
     let trialAcresInput, trialAcresHelp, notesInput, micBtn;
     let existingListEl, pendingListEl;
+    let overlapHeroEl, overlapListEl, overlapSummaryEl, overlapBadgeEl;
 
     let lastNavTime = 0;
+    let overlapCheckTimer = null;
 
     function diag(label, payload){
       const ts = new Date();
@@ -967,6 +1038,149 @@
       }
     }
 
+    function renderOverlapConflicts(rows){
+      if(!overlapHeroEl || !overlapListEl || !overlapSummaryEl || !overlapBadgeEl) return;
+
+      if(!rows || !rows.length){
+        overlapHeroEl.style.display = 'none';
+        overlapListEl.innerHTML = '';
+        overlapSummaryEl.textContent = '';
+        overlapBadgeEl.textContent = '';
+        STATE.overlaps = [];
+        return;
+      }
+
+      STATE.overlaps = rows;
+      overlapHeroEl.style.display = 'block';
+
+      overlapBadgeEl.textContent = `${rows.length} overlap${rows.length === 1 ? '' : 's'}`;
+      overlapSummaryEl.textContent =
+        "These fields are also used in other trials with the same crop year. Make sure strips don't overlap or it can ruin the test.";
+
+      const html = rows.map(r => `
+        <div class="overlap-row">
+          <div class="overlap-row-main">
+            <div class="overlap-row-title">${r.farmName} • ${r.fieldName}</div>
+            <div class="overlap-row-sub">
+              Trial: <strong>${r.trialName}</strong> (${r.statusLabel})
+              ${r.operation ? ' • ' + r.operation : ''}
+            </div>
+          </div>
+          <div class="overlap-row-meta">
+            ${r.cropYear ?? ''}
+          </div>
+        </div>
+      `).join('');
+
+      overlapListEl.innerHTML = html;
+    }
+
+    async function checkOverlappingTrials(){
+      try{
+        if(!STATE.db || !STATE.trial || STATE.trial.cropYear == null){
+          diag('overlap.skip', { reason: 'no trial or cropYear' });
+          renderOverlapConflicts([]);
+          return;
+        }
+
+        // Collect all fieldIds we care about (existing + pending)
+        const fieldIds = new Set();
+        (STATE.existingFields || []).forEach(row=>{
+          if(row.field && row.field.id) fieldIds.add(row.field.id);
+        });
+        (STATE.pendingFields || []).forEach(row=>{
+          if(row.field && row.field.id) fieldIds.add(row.field.id);
+        });
+
+        if(fieldIds.size === 0){
+          diag('overlap.skip', { reason: 'no fieldIds yet' });
+          renderOverlapConflicts([]);
+          return;
+        }
+
+        const targetCropYear = STATE.trial.cropYear;
+        const trialsSnap = await getDocs(collection(STATE.db, CONFIG.COLLECTION_TRIALS));
+        const relevantTrials = [];
+
+        trialsSnap.forEach(d=>{
+          const data = d.data() || {};
+          const id   = d.id;
+          if(id === STATE.trialId) return; // skip current trial
+
+          const cropYear = data.cropYear;
+          if(cropYear !== targetCropYear) return;
+
+          if(STATE.orgId && data.orgId && data.orgId !== STATE.orgId) return;
+
+          const statusRaw = (data.status || '').toString();
+          const status = statusRaw.toLowerCase();
+          if(!['pending','active','completed'].includes(status)) return;
+
+          relevantTrials.push({
+            id,
+            trialName: data.trialName || 'Unnamed trial',
+            statusRaw,
+            status,
+            cropYear,
+            operationTask: data.operationTask || '',
+          });
+        });
+
+        diag('overlap.trialsFiltered', {
+          totalTrials: trialsSnap.size,
+          relevantTrials: relevantTrials.length,
+          cropYear: targetCropYear
+        });
+
+        if(!relevantTrials.length){
+          renderOverlapConflicts([]);
+          return;
+        }
+
+        const conflicts = [];
+        const seen = new Set(); // dedupe on trialId|fieldId
+
+        for(const t of relevantTrials){
+          const path = `${CONFIG.COLLECTION_TRIALS}/${t.id}/fields`;
+          const fieldsSnap = await getDocs(collection(STATE.db, path));
+          fieldsSnap.forEach(fd=>{
+            const fdata = fd.data() || {};
+            const fieldId = fdata.fieldId || null;
+            if(!fieldId || !fieldIds.has(fieldId)) return;
+
+            const key = `${t.id}::${fieldId}`;
+            if(seen.has(key)) return;
+            seen.add(key);
+
+            const farmName  = fdata.farmName || 'Unknown farm';
+            const fieldName = fdata.fieldName || 'Unknown field';
+
+            const niceStatus = t.statusRaw
+              ? (t.statusRaw[0].toUpperCase() + t.statusRaw.slice(1))
+              : 'Unknown';
+
+            conflicts.push({
+              trialId: t.id,
+              trialName: t.trialName,
+              statusLabel: niceStatus,
+              cropYear: t.cropYear,
+              farmName,
+              fieldName,
+              operation: t.operationTask || ''
+            });
+          });
+        }
+
+        diag('overlap.conflicts', { count: conflicts.length });
+        renderOverlapConflicts(conflicts);
+      }catch(err){
+        console.error('Error checking overlapping trials:', err);
+        diag('overlap.error', { message: err.message, stack: err.stack });
+        // If overlap check fails, just hide the card so it never blocks workflow
+        renderOverlapConflicts([]);
+      }
+    }
+
     function renderFieldLists(){
       if(!existingListEl || !pendingListEl) return;
 
@@ -1063,6 +1277,12 @@
 
       // Try to enable swipe, but don't let it break the page
       applySwipeToLists();
+
+      // Debounced overlap check so we don't hammer Firestore
+      if(overlapCheckTimer) clearTimeout(overlapCheckTimer);
+      overlapCheckTimer = setTimeout(()=>{
+        checkOverlappingTrials().catch(()=>{ /* already logged */ });
+      }, 120);
     }
 
     function formHasUnsavedStuff(){
@@ -1225,6 +1445,15 @@
       toastEl=document.getElementById('toast');
       errorBox=document.getElementById('errBox');
       debugLogEl=document.getElementById('debugLog');
+
+      overlapHeroEl   = document.getElementById('overlapHero');
+      overlapListEl   = document.getElementById('overlapList');
+      overlapSummaryEl= document.getElementById('overlapSummary');
+      overlapBadgeEl  = document.getElementById('overlapBadge');
+
+      if(overlapHeroEl){
+        overlapHeroEl.style.display = 'none';
+      }
 
       diag('boot.start', { href: window.location.href });
 
@@ -1532,6 +1761,18 @@
         <div class="fields-actions">
           <button id="btnCancel" type="button" class="btn">Cancel</button>
           <button id="btnSaveFields" type="button" class="btn btn-primary">Save Fields</button>
+        </div>
+      </section>
+
+      <!-- New hero: overlapping trials warning -->
+      <section id="overlapHero" class="overlap-hero" style="display:none;">
+        <header class="overlap-head">
+          <h2>Other trials using these fields</h2>
+          <span id="overlapBadge" class="overlap-badge"></span>
+        </header>
+        <div class="overlap-body">
+          <div id="overlapSummary" class="overlap-summary"></div>
+          <div id="overlapList"></div>
         </div>
       </section>
     </div>
