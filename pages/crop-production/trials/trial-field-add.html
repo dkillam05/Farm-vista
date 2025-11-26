@@ -58,7 +58,7 @@
 
     .hero-head{
       display:flex;
-      justify-content:space-between;
+      justify-content:flex-start;
       align-items:flex-start;
       gap:12px;
       padding:14px 16px;
@@ -70,11 +70,6 @@
       display:flex;
       align-items:flex-start;
       gap:12px;
-    }
-
-    .hero-head-actions{
-      display:flex;
-      align-items:flex-start;
     }
 
     .hero-head .icon{
@@ -711,6 +706,15 @@
       return { setItems(arr){ DATA=Array.isArray(arr)?arr:[]; render(''); } };
     }
 
+    function sortFieldRows(arr){
+      if(!Array.isArray(arr)) return;
+      arr.sort((a,b)=>{
+        const aName = `${(a.farm && a.farm.name) || ''} • ${(a.field && a.field.fieldName) || ''}`.toLowerCase();
+        const bName = `${(b.farm && b.farm.name) || ''} • ${(b.field && b.field.fieldName) || ''}`.toLowerCase();
+        return aName.localeCompare(bName);
+      });
+    }
+
     async function loadTrial(){
       if(!STATE.trialId) return;
       try{
@@ -828,6 +832,7 @@
             notes: data.notes || ''
           });
         });
+        sortFieldRows(rows);
         STATE.existingFields = rows;
         diag('loadExistingTrialFields.ok', { count: rows.length });
       }catch(err){
@@ -906,8 +911,18 @@
       showToast("Field Added - Not Save Yet. Save fields before adding yield.");
     }
 
+    function isTouchPointer(){
+      return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    }
+
     function applySwipeToLists(){
       try{
+        // Only enable swipe on touch devices – keep desktop buttons fully clickable
+        if(!isTouchPointer()){
+          diag('applySwipeToLists.skip', { reason: 'non-touch pointer; buttons only' });
+          return;
+        }
+
         if(existingListEl){
           initSwipeList(existingListEl, {
             itemSelector: '.fv-swipe-item[data-kind="existing"]',
@@ -1113,6 +1128,7 @@
         return;
       }
       STATE.pendingFields.push({farm,field,acres,notes});
+      sortFieldRows(STATE.pendingFields);
       diag('addFieldToPending', {
         farmId: farm.id,
         fieldId: field.id,
@@ -1416,11 +1432,6 @@
               </p>
             </div>
           </div>
-          <div class="hero-head-actions">
-            <button id="btnBack" type="button" class="btn btn-quiet">
-              ← Back to Trials
-            </button>
-          </div>
         </header>
 
         <div class="body">
@@ -1434,6 +1445,11 @@
               </div>
               <div class="trial-summary-line" id="trialTypeLine"></div>
               <div class="trial-summary-line" id="trialTreatmentLine"></div>
+            </div>
+            <div class="top-row-actions">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Trials
+              </button>
             </div>
           </div>
 
