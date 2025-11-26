@@ -103,7 +103,8 @@
 
     .top-row-actions{
       display:flex;
-      align-items:flex-start;
+      align-items:flex-end;
+      justify-content:flex-end;
     }
 
     .btn{
@@ -278,8 +279,8 @@
       display:none;
     }
     .modal{
-      max-width:480px;
-      width:90vw;
+      max-width:640px;
+      width:95vw;
       background:var(--surface);
       border-radius:16px;
       box-shadow:0 18px 45px rgba(0,0,0,.28);
@@ -297,16 +298,147 @@
       font-size:1rem;
     }
     .modal-body{
-      padding:14px 16px;
+      padding:14px 16px 10px;
       font-size:0.9rem;
       display:grid;
-      gap:6px;
+      gap:10px;
+      max-height:70vh;
+      overflow-y:auto;
     }
     .modal-footer{
       padding:10px 16px 12px;
       border-top:1px solid var(--border);
       display:flex;
       justify-content:flex-end;
+      gap:10px;
+    }
+
+    .yield-summary{
+      display:grid;
+      gap:4px;
+    }
+
+    .yield-summary .muted{
+      font-size:0.82rem;
+    }
+
+    .btn-inline{
+      min-width:auto;
+      font-size:0.85rem;
+      padding:7px 12px;
+      border-radius:999px;
+    }
+
+    .block-type-dialog{
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      display:grid;
+      gap:6px;
+      font-size:0.88rem;
+    }
+    .block-type-dialog.hidden{
+      display:none;
+    }
+    .block-type-dialog label{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      cursor:pointer;
+    }
+    .block-type-dialog input[type="radio"]{
+      accent-color:var(--accent);
+    }
+    .block-type-actions{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+
+    .yield-block-card{
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      display:grid;
+      gap:8px;
+      font-size:0.88rem;
+    }
+    .yield-block-head{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+    }
+    .yield-block-title{
+      font-weight:700;
+    }
+    .yield-block-sub{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+
+    .yield-block-grid{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0,1fr));
+      gap:8px;
+    }
+    @media (max-width:640px){
+      .yield-block-grid{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .field-mini{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+    }
+    .field-mini span{
+      font-size:0.8rem;
+      font-weight:600;
+    }
+    .input{
+      width:100%;
+      font:inherit;
+      font-size:0.9rem;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:9px;
+      padding:8px 10px;
+      outline:none;
+    }
+    .input:focus{
+      box-shadow:0 0 0 1px rgba(47,108,60,.28);
+      border-color:var(--accent);
+    }
+    .input-error{
+      border-color:#b3261e !important;
+      box-shadow:0 0 0 1px rgba(179,38,30,.3);
+      background:rgba(179,38,30,.03);
+    }
+
+    .yield-block-footer{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:space-between;
+      gap:6px;
+      font-size:0.8rem;
+      align-items:center;
+    }
+    .yield-block-yield{
+      font-weight:600;
+    }
+    .yield-block-error{
+      color:#b3261e;
+    }
+
+    .yield-empty{
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
     }
   </style>
 
@@ -343,7 +475,10 @@
       fieldDocId: null,
       trial: null,
       fields: [],
-      selectedField: null
+      selectedField: null,
+      // yieldData is in-memory only for now:
+      // { [fieldDocId]: [ { id, type, acres, moisture, poundsRaw, yieldBuAc } ] }
+      yieldData: {}
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -352,6 +487,8 @@
     let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine, fieldCountLine;
     let fieldListEl;
     let modalBackdrop, modalTitleEl, modalBodyEl;
+    let yieldSummaryEl, yieldBlocksWrap, addBlockBtn;
+    let blockTypeDialog, blockTypeConfirmBtn, blockTypeCancelBtn;
 
     function getQueryParam(name){
       const params = new URLSearchParams(window.location.search);
@@ -463,7 +600,7 @@
 
       if(fieldCountLine){
         const c = STATE.fields.length;
-        fieldCountLine.textContent = c ? `${c} field${c===1?'':'s'} in this trial` : "No fields linked yet";
+        fieldCountLine.textContent = c ? `${c} field${c===1?'':'s'} in this trial` : "No fields in this trial yet";
       }
 
       if(!STATE.fields.length){
@@ -477,10 +614,9 @@
       label.textContent = 'Fields in this trial';
       fieldListEl.appendChild(label);
 
-      STATE.fields.forEach((row, idx) => {
+      STATE.fields.forEach((row) => {
         const div = document.createElement('div');
         div.className = 'field-card';
-        div.dataset.idx = String(idx);
 
         const acresText = row.trialAcres != null ? `${row.trialAcres.toFixed(2)} ac` : '—';
 
@@ -505,8 +641,191 @@
       });
     }
 
+    function formatPounds(digits){
+      if(!digits) return '';
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    function getCropKind(){
+      const c = (STATE.trial?.crop || "").toLowerCase();
+      if(c.includes("corn")) return "corn";
+      if(c.includes("soy")) return "soy";
+      return "other";
+    }
+
+    function recalcCombine(block, card){
+      const acresInput   = card.querySelector('[data-role="acres"]');
+      const moistInput   = card.querySelector('[data-role="moisture"]');
+      const poundsInput  = card.querySelector('[data-role="pounds"]');
+      const yieldTextEl  = card.querySelector('[data-role="yieldText"]');
+      const errorTextEl  = card.querySelector('[data-role="errorText"]');
+
+      [acresInput, moistInput, poundsInput].forEach(el=>{
+        if(el) el.classList.remove('input-error');
+      });
+      if(yieldTextEl) yieldTextEl.textContent = '';
+      if(errorTextEl) errorTextEl.textContent = '';
+
+      const acres = block.acres != null && block.acres !== '' ? Number(block.acres) : NaN;
+      const moisture = block.moisture != null && block.moisture !== '' ? Number(block.moisture) : NaN;
+      const pounds = block.poundsRaw ? Number(block.poundsRaw) : NaN;
+
+      if(!acres || !moisture || !pounds){
+        if(yieldTextEl) yieldTextEl.textContent = 'Enter acres, moisture, and pounds to estimate yield.';
+        return;
+      }
+
+      let error = '';
+
+      if(acres <= 0){
+        error = 'Acres must be greater than 0.';
+        if(acresInput) acresInput.classList.add('input-error');
+      }
+
+      if(moisture < 5 || moisture > 40){
+        if(error) error += ' ';
+        error += 'Moisture must be between 5% and 40%.';
+        if(moistInput) moistInput.classList.add('input-error');
+      }
+
+      if(pounds <= 0){
+        if(error) error += ' ';
+        error += 'Pounds of grain must be greater than 0.';
+        if(poundsInput) poundsInput.classList.add('input-error');
+      }
+
+      if(error){
+        if(errorTextEl) errorTextEl.textContent = error;
+        return;
+      }
+
+      // Simple approximate yield – we can refine later if needed.
+      const cropKind = getCropKind();
+      const stdWeight = cropKind === 'soy' ? 60 : 56;
+      const bushels = pounds / stdWeight;
+      const yld = bushels / acres;
+      block.yieldBuAc = yld;
+
+      if(yieldTextEl){
+        yieldTextEl.textContent = `Approx. yield: ${yld.toFixed(1)} bu/ac`;
+      }
+
+      // Range checks
+      let rangeError = '';
+      if(cropKind === 'corn'){
+        if(yld < 50 || yld > 400){
+          rangeError = 'Yield seems out of range for corn (50–400 bu/ac). Please double-check values.';
+        }
+      }else if(cropKind === 'soy'){
+        if(yld < 20 || yld > 150){
+          rangeError = 'Yield seems out of range for soybeans (20–150 bu/ac). Please double-check values.';
+        }
+      }
+
+      if(rangeError && errorTextEl){
+        errorTextEl.textContent = rangeError;
+      }
+    }
+
+    function renderBlocksForField(fieldRow){
+      if(!yieldBlocksWrap) return;
+      const key = fieldRow.docId;
+      const blocks = STATE.yieldData[key] || [];
+
+      yieldBlocksWrap.innerHTML = '';
+
+      if(!blocks.length){
+        const p = document.createElement('p');
+        p.className = 'yield-empty';
+        p.textContent = 'No trial blocks added yet. Use “Add Trial Block” to start capturing yield data for this field.';
+        yieldBlocksWrap.appendChild(p);
+        return;
+      }
+
+      blocks.forEach((block, idx)=>{
+        const card = document.createElement('div');
+        card.className = 'yield-block-card';
+
+        if(block.type === 'combine'){
+          card.innerHTML = `
+            <div class="yield-block-head">
+              <div>
+                <div class="yield-block-title">Block ${idx+1} – Combine Yield Data</div>
+                <div class="yield-block-sub">
+                  Trial block only. Acres, moisture, and pounds of grain.
+                </div>
+              </div>
+            </div>
+            <div class="yield-block-grid">
+              <label class="field-mini">
+                <span>Acres</span>
+                <input type="number" step="0.01" class="input" data-role="acres"
+                  value="${block.acres ?? ''}" />
+              </label>
+              <label class="field-mini">
+                <span>Moisture %</span>
+                <input type="number" step="0.1" class="input" data-role="moisture"
+                  value="${block.moisture ?? ''}" />
+              </label>
+              <label class="field-mini">
+                <span>Pounds of grain</span>
+                <input type="text" inputmode="numeric" class="input" data-role="pounds"
+                  value="${formatPounds(block.poundsRaw || '')}" />
+              </label>
+            </div>
+            <div class="yield-block-footer">
+              <span class="yield-block-yield" data-role="yieldText"></span>
+              <span class="yield-block-error" data-role="errorText"></span>
+            </div>
+          `;
+
+          const acresInput = card.querySelector('[data-role="acres"]');
+          const moistInput = card.querySelector('[data-role="moisture"]');
+          const poundsInput = card.querySelector('[data-role="pounds"]');
+
+          if(acresInput){
+            acresInput.addEventListener('input', e=>{
+              block.acres = e.target.value;
+              recalcCombine(block, card);
+            });
+          }
+          if(moistInput){
+            moistInput.addEventListener('input', e=>{
+              block.moisture = e.target.value;
+              recalcCombine(block, card);
+            });
+          }
+          if(poundsInput){
+            poundsInput.addEventListener('input', e=>{
+              const digits = e.target.value.replace(/[^\d]/g,'');
+              block.poundsRaw = digits;
+              e.target.value = formatPounds(digits);
+              recalcCombine(block, card);
+            });
+          }
+
+          // Initial calc if values already there
+          recalcCombine(block, card);
+
+        }else if(block.type === 'weight'){
+          card.innerHTML = `
+            <div class="yield-block-head">
+              <div>
+                <div class="yield-block-title">Block ${idx+1} – Weight Data</div>
+                <div class="yield-block-sub">
+                  This will use the Combine Yield Check calculator you already built. We’ll wire the fields in the next step.
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        yieldBlocksWrap.appendChild(card);
+      });
+    }
+
     function openYieldModal(row){
-      if(!modalBackdrop || !modalTitleEl || !modalBodyEl) return;
+      if(!modalBackdrop || !modalTitleEl || !yieldSummaryEl) return;
       STATE.selectedField = row || null;
 
       const trialName = STATE.trial?.trialName || 'Field Trial';
@@ -524,16 +843,20 @@
         parts.push(`<strong>Field tillable:</strong> ${row.tillable} ac`);
       }
 
-      modalBodyEl.innerHTML = `
-        <p>${parts.join('<br>')}</p>
-        <p class="muted">
-          This is the first pass. In the next step, this pop-up will collect yield numbers and
-          upload photos / files for this field's yield checks.
-        </p>
-        <p class="muted">
-          For now, tap <strong>OK</strong> to close and move between fields.
-        </p>
+      yieldSummaryEl.innerHTML = `
+        <div>${parts.join('<br>')}</div>
+        <div class="muted">
+          Add one or more trial blocks for this field. Each block can be based on
+          <strong>Combine Yield Data</strong> or <strong>Weight Data</strong>.
+        </div>
       `;
+
+      // Ensure yield blocks exist for this field
+      const key = row.docId;
+      if(!STATE.yieldData[key]){
+        STATE.yieldData[key] = [];
+      }
+      renderBlocksForField(row);
 
       modalBackdrop.classList.remove('hidden');
     }
@@ -542,6 +865,33 @@
       if(!modalBackdrop) return;
       modalBackdrop.classList.add('hidden');
       STATE.selectedField = null;
+    }
+
+    function showBlockTypeDialog(){
+      if(!blockTypeDialog || !STATE.selectedField) return;
+      blockTypeDialog.classList.remove('hidden');
+    }
+
+    function hideBlockTypeDialog(){
+      if(!blockTypeDialog) return;
+      blockTypeDialog.classList.add('hidden');
+    }
+
+    function addTrialBlockOfType(type){
+      if(!STATE.selectedField) return;
+      const key = STATE.selectedField.docId;
+      if(!STATE.yieldData[key]){
+        STATE.yieldData[key] = [];
+      }
+      STATE.yieldData[key].push({
+        id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
+        type,
+        acres: '',
+        moisture: '',
+        poundsRaw: '',
+        yieldBuAc: null
+      });
+      renderBlocksForField(STATE.selectedField);
     }
 
     (async function boot(){
@@ -559,6 +909,13 @@
       modalBackdrop = $('#yieldModalBackdrop');
       modalTitleEl  = $('#yieldModalTitle');
       modalBodyEl   = $('#yieldModalBody');
+      yieldSummaryEl = $('#yieldSummary');
+      yieldBlocksWrap = $('#yieldBlocksWrap');
+      addBlockBtn = $('#btnAddTrialBlock');
+
+      blockTypeDialog = $('#blockTypeDialog');
+      blockTypeConfirmBtn = $('#btnBlockTypeConfirm');
+      blockTypeCancelBtn  = $('#btnBlockTypeCancel');
 
       const btnBack = $('#btnBack');
       const btnModalOk = $('#btnYieldOk');
@@ -584,6 +941,22 @@
         }
       });
 
+      if(addBlockBtn){
+        addBlockBtn.addEventListener('click', showBlockTypeDialog);
+      }
+      if(blockTypeCancelBtn){
+        blockTypeCancelBtn.addEventListener('click', hideBlockTypeDialog);
+      }
+      if(blockTypeConfirmBtn){
+        blockTypeConfirmBtn.addEventListener('click', ()=>{
+          if(!STATE.selectedField) return;
+          const choice = modalBodyEl.querySelector('input[name="blockType"]:checked');
+          const type = choice ? choice.value : 'combine';
+          addTrialBlockOfType(type);
+          hideBlockTypeDialog();
+        });
+      }
+
       const shell = document.querySelector('fv-shell');
       if(shell && NAV_MENU){
         shell.nav = NAV_MENU;
@@ -597,7 +970,6 @@
         return;
       }
 
-      const auth = getAuth();
       STATE.user = await waitForAuthReady();
       if(!STATE.user){
         showError("User is not signed in. Please log in again.");
@@ -630,8 +1002,8 @@
           <div>
             <h1>Trial Field Yields</h1>
             <p class="muted">
-              Review the fields in this trial and tap one to open a yield pop-up. This first version only
-              shows the layout; yield entry and uploads will be wired next.
+              Review the fields in this trial and tap one to open a yield pop-up. This first version wires up
+              the layout and basic trial blocks; we’ll keep layering in the details.
             </p>
           </div>
         </header>
@@ -665,22 +1037,44 @@
         <div class="fields-body">
           <div id="trialFieldList"></div>
           <div class="fields-hint">
-            Tap a field card to open the yield pop-up. Later, this will collect yield numbers and upload photos / files
-            for each yield collection.
+            Tap a field card to open the yield pop-up. Each field can have many trial blocks, and every block
+            can be based on combine yield data or weight data.
           </div>
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Simple yield modal (OK-only for first run) -->
+  <!-- Yield modal -->
   <div id="yieldModalBackdrop" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="yieldModalTitle">
     <div class="modal">
       <div class="modal-header">
         <h3 id="yieldModalTitle">Yield Entry</h3>
       </div>
       <div id="yieldModalBody" class="modal-body">
-        <!-- Filled by JS -->
+        <div id="yieldSummary" class="yield-summary"></div>
+
+        <div class="block-type-dialog hidden" id="blockTypeDialog">
+          <div><strong>What type of trial block is this?</strong></div>
+          <label>
+            <input type="radio" name="blockType" value="combine" checked />
+            Combine Yield Data
+          </label>
+          <label>
+            <input type="radio" name="blockType" value="weight" />
+            Weight Data
+          </label>
+          <div class="block-type-actions">
+            <button id="btnBlockTypeCancel" type="button" class="btn btn-quiet btn-inline">Cancel</button>
+            <button id="btnBlockTypeConfirm" type="button" class="btn btn-primary btn-inline">Add Block</button>
+          </div>
+        </div>
+
+        <button id="btnAddTrialBlock" type="button" class="btn btn-primary btn-inline">
+          + Add Trial Block
+        </button>
+
+        <div id="yieldBlocksWrap"></div>
       </div>
       <div class="modal-footer">
         <button id="btnYieldOk" type="button" class="btn btn-primary">OK</button>
