@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/fv-yield-math.js
-Rev: 2025-11-26b
+Rev: 2025-11-26c
 
 Shared yield-math helpers for FarmVista.
 
@@ -11,16 +11,30 @@ Goals:
 - IMPORTANT: Going drier than the standard DOES NOT increase yield
   (no "over-dry credit"). Anything under the target moisture is treated
   as the standard in the math so bushels never inflate.
+- Provide helpers for strip/weight trials:
+    • length (ft) × header width (ft) → acres
+    • shared header-width options and crop-based defaults.
 
 Usage example (trials page):
 
-  import { calcTrueYield } from '/Farm-vista/js/fv-yield-math.js';
+  import {
+    calcTrueYield,
+    calcAcresFromDimensions,
+    getDefaultHeaderWidthFt,
+    HEADER_WIDTH_OPTIONS_FT
+  } from '/Farm-vista/js/fv-yield-math.js';
+
+  const headerWidthFt = getDefaultHeaderWidthFt('corn'); // e.g. 30
+  const acres = calcAcresFromDimensions({
+    lengthFt: 1320,
+    widthFt: headerWidthFt
+  });
 
   const res = calcTrueYield({
     cropKind: 'corn',          // 'corn' | 'soy' | 'other'
     wetWeightLbs: 52000,       // pounds of grain
     wetMoisturePct: 19.2,      // wet moisture %
-    acres: 4.37,               // acres in the block
+    acres,                     // from dimensions
     stdMoistOverride: 15       // OPTIONAL; trials page uses 15 for corn
   });
 
@@ -33,18 +47,27 @@ Usage example (trials page):
 
 export const CROP_CONFIG = {
   corn: {
-    testWeight: 56,   // lb/bu
-    stdMoist: 15.5    // "book" standard for the main calculator
+    testWeight: 56,        // lb/bu
+    stdMoist: 15.5,        // "book" standard for the main calculator
+    defaultHeaderWidthFt: 30
   },
   soy: {
     testWeight: 60,
-    stdMoist: 13.0
+    stdMoist: 13.0,
+    defaultHeaderWidthFt: 40
   },
   other: {
     testWeight: 56,
-    stdMoist: 15.0
+    stdMoist: 15.0,
+    defaultHeaderWidthFt: 30
   }
 };
+
+/**
+ * Shared header width options (ft) for strip/weight trials.
+ * UI dropdowns should normally use this list.
+ */
+export const HEADER_WIDTH_OPTIONS_FT = [15, 20, 25, 30, 35, 40, 45];
 
 /**
  * Normalize a crop string to 'corn' | 'soy' | 'other'.
@@ -54,6 +77,43 @@ export function normalizeCropKind(raw) {
   if (c.includes('soy')) return 'soy';
   if (c.includes('corn')) return 'corn';
   return 'other';
+}
+
+/**
+ * Get the default header width (ft) for a given cropKind.
+ * - Corn: 30 ft
+ * - Soybeans: 40 ft
+ * - Other: 30 ft
+ */
+export function getDefaultHeaderWidthFt(cropKind) {
+  const kind = normalizeCropKind(cropKind);
+  const cfg = CROP_CONFIG[kind] || CROP_CONFIG.other;
+  const n = Number(cfg.defaultHeaderWidthFt);
+  return Number.isFinite(n) && n > 0 ? n : 30;
+}
+
+/**
+ * Convert a rectangular trial strip to acres.
+ *
+ * lengthFt and widthFt are passed in as feet (integers in the UI),
+ * but we still treat them as Numbers here.
+ *
+ * area (sq ft) / 43,560 = acres
+ *
+ * Returns:
+ *   - a Number > 0 for valid inputs
+ *   - null if inputs are missing/invalid
+ */
+export function calcAcresFromDimensions({ lengthFt, widthFt }) {
+  const L = Number(lengthFt);
+  const W = Number(widthFt);
+
+  if (!(L > 0 && W > 0)) return null;
+
+  const areaSqFt = L * W;
+  const acres = areaSqFt / 43560;
+
+  return acres;
 }
 
 /**
