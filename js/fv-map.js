@@ -1,7 +1,10 @@
 /* ====================================================================
 /Farm-vista/js/fv-map.js
 Google Maps helper for FarmVista – pin drop + "Use my location"
-Designed for use inside a modal. Satellite only, no visible lat/long.
+Designed for use inside a modal. Now:
+ • Starts centered on Divernon, IL
+ • Does NOT drop a pin until user taps the map
+ • Uses HYBRID (satellite + roads + city names)
 Exports:
  • window.FVMap.init()        – called by Google callback (fvMapInit)
  • window.FVMap.useMyLocation()
@@ -23,14 +26,21 @@ Exports:
   }
 
   function updateHidden(latLng) {
-    if (!latLng) return;
+    const latH = $("latHidden");
+    const lngH = $("lngHidden");
+
+    if (!latLng) {
+      // Clear hidden fields when there is no pin
+      if (latH) latH.value = "";
+      if (lngH) lngH.value = "";
+      return;
+    }
+
     const lat = latLng.lat();
     const lng = latLng.lng();
     const latStr = lat.toFixed(6);
     const lngStr = lng.toFixed(6);
 
-    const latH = $("latHidden");
-    const lngH = $("lngHidden");
     if (latH) latH.value = latStr;
     if (lngH) lngH.value = lngStr;
   }
@@ -66,12 +76,14 @@ Exports:
       return;
     }
 
-    const centerUSA = { lat: 39.8283, lng: -98.5795 };
+    // ⭐ DEFAULT CENTER: DIVERNON, ILLINOIS ⭐
+    const divernon = { lat: 39.5650, lng: -89.6554 };
 
     MapState.map = new google.maps.Map(mapEl, {
-      center: centerUSA,
-      zoom: 5,
-      mapTypeId: google.maps.MapTypeId.SATELLITE,
+      center: divernon,
+      zoom: 15,
+      // HYBRID = satellite imagery + roads + city names
+      mapTypeId: google.maps.MapTypeId.HYBRID,
       streetViewControl: false,
       fullscreenControl: false,
       mapTypeControl: false
@@ -80,8 +92,14 @@ Exports:
     MapState.marker = new google.maps.Marker({
       map: MapState.map,
       draggable: false
+      // NOTE: no initial position – pin appears only after first tap
     });
 
+    // Start with NO pin & cleared hidden fields
+    MapState.lastLatLng = null;
+    updateHidden(null);
+
+    // User taps map → drop/move pin there
     MapState.map.addListener("click", (e) => {
       setPin(e.latLng);
     });
