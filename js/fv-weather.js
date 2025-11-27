@@ -117,7 +117,6 @@
 
   function buildGoogleIconUrl(weatherCondition) {
     if (!weatherCondition || !weatherCondition.iconBaseUri) return "";
-    // Google provides iconBaseUri; append ".svg" to get the icon.  [oai_citation:2‡Google for Developers](https://developers.google.com/maps/documentation/weather/reference/rest/v1/currentConditions/lookup?utm_source=chatgpt.com)
     return `${weatherCondition.iconBaseUri}.svg`;
   }
 
@@ -150,12 +149,12 @@
       throw new Error(`Google currentConditions error (${res.status})`);
     }
     const data = await res.json();
-    // API returns CurrentConditionsHistory object with currentConditions[] in some examples;
-    // To be robust, support both shapes: data.currentConditions[0] or data.currentConditions
+
     const current =
       Array.isArray(data.currentConditions) && data.currentConditions.length > 0
         ? data.currentConditions[0]
         : data.currentConditions || data;
+
     return {
       raw: data,
       current
@@ -183,7 +182,6 @@
     const data = await res.json();
     const hoursArr = data.historyHours || [];
 
-    // Sum QPF quantities (accumulated precip last hour) over 24 hours.  [oai_citation:3‡Google for Developers](https://developers.google.com/maps/documentation/weather/reference/rest/v1/history.hours/lookup)
     let totalInches = 0;
     for (const h of hoursArr) {
       const precip = h.precipitation;
@@ -207,8 +205,8 @@
       latitude: String(config.lat),
       longitude: String(config.lon),
       daily: "precipitation_sum",
-      past_days: "30",         // last 30 days history
-      forecast_days: "0",      // no future needed
+      past_days: "30",
+      forecast_days: "0",
       timezone: "auto",
       precipitation_unit: "inch"
     });
@@ -222,8 +220,6 @@
 
     const daily = data.daily || {};
     const amounts = daily.precipitation_sum || [];
-
-    // amounts is an array of 30 daily totals (inches).
     const n = amounts.length;
 
     let last30 = safeSum(amounts);
@@ -288,7 +284,6 @@
         ? updatedTime
         : "";
 
-    // Rain amounts
     const rain24 =
       typeof history24.rain24hInches === "number"
         ? `${roundTo2(history24.rain24hInches)}"`
@@ -388,7 +383,6 @@
 
     renderLoading(container);
 
-    // Fire off all requests in parallel; tolerate partial failures.
     const promises = {
       googleCurrent: fetchGoogleCurrent(config),
       googleHistory: fetchGoogleHistory24(config),
@@ -414,7 +408,6 @@
       };
 
       if (!combined.googleCurrent && !combined.googleHistory) {
-        // If both Google calls failed, bail.
         throw new Error("All Google Weather calls failed.");
       }
 
