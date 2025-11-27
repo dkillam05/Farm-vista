@@ -36,7 +36,7 @@
   const OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast";
 
   const DEFAULT_CONFIG = {
-    googleApiKey: "",          // REQUIRED for Google calls
+    googleApiKey: "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",          // REQUIRED for Google calls
     lat: 39.278,               // override with your HQ or farm coords
     lon: -89.88,
     unitsSystem: "IMPERIAL",   // "IMPERIAL" or "METRIC" (Google Weather enum)
