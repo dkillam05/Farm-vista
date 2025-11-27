@@ -1,21 +1,35 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-11-27d
+// Rev: 2025-11-27f (Divernon + °F forecast)
 //
 // FarmVista Weather module
-// - Google Maps Weather API (currentConditions + history.hours)
-// - Open-Meteo (7-day & 30-day rainfall + 7-day forecast)
+// - Google Weather: current conditions + last 24h precip
+// - Open-Meteo: 7d & 30d rainfall + 7d forecast
 //
 // Card above dashboard:
 //   • Current conditions
-//   • Last 24h rain
-//   • Last 7d, 30d rain
+//   • Rain last 24h / 7d / 30d
 //
 // Modal popup:
 //   • Current conditions (detailed)
-//   • 5-day forecast (high/low, rain, chance)
-//   • 7-day rainfall chart
+//   • Next 5 days (rows, Fahrenheit)
+//   • Rainfall last 7 days (bar chart)
 //
+// Usage in dashboard:
+//
+//   FVWeather.initWeatherModule({
+//     googleApiKey: "YOUR_KEY",
+//     selector: "#fv-weather",
+//     mode: "card"
+//   });
+//
+//   FVWeather.initWeatherModule({
+//     googleApiKey: "YOUR_KEY",
+//     selector: "#fv-weather-modal-body",
+//     mode: "modal"
+//   });
+//
+// Lat / lon default to Divernon, IL but can be overridden.
 // ======================================================================= */
 
 (() => {
@@ -33,11 +47,13 @@
     unitsSystem: "IMPERIAL",
     selector: "#fv-weather",
     showOpenMeteo: true,
-    mode: "card",          // "card" | "modal"
+    mode: "card", // "card" | "modal"
     locationLabel: "Divernon, Illinois"
   };
 
-  /* ---------- helpers ---------- */
+  /* ==========================
+     Helpers
+     ========================== */
 
   function getContainer(selector) {
     const el = document.querySelector(selector);
@@ -48,39 +64,45 @@
   function renderLoading(container) {
     if (!container) return;
     container.innerHTML = `
-      <section class="fv-weather-card fv-weather-loading">
-        <div class="fv-weather-head">
+      <section class="fv-weather-card" style="
+        border-radius:14px;border:1px solid var(--border,#d1d5db);
+        background:var(--surface,#fff);box-shadow:0 8px 18px rgba(0,0,0,.06);
+        padding:10px 14px 12px;
+      ">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
           <div>
-            <div class="fv-weather-title">Weather</div>
-            <div class="fv-weather-meta">Loading current conditions…</div>
+            <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;">
+              Weather
+            </div>
+            <div style="font-size:11px;color:var(--muted,#67706B);">
+              Loading current conditions…
+            </div>
           </div>
         </div>
       </section>
     `;
   }
 
-  function renderError(container, message, debugLines = []) {
+  function renderError(container, message) {
     if (!container) return;
-    const extra =
-      Array.isArray(debugLines) && debugLines.length
-        ? `<div class="fv-weather-error-debug" style="margin-top:6px;font-size:11px;color:#9b1c1c;white-space:pre-wrap;">
-             ${debugLines.map(line => line.replace(/</g,"&lt;")).join("\n")}
-           </div>`
-        : "";
-
     container.innerHTML = `
-      <section class="fv-weather-card fv-weather-error">
-        <div class="fv-weather-head">
+      <section class="fv-weather-card" style="
+        border-radius:14px;border:1px solid var(--border,#d1d5db);
+        background:var(--surface,#fff);box-shadow:0 8px 18px rgba(0,0,0,.06);
+        padding:10px 14px 12px;
+      ">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
           <div>
-            <div class="fv-weather-title">Weather</div>
-            <div class="fv-weather-meta">Unavailable</div>
+            <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;">
+              Weather
+            </div>
+            <div style="font-size:11px;color:var(--muted,#67706B);">
+              Unavailable
+            </div>
           </div>
         </div>
-        <div class="fv-weather-body">
-          <p class="fv-weather-error-text" style="font-size:13px;">
-            Couldn’t load weather data. ${message || "Try again in a bit."}
-          </p>
-          ${extra}
+        <div style="font-size:13px;color:var(--muted,#67706B);">
+          Couldn’t load weather data. ${message || "Try again in a bit."}
         </div>
       </section>
     `;
@@ -128,13 +150,6 @@
     return Math.round(n * 100) / 100;
   }
 
-  function reasonToText(label, reason) {
-    if (!reason) return `${label}: unknown error`;
-    if (reason instanceof Error) return `${label}: ${reason.message}`;
-    try { return `${label}: ${String(reason)}`; }
-    catch { return `${label}: [unprintable error]`; }
-  }
-
   function fmtDayShort(dateStr) {
     if (!dateStr) return "";
     const d = new Date(dateStr);
@@ -147,7 +162,9 @@
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
-  /* ---------- fetch: Google current ---------- */
+  /* ==========================
+     Fetchers
+     ========================== */
 
   async function fetchGoogleCurrent(config) {
     const params = new URLSearchParams({
@@ -160,18 +177,15 @@
     const url = `${GOOGLE_CURRENT_URL}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`currentConditions HTTP ${res.status} (${res.statusText || "error"})`);
+      throw new Error(`currentConditions HTTP ${res.status}`);
     }
     const data = await res.json();
     const current =
       Array.isArray(data.currentConditions) && data.currentConditions.length > 0
         ? data.currentConditions[0]
         : data.currentConditions || data;
-
     return { raw: data, current };
   }
-
-  /* ---------- fetch: Google 24h history ---------- */
 
   async function fetchGoogleHistory24(config) {
     const params = new URLSearchParams({
@@ -185,7 +199,7 @@
     const url = `${GOOGLE_HISTORY_URL}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`history.hours HTTP ${res.status} (${res.statusText || "error"})`);
+      throw new Error(`history.hours HTTP ${res.status}`);
     }
     const data = await res.json();
     const hoursArr = data.historyHours || [];
@@ -201,8 +215,6 @@
     return { raw: data, rain24hInches: totalInches };
   }
 
-  /* ---------- fetch: Open-Meteo rain history (30d) ---------- */
-
   async function fetchOpenMeteoRain(config) {
     const params = new URLSearchParams({
       latitude: String(config.lat),
@@ -212,13 +224,12 @@
       forecast_days: "0",
       timezone: "auto",
       precipitation_unit: "inch"
-      temperature_unit: "fahrenheit"
     });
 
     const url = `${OPEN_METEO_URL}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Open-Meteo rain HTTP ${res.status} (${res.statusText || "error"})`);
+      throw new Error(`Open-Meteo rain HTTP ${res.status}`);
     }
     const data = await res.json();
 
@@ -243,30 +254,26 @@
       raw: data,
       rain7dInches: last7,
       rain30dInches: last30,
-      last7: {
-        dates: last7Dates,
-        amounts: last7Amounts
-      }
+      last7: { dates: last7Dates, amounts: last7Amounts }
     };
   }
-
-  /* ---------- fetch: Open-Meteo forecast (7d) ---------- */
 
   async function fetchOpenMeteoForecast(config) {
     const params = new URLSearchParams({
       latitude: String(config.lat),
       longitude: String(config.lon),
-      daily: "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_mean",
+      daily:
+        "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_mean",
       forecast_days: "7",
       timezone: "auto",
-      precipitation_unit: "inch"
-      temperature_unit: "fahrenheit"
+      precipitation_unit: "inch",
+      temperature_unit: "fahrenheit" // *** ensure forecast temps are °F ***
     });
 
     const url = `${OPEN_METEO_URL}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Open-Meteo forecast HTTP ${res.status} (${res.statusText || "error"})`);
+      throw new Error(`Open-Meteo forecast HTTP ${res.status}`);
     }
     const data = await res.json();
     const daily = data.daily || {};
@@ -290,9 +297,11 @@
     return { raw: data, days };
   }
 
-  /* ---------- render: compact card (dashboard strip) ---------- */
+  /* ==========================
+     Render – card
+     ========================== */
 
-  function renderWeatherCard(container, combined, config) {
+  function renderCard(container, combined, config) {
     if (!container) return;
 
     const current = combined.googleCurrent?.current || {};
@@ -346,11 +355,17 @@
         : "—";
 
     container.innerHTML = `
-      <section class="fv-weather-card">
-        <div class="fv-weather-head">
+      <section class="fv-weather-card" style="
+        border-radius:14px;border:1px solid var(--border,#d1d5db);
+        background:var(--surface,#fff);box-shadow:0 8px 18px rgba(0,0,0,.06);
+        padding:10px 14px 12px;cursor:pointer;
+      ">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
           <div>
-            <div class="fv-weather-title">Weather · ${config.locationLabel || ""}</div>
-            <div class="fv-weather-meta">
+            <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;">
+              Weather · ${config.locationLabel || ""}
+            </div>
+            <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;">
               ${timeZone ? `<span>${timeZone}</span>` : ""}
               ${
                 updatedLocal
@@ -362,43 +377,56 @@
               }
             </div>
           </div>
-          <button class="fv-weather-refresh" type="button" aria-label="Refresh weather">
+          <button type="button" class="fv-weather-refresh" style="
+            border-radius:999px;border:1px solid var(--border,#d1d5db);
+            background:var(--surface,#fff);padding:4px 8px;
+            font-size:12px;cursor:pointer;
+          " aria-label="Refresh weather">
             ⟳
           </button>
         </div>
 
-        <div class="fv-weather-body">
-          <div class="fv-weather-main">
-            <div class="fv-weather-temp-block">
-              <div class="fv-weather-temp">${tempStr}</div>
-              <div class="fv-weather-desc">${desc}</div>
-              <div class="fv-weather-feels">Feels like <strong>${feelsStr}</strong></div>
-              <div class="fv-weather-humidity">
-                Humidity: <strong>${humidStr}</strong> • Wind: <strong>${windStr}</strong>
-              </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <div style="font-size:1.8rem;font-weight:600;">${tempStr}</div>
+            <div style="font-size:0.9rem;">${desc}</div>
+            <div style="font-size:0.8rem;color:var(--muted,#67706B);">
+              Feels like <strong>${feelsStr}</strong>
             </div>
-            <div class="fv-weather-icon-block">
-              ${
-                iconUrl
-                  ? `<img src="${iconUrl}" alt="${desc}" class="fv-weather-icon" loading="lazy">`
-                  : ""
-              }
+            <div style="font-size:0.8rem;color:var(--muted,#67706B);">
+              Humidity: <strong>${humidStr}</strong> • Wind: <strong>${windStr}</strong>
             </div>
           </div>
+          <div style="flex:0 0 auto;">
+            ${
+              iconUrl
+                ? `<img src="${iconUrl}" alt="${desc}" style="width:48px;height:48px;display:block;" loading="lazy">`
+                : ""
+            }
+          </div>
+        </div>
 
-          <div class="fv-weather-rain-row">
-            <div class="fv-weather-rain-pill">
-              <span class="fv-weather-label">Rain last 24 hours</span>
-              <span class="fv-weather-value">${rain24}</span>
-            </div>
-            <div class="fv-weather-rain-pill">
-              <span class="fv-weather-label">Rain last 7 days</span>
-              <span class="fv-weather-value">${rain7}</span>
-            </div>
-            <div class="fv-weather-rain-pill">
-              <span class="fv-weather-label">Rain last 30 days</span>
-              <span class="fv-weather-value">${rain30}</span>
-            </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
+          <div style="
+            padding:4px 8px;border-radius:999px;background:var(--subtle,#f3f4f6);
+            font-size:11px;display:flex;gap:4px;align-items:center;
+          ">
+            <span style="font-weight:500;">Rain last 24 hours</span>
+            <span style="font-variant-numeric:tabular-nums;">${rain24}</span>
+          </div>
+          <div style="
+            padding:4px 8px;border-radius:999px;background:var(--subtle,#f3f4f6);
+            font-size:11px;display:flex;gap:4px;align-items:center;
+          ">
+            <span style="font-weight:500;">Rain last 7 days</span>
+            <span style="font-variant-numeric:tabular-nums;">${rain7}</span>
+          </div>
+          <div style="
+            padding:4px 8px;border-radius:999px;background:var(--subtle,#f3f4f6);
+            font-size:11px;display:flex;gap:4px;align-items:center;
+          ">
+            <span style="font-weight:500;">Rain last 30 days</span>
+            <span style="font-variant-numeric:tabular-nums;">${rain30}</span>
           </div>
         </div>
       </section>
@@ -406,15 +434,18 @@
 
     const btn = container.querySelector(".fv-weather-refresh");
     if (btn) {
-      btn.addEventListener("click", () => {
-        initWeatherModule({ ...config }); // re-use same config
+      btn.addEventListener("click", (evt) => {
+        evt.stopPropagation(); // don’t open modal when hitting refresh
+        initWeatherModule({ ...config });
       });
     }
   }
 
-  /* ---------- render: modal (detailed) ---------- */
+  /* ==========================
+     Render – modal
+     ========================== */
 
-  function renderWeatherModal(container, combined, config) {
+  function renderModal(container, combined, config) {
     if (!container) return;
 
     const current = combined.googleCurrent?.current || {};
@@ -457,12 +488,10 @@
     const maxAmt = Math.max(...seriesAmounts, 0.01);
 
     const rainChartHtml = seriesDates.length
-      ? `
-      <div class="fv-rain-chart">
-        ${seriesDates
+      ? seriesDates
           .map((d, idx) => {
             const val = seriesAmounts[idx] || 0;
-            const pct = Math.max(5, (val / maxAmt) * 100); // never tiny sliver
+            const pct = Math.max(5, (val / maxAmt) * 100);
             return `
               <div class="fv-rain-row">
                 <div class="fv-rain-label">${fmtDayShort(d)}</div>
@@ -473,17 +502,17 @@
               </div>
             `;
           })
-          .join("")}
-      </div>
-    `
-      : `<div class="fv-rain-chart-empty">No recent rainfall data.</div>`;
+          .join("")
+      : `<div class="fv-rain-chart-empty">
+           No recent rainfall data.
+         </div>`;
 
     const forecastDays = (forecast.days || []).slice(0, 5);
     const forecastHtml = forecastDays.length
       ? `
       <div class="fv-forecast-list">
         ${forecastDays
-          .map(day => {
+          .map((day) => {
             const hi = day.tMax != null ? `${Math.round(day.tMax)}°` : "—";
             const lo = day.tMin != null ? `${Math.round(day.tMin)}°` : "—";
             const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "—";
@@ -508,10 +537,12 @@
           .join("")}
       </div>
     `
-      : `<div class="fv-forecast-empty">Forecast data not available.</div>`;
+      : `<div class="fv-forecast-empty">
+           Forecast data not available.
+         </div>`;
 
     container.innerHTML = `
-      <section class="fv-weather-card fv-weather-modal-card">
+      <section class="fv-weather-card fv-weather-modal-card" style="cursor:auto;box-shadow:none;border:none;padding:0;">
         <header class="fv-weather-modal-head">
           <div>
             <div class="fv-weather-title">Weather · ${config.locationLabel || ""}</div>
@@ -525,9 +556,11 @@
           <section class="fv-weather-modal-section fv-weather-current">
             <div class="fv-weather-main">
               <div class="fv-weather-temp-block">
-                <div class="fv-weather-temp">${tempStr}</div>
-                <div class="fv-weather-desc">${desc}</div>
-                <div class="fv-weather-feels">Feels like <strong>${feelsStr}</strong></div>
+                <div class="fv-weather-temp" style="font-size:2rem;">${tempStr}</div>
+                <div class="fv-weather-desc" style="font-size:0.95rem;">${desc}</div>
+                <div class="fv-weather-feels">
+                  Feels like <strong>${feelsStr}</strong>
+                </div>
                 <div class="fv-weather-humidity">
                   Humidity: <strong>${humidStr}</strong> • Wind: <strong>${windStr}</strong>
                 </div>
@@ -540,7 +573,7 @@
               <div class="fv-weather-icon-block">
                 ${
                   iconUrl
-                    ? `<img src="${iconUrl}" alt="${desc}" class="fv-weather-icon" loading="lazy">`
+                    ? `<img src="${iconUrl}" alt="${desc}" class="fv-weather-icon" style="width:60px;height:60px;" loading="lazy">`
                     : ""
                 }
               </div>
@@ -554,14 +587,18 @@
 
           <section class="fv-weather-modal-section fv-weather-rain-history">
             <h3 class="fv-weather-modal-subtitle">Rainfall – last 7 days</h3>
-            ${rainChartHtml}
+            <div class="fv-rain-chart">
+              ${rainChartHtml}
+            </div>
           </section>
         </div>
       </section>
     `;
   }
 
-  /* ---------- orchestration ---------- */
+  /* ==========================
+     Orchestration
+     ========================== */
 
   async function initWeatherModule(options = {}) {
     const config = { ...DEFAULT_CONFIG, ...options };
@@ -591,7 +628,7 @@
       results = await Promise.allSettled(tasks);
     } catch (err) {
       console.error("[FVWeather] Unexpected Promise.allSettled error:", err);
-      renderError(container, err.message || "Unexpected error.");
+      renderError(container, "Unexpected error.");
       return;
     }
 
@@ -604,33 +641,19 @@
       openForecast: fcRes.status === "fulfilled" ? fcRes.value : null
     };
 
-    const debugLines = [];
-    if (curRes.status === "rejected") {
-      console.warn("[FVWeather] Google currentConditions failed:", curRes.reason);
-      debugLines.push(reasonToText("Google currentConditions", curRes.reason));
-    }
-    if (histRes.status === "rejected") {
-      console.warn("[FVWeather] Google history.hours failed:", histRes.reason);
-      debugLines.push(reasonToText("Google history.hours", histRes.reason));
-    }
-    if (rainRes.status === "rejected") {
-      console.warn("[FVWeather] Open-Meteo rainfall failed:", rainRes.reason);
-      debugLines.push(reasonToText("Open-Meteo rain", rainRes.reason));
-    }
-    if (fcRes.status === "rejected") {
-      console.warn("[FVWeather] Open-Meteo forecast failed:", fcRes.reason);
-      debugLines.push(reasonToText("Open-Meteo forecast", fcRes.reason));
-    }
-
     if (!combined.googleCurrent && !combined.googleHistory) {
-      renderError(container, "All Google Weather calls failed.", debugLines);
+      console.warn("[FVWeather] Google Weather failed:", {
+        current: curRes,
+        history: histRes
+      });
+      renderError(container, "Weather service error.");
       return;
     }
 
     if (mode === "modal") {
-      renderWeatherModal(container, combined, config);
+      renderModal(container, combined, config);
     } else {
-      renderWeatherCard(container, combined, config);
+      renderCard(container, combined, config);
     }
   }
 
