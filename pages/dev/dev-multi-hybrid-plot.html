@@ -19,6 +19,14 @@
       --card-max: 900px;
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
+
+      /* FV Combo vars */
+      --combo-gap: 4px;
+      --combo-radius: 12px;
+      --combo-btn-radius: 10px;
+      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad: 10px 8px;
+      --combo-max-h: 50vh;
     }
 
     html{-webkit-text-size-adjust:100%}
@@ -274,7 +282,7 @@
       box-shadow:0 8px 18px rgba(46,123,53,0.35);
     }
 
-    /* === FORM FIELD LOOK FROM ADD TRIAL === */
+    /* === FIELD LOOK FROM ADD TRIAL === */
     .row{
       display:grid;
       gap:10px;
@@ -284,7 +292,7 @@
       .row{grid-template-columns:1fr;}
     }
 
-    .field{position:relative;}
+    .field{ position:relative; }
     .field label{
       display:block;
       font-weight:800;
@@ -309,6 +317,44 @@
       color:var(--muted,#67706B);
       margin-top:6px;
     }
+
+    /* === FV Combo from your template === */
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative; display:inline-block; width:100%;
+    }
+    .buttonish{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius); padding:12px; outline:none;
+      cursor:pointer; text-align:left; position:relative; padding-right:42px;
+      box-sizing:border-box;
+    }
+    .buttonish.has-caret::after{
+      content:""; position:absolute; right:14px; top:50%; width:0; height:0;
+      border-left:6px solid transparent; border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
+    }
+    .combo-panel{
+      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
+      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+      font-size:0.9rem;
+    }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-item:hover{ background:rgba(0,0,0,.04); }
+    .combo-empty{ padding:var(--combo-item-pad); color:#67706B; }
 
     /* Yield-specific layout */
     .setup-panel{
@@ -567,7 +613,9 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];
+
     const mhState = {
       cropKind: 'corn',
       stage: 'setup',          // 'setup' | 'blocks'
@@ -577,8 +625,6 @@
       hybrids: [],
       blocks: []
     };
-
-    const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];
 
     const mockHybrids = [
       { id: 'P1185Q', name: 'Pioneer P1185Q', maturity: 118 },
@@ -599,34 +645,12 @@
     const stageShell    = document.getElementById('mhStageShell');
     const devFieldSummaryEl = document.getElementById('devFieldSummary');
 
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+
     function nextRowId(){
       return 'row_' + Math.random().toString(36).slice(2,9);
     }
-
-    function openModal(){
-      summaryEl.innerHTML = `
-        <div>
-          <strong>Trial:</strong> Grandmas Test Plot North<br>
-          <strong>Field:</strong> Divernon-Farmersville • 0702-Grandmas TestPlot<br>
-          <strong>Trial acres:</strong> 20.00 ac<br>
-          <strong>Field tillable:</strong> 39.45 ac
-        </div>
-        <div class="muted">
-          Multi-hybrid dev mode. Set up plot length, width, entries, and check variety. Then we’ll show one yield card
-          per entry using weight-only data.
-        </div>
-      `;
-      modalBackdrop.classList.remove('hidden');
-      renderStage();
-    }
-
-    function closeModal(){
-      modalBackdrop.classList.add('hidden');
-    }
-
-    btnOpenModal.addEventListener('click', openModal);
-    devFieldCard.addEventListener('click', openModal);
-    btnClose.addEventListener('click', closeModal);
 
     function formatNumber(num, decimals){
       if(num === null || num === undefined || isNaN(num)) return '—';
@@ -680,6 +704,77 @@
       devFieldSummaryEl.innerHTML = lines.join('<br>');
     }
 
+    function openModal(){
+      summaryEl.innerHTML = `
+        <div>
+          <strong>Trial:</strong> Grandmas Test Plot North<br>
+          <strong>Field:</strong> Divernon-Farmersville • 0702-Grandmas TestPlot<br>
+          <strong>Trial acres:</strong> 20.00 ac<br>
+          <strong>Field tillable:</strong> 39.45 ac
+        </div>
+        <div class="muted">
+          Multi-hybrid dev mode. Set up plot length, width, entries, and check variety. Then we’ll show one yield card
+          per entry using weight-only data.
+        </div>
+      `;
+      modalBackdrop.classList.remove('hidden');
+      renderStage();
+    }
+
+    function closeModal(){
+      modalBackdrop.classList.add('hidden');
+    }
+
+    btnOpenModal.addEventListener('click', openModal);
+    devFieldCard.addEventListener('click', openModal);
+    btnClose.addEventListener('click', closeModal);
+
+    /* === Combo helper from your template (no search) === */
+    function closeAllCombos(except=null){
+      $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
+    }
+    document.addEventListener('click', () => closeAllCombos());
+    document.addEventListener('keydown', e => {
+      if(e.key === 'Escape') closeAllCombos();
+    });
+
+    function makeCombo({ btn, panel, list, items=[], formatter=x=>String(x.label ?? x), onPick }){
+      panel.addEventListener('click', e => e.stopPropagation());
+      panel.addEventListener('mousedown', e => e.stopPropagation());
+
+      function renderList(){
+        list.innerHTML = (items||[]).map(x => `
+          <div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>
+        `).join('') || `<div class="combo-empty">(no options)</div>`;
+      }
+
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        renderList();
+      }
+      function close(){
+        panel.classList.remove('show');
+      }
+
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e => {
+        const row = e.target.closest('.combo-item');
+        if(!row) return;
+        const id  = row.dataset.id;
+        const it  = (items||[]).find(x => String(x.id) === id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      return { open, close };
+    }
+
     function renderStage(){
       btnSetUpPlot.textContent = mhState.blocks.length ? 'Edit Plot Setup' : 'Set Up Plot';
 
@@ -705,13 +800,15 @@
               <input id="mh-length-input" type="text" inputmode="numeric" class="input" value="${lengthFt}">
               <div class="help">Same length for every strip in this plot.</div>
             </div>
-            <div class="field">
-              <label for="mh-width-input">Pass width (ft)</label>
-              <select id="mh-width-input" class="select">
-                ${PASS_WIDTH_OPTIONS.map(w => `
-                  <option value="${w}" ${Number(widthFt) === w ? 'selected' : ''}>${w}</option>
-                `).join('')}
-              </select>
+
+            <div class="field combo">
+              <label for="mh-width-btn">Pass width (ft)</label>
+              <div class="combo-anchor">
+                <button id="mh-width-btn" class="buttonish has-caret" type="button">${widthFt}</button>
+                <div class="combo-panel" id="mh-width-panel" role="listbox" aria-label="Pass width options">
+                  <div class="list" id="mh-width-list"></div>
+                </div>
+              </div>
               <div class="help">Planter/harvest width, e.g. 20 ft, 30 ft.</div>
             </div>
           </div>
@@ -757,17 +854,32 @@
       html += `<div class="setup-errors" id="mh-setup-errors"></div></div>`;
       stageShell.innerHTML = html;
 
+      // Length input
       document.getElementById('mh-length-input').addEventListener('input', e => {
         const v = e.target.value.replace(/[^0-9]/g,'');
         e.target.value = v;
         mhState.passLengthFt = v === '' ? 0 : Number(v);
       });
 
-      document.getElementById('mh-width-input').addEventListener('change', e => {
-        mhState.passWidthFt = Number(e.target.value) || 0;
-        renderStage();
+      // Pass width combo
+      const widthBtn   = document.getElementById('mh-width-btn');
+      const widthPanel = document.getElementById('mh-width-panel');
+      const widthList  = document.getElementById('mh-width-list');
+
+      makeCombo({
+        btn: widthBtn,
+        panel: widthPanel,
+        list: widthList,
+        items: PASS_WIDTH_OPTIONS.map(v => ({ id:String(v), label:String(v), value:v })),
+        formatter: x => x.label,
+        onPick: it => {
+          mhState.passWidthFt = Number(it.value);
+          widthBtn.textContent = it.label;
+          renderDevSummary();
+        }
       });
 
+      // Add variety
       document.getElementById('mh-add-row-btn').addEventListener('click', () => {
         mhState.hybrids.push({
           rowId: nextRowId(),
@@ -778,6 +890,7 @@
         renderStage();
       });
 
+      // Variety + check + remove
       mhState.hybrids.forEach(hyb => {
         const sel = document.getElementById(`mh-hybrid-select-${hyb.rowId}`);
         if(sel){
@@ -884,12 +997,14 @@
                 <label class="field-mini">
                   <span>Moisture %</span>
                   <input type="text" inputmode="decimal"
-                    class="input" id="mh-moist-${blk.rowId}" value="${blk.moisturePct != null ? formatNumber(blk.moisturePct,2) : ''}">
+                         class="input" id="mh-moist-${blk.rowId}"
+                         value="${blk.moisturePct != null ? formatNumber(blk.moisturePct,2) : ''}">
                 </label>
                 <label class="field-mini">
                   <span>Weight (Lbs)</span>
                   <input type="text" inputmode="numeric"
-                    class="input" id="mh-weight-${blk.rowId}" value="${blk.weightLbs != null ? formatWithCommas(blk.weightLbs) : ''}">
+                         class="input" id="mh-weight-${blk.rowId}"
+                         value="${blk.weightLbs != null ? formatWithCommas(blk.weightLbs) : ''}">
                 </label>
                 <div class="field-mini">
                   <span>Yield (bu/ac)</span>
@@ -1003,6 +1118,43 @@
           });
         }
       });
+    }
+
+    function renderStage(){
+      btnSetUpPlot.textContent = mhState.blocks.length ? 'Edit Plot Setup' : 'Set Up Plot';
+      if(mhState.stage === 'setup'){
+        renderSetup();
+      }else{
+        renderBlocks();
+      }
+      renderDevSummary();
+    }
+
+    function validateSetup(){
+      const errors = [];
+      if(!mhState.passLengthFt || mhState.passLengthFt <= 0){
+        errors.push('Enter a positive plot length.');
+      }
+      if(!mhState.passWidthFt || mhState.passWidthFt <= 0){
+        errors.push('Select a positive pass width.');
+      }
+      if(!mhState.hybrids.length){
+        errors.push('Add at least one entry.');
+      }else{
+        mhState.hybrids.forEach((h, idx) => {
+          if(!h.productId){
+            errors.push(`Entry ${idx+1}: select a variety.`);
+          }
+        });
+      }
+      if(!mhState.checkProductId){
+        errors.push('Pick one check variety (tied to the variety).');
+      }
+      const box = document.getElementById('mh-setup-errors');
+      if(box){
+        box.innerHTML = errors.map(e => '• ' + e).join('<br>');
+      }
+      return errors.length === 0;
     }
 
     btnSetUpPlot.addEventListener('click', () => {
