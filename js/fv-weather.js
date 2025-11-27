@@ -1,34 +1,24 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-11-27b
+// Rev: 2025-11-27d
 //
 // FarmVista Weather module
 // - Google Maps Weather API (currentConditions + history.hours)
-// - Open-Meteo (7-day & 30-day rainfall)
+// - Open-Meteo (7-day & 30-day rainfall + 7-day forecast)
 //
-// This module:
-//   • Uses GOOGLE for current conditions + last 24h precip
-//   • Uses OPEN-METEO for last 7 & 30 day precip
-//   • Renders a single hero-style card into a container.
+// Card above dashboard:
+//   • Current conditions
+//   • Last 24h rain
+//   • Last 7d, 30d rain
 //
-// Google Weather docs:
-//   currentConditions.lookup:
-//     GET https://weather.googleapis.com/v1/currentConditions:lookup
-//   history.hours.lookup:
-//     GET https://weather.googleapis.com/v1/history/hours:lookup
+// Modal popup:
+//   • Current conditions (detailed)
+//   • 5-day forecast (high/low, rain, chance)
+//   • 7-day rainfall chart
 //
-// Open-Meteo docs (free, no key):
-//   Forecast endpoint with past_days:
-//     GET https://api.open-meteo.com/v1/forecast?
-//       latitude=..&longitude=..&daily=precipitation_sum&past_days=30&forecast_days=0
-//       &timezone=auto&precipitation_unit=inch
 // ======================================================================= */
 
 (() => {
-  /* ==========================
-     Config & constants
-     ========================== */
-
   const GOOGLE_CURRENT_URL =
     "https://weather.googleapis.com/v1/currentConditions:lookup";
   const GOOGLE_HISTORY_URL =
@@ -36,23 +26,22 @@
   const OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast";
 
   const DEFAULT_CONFIG = {
-    googleApiKey: "",          // REQUIRED for Google calls
-    lat: 39.278,               // override with your HQ or farm coords
-    lon: -89.88,
-    unitsSystem: "IMPERIAL",   // "IMPERIAL" or "METRIC" (Google Weather enum)
-    selector: "#fv-weather",   // container for the card
-    showOpenMeteo: true        // set false if you ever want Google-only
+    googleApiKey: "",
+    // Divernon, IL (approx)
+    lat: 39.5656,
+    lon: -89.6573,
+    unitsSystem: "IMPERIAL",
+    selector: "#fv-weather",
+    showOpenMeteo: true,
+    mode: "card",          // "card" | "modal"
+    locationLabel: "Divernon, Illinois"
   };
 
-  /* ==========================
-     Small helpers
-     ========================== */
+  /* ---------- helpers ---------- */
 
   function getContainer(selector) {
     const el = document.querySelector(selector);
-    if (!el) {
-      console.warn("[FVWeather] Container not found:", selector);
-    }
+    if (!el) console.warn("[FVWeather] Container not found:", selector);
     return el;
   }
 
@@ -70,8 +59,15 @@
     `;
   }
 
-  function renderError(container, message) {
+  function renderError(container, message, debugLines = []) {
     if (!container) return;
+    const extra =
+      Array.isArray(debugLines) && debugLines.length
+        ? `<div class="fv-weather-error-debug" style="margin-top:6px;font-size:11px;color:#9b1c1c;white-space:pre-wrap;">
+             ${debugLines.map(line => line.replace(/</g,"&lt;")).join("\n")}
+           </div>`
+        : "";
+
     container.innerHTML = `
       <section class="fv-weather-card fv-weather-error">
         <div class="fv-weather-head">
@@ -81,9 +77,10 @@
           </div>
         </div>
         <div class="fv-weather-body">
-          <p class="fv-weather-error-text">
+          <p class="fv-weather-error-text" style="font-size:13px;">
             Couldn’t load weather data. ${message || "Try again in a bit."}
           </p>
+          ${extra}
         </div>
       </section>
     `;
@@ -131,9 +128,26 @@
     return Math.round(n * 100) / 100;
   }
 
-  /* ==========================
-     Fetch: Google currentConditions
-     ========================== */
+  function reasonToText(label, reason) {
+    if (!reason) return `${label}: unknown error`;
+    if (reason instanceof Error) return `${label}: ${reason.message}`;
+    try { return `${label}: ${String(reason)}`; }
+    catch { return `${label}: [unprintable error]`; }
+  }
+
+  function fmtDayShort(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { weekday: "short" });
+  }
+
+  function fmtMD(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  /* ---------- fetch: Google current ---------- */
 
   async function fetchGoogleCurrent(config) {
     const params = new URLSearchParams({
@@ -146,24 +160,18 @@
     const url = `${GOOGLE_CURRENT_URL}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Google currentConditions error (${res.status})`);
+      throw new Error(`currentConditions HTTP ${res.status} (${res.statusText || "error"})`);
     }
     const data = await res.json();
-
     const current =
       Array.isArray(data.currentConditions) && data.currentConditions.length > 0
         ? data.currentConditions[0]
         : data.currentConditions || data;
 
-    return {
-      raw: data,
-      current
-    };
+    return { raw: data, current };
   }
 
-  /* ==========================
-     Fetch: Google 24h history (rain)
-     ========================== */
+  /* ---------- fetch: Google 24h history ---------- */
 
   async function fetchGoogleHistory24(config) {
     const params = new URLSearchParams({
@@ -177,7 +185,7 @@
     const url = `${GOOGLE_HISTORY_URL}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Google history.hours error (${res.status})`);
+      throw new Error(`history.hours HTTP ${res.status} (${res.statusText || "error"})`);
     }
     const data = await res.json();
     const hoursArr = data.historyHours || [];
@@ -190,15 +198,10 @@
       totalInches += qty;
     }
 
-    return {
-      raw: data,
-      rain24hInches: totalInches
-    };
+    return { raw: data, rain24hInches: totalInches };
   }
 
-  /* ==========================
-     Fetch: Open-Meteo 7d & 30d rainfall
-     ========================== */
+  /* ---------- fetch: Open-Meteo rain history (30d) ---------- */
 
   async function fetchOpenMeteoRain(config) {
     const params = new URLSearchParams({
@@ -214,33 +217,78 @@
     const url = `${OPEN_METEO_URL}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Open-Meteo error (${res.status})`);
+      throw new Error(`Open-Meteo rain HTTP ${res.status} (${res.statusText || "error"})`);
     }
     const data = await res.json();
 
     const daily = data.daily || {};
     const amounts = daily.precipitation_sum || [];
+    const dates = daily.time || [];
     const n = amounts.length;
 
     let last30 = safeSum(amounts);
     let last7 = 0;
-    if (n >= 7) {
-      const last7Slice = amounts.slice(n - 7);
-      last7 = safeSum(last7Slice);
-    } else {
-      last7 = safeSum(amounts);
+    let last7Dates = [];
+    let last7Amounts = [];
+
+    if (n > 0) {
+      const startIdx = n >= 7 ? n - 7 : 0;
+      last7Amounts = amounts.slice(startIdx);
+      last7Dates = dates.slice(startIdx);
+      last7 = safeSum(last7Amounts);
     }
 
     return {
       raw: data,
       rain7dInches: last7,
-      rain30dInches: last30
+      rain30dInches: last30,
+      last7: {
+        dates: last7Dates,
+        amounts: last7Amounts
+      }
     };
   }
 
-  /* ==========================
-     Render card
-     ========================== */
+  /* ---------- fetch: Open-Meteo forecast (7d) ---------- */
+
+  async function fetchOpenMeteoForecast(config) {
+    const params = new URLSearchParams({
+      latitude: String(config.lat),
+      longitude: String(config.lon),
+      daily: "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_mean",
+      forecast_days: "7",
+      timezone: "auto",
+      precipitation_unit: "inch"
+    });
+
+    const url = `${OPEN_METEO_URL}?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Open-Meteo forecast HTTP ${res.status} (${res.statusText || "error"})`);
+    }
+    const data = await res.json();
+    const daily = data.daily || {};
+    const times = daily.time || [];
+    const tMax = daily.temperature_2m_max || [];
+    const tMin = daily.temperature_2m_min || [];
+    const precip = daily.precipitation_sum || [];
+    const prob = daily.precipitation_probability_mean || [];
+
+    const days = [];
+    for (let i = 0; i < times.length; i++) {
+      days.push({
+        date: times[i],
+        tMax: typeof tMax[i] === "number" ? tMax[i] : null,
+        tMin: typeof tMin[i] === "number" ? tMin[i] : null,
+        precipIn: typeof precip[i] === "number" ? precip[i] : 0,
+        precipProb: typeof prob[i] === "number" ? prob[i] : null
+      });
+    }
+
+    return { raw: data, days };
+  }
+
+  /* ---------- render: compact card (dashboard strip) ---------- */
 
   function renderWeatherCard(container, combined, config) {
     if (!container) return;
@@ -249,7 +297,6 @@
     const currentData = combined.googleCurrent?.raw || {};
     const history24 = combined.googleHistory || {};
     const openRain = combined.openMeteo || {};
-
     const condition = current.weatherCondition || {};
     const temp = current.temperature || {};
     const feels = current.feelsLikeTemperature || {};
@@ -276,7 +323,6 @@
       current.currentTime ||
       currentData.currentTime ||
       "";
-
     const updatedLocal =
       updatedTime && updatedTime.iso8601
         ? updatedTime.iso8601
@@ -288,12 +334,10 @@
       typeof history24.rain24hInches === "number"
         ? `${roundTo2(history24.rain24hInches)}"`
         : "—";
-
     const rain7 =
       typeof openRain.rain7dInches === "number"
         ? `${roundTo2(openRain.rain7dInches)}"`
         : "—";
-
     const rain30 =
       typeof openRain.rain30dInches === "number"
         ? `${roundTo2(openRain.rain30dInches)}"`
@@ -303,7 +347,7 @@
       <section class="fv-weather-card">
         <div class="fv-weather-head">
           <div>
-            <div class="fv-weather-title">Weather</div>
+            <div class="fv-weather-title">Weather · ${config.locationLabel || ""}</div>
             <div class="fv-weather-meta">
               ${timeZone ? `<span>${timeZone}</span>` : ""}
               ${
@@ -342,15 +386,15 @@
 
           <div class="fv-weather-rain-row">
             <div class="fv-weather-rain-pill">
-              <span class="fv-weather-label">Rain last 24h (Google)</span>
+              <span class="fv-weather-label">Rain last 24 hours</span>
               <span class="fv-weather-value">${rain24}</span>
             </div>
             <div class="fv-weather-rain-pill">
-              <span class="fv-weather-label">Rain last 7 days (Open-Meteo)</span>
+              <span class="fv-weather-label">Rain last 7 days</span>
               <span class="fv-weather-value">${rain7}</span>
             </div>
             <div class="fv-weather-rain-pill">
-              <span class="fv-weather-label">Rain last 30 days (Open-Meteo)</span>
+              <span class="fv-weather-label">Rain last 30 days</span>
               <span class="fv-weather-value">${rain30}</span>
             </div>
           </div>
@@ -361,14 +405,161 @@
     const btn = container.querySelector(".fv-weather-refresh");
     if (btn) {
       btn.addEventListener("click", () => {
-        initWeatherModule(config);
+        initWeatherModule({ ...config }); // re-use same config
       });
     }
   }
 
-  /* ==========================
-     Orchestration
-     ========================== */
+  /* ---------- render: modal (detailed) ---------- */
+
+  function renderWeatherModal(container, combined, config) {
+    if (!container) return;
+
+    const current = combined.googleCurrent?.current || {};
+    const history24 = combined.googleHistory || {};
+    const openRain = combined.openMeteo || {};
+    const forecast = combined.openForecast || {};
+    const condition = current.weatherCondition || {};
+    const temp = current.temperature || {};
+    const feels = current.feelsLikeTemperature || {};
+    const humidity = current.relativeHumidity;
+    const wind = current.wind || {};
+    const iconUrl = buildGoogleIconUrl(condition);
+
+    const desc =
+      (condition.description && condition.description.text) ||
+      condition.type ||
+      "Current conditions";
+
+    const tempStr = formatTemp(temp);
+    const feelsStr = formatTemp(feels);
+    const humidStr = formatHumidity(humidity);
+    const windStr = formatWind(wind);
+
+    const rain24 =
+      typeof history24.rain24hInches === "number"
+        ? `${roundTo2(history24.rain24hInches)}"`
+        : "—";
+    const rain7 =
+      typeof openRain.rain7dInches === "number"
+        ? `${roundTo2(openRain.rain7dInches)}"`
+        : "—";
+    const rain30 =
+      typeof openRain.rain30dInches === "number"
+        ? `${roundTo2(openRain.rain30dInches)}"`
+        : "—";
+
+    const rainSeries = (openRain && openRain.last7) || { dates: [], amounts: [] };
+    const seriesDates = rainSeries.dates || [];
+    const seriesAmounts = rainSeries.amounts || [];
+    const maxAmt = Math.max(...seriesAmounts, 0.01);
+
+    const rainChartHtml = seriesDates.length
+      ? `
+      <div class="fv-rain-chart">
+        ${seriesDates
+          .map((d, idx) => {
+            const val = seriesAmounts[idx] || 0;
+            const pct = Math.max(5, (val / maxAmt) * 100); // never tiny sliver
+            return `
+              <div class="fv-rain-row">
+                <div class="fv-rain-label">${fmtDayShort(d)}</div>
+                <div class="fv-rain-bar-wrap">
+                  <div class="fv-rain-bar" style="width:${pct}%;"></div>
+                </div>
+                <div class="fv-rain-value">${roundTo2(val)}"</div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    `
+      : `<div class="fv-rain-chart-empty">No recent rainfall data.</div>`;
+
+    const forecastDays = (forecast.days || []).slice(0, 5);
+    const forecastHtml = forecastDays.length
+      ? `
+      <div class="fv-forecast-list">
+        ${forecastDays
+          .map(day => {
+            const hi = day.tMax != null ? `${Math.round(day.tMax)}°` : "—";
+            const lo = day.tMin != null ? `${Math.round(day.tMin)}°` : "—";
+            const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "—";
+            const prob = day.precipProb != null ? `${Math.round(day.precipProb)}%` : "—";
+            return `
+              <div class="fv-forecast-row">
+                <div class="fv-forecast-day">
+                  <div class="fv-forecast-dow">${fmtDayShort(day.date)}</div>
+                  <div class="fv-forecast-date">${fmtMD(day.date)}</div>
+                </div>
+                <div class="fv-forecast-temps">
+                  <span class="hi">${hi}</span>
+                  <span class="lo">${lo}</span>
+                </div>
+                <div class="fv-forecast-rain">
+                  <span class="amt">${rainIn}</span>
+                  <span class="prob">${prob}</span>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    `
+      : `<div class="fv-forecast-empty">Forecast data not available.</div>`;
+
+    container.innerHTML = `
+      <section class="fv-weather-card fv-weather-modal-card">
+        <header class="fv-weather-modal-head">
+          <div>
+            <div class="fv-weather-title">Weather · ${config.locationLabel || ""}</div>
+            <div class="fv-weather-meta">
+              Detailed conditions, 5-day outlook, and rain history.
+            </div>
+          </div>
+        </header>
+
+        <div class="fv-weather-modal-body-inner">
+          <section class="fv-weather-modal-section fv-weather-current">
+            <div class="fv-weather-main">
+              <div class="fv-weather-temp-block">
+                <div class="fv-weather-temp">${tempStr}</div>
+                <div class="fv-weather-desc">${desc}</div>
+                <div class="fv-weather-feels">Feels like <strong>${feelsStr}</strong></div>
+                <div class="fv-weather-humidity">
+                  Humidity: <strong>${humidStr}</strong> • Wind: <strong>${windStr}</strong>
+                </div>
+                <div class="fv-weather-rain-summary">
+                  Rain last 24h: <strong>${rain24}</strong> ·
+                  7 days: <strong>${rain7}</strong> ·
+                  30 days: <strong>${rain30}</strong>
+                </div>
+              </div>
+              <div class="fv-weather-icon-block">
+                ${
+                  iconUrl
+                    ? `<img src="${iconUrl}" alt="${desc}" class="fv-weather-icon" loading="lazy">`
+                    : ""
+                }
+              </div>
+            </div>
+          </section>
+
+          <section class="fv-weather-modal-section fv-weather-forecast">
+            <h3 class="fv-weather-modal-subtitle">Next 5 days</h3>
+            ${forecastHtml}
+          </section>
+
+          <section class="fv-weather-modal-section fv-weather-rain-history">
+            <h3 class="fv-weather-modal-subtitle">Rainfall – last 7 days</h3>
+            ${rainChartHtml}
+          </section>
+        </div>
+      </section>
+    `;
+  }
+
+  /* ---------- orchestration ---------- */
 
   async function initWeatherModule(options = {}) {
     const config = { ...DEFAULT_CONFIG, ...options };
@@ -383,43 +574,63 @@
 
     renderLoading(container);
 
-    const promises = {
-      googleCurrent: fetchGoogleCurrent(config),
-      googleHistory: fetchGoogleHistory24(config),
-      openMeteo: config.showOpenMeteo ? fetchOpenMeteoRain(config) : Promise.resolve(null)
+    const mode = config.mode || "card";
+    const wantForecast = mode === "modal" && config.showOpenMeteo;
+
+    const tasks = [
+      fetchGoogleCurrent(config),
+      fetchGoogleHistory24(config),
+      config.showOpenMeteo ? fetchOpenMeteoRain(config) : Promise.resolve(null),
+      wantForecast ? fetchOpenMeteoForecast(config) : Promise.resolve(null)
+    ];
+
+    let results;
+    try {
+      results = await Promise.allSettled(tasks);
+    } catch (err) {
+      console.error("[FVWeather] Unexpected Promise.allSettled error:", err);
+      renderError(container, err.message || "Unexpected error.");
+      return;
+    }
+
+    const [curRes, histRes, rainRes, fcRes] = results;
+
+    const combined = {
+      googleCurrent: curRes.status === "fulfilled" ? curRes.value : null,
+      googleHistory: histRes.status === "fulfilled" ? histRes.value : null,
+      openMeteo: rainRes.status === "fulfilled" ? rainRes.value : null,
+      openForecast: fcRes.status === "fulfilled" ? fcRes.value : null
     };
 
-    try {
-      const results = await Promise.allSettled([
-        promises.googleCurrent,
-        promises.googleHistory,
-        promises.openMeteo
-      ]);
+    const debugLines = [];
+    if (curRes.status === "rejected") {
+      console.warn("[FVWeather] Google currentConditions failed:", curRes.reason);
+      debugLines.push(reasonToText("Google currentConditions", curRes.reason));
+    }
+    if (histRes.status === "rejected") {
+      console.warn("[FVWeather] Google history.hours failed:", histRes.reason);
+      debugLines.push(reasonToText("Google history.hours", histRes.reason));
+    }
+    if (rainRes.status === "rejected") {
+      console.warn("[FVWeather] Open-Meteo rainfall failed:", rainRes.reason);
+      debugLines.push(reasonToText("Open-Meteo rain", rainRes.reason));
+    }
+    if (fcRes.status === "rejected") {
+      console.warn("[FVWeather] Open-Meteo forecast failed:", fcRes.reason);
+      debugLines.push(reasonToText("Open-Meteo forecast", fcRes.reason));
+    }
 
-      const [curRes, histRes, omRes] = results;
+    if (!combined.googleCurrent && !combined.googleHistory) {
+      renderError(container, "All Google Weather calls failed.", debugLines);
+      return;
+    }
 
-      const combined = {
-        googleCurrent:
-          curRes.status === "fulfilled" ? curRes.value : null,
-        googleHistory:
-          histRes.status === "fulfilled" ? histRes.value : null,
-        openMeteo:
-          omRes.status === "fulfilled" ? omRes.value : null
-      };
-
-      if (!combined.googleCurrent && !combined.googleHistory) {
-        throw new Error("All Google Weather calls failed.");
-      }
-
+    if (mode === "modal") {
+      renderWeatherModal(container, combined, config);
+    } else {
       renderWeatherCard(container, combined, config);
-    } catch (err) {
-      console.error("[FVWeather] Failed to load combined weather:", err);
-      renderError(container, err.message || "Unknown error.");
     }
   }
 
-  // Expose a single global for your dashboard
-  window.FVWeather = {
-    initWeatherModule
-  };
+  window.FVWeather = { initWeatherModule };
 })();
