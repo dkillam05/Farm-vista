@@ -176,9 +176,6 @@
       margin-top:2px;
     }
 
-    .field-card-top .btn-small{
-      /* hide the View/Add button on phone, show on desktop */
-    }
     @media (max-width:640px){
       .field-card-top .btn-small{
         display:none;
@@ -327,15 +324,14 @@
     .setup-field input,
     .setup-field select{
       width:100%;
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:8px 10px;
+      font:inherit;
       font-size:0.9rem;
-      background:var(--card-surface,var(--surface));
       color:var(--text);
-      -webkit-appearance:none;
-      -moz-appearance:none;
-      appearance:none;
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:8px 10px;
+      outline:none;
     }
     .setup-field small{
       display:block;
@@ -373,15 +369,13 @@
     }
     .setup-hybrid-row select{
       width:100%;
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:6px 8px;
+      font:inherit;
       font-size:0.85rem;
-      background:var(--card-surface,var(--surface));
       color:var(--text);
-      -webkit-appearance:none;
-      -moz-appearance:none;
-      appearance:none;
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:6px 8px;
     }
 
     .check-indicator{
@@ -441,15 +435,15 @@
       display:grid;
       gap:8px;
     }
-    .blocks-panel-header{
-      font-size:0.85rem;
-    }
     .blocks-panel-header-row{
       display:flex;
       justify-content:space-between;
       align-items:center;
       gap:8px;
       flex-wrap:wrap;
+    }
+    .blocks-panel-header{
+      font-size:0.85rem;
     }
 
     .yield-block-card{
@@ -695,11 +689,6 @@
       renderDevSummary();
     });
 
-    btnSetUpPlot.addEventListener('click', () => {
-      const lengthInput = document.getElementById('mh-length-input');
-      if(lengthInput) lengthInput.focus();
-    });
-
     function formatNumber(num, decimals){
       if(num === null || num === undefined || isNaN(num)) return '—';
       return Number(num).toFixed(decimals);
@@ -753,6 +742,13 @@
     }
 
     function renderStage(){
+      // Change button text depending on whether blocks exist
+      if(mhState.blocks.length){
+        btnSetUpPlot.textContent = 'Edit Plot Setup';
+      }else{
+        btnSetUpPlot.textContent = '+ Set Up Plot';
+      }
+
       if(mhState.stage === 'setup'){
         renderSetup();
       }else{
@@ -882,6 +878,13 @@
           });
         }
       });
+
+      // Set Up / Edit button behavior
+      btnSetUpPlot.onclick = () => {
+        // In setup stage this just focuses length
+        const lenInput = document.getElementById('mh-length-input');
+        if(lenInput) lenInput.focus();
+      };
     }
 
     function validateSetup(){
@@ -924,9 +927,6 @@
               Plot length: <strong>${lengthFt} ft</strong> • Pass width: <strong>${widthFt} ft</strong> • Area per strip:
               <strong>${formatNumber((lengthFt*widthFt)/43560,3)} ac</strong>
             </div>
-            <button type="button" class="btn btn-small btn-quiet" id="mh-edit-setup-btn">
-              Edit Plot Setup (Dev)
-            </button>
           </div>
       `;
 
@@ -980,19 +980,20 @@
       html += `</div>`;
       stageShell.innerHTML = html;
 
-      const editBtn = document.getElementById('mh-edit-setup-btn');
-      if(editBtn){
-        editBtn.addEventListener('click', () => {
-          mhState.stage = 'setup';
-          renderStage();
-        });
-      }
+      // Set button to truly "Edit Plot Setup" now
+      btnSetUpPlot.onclick = () => {
+        mhState.stage = 'setup';
+        renderStage();
+      };
 
       mhState.blocks.forEach(blk => {
         const moistEl = document.getElementById(`mh-moist-${blk.rowId}`);
         const weightEl = document.getElementById(`mh-weight-${blk.rowId}`);
         const yieldEl  = document.getElementById(`mh-yield-${blk.rowId}`);
         const voidEl   = document.getElementById(`mh-void-${blk.rowId}`);
+
+        // Keep previous value to enforce 2 decimals without bouncing
+        moistEl.dataset.prev = moistEl.value;
 
         function recalc(){
           blk.yieldBuPerAc = calcDevYield({
@@ -1017,20 +1018,26 @@
 
         if(moistEl){
           moistEl.addEventListener('input', e => {
-            // let them type, but clamp to max 2 decimals live
-            let v = e.target.value.replace(/[^0-9.]/g,'');
+            const oldVal = e.target.dataset.prev || '';
+            let v = e.target.value;
+
+            // Strip invalid chars
+            v = v.replace(/[^0-9.]/g,'');
+
+            // Limit to one dot
             const parts = v.split('.');
             if(parts.length > 2){
-              v = parts[0] + '.' + parts.slice(1).join('');
+              v = oldVal; // revert if they try to add a second dot
+            }else if(parts.length === 2){
+              const frac = parts[1];
+              if(frac.length > 2){
+                // too many decimals: revert to previous value
+                v = oldVal;
+              }
             }
-            if(v.includes('.')){
-              const [intPart, fracRaw=''] = v.split('.');
-              const frac = fracRaw.replace(/[^0-9]/g,'').slice(0,2);
-              v = frac === '' ? intPart + '.' : intPart + '.' + frac;
-            }else{
-              v = v.replace(/[^0-9]/g,'');
-            }
+
             e.target.value = v;
+            e.target.dataset.prev = v;
             blk.moisturePct = v === '' ? null : Number(v);
             recalc();
           });
@@ -1053,7 +1060,7 @@
         if(voidEl){
           voidEl.addEventListener('change', e => {
             blk.voided = e.target.checked;
-            renderBlocks(); // redraw to update Voided badge
+            renderBlocks();
           });
         }
       });
