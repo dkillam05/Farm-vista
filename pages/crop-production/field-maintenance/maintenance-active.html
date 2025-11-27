@@ -148,7 +148,7 @@
       border:1px solid var(--card-border, var(--border));
       background:var(--card-surface, var(--surface));
       box-shadow:var(--shadow-soft, var(--shadow));
-      padding:12px 14px 10px;
+      padding:12px 14px 48px; /* extra bottom room for Start/Continue btn */
       display:flex;
       flex-direction:column;
       gap:6px;
@@ -230,11 +230,11 @@
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    /* Start / Continue Job button on card */
+    /* Start / Continue Job button on card – lower right */
     .wo-card-actions{
       position:absolute;
-      top:10px;
       right:12px;
+      bottom:10px;
       display:flex;
       gap:8px;
       align-items:center;
@@ -730,7 +730,6 @@
       color: #111827;
       width: 100%;
       max-width: 100%;
-      /* let the calendar grow so Clear/Apply stay inside and no internal scroll */
       max-height: none;
       display:flex;
       flex-direction:column;
@@ -768,7 +767,7 @@
     }
 
     .cal-nav-btn {
-      display:none; /* hide prev/next arrows but keep DOM/IDs for JS */
+      display:none;
     }
 
     .cal-close-btn {
@@ -789,7 +788,6 @@
 
     .cal-body {
       padding: 6px 10px 8px;
-      /* allow body to size naturally so there is no inner scroll */
       flex: 0 0 auto;
       max-height: none;
       overflow-y: visible;
@@ -939,16 +937,15 @@
       filter: brightness(1.05);
     }
 
-    /* Job status modal (Completed / In Progress popup) */
+    /* Job status modal – centered with radios */
     .status-modal{
       position:fixed;
       inset:0;
       display:none;
       z-index:100030;
-      overflow-y:auto;
-      -webkit-overflow-scrolling:touch;
-      align-items:flex-start;
+      align-items:center;
       justify-content:center;
+      padding:16px;
     }
     .status-modal.show{
       display:flex;
@@ -960,8 +957,6 @@
       z-index:100029;
     }
     .status-sheet{
-      margin-top:90px;
-      margin-bottom:90px;
       width:min(400px, 92vw);
       background:var(--surface);
       border-radius:16px;
@@ -977,17 +972,48 @@
     .status-title{
       font-size:1rem;
       font-weight:700;
-      margin-bottom:4px;
+      margin-bottom:2px;
     }
     .status-text{
       font-size:0.9rem;
       opacity:0.9;
     }
+
+    .status-options{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .status-option{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      cursor:pointer;
+    }
+    .status-option input[type="radio"]{
+      margin-top:3px;
+      accent-color:var(--accent);
+    }
+    .status-option-title{
+      font-size:0.9rem;
+      font-weight:600;
+    }
+    .status-option-sub{
+      display:block;
+      font-size:0.8rem;
+      opacity:0.8;
+      margin-top:2px;
+    }
+
     .status-buttons{
       display:flex;
       justify-content:flex-end;
       gap:8px;
-      margin-top:8px;
+      margin-top:4px;
     }
     .status-btn{
       border-radius:999px;
@@ -1007,10 +1033,9 @@
 
     /* ============================
        MOBILE TILE SIMPLIFICATION
-       (PWA only – desktop unchanged)
+       (PWA only – desktop unchanged except button location)
        ============================ */
     @media (max-width:650px){
-      /* hide meta badges + bottom row so card only shows title, topic, and button */
       .wo-meta,
       .wo-bottom-row {
         display:none !important;
@@ -1021,7 +1046,7 @@
       }
 
       .wo-card{
-        padding:12px 14px 16px !important;
+        padding:12px 14px 56px !important; /* extra bottom for button */
       }
 
       .wo-row-top{
@@ -1030,12 +1055,10 @@
         gap:6px;
       }
 
+      /* keep button lower-right on mobile too */
       .wo-card-actions{
-        position:relative;
-        top:auto;
-        right:auto;
-        margin-top:8px;
-        justify-content:flex-start;
+        right:14px;
+        bottom:10px;
       }
 
       .wo-start-btn{
@@ -1180,9 +1203,9 @@
     // Status popup modal refs
     let jobStatusModal = null;
     let jobStatusBackdrop = null;
-    let jobStatusCompletedBtn = null;
-    let jobStatusInProgressBtn = null;
     let jobStatusCancelBtn = null;
+    let jobStatusSaveBtn = null;
+    let jobStatusChoiceInputs = null;
 
     function getTime(ts){
       if(!ts) return 0;
@@ -1992,9 +2015,9 @@
       // Status modal refs
       jobStatusModal       = $('#jobStatusModal');
       jobStatusBackdrop    = $('#jobStatusBackdrop');
-      jobStatusCompletedBtn= $('#jobStatusCompleted');
-      jobStatusInProgressBtn=$('#jobStatusInProgress');
       jobStatusCancelBtn   = $('#jobStatusCancel');
+      jobStatusSaveBtn     = $('#jobStatusSave');
+      jobStatusChoiceInputs = document.querySelectorAll('input[name="jobStatusChoice"]');
 
       if(jobModalBackdrop){
         jobModalBackdrop.addEventListener('click', closeJobModal);
@@ -2019,11 +2042,19 @@
       if(jobStatusCancelBtn){
         jobStatusCancelBtn.addEventListener('click', closeJobStatusModal);
       }
-      if(jobStatusCompletedBtn){
-        jobStatusCompletedBtn.addEventListener('click', ()=>saveJobWithStatus(CONFIG.STATUS_DONE));
-      }
-      if(jobStatusInProgressBtn){
-        jobStatusInProgressBtn.addEventListener('click', ()=>saveJobWithStatus(CONFIG.STATUS_INPROG));
+      if(jobStatusSaveBtn){
+        jobStatusSaveBtn.addEventListener('click', ()=>{
+          let choice = 'inProgress';
+          if(jobStatusChoiceInputs){
+            jobStatusChoiceInputs.forEach(input=>{
+              if(input.checked) choice = input.value;
+            });
+          }
+          const status = choice === 'completed'
+            ? CONFIG.STATUS_DONE
+            : CONFIG.STATUS_INPROG;
+          saveJobWithStatus(status);
+        });
       }
 
       // Dictation for notes
@@ -2209,7 +2240,7 @@
           <div class="ta-wrap">
             <textarea id="jobNotes" class="job-textarea" placeholder="Add notes about work being done..."></textarea>
             <button id="jobMic" type="button" class="mic-btn" aria-label="Start dictation for notes">
-              <svg class="mic-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
               </svg>
             </button>
@@ -2238,12 +2269,30 @@
     <div class="status-sheet">
       <div class="status-title">Set Job Status</div>
       <div class="status-text">
-        Is this job <strong>completed</strong> or is it still <strong>in progress</strong>?
+        How do you want to mark this job?
       </div>
+
+      <div class="status-options">
+        <label class="status-option">
+          <input type="radio" name="jobStatusChoice" value="inProgress" checked />
+          <span>
+            <span class="status-option-title">Still in progress</span>
+            <span class="status-option-sub">Keep this job active for the crew.</span>
+          </span>
+        </label>
+
+        <label class="status-option">
+          <input type="radio" name="jobStatusChoice" value="completed" />
+          <span>
+            <span class="status-option-title">Job completed</span>
+            <span class="status-option-sub">Mark this work order as finished.</span>
+          </span>
+        </label>
+      </div>
+
       <div class="status-buttons">
         <button id="jobStatusCancel" type="button" class="status-btn">Cancel</button>
-        <button id="jobStatusInProgress" type="button" class="status-btn">In Progress</button>
-        <button id="jobStatusCompleted" type="button" class="status-btn status-btn-primary">Completed</button>
+        <button id="jobStatusSave" type="button" class="status-btn status-btn-primary">Save</button>
       </div>
     </div>
   </div>
