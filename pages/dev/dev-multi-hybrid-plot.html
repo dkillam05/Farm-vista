@@ -611,6 +611,8 @@
       blocks: []               // [{ rowId, productId, name, maturity, moisturePct, weightLbs, yieldBuPerAc, voided }]
     };
 
+    const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];
+
     const mockHybrids = [
       { id: 'P1185Q', name: 'Pioneer P1185Q', maturity: 118 },
       { id: 'P1742Q', name: 'Pioneer P1742Q', maturity: 117 },
@@ -696,7 +698,7 @@
       const testWt   = cropKind === 'soy' ? 60.0 : 56.0;
       const m = Number(moisturePct);
       const w = Number(wetWeightLbs);
-      if(m <= 0 || m >= 80 || w <= 0) return null;
+      if(!isFinite(m) || !isFinite(w) || m <= 0 || m >= 80 || w <= 0) return null;
 
       const used = Math.max(m, stdMoist);
       const dryWeightStd = w * (100 - used) / (100 - stdMoist);
@@ -748,12 +750,16 @@
           <div class="setup-row">
             <div class="setup-field">
               <label for="mh-length-input">Plot length (ft)</label>
-              <input id="mh-length-input" type="number" min="1" step="1" value="${lengthFt}">
+              <input id="mh-length-input" type="text" inputmode="numeric" value="${lengthFt}">
               <small>Same length for every strip in this plot.</small>
             </div>
             <div class="setup-field">
               <label for="mh-width-input">Pass width (ft)</label>
-              <input id="mh-width-input" type="number" min="1" step="1" value="${widthFt}">
+              <select id="mh-width-input">
+                ${PASS_WIDTH_OPTIONS.map(w => `
+                  <option value="${w}" ${Number(widthFt) === w ? 'selected' : ''}>${w}</option>
+                `).join('')}
+              </select>
               <small>Planter/harvest width, e.g. 20 ft, 30 ft.</small>
             </div>
           </div>
@@ -800,10 +806,14 @@
       stageShell.innerHTML = html;
 
       document.getElementById('mh-length-input').addEventListener('input', e => {
-        mhState.passLengthFt = Number(e.target.value) || 0;
+        const v = e.target.value.replace(/[^0-9]/g,'');
+        e.target.value = v;
+        mhState.passLengthFt = v === '' ? 0 : Number(v);
       });
-      document.getElementById('mh-width-input').addEventListener('input', e => {
+
+      document.getElementById('mh-width-input').addEventListener('change', e => {
         mhState.passWidthFt = Number(e.target.value) || 0;
+        renderStage(); // refresh header text
       });
 
       document.getElementById('mh-add-row-btn').addEventListener('click', () => {
@@ -858,7 +868,7 @@
         errors.push('Enter a positive plot length.');
       }
       if(!mhState.passWidthFt || mhState.passWidthFt <= 0){
-        errors.push('Enter a positive pass width.');
+        errors.push('Select a positive pass width.');
       }
       if(!mhState.hybrids.length){
         errors.push('Add at least one entry.');
@@ -916,12 +926,12 @@
               <div class="yield-block-grid">
                 <label class="field-mini">
                   <span>Moisture %</span>
-                  <input type="number" step="0.01" min="5" max="40"
+                  <input type="text" inputmode="decimal"
                     class="input" id="mh-moist-${blk.rowId}" value="${blk.moisturePct ?? ''}">
                 </label>
                 <label class="field-mini">
                   <span>Weight (Lbs)</span>
-                  <input type="number" step="1" min="0"
+                  <input type="text" inputmode="numeric"
                     class="input" id="mh-weight-${blk.rowId}" value="${blk.weightLbs ?? ''}">
                 </label>
                 <div class="field-mini">
@@ -972,9 +982,8 @@
 
         if(moistEl){
           moistEl.addEventListener('input', e => {
-            // allow only digits and .
-            let v = e.target.value.replace(/[^0-9.]/g,'');
-            e.target.value = v;
+            // let user type freely; just store numeric if possible
+            const v = e.target.value;
             blk.moisturePct = v === '' ? null : Number(v);
             recalc();
           });
