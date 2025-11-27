@@ -398,7 +398,7 @@
       cursor:pointer;
       padding:4px;
       border-radius:999px;
-      display:none; /* mobile: hidden */
+      display:none;
     }
     .row-remove svg{
       width:14px;
@@ -712,11 +712,17 @@
       }
       const lines = mhState.hybrids.map((h, idx) => {
         if(!h.productId) return null;
+        const blk = mhState.blocks.find(b => b.rowId === h.rowId) || {};
+        const hasData = blk.moisturePct != null && blk.weightLbs != null && blk.yieldBuPerAc != null;
         const isCheck = mhState.checkProductId && h.productId === mhState.checkProductId;
+
         const parts = [];
         parts.push(`Entry ${idx+1}: ${h.name || 'Variety'}`);
         if(h.maturity != null) parts.push(`(${h.maturity} RM)`);
         if(isCheck) parts.push('– CHECK');
+        if(hasData){
+          parts.push(`– ${formatNumber(blk.moisturePct,1)}% • ${formatNumber(blk.yieldBuPerAc,1)} bu/ac`);
+        }
         return parts.join(' ');
       }).filter(Boolean);
       devFieldSummaryEl.innerHTML = lines.join('<br>');
@@ -961,12 +967,19 @@
               yieldEl.classList.remove('bad');
             }
           }
+          renderDevSummary();
         }
 
         if(moistEl){
           moistEl.addEventListener('input', e => {
-            let v = e.target.value;
-            v = v.replace(/[^0-9.]/g, '');
+            // allow only digits and .
+            let v = e.target.value.replace(/[^0-9.]/g,'');
+            e.target.value = v;
+            blk.moisturePct = v === '' ? null : Number(v);
+            recalc();
+          });
+          moistEl.addEventListener('blur', e => {
+            let v = e.target.value.replace(/[^0-9.]/g,'');
             const parts = v.split('.');
             if(parts.length > 2){
               v = parts[0] + '.' + parts.slice(1).join('');
@@ -984,8 +997,7 @@
 
         if(weightEl){
           weightEl.addEventListener('input', e => {
-            let v = e.target.value;
-            v = v.replace(/\D/g, ''); // whole numbers only
+            let v = e.target.value.replace(/\D/g,''); // whole numbers only
             e.target.value = v;
             blk.weightLbs = v === '' ? null : Number(v);
             recalc();
@@ -1024,7 +1036,6 @@
         return;
       }
 
-      // stage === 'blocks'
       console.log('Multi-Hybrid Dev Save', JSON.parse(JSON.stringify(mhState)));
       alert('Dev save only. In the real app this would save to Firestore and close.');
       closeModal();
