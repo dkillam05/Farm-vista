@@ -170,6 +170,11 @@
       font-size:0.82rem;
       color:var(--muted,#67706B);
     }
+    .field-card-note{
+      font-size:0.83rem;
+      color:var(--muted,#67706B);
+      margin-top:2px;
+    }
 
     /* ===== Modal shell – same as real page ===== */
 
@@ -346,7 +351,7 @@
 
     .setup-hybrid-row{
       display:grid;
-      grid-template-columns:auto minmax(0,2.4fr) minmax(0,1.1fr);
+      grid-template-columns:auto minmax(0,2.3fr) minmax(0,1.1fr) auto;
       gap:6px;
       align-items:center;
       padding:6px 8px;
@@ -362,12 +367,6 @@
       font-size:0.85rem;
       background:var(--card-surface,var(--surface));
       color:var(--text);
-    }
-
-    @media (max-width:640px){
-      .setup-hybrid-row{
-        grid-template-columns:auto minmax(0,2.4fr) minmax(0,1.1fr);
-      }
     }
 
     .check-indicator{
@@ -388,6 +387,30 @@
     .check-dot--on{
       border-color:#166534;
       background:#16a34a;
+    }
+
+    .row-remove{
+      border:none;
+      background:transparent;
+      color:var(--muted,#67706B);
+      font-size:0;
+      line-height:1;
+      cursor:pointer;
+      padding:4px;
+      border-radius:999px;
+      display:none; /* mobile: hidden */
+    }
+    .row-remove svg{
+      width:14px;
+      height:14px;
+      display:block;
+    }
+    @media (min-width:641px){
+      .row-remove{
+        display:flex;
+        align-items:center;
+        justify-content:center;
+      }
     }
 
     .setup-errors{
@@ -540,6 +563,7 @@
                 <div class="field-card-sub">
                   Trial acres: <strong>20.00 ac</strong> (Max tillable: 39.45)
                 </div>
+                <div class="field-card-note" id="devFieldSummary"></div>
               </div>
               <div><span class="btn btn-small">View / Add Yield</span></div>
             </div>
@@ -582,7 +606,7 @@
       stage: 'setup',          // 'setup' | 'blocks'
       passLengthFt: 600,
       passWidthFt: 20,
-      checkProductId: null,    // variety id that is the check
+      checkProductId: null,
       hybrids: [],             // [{ rowId, productId, name, maturity }]
       blocks: []               // [{ rowId, productId, name, maturity, moisturePct, weightLbs, yieldBuPerAc, voided }]
     };
@@ -605,6 +629,7 @@
     const btnSetUpPlot  = document.getElementById('btnSetUpPlot');
     const summaryEl     = document.getElementById('yieldSummary');
     const stageShell    = document.getElementById('mhStageShell');
+    const devFieldSummaryEl = document.getElementById('devFieldSummary');
 
     function nextRowId(){
       return 'row_' + Math.random().toString(36).slice(2,9);
@@ -643,6 +668,7 @@
       mhState.hybrids = [];
       mhState.blocks  = [];
       renderStage();
+      renderDevSummary();
     });
 
     btnSetUpPlot.addEventListener('click', () => {
@@ -678,12 +704,31 @@
       return bu / areaAc;
     }
 
+    function renderDevSummary(){
+      if(!devFieldSummaryEl) return;
+      if(!mhState.hybrids.length){
+        devFieldSummaryEl.textContent = '';
+        return;
+      }
+      const lines = mhState.hybrids.map((h, idx) => {
+        if(!h.productId) return null;
+        const isCheck = mhState.checkProductId && h.productId === mhState.checkProductId;
+        const parts = [];
+        parts.push(`Entry ${idx+1}: ${h.name || 'Variety'}`);
+        if(h.maturity != null) parts.push(`(${h.maturity} RM)`);
+        if(isCheck) parts.push('– CHECK');
+        return parts.join(' ');
+      }).filter(Boolean);
+      devFieldSummaryEl.innerHTML = lines.join('<br>');
+    }
+
     function renderStage(){
       if(mhState.stage === 'setup'){
         renderSetup();
       }else{
         renderBlocks();
       }
+      renderDevSummary();
     }
 
     function renderSetup(){
@@ -709,7 +754,7 @@
 
           <div class="setup-hybrids-header">
             <h3>Varieties in this plot (planting order)</h3>
-            <button type="button" class="btn-quiet btn-small" id="mh-add-row-btn">+ Add variety</button>
+            <button type="button" class="btn btn-small btn-quiet" id="mh-add-row-btn">+ Add variety</button>
           </div>
       `;
 
@@ -735,6 +780,11 @@
                 <span class="check-dot ${isCheckRow ? 'check-dot--on' : ''}"></span>
                 <span>Check</span>
               </div>
+              <button type="button" class="row-remove" data-row-id="${hyb.rowId}" aria-label="Remove entry">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+                </svg>
+              </button>
             </div>
           `;
         });
@@ -778,6 +828,18 @@
           checkEl.addEventListener('click', () => {
             if(!hyb.productId) return;
             mhState.checkProductId = hyb.productId;
+            renderStage();
+          });
+        }
+
+        const removeBtn = stageShell.querySelector(`.row-remove[data-row-id="${hyb.rowId}"]`);
+        if(removeBtn){
+          removeBtn.addEventListener('click', () => {
+            const idx = mhState.hybrids.findIndex(h => h.rowId === hyb.rowId);
+            if(idx !== -1) mhState.hybrids.splice(idx,1);
+            if(mhState.hybrids.every(h => h.productId !== mhState.checkProductId)){
+              mhState.checkProductId = null;
+            }
             renderStage();
           });
         }
@@ -848,11 +910,13 @@
               <div class="yield-block-grid">
                 <label class="field-mini">
                   <span>Moisture %</span>
-                  <input type="number" step="0.01" min="5" max="40" class="input" id="mh-moist-${blk.rowId}" value="${blk.moisturePct ?? ''}">
+                  <input type="number" step="0.01" min="5" max="40"
+                    class="input" id="mh-moist-${blk.rowId}" value="${blk.moisturePct ?? ''}">
                 </label>
                 <label class="field-mini">
                   <span>Weight (Lbs)</span>
-                  <input type="number" step="1" min="0" class="input" id="mh-weight-${blk.rowId}" value="${blk.weightLbs ?? ''}">
+                  <input type="number" step="1" min="0"
+                    class="input" id="mh-weight-${blk.rowId}" value="${blk.weightLbs ?? ''}">
                 </label>
                 <div class="field-mini">
                   <span>Yield (bu/ac)</span>
@@ -901,13 +965,29 @@
 
         if(moistEl){
           moistEl.addEventListener('input', e => {
-            blk.moisturePct = e.target.value === '' ? null : Number(e.target.value);
+            let v = e.target.value;
+            v = v.replace(/[^0-9.]/g, '');
+            const parts = v.split('.');
+            if(parts.length > 2){
+              v = parts[0] + '.' + parts.slice(1).join('');
+            }
+            if(v.includes('.')){
+              const [intPart, fracRaw=''] = v.split('.');
+              const frac = fracRaw.slice(0, 2); // max 2 decimals
+              v = frac === '' ? intPart + '.' : intPart + '.' + frac;
+            }
+            e.target.value = v;
+            blk.moisturePct = v === '' ? null : Number(v);
             recalc();
           });
         }
+
         if(weightEl){
           weightEl.addEventListener('input', e => {
-            blk.weightLbs = e.target.value === '' ? null : Number(e.target.value);
+            let v = e.target.value;
+            v = v.replace(/\D/g, ''); // whole numbers only
+            e.target.value = v;
+            blk.weightLbs = v === '' ? null : Number(v);
             recalc();
           });
           weightEl.addEventListener('blur', e => {
@@ -916,16 +996,16 @@
             }
           });
         }
+
         if(voidEl){
           voidEl.addEventListener('change', e => {
             blk.voided = e.target.checked;
-            renderBlocks(); // re-render to update badge
+            renderBlocks(); // redraw to update Voided badge
           });
         }
       });
     }
 
-    // ONE Save handler: first click -> move to blocks, second click -> "save" + close.
     btnOk.addEventListener('click', () => {
       if(mhState.stage === 'setup'){
         if(!validateSetup()) return;
