@@ -212,6 +212,7 @@
       forecast_days: "0",
       timezone: "auto",
       precipitation_unit: "inch"
+      temperature_unit: "fahrenheit",
     });
 
     const url = `${OPEN_METEO_URL}?${params.toString()}`;
@@ -259,6 +260,7 @@
       forecast_days: "7",
       timezone: "auto",
       precipitation_unit: "inch"
+      temperature_unit: "fahrenheit",
     });
 
     const url = `${OPEN_METEO_URL}?${params.toString()}`;
