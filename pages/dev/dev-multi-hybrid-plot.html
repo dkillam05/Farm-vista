@@ -171,7 +171,7 @@
       color:var(--muted,#67706B);
     }
 
-    /* ===== Modal (copied from real page) ===== */
+    /* ===== Modal shell – same as real page ===== */
 
     .modal-backdrop{
       position:fixed;
@@ -346,7 +346,7 @@
 
     .setup-hybrid-row{
       display:grid;
-      grid-template-columns:auto minmax(0,2.2fr) minmax(0,1.3fr) auto;
+      grid-template-columns:auto minmax(0,2.4fr) minmax(0,1.1fr);
       gap:6px;
       align-items:center;
       padding:6px 8px;
@@ -364,12 +364,19 @@
       color:var(--text);
     }
 
+    @media (max-width:640px){
+      .setup-hybrid-row{
+        grid-template-columns:auto minmax(0,2.4fr) minmax(0,1.1fr);
+      }
+    }
+
     .check-indicator{
       display:inline-flex;
       align-items:center;
       gap:4px;
       font-size:0.78rem;
       white-space:nowrap;
+      cursor:pointer;
     }
     .check-dot{
       width:10px;
@@ -381,24 +388,6 @@
     .check-dot--on{
       border-color:#166534;
       background:#16a34a;
-    }
-    .check-indicator button{
-      border:none;
-      background:none;
-      padding:0;
-      font-size:0.78rem;
-      cursor:pointer;
-      color:#c8facc; /* will be overridden by theme, but light green in dark mode */
-    }
-
-    .remove-btn{
-      border-radius:999px;
-      border:none;
-      font-size:0.78rem;
-      padding:4px 8px;
-      cursor:pointer;
-      background:#f97373;
-      color:#fff;
     }
 
     .setup-errors{
@@ -450,6 +439,7 @@
       text-transform:uppercase;
       letter-spacing:0.06em;
       align-self:flex-start;
+      margin-left:4px;
     }
     .badge-void{
       border-radius:999px;
@@ -524,8 +514,7 @@
           <div>
             <h1>Trial Field Yields (Dev – Multi-Hybrid)</h1>
             <p class="muted">
-              This page is only a sandbox for multi-hybrid seed plot setup. It uses the same popup look as the real
-              Trial Field Yields page but does not talk to Firestore.
+              Sandbox for multi-hybrid seed plots. Uses the same popup shell as the real page. No Firestore writes here.
             </p>
           </div>
         </header>
@@ -560,7 +549,7 @@
     </div>
   </fv-shell>
 
-  <!-- Yield modal (exact shell from real page, inner body repurposed for dev) -->
+  <!-- Yield modal -->
   <div id="yieldModalBackdrop" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="yieldModalTitle">
     <div class="modal">
       <div class="modal-header">
@@ -574,7 +563,6 @@
       <div class="modal-body">
         <div id="yieldSummary" class="yield-summary"></div>
 
-        <!-- Multi-hybrid content goes here -->
         <button type="button" class="primary-full-btn" id="btnSetUpPlot">
           + Set Up Plot
         </button>
@@ -589,18 +577,16 @@
   </div>
 
   <script>
-    // ===== Simple dev state (no Firestore) =====
     const mhState = {
       cropKind: 'corn',
       stage: 'setup',          // 'setup' | 'blocks'
       passLengthFt: 600,
       passWidthFt: 20,
-      checkProductId: null,    // variety id that is the check for this plot
+      checkProductId: null,    // variety id that is the check
       hybrids: [],             // [{ rowId, productId, name, maturity }]
       blocks: []               // [{ rowId, productId, name, maturity, moisturePct, weightLbs, yieldBuPerAc, voided }]
     };
 
-    // Mock hybrids (pull from DB later)
     const mockHybrids = [
       { id: 'P1185Q', name: 'Pioneer P1185Q', maturity: 118 },
       { id: 'P1742Q', name: 'Pioneer P1742Q', maturity: 117 },
@@ -633,8 +619,8 @@
           <strong>Field tillable:</strong> 39.45 ac
         </div>
         <div class="muted">
-          Multi-Hybrid dev mode. Set up the plot once (length, width, entries, and check variety). Each entry will
-          later use weight-only data for yield.
+          Multi-hybrid dev mode. Set up plot length, width, entries, and check variety. Then we’ll show one yield card
+          per entry using weight-only data.
         </div>
       `;
       modalBackdrop.classList.remove('hidden');
@@ -652,21 +638,14 @@
     btnReset.addEventListener('click', () => {
       mhState.stage = 'setup';
       mhState.passLengthFt = 600;
-      mhState.passWidthFt = 20;
+      mhState.passWidthFt  = 20;
       mhState.checkProductId = null;
       mhState.hybrids = [];
-      mhState.blocks = [];
+      mhState.blocks  = [];
       renderStage();
     });
 
-    btnOk.addEventListener('click', () => {
-      console.log('DEV SAVE', JSON.parse(JSON.stringify(mhState)));
-      alert('Dev only. This would save to Firestore in the real page.');
-      closeModal();
-    });
-
     btnSetUpPlot.addEventListener('click', () => {
-      // just focus first length input
       const lengthInput = document.getElementById('mh-length-input');
       if(lengthInput) lengthInput.focus();
     });
@@ -682,7 +661,6 @@
       return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
 
-    // Very simple dev yield calculator (weight only)
     function calcDevYield({ cropKind, moisturePct, wetWeightLbs, lengthFt, widthFt }){
       if(!moisturePct || !wetWeightLbs || !lengthFt || !widthFt) return null;
       const areaAc = (lengthFt * widthFt) / 43560;
@@ -731,7 +709,7 @@
 
           <div class="setup-hybrids-header">
             <h3>Varieties in this plot (planting order)</h3>
-            <button type="button" class="btn-link-quiet" id="mh-add-row-btn">+ Add variety</button>
+            <button type="button" class="btn-quiet btn-small" id="mh-add-row-btn">+ Add variety</button>
           </div>
       `;
 
@@ -753,12 +731,9 @@
                   `).join('')}
                 </select>
               </div>
-              <div class="check-indicator">
+              <div class="check-indicator" data-row-id="${hyb.rowId}">
                 <span class="check-dot ${isCheckRow ? 'check-dot--on' : ''}"></span>
-                <button type="button" data-row-id="${hyb.rowId}">Set as Check</button>
-              </div>
-              <div style="text-align:right;">
-                <button type="button" class="remove-btn" data-row-id="${hyb.rowId}">Remove</button>
+                <span>Check</span>
               </div>
             </div>
           `;
@@ -768,7 +743,6 @@
       html += `<div class="setup-errors" id="mh-setup-errors"></div></div>`;
       stageShell.innerHTML = html;
 
-      // WIRE EVENTS
       document.getElementById('mh-length-input').addEventListener('input', e => {
         mhState.passLengthFt = Number(e.target.value) || 0;
       });
@@ -799,23 +773,11 @@
           });
         }
 
-        const checkBtn = stageShell.querySelector(`.check-indicator button[data-row-id="${hyb.rowId}"]`);
-        if(checkBtn){
-          checkBtn.addEventListener('click', () => {
+        const checkEl = stageShell.querySelector(`.check-indicator[data-row-id="${hyb.rowId}"]`);
+        if(checkEl){
+          checkEl.addEventListener('click', () => {
             if(!hyb.productId) return;
             mhState.checkProductId = hyb.productId;
-            renderStage();
-          });
-        }
-
-        const removeBtn = stageShell.querySelector(`button.remove-btn[data-row-id="${hyb.rowId}"]`);
-        if(removeBtn){
-          removeBtn.addEventListener('click', () => {
-            const idx = mhState.hybrids.findIndex(h => h.rowId === hyb.rowId);
-            if(idx !== -1) mhState.hybrids.splice(idx,1);
-            if(mhState.hybrids.every(h => h.productId !== mhState.checkProductId)){
-              mhState.checkProductId = null;
-            }
             renderStage();
           });
         }
@@ -864,7 +826,7 @@
       `;
 
       if(!blocks.length){
-        html += `<p class="muted">No blocks generated. (Dev bug – hit Reset Dev and set up again.)</p>`;
+        html += `<p class="muted">No blocks generated. Hit Reset Dev and try setup again.</p>`;
       }else{
         blocks.forEach((blk, idx) => {
           const isCheck = mhState.checkProductId && blk.productId === mhState.checkProductId;
@@ -911,7 +873,6 @@
       html += `</div>`;
       stageShell.innerHTML = html;
 
-      // wire inputs
       mhState.blocks.forEach(blk => {
         const moistEl = document.getElementById(`mh-moist-${blk.rowId}`);
         const weightEl = document.getElementById(`mh-weight-${blk.rowId}`);
@@ -964,7 +925,7 @@
       });
     }
 
-    // When you click "Save & Close (Dev)" on setup stage, move to blocks
+    // ONE Save handler: first click -> move to blocks, second click -> "save" + close.
     btnOk.addEventListener('click', () => {
       if(mhState.stage === 'setup'){
         if(!validateSetup()) return;
@@ -980,12 +941,14 @@
         }));
         mhState.stage = 'blocks';
         renderStage();
-      }else{
-        console.log('Multi-Hybrid Dev Save', JSON.parse(JSON.stringify(mhState)));
-        alert('Dev save only. This would close & save in the real app.');
-        closeModal();
+        return;
       }
-    }, { once: false });
+
+      // stage === 'blocks'
+      console.log('Multi-Hybrid Dev Save', JSON.parse(JSON.stringify(mhState)));
+      alert('Dev save only. In the real app this would save to Firestore and close.');
+      closeModal();
+    });
 
     // initial render
     renderStage();
