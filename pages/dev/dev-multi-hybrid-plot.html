@@ -53,7 +53,6 @@
       color: #555;
     }
 
-    /* Fake "page behind modal" card */
     .dev-page-card {
       background: #fff;
       border-radius: 18px;
@@ -63,7 +62,6 @@
       min-height: 280px;
     }
 
-    /* Modal shell (matches screenshot feel) */
     .yield-modal-backdrop {
       position: fixed;
       inset: 0;
@@ -121,7 +119,6 @@
       gap: 0.5rem;
     }
 
-    /* Header summary inside modal */
     .trial-summary {
       font-size: 0.88rem;
       margin-bottom: 0.9rem;
@@ -147,7 +144,6 @@
       color: #555;
     }
 
-    /* Green full-width action button (like your Add Trial Block) */
     .primary-full-btn {
       margin-top: 0.75rem;
       margin-bottom: 0.75rem;
@@ -174,7 +170,6 @@
       color: #555;
     }
 
-    /* Setup view */
     .setup-panel {
       border-radius: 14px;
       background: #f6f6f4;
@@ -253,10 +248,10 @@
 
     .setup-hybrid-row {
       display: grid;
-      grid-template-columns: minmax(0, 2.1fr) minmax(0, 0.8fr) auto;
+      grid-template-columns: auto minmax(0, 2.1fr) minmax(0, 0.8fr) auto;
       gap: 0.5rem;
       align-items: center;
-      padding: 0.35rem 0.5rem;
+      padding: 0.35rem 0.7rem;
       border-radius: 999px;
       background: #ffffff;
       border: 1px solid rgba(15,23,42,0.10);
@@ -269,6 +264,13 @@
       border: 1px solid rgba(15,23,42,0.25);
       font-size: 0.85rem;
       padding: 0.35rem 0.6rem;
+    }
+
+    .entry-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #374151;
+      white-space: nowrap;
     }
 
     .check-radio-wrap {
@@ -298,8 +300,6 @@
       font-size: 0.8rem;
       color: #9b1c1c;
     }
-
-    /* Blocks view (after setup) */
 
     .blocks-panel {
       margin-top: 0.5rem;
@@ -342,6 +342,7 @@
       color: #fff;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+      margin-left: 0.4rem;
     }
 
     .badge-void {
@@ -353,6 +354,10 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
       margin-left: 0.35rem;
+    }
+
+    .hidden {
+      display: none;
     }
 
     .block-body {
@@ -383,7 +388,7 @@
     }
 
     .block-yield {
-      flex: 0 0 130px;
+      flex: 0 0 140px;
       font-size: 0.82rem;
       font-weight: 600;
     }
@@ -395,6 +400,10 @@
       color: #555;
     }
 
+    .block-out-of-range {
+      color: #b91c1c;
+    }
+
     .block-void-toggle {
       display: flex;
       align-items: center;
@@ -404,10 +413,6 @@
 
     .block-void-toggle input[type="checkbox"] {
       accent-color: #b91c1c;
-    }
-
-    .block-out-of-range {
-      color: #b91c1c;
     }
 
     .btn-secondary {
@@ -456,19 +461,18 @@
     <div class="dev-inner">
       <header class="dev-header">
         <h1>Dev • Multi-Hybrid Plot Setup</h1>
-        <p>This page only simulates the Trial Field Yield popup so we can design the multi-hybrid plot flow.</p>
+        <p>Visual sandbox for the multi-hybrid seed trial popup (no Firestore, no real data).</p>
       </header>
 
       <div class="dev-page-card">
         <p class="muted-note">
-          Imagine the normal Trial Field Yields screen behind this. The modal below matches the size and layout of the
-          yield pop-up you use today.
+          Imagine the normal Trial Field Yields screen behind this. The popup below matches your live yield popup and
+          will eventually be controlled by JS helpers instead of this dev file.
         </p>
       </div>
     </div>
   </div>
 
-  <!-- Always-open modal for dev/testing -->
   <div class="yield-modal-backdrop" id="mh-backdrop">
     <div class="yield-modal" id="mh-modal">
       <div class="yield-modal-header">
@@ -476,7 +480,6 @@
           0702-Grandmas TestPlot • Yield Entry (Dev – Multi-Hybrid)
         </div>
         <button class="yield-modal-close" type="button" id="mh-close-btn" aria-label="Close">
-          <!-- simple X icon -->
           <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M5 5l10 10M15 5L5 15" fill="none" stroke="#111827" stroke-width="1.6" stroke-linecap="round"/>
           </svg>
@@ -484,7 +487,6 @@
       </div>
 
       <div class="yield-modal-body">
-        <!-- Trial + field summary -->
         <section class="trial-summary">
           <dl class="trial-summary-row">
             <div>
@@ -507,35 +509,33 @@
             </div>
           </dl>
           <p class="muted-note">
-            Add one or more trial blocks for this field. For Multi-Hybrid Seed trials, use <strong>Set Up Plot</strong>
-            to define varieties, pick your check, and set plot length + width. Each hybrid will then get its own block
-            using weight-only data.
+            For Multi-Hybrid Seed trials, use <strong>Set Up Plot</strong> to define varieties in planting order, pick
+            a single check variety, and set plot length + width. Each hybrid then becomes its own weight-only block with
+            moisture and total weight per strip.
           </p>
         </section>
 
-        <!-- Stage-specific content -->
         <div id="mh-stage-shell"></div>
       </div>
 
       <div class="yield-modal-footer">
         <button type="button" class="btn-secondary" id="mh-reset-btn">Reset Dev</button>
-        <button type="button" class="btn-primary" id="mh-save-btn" disabled>Save &amp; Close (Dev)</button>
+        <button type="button" class="btn-primary" id="mh-save-btn">Save &amp; Close (Dev)</button>
       </div>
     </div>
   </div>
 
   <script>
-    // Simple dev state – this does NOT talk to Firestore
     const mhState = {
-      cropKind: 'corn', // 'corn' or 'soy'
-      stage: 'setup',   // 'setup' | 'blocks'
+      cropKind: 'corn',
+      stage: 'setup',     // 'setup' | 'blocks'
       passLengthFt: 600,
       passWidthFt: 20,
-      hybrids: [],      // in setup: [{ rowId, productId, name, maturity, isCheck }]
-      blocks: []        // in blocks: [{ rowId, productId, name, maturity, isCheck, moisture, weightLbs, yield, voided }]
+      checkProductId: null,
+      hybrids: [],
+      blocks: []
     };
 
-    // Mock "database" varieties for dev use
     const mockHybrids = [
       { id: 'P1185Q', name: 'Pioneer P1185Q', maturity: 118 },
       { id: 'P1742Q', name: 'Pioneer P1742Q', maturity: 117 },
@@ -550,8 +550,6 @@
     const resetBtn = document.getElementById('mh-reset-btn');
     const closeBtn = document.getElementById('mh-close-btn');
 
-    // Helpers -------------------------------------------------------------
-
     function formatNumber(num, decimals = 1) {
       if (num === null || num === undefined || isNaN(num)) return '—';
       return Number(num).toFixed(decimals);
@@ -565,12 +563,8 @@
       return parts.join(decimals ? '.' : '');
     }
 
-    // Simple dev yield math – weight-only
-    // For corn: dry to 15% moisture, 56 lbs/bu
-    // For soy:  dry to 13% moisture, 60 lbs/bu
     function calcDevYieldBuPerAc({ cropKind, moisturePct, wetWeightLbs, lengthFt, widthFt }) {
       if (!moisturePct || !wetWeightLbs || !lengthFt || !widthFt) return null;
-
       const areaAc = (lengthFt * widthFt) / 43560;
       if (areaAc <= 0) return null;
 
@@ -579,44 +573,23 @@
 
       const m = Number(moisturePct);
       const w = Number(wetWeightLbs);
-
-      // Protect from nonsense
       if (m <= 0 || m >= 80 || w <= 0) return null;
 
-      // Dry-weight method: shrink to standard moisture, no over-dry credit
       const usedMoist = Math.max(m, stdMoist);
-      const dryWeightAtStd = w * (100 - usedMoist) / (100 - stdMoist); // lbs at std moisture
+      const dryWeightAtStd = w * (100 - usedMoist) / (100 - stdMoist);
       const bu = dryWeightAtStd / testWt;
-      const buPerAc = bu / areaAc;
-      return buPerAc;
-    }
-
-    function validateMoisture(m) {
-      if (m === '' || m === null || m === undefined) return false;
-      const val = Number(m);
-      return val >= 5 && val <= 40;
-    }
-
-    function validateYieldRange(y) {
-      if (y === null || y === undefined || isNaN(y)) return false;
-      return y >= 50 && y <= 400;
+      return bu / areaAc;
     }
 
     function nextRowId() {
       return 'row_' + Math.random().toString(36).slice(2, 9);
     }
 
-    // Rendering -----------------------------------------------------------
-
     function renderStage() {
       if (mhState.stage === 'setup') {
         renderSetup();
-        saveBtn.textContent = 'Save Plot Setup (Dev)';
-        saveBtn.disabled = false; // you can always "save" in dev to jump to blocks
       } else {
         renderBlocks();
-        saveBtn.textContent = 'Save & Close (Dev)';
-        updateSaveEnabled();
       }
     }
 
@@ -625,16 +598,13 @@
       const lengthFt = mhState.passLengthFt;
       const widthFt = mhState.passWidthFt;
 
-      let html = '';
-
-      html += `
+      let html = `
         <button type="button" class="primary-full-btn" id="mh-setup-btn">
           + Set Up Plot
         </button>
         <p class="muted-note">
-          For multi-hybrid seed plots, <strong>Set Up Plot</strong> lets you define every variety in planting order,
-          pick a single check hybrid, and set a shared plot length and pass width. After setup, each hybrid becomes its
-          own weight-data block with moisture + weight only.
+          First entry = first planted; 10th entry = 10th planted. Exactly one variety will be treated as the
+          <span class="text-pill">Check</span> for this plot. Any strip using that variety belongs to your check.
         </p>
 
         <div class="setup-panel">
@@ -642,12 +612,12 @@
             <div class="setup-field">
               <label for="mh-length-input">Plot length (ft)</label>
               <input id="mh-length-input" type="number" min="1" step="1" value="${lengthFt}">
-              <small>Same length used for every hybrid strip in this plot.</small>
+              <small>Same length for every strip in this plot.</small>
             </div>
             <div class="setup-field">
               <label for="mh-width-input">Pass width (ft)</label>
               <input id="mh-width-input" type="number" min="1" step="1" value="${widthFt}">
-              <small>Typical planter/harvest width, e.g. 20 ft, 30 ft, etc.</small>
+              <small>Planter/harvest width (e.g., 20 ft, 30 ft).</small>
             </div>
           </div>
 
@@ -655,23 +625,18 @@
             <h3>Varieties in this plot (planting order)</h3>
             <button type="button" class="btn-link-quiet" id="mh-add-row-btn">+ Add variety</button>
           </div>
-          <div class="muted-note" style="margin-bottom:0.4rem;">
-            First entry = first planted; 10th entry = 10th planted. Exactly one row will be marked as the <span class="text-pill">Check</span>.
-          </div>
       `;
 
       if (!hybrids.length) {
-        html += `
-          <p class="muted-note" id="mh-no-rows-note">
-            No varieties added yet. Click <strong>+ Add variety</strong> to start building the plot in planting order.
-          </p>
-        `;
+        html += `<p class="muted-note">No varieties added yet. Click <strong>+ Add variety</strong> to start.</p>`;
       } else {
         hybrids.forEach((hyb, idx) => {
           const selectId = `mh-hybrid-select-${hyb.rowId}`;
           const radioId = `mh-check-radio-${hyb.rowId}`;
+          const isCheck = hyb.productId && mhState.checkProductId && hyb.productId === mhState.checkProductId;
           html += `
             <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
+              <div class="entry-label">Entry ${idx + 1}</div>
               <div>
                 <select id="${selectId}">
                   <option value="">Select variety…</option>
@@ -683,7 +648,7 @@
                 </select>
               </div>
               <div class="check-radio-wrap">
-                <input type="radio" name="mh-check" id="${radioId}" ${hyb.isCheck ? 'checked' : ''}>
+                <input type="radio" name="mh-check" id="${radioId}" ${isCheck ? 'checked' : ''} ${!hyb.productId ? 'disabled' : ''}>
                 <label for="${radioId}">Check</label>
               </div>
               <div style="text-align:right;">
@@ -701,9 +666,7 @@
 
       stageShell.innerHTML = html;
 
-      // Wire events
       document.getElementById('mh-setup-btn').addEventListener('click', () => {
-        // no-op; the controls below are the real setup – button here just focuses the first input
         const firstInput = document.getElementById('mh-length-input');
         if (firstInput) firstInput.focus();
       });
@@ -716,19 +679,16 @@
         mhState.passWidthFt = Number(e.target.value) || 0;
       });
 
-      const addRowBtn = document.getElementById('mh-add-row-btn');
-      addRowBtn.addEventListener('click', () => {
+      document.getElementById('mh-add-row-btn').addEventListener('click', () => {
         mhState.hybrids.push({
           rowId: nextRowId(),
           productId: '',
           name: '',
-          maturity: null,
-          isCheck: mhState.hybrids.length === 0 // first row defaults to check
+          maturity: null
         });
         renderStage();
       });
 
-      // Hybrid select + check radios + remove buttons
       mhState.hybrids.forEach((hyb) => {
         const selectEl = document.getElementById(`mh-hybrid-select-${hyb.rowId}`);
         if (selectEl) {
@@ -738,34 +698,41 @@
             hyb.productId = val;
             hyb.name = found ? found.name : '';
             hyb.maturity = found ? found.maturity : null;
+
+            // If this variety is the current checkProductId, keep it marked as check
+            if (mhState.checkProductId && hyb.productId === mhState.checkProductId) {
+              renderStage();
+            } else {
+              renderStage();
+            }
           });
         }
 
         const radioEl = document.getElementById(`mh-check-radio-${hyb.rowId}`);
         if (radioEl) {
           radioEl.addEventListener('change', () => {
-            mhState.hybrids.forEach(h => h.isCheck = (h.rowId === hyb.rowId));
+            // tie check to variety: one checkProductId per plot
+            if (!hyb.productId) return;
+            mhState.checkProductId = hyb.productId;
             renderStage();
           });
         }
 
-        const removeBtn = stageShell.querySelector(`.setup-hybrid-row[data-row-id="${hyb.rowId}"] button[data-row-id="${hyb.rowId}"]`);
+        const removeBtn = stageShell.querySelector(
+          `.setup-hybrid-row[data-row-id="${hyb.rowId}"] button[data-row-id="${hyb.rowId}"]`
+        );
         if (removeBtn) {
           removeBtn.addEventListener('click', () => {
             const idx = mhState.hybrids.findIndex(h => h.rowId === hyb.rowId);
-            if (idx !== -1) {
-              mhState.hybrids.splice(idx, 1);
-              // Ensure we still have at most one check
-              if (mhState.hybrids.length && !mhState.hybrids.some(h => h.isCheck)) {
-                mhState.hybrids[0].isCheck = true;
-              }
-              renderStage();
+            if (idx !== -1) mhState.hybrids.splice(idx, 1);
+            // If you removed the check variety, clear checkProductId
+            if (mhState.hybrids.every(h => h.productId !== mhState.checkProductId)) {
+              mhState.checkProductId = null;
             }
+            renderStage();
           });
         }
       });
-
-      // When user clicks Save (footer), we'll validate and move stage -> blocks
     }
 
     function renderBlocks() {
@@ -773,16 +740,13 @@
       const lengthFt = mhState.passLengthFt;
       const widthFt = mhState.passWidthFt;
 
-      let html = '';
-
-      html += `
+      let html = `
         <button type="button" class="primary-full-btn" id="mh-edit-setup-btn">
           Edit Plot Setup (Dev only)
         </button>
         <p class="muted-note">
-          Each hybrid below is a weight-only block. Enter moisture and total weight for the strip. This dev page uses a
-          simple yield formula to dry corn to 15% or beans to 13% and calculate bu/ac from the shared plot length and
-          width.
+          Each hybrid below is a weight-only block. Enter moisture (two decimals) and whole-weight in pounds. You can
+          save and close between entries; incomplete rows will simply stay empty.
         </p>
 
         <div class="blocks-panel">
@@ -793,18 +757,19 @@
       `;
 
       if (!blocks.length) {
-        html += `<p class="muted-note">No blocks generated. Use the dev Reset button and run setup again.</p>`;
+        html += `<p class="muted-note">No blocks generated. Use Reset Dev and run setup again.</p>`;
       } else {
         blocks.forEach((blk, idx) => {
-          const outOfRange = blk.yieldBuPerAc != null && !validateYieldRange(blk.yieldBuPerAc);
+          const outOfRange = blk.yieldBuPerAc != null && (blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400);
+          const isCheck = mhState.checkProductId && blk.productId === mhState.checkProductId;
           html += `
             <div class="block-card" data-row-id="${blk.rowId}">
               <div class="block-header">
                 <div>
                   <div class="block-title">
-                    ${blk.name || 'Variety ' + (idx + 1)}
-                    ${blk.isCheck ? '<span class="badge-check">Check</span>' : ''}
-                    ${blk.voided ? '<span class="badge-void">Voided</span>' : ''}
+                    Entry ${idx + 1} · ${blk.name || 'Variety'}
+                    <span class="badge-check ${isCheck ? '' : 'hidden'}">Check</span>
+                    <span class="badge-void ${blk.voided ? '' : 'hidden'}" id="mh-void-badge-${blk.rowId}">Voided</span>
                   </div>
                   <div class="block-subtitle">
                     ${blk.maturity ? `${blk.maturity} RM` : ''}
@@ -814,18 +779,18 @@
               <div class="block-body">
                 <div class="block-field">
                   <label for="mh-moist-${blk.rowId}">Moisture %</label>
-                  <input id="mh-moist-${blk.rowId}" type="number" step="0.1" min="5" max="40"
+                  <input id="mh-moist-${blk.rowId}" type="number" step="0.01" min="5" max="40"
                          value="${blk.moisturePct ?? ''}">
                 </div>
                 <div class="block-field">
                   <label for="mh-weight-${blk.rowId}">Weight (lbs)</label>
-                  <input id="mh-weight-${blk.rowId}" type="text"
-                         value="${blk.weightLbs ? formatWithCommas(blk.weightLbs, 0) : ''}">
+                  <input id="mh-weight-${blk.rowId}" type="number" step="1" min="0"
+                         value="${blk.weightLbs ?? ''}">
                 </div>
                 <div class="block-yield">
                   Yield (bu/ac)
-                  <span class="${outOfRange ? 'block-out-of-range' : ''}">
-                    ${blk.yieldBuPerAc != null ? formatNumber(blk.yieldBuPerAc, 1) : '—'}
+                  <span id="mh-yield-${blk.rowId}" class="${outOfRange ? 'block-out-of-range' : ''}">
+                    ${blk.yieldBuPerAc != null ? formatNumber(blk.yieldBuPerAc, 2) : '—'}
                   </span>
                 </div>
                 <div class="block-void-toggle">
@@ -839,132 +804,79 @@
       }
 
       html += `</div>`;
-
       stageShell.innerHTML = html;
 
       document.getElementById('mh-edit-setup-btn').addEventListener('click', () => {
         mhState.stage = 'setup';
-        // Rebuild setup hybrids from blocks (dev only)
         mhState.hybrids = mhState.blocks.map(b => ({
           rowId: b.rowId,
           productId: b.productId,
           name: b.name,
-          maturity: b.maturity,
-          isCheck: b.isCheck
+          maturity: b.maturity
         }));
         renderStage();
       });
 
-      // Wire inputs
+      // Wire moisture / weight / void handlers, update DOM in place (no full re-render)
       mhState.blocks.forEach((blk) => {
         const moistEl = document.getElementById(`mh-moist-${blk.rowId}`);
         const weightEl = document.getElementById(`mh-weight-${blk.rowId}`);
         const voidEl = document.getElementById(`mh-void-${blk.rowId}`);
+        const yieldSpan = document.getElementById(`mh-yield-${blk.rowId}`);
+        const voidBadge = document.getElementById(`mh-void-badge-${blk.rowId}`);
+
+        function recalcAndPaint() {
+          blk.yieldBuPerAc = calcDevYieldBuPerAc({
+            cropKind: mhState.cropKind,
+            moisturePct: blk.moisturePct,
+            wetWeightLbs: blk.weightLbs,
+            lengthFt: mhState.passLengthFt,
+            widthFt: mhState.passWidthFt
+          });
+
+          if (yieldSpan) {
+            if (blk.yieldBuPerAc != null) {
+              yieldSpan.textContent = formatNumber(blk.yieldBuPerAc, 2);
+              const out = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
+              yieldSpan.classList.toggle('block-out-of-range', out);
+            } else {
+              yieldSpan.textContent = '—';
+              yieldSpan.classList.remove('block-out-of-range');
+            }
+          }
+        }
 
         if (moistEl) {
           moistEl.addEventListener('input', (e) => {
             blk.moisturePct = e.target.value === '' ? null : Number(e.target.value);
-            recalcBlockYield(blk);
-            renderBlocks(); // simple redraw for dev
+            recalcAndPaint();
           });
         }
 
         if (weightEl) {
           weightEl.addEventListener('input', (e) => {
-            const raw = e.target.value.replace(/,/g, '');
-            const num = raw === '' ? null : Number(raw);
-            blk.weightLbs = num;
-            recalcBlockYield(blk);
-            // keep cursor near end by re-rendering value only
-            renderBlocks();
+            const val = e.target.value === '' ? null : Number(e.target.value);
+            blk.weightLbs = val;
+            recalcAndPaint();
+          });
+
+          weightEl.addEventListener('blur', (e) => {
+            if (blk.weightLbs != null) {
+              e.target.value = formatWithCommas(blk.weightLbs, 0);
+            }
           });
         }
 
         if (voidEl) {
           voidEl.addEventListener('change', (e) => {
             blk.voided = e.target.checked;
-            updateSaveEnabled();
+            if (voidBadge) {
+              voidBadge.classList.toggle('hidden', !blk.voided);
+            }
           });
         }
       });
-
-      updateSaveEnabled();
     }
-
-    function recalcBlockYield(blk) {
-      const y = calcDevYieldBuPerAc({
-        cropKind: mhState.cropKind,
-        moisturePct: blk.moisturePct,
-        wetWeightLbs: blk.weightLbs,
-        lengthFt: mhState.passLengthFt,
-        widthFt: mhState.passWidthFt
-      });
-      blk.yieldBuPerAc = y;
-    }
-
-    function updateSaveEnabled() {
-      if (mhState.stage !== 'blocks') {
-        saveBtn.disabled = false;
-        return;
-      }
-
-      // Rule: every non-void block must have valid moisture, weight, and yield range
-      const anyBlocks = mhState.blocks.length > 0;
-      if (!anyBlocks) {
-        saveBtn.disabled = true;
-        return;
-      }
-
-      const allOk = mhState.blocks.every(blk => {
-        if (blk.voided) return true;
-        if (!validateMoisture(blk.moisturePct)) return false;
-        if (!blk.weightLbs || blk.weightLbs <= 0) return false;
-        if (!validateYieldRange(blk.yieldBuPerAc)) return false;
-        return true;
-      });
-
-      saveBtn.disabled = !allOk;
-    }
-
-    // Footer button behaviour --------------------------------------------
-
-    saveBtn.addEventListener('click', () => {
-      if (mhState.stage === 'setup') {
-        const ok = validateSetup();
-        if (!ok) return;
-        // Build blocks from setup order
-        mhState.blocks = mhState.hybrids.map(h => ({
-          rowId: h.rowId,
-          productId: h.productId,
-          name: h.name,
-          maturity: h.maturity,
-          isCheck: h.isCheck,
-          moisturePct: null,
-          weightLbs: null,
-          yieldBuPerAc: null,
-          voided: false
-        }));
-        mhState.stage = 'blocks';
-        renderStage();
-      } else {
-        // Dev: just log state
-        console.log('Multi-Hybrid Dev Save', JSON.parse(JSON.stringify(mhState)));
-        alert('Dev save only. Check console for payload.');
-      }
-    });
-
-    resetBtn.addEventListener('click', () => {
-      mhState.stage = 'setup';
-      mhState.passLengthFt = 600;
-      mhState.passWidthFt = 20;
-      mhState.hybrids = [];
-      mhState.blocks = [];
-      renderStage();
-    });
-
-    closeBtn.addEventListener('click', () => {
-      alert('In the real app this would close the popup. Dev page keeps it open so you can keep testing.');
-    });
 
     function validateSetup() {
       const errors = [];
@@ -978,12 +890,12 @@
         errors.push('Add at least one variety to this plot.');
       } else {
         mhState.hybrids.forEach((h, idx) => {
-          if (!h.productId) errors.push(`Row ${idx + 1}: select a variety.`);
+          if (!h.productId) errors.push(`Entry ${idx + 1}: select a variety.`);
         });
+      }
 
-        const checks = mhState.hybrids.filter(h => h.isCheck);
-        if (checks.length === 0) errors.push('Pick exactly one Check variety.');
-        if (checks.length > 1) errors.push('Only one Check variety is allowed per plot.');
+      if (!mhState.checkProductId) {
+        errors.push('Pick one Check variety (tied to a variety, not an entry).');
       }
 
       const errBox = document.getElementById('mh-setup-errors');
@@ -998,7 +910,41 @@
       return false;
     }
 
-    // Init
+    saveBtn.addEventListener('click', () => {
+      if (mhState.stage === 'setup') {
+        if (!validateSetup()) return;
+        mhState.blocks = mhState.hybrids.map(h => ({
+          rowId: h.rowId,
+          productId: h.productId,
+          name: h.name,
+          maturity: h.maturity,
+          moisturePct: null,
+          weightLbs: null,
+          yieldBuPerAc: null,
+          voided: false
+        }));
+        mhState.stage = 'blocks';
+        renderStage();
+      } else {
+        console.log('Multi-Hybrid Dev Save', JSON.parse(JSON.stringify(mhState)));
+        alert('Dev save only. In the real app this would close and persist to Firestore.');
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      mhState.stage = 'setup';
+      mhState.passLengthFt = 600;
+      mhState.passWidthFt = 20;
+      mhState.checkProductId = null;
+      mhState.hybrids = [];
+      mhState.blocks = [];
+      renderStage();
+    });
+
+    closeBtn.addEventListener('click', () => {
+      alert('In the real app this would close the popup. Dev page keeps it open so you can keep testing.');
+    });
+
     renderStage();
   </script>
 </body>
