@@ -182,8 +182,6 @@
       }
     }
 
-    /* ===== Modal shell – same as real page ===== */
-
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -604,13 +602,12 @@
         <div id="yieldSummary" class="yield-summary"></div>
 
         <button type="button" class="primary-full-btn" id="btnSetUpPlot">
-          + Set Up Plot
+          Set Up Plot
         </button>
 
         <div id="mhStageShell"></div>
       </div>
       <div class="modal-footer">
-        <button id="btnResetDev" type="button" class="btn btn-quiet btn-inline">Reset Dev</button>
         <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close (Dev)</button>
       </div>
     </div>
@@ -643,7 +640,6 @@
     const devFieldCard  = document.getElementById('devFieldCard');
     const btnClose      = document.getElementById('btnYieldClose');
     const btnOk         = document.getElementById('btnYieldOk');
-    const btnReset      = document.getElementById('btnResetDev');
     const btnSetUpPlot  = document.getElementById('btnSetUpPlot');
     const summaryEl     = document.getElementById('yieldSummary');
     const stageShell    = document.getElementById('mhStageShell');
@@ -677,17 +673,6 @@
     btnOpenModal.addEventListener('click', openModal);
     devFieldCard.addEventListener('click', openModal);
     btnClose.addEventListener('click', closeModal);
-
-    btnReset.addEventListener('click', () => {
-      mhState.stage = 'setup';
-      mhState.passLengthFt = 600;
-      mhState.passWidthFt  = 20;
-      mhState.checkProductId = null;
-      mhState.hybrids = [];
-      mhState.blocks  = [];
-      renderStage();
-      renderDevSummary();
-    });
 
     function formatNumber(num, decimals){
       if(num === null || num === undefined || isNaN(num)) return '—';
@@ -734,7 +719,7 @@
         if(h.maturity != null) parts.push(`(${h.maturity} RM)`);
         if(isCheck) parts.push('– CHECK');
         if(hasData){
-          parts.push(`– ${formatNumber(blk.moisturePct,1)}% • ${formatNumber(blk.yieldBuPerAc,1)} bu/ac`);
+          parts.push(`– ${formatNumber(blk.moisturePct,2)}% • ${formatNumber(blk.yieldBuPerAc,1)} bu/ac`);
         }
         return parts.join(' ');
       }).filter(Boolean);
@@ -742,12 +727,7 @@
     }
 
     function renderStage(){
-      // Change button text depending on whether blocks exist
-      if(mhState.blocks.length){
-        btnSetUpPlot.textContent = 'Edit Plot Setup';
-      }else{
-        btnSetUpPlot.textContent = '+ Set Up Plot';
-      }
+      btnSetUpPlot.textContent = mhState.blocks.length ? 'Edit Plot Setup' : 'Set Up Plot';
 
       if(mhState.stage === 'setup'){
         renderSetup();
@@ -879,9 +859,7 @@
         }
       });
 
-      // Set Up / Edit button behavior
       btnSetUpPlot.onclick = () => {
-        // In setup stage this just focuses length
         const lenInput = document.getElementById('mh-length-input');
         if(lenInput) lenInput.focus();
       };
@@ -931,7 +909,7 @@
       `;
 
       if(!blocks.length){
-        html += `<p class="muted">No blocks generated. Hit Reset Dev and try setup again.</p>`;
+        html += `<p class="muted">No blocks generated. Hit Set Up Plot and try again.</p>`;
       }else{
         blocks.forEach((blk, idx) => {
           const isCheck = mhState.checkProductId && blk.productId === mhState.checkProductId;
@@ -954,12 +932,12 @@
                 <label class="field-mini">
                   <span>Moisture %</span>
                   <input type="text" inputmode="decimal"
-                    class="input" id="mh-moist-${blk.rowId}" value="${blk.moisturePct ?? ''}">
+                    class="input" id="mh-moist-${blk.rowId}" value="${blk.moisturePct != null ? formatNumber(blk.moisturePct,2) : ''}">
                 </label>
                 <label class="field-mini">
                   <span>Weight (Lbs)</span>
                   <input type="text" inputmode="numeric"
-                    class="input" id="mh-weight-${blk.rowId}" value="${blk.weightLbs ?? ''}">
+                    class="input" id="mh-weight-${blk.rowId}" value="${blk.weightLbs != null ? formatWithCommas(blk.weightLbs) : ''}">
                 </label>
                 <div class="field-mini">
                   <span>Yield (bu/ac)</span>
@@ -980,7 +958,6 @@
       html += `</div>`;
       stageShell.innerHTML = html;
 
-      // Set button to truly "Edit Plot Setup" now
       btnSetUpPlot.onclick = () => {
         mhState.stage = 'setup';
         renderStage();
@@ -992,7 +969,6 @@
         const yieldEl  = document.getElementById(`mh-yield-${blk.rowId}`);
         const voidEl   = document.getElementById(`mh-void-${blk.rowId}`);
 
-        // Keep previous value to enforce 2 decimals without bouncing
         moistEl.dataset.prev = moistEl.value;
 
         function recalc(){
@@ -1021,17 +997,14 @@
             const oldVal = e.target.dataset.prev || '';
             let v = e.target.value;
 
-            // Strip invalid chars
             v = v.replace(/[^0-9.]/g,'');
 
-            // Limit to one dot
             const parts = v.split('.');
             if(parts.length > 2){
-              v = oldVal; // revert if they try to add a second dot
+              v = oldVal;
             }else if(parts.length === 2){
               const frac = parts[1];
               if(frac.length > 2){
-                // too many decimals: revert to previous value
                 v = oldVal;
               }
             }
@@ -1041,11 +1014,32 @@
             blk.moisturePct = v === '' ? null : Number(v);
             recalc();
           });
+
+          moistEl.addEventListener('blur', e => {
+            let v = e.target.value;
+            if(v === ''){
+              blk.moisturePct = null;
+              recalc();
+              return;
+            }
+            v = v.replace(/[^0-9.]/g,'');
+            const parts = v.split('.');
+            if(parts.length > 2){
+              v = parts[0] + '.' + parts.slice(1).join('');
+            }
+            let num = Number(v);
+            if(!isFinite(num)){
+              num = null;
+            }
+            blk.moisturePct = num;
+            e.target.value = num != null ? num.toFixed(2) : '';
+            recalc();
+          });
         }
 
         if(weightEl){
           weightEl.addEventListener('input', e => {
-            let v = e.target.value.replace(/\D/g,''); // whole numbers only
+            let v = e.target.value.replace(/\D/g,'');
             e.target.value = v;
             blk.weightLbs = v === '' ? null : Number(v);
             recalc();
@@ -1065,6 +1059,16 @@
         }
       });
     }
+
+    btnSetUpPlot.addEventListener('click', () => {
+      if(mhState.stage === 'setup'){
+        const lenInput = document.getElementById('mh-length-input');
+        if(lenInput) lenInput.focus();
+      }else{
+        mhState.stage = 'setup';
+        renderStage();
+      }
+    });
 
     btnOk.addEventListener('click', () => {
       if(mhState.stage === 'setup'){
@@ -1089,7 +1093,33 @@
       closeModal();
     });
 
-    // initial render
+    function validateSetup(){
+      const errors = [];
+      if(!mhState.passLengthFt || mhState.passLengthFt <= 0){
+        errors.push('Enter a positive plot length.');
+      }
+      if(!mhState.passWidthFt || mhState.passWidthFt <= 0){
+        errors.push('Select a positive pass width.');
+      }
+      if(!mhState.hybrids.length){
+        errors.push('Add at least one entry.');
+      }else{
+        mhState.hybrids.forEach((h, idx) => {
+          if(!h.productId){
+            errors.push(`Entry ${idx+1}: select a variety.`);
+          }
+        });
+      }
+      if(!mhState.checkProductId){
+        errors.push('Pick one check variety (tied to the variety).');
+      }
+      const box = document.getElementById('mh-setup-errors');
+      if(box){
+        box.innerHTML = errors.map(e => '• ' + e).join('<br>');
+      }
+      return errors.length === 0;
+    }
+
     renderStage();
   </script>
 </body>
