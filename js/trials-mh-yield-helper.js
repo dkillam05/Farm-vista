@@ -235,7 +235,7 @@ export function initMhYieldHelper(options = {}) {
         let label = `${brand} ${variety}`.trim();
         if(mat) label += ` (${mat} RM)`;
         return {
-          // IMPORTANT: use Firestore doc id as unique id
+          // Use Firestore doc id as the unique id
           id: s.id,
           seedDocId: s.id, // Firestore doc id
           brand,
@@ -333,7 +333,7 @@ export function initMhYieldHelper(options = {}) {
           : 'Select variety…';
         const label = hyb.productId
           ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
-          : 'Select variety…';
+          : 'Select variety…`;
 
         html += `
           <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
@@ -417,7 +417,7 @@ export function initMhYieldHelper(options = {}) {
         });
         renderStage();
 
-        // After render: scroll new row into view and auto-open its dropdown
+        // After re-render: scroll new row into view and auto-open its dropdown
         requestAnimationFrame(() => {
           const row = stageShell.querySelector(`.setup-hybrid-row[data-row-id="${newRowId}"]`);
           if(row){
