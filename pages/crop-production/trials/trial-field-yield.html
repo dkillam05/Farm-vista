@@ -13,6 +13,8 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <!-- Swipe styles for shared helper -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
   <style>
     :root{
@@ -228,6 +230,17 @@
     .field-card-note{
       font-size:0.83rem;
       color:var(--muted,#67706B);
+    }
+
+    /* desktop actions; hidden on phones */
+    .field-card-actions{
+      display:flex;
+      gap:6px;
+    }
+    @media (max-width:720px){
+      .field-card-actions{
+        display:none;
+      }
     }
 
     .fields-hint{
@@ -559,7 +572,7 @@
       border-color:var(--accent);
     }
 
-    /* Dictation mic button (matches other pages, no blue) */
+    /* Dictation mic button – match Add Field page, square with rounded corners, no blue */
     .mic-btn{
       position:absolute;
       right:10px;
@@ -568,11 +581,11 @@
       height:36px;
       border-radius:10px;
       border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
+      background:var(--surface-strong, var(--surface));
       display:grid;
       place-items:center;
       cursor:pointer;
-      color:var(--text); /* kill any blue, follow theme text */
+      color:var(--muted,#67706B);
     }
     .mic-btn[disabled]{
       opacity:.6;
@@ -717,6 +730,7 @@
     } from '/Farm-vista/js/fv-yield-math.js';
 
     import { wireDictation } from '/Farm-vista/js/fv-dictation.js';
+    import { initSwipeList } from '/Farm-vista/js/fv-swipe-list.js';
 
     const CONFIG = {
       COLLECTION_TRIALS: 'fieldTrials',
@@ -1193,6 +1207,33 @@
       return lines.join('<br>');
     }
 
+    function isTouchPointer(){
+      return window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    }
+
+    function applySwipeToFieldList(){
+      if(!fieldListEl) return;
+      if(!isTouchPointer()) return; // only phones / coarse pointer
+
+      try{
+        initSwipeList(fieldListEl, {
+          itemSelector: '.fv-swipe-item',
+          leftAction: {
+            label: 'Add Yield',
+            onAction: (itemEl) => {
+              const docId = itemEl.dataset.docId;
+              if(!docId) return;
+              const row = STATE.fields.find(f => f.docId === docId);
+              if(row) openYieldModal(row);
+            }
+          }
+          // rightAction intentionally omitted – we only care about swipe-right Add Yield here
+        });
+      }catch(err){
+        console.error('applySwipeToFieldList error:', err);
+      }
+    }
+
     function renderFieldList(){
       if(!fieldListEl) return;
       fieldListEl.innerHTML = '';
@@ -1226,6 +1267,10 @@
         const blocks = STATE.yieldData[row.docId] || [];
         const blockCount = blocks.length;
 
+        const item = document.createElement('div');
+        item.className = 'fv-swipe-item';
+        item.dataset.docId = row.docId;
+
         const div = document.createElement('div');
         div.className = 'field-card';
 
@@ -1249,16 +1294,31 @@
                 : ''
               }
             </div>
-            <div>
-              <span class="btn btn-small">View / Add Yield</span>
+            <div class="field-card-actions">
+              <button type="button" class="btn btn-small" data-role="open-yield">View / Add Yield</button>
             </div>
           </div>
           ${row.notes ? `<div class="field-card-note">${row.notes}</div>` : ''}
         `;
 
+        // Whole card click opens yield modal (desktop + mobile tap)
         div.addEventListener('click', () => openYieldModal(row));
-        fieldListEl.appendChild(div);
+
+        // Desktop button also opens yield without relying on card click
+        const btn = div.querySelector('[data-role="open-yield"]');
+        if(btn){
+          btn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openYieldModal(row);
+          });
+        }
+
+        item.appendChild(div);
+        fieldListEl.appendChild(item);
       });
+
+      // Enable swipe-right Add Yield on phones
+      applySwipeToFieldList();
     }
 
     function serializeAttachmentsForFirestore(block){
@@ -1359,7 +1419,7 @@
         });
       }
       if(micBtn && ta){
-        // IMPORTANT: card is already appended to document when this is called
+        // card is already in DOM when this runs
         wireDictation(micId, notesId);
       }
     }
@@ -1485,7 +1545,7 @@
             </div>
           `;
 
-          // Append card to DOM BEFORE wiring dictation so ids are discoverable
+          // Append card before wiring dictation
           yieldBlocksWrap.appendChild(card);
 
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -1680,7 +1740,7 @@
             </div>
           `;
 
-          // Append card BEFORE wiring dictation
+          // Append card before wiring dictation
           yieldBlocksWrap.appendChild(card);
 
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -2196,8 +2256,7 @@
         <div class="fields-body">
           <div id="trialFieldList"></div>
           <div class="fields-hint">
-            Tap a field card to open the yield pop-up. Each field can have many trial blocks, and every block
-            can be based on combine yield data or strip weight data, with notes and up to 5 attachments.
+            On a phone, swipe right on a field card to add yield. On desktop, use the “View / Add Yield” button or tap the card.
           </div>
         </div>
       </section>
