@@ -10,7 +10,10 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + map -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
+  <script src="/Farm-vista/js/fv-map.js" defer></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -268,6 +271,86 @@
       white-space:pre;
       resize:vertical;
     }
+
+    /* ===== Weather Readiness block ===== */
+    .wr-card{
+      margin-top:6px;
+      padding-top:10px;
+      border-top:1px dashed var(--border);
+      display:grid;
+      gap:12px;
+    }
+    .wr-head h3{
+      margin:0 0 4px;
+      font-size:clamp(16px,2.2vw,18px);
+    }
+    .wr-head p{
+      margin:0;
+      font-size:13px;
+    }
+    .wr-map-block{
+      display:grid;
+      gap:6px;
+    }
+    .wr-map-label-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      font-size:13px;
+    }
+    .wr-map-label{
+      font-weight:800;
+    }
+    .wr-map-note{
+      font-size:12px;
+    }
+    .wr-map{
+      width:100%;
+      height:260px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:radial-gradient(circle at 10% 0%, #202428 0, #111 38%, #080909 80%);
+      overflow:hidden;
+    }
+    .wr-sliders{
+      align-items:flex-start;
+    }
+    .wr-readout{
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+    }
+    .wr-help-label{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .wr-help-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      color:var(--muted,#67706B);
+      cursor:pointer;
+      padding:0;
+      font-size:11px;
+      line-height:1;
+    }
+    .wr-help-btn svg{
+      width:14px;
+      height:14px;
+      display:block;
+    }
+    @media(max-width:720px){
+      .wr-map{
+        height:220px;
+      }
+    }
   </style>
 
   <!-- Ensure fv-shell -->
@@ -371,6 +454,58 @@
             <div class="field">
               <label for="rtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
               <select id="rtkSelect" class="select"></select>
+            </div>
+          </div>
+
+          <!-- Weather Readiness Settings (NEW) -->
+          <div class="field" style="grid-column:1 / -1">
+            <div class="wr-card">
+              <div class="wr-head">
+                <h3>Weather Readiness Settings</h3>
+                <p class="muted">Pin an anchor point and describe how this field holds and drains water.</p>
+              </div>
+
+              <div class="wr-map-block">
+                <div class="wr-map-label-row">
+                  <span class="wr-map-label">Anchor Point Map</span>
+                  <span class="wr-map-note muted">Satellite + roads · centered on Divernon, IL</span>
+                </div>
+                <div id="weatherMap" class="wr-map"></div>
+              </div>
+
+              <div class="row-2 wr-sliders">
+                <div class="field">
+                  <label for="soilWetness" class="wr-help-label">
+                    <span>Soil Wetness Index</span>
+                    <button type="button" class="wr-help-btn" data-kind="soil" aria-label="Soil Wetness Index help">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+                        <path d="M12 8.2a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-1.1 2.2h2v7h-2z" fill="currentColor"></path>
+                      </svg>
+                    </button>
+                  </label>
+                  <input id="soilWetness" class="input" type="range" min="1" max="10" step="1" value="5">
+                  <div class="wr-readout">
+                    Soil holds water: <strong><span id="soilWetnessValue">5</span>/10</strong>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label for="drainageIndex" class="wr-help-label">
+                    <span>Water Drainage Index</span>
+                    <button type="button" class="wr-help-btn" data-kind="drainage" aria-label="Water Drainage Index help">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+                        <path d="M12 8.2a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-1.1 2.2h2v7h-2z" fill="currentColor"></path>
+                      </svg>
+                    </button>
+                  </label>
+                  <input id="drainageIndex" class="input" type="range" min="1" max="10" step="1" value="5">
+                  <div class="wr-readout">
+                    Drainage performance: <strong><span id="drainageValue">5</span>/10</strong>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -570,6 +705,16 @@
     const farmFilterPop = $("farmFilterPop");
     const farmFilterOpts = $("farmFilterOpts");
     const pageEl = document.querySelector('.page');
+
+    /* Weather state (for Add form) */
+    const DIVERNON_CENTER = { lat: 39.565, lng: -89.655 }; // Divernon, IL approx
+    let weatherMapInstance = null;
+    let weatherState = {
+      lat: null,
+      lng: null,
+      soilWetnessIndex: 5,
+      waterDrainageIndex: 5
+    };
 
     /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
@@ -840,6 +985,83 @@
       return t ? t.name : '';
     }
 
+    /* ===== Weather Readiness wiring ===== */
+    function initWeatherMap(){
+      const el = $("weatherMap");
+      if(!el) return;
+
+      // If fv-map.js exposes a helper, use it. Otherwise show a soft placeholder.
+      if(window.FVMap && typeof window.FVMap.createMap === "function"){
+        weatherMapInstance = window.FVMap.createMap({
+          el,
+          center: DIVERNON_CENTER,
+          zoom: 13,
+          mode: "satelliteRoads",   // expect fv-map.js to interpret
+          onPinChange: (pt)=>{
+            if(!pt) return;
+            weatherState.lat = pt.lat;
+            weatherState.lng = pt.lng;
+          },
+          initialPin: (weatherState.lat!=null && weatherState.lng!=null)
+            ? { lat: weatherState.lat, lng: weatherState.lng }
+            : null
+        });
+      }else{
+        el.innerHTML = '<div class="muted" style="padding:12px;font-size:13px;">Map helper (fv-map.js) not loaded yet.</div>';
+      }
+    }
+
+    function setupWeatherSliders(){
+      const soil = $("soilWetness");
+      const soilVal = $("soilWetnessValue");
+      const dr = $("drainageIndex");
+      const drVal = $("drainageValue");
+
+      if(soil && soilVal){
+        const syncSoil = ()=>{
+          const v = Number(soil.value||5) || 5;
+          soilVal.textContent = v;
+          weatherState.soilWetnessIndex = v;
+        };
+        soil.addEventListener("input", syncSoil);
+        syncSoil();
+      }
+      if(dr && drVal){
+        const syncDrain = ()=>{
+          const v = Number(dr.value||5) || 5;
+          drVal.textContent = v;
+          weatherState.waterDrainageIndex = v;
+        };
+        dr.addEventListener("input", syncDrain);
+        syncDrain();
+      }
+
+      // Helper icons
+      document.querySelectorAll(".wr-help-btn").forEach(btn=>{
+        btn.addEventListener("click", ()=>{
+          const kind = btn.dataset.kind;
+          if(kind === "soil"){
+            alert("This slider is about how the soil holds water. 1 is dry sandy soil and 10 is wet heavy clay.");
+          }else if(kind === "drainage"){
+            alert("1 is very good drainage (pattern tile) and 10 is very poor drainage.");
+          }
+        });
+      });
+    }
+
+    function resetWeatherControls(){
+      const soil = $("soilWetness");
+      const dr = $("drainageIndex");
+      if(soil){ soil.value = "5"; soil.dispatchEvent(new Event("input")); }
+      if(dr){ dr.value = "5"; dr.dispatchEvent(new Event("input")); }
+      weatherState.lat = null;
+      weatherState.lng = null;
+      // Optional: if your fv-map.js exposes a clear method, you can hook it:
+      // if(weatherMapInstance && typeof weatherMapInstance.clearPin === 'function'){
+      //   weatherMapInstance.clearPin();
+      // }
+    }
+
     /* ===== Create / Validate ===== */
     function helOn(){ return $("hasHEL").checked; }
     function crpOn(){ return $("hasCRP").checked; }
@@ -872,6 +1094,11 @@
         hasCRP: crpOn(),
         crpAcres: crpOn() ? toNum($("crpAcres").value) : 0,
         rtkTowerId: $("rtkSelect").value || "",
+        // Weather readiness
+        weatherLat: weatherState.lat ?? null,
+        weatherLng: weatherState.lng ?? null,
+        soilWetnessIndex: typeof weatherState.soilWetnessIndex === "number" ? weatherState.soilWetnessIndex : 5,
+        waterDrainageIndex: typeof weatherState.waterDrainageIndex === "number" ? weatherState.waterDrainageIndex : 5,
         status: "active",
         used: false,
         createdAt: serverTimestamp(),
@@ -892,8 +1119,13 @@
       // reset county dropdown
       ddCounty.btn.textContent = "Select a county…";
       ddCounty.btn.disabled = true;
-      ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
+      ddCounty.search.value = "";
+      ddCounty.search.disabled = true;
+      ddCounty.list.innerHTML = "";
       $("countySelect").value = "";
+
+      // reset Weather readiness controls
+      resetWeatherControls();
 
       await renderList(); window.scrollTo({top:0, behavior:"smooth"});
     }
@@ -1496,6 +1728,10 @@
       ddState.btn.textContent = stRec[1];
       await loadCountiesIntoDropdown(ddCounty, stRec[0]);
 
+      // Weather readiness
+      setupWeatherSliders();
+      initWeatherMap();
+
       await renderList();
 
       $("save").addEventListener("click", createField);
@@ -1515,6 +1751,8 @@
         ddCounty.btn.textContent = "Select a county…";
         ddCounty.btn.disabled = true; ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
         $("countySelect").value = "";
+
+        resetWeatherControls();
       });
 
       $("filterFarm").addEventListener("change", renderList);
