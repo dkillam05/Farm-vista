@@ -65,7 +65,6 @@ export function initMhYieldHelper(options = {}) {
   const btnClose      = document.getElementById('btnYieldClose');
   const btnOk         = document.getElementById('btnYieldOk');
   const btnSetUpPlot  = document.getElementById('btnSetUpPlot');
-  const summaryEl     = document.getElementById('yieldSummary');
   const stageShell    = document.getElementById('mhStageShell');
   const devFieldSummaryEl = document.getElementById('devFieldSummary');
 
@@ -130,20 +129,8 @@ export function initMhYieldHelper(options = {}) {
   }
 
   function openModal(){
-    if(!summaryEl || !modalBackdrop) return;
+    if(!modalBackdrop) return;
 
-    summaryEl.innerHTML = `
-      <div>
-        <strong>Trial:</strong> Grandmas Test Plot North<br>
-        <strong>Field:</strong> Divernon-Farmersville • 0702-Grandmas TestPlot<br>
-        <strong>Trial acres:</strong> 20.00 ac<br>
-        <strong>Field tillable:</strong> 39.45 ac
-      </div>
-      <div class="muted">
-        Multi-hybrid helper. Set up plot length, width, entries, and check variety. Then we’ll show one yield card
-        per entry using weight-only data.
-      </div>
-    `;
     modalBackdrop.classList.remove('hidden');
 
     // If we've already generated blocks once, go straight to data entry
