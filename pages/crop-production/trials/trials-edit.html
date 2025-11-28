@@ -274,7 +274,7 @@
       background:var(--surface-strong, var(--surface));
       cursor:pointer;
       white-space:nowrap;
-      /* kill blue fonts – use accent green instead */
+      /* use accent green instead of blue */
       color:var(--accent);
     }
 
@@ -444,7 +444,9 @@
     .trial-actions{
       margin-top:10px;
       display:flex;
-      justify-content:flex-start;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
     }
 
     .btn-complete{
@@ -456,6 +458,30 @@
     .btn-complete[disabled]{
       opacity:.6;
       cursor:not-allowed;
+    }
+
+    /* Small red trash icon button */
+    .trial-delete-btn{
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:1px solid #C53030;
+      background:transparent;
+      color:#C53030;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+    }
+
+    .trial-delete-btn:hover{
+      background:rgba(197,48,48,0.08);
+    }
+
+    .trial-delete-btn svg{
+      width:16px;
+      height:16px;
+      display:block;
     }
 
     .trial-detail-footer{
@@ -601,7 +627,8 @@
       collection,
       getDocs,
       doc,
-      updateDoc
+      updateDoc,
+      deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -693,6 +720,10 @@
         completeBtn.disabled = false;
         completeBtn.textContent = 'Mark Trial Completed';
         delete completeBtn.dataset.id;
+      }
+      const deleteBtn = $('#trialDeleteBtn');
+      if(deleteBtn){
+        deleteBtn.disabled = false;
       }
     }
 
@@ -870,6 +901,11 @@
         }
       }
 
+      const deleteBtn = $('#trialDeleteBtn');
+      if(deleteBtn){
+        deleteBtn.disabled = false;
+      }
+
       panel.style.display = 'flex';
     }
 
@@ -972,7 +1008,7 @@
             </div>
             <div class="trial-status-chip">${friendlyStatus}</div>
           </div>
-        `;
+        ];
 
         // Clicking the card opens details
         card.addEventListener('click', () => {
@@ -1157,6 +1193,51 @@
       }
     }
 
+    async function deleteTrial(){
+      const id = STATE.selectedId;
+      if(!id || !STATE.db) return;
+
+      const ok = window.confirm('Delete this trial and its fields/yield blocks? This cannot be undone.');
+      if(!ok) return;
+
+      const delBtn = $('#trialDeleteBtn');
+      if(delBtn){
+        delBtn.disabled = true;
+      }
+
+      try{
+        const db = STATE.db;
+
+        // delete subcollections: fields and yieldBlocks (best effort)
+        const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
+        const fieldsSnap = await getDocs(fieldsRef);
+        await Promise.all(fieldsSnap.docs.map(d => deleteDoc(d.ref)));
+
+        const yieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'yieldBlocks');
+        const yieldsSnap = await getDocs(yieldsRef);
+        await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
+
+        // delete main trial doc
+        const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
+        await deleteDoc(trialRef);
+
+        // update local caches
+        STATE.allItems = STATE.allItems.filter(x => x.id !== id);
+        STATE.items = STATE.items.filter(x => x.id !== id);
+        STATE.selectedId = null;
+
+        applyFilter(STATE.filterStatus || CONFIG.STATUS_ALL);
+        clearDetails();
+        showToast('Trial deleted.');
+      }catch(err){
+        console.error('Error deleting trial:', err);
+        showToast('Error deleting trial.');
+        if(delBtn){
+          delBtn.disabled = false;
+        }
+      }
+    }
+
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
@@ -1193,6 +1274,15 @@
         });
       }
 
+      // Delete trial button
+      const deleteBtn = $('#trialDeleteBtn');
+      if(deleteBtn){
+        deleteBtn.addEventListener('click', () => {
+          if(!STATE.selectedId) return;
+          deleteTrial();
+        });
+      }
+
       // file viewer wiring
       fileModal       = $('#fileModal');
       fileBackdrop    = $('#fileBackdrop');
@@ -1221,8 +1311,9 @@
     })();
 
     // ===== Mobile / PWA reliability helpers =====
-    // When the page regains focus or is restored from bfcache (common on iPhone),
+    // When the page regains focus or visibility, or is restored from bfcache,
     // force a fresh reload of trials so it doesn't get "stuck" empty.
+
     window.addEventListener('focus', () => {
       if(!STATE.db) return;
       STATE.loaded = false;
@@ -1232,7 +1323,14 @@
 
     window.addEventListener('pageshow', (event) => {
       if(!STATE.db) return;
-      if(event.persisted){
+      // Always refresh on pageshow – especially important for iOS PWA back nav.
+      STATE.loaded = false;
+      STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+      loadAllTrials();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if(document.visibilityState === 'visible' && STATE.db){
         STATE.loaded = false;
         STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
         loadAllTrials();
@@ -1317,6 +1415,11 @@
         <div class="trial-actions">
           <button type="button" id="trialCompleteBtn" class="btn btn-complete" style="display:none;">
             Mark Trial Completed
+          </button>
+          <button type="button" id="trialDeleteBtn" class="trial-delete-btn" aria-label="Delete trial">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
+            </svg>
           </button>
         </div>
 
