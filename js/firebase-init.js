@@ -414,8 +414,12 @@ const addDocImpl = async (ref, data) => {
   return docRef;
 };
 
+// SAFE deleteDoc – works in stub and Firebase mode
 const deleteDocImpl = async (ref) => {
-  if (storeModule) return storeModule.deleteDoc(ref);
+  if (storeModule && typeof storeModule.deleteDoc === 'function') {
+    return storeModule.deleteDoc(ref);
+  }
+  // fallback: stub mode or older Firestore – just delete from stub store
   stubDeleteDoc(ref.path);
 };
 
