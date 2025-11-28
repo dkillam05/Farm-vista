@@ -95,10 +95,10 @@
     .toolbar-right{
       display:flex;
       flex-wrap:wrap;
-      gap:10px;
-      align-items:flex-end;
+      gap:8px;
+      align-items:center;
       font-size:0.9rem;
-      opacity:0.8;
+      opacity:0.9;
     }
 
     .btn{
@@ -122,6 +122,17 @@
     .btn-quiet{
       min-width:auto;
       padding-inline:10px;
+    }
+
+    .btn-reload{
+      min-width:auto;
+      padding-inline:8px;
+      font-size:0.8rem;
+    }
+
+    .btn-reload[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
     }
 
     /* Status dropdown – now INSIDE hero */
@@ -311,11 +322,39 @@
     .trial-detail-close{
       border:none;
       outline:none;
-      border-radius:999px;
-      padding:4px 9px;
-      font-size:0.8rem;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      background:transparent;
+      padding:0;
       cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      color:var(--muted,#67706B);
+    }
+
+    .trial-detail-close:hover{
+      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
+      color:var(--text);
+    }
+
+    .trial-detail-close svg{
+      width:16px;
+      height:16px;
+      display:block;
+    }
+
+    .visually-hidden{
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      white-space:nowrap;
+      border:0;
     }
 
     .trial-detail-grid{
@@ -363,25 +402,6 @@
     .trial-detail-notes-body{
       margin-top:2px;
     }
-
-    .trial-detail-footer{
-      margin-top:10px;
-      font-size:0.8rem;
-      opacity:0.8;
-    }
-
-    .trial-detail-pill{
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      padding:2px 8px;
-      border-radius:999px;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-      font-size:0.8rem;
-      margin-left:6px;
-    }
-
-    /* Attachments */
 
     .trial-attachments{
       margin-top:8px;
@@ -459,6 +479,40 @@
     .trial-attachment-empty{
       font-size:0.86rem;
       opacity:0.8;
+    }
+
+    .trial-actions{
+      margin-top:10px;
+      display:flex;
+      justify-content:flex-start;
+    }
+
+    .btn-complete{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff !important;
+    }
+
+    .btn-complete[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+
+    .trial-detail-footer{
+      margin-top:10px;
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .trial-detail-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
     }
 
     /* File viewer modal */
@@ -585,7 +639,9 @@
       ready,
       getFirestore,
       collection,
-      getDocs
+      getDocs,
+      doc,
+      updateDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -607,7 +663,8 @@
       selectedId: null,
       filterStatus: null,
       loaded: false,
-      pendingFilter: null
+      pendingFilter: null,
+      isLoading: false
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -645,6 +702,15 @@
              u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
     }
 
+    function showToast(message){
+      if(!toastEl) return;
+      toastEl.textContent = message || 'Saved.';
+      toastEl.classList.remove('show');
+      // force reflow so animation restarts
+      void toastEl.offsetWidth;
+      toastEl.classList.add('show');
+    }
+
     function clearDetails(){
       const panel = $('.trial-detail-panel');
       if(!panel) return;
@@ -660,6 +726,13 @@
       if(footer) footer.innerHTML = '';
       const attGrid = $('#trialDetailAttachments');
       if(attGrid) attGrid.innerHTML = '';
+      const completeBtn = $('#trialCompleteBtn');
+      if(completeBtn){
+        completeBtn.style.display = 'none';
+        completeBtn.disabled = false;
+        completeBtn.textContent = 'Mark Trial Completed';
+        delete completeBtn.dataset.id;
+      }
     }
 
     function openFileViewer(att){
@@ -705,6 +778,7 @@
       const treatment = d.treatmentProduct || '';
       const check = d.check || '';
       const status = d[CONFIG.STATUS_FIELD] || '';
+      const statusLower = String(status || '').toLowerCase();
       const createdBy = d.createdByName || d.createdByEmail || '';
       const when = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate()
                  : (d.createdAt ? new Date(d.createdAt) : null);
@@ -836,6 +910,21 @@
           Current status:
           <span class="trial-detail-pill">${getStatusLabel(status) || 'unknown'}</span>
         `;
+      }
+
+      const completeBtn = $('#trialCompleteBtn');
+      if(completeBtn){
+        if(statusLower === CONFIG.STATUS_COMPLETED){
+          completeBtn.style.display = 'none';
+          completeBtn.disabled = false;
+          completeBtn.textContent = 'Mark Trial Completed';
+          delete completeBtn.dataset.id;
+        }else{
+          completeBtn.style.display = 'inline-flex';
+          completeBtn.disabled = false;
+          completeBtn.textContent = 'Mark Trial Completed';
+          completeBtn.dataset.id = item.id;
+        }
       }
 
       panel.style.display = 'flex';
@@ -1020,10 +1109,26 @@
     async function loadAllTrials(){
       const db  = STATE.db;
       if(!db) return;
+      if(STATE.isLoading) return;
 
-      const ref = collection(db, CONFIG.COLLECTION_TRIALS);
+      STATE.isLoading = true;
+
+      const emptyEl = $('.trial-empty');
+      const countEl = $('#trialCount');
+      const listEl  = $('.trial-list');
+
+      if(listEl) listEl.innerHTML = '';
+      if(emptyEl){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'Loading trials...';
+      }
+      if(countEl){
+        countEl.textContent = 'Loading trials...';
+      }
+      clearDetails();
 
       try{
+        const ref = collection(db, CONFIG.COLLECTION_TRIALS);
         const snap = await getDocs(ref);
 
         const items = snap.docs.map(d => ({
@@ -1042,17 +1147,59 @@
 
         // Use whatever filter was requested last, or default to ALL
         const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
+        STATE.pendingFilter = null;
         applyFilter(desired);
       }catch(err){
         console.error('Error loading trials:', err);
-        const emptyEl = $('.trial-empty');
-        const countEl = $('#trialCount');
         if(emptyEl){
-          emptyEl.textContent = 'Error loading trials. Check console or Firestore indexes.';
+          emptyEl.textContent = 'Error loading trials. Check your connection and tap Reload.';
           emptyEl.style.display = 'block';
         }
         if(countEl) countEl.textContent = 'Error loading trials';
         clearDetails();
+      }finally{
+        STATE.isLoading = false;
+      }
+    }
+
+    async function markTrialCompleted(){
+      const id = STATE.selectedId;
+      if(!id || !STATE.db) return;
+
+      const btn = $('#trialCompleteBtn');
+      if(btn){
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+      }
+
+      try{
+        const ref = doc(STATE.db, CONFIG.COLLECTION_TRIALS, id);
+        await updateDoc(ref, {
+          [CONFIG.STATUS_FIELD]: CONFIG.STATUS_COMPLETED
+        });
+
+        // update local cache
+        const itemAll = STATE.allItems.find(x => x.id === id);
+        if(itemAll){
+          itemAll.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
+        }
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        if(itemFiltered){
+          itemFiltered.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
+        }
+
+        // re-apply filter to reflect change (trial may drop from Active)
+        const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+        applyFilter(currentFilter);
+
+        showToast('Trial marked as completed.');
+      }catch(err){
+        console.error('Error marking trial completed:', err);
+        showToast('Error updating trial.');
+        if(btn){
+          btn.disabled = false;
+          btn.textContent = 'Mark Trial Completed';
+        }
       }
     }
 
@@ -1083,6 +1230,15 @@
         });
       }
 
+      // Trial complete button
+      const completeBtn = $('#trialCompleteBtn');
+      if(completeBtn){
+        completeBtn.addEventListener('click', () => {
+          if(!STATE.selectedId) return;
+          markTrialCompleted();
+        });
+      }
+
       // file viewer wiring
       fileModal       = $('#fileModal');
       fileBackdrop    = $('#fileBackdrop');
@@ -1103,6 +1259,21 @@
         statusSelect.addEventListener('change', () => {
           const val = (statusSelect.value || CONFIG.STATUS_ALL).toLowerCase();
           applyFilter(val);
+        });
+      }
+
+      // Reload button wiring
+      const reloadBtn = $('#btnReloadTrials');
+      if(reloadBtn){
+        reloadBtn.addEventListener('click', async () => {
+          reloadBtn.disabled = true;
+          const original = reloadBtn.textContent;
+          reloadBtn.textContent = 'Reloading...';
+          STATE.loaded = false;
+          STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+          await loadAllTrials();
+          reloadBtn.disabled = false;
+          reloadBtn.textContent = original;
         });
       }
 
@@ -1136,6 +1307,9 @@
             </div>
             <div class="toolbar-right">
               <span id="trialCount">Loading trials...</span>
+              <button id="btnReloadTrials" type="button" class="btn btn-quiet btn-reload">
+                Reload
+              </button>
             </div>
           </div>
 
@@ -1164,7 +1338,10 @@
         <div class="trial-detail-header">
           <div class="trial-detail-title">Trial Details</div>
           <button type="button" id="trialDetailClose" class="trial-detail-close">
-            Close
+            <span class="visually-hidden">Close</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.225 4.811 4.81 6.225 10.586 12l-5.775 5.775 1.414 1.414L12 13.414l5.775 5.775 1.414-1.414L13.414 12l5.775-5.775-1.414-1.414L12 10.586 6.225 4.811Z" fill="currentColor"/>
+            </svg>
           </button>
         </div>
 
@@ -1180,6 +1357,12 @@
         <div class="trial-attachments">
           <div class="trial-attachments-label">Files &amp; Photos</div>
           <div class="trial-attachments-grid" id="trialDetailAttachments"></div>
+        </div>
+
+        <div class="trial-actions">
+          <button type="button" id="trialCompleteBtn" class="btn btn-complete" style="display:none;">
+            Mark Trial Completed
+          </button>
         </div>
 
         <div class="trial-detail-footer">
