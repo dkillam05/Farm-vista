@@ -247,7 +247,7 @@
       display:grid;
       place-items:center;
       cursor:pointer;
-      color:var(--muted,#67706B); /* neutral in light & dark */
+      color:var(--muted,#67706B);
     }
     .mic-btn[disabled]{
       opacity:.6;
@@ -426,7 +426,6 @@
       gap:6px;
     }
 
-    /* On phone: hide the desktop action buttons, rely on swipe */
     @media (max-width: 720px){
       .field-card-actions{
         display:none;
@@ -447,7 +446,6 @@
       margin-top:4px;
     }
 
-    /* Overlapping trials hero */
     .overlap-hero{
       border:1px solid var(--border);
       border-radius:18px;
@@ -542,7 +540,6 @@
       100%{opacity:0}
     }
 
-    /* === Centered Confirmation Modal === */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -629,7 +626,8 @@
       COLLECTION_FARMS:  'farms',
       COLLECTION_FIELDS: 'fields',
       RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html',
-      YIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield.html'
+      YIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield.html',
+      YIELD_URL_MH: '/Farm-vista/pages/crop-production/trials/trial-field-yield-mh.html' // NEW: multi-hybrid page
     };
 
     const STATE = {
@@ -645,9 +643,9 @@
       selectedFarm: null,
       selectedField: null,
       selectedFieldMaxAcres: null,
-      existingFields: [],   // already saved
-      pendingFields: [],    // new this session
-      overlaps: [],         // overlapping trials
+      existingFields: [],
+      pendingFields: [],
+      overlaps: [],
       noAcresDraft: null
     };
 
@@ -891,6 +889,17 @@
       }
     }
 
+    // NEW: detect if this trial is a multi-hybrid / seed-varieties multi-hybrid trial
+    function isMultiHybridTrial(){
+      const t = STATE.trial || {};
+      const type = (t.trialType || '').toLowerCase();
+      const sub  = (t.trialSubType || t.trialSubtype || t.subType || '').toLowerCase();
+      const combined = (type + ' ' + sub).trim();
+      // Be forgiving: look for "multiple" + "hybrid" anywhere in type/sub-type
+      if(!combined) return false;
+      return combined.includes('multiple') && combined.includes('hybrid');
+    }
+
     async function loadFarmsAndFields(){
       const db=STATE.db;
       try{
@@ -1028,12 +1037,17 @@
       }
     }
 
+    // UPDATED: branch to multi-hybrid yields page when appropriate
     function openYieldForExisting(idx){
       const row = STATE.existingFields[idx];
       if(!row) return;
       const trialId = STATE.trialId || '';
       const fieldDocId = row.docId || '';
-      const url = `${CONFIG.YIELD_URL}?trialId=${encodeURIComponent(trialId)}&fieldDocId=${encodeURIComponent(fieldDocId)}`;
+
+      const multiHybrid = isMultiHybridTrial();
+      const base = multiHybrid ? CONFIG.YIELD_URL_MH : CONFIG.YIELD_URL;
+
+      const url = `${base}?trialId=${encodeURIComponent(trialId)}&fieldDocId=${encodeURIComponent(fieldDocId)}`;
       window.location.href = url;
     }
 
@@ -1392,7 +1406,6 @@
       if(noAcresModal){
         noAcresModal.classList.add('show');
       }else{
-        // fallback – just add if modal missing
         actuallyAddPendingRow(draft);
       }
     }
@@ -1779,7 +1792,6 @@
         <div class="body">
           <div id="errBox" class="error-box"></div>
 
-          <!-- Back button row -->
           <div class="top-row">
             <button id="btnBack" type="button" class="btn btn-quiet">
               ← Back to Trials
@@ -1877,7 +1889,6 @@
         </div>
       </section>
 
-      <!-- Overlapping trials warning -->
       <section id="overlapHero" class="overlap-hero" style="display:none;">
         <header class="overlap-head">
           <h2>Other trials using these fields</h2>
@@ -1893,7 +1904,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Centered "No Acres" confirmation modal -->
   <div id="noAcresModal" class="modal-backdrop" role="alertdialog" aria-modal="true">
     <div class="modal-sheet">
       <div class="modal-title">No Trial Acres Entered</div>
