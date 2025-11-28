@@ -1,736 +1,6 @@
-<!-- ======================================================================
-/Farm-vista/pages/crop-production/trials/dev-trial-field-yield-mh-helper.html
-Helper/demo page that hosts the Multi-Hybrid Yield helper.
-====================================================================== -->
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>FarmVista • Helper • Trial Field Yields (Multi-Hybrid)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#3B7E46" />
-
-  <!-- ABSOLUTE PATHS -->
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
-  <script src="/Farm-vista/js/theme-boot.js"></script>
-  <!-- Dictation helper (used by notes mic buttons) -->
-  <script src="/Farm-vista/js/fv-dictation.js"></script>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
-
-  <style>
-    :root{
-      --card-max: 900px;
-      --page-bottom-gap: 72px;
-      --accent: #2F6C3C;
-
-      /* FV Combo vars */
-      --combo-gap: 4px;
-      --combo-radius: 12px;
-      --combo-btn-radius: 10px;
-      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
-      --combo-item-pad: 10px 8px;
-      --combo-max-h: 50vh;
-    }
-
-    html{-webkit-text-size-adjust:100%}
-    body{
-      background: var(--app-bg,var(--surface));
-      overflow-x:hidden;
-    }
-
-    .wrap{
-      max-width: var(--card-max);
-      margin: 0 auto;
-      padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + 72px + var(--page-bottom-gap)) !important;
-      box-sizing:border-box;
-      display:grid;
-      gap:16px;
-    }
-
-    .hero{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
-    }
-
-    .hero-head{
-      display:grid;
-      grid-template-columns:auto 1fr;
-      gap:12px;
-      align-items:center;
-      padding:14px 16px;
-      border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
-    }
-    .hero-head-title{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-    }
-    .hero-head h1{
-      margin:0;
-      font-size:clamp(20px,3.2vw,26px);
-      line-height:1.2;
-    }
-    .muted{color:var(--muted,#67706B)}
-
-    .body{
-      padding:16px;
-      display:grid;
-      gap:14px;
-    }
-
-    .top-row-actions-left{
-      display:flex;
-      justify-content:flex-start;
-    }
-
-    .btn{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:150px;
-      padding:11px 16px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      font-weight:800;
-      color:var(--text)!important;
-      cursor:pointer;
-      text-decoration:none;
-    }
-    .btn-primary{
-      border-color:transparent;
-      background:#2F6C3C;
-      color:#fff!important;
-    }
-    .btn-quiet{
-      background:transparent;
-      min-width:auto;
-      padding-inline:10px;
-    }
-    .btn-small{
-      padding:6px 10px;
-      min-width:auto;
-      font-size:0.8rem;
-      border-radius:999px;
-    }
-
-    .fields-hero{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
-    }
-    .fields-head{
-      padding:12px 16px;
-      border-bottom:1px solid var(--border);
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-    }
-    .fields-head h2{
-      margin:0;
-      font-size:1rem;
-    }
-    .fields-body{
-      padding:14px 16px 16px;
-      display:grid;
-      gap:12px;
-    }
-
-    .field-card{
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      padding:9px 10px;
-      display:grid;
-      gap:4px;
-      font-size:0.9rem;
-      cursor:pointer;
-      transition:background 0.12s ease, box-shadow 0.12s ease, transform 0.08s ease;
-    }
-    .field-card:hover{
-      background:rgba(0,0,0,.03);
-      box-shadow:0 4px 10px rgba(0,0,0,.08);
-      transform:translateY(-1px);
-    }
-    .field-card-top{
-      display:flex;
-      justify-content:space-between;
-      gap:8px;
-      align-items:flex-start;
-    }
-    .field-card-title{
-      font-weight:700;
-    }
-    .field-card-sub{
-      font-size:0.82rem;
-      color:var(--muted,#67706B);
-    }
-    .field-card-note{
-      font-size:0.83rem;
-      color:var(--muted,#67706B);
-      margin-top:2px;
-    }
-    @media (max-width:640px){
-      .field-card-top .btn-small{ display:none; }
-    }
-
-    /* Modal shell */
-    .modal-backdrop{
-      position:fixed;
-      inset:0;
-      background:rgba(0,0,0,.4);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      z-index:9999;
-    }
-    .modal-backdrop.hidden{ display:none; }
-    .modal{
-      max-width:720px;
-      width:96vw;
-      background:var(--surface);
-      border-radius:16px;
-      box-shadow:0 18px 45px rgba(0,0,0,.28);
-      border:1px solid var(--border);
-      display:flex;
-      flex-direction:column;
-      overflow:hidden;
-      max-height:100vh;
-    }
-    .modal-header{
-      padding:12px 16px;
-      border-bottom:1px solid var(--border);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
-    }
-    .modal-header h3{
-      margin:0;
-      font-size:1rem;
-    }
-    .modal-close{
-      border:none;
-      background:transparent;
-      color:var(--muted,#67706B);
-      font-size:0;
-      line-height:1;
-      cursor:pointer;
-      padding:4px;
-      border-radius:999px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-    }
-    .modal-close svg{
-      width:18px;
-      height:18px;
-      display:block;
-    }
-    .modal-body{
-      padding:14px 16px 10px;
-      font-size:0.9rem;
-      display:grid;
-      gap:10px;
-      max-height:calc(100vh - 120px);
-      overflow-y:auto;
-    }
-    .modal-footer{
-      padding:10px 16px 12px;
-      border-top:1px solid var(--border);
-      display:flex;
-      justify-content:flex-end;
-      gap:10px;
-      flex-shrink:0;
-      background:var(--surface);
-    }
-    @media (max-width:640px){
-      .modal{
-        width:100vw;
-        max-width:100vw;
-        border-radius:0;
-        max-height:100vh;
-      }
-      .modal-body{
-        max-height:calc(100vh - 110px);
-      }
-    }
-
-    .yield-summary{
-      display:grid;
-      gap:4px;
-    }
-    .yield-summary .muted{ font-size:0.82rem; }
-
-    .primary-full-btn{
-      margin-top:4px;
-      margin-bottom:4px;
-      border-radius:999px;
-      padding:11px 16px;
-      border:none;
-      width:100%;
-      font-weight:800;
-      font-size:0.95rem;
-      cursor:pointer;
-      background:#2F6C3C;
-      color:#fff;
-      box-shadow:0 8px 18px rgba(46,123,53,0.35);
-    }
-
-    /* === FIELD LOOK FROM ADD TRIAL === */
-    .row{
-      display:grid;
-      gap:10px;
-      grid-template-columns:1fr 1fr;
-    }
-    @media (max-width:880px){
-      .row{grid-template-columns:1fr;}
-    }
-
-    .field{ position:relative; }
-    .field label{
-      display:block;
-      font-weight:800;
-      margin:0 0 6px;
-    }
-    .input,
-    .select{
-      width:100%;
-      font:inherit;
-      font-size:16px;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:12px;
-      outline:none;
-      box-sizing:border-box;
-    }
-
-    .help{
-      font-size:13px;
-      color:var(--muted,#67706B);
-      margin-top:6px;
-    }
-
-    /* === FV Combo === */
-    .combo{ position:relative; }
-    .combo .combo-anchor{
-      position:relative; display:inline-block; width:100%;
-    }
-    .buttonish{
-      width:100%; font:inherit; font-size:16px; color:var(--text);
-      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:var(--combo-btn-radius); padding:12px; outline:none;
-      cursor:pointer; text-align:left; position:relative; padding-right:42px;
-      box-sizing:border-box;
-    }
-    .buttonish.has-caret::after{
-      content:""; position:absolute; right:14px; top:50%; width:0; height:0;
-      border-left:6px solid transparent; border-right:6px solid transparent;
-      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
-    }
-    .combo-panel{
-      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
-      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
-      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
-    }
-    .combo-panel.show{ display:block; }
-    .combo-panel .list{
-      max-height:var(--combo-max-h);
-      overflow:auto;
-      border-top:1px solid var(--border);
-    }
-    .combo-item{
-      padding:var(--combo-item-pad);
-      border-bottom:1px solid var(--border);
-      cursor:pointer;
-      font-size:0.9rem;
-    }
-    .combo-item:last-child{ border-bottom:none; }
-    .combo-item:hover{ background:rgba(0,0,0,.04); }
-    .combo-empty{ padding:var(--combo-item-pad); color:#67706B; }
-
-    /* Yield-specific layout */
-    .setup-panel{
-      border-radius:14px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      padding:10px 12px;
-      display:grid;
-      gap:10px;
-    }
-
-    .setup-hybrids-header{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:8px;
-    }
-    .setup-hybrids-header h3{
-      margin:0;
-      font-size:0.9rem;
-    }
-
-    .entry-label{
-      font-size:0.8rem;
-      font-weight:600;
-      white-space:nowrap;
-    }
-
-    .setup-hybrid-row{
-      display:grid;
-      grid-template-columns:auto minmax(0,2.3fr) minmax(0,1.2fr) auto;
-      gap:6px;
-      align-items:center;
-      padding:6px 8px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--surface-soft,var(--surface));
-    }
-
-    .check-indicator{
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      font-size:0.78rem;
-      white-space:nowrap;
-      cursor:pointer;
-    }
-    .check-dot{
-      width:10px;
-      height:10px;
-      border-radius:999px;
-      border:2px solid #9ca3af;
-      box-sizing:border-box;
-    }
-    .check-dot--on{
-      border-color:#166534;
-      background:#16a34a;
-    }
-
-    .row-remove{
-      border:none;
-      background:transparent;
-      color:var(--muted,#67706B);
-      font-size:0;
-      line-height:1;
-      cursor:pointer;
-      padding:4px;
-      border-radius:999px;
-      display:none;
-    }
-    .row-remove svg{
-      width:14px;
-      height:14px;
-      display:block;
-    }
-    @media (min-width:641px){
-      .row-remove{
-        display:flex;
-        align-items:center;
-        justify-content:center;
-      }
-    }
-
-    .setup-errors{
-      font-size:0.8rem;
-      color:#b3261e;
-    }
-
-    .blocks-panel{
-      border-radius:14px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      padding:10px 12px;
-      display:grid;
-      gap:8px;
-    }
-    .blocks-panel-header{
-      font-size:0.85rem;
-      margin-bottom:4px;
-    }
-
-    .yield-block-card{
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--surface-soft,var(--surface));
-      padding:8px 10px;
-      display:grid;
-      gap:6px;
-      font-size:0.88rem;
-    }
-    .yield-block-head{
-      display:flex;
-      justify-content:space-between;
-      gap:8px;
-      align-items:flex-start;
-    }
-    .yield-block-title{
-      font-weight:700;
-    }
-    .yield-block-sub{
-      font-size:0.8rem;
-      color:var(--muted,#67706B);
-    }
-
-    .badge-check{
-      border-radius:999px;
-      padding:2px 8px;
-      font-size:0.72rem;
-      background:#2F6C3C;
-      color:#fff;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      align-self:flex-start;
-      margin-left:4px;
-    }
-    .badge-void{
-      border-radius:999px;
-      padding:2px 8px;
-      font-size:0.72rem;
-      background:#b91c1c;
-      color:#fff;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      margin-left:4px;
-    }
-
-    .field-mini{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-    }
-    .field-mini span{
-      font-size:0.8rem;
-      font-weight:600;
-    }
-
-    .yield-block-grid{
-      display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr));
-      gap:8px;
-      align-items:flex-end;
-    }
-    @media (max-width:640px){
-      .yield-block-grid{
-        grid-template-columns:1fr;
-      }
-    }
-
-    .yield-value{
-      font-size:0.85rem;
-      font-weight:600;
-      margin-top:2px;
-    }
-    .yield-value.bad{
-      color:#b3261e;
-    }
-
-    .void-row{
-      display:flex;
-      align-items:center;
-      gap:6px;
-      font-size:0.8rem;
-      margin-top:4px;
-    }
-
-    /* Notes + files on blocks */
-    .yield-extra{
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-      margin-top:8px;
-    }
-
-    .notes-shell{
-      position:relative;
-    }
-    .notes-input{
-      width:100%;
-      min-height:96px;
-      padding-right:52px; /* room for mic */
-      resize:vertical;
-    }
-
-    /* Mic button (square style) */
-    .mic-btn{
-      position:absolute;
-      right:10px;
-      bottom:10px;
-      width:36px;
-      height:36px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      display:grid;
-      place-items:center;
-      cursor:pointer;
-    }
-    .mic-btn[disabled]{
-      opacity:.6;
-      cursor:not-allowed;
-    }
-    .mic-btn.mic-active{
-      background:#2F6C3C;
-      color:#fff;
-      border-color:#2F6C3C;
-    }
-    .mic-svg{
-      width:18px;
-      height:18px;
-      display:block;
-    }
-
-    .files-shell{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-    }
-    .hidden-file{
-      display:none;
-    }
-    .file-list{
-      margin:0;
-      padding:0;
-      list-style:none;
-      font-size:0.8rem;
-    }
-    .file-list li{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:6px;
-      padding:4px 6px;
-      border-radius:6px;
-      border:1px solid var(--border);
-      background:var(--surface);
-    }
-    .file-name{
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      max-width:200px;
-    }
-    .file-remove{
-      border:none;
-      background:transparent;
-      font-size:14px;
-      line-height:1;
-      cursor:pointer;
-      padding:2px 4px;
-      border-radius:999px;
-      color:var(--muted,#67706B);
-    }
-    .file-remove:hover{
-      background:rgba(0,0,0,.06);
-    }
-
-    .hidden{display:none;}
-  </style>
-</head>
-
-<body>
-  <fv-shell>
-    <div class="wrap">
-      <section class="hero">
-        <header class="hero-head">
-          <div class="hero-head-title">
-            <h1>Helper • Trial Field Yields (Multi-Hybrid)</h1>
-            <p class="muted">
-              Reusable helper for multi-hybrid seed plots. This same engine can be imported into the real Trials page.
-            </p>
-          </div>
-        </header>
-
-        <div class="body">
-          <div class="top-row-actions-left">
-            <button type="button" class="btn btn-quiet" id="btnOpenModal">
-              Open Yield Helper
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section class="fields-hero">
-        <header class="fields-head">
-          <h2>Dev field card (Sample)</h2>
-        </header>
-        <div class="fields-body">
-          <div class="field-card" id="devFieldCard">
-            <div class="field-card-top">
-              <div>
-                <div class="field-card-title">Divernon–Farmersville • 0702-Grandmas TestPlot</div>
-                <div class="field-card-sub">
-                  Trial acres: <strong>20.00 ac</strong> (Max tillable: 39.45)
-                </div>
-                <div class="field-card-note" id="devFieldSummary"></div>
-              </div>
-              <div><span class="btn btn-small">View / Add Yield</span></div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </fv-shell>
-
-  <!-- Yield modal that the helper wires up -->
-  <div id="yieldModalBackdrop" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="yieldModalTitle">
-    <div class="modal">
-      <div class="modal-header">
-        <h3 id="yieldModalTitle">0702-Grandmas TestPlot • Yield Entry</h3>
-        <button id="btnYieldClose" type="button" class="modal-close" aria-label="Close">
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div id="yieldSummary" class="yield-summary"></div>
-
-        <button type="button" class="primary-full-btn" id="btnSetUpPlot">
-          Set Up Plot
-        </button>
-
-        <div id="mhStageShell"></div>
-      </div>
-      <div class="modal-footer">
-        <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close (Dev)</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Helper init -->
-  <script type="module">
-    import { initMhYieldHelper } from '/Farm-vista/js/trials-mh-yield-helper.js';
-
-    // In this helper/demo page we just initialize with defaults.
-    // Later, the real Trials page can also call initMhYieldHelper().
-    const mhHelper = initMhYieldHelper();
-    // window.FV_MH_HELPER = mhHelper; // optional: expose for dev console
-  </script>
-</body>
-</html>
-
-<!-- ======================================================================
-/Farm-vista/js/trials-mh-yield-helper.js
-Reusable Multi-Hybrid Yield helper engine.
-Can be imported into dev helper page AND real Trials page.
-====================================================================== -->
-<script type="module">
-// NOTE: remove this <script> wrapper when you save the JS file.
-// The JS file content starts below this comment.
+// /Farm-vista/js/trials-mh-yield-helper.js
+// Reusable Multi-Hybrid Yield helper engine.
+// Works with a modal and dev field card already on the page.
 
 export function initMhYieldHelper() {
   const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];
@@ -1299,7 +569,7 @@ export function initMhYieldHelper() {
       if(voidEl){
         voidEl.addEventListener('change', e => {
           blk.voided = e.target.checked;
-          renderBlocks(); // notes/files live in blk.* so they persist
+          renderBlocks();
         });
       }
 
@@ -1373,12 +643,60 @@ export function initMhYieldHelper() {
     renderDevSummary();
   }
 
+  // === Mobile swipe right on devFieldCard to open modal (phone only) ===
+  function initSwipeForCard(){
+    if(!devFieldCard) return;
+
+    const isMobile =
+      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+      window.innerWidth <= 768;
+
+    if(!isMobile) return; // only on phone/tablet
+
+    // If your fv-swipe-list.js exposes something, try to use it:
+    if (window.FVSwipeList && typeof window.FVSwipeList.attach === 'function') {
+      try {
+        window.FVSwipeList.attach(devFieldCard, {
+          onSwipeRight: () => openModal()
+        });
+        return;
+      } catch (err) {
+        console.warn('FVSwipeList.attach failed, falling back to manual swipe.', err);
+      }
+    }
+
+    // Fallback simple swipe detector
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    devFieldCard.addEventListener('touchstart', e => {
+      const t = e.changedTouches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      tracking = true;
+    }, { passive: true });
+
+    devFieldCard.addEventListener('touchend', e => {
+      if(!tracking) return;
+      tracking = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+
+      // right swipe with some threshold, mostly horizontal
+      if(dx > 40 && Math.abs(dy) < 30){
+        openModal();
+      }
+    }, { passive: true });
+  }
+
   // ===================== Wire global listeners =====================
   if(btnOpenModal) btnOpenModal.addEventListener('click', openModal);
   if(devFieldCard) devFieldCard.addEventListener('click', openModal);
   if(btnClose)     btnClose.addEventListener('click', closeModal);
 
-  // close on ESC when modal open
+  // close on ESC when modal open + close all combos
   document.addEventListener('keydown', e => {
     if(e.key === 'Escape'){
       if(!modalBackdrop?.classList.contains('hidden')){
@@ -1434,8 +752,9 @@ export function initMhYieldHelper() {
 
   // Initial so summary is ready even before open
   renderStage();
+  initSwipeForCard();
 
-  // Public API the Trials page can use later if needed
+  // Public API if you want it later
   return {
     open: openModal,
     close: closeModal,
@@ -1443,6 +762,3 @@ export function initMhYieldHelper() {
     setStage: (stage) => { mhState.stage = stage; renderStage(); }
   };
 }
-
-// JS file ends here.
-</script>
