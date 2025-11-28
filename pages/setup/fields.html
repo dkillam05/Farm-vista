@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Setup → Fields</title>
+  <title>FarmVista • Setup → Fields (Dev Location)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -16,7 +16,7 @@
 
   <style>
     .page{
-      position:relative;              /* anchor for popover */
+      position:relative;
       max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
     }
@@ -79,7 +79,6 @@
       align-items:center;
       flex-wrap:wrap;
     }
-    /* search box (matches tractor lookup) */
     .list-search{
       display:flex;align-items:center;gap:10px;
       border:1px solid var(--border);
@@ -97,7 +96,6 @@
       color:var(--text);
     }
 
-    /* Funnel icon button (same as tractor lookup) */
     .icon-btn{
       display:inline-flex;align-items:center;justify-content:center;
       width:42px;height:42px;
@@ -109,7 +107,6 @@
     .icon-btn:active{transform:translateY(1px);}
     .icon-btn svg{display:block;}
 
-    /* Import stays a normal button, not full width */
     #btnImport{
       min-width:auto;
       padding:10px 14px;
@@ -124,10 +121,9 @@
       }
     }
 
-    /* Farm filter popover */
     .popover{
       position:absolute;
-      z-index:900; /* below fv-shell footer, above cards */
+      z-index:900;
       min-width:220px;
       border:1px solid var(--border);
       border-radius:14px;
@@ -135,7 +131,7 @@
       color:var(--text);
       box-shadow:0 18px 40px rgba(0,0,0,.28);
       padding:10px;
-      overflow-y:auto; /* scroll when tall */
+      overflow-y:auto;
     }
     .popover header{
       font-weight:800;margin:4px 2px 8px;color:var(--muted);
@@ -207,7 +203,6 @@
       padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;
     }
 
-    /* Toast */
     .toast{
       position:fixed;left:50%;
       bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
@@ -220,7 +215,7 @@
 
     .muted{ color:var(--muted,#67706B); }
 
-    /* ===== Searchable dropdowns (state/county) ===== */
+    /* Searchable dropdowns */
     .dd{position:relative}
     .dd-btn{
       width:100%;text-align:left;padding:12px;padding-right:40px;
@@ -251,7 +246,6 @@
 
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* ===== Pill toggles ===== */
     .toggleline{display:flex;align-items:center;gap:10px}
     .pill-toggle{
       border:1px solid var(--border);
@@ -272,7 +266,6 @@
       color:#fff;
     }
 
-    /* Import modal log */
     #impLog{
       font-family:SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
       font-size:12px;
@@ -281,19 +274,22 @@
       resize:vertical;
     }
 
-    /* ===== Field Location Dev Map ===== */
-    #fieldLocationMapShell{
+    /* Field location map (add & edit) */
+    #fieldLocationMapShell,
+    #editFieldLocationMapShell{
       border-radius:12px;
       border:1px solid var(--border);
       overflow:hidden;
       background:#000;
     }
-    #fieldMap{
+    #fieldMap,
+    #editFieldMap{
       width:100%;
       height:260px;
     }
     @media (min-width:700px){
-      #fieldMap{ height:340px; }
+      #fieldMap,
+      #editFieldMap{ height:340px; }
     }
   </style>
 
@@ -308,8 +304,8 @@
 <body>
   <fv-shell>
     <div class="page container">
-      <h1 class="page-title">Fields</h1>
-      <p class="page-sub">Assign fields to farms, track county and acres (tillable, HEL, CRP).</p>
+      <h1 class="page-title">Fields (GPS Location)</h1>
+      <p class="page-sub">Assign fields to farms, track county and acres, and test GPS center points.</p>
 
       <section class="section">
         <header class="section-head">
@@ -401,7 +397,7 @@
             </div>
           </div>
 
-          <!-- Field GPS Location (Dev) -->
+          <!-- Field GPS Location (Add) -->
           <div class="row-2">
             <div class="field">
               <label>Field GPS Location <span class="muted"></span></label>
@@ -430,12 +426,11 @@
           </div>
         </div>
 
-        <!-- ===== Fields list header: title + search + filter button + Import ===== -->
+        <!-- ===== Fields list header ===== -->
         <div class="list-head">
           <div class="list-title">Fields</div>
 
           <div class="list-toolbar">
-            <!-- Search -->
             <div class="list-search">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -443,18 +438,15 @@
               <input id="fieldSearch" type="search" placeholder="Search fields" autocomplete="off"/>
             </div>
 
-            <!-- Farm filter button (funnel icon) -->
             <button id="farmFilterBtn" class="icon-btn" aria-label="Filter by farm" aria-haspopup="true" aria-expanded="false">
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
               </svg>
             </button>
 
-            <!-- Import as normal button -->
             <button id="btnImport" type="button" class="btn btn-quiet">Import</button>
           </div>
 
-          <!-- Hidden select just to hold the current filter value -->
           <select id="filterFarm" class="select" style="display:none;"></select>
         </div>
 
@@ -527,6 +519,17 @@
           <div class="field">
             <label for="editRtkSelect">RTK Tower Information <span class="muted">(optional)</span></label>
             <select id="editRtkSelect" class="select"></select>
+          </div>
+        </div>
+
+        <!-- Field GPS Location (Edit) -->
+        <div class="row-2">
+          <div class="field">
+            <label>Field GPS Location <span class="muted"></span></label>
+            <button id="editBtnMarkLocation" class="btn" type="button">Edit Location on Map</button>
+            <input id="editFieldLat" type="hidden">
+            <input id="editFieldLng" type="hidden">
+            <div id="editFieldLocationLabel" class="muted" style="margin-top:4px;">No location set.</div>
           </div>
         </div>
 
@@ -615,11 +618,11 @@
     </div>
   </div>
 
-  <!-- Modal: Field Location (Dev) -->
+  <!-- Modal: Field Location (Add) -->
   <div id="fieldLocationModal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fieldLocationTitle">
       <div class="dialog-head">
-        <h3 id="fieldLocationTitle">Set Field Location (Dev)</h3>
+        <h3 id="fieldLocationTitle">Set Field Location</h3>
         <button id="fieldLocationClose" class="closex" type="button">Back</button>
       </div>
       <div class="dialog-body">
@@ -640,10 +643,35 @@
     </div>
   </div>
 
-  <!-- Google Maps JS (for dev field location) -->
+  <!-- Modal: Field Location (Edit) -->
+  <div id="editFieldLocationModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="editFieldLocationTitle">
+      <div class="dialog-head">
+        <h3 id="editFieldLocationTitle">Edit Field Location</h3>
+        <button id="editFieldLocationClose" class="closex" type="button">Back</button>
+      </div>
+      <div class="dialog-body">
+        <button id="editFieldUseLocation" class="btn" type="button">Use my location</button>
+        <p id="editFieldLocationStatus" class="muted" style="margin-top:4px;">
+          Tap on the map to drop a pin, or use your current location.
+        </p>
+        <div id="editFieldLocationMapShell">
+          <div id="editFieldMap"></div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <div class="left-btns">
+          <button id="editFieldLocationClear" class="btn btn-quiet" type="button">Clear</button>
+        </div>
+        <button id="editFieldLocationCancel" class="btn" type="button">Cancel</button>
+        <button id="editFieldLocationSave" class="btn btn-primary" type="button">Save location</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Google Maps JS -->
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 
-  <!-- JS: BASED ON YOUR WORKING SCRIPT, WITH FIELD LOCATION DEV ADDITIONS -->
   <script type="module">
   import {
     ready,
@@ -663,7 +691,6 @@
     const farmFilterOpts = $("farmFilterOpts");
     const pageEl = document.querySelector('.page');
 
-    /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
       ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
@@ -710,7 +737,6 @@
       return out;
     }
 
-    /* ===== Searchable dropdown helpers (state/county) ===== */
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
 
     function buildList(listEl, items, onPick){
@@ -773,7 +799,6 @@
 
     const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
 
-    /* ===== App helpers ===== */
     function showToast(msg="Saved.", ms=5000){
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth;
@@ -802,14 +827,16 @@
     const farmsRef  = ()=> collection(db, 'farms');
     const fieldsRef = ()=> collection(db, 'fields');
 
-    /* RTK Towers */
     let RTK_CACHE = []; let RTK_MAP = new Map();
     const rtkTowersRef = ()=> collection(db, 'rtkTowers');
 
-    /* Field Location Dev Map state */
     let fieldMap = null;
     let fieldMapMarker = null;
     let fieldMapLatLng = null;
+
+    let editFieldMap = null;
+    let editFieldMapMarker = null;
+    let editFieldMapLatLng = null;
 
     async function loadFarms(){
       if (hasStore){
@@ -909,11 +936,9 @@
         filterSel.appendChild(o);
       });
 
-      // Rebuild farm filter popover options
       buildFarmFilterPopover();
     }
 
-    /* RTK Towers */
     async function loadRTKTowers(){
       RTK_CACHE = []; RTK_MAP.clear();
       const qs = await getDocs(query(rtkTowersRef(), orderBy('name')));
@@ -936,7 +961,6 @@
       return t ? t.name : '';
     }
 
-    /* ===== Create / Validate ===== */
     function helOn(){ return $("hasHEL").checked; }
     function crpOn(){ return $("hasCRP").checked; }
 
@@ -977,7 +1001,6 @@
         updatedAt: serverTimestamp()
       };
 
-      // Dev-only: store field center location if set
       if(latVal && lngVal){
         payload.location = {
           lat: Number(latVal),
@@ -992,17 +1015,14 @@
       $("tillable").value = "";
       $("rtkSelect").value = "";
 
-      // reset HEL/CRP
       setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
       setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
 
-      // reset county dropdown
       ddCounty.btn.textContent = "Select a county…";
       ddCounty.btn.disabled = true;
       ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
       $("countySelect").value = "";
 
-      // reset field location dev
       $("fieldLat").value = "";
       $("fieldLng").value = "";
       const locLabel = $("fieldLocationLabel");
@@ -1057,7 +1077,6 @@
         return;
       }
 
-      // Sort: active first, then by name ascending (numeric-friendly)
       filtered.sort((a,b)=>{
         const sa = (a.status==='archived')|0;
         const sb = (b.status==='archived')|0;
@@ -1093,7 +1112,6 @@
       });
     }
 
-    /* =================== Edit Modal =================== */
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
     let editId = null;
 
@@ -1112,24 +1130,34 @@
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
 
-      // RTK towers + preselect saved one
       populateRTKSelect($("editRtkSelect"), it.rtkTowerId || "");
 
-      // state + counties
       $("editState").value = it.state || "IL";
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
       await loadCountiesIntoDropdown(ddEditCounty, $("editState").value, it.county || "");
 
-      // HEL
       $("editHelAcres").value = it.helAcres ?? "";
       setToggle($("editHelToggle"), $("editHasHEL"), !!it.hasHEL, $("editHelAcreWrap"), $("editHelAcres"));
 
-      // CRP
       $("editCrpAcres").value = it.crpAcres ?? "";
       setToggle($("editCrpToggle"), $("editHasCRP"), !!it.hasCRP, $("editCrpAcreWrap"), $("editCrpAcres"));
 
-      // archive/delete setup
+      // Edit field location from Firestore
+      if(it.location && typeof it.location.lat === "number" && typeof it.location.lng === "number"){
+        $("editFieldLat").value = it.location.lat;
+        $("editFieldLng").value = it.location.lng;
+        const lbl = $("editFieldLocationLabel");
+        if(lbl) lbl.textContent = `Location set: ${it.location.lat.toFixed(5)}, ${it.location.lng.toFixed(5)}`;
+        editFieldMapLatLng = new google.maps.LatLng(it.location.lat, it.location.lng);
+      }else{
+        $("editFieldLat").value = "";
+        $("editFieldLng").value = "";
+        const lbl = $("editFieldLocationLabel");
+        if(lbl) lbl.textContent = "No location set.";
+        editFieldMapLatLng = null;
+      }
+
       mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
@@ -1172,6 +1200,17 @@
       const hasCRP = $("editHasCRP").checked;
       const crpAcres = hasCRP ? toNum($("editCrpAcres").value) : 0;
 
+      const editLat = $("editFieldLat").value;
+      const editLng = $("editFieldLng").value;
+      let location = null;
+      if(editLat && editLng){
+        const latN = Number(editLat);
+        const lngN = Number(editLng);
+        if(!Number.isNaN(latN) && !Number.isNaN(lngN)){
+          location = { lat: latN, lng: lngN };
+        }
+      }
+
       if(!name){ alert("Please enter a field name."); return; }
       if(!farmId){ alert("Please choose a Farm."); return; }
       if(!state){ alert("Please choose a State."); return; }
@@ -1184,6 +1223,7 @@
       await updateDoc(ref, {
         name, farmId, state, county, tillable, rtkTowerId,
         hasHEL, helAcres, hasCRP, crpAcres,
+        location: location || null,
         updatedAt: serverTimestamp()
       });
 
@@ -1217,11 +1257,9 @@
       closeModal();
     });
 
-    /* ===== Build dropdown components (Add + Edit) ===== */
     let ddStateCfgBuilt = false;
     function buildStateDropdowns(){
       if(ddStateCfgBuilt) return;
-      // Add form
       ddState = {
         root: $("ddState"),
         btn: $("ddStateBtn"),
@@ -1232,7 +1270,6 @@
       wireDropdownOpenClose(ddState.root);
       setupSearch(ddState.search, ddState.list);
 
-      // Edit modal
       ddEditState = {
         root: $("ddEditState"),
         btn: $("ddEditStateBtn"),
@@ -1243,12 +1280,10 @@
       wireDropdownOpenClose(ddEditState.root);
       setupSearch(ddEditState.search, ddEditState.list);
 
-      // populate both state lists
       buildList(ddState.list, STATES.map(([c,n])=>[c,n]), (code,label)=>{
         ddState.hidden.value = code;
         ddState.btn.textContent = label;
         ddState.root.classList.remove("open");
-        // when state changes, clear county + load
         ddCounty.btn.textContent = "Select a county…";
         ddCounty.btn.disabled = true; ddCounty.search.value=""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
         $("countySelect").value = "";
@@ -1260,7 +1295,6 @@
     }
 
     function buildCountyDropdowns(){
-      // Add form
       ddCounty = {
         root: $("ddCounty"),
         btn: $("ddCountyBtn"),
@@ -1271,7 +1305,6 @@
       wireDropdownOpenClose(ddCounty.root);
       setupSearch(ddCounty.search, ddCounty.list);
 
-      // Edit modal
       ddEditCounty = {
         root: $("ddEditCounty"),
         btn: $("ddEditCountyBtn"),
@@ -1297,7 +1330,6 @@
       }catch{ return ""; }
     }
 
-    /* ===== Pill toggle helpers ===== */
     function setToggle(btn, hiddenCheckbox, on, wrap, input){
       btn.setAttribute("aria-pressed", on ? "true" : "false");
       btn.textContent = on ? "On" : "Off";
@@ -1314,7 +1346,6 @@
       });
     }
 
-    /* ===== Field Location (Dev) – Map helpers ===== */
     function ensureFieldMap(){
       if(fieldMap) return;
       const el = $("fieldMap");
@@ -1326,7 +1357,7 @@
         return;
       }
 
-      const center = { lat: 39.5650, lng: -89.6554 }; // Divernon, IL
+      const center = { lat: 39.5650, lng: -89.6554 };
       fieldMap = new google.maps.Map(el, {
         center,
         zoom: 15,
@@ -1451,7 +1482,6 @@
         });
       }
 
-      // ESC key: if this modal is open, close it
       document.addEventListener("keydown", e=>{
         if(e.key === "Escape" && modal.hasAttribute("open")){
           closeFieldLocationModal();
@@ -1459,7 +1489,181 @@
       });
     }
 
-    /* ===== Import Engine (unchanged) ===== */
+    function ensureEditFieldMap(){
+      if(editFieldMap) return;
+      const el = $("editFieldMap");
+      if(!el) return;
+
+      if(!(window.google && window.google.maps)){
+        const status = $("editFieldLocationStatus");
+        if(status) status.textContent = "Map failed to load. Check your connection.";
+        return;
+      }
+
+      const center = { lat: 39.5650, lng: -89.6554 };
+      editFieldMap = new google.maps.Map(el, {
+        center,
+        zoom: 15,
+        mapTypeId: google.maps.MapTypeId.HYBRID,
+        disableDefaultUI: true,
+        zoomControl: true
+      });
+
+      editFieldMap.addListener("click", (ev)=>{
+        setEditFieldMapMarker(ev.latLng);
+      });
+    }
+
+    function setEditFieldMapMarker(latLng){
+      if(!latLng) return;
+      if(!editFieldMapMarker){
+        editFieldMapMarker = new google.maps.Marker({
+          position: latLng,
+          map: editFieldMap
+        });
+      }else{
+        editFieldMapMarker.setPosition(latLng);
+      }
+      editFieldMapLatLng = latLng;
+
+      const status = $("editFieldLocationStatus");
+      const label = $("editFieldLocationLabel");
+      const lat = latLng.lat();
+      const lng = latLng.lng();
+      if(status){
+        status.textContent = `Pin set at ${lat.toFixed(5)}, ${lng.toFixed(5)}. Tap again to move it.`;
+      }
+      if(label){
+        label.textContent = `Location set: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      }
+    }
+
+    function openEditFieldLocationModal(){
+      const modal = $("editFieldLocationModal");
+      if(!modal) return;
+      modal.setAttribute("open","");
+      modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
+
+      const status = $("editFieldLocationStatus");
+      if(status){
+        status.textContent = "Tap on the map to drop a pin, or use your current location.";
+      }
+
+      ensureEditFieldMap();
+
+      const latStr = $("editFieldLat").value;
+      const lngStr = $("editFieldLng").value;
+      const latN = Number(latStr);
+      const lngN = Number(lngStr);
+
+      if(editFieldMap && !Number.isNaN(latN) && !Number.isNaN(lngN)){
+        const ll = new google.maps.LatLng(latN, lngN);
+        editFieldMap.setCenter(ll);
+        editFieldMap.setZoom(18);
+        setEditFieldMapMarker(ll);
+      }else if(editFieldMap){
+        editFieldMap.setCenter({ lat: 39.5650, lng: -89.6554 });
+        editFieldMap.setZoom(15);
+      }
+    }
+
+    function closeEditFieldLocationModal(){
+      const modal = $("editFieldLocationModal");
+      if(!modal) return;
+      modal.removeAttribute("open");
+      modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
+    }
+
+    function setupEditFieldLocationPicker(){
+      const btnMark   = $("editBtnMarkLocation");
+      const modal     = $("editFieldLocationModal");
+      const btnClose  = $("editFieldLocationClose");
+      const btnCancel = $("editFieldLocationCancel");
+      const btnSave   = $("editFieldLocationSave");
+      const btnUse    = $("editFieldUseLocation");
+      const btnClear  = $("editFieldLocationClear");
+
+      if(!btnMark || !modal) return;
+
+      btnMark.addEventListener("click", openEditFieldLocationModal);
+
+      modal.addEventListener("click", e=>{
+        if(e.target === modal) closeEditFieldLocationModal();
+      });
+      if(btnClose)  btnClose.addEventListener("click", closeEditFieldLocationModal);
+      if(btnCancel) btnCancel.addEventListener("click", closeEditFieldLocationModal);
+
+      if(btnUse){
+        btnUse.addEventListener("click", ()=>{
+          const status = $("editFieldLocationStatus");
+          if(!navigator.geolocation){
+            if(status) status.textContent = "Geolocation not supported on this device.";
+            return;
+          }
+          if(status) status.textContent = "Getting your location…";
+          navigator.geolocation.getCurrentPosition(
+            pos=>{
+              ensureEditFieldMap();
+              if(!editFieldMap) return;
+              const ll = new google.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+              editFieldMap.panTo(ll);
+              editFieldMap.setZoom(18);
+              setEditFieldMapMarker(ll);
+            },
+            ()=>{
+              if(status) status.textContent = "Could not get current location. Check permissions.";
+            },
+            { enableHighAccuracy:true, timeout:12000 }
+          );
+        });
+      }
+
+      if(btnSave){
+        btnSave.addEventListener("click", ()=>{
+          const status = $("editFieldLocationStatus");
+          if(!editFieldMapMarker){
+            if(status) status.textContent = "Tap on the map to set a pin before saving.";
+            return;
+          }
+          const pos = editFieldMapMarker.getPosition();
+          const lat = pos.lat();
+          const lng = pos.lng();
+          $("editFieldLat").value = lat;
+          $("editFieldLng").value = lng;
+          const lbl = $("editFieldLocationLabel");
+          if(lbl) lbl.textContent = `Location set: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          showToast("Field location updated (dev).");
+          closeEditFieldLocationModal();
+        });
+      }
+
+      if(btnClear){
+        btnClear.addEventListener("click", ()=>{
+          $("editFieldLat").value = "";
+          $("editFieldLng").value = "";
+          const lbl = $("editFieldLocationLabel");
+          if(lbl) lbl.textContent = "No location set.";
+          if(editFieldMapMarker){
+            editFieldMapMarker.setMap(null);
+            editFieldMapMarker = null;
+          }
+          editFieldMapLatLng = null;
+          showToast("Field location cleared (dev).");
+          closeEditFieldLocationModal();
+        });
+      }
+
+      document.addEventListener("keydown", e=>{
+        if(e.key === "Escape" && modal.hasAttribute("open")){
+          closeEditFieldLocationModal();
+        }
+      });
+    }
+
     const EXPECTED_HEADER = [
       "farmName","fieldName","state","county",
       "tillableAcres","helAcres","crpAcres","rtkTowerName"
@@ -1470,7 +1674,7 @@
     function parseCsvSimple(text){
       const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
       if(!lines.length) return {header:[], rows:[]};
-      const splitLine = line => line.split(","); // assuming no embedded commas
+      const splitLine = line => line.split(",");
       const header = splitLine(lines[0]).map(h=>h.trim());
       const rows = lines.slice(1).map((ln,i)=>({ lineNum: i+2, cols: splitLine(ln) }));
       return {header, rows};
@@ -1509,7 +1713,6 @@
       const text = await file.text();
       const {header, rows} = parseCsvSimple(text);
 
-      // Header check
       const headerNorm = header.map(h=>h.trim());
       const expectedNorm = EXPECTED_HEADER;
       const sameLength = headerNorm.length === expectedNorm.length;
@@ -1633,7 +1836,6 @@
       await renderList();
     }
 
-    /* ===== Import modal wiring ===== */
     const importModal = $("importModal");
     const impFile = $("impFile");
     const impLog = $("impLog");
@@ -1668,18 +1870,16 @@
       closeImportModal();
     });
 
-    /* ===== Farm filter popover logic (anchored to .page) ===== */
     function openFarmPop(){
       if(!farmFilterPop) return;
-      buildFarmFilterPopover(); // ensure up to date
+      buildFarmFilterPopover();
       if(!farmFilterPop.hidden) return;
 
       const btnRect = farmFilterBtn.getBoundingClientRect();
       const pageRect = pageEl ? pageEl.getBoundingClientRect() : {top:0,left:0,width:document.documentElement.clientWidth};
 
-      // Width based on page width, right-aligned to button
       const containerWidth = pageRect.width;
-      const width = Math.min(260, containerWidth - 24); // 12px padding each side
+      const width = Math.min(260, containerWidth - 24);
       farmFilterPop.style.width = width + "px";
 
       const desiredLeft = (btnRect.right - pageRect.left) - width;
@@ -1687,11 +1887,9 @@
       const left = Math.max(12, Math.min(maxLeft, desiredLeft));
       farmFilterPop.style.left = left + "px";
 
-      // Top: just under the button, relative to page
       const topWithinPage = (btnRect.bottom - pageRect.top) + 8;
       farmFilterPop.style.top = topWithinPage + "px";
 
-      // Height: fill to bottom of viewport
       const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
       const available = viewportHeight - (btnRect.bottom + 8);
       const maxH = Math.max(160, available);
@@ -1724,7 +1922,6 @@
       }
     });
 
-    /* ===== Boot ===== */
     (async ()=>{
       wireNetToasts();
       const ctx = await ready;
@@ -1738,19 +1935,15 @@
       populateRTKSelect($("rtkSelect"));
       populateRTKSelect($("editRtkSelect"));
 
-      // Build dropdown components
       buildStateDropdowns();
       buildCountyDropdowns();
 
-      // Wire pill toggles (Add)
       wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
       wireToggle($("crpToggle"), $("hasCRP"), $("crpAcreWrap"), $("crpAcres"));
 
-      // Wire pill toggles (Edit)
       wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
       wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
 
-      // Default state from company/main; fallback to IL
       let defaultState = await getCompanyStateCode();
       if(!defaultState) defaultState = "IL";
       const stRec = STATES.find(([c])=>c===defaultState) || ["IL","Illinois"];
@@ -1779,11 +1972,10 @@
         ddCounty.btn.disabled = true; ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
         $("countySelect").value = "";
 
-        // clear dev field location
         $("fieldLat").value = "";
         $("fieldLng").value = "";
-        const locLabel = $("fieldLocationLabel");
-        if(locLabel) locLabel.textContent = "No location set.";
+        const lbl = $("fieldLocationLabel");
+        if(lbl) lbl.textContent = "No location set.";
         fieldMapLatLng = null;
         if(fieldMapMarker){
           fieldMapMarker.setMap(null);
@@ -1807,8 +1999,8 @@
         }catch{}
       }
 
-      // 🔹 Dev field location picker (map)
       setupFieldLocationPicker();
+      setupEditFieldLocationPicker();
     })();
 
   })();
