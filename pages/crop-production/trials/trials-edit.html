@@ -124,17 +124,6 @@
       padding-inline:10px;
     }
 
-    .btn-reload{
-      min-width:auto;
-      padding-inline:8px;
-      font-size:0.8rem;
-    }
-
-    .btn-reload[disabled]{
-      opacity:.6;
-      cursor:not-allowed;
-    }
-
     /* Status dropdown – now INSIDE hero */
     .status-filter-wrap{
       display:flex;
@@ -1152,7 +1141,7 @@
       }catch(err){
         console.error('Error loading trials:', err);
         if(emptyEl){
-          emptyEl.textContent = 'Error loading trials. Check your connection and tap Reload.';
+          emptyEl.textContent = 'Error loading trials. Pull-to-refresh to try again.';
           emptyEl.style.display = 'block';
         }
         if(countEl) countEl.textContent = 'Error loading trials';
@@ -1262,24 +1251,28 @@
         });
       }
 
-      // Reload button wiring
-      const reloadBtn = $('#btnReloadTrials');
-      if(reloadBtn){
-        reloadBtn.addEventListener('click', async () => {
-          reloadBtn.disabled = true;
-          const original = reloadBtn.textContent;
-          reloadBtn.textContent = 'Reloading...';
-          STATE.loaded = false;
-          STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
-          await loadAllTrials();
-          reloadBtn.disabled = false;
-          reloadBtn.textContent = original;
-        });
-      }
-
       // Start initial loading (will call applyFilter when done)
       await loadAllTrials();
     })();
+
+    // ===== Mobile / PWA reliability helpers =====
+    // When the page regains focus or is restored from bfcache (common on iPhone),
+    // force a fresh reload of trials so it doesn't get "stuck" empty.
+    window.addEventListener('focus', () => {
+      if(!STATE.db) return;
+      STATE.loaded = false;
+      STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+      loadAllTrials();
+    });
+
+    window.addEventListener('pageshow', (event) => {
+      if(!STATE.db) return;
+      if(event.persisted){
+        STATE.loaded = false;
+        STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+        loadAllTrials();
+      }
+    });
   </script>
 </head>
 
@@ -1307,9 +1300,6 @@
             </div>
             <div class="toolbar-right">
               <span id="trialCount">Loading trials...</span>
-              <button id="btnReloadTrials" type="button" class="btn btn-quiet btn-reload">
-                Reload
-              </button>
             </div>
           </div>
 
