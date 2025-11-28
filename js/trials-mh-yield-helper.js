@@ -235,8 +235,9 @@ export function initMhYieldHelper(options = {}) {
         let label = `${brand} ${variety}`.trim();
         if(mat) label += ` (${mat} RM)`;
         return {
-          id: s.uid || s.id || s.docId || s._id || s.variety || s.brand || Math.random().toString(36).slice(2),
-          seedDocId: s.id, // Firestore doc id
+          // IMPORTANT: use doc id as unique id/productId
+          id: s.id,
+          productId: s.id,
           brand,
           variety,
           maturity: s.maturity ?? null,
@@ -248,7 +249,7 @@ export function initMhYieldHelper(options = {}) {
     // Fallback (dev-only) when no seed products are loaded
     return mockHybrids.map(m => ({
       id: m.id,
-      seedDocId: m.id,
+      productId: m.id,
       brand: '',
       variety: m.id,
       maturity: m.maturity,
@@ -405,8 +406,9 @@ export function initMhYieldHelper(options = {}) {
     const addRowBtn = document.getElementById('mh-add-row-btn');
     if(addRowBtn){
       addRowBtn.addEventListener('click', () => {
+        const newRowId = nextRowId();
         mhState.hybrids.push({
-          rowId: nextRowId(),
+          rowId: newRowId,
           productId: '',
           name: '',
           brand: '',
@@ -414,6 +416,18 @@ export function initMhYieldHelper(options = {}) {
           maturity: null
         });
         renderStage();
+
+        // After re-render, scroll new row into view and auto-open its dropdown
+        requestAnimationFrame(() => {
+          const row = stageShell.querySelector(`.setup-hybrid-row[data-row-id="${newRowId}"]`);
+          if(row){
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          const btn = document.getElementById(`mh-hybrid-btn-${newRowId}`);
+          if(btn){
+            btn.click();
+          }
+        });
       });
     }
 
@@ -434,7 +448,7 @@ export function initMhYieldHelper(options = {}) {
           onPick: it => {
             const found = comboItems.find(m => m.id === it.id) || null;
 
-            hyb.productId = it.id;
+            hyb.productId = found ? found.productId : it.id;
             hyb.name      = found ? found.label : it.label;
             hyb.brand     = found ? found.brand : '';
             hyb.variety   = found ? found.variety : '';
@@ -541,7 +555,7 @@ export function initMhYieldHelper(options = {}) {
                 <span>Notes</span>
                 <div class="notes-shell">
                   <textarea class="input notes-input"
-                            id="mh-notes-${blk.rowId}"
+                            id="mh-notes-${blk.rowId}`
                             rows="2"
                             placeholder="Notes about this hybrid…">${notesVal}</textarea>
                   <button type="button"
@@ -814,7 +828,7 @@ export function initMhYieldHelper(options = {}) {
       snap.forEach(docSnap => {
         const data = docSnap.data() || {};
         rows.push({
-          id: docSnap.id,
+          id: docSnap.id,   // doc id – unique per variety
           ...data
         });
       });
