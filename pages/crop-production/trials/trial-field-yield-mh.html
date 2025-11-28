@@ -12,9 +12,9 @@
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- Dictation + swipe helpers (used by the helper JS) -->
-  <script src="/Farm-vista/js/fv-dictation.js"></script>
-  <script src="/Farm-vista/js/fv-swipe-list.js"></script>
+  <!-- Dictation + swipe helpers (ES modules that also attach to window.*) -->
+  <script type="module" src="/Farm-vista/js/fv-dictation.js"></script>
+  <script type="module" src="/Farm-vista/js/fv-swipe-list.js"></script>
 
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
@@ -240,7 +240,7 @@
       margin-top:4px;
     }
 
-    /* ========== Modal shell (same vibe as other page) ========== */
+    /* ========== Modal shell ========== */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -343,7 +343,7 @@
       box-shadow:0 8px 18px rgba(46,123,53,0.35);
     }
 
-    /* === Extra field / combo styles used by the helper (unchanged) === */
+    /* === Extra field / combo styles used by the helper === */
 
     .row{
       display:grid;
@@ -673,7 +673,7 @@
             </button>
           </div>
 
-          <!-- Summary block – now driven by Firestore -->
+          <!-- Summary block – driven by Firestore -->
           <div class="top-row">
             <div class="trial-summary">
               <div class="trial-summary-title" id="mhTrialName">Multi-Hybrid Trial</div>
@@ -738,7 +738,7 @@
         <div id="mhStageShell"></div>
       </div>
       <div class="modal-footer">
-        <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close (Dev)</button>
+        <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close</button>
       </div>
     </div>
   </div>
@@ -763,7 +763,7 @@
       db: null,
       trialId: null,
       trial: null,
-      fieldId: null,
+      fieldDocId: null,
       field: null
     };
 
@@ -855,8 +855,7 @@
         }
       };
 
-      // If we don't have enough info for Firestore, just use URL params.
-      if(!STATE.db || !STATE.trialId || !STATE.fieldId){
+      if(!STATE.db || !STATE.trialId || !STATE.fieldDocId){
         fallbackFromParams();
         return;
       }
@@ -867,7 +866,7 @@
           CONFIG.COLLECTION_TRIALS,
           STATE.trialId,
           'fields',
-          STATE.fieldId
+          STATE.fieldDocId
         );
         const snap = await getDoc(fieldRef);
 
@@ -917,6 +916,26 @@
       }
     }
 
+    function updateYieldSummaryFromDom(){
+      const trialName = $('#mhTrialName')?.textContent || '—';
+      const fieldName = $('#mhFieldTitle')?.textContent || '—';
+      const fieldSub  = $('#mhFieldSub')?.textContent || '';
+      const summaryEl = document.getElementById('yieldSummary');
+      if(!summaryEl) return;
+
+      summaryEl.innerHTML = `
+        <div>
+          <strong>Trial:</strong> ${trialName}<br>
+          <strong>Field:</strong> ${fieldName}<br>
+          <span>${fieldSub}</span>
+        </div>
+        <div class="muted">
+          Multi-hybrid helper. Set up plot length, width, entries, and check variety. Then we’ll show one yield card
+          per entry using weight-only data.
+        </div>
+      `;
+    }
+
     (async function boot(){
       await ready;
 
@@ -925,19 +944,20 @@
         shell.nav = NAV_MENU;
       }
 
-      STATE.db      = getFirestore();
-      STATE.trialId = getQueryParam('trialId');
-      STATE.fieldId = getQueryParam('fieldId');
+      STATE.db        = getFirestore();
+      STATE.trialId   = getQueryParam('trialId');
+      STATE.fieldDocId= getQueryParam('fieldDocId');
 
       await loadTrial();
       await loadField();
+      updateYieldSummaryFromDom();
 
-      // Expose context so the MH helper can talk to Firestore.
+      // Expose context in case you want it later
       window.MH_TRIAL_CONTEXT = {
         db: STATE.db,
         trialId: STATE.trialId,
         trial: STATE.trial,
-        fieldId: STATE.fieldId,
+        fieldDocId: STATE.fieldDocId,
         field: STATE.field
       };
 
@@ -951,13 +971,13 @@
         });
       }
 
-      // Initialize the MH helper – it will manage the popup, dictation, files, etc.
-initMhYieldHelper({
-  db: STATE.db,
-  trialId: STATE.trialId,
-  fieldDocId: STATE.fieldId
-});
-
+      // Initialize the MH helper – now wired to Firestore
+      initMhYieldHelper({
+        db: STATE.db,
+        trialId: STATE.trialId,
+        fieldDocId: STATE.fieldDocId
+      });
+    })();
   </script>
 </body>
 </html>
