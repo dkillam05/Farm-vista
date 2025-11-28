@@ -949,6 +949,90 @@
       `;
     }
 
+    // ===== Inline mic wiring (same pattern as working maintenance page) =====
+    function makeInlineMic(btnEl, taEl){
+      if(!btnEl || !taEl) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        // Browser / PWA doesn't support speech – hide mic
+        btnEl.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on) => {
+        btnEl.classList.toggle('mic-active', on);
+        btnEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
+      };
+
+      btnEl.addEventListener('click', () => {
+        if(!active){
+          baseText = taEl.value ? (taEl.value + ' ') : '';
+          try{
+            rec.start();
+            active = true;
+            setMic(true);
+          }catch(err){
+            // ignore double-start errors
+          }
+        }else{
+          try{
+            rec.stop();
+            rec.abort();
+          }catch(err){
+            // ignore
+          }
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev) => {
+        let txt = '';
+        for(let i = ev.resultIndex; i < ev.results.length; i++){
+          txt += ev.results[i][0].transcript;
+        }
+        taEl.value = baseText + txt;
+        // fire input so helper can capture changes into state
+        taEl.dispatchEvent(new Event('input', { bubbles:true }));
+      };
+
+      rec.onend = () => {
+        active = false;
+        setMic(false);
+      };
+
+      rec.onerror = () => {
+        active = false;
+        setMic(false);
+      };
+    }
+
+    function wireNotesMics(root = document){
+      const shells = root.querySelectorAll('.notes-shell');
+      shells.forEach(shell => {
+        if(shell.dataset.micWired === '1') return;
+
+        const btn = shell.querySelector('.mic-btn');
+        // prefer specific notes-input class but fall back to any textarea
+        const ta  = shell.querySelector('textarea.notes-input, textarea');
+        if(!btn || !ta) return;
+
+        makeInlineMic(btn, ta);
+        shell.dataset.micWired = '1';
+      });
+    }
+    // ===== End inline mic wiring =====
+
     (async function boot(){
       await ready;
 
@@ -990,6 +1074,18 @@
         trialId: STATE.trialId,
         fieldDocId: STATE.fieldDocId
       });
+
+      // Wire any notes/mic that helper has already rendered
+      wireNotesMics();
+
+      // Watch for the helper adding/replacing content under mhStageShell
+      const mhShell = document.getElementById('mhStageShell');
+      if(mhShell && 'MutationObserver' in window){
+        const obs = new MutationObserver(() => {
+          wireNotesMics(mhShell);
+        });
+        obs.observe(mhShell, { childList:true, subtree:true });
+      }
     })();
   </script>
 </body>
