@@ -46,7 +46,6 @@
       max-width: var(--card-max);
       margin: 0 auto;
       padding: clamp(14px,3vw,22px);
-      /* Match normal Trial Yields footer spacing */
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
       display:grid;
@@ -158,7 +157,7 @@
       border-radius:999px;
     }
 
-    /* Utility for keeping btnOpenModal in DOM but invisible to user */
+    /* Keep btnOpenModal for helper, but hide it visually */
     .visually-hidden{
       position:absolute;
       width:1px;
@@ -231,7 +230,6 @@
       margin-top:2px;
     }
 
-    /* Hide the "View / Add Yield" button on phones – swipe only */
     @media (max-width:640px){
       .field-card-top .btn-small{ display:none; }
     }
@@ -242,9 +240,7 @@
       margin-top:4px;
     }
 
-    /* ===========================
-       Modal + MH helper styling
-       =========================== */
+    /* ========== Modal shell (same vibe as other page) ========== */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -347,7 +343,8 @@
       box-shadow:0 8px 18px rgba(46,123,53,0.35);
     }
 
-    /* Form fields used inside MH helper modal */
+    /* === Extra field / combo styles used by the helper (unchanged) === */
+
     .row{
       display:grid;
       gap:10px;
@@ -381,7 +378,6 @@
       margin-top:6px;
     }
 
-    /* Combo styles (for dropdowns inside MH helper) */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative; display:inline-block; width:100%;
@@ -534,27 +530,6 @@
       font-size:0.8rem;
       color:var(--muted,#67706B);
     }
-    .badge-check{
-      border-radius:999px;
-      padding:2px 8px;
-      font-size:0.72rem;
-      background:#2F6C3C;
-      color:#fff;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      align-self:flex-start;
-      margin-left:4px;
-    }
-    .badge-void{
-      border-radius:999px;
-      padding:2px 8px;
-      font-size:0.72rem;
-      background:#b91c1c;
-      color:#fff;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      margin-left:4px;
-    }
 
     .field-mini{
       display:flex;
@@ -564,33 +539,6 @@
     .field-mini span{
       font-size:0.8rem;
       font-weight:600;
-    }
-    .yield-block-grid{
-      display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr));
-      gap:8px;
-      align-items:flex-end;
-    }
-    @media (max-width:640px){
-      .yield-block-grid{
-        grid-template-columns:1fr;
-      }
-    }
-
-    .yield-value{
-      font-size:0.85rem;
-      font-weight:600;
-      margin-top:2px;
-    }
-    .yield-value.bad{
-      color:#b3261e;
-    }
-    .void-row{
-      display:flex;
-      align-items:center;
-      gap:6px;
-      font-size:0.8rem;
-      margin-top:4px;
     }
 
     .yield-extra{
@@ -719,12 +667,13 @@
               ← Back to Trials
             </button>
 
-            <!-- Keep this in DOM for helper wiring, but visually remove it -->
+            <!-- Needed for helper; visually hidden so there is no extra big green button -->
             <button type="button" class="btn btn-primary visually-hidden" id="btnOpenModal">
               Open Yield Popup
             </button>
           </div>
 
+          <!-- Summary block – now driven by Firestore -->
           <div class="top-row">
             <div class="trial-summary">
               <div class="trial-summary-title" id="mhTrialName">Multi-Hybrid Trial</div>
@@ -790,88 +739,140 @@
         <div id="mhStageShell"></div>
       </div>
       <div class="modal-footer">
-        <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close</button>
+        <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close (Dev)</button>
       </div>
     </div>
   </div>
 
   <script type="module">
+    import {
+      ready,
+      getFirestore,
+      doc,
+      getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
     import { initMhYieldHelper } from '/Farm-vista/js/trials-mh-yield-helper.js';
 
-    const params = new URLSearchParams(window.location.search);
+    const CONFIG = {
+      COLLECTION_TRIALS: 'fieldTrials',
+      RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html'
+    };
 
-    // Summary fields
-    const trialNameParam   = params.get('trialName');   // e.g. "Xyway on Soybeans (MH)"
-    const cropYearParam   = params.get('cropYear');    // e.g. "2025"
-    const cropParam       = params.get('crop');        // e.g. "Soybeans"
-    const checkVariety    = params.get('checkVariety'); // just the check hybrid/variety
-    const varietyCount    = params.get('varietyCount'); // total unique varieties in the trial
-    const plantDate       = params.get('plantDate');    // can be wired later from setup
+    const STATE = {
+      db: null,
+      trialId: null,
+      trial: null
+    };
 
-    const mhTrialNameEl   = document.getElementById('mhTrialName');
-    const mhCropLineEl    = document.getElementById('mhCropLine');
-    const mhCheckLineEl   = document.getElementById('mhCheckLine');
-    const mhVarietyLineEl = document.getElementById('mhVarietyLine');
-    const mhPlantDateEl   = document.getElementById('mhPlantDateLine');
+    const $ = (sel, root = document) => root.querySelector(sel);
 
-    if (mhTrialNameEl && trialNameParam) {
-      mhTrialNameEl.textContent = trialNameParam;
+    function getQueryParam(name){
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name) || null;
     }
 
-    if (mhCropLineEl) {
-      const bits = [];
-      if (cropYearParam) bits.push(cropYearParam);
-      if (cropParam) bits.push(cropParam);
-      mhCropLineEl.textContent = bits.length ? bits.join(' • ') : '—';
-    }
+    async function loadTrial(){
+      if(!STATE.trialId || !STATE.db) return;
 
-    if (mhCheckLineEl && checkVariety) {
-      mhCheckLineEl.textContent = `Check variety: ${checkVariety}`;
-    }
+      try{
+        const ref = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
+        const snap = await getDoc(ref);
+        if(!snap.exists()) return;
 
-    if (mhVarietyLineEl && varietyCount) {
-      mhVarietyLineEl.textContent = `Total varieties in this trial: ${varietyCount}`;
-    }
+        const t = snap.data() || {};
+        STATE.trial = t;
 
-    if (mhPlantDateEl && plantDate) {
-      mhPlantDateEl.textContent = `Plant date: ${plantDate}`;
-    }
+        const trialNameEl   = $('#mhTrialName');
+        const cropLineEl    = $('#mhCropLine');
+        const checkLineEl   = $('#mhCheckLine');
+        const varietyLineEl = $('#mhVarietyLine');
+        const plantDateEl   = $('#mhPlantDateLine');
 
-    // Field title/acres from URL (same as before)
-    const fieldName = params.get('fieldName');
-    const trialAc   = params.get('trialAc');
-    const tillable  = params.get('tillable');
-    const farmName  = params.get('farmName') || '';
-    const returnUrl = params.get('returnUrl');
-
-    const fieldTitleEl = document.getElementById('mhFieldTitle');
-    const fieldSubEl   = document.getElementById('mhFieldSub');
-
-    if(fieldName && fieldTitleEl){
-      fieldTitleEl.textContent = farmName
-        ? `${farmName} • ${fieldName}`
-        : fieldName;
-    }
-    if(fieldSubEl && trialAc){
-      const tillText = tillable ? ` (Max tillable: ${tillable})` : '';
-      fieldSubEl.innerHTML = `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>${tillText}`;
-    }
-
-    // Back button – go to returnUrl if provided, otherwise history.back()
-    const btnBack = document.getElementById('btnBack');
-    if(btnBack){
-      btnBack.addEventListener('click', () => {
-        if(returnUrl){
-          window.location.href = returnUrl;
-        }else{
-          window.history.back();
+        if(trialNameEl){
+          trialNameEl.textContent = t.trialName || 'Multi-Hybrid Trial';
         }
-      });
+
+        if(cropLineEl){
+          const bits = [];
+          if (t.cropYear != null) bits.push(t.cropYear);
+          if (t.crop) bits.push(t.crop);
+          cropLineEl.textContent = bits.length ? bits.join(' • ') : '—';
+        }
+
+        if(checkLineEl){
+          const checkName = t.checkVariety || t.check || '';
+          checkLineEl.textContent = checkName ? `Check variety: ${checkName}` : '';
+        }
+
+        if(varietyLineEl){
+          const count = t.varietyCount ?? t.hybridCount ?? null;
+          varietyLineEl.textContent = count ? `Total varieties in this trial: ${count}` : '';
+        }
+
+        if(plantDateEl){
+          let label = '';
+          const pd = t.plantDate;
+          if(pd){
+            if(typeof pd === 'string'){
+              label = pd;
+            }else if(pd.toDate){
+              const d = pd.toDate();
+              label = d.toLocaleDateString();
+            }
+          }
+          plantDateEl.textContent = label ? `Plant date: ${label}` : '';
+        }
+      }catch(err){
+        console.error('Error loading MH trial:', err);
+      }
     }
 
-    // Initialize the MH helper – it wires buttons, modal, swipe, notes & files.
-    const mhHelper = initMhYieldHelper();
-    // window.FV_MH_HELPER = mhHelper; // uncomment if you want to poke it from console
+    (async function boot(){
+      await ready;
+
+      const shell = document.querySelector('fv-shell');
+      if(shell && NAV_MENU){
+        shell.nav = NAV_MENU;
+      }
+
+      STATE.db = getFirestore();
+      STATE.trialId = getQueryParam('trialId');
+
+      await loadTrial();
+
+      const params = new URLSearchParams(window.location.search);
+      const fieldTitleEl = $('#mhFieldTitle');
+      const fieldSubEl   = $('#mhFieldSub');
+
+      const farmName  = params.get('farmName') || '';
+      const fieldName = params.get('fieldName');
+      const trialAc   = params.get('trialAc');
+      const tillable  = params.get('tillable');
+
+      if(fieldName && fieldTitleEl){
+        fieldTitleEl.textContent = farmName
+          ? `${farmName} • ${fieldName}`
+          : fieldName;
+      }
+      if(fieldSubEl && trialAc){
+        const tillText = tillable ? ` (Max tillable: ${tillable})` : '';
+        fieldSubEl.innerHTML =
+          `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>${tillText}`;
+      }
+
+      const btnBack = $('#btnBack');
+      if(btnBack){
+        btnBack.addEventListener('click', () => {
+          const ret = params.get('returnUrl') || CONFIG.RETURN_URL;
+          window.location.href = ret;
+        });
+      }
+
+      // Initialize the MH helper – it will manage the popup, dictation, files, etc.
+      initMhYieldHelper();
+    })();
   </script>
 </body>
 </html>
