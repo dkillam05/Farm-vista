@@ -1,6 +1,5 @@
 // /Farm-vista/js/trials-mh-yield-helper.js
 // Reusable Multi-Hybrid Yield helper engine.
-// Works with a modal and dev field card already on the page.
 
 export function initMhYieldHelper() {
   const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];
@@ -126,7 +125,6 @@ export function initMhYieldHelper() {
     modalBackdrop.classList.add('hidden');
   }
 
-  /* === Combo helpers === */
   function closeAllCombos(except=null){
     $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
   }
@@ -272,7 +270,6 @@ export function initMhYieldHelper() {
     html += `<div class="setup-errors" id="mh-setup-errors"></div></div>`;
     stageShell.innerHTML = html;
 
-    // Length input
     const lenInput = document.getElementById('mh-length-input');
     if(lenInput){
       lenInput.addEventListener('input', e => {
@@ -282,7 +279,6 @@ export function initMhYieldHelper() {
       });
     }
 
-    // Pass width combo
     const widthBtn   = document.getElementById('mh-width-btn');
     const widthPanel = document.getElementById('mh-width-panel');
     const widthList  = document.getElementById('mh-width-list');
@@ -302,7 +298,6 @@ export function initMhYieldHelper() {
       });
     }
 
-    // Add variety
     const addRowBtn = document.getElementById('mh-add-row-btn');
     if(addRowBtn){
       addRowBtn.addEventListener('click', () => {
@@ -316,7 +311,6 @@ export function initMhYieldHelper() {
       });
     }
 
-    // Variety combos + check + remove
     mhState.hybrids.forEach(hyb => {
       const btn   = document.getElementById(`mh-hybrid-btn-${hyb.rowId}`);
       const panel = document.getElementById(`mh-hybrid-panel-${hyb.rowId}`);
@@ -643,17 +637,14 @@ export function initMhYieldHelper() {
     renderDevSummary();
   }
 
-  // === Mobile swipe right on devFieldCard to open modal (phone only) ===
   function initSwipeForCard(){
     if(!devFieldCard) return;
-
     const isMobile =
       (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
       window.innerWidth <= 768;
 
-    if(!isMobile) return; // only on phone/tablet
+    if(!isMobile) return;
 
-    // If your fv-swipe-list.js exposes something, try to use it:
     if (window.FVSwipeList && typeof window.FVSwipeList.attach === 'function') {
       try {
         window.FVSwipeList.attach(devFieldCard, {
@@ -665,7 +656,6 @@ export function initMhYieldHelper() {
       }
     }
 
-    // Fallback simple swipe detector
     let startX = 0;
     let startY = 0;
     let tracking = false;
@@ -683,20 +673,16 @@ export function initMhYieldHelper() {
       const t = e.changedTouches[0];
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
-
-      // right swipe with some threshold, mostly horizontal
       if(dx > 40 && Math.abs(dy) < 30){
         openModal();
       }
     }, { passive: true });
   }
 
-  // ===================== Wire global listeners =====================
   if(btnOpenModal) btnOpenModal.addEventListener('click', openModal);
   if(devFieldCard) devFieldCard.addEventListener('click', openModal);
   if(btnClose)     btnClose.addEventListener('click', closeModal);
 
-  // close on ESC when modal open + close all combos
   document.addEventListener('keydown', e => {
     if(e.key === 'Escape'){
       if(!modalBackdrop?.classList.contains('hidden')){
@@ -708,9 +694,6 @@ export function initMhYieldHelper() {
 
   document.addEventListener('click', () => closeAllCombos());
 
-  // Set Up Plot button:
-  // - In setup: focus length
-  // - In blocks: jump back to setup for editing
   if(btnSetUpPlot){
     btnSetUpPlot.addEventListener('click', () => {
       if(mhState.stage === 'setup'){
@@ -750,11 +733,9 @@ export function initMhYieldHelper() {
     });
   }
 
-  // Initial so summary is ready even before open
   renderStage();
   initSwipeForCard();
 
-  // Public API if you want it later
   return {
     open: openModal,
     close: closeModal,
