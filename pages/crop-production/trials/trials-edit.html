@@ -407,15 +407,10 @@
       margin-bottom:4px;
     }
 
+    /* NEW: gallery-style layout */
     .trial-attachments-grid{
       display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-
-    .trial-attachment-item{
-      display:flex;
-      align-items:flex-start;
+      flex-wrap:wrap;
       gap:8px;
     }
 
@@ -431,6 +426,7 @@
       justify-content:center;
       font-size:0.8rem;
       cursor:pointer;
+      padding:0;
     }
 
     .trial-attachment-thumb img{
@@ -438,31 +434,6 @@
       height:100%;
       object-fit:cover;
       display:block;
-    }
-
-    .trial-attachment-meta{
-      min-width:0;
-      display:flex;
-      flex-direction:column;
-      gap:2px;
-    }
-
-    .trial-attachment-name{
-      font-size:0.9rem;
-      font-weight:600;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-
-    .trial-attachment-link{
-      font-size:0.8rem;
-      cursor:pointer;
-      border:none;
-      background:transparent;
-      padding:0;
-      text-align:left;
-      color:var(--accent);
     }
 
     .trial-attachment-empty{
@@ -653,7 +624,8 @@
       filterStatus: null,
       loaded: false,
       pendingFilter: null,
-      isLoading: false
+      isLoading: false,
+      loadRetriedOnce: false
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -845,45 +817,27 @@
               url: raw.url,
               name: raw.name || raw.path || 'Attachment'
             };
-            const itemEl = document.createElement('div');
-            itemEl.className = 'trial-attachment-item';
 
-            const thumb = document.createElement('div');
-            thumb.className = 'trial-attachment-thumb';
+            const thumbBtn = document.createElement('button');
+            thumbBtn.type = 'button';
+            thumbBtn.className = 'trial-attachment-thumb';
+            thumbBtn.title = att.name;
 
             if(isImageUrl(att.url)){
               const img = document.createElement('img');
               img.src = att.url;
               img.alt = att.name;
-              thumb.appendChild(img);
+              thumbBtn.appendChild(img);
             }else{
-              thumb.textContent = 'FILE';
+              thumbBtn.textContent = 'FILE';
             }
 
-            const meta = document.createElement('div');
-            meta.className = 'trial-attachment-meta';
-
-            const nameEl = document.createElement('div');
-            nameEl.className = 'trial-attachment-name';
-            nameEl.textContent = att.name;
-
-            const linkEl = document.createElement('button');
-            linkEl.type = 'button';
-            linkEl.className = 'trial-attachment-link';
-            linkEl.textContent = 'Open';
-
-            const openFn = (ev)=>{
+            thumbBtn.addEventListener('click', (ev)=>{
               ev.stopPropagation();
               openFileViewer(att);
-            };
-            thumb.addEventListener('click', openFn);
-            linkEl.addEventListener('click', openFn);
+            });
 
-            meta.appendChild(nameEl);
-            meta.appendChild(linkEl);
-            itemEl.appendChild(thumb);
-            itemEl.appendChild(meta);
-            attGrid.appendChild(itemEl);
+            attGrid.appendChild(thumbBtn);
           });
         }else{
           const empty = document.createElement('div');
@@ -1133,6 +1087,7 @@
 
         STATE.allItems = items;
         STATE.loaded = true;
+        STATE.loadRetriedOnce = false;
 
         // Use whatever filter was requested last, or default to ALL
         const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
@@ -1146,6 +1101,16 @@
         }
         if(countEl) countEl.textContent = 'Error loading trials';
         clearDetails();
+
+        // one soft retry in case of timing/network blip (helps phones)
+        if(!STATE.loadRetriedOnce){
+          STATE.loadRetriedOnce = true;
+          setTimeout(() => {
+            STATE.loaded = false;
+            STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+            loadAllTrials();
+          }, 1500);
+        }
       }finally{
         STATE.isLoading = false;
       }
@@ -1251,7 +1216,7 @@
         });
       }
 
-      // Start initial loading (will call applyFilter when done)
+      // Initial load
       await loadAllTrials();
     })();
 
