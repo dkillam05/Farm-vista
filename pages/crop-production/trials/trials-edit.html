@@ -274,7 +274,6 @@
       background:var(--surface-strong, var(--surface));
       cursor:pointer;
       white-space:nowrap;
-      /* use accent green instead of blue */
       color:var(--accent);
     }
 
@@ -407,7 +406,6 @@
       margin-bottom:4px;
     }
 
-    /* NEW: gallery-style layout */
     .trial-attachments-grid{
       display:flex;
       flex-wrap:wrap;
@@ -460,7 +458,7 @@
       cursor:not-allowed;
     }
 
-    /* Small red trash icon button */
+    /* Delete trial button */
     .trial-delete-btn{
       width:32px;
       height:32px;
@@ -592,9 +590,7 @@
       100%{opacity:0}
     }
 
-    /* ===== Mobile simplification =====
-       On phones only show: title, subline, Add Fields.
-       Hide the extra meta chips + created/status row. */
+    /* ===== Mobile simplification ===== */
     @media (max-width: 600px){
       .trial-card{
         padding:10px 12px;
@@ -645,8 +641,8 @@
 
     const STATE = {
       db: null,
-      allItems: [],      // all trials from Firestore
-      items: [],         // filtered trials for the current view
+      allItems: [],
+      items: [],
       selectedId: null,
       filterStatus: null,
       loaded: false,
@@ -694,7 +690,6 @@
       if(!toastEl) return;
       toastEl.textContent = message || 'Saved.';
       toastEl.classList.remove('show');
-      // force reflow so animation restarts
       void toastEl.offsetWidth;
       toastEl.classList.add('show');
     }
@@ -721,9 +716,9 @@
         completeBtn.textContent = 'Mark Trial Completed';
         delete completeBtn.dataset.id;
       }
-      const deleteBtn = $('#trialDeleteBtn');
-      if(deleteBtn){
-        deleteBtn.disabled = false;
+      const delBtn = $('#trialDeleteBtn');
+      if(delBtn){
+        delBtn.disabled = false;
       }
     }
 
@@ -901,15 +896,13 @@
         }
       }
 
-      const deleteBtn = $('#trialDeleteBtn');
-      if(deleteBtn){
-        deleteBtn.disabled = false;
+      const delBtn = $('#trialDeleteBtn');
+      if(delBtn){
+        delBtn.disabled = false;
       }
 
       panel.style.display = 'flex';
     }
-
-    // ---------- List & filtering ----------
 
     function renderList(){
       const listEl  = $('.trial-list');
@@ -1008,19 +1001,17 @@
             </div>
             <div class="trial-status-chip">${friendlyStatus}</div>
           </div>
-        ];
+        `;
 
-        // Clicking the card opens details
         card.addEventListener('click', () => {
           STATE.selectedId = id;
           renderDetails();
         });
 
-        // Add Fields button → new page with trialId in query string
         const addBtn = card.querySelector('.trial-add-btn');
         if(addBtn){
           addBtn.addEventListener('click', (ev)=>{
-            ev.stopPropagation(); // don’t trigger the card click / details
+            ev.stopPropagation();
             const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(id)}`;
             window.location.href = url;
           });
@@ -1044,13 +1035,11 @@
 
       STATE.filterStatus = status;
 
-      // Sync dropdown
       const sel = $('#trialStatusFilter');
       if(sel && sel.value !== status){
         sel.value = status;
       }
 
-      // If data not loaded yet, remember desired filter and show loading text
       if(!STATE.loaded){
         STATE.pendingFilter = status;
 
@@ -1125,7 +1114,6 @@
         STATE.loaded = true;
         STATE.loadRetriedOnce = false;
 
-        // Use whatever filter was requested last, or default to ALL
         const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
         STATE.pendingFilter = null;
         applyFilter(desired);
@@ -1138,7 +1126,6 @@
         if(countEl) countEl.textContent = 'Error loading trials';
         clearDetails();
 
-        // one soft retry in case of timing/network blip (helps phones)
         if(!STATE.loadRetriedOnce){
           STATE.loadRetriedOnce = true;
           setTimeout(() => {
@@ -1168,7 +1155,6 @@
           [CONFIG.STATUS_FIELD]: CONFIG.STATUS_COMPLETED
         });
 
-        // update local cache
         const itemAll = STATE.allItems.find(x => x.id === id);
         if(itemAll){
           itemAll.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
@@ -1178,7 +1164,6 @@
           itemFiltered.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
         }
 
-        // re-apply filter to reflect change (trial may drop from Active)
         const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
         applyFilter(currentFilter);
 
@@ -1208,7 +1193,6 @@
       try{
         const db = STATE.db;
 
-        // delete subcollections: fields and yieldBlocks (best effort)
         const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
         const fieldsSnap = await getDocs(fieldsRef);
         await Promise.all(fieldsSnap.docs.map(d => deleteDoc(d.ref)));
@@ -1217,11 +1201,9 @@
         const yieldsSnap = await getDocs(yieldsRef);
         await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
 
-        // delete main trial doc
         const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
         await deleteDoc(trialRef);
 
-        // update local caches
         STATE.allItems = STATE.allItems.filter(x => x.id !== id);
         STATE.items = STATE.items.filter(x => x.id !== id);
         STATE.selectedId = null;
@@ -1265,7 +1247,6 @@
         });
       }
 
-      // Trial complete button
       const completeBtn = $('#trialCompleteBtn');
       if(completeBtn){
         completeBtn.addEventListener('click', () => {
@@ -1274,7 +1255,6 @@
         });
       }
 
-      // Delete trial button
       const deleteBtn = $('#trialDeleteBtn');
       if(deleteBtn){
         deleteBtn.addEventListener('click', () => {
@@ -1283,7 +1263,6 @@
         });
       }
 
-      // file viewer wiring
       fileModal       = $('#fileModal');
       fileBackdrop    = $('#fileBackdrop');
       fileCloseBtn    = $('#fileModalClose');
@@ -1296,7 +1275,6 @@
         fileCloseBtn.addEventListener('click', closeFileViewer);
       }
 
-      // Status dropdown wiring
       const statusSelect = $('#trialStatusFilter');
       if(statusSelect){
         statusSelect.value = STATE.filterStatus;
@@ -1306,14 +1284,10 @@
         });
       }
 
-      // Initial load
       await loadAllTrials();
     })();
 
-    // ===== Mobile / PWA reliability helpers =====
-    // When the page regains focus or visibility, or is restored from bfcache,
-    // force a fresh reload of trials so it doesn't get "stuck" empty.
-
+    // PWA / mobile reload helpers
     window.addEventListener('focus', () => {
       if(!STATE.db) return;
       STATE.loaded = false;
@@ -1323,14 +1297,7 @@
 
     window.addEventListener('pageshow', (event) => {
       if(!STATE.db) return;
-      // Always refresh on pageshow – especially important for iOS PWA back nav.
-      STATE.loaded = false;
-      STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
-      loadAllTrials();
-    });
-
-    document.addEventListener('visibilitychange', () => {
-      if(document.visibilityState === 'visible' && STATE.db){
+      if(event.persisted){
         STATE.loaded = false;
         STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
         loadAllTrials();
@@ -1342,7 +1309,6 @@
 <body>
   <fv-shell>
     <div class="wrap">
-      <!-- HERO CARD -->
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧪</div>
@@ -1366,7 +1332,6 @@
             </div>
           </div>
 
-          <!-- STATUS DROPDOWN + LIST INSIDE HERO -->
           <div class="status-filter-wrap">
             <label for="trialStatusFilter" class="status-filter-label">Status</label>
             <select id="trialStatusFilter" class="status-filter-select">
@@ -1386,7 +1351,6 @@
         </div>
       </section>
 
-      <!-- TRIAL DETAILS PANEL BELOW HERO -->
       <section class="trial-detail-panel" aria-label="Trial details">
         <div class="trial-detail-header">
           <div class="trial-detail-title">Trial Details</div>
@@ -1398,9 +1362,7 @@
           </button>
         </div>
 
-        <div class="trial-detail-grid">
-          <!-- filled by JS -->
-        </div>
+        <div class="trial-detail-grid"></div>
 
         <div class="trial-detail-notes">
           <div class="trial-detail-notes-label">Trial Notes</div>
@@ -1423,17 +1385,13 @@
           </button>
         </div>
 
-        <div class="trial-detail-footer">
-          <!-- status pill by JS -->
-        </div>
+        <div class="trial-detail-footer"></div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- File viewer modal -->
   <div id="fileModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Trial attachment">
     <div id="fileBackdrop" class="file-backdrop"></div>
     <div class="file-sheet">
