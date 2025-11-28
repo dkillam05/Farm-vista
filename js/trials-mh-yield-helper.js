@@ -235,9 +235,9 @@ export function initMhYieldHelper(options = {}) {
         let label = `${brand} ${variety}`.trim();
         if(mat) label += ` (${mat} RM)`;
         return {
-          // Use Firestore doc id as the unique id
+          // IMPORTANT: use doc id as unique id/productId
           id: s.id,
-          seedDocId: s.id, // Firestore doc id
+          productId: s.id,
           brand,
           variety,
           maturity: s.maturity ?? null,
@@ -249,7 +249,7 @@ export function initMhYieldHelper(options = {}) {
     // Fallback (dev-only) when no seed products are loaded
     return mockHybrids.map(m => ({
       id: m.id,
-      seedDocId: m.id,
+      productId: m.id,
       brand: '',
       variety: m.id,
       maturity: m.maturity,
@@ -333,7 +333,7 @@ export function initMhYieldHelper(options = {}) {
           : 'Select variety…';
         const label = hyb.productId
           ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
-          : 'Select variety…`;
+          : 'Select variety…';
 
         html += `
           <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
@@ -417,7 +417,7 @@ export function initMhYieldHelper(options = {}) {
         });
         renderStage();
 
-        // After re-render: scroll new row into view and auto-open its dropdown
+        // After re-render, scroll new row into view and auto-open its dropdown
         requestAnimationFrame(() => {
           const row = stageShell.querySelector(`.setup-hybrid-row[data-row-id="${newRowId}"]`);
           if(row){
@@ -448,7 +448,7 @@ export function initMhYieldHelper(options = {}) {
           onPick: it => {
             const found = comboItems.find(m => m.id === it.id) || null;
 
-            hyb.productId = found ? found.seedDocId : it.id;
+            hyb.productId = found ? found.productId : it.id;
             hyb.name      = found ? found.label : it.label;
             hyb.brand     = found ? found.brand : '';
             hyb.variety   = found ? found.variety : '';
@@ -555,7 +555,7 @@ export function initMhYieldHelper(options = {}) {
                 <span>Notes</span>
                 <div class="notes-shell">
                   <textarea class="input notes-input"
-                            id="mh-notes-${blk.rowId}"
+                            id="mh-notes-${blk.rowId}`
                             rows="2"
                             placeholder="Notes about this hybrid…">${notesVal}</textarea>
                   <button type="button"
@@ -828,7 +828,7 @@ export function initMhYieldHelper(options = {}) {
       snap.forEach(docSnap => {
         const data = docSnap.data() || {};
         rows.push({
-          id: docSnap.id,
+          id: docSnap.id,   // doc id – unique per variety
           ...data
         });
       });
