@@ -79,7 +79,6 @@
       align-items:center;
       flex-wrap:wrap;
     }
-    /* search box (matches tractor lookup) */
     .list-search{
       display:flex;align-items:center;gap:10px;
       border:1px solid var(--border);
@@ -97,7 +96,6 @@
       color:var(--text);
     }
 
-    /* Funnel icon button (same as tractor lookup) */
     .icon-btn{
       display:inline-flex;align-items:center;justify-content:center;
       width:42px;height:42px;
@@ -109,7 +107,6 @@
     .icon-btn:active{transform:translateY(1px);}
     .icon-btn svg{display:block;}
 
-    /* Import stays a normal button, not full width */
     #btnImport{
       min-width:auto;
       padding:10px 14px;
@@ -124,7 +121,6 @@
       }
     }
 
-    /* Farm filter popover */
     .popover{
       position:absolute;
       z-index:900; /* below fv-shell footer, above cards */
@@ -374,7 +370,7 @@
             </div>
           </div>
 
-          <!-- Weather sliders (UI only, no JS changes) -->
+          <!-- Weather sliders (Add) -->
           <div class="row-2">
             <div class="field">
               <label for="soilWetness">Soil Wetness Index</label>
@@ -392,12 +388,11 @@
           </div>
         </div>
 
-        <!-- ===== Fields list header: title + search + filter button + Import ===== -->
+        <!-- ===== Fields list header ===== -->
         <div class="list-head">
           <div class="list-title">Fields</div>
 
           <div class="list-toolbar">
-            <!-- Search -->
             <div class="list-search">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -405,22 +400,18 @@
               <input id="fieldSearch" type="search" placeholder="Search fields" autocomplete="off"/>
             </div>
 
-            <!-- Farm filter button (funnel icon) -->
             <button id="farmFilterBtn" class="icon-btn" aria-label="Filter by farm" aria-haspopup="true" aria-expanded="false">
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
               </svg>
             </button>
 
-            <!-- Import as normal button -->
             <button id="btnImport" type="button" class="btn btn-quiet">Import</button>
           </div>
 
-          <!-- Hidden select just to hold the current filter value -->
           <select id="filterFarm" class="select" style="display:none;"></select>
         </div>
 
-        <!-- Farm filter popover -->
         <div id="farmFilterPop" class="popover" hidden>
           <header>Farm Filter</header>
           <div id="farmFilterOpts"></div>
@@ -521,6 +512,18 @@
             <input id="editCrpAcres" class="input" type="number" step="0.01" min="0">
           </div>
         </div>
+
+        <!-- Weather sliders (Edit) -->
+        <div class="row-2">
+          <div class="field">
+            <label for="editSoilWetness">Soil Wetness Index</label>
+            <input id="editSoilWetness" class="input" type="range" min="1" max="10" step="1" value="5">
+          </div>
+          <div class="field">
+            <label for="editDrainageIndex">Water Drainage Index</label>
+            <input id="editDrainageIndex" class="input" type="range" min="1" max="10" step="1" value="5">
+          </div>
+        </div>
       </div>
 
       <div class="dialog-footer">
@@ -583,7 +586,6 @@
     const farmFilterOpts = $("farmFilterOpts");
     const pageEl = document.querySelector('.page');
 
-    /* ===== ACS (County) config ===== */
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
       ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
@@ -630,72 +632,12 @@
       return out;
     }
 
-    /* ===== Searchable dropdown helpers (state/county) ===== */
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>
       ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])
     );
 
-    function buildList(listEl, items, onPick){
-      listEl.innerHTML="";
-      items.forEach(([val,label])=>{
-        const li=document.createElement("li");
-        li.textContent=label;
-        li.dataset.value=val;
-        li.onclick=()=>onPick(val,label);
-        listEl.appendChild(li);
-      });
-    }
-    function setupSearch(inputEl, listEl){
-      inputEl.addEventListener("input", ()=>{
-        const term=inputEl.value.toLowerCase();
-        listEl.querySelectorAll("li").forEach(li=>{
-          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
-        });
-      });
-    }
-    function wireDropdownOpenClose(root){
-      const btn = root.querySelector(".dd-btn");
-      btn.addEventListener("click",()=>{
-        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
-        root.classList.toggle("open");
-        const inp = root.querySelector(".dd-list input");
-        if(root.classList.contains("open") && inp){ setTimeout(()=>inp.focus(), 60); }
-      });
-    }
-    document.addEventListener("click",(e)=>{
-      if(!e.target.closest(".dd")){
-        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
-      }
-    });
-
-    async function loadCountiesIntoDropdown(cfg, stateCode, presetValue){
-      const {btn, search, list, hidden} = cfg;
-      btn.textContent = "Select a county…";
-      btn.disabled = true; search.value=""; search.disabled = true; list.innerHTML="";
-      hidden.value = "";
-
-      try{
-        const data = await fetchWithTimeout(acsUrl(stateCode), 12000);
-        const counties = parseCountyNames(data);
-        buildList(list, counties.map(c=>[c,c]), (val,label)=>{
-          hidden.value = val;
-          btn.textContent = label;
-          cfg.root.classList.remove("open");
-        });
-        btn.disabled = false; search.disabled = false;
-        if(presetValue && counties.includes(presetValue)){
-          hidden.value = presetValue;
-          btn.textContent = presetValue;
-        }
-      }catch{
-        btn.disabled = true; search.disabled = true; list.innerHTML="";
-        hidden.value = "";
-      }
-    }
-
     const hasStore = !!(window.FVStore && typeof window.FVStore.getAll === 'function');
 
-    /* ===== App helpers ===== */
     function showToast(msg="Saved.", ms=5000){
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth;
@@ -724,7 +666,6 @@
     const farmsRef  = ()=> collection(db, 'farms');
     const fieldsRef = ()=> collection(db, 'fields');
 
-    /* RTK Towers */
     let RTK_CACHE = []; let RTK_MAP = new Map();
     const rtkTowersRef = ()=> collection(db, 'rtkTowers');
 
@@ -826,7 +767,6 @@
         filterSel.appendChild(o);
       });
 
-      // Rebuild farm filter popover options
       buildFarmFilterPopover();
     }
 
@@ -896,11 +836,9 @@
       $("tillable").value = "";
       $("rtkSelect").value = "";
 
-      // reset HEL/CRP
       setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
       setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
 
-      // reset county dropdown
       ddCounty.btn.textContent = "Select a county…";
       ddCounty.btn.disabled = true;
       ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
@@ -950,7 +888,6 @@
         return;
       }
 
-      // Sort: active first, then by name ascending (numeric-friendly)
       filtered.sort((a,b)=>{
         const sa = (a.status==='archived')|0;
         const sb = (b.status==='archived')|0;
@@ -986,7 +923,6 @@
       });
     }
 
-    /* =================== Edit Modal =================== */
     const modal = $("modal"), mdClose = $("mdClose"), mdSave=$("mdSave"), mdArchive=$("mdArchive"), mdDelete=$("mdDelete");
     let editId = null;
 
@@ -1005,24 +941,19 @@
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
 
-      // RTK towers + preselect saved one
       populateRTKSelect($("editRtkSelect"), it.rtkTowerId || "");
 
-      // state + counties
       $("editState").value = it.state || "IL";
       const stRec = STATES.find(([c])=>c === $("editState").value);
       ddEditState.btn.textContent = stRec ? stRec[1] : $("editState").value;
       await loadCountiesIntoDropdown(ddEditCounty, $("editState").value, it.county || "");
 
-      // HEL
       $("editHelAcres").value = it.helAcres ?? "";
       setToggle($("editHelToggle"), $("editHasHEL"), !!it.hasHEL, $("editHelAcreWrap"), $("editHelAcres"));
 
-      // CRP
       $("editCrpAcres").value = it.crpAcres ?? "";
       setToggle($("editCrpToggle"), $("editHasCRP"), !!it.hasCRP, $("editCrpAcreWrap"), $("editCrpAcres"));
 
-      // archive/delete setup
       mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
@@ -1113,7 +1044,6 @@
     let ddStateCfgBuilt = false;
     function buildStateDropdowns(){
       if(ddStateCfgBuilt) return;
-      // Add form
       ddState = {
         root: $("ddState"),
         btn: $("ddStateBtn"),
@@ -1124,7 +1054,6 @@
       wireDropdownOpenClose(ddState.root);
       setupSearch(ddState.search, ddState.list);
 
-      // Edit modal
       ddEditState = {
         root: $("ddEditState"),
         btn: $("ddEditStateBtn"),
@@ -1185,27 +1114,10 @@
       }catch{ return ""; }
     }
 
-    function setToggle(btn, hiddenCheckbox, on, wrap, input){
-      btn.setAttribute("aria-pressed", on ? "true" : "false");
-      btn.textContent = on ? "On" : "Off";
-      hiddenCheckbox.checked = !!on;
-      if(wrap){
-        wrap.style.display = on ? "block" : "none";
-        if(!on && input) input.value = "";
-      }
-    }
-    function wireToggle(btn, hiddenCheckbox, wrap, input){
-      btn.addEventListener("click", ()=>{
-        const next = !(btn.getAttribute("aria-pressed")==="true");
-        setToggle(btn, hiddenCheckbox, next, wrap, input);
-      });
-    }
-
     const EXPECTED_HEADER = [
       "farmName","fieldName","state","county",
       "tillableAcres","helAcres","crpAcres","rtkTowerName"
     ];
-
     let IMPORT_ROWS = [];
 
     function parseCsvSimple(text){
@@ -1416,7 +1328,7 @@
       const pageRect = pageEl ? pageEl.getBoundingClientRect() : {top:0,left:0,width:document.documentElement.clientWidth};
 
       const containerWidth = pageRect.width;
-      const width = Math.min(260, containerWidth - 24); // 12px padding each side
+      const width = Math.min(260, containerWidth - 24);
       farmFilterPop.style.width = width + "px";
 
       const desiredLeft = (btnRect.right - pageRect.left) - width;
