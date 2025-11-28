@@ -5,13 +5,19 @@ Now:
  • Still drives the modal UI (setup + blocks)
  • Persists mhState to Firestore when trialId + fieldDocId are provided
    at: fieldTrials/{trialId}/fields/{fieldDocId}/multiHybrid/state
+ • Variety chooser pulls from productsSeed (by crop + active)
+ • Tracks plantDate from a calendar picker under plot length
 ==================================================================== */
 
 import {
   getFirestore,
   doc,
   getDoc,
-  setDoc
+  setDoc,
+  collection,
+  query,
+  where,
+  getDocs
 } from '/Farm-vista/js/firebase-init.js';
 
 export function initMhYieldHelper(options = {}) {
@@ -41,15 +47,20 @@ export function initMhYieldHelper(options = {}) {
   }
 
   const mhState = {
-    cropKind: 'corn',
-    stage: 'setup',          // 'setup' | 'blocks'
+    cropKind: 'corn',      // 'corn' | 'soy' – will be overridden from trial context
+    stage: 'setup',        // 'setup' | 'blocks'
     passLengthFt: 600,
     passWidthFt: 20,
+    plantDate: null,       // 'YYYY-MM-DD' string
     checkProductId: null,
     hybrids: [],
     blocks: []
   };
 
+  // Seed product options loaded from productsSeed
+  let seedOptions = [];
+
+  // Fallback mock hybrids (only used if no seedOptions found)
   const mockHybrids = [
     { id: 'P1185Q', name: 'Pioneer P1185Q', maturity: 118 },
     { id: 'P1742Q', name: 'Pioneer P1742Q', maturity: 117 },
@@ -58,6 +69,24 @@ export function initMhYieldHelper(options = {}) {
     { id: 'DKC6499', name: 'Dekalb DKC6499', maturity: 114 },
     { id: 'AG3640',  name: 'AgriGold 3640',  maturity: 112 }
   ];
+
+  // Try to pick cropKind from the trial (window.MH_TRIAL_CONTEXT.trial.crop)
+  (function initCropFromTrialContext(){
+    try{
+      const ctx = window.MH_TRIAL_CONTEXT || {};
+      const t   = ctx.trial || {};
+      const raw = t.crop || t.cropKind || '';
+      if(!raw) return;
+      const v = String(raw).toLowerCase();
+      if(v.includes('soy')){
+        mhState.cropKind = 'soy';
+      }else if(v.includes('corn')){
+        mhState.cropKind = 'corn';
+      }
+    }catch(err){
+      console.warn('MH helper: unable to read crop from MH_TRIAL_CONTEXT', err);
+    }
+  })();
 
   const modalBackdrop = document.getElementById('yieldModalBackdrop');
   const btnOpenModal  = document.getElementById('btnOpenModal');
@@ -117,7 +146,12 @@ export function initMhYieldHelper(options = {}) {
       const isCheck = mhState.checkProductId && h.productId === mhState.checkProductId;
 
       const parts = [];
-      parts.push(`Entry ${idx+1}: ${h.name || 'Variety'}`);
+      const displayName = h.name || [
+        h.brand || '',
+        h.variety || ''
+      ].join(' ').trim() || 'Variety';
+
+      parts.push(`Entry ${idx+1}: ${displayName}`);
       if(h.maturity != null) parts.push(`(${h.maturity} RM)`);
       if(isCheck) parts.push('– CHECK');
       if(hasData){
@@ -191,6 +225,37 @@ export function initMhYieldHelper(options = {}) {
     return { open, close };
   }
 
+  // Build display items for the variety combo based on seedOptions (or mock fallback)
+  function getHybridItemsForCombo(){
+    if(seedOptions && seedOptions.length){
+      return seedOptions.map(s => {
+        const brand   = s.brand   || '';
+        const variety = s.variety || '';
+        const mat     = s.maturity != null ? String(s.maturity) : '';
+        let label = `${brand} ${variety}`.trim();
+        if(mat) label += ` (${mat} RM)`;
+        return {
+          id: s.uid || s.id || s.docId || s._id || s.variety || s.brand || Math.random().toString(36).slice(2),
+          seedDocId: s.id, // Firestore doc id
+          brand,
+          variety,
+          maturity: s.maturity ?? null,
+          label
+        };
+      });
+    }
+
+    // Fallback (dev-only) when no seed products are loaded
+    return mockHybrids.map(m => ({
+      id: m.id,
+      seedDocId: m.id,
+      brand: '',
+      variety: m.id,
+      maturity: m.maturity,
+      label: `${m.name} (${m.maturity} RM)`
+    }));
+  }
+
   function validateSetup(){
     const errors = [];
     if(!mhState.passLengthFt || mhState.passLengthFt <= 0){
@@ -223,6 +288,7 @@ export function initMhYieldHelper(options = {}) {
     const hybrids = mhState.hybrids;
     const lengthFt = mhState.passLengthFt;
     const widthFt  = mhState.passWidthFt;
+    const plantDateVal = mhState.plantDate || '';
     let html = '';
 
     html += `
@@ -232,6 +298,10 @@ export function initMhYieldHelper(options = {}) {
             <label for="mh-length-input">Plot length (ft)</label>
             <input id="mh-length-input" type="text" inputmode="numeric" class="input" value="${lengthFt}">
             <div class="help">Same length for every strip in this plot.</div>
+
+            <label for="mh-plantdate-input" style="margin-top:10px;">Plant date</label>
+            <input id="mh-plantdate-input" type="date" class="input" value="${plantDateVal}">
+            <div class="help">Optional. Calendar pick the planted date for this plot.</div>
           </div>
 
           <div class="field combo">
@@ -257,8 +327,11 @@ export function initMhYieldHelper(options = {}) {
     }else{
       hybrids.forEach((hyb, idx) => {
         const isCheckRow = hyb.productId && mhState.checkProductId === hyb.productId;
+        const displayName = hyb.productId
+          ? (hyb.name || `${hyb.brand || ''} ${hyb.variety || ''}`.trim() || 'Variety')
+          : 'Select variety…';
         const label = hyb.productId
-          ? `${hyb.name || 'Variety'}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
+          ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
           : 'Select variety…';
 
         html += `
@@ -296,9 +369,17 @@ export function initMhYieldHelper(options = {}) {
     const lenInput = document.getElementById('mh-length-input');
     if(lenInput){
       lenInput.addEventListener('input', e => {
-        const v = e.target.value.replace(/[^0-9]/g,'');
-        e.target.value = v;
-        mhState.passLengthFt = v === '' ? 0 : Number(v);
+        const vRaw = e.target.value.replace(/[^0-9]/g,'');
+        e.target.value = vRaw;
+        mhState.passLengthFt = vRaw === '' ? 0 : Number(vRaw);
+      });
+    }
+
+    const plantInput = document.getElementById('mh-plantdate-input');
+    if(plantInput){
+      plantInput.addEventListener('change', e => {
+        const v = e.target.value || '';
+        mhState.plantDate = v || null;  // store as 'YYYY-MM-DD' string
       });
     }
 
@@ -328,11 +409,15 @@ export function initMhYieldHelper(options = {}) {
           rowId: nextRowId(),
           productId: '',
           name: '',
+          brand: '',
+          variety: '',
           maturity: null
         });
         renderStage();
       });
     }
+
+    const comboItems = getHybridItemsForCombo();
 
     mhState.hybrids.forEach(hyb => {
       const btn   = document.getElementById(`mh-hybrid-btn-${hyb.rowId}`);
@@ -344,16 +429,22 @@ export function initMhYieldHelper(options = {}) {
           btn,
           panel,
           list,
-          items: mockHybrids.map(m => ({
-            id: m.id,
-            label: `${m.name} (${m.maturity} RM)`
-          })),
+          items: comboItems,
           formatter: x => x.label,
           onPick: it => {
-            const found = mockHybrids.find(m => m.id === it.id);
+            const found = comboItems.find(m => m.id === it.id) || null;
+
             hyb.productId = it.id;
-            hyb.name = found ? found.name : '';
-            hyb.maturity = found ? found.maturity : null;
+            hyb.name      = found ? found.label : it.label;
+            hyb.brand     = found ? found.brand : '';
+            hyb.variety   = found ? found.variety : '';
+            hyb.maturity  = found ? found.maturity : null;
+
+            // If no check picked yet, default first chosen hybrid as check
+            if(!mhState.checkProductId){
+              mhState.checkProductId = hyb.productId;
+            }
+
             renderStage();
           }
         });
@@ -704,26 +795,85 @@ export function initMhYieldHelper(options = {}) {
 
   // ---------- Firestore load/save ----------
 
+  async function loadSeedProducts(){
+    try{
+      const db = getDb();
+      const baseRef = collection(db, 'productsSeed');
+
+      // Use cropCorn / cropSoy flags based on mhState.cropKind
+      const cropField = mhState.cropKind === 'soy' ? 'cropSoy' : 'cropCorn';
+
+      const qRef = query(
+        baseRef,
+        where(cropField, '==', true),
+        where('status', '==', 'active')
+      );
+
+      const snap = await getDocs(qRef);
+      const rows = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data() || {};
+        rows.push({
+          id: docSnap.id,
+          ...data
+        });
+      });
+
+      // Sort client-side: brand, variety
+      rows.sort((a,b) => {
+        const aBrand = (a.brand || '').toLowerCase();
+        const bBrand = (b.brand || '').toLowerCase();
+        if(aBrand < bBrand) return -1;
+        if(aBrand > bBrand) return 1;
+        const aVar = (a.variety || '').toLowerCase();
+        const bVar = (b.variety || '').toLowerCase();
+        if(aVar < bVar) return -1;
+        if(aVar > bVar) return 1;
+        return 0;
+      });
+
+      seedOptions = rows;
+      // Re-render setup so combo pulls from real products
+      if(mhState.stage === 'setup'){
+        renderStage();
+      }
+    }catch(err){
+      console.error('Error loading productsSeed for MH helper:', err);
+      seedOptions = [];
+    }
+  }
+
   async function loadFromFirestore(){
     const ref = getMhDocRef();
-    if(!ref) return;
+    if(!ref) {
+      // Still want seed products (by trial crop) even if no state doc exists
+      await loadSeedProducts();
+      return;
+    }
 
     try{
       const snap = await getDoc(ref);
-      if(!snap.exists()) return;
-      const data = snap.data() || {};
+      if(snap.exists()){
+        const data = snap.data() || {};
 
-      mhState.cropKind      = data.cropKind      || mhState.cropKind;
-      mhState.passLengthFt  = data.passLengthFt  ?? mhState.passLengthFt;
-      mhState.passWidthFt   = data.passWidthFt   ?? mhState.passWidthFt;
-      mhState.checkProductId= data.checkProductId|| mhState.checkProductId;
-      mhState.hybrids       = Array.isArray(data.hybrids) ? data.hybrids : [];
-      mhState.blocks        = Array.isArray(data.blocks)  ? data.blocks  : [];
-      mhState.stage         = mhState.blocks.length ? 'blocks' : 'setup';
+        mhState.cropKind       = data.cropKind      || mhState.cropKind;
+        mhState.passLengthFt   = data.passLengthFt  ?? mhState.passLengthFt;
+        mhState.passWidthFt    = data.passWidthFt   ?? mhState.passWidthFt;
+        mhState.plantDate      = data.plantDate     || mhState.plantDate || null;
+        mhState.checkProductId = data.checkProductId|| mhState.checkProductId;
+        mhState.hybrids        = Array.isArray(data.hybrids) ? data.hybrids : [];
+        mhState.blocks         = Array.isArray(data.blocks)  ? data.blocks  : [];
+        mhState.stage          = mhState.blocks.length ? 'blocks' : 'setup';
+      }
+
+      // After we know cropKind for sure, load seed products
+      await loadSeedProducts();
 
       renderStage();
     }catch(err){
       console.error('Error loading MH state from Firestore:', err);
+      // Still try to load seed products even if state load fails
+      await loadSeedProducts();
     }
   }
 
@@ -741,6 +891,7 @@ export function initMhYieldHelper(options = {}) {
         cropKind: mhState.cropKind || 'corn',
         passLengthFt: mhState.passLengthFt || 0,
         passWidthFt: mhState.passWidthFt || 0,
+        plantDate: mhState.plantDate || null,
         checkProductId: mhState.checkProductId || null,
         hybrids: mhState.hybrids || [],
         blocks: mhState.blocks || [],
@@ -791,6 +942,8 @@ export function initMhYieldHelper(options = {}) {
           rowId: h.rowId,
           productId: h.productId,
           name: h.name,
+          brand: h.brand,
+          variety: h.variety,
           maturity: h.maturity,
           moisturePct: null,
           weightLbs: null,
@@ -811,7 +964,7 @@ export function initMhYieldHelper(options = {}) {
 
   renderStage();
   initSwipeForCard();
-  // Kick off Firestore hydration (non-blocking)
+  // Kick off Firestore hydration + seed load (non-blocking)
   loadFromFirestore();
 
   return {
