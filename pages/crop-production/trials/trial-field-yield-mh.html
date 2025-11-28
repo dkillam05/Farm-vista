@@ -211,6 +211,20 @@
       box-shadow:0 4px 10px rgba(0,0,0,.08);
       transform:translateY(-1px);
     }
+
+    /* Desktop-only: card is NOT a button – no pointer/hover feel */
+    @media (min-width:641px){
+      .field-card{
+        cursor:default;
+        transition:none;
+      }
+      .field-card:hover{
+        background:var(--card-surface,var(--surface));
+        box-shadow:none;
+        transform:none;
+      }
+    }
+
     .field-card-top{
       display:flex;
       justify-content:space-between;
@@ -230,6 +244,7 @@
       margin-top:2px;
     }
 
+    /* On phones: hide the desktop button, swipe handles yield */
     @media (max-width:640px){
       .field-card-top .btn-small{ display:none; }
     }
@@ -718,12 +733,17 @@
                 </div>
                 <div class="field-card-note" id="devFieldSummary"></div>
               </div>
-              <div><span class="btn btn-small">View / Add Yield</span></div>
+              <div>
+                <!-- Desktop-only button (hidden on phones via @media) -->
+                <button type="button" class="btn btn-small" id="btnFieldYield">
+                  View / Add Yield
+                </button>
+              </div>
             </div>
           </div>
 
           <div class="fields-hint">
-            On a phone, swipe right on the field card to add yield. On desktop, tap the card or use “View / Add Yield.”
+            On a phone, swipe right on the field card to add yield. On desktop, use “View / Add Yield.”
           </div>
         </div>
       </section>
@@ -1086,6 +1106,33 @@
         });
         obs.observe(mhShell, { childList:true, subtree:true });
       }
+
+      // ===== Desktop-only: only "View / Add Yield" opens modal =====
+      const fieldCard   = document.getElementById('devFieldCard');
+      const yieldBtn    = document.getElementById('btnFieldYield');
+      const hiddenOpen  = document.getElementById('btnOpenModal');
+
+      if(fieldCard){
+        fieldCard.addEventListener('click', (ev) => {
+          const isMobile = window.matchMedia('(max-width: 640px)').matches;
+
+          // On phones, let existing swipe / handlers work untouched
+          if(isMobile) return;
+
+          const btnHit = ev.target.closest('#btnFieldYield');
+          if(btnHit && hiddenOpen){
+            // Desktop: only this button opens the helper modal
+            ev.preventDefault();
+            ev.stopPropagation();
+            hiddenOpen.click();
+          }else{
+            // Click anywhere else on the card: do nothing
+            ev.preventDefault();
+            ev.stopPropagation();
+          }
+        }, true); // capture so we can block other click handlers on the card
+      }
+      // ===== End desktop-only click control =====
     })();
   </script>
 </body>
