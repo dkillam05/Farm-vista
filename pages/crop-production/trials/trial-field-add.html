@@ -243,7 +243,7 @@
       height:36px;
       border-radius:10px;
       border:1px solid var(--border);
-      background:var(--surface-strong, var(--surface));
+      background:var(--surface);
       display:grid;
       place-items:center;
       cursor:pointer;
@@ -639,6 +639,7 @@
       trialId: null,
       trial: null,
       farms: [],
+
       fields: [],
       selectedFarm: null,
       selectedField: null,
@@ -749,33 +750,59 @@
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
     }
 
-    function wireMic(btn, ta){
+    /* --- mic dictation, copied pattern from maintenance-add --- */
+    function wireMic(buttonId, textareaId){
+      const btn = document.getElementById(buttonId);
+      const ta  = document.getElementById(textareaId);
       if(!btn || !ta) return;
+
       const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
-      if(!ok){ btn.style.display='none'; return; }
+      if(!ok){
+        btn.style.display = "none";
+        return;
+      }
+
       const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
       const rec = new Rec();
-      rec.lang='en-US'; rec.interimResults=true; rec.continuous=false;
-      let active=false, baseText='';
+      rec.lang = "en-US";
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = "";
+
       const setMic = on=>{
-        btn.classList.toggle('mic-active', on);
-        btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
+        btn.classList.toggle("mic-active", on);
+        btn.setAttribute("aria-label", on ? "Stop dictation" : "Start dictation");
       };
-      btn.addEventListener('click', ()=>{
+
+      btn.addEventListener("click", ()=>{
         if(!active){
-          baseText = ta.value ? ta.value + ' ' : '';
+          baseText = ta.value ? (ta.value + " ") : "";
           try{ rec.start(); active=true; setMic(true); }catch{}
         }else{
           try{ rec.stop(); rec.abort(); }catch{}
           active=false; setMic(false);
         }
       });
+
       rec.onresult = ev=>{
-        let txt=''; for(let i=ev.resultIndex;i<ev.results.length;i++) txt+=ev.results[i][0].transcript;
+        let txt = "";
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
+          txt += ev.results[i][0].transcript;
+        }
         ta.value = baseText + txt;
       };
       rec.onend = ()=>{ active=false; setMic(false); };
       rec.onerror = ()=>{ active=false; setMic(false); };
+    }
+
+    function setupMic(){
+      const notes = document.getElementById("notes");
+      if(notes){
+        notes.classList.add("with-mic");
+      }
+      wireMic("notesMic", "notes");
     }
 
     function closeAllCombos(exceptPanel=null){
@@ -1703,10 +1730,8 @@
         });
       }
 
-      if(notesInput && micBtn){
-        notesInput.classList.add("with-mic");
-        wireMic(micBtn, notesInput);
-      }
+      // mic wiring – same pattern as maintenance-add
+      setupMic();
 
       farmCombo = makeCombo({
         btn:fieldFarmBtn,
@@ -1814,8 +1839,7 @@
               <label for="fieldFarmBtn">Farm</label>
               <div class="combo-anchor">
                 <button id="fieldFarmBtn" class="buttonish has-caret" type="button">
-                  — Select farm —
-                </button>
+                  — Select farm —</button>
                 <div id="fieldFarmPanel" class="combo-panel" role="listbox" aria-label="Farm list">
                   <div class="search">
                     <input id="fieldFarmSearch" type="search" placeholder="Search farms…" />
@@ -1830,8 +1854,7 @@
               <label for="fieldFieldBtn">Field</label>
               <div class="combo-anchor">
                 <button id="fieldFieldBtn" class="buttonish has-caret" type="button">
-                  — Select field —
-                </button>
+                  — Select field —</button>
                 <div id="fieldFieldPanel" class="combo-panel" role="listbox" aria-label="Field list">
                   <div class="search">
                     <input id="fieldFieldSearch" type="search" placeholder="Search fields…" />
@@ -1855,7 +1878,7 @@
             <div class="ta-wrap">
               <textarea id="notes" class="textarea with-mic"
                         placeholder="Strip layout, passes, timing, or anything the crew needs to remember."></textarea>
-              <button id="notesMic" type="button" class="mic-btn" aria-label="Dictate notes">
+              <button id="notesMic" type="button" class="mic-btn" aria-label="Start dictation">
                 <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
                 </svg>
