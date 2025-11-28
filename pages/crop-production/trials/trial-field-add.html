@@ -119,11 +119,6 @@
       color:var(--muted,#67706B);
     }
 
-    .top-row-actions{
-      display:flex;
-      align-items:flex-start;
-    }
-
     .btn{
       display:inline-flex;
       align-items:center;
@@ -252,7 +247,7 @@
       display:grid;
       place-items:center;
       cursor:pointer;
-      color:var(--muted, #67706B); /* neutral gray in light and dark */
+      color:var(--muted,#67706B); /* neutral in light & dark */
     }
     .mic-btn[disabled]{
       opacity:.6;
@@ -547,54 +542,65 @@
       100%{opacity:0}
     }
 
-    /* Confirm "no acres" bar */
-    .toast-confirm{
+    /* === Centered Confirmation Modal === */
+    .modal-backdrop{
       position:fixed;
-      left:50%;
-      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
-      transform:translateX(-50%);
-      background:var(--surface-strong, #333);
-      color:var(--text,#fff);
-      padding:10px 14px;
-      border-radius:10px;
-      box-shadow:0 6px 20px rgba(0,0,0,.25);
-      z-index:100000;
+      inset:0;
+      background:rgba(0,0,0,.45);
+      backdrop-filter:blur(2px);
       display:none;
       align-items:center;
+      justify-content:center;
+      z-index:200000;
+    }
+    .modal-backdrop.show{
+      display:flex;
+    }
+    .modal-sheet{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 20px 40px rgba(0,0,0,.35);
+      max-width:90%;
+      width:380px;
+      padding:20px 22px;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .modal-title{
+      font-size:1rem;
+      font-weight:700;
+      color:var(--text);
+    }
+    .modal-body{
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+    .modal-actions{
+      margin-top:6px;
+      display:flex;
+      justify-content:flex-end;
       gap:10px;
-      max-width:92vw;
     }
-    .toast-confirm.show{
-      display:flex;
-    }
-    .toast-confirm-text{
-      font-size:0.88rem;
-      flex:1 1 auto;
-      min-width:0;
-    }
-    .toast-confirm-actions{
-      display:flex;
-      gap:6px;
-      flex-shrink:0;
-    }
-    .toast-btn{
-      border:none;
-      border-radius:999px;
-      padding:4px 10px;
-      font-size:0.8rem;
+    .modal-btn{
+      padding:8px 16px;
+      border-radius:10px;
+      font-size:0.9rem;
+      font-weight:700;
       cursor:pointer;
-      font-weight:600;
-      white-space:nowrap;
+      border:1px solid var(--border);
+      background:var(--surface-strong,var(--surface));
+      color:var(--text);
     }
-    .toast-btn-secondary{
-      background:rgba(0,0,0,.12);
-      color:var(--text,#fff);
+    .modal-btn:hover{
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
-    .toast-btn-primary{
-      background:#2F6C3C;
+    .modal-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
       color:#fff;
     }
-
   </style>
 
   <script>
@@ -641,14 +647,14 @@
       selectedFieldMaxAcres: null,
       existingFields: [],   // already saved
       pendingFields: [],    // new this session
-      overlaps: [],         // overlapping trials using same fields + crop year
+      overlaps: [],         // overlapping trials
       noAcresDraft: null
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
 
     let toastEl, errorBox, debugLogEl;
-    let confirmNoAcresEl, confirmNoAcresMsg, confirmNoAcresCancel, confirmNoAcresOk;
+    let noAcresModal, noAcresOk, noAcresCancel;
 
     let farmCombo, fieldCombo;
     let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
@@ -1041,7 +1047,6 @@
 
     function applySwipeToLists(){
       try{
-        // Only enable swipe on touch devices – keep desktop buttons fully clickable
         if(!isTouchPointer()){
           diag('applySwipeToLists.skip', { reason: 'non-touch pointer; buttons only' });
           return;
@@ -1086,7 +1091,6 @@
           });
         }
       }catch(err){
-        // Important: don't kill the whole page if swipe wiring has a bug.
         diag('applySwipeToLists.error', { message: err.message, stack: err.stack });
       }
     }
@@ -1136,7 +1140,6 @@
           return;
         }
 
-        // Collect all fieldIds we care about (existing + pending)
         const fieldIds = new Set();
         (STATE.existingFields || []).forEach(row=>{
           if(row.field && row.field.id) fieldIds.add(row.field.id);
@@ -1158,7 +1161,7 @@
         trialsSnap.forEach(d=>{
           const data = d.data() || {};
           const id   = d.id;
-          if(id === STATE.trialId) return; // skip current trial
+          if(id === STATE.trialId) return;
 
           const cropYear = data.cropYear;
           if(cropYear !== targetCropYear) return;
@@ -1191,7 +1194,7 @@
         }
 
         const conflicts = [];
-        const seen = new Set(); // dedupe on trialId|fieldId
+        const seen = new Set();
 
         for(const t of relevantTrials){
           const path = `${CONFIG.COLLECTION_TRIALS}/${t.id}/fields`;
@@ -1229,7 +1232,6 @@
       }catch(err){
         console.error('Error checking overlapping trials:', err);
         diag('overlap.error', { message: err.message, stack: err.stack });
-        // If overlap check fails, just hide the card so it never blocks workflow
         renderOverlapConflicts([]);
       }
     }
@@ -1237,7 +1239,6 @@
     function renderFieldLists(){
       if(!existingListEl || !pendingListEl) return;
 
-      // Existing (saved) fields
       existingListEl.innerHTML = '';
       if(STATE.existingFields.length){
         const frag = document.createDocumentFragment();
@@ -1280,7 +1281,6 @@
         existingListEl.appendChild(frag);
       }
 
-      // Pending (new) fields
       pendingListEl.innerHTML = '';
       if(STATE.pendingFields.length){
         const label = document.createElement('div');
@@ -1328,13 +1328,11 @@
         }
       }
 
-      // Try to enable swipe, but don't let it break the page
       applySwipeToLists();
 
-      // Debounced overlap check so we don't hammer Firestore
       if(overlapCheckTimer) clearTimeout(overlapCheckTimer);
       overlapCheckTimer = setTimeout(()=>{
-        checkOverlappingTrials().catch(()=>{ /* already logged */ });
+        checkOverlappingTrials().catch(()=>{});
       }, 120);
     }
 
@@ -1373,7 +1371,6 @@
       renderFieldLists();
       showToast("Field Added - Not Save Yet");
 
-      // reset form
       STATE.selectedFarm = null;
       STATE.selectedField = null;
       STATE.selectedFieldMaxAcres = null;
@@ -1391,20 +1388,19 @@
     }
 
     function openNoAcresConfirm(draft){
-      if(!confirmNoAcresEl || !confirmNoAcresMsg){
-        // Fallback: just add without prompt if something is missing
-        actuallyAddPendingRow(draft);
-        return;
-      }
       STATE.noAcresDraft = draft;
-      confirmNoAcresMsg.textContent = 'Are you sure no trial acres at this time?';
-      confirmNoAcresEl.classList.add('show');
+      if(noAcresModal){
+        noAcresModal.classList.add('show');
+      }else{
+        // fallback – just add if modal missing
+        actuallyAddPendingRow(draft);
+      }
     }
 
     function closeNoAcresConfirm(){
       STATE.noAcresDraft = null;
-      if(confirmNoAcresEl){
-        confirmNoAcresEl.classList.remove('show');
+      if(noAcresModal){
+        noAcresModal.classList.remove('show');
       }
     }
 
@@ -1428,7 +1424,6 @@
         return;
       }
 
-      // Prevent adding the same field twice (existing or pending)
       const fieldId = field.id;
       if(fieldId){
         const alreadyExisting = STATE.existingFields.some(row => row.field && row.field.id === fieldId);
@@ -1463,7 +1458,6 @@
 
       const draft = { farm, field, acres, notes };
 
-      // If no acres entered, ask for confirmation before adding
       if(acres == null){
         openNoAcresConfirm(draft);
         return;
@@ -1477,10 +1471,12 @@
       showError('');
       if(trialAcresInput) trialAcresInput.classList.remove('input-error');
       if(!STATE.pendingFields.length){
-        showError("No new fields to save. Add at least one field to this trial."); return;
+        showError("No new fields to save. Add at least one field to this trial.");
+        return;
       }
       if(!STATE.user){
-        showError("User is not signed in. Please re-login and try again."); return;
+        showError("User is not signed in. Please re-login and try again.");
+        return;
       }
 
       const saveBtn=document.getElementById('btnSaveFields');
@@ -1543,22 +1539,24 @@
       errorBox=document.getElementById('errBox');
       debugLogEl=document.getElementById('debugLog');
 
-      confirmNoAcresEl     = document.getElementById('confirmNoAcres');
-      confirmNoAcresMsg    = document.getElementById('confirmNoAcresMsg');
-      confirmNoAcresCancel = document.getElementById('confirmNoAcresCancel');
-      confirmNoAcresOk     = document.getElementById('confirmNoAcresOk');
+      noAcresModal  = document.getElementById('noAcresModal');
+      noAcresOk     = document.getElementById('noAcresOk');
+      noAcresCancel = document.getElementById('noAcresCancel');
 
-      if(confirmNoAcresCancel){
-        confirmNoAcresCancel.addEventListener('click', () => {
-          closeNoAcresConfirm();
-        });
+      if(noAcresCancel){
+        noAcresCancel.addEventListener('click', closeNoAcresConfirm);
       }
-      if(confirmNoAcresOk){
-        confirmNoAcresOk.addEventListener('click', () => {
+      if(noAcresOk){
+        noAcresOk.addEventListener('click', () => {
           if(STATE.noAcresDraft){
             actuallyAddPendingRow(STATE.noAcresDraft);
           }
           closeNoAcresConfirm();
+        });
+      }
+      if(noAcresModal){
+        noAcresModal.addEventListener('click', (e)=>{
+          if(e.target === noAcresModal) closeNoAcresConfirm();
         });
       }
 
@@ -1652,7 +1650,6 @@
         btnSaveAll.addEventListener("click", saveAllFields);
       }
 
-      // Delegated click handlers so Add Yield / Remove keep working with swipe
       if(existingListEl){
         existingListEl.addEventListener('click', (e)=>{
           const yieldBtn = e.target.closest('button[data-existing-yield]');
@@ -1782,7 +1779,7 @@
         <div class="body">
           <div id="errBox" class="error-box"></div>
 
-          <!-- Back button row between header and trial summary -->
+          <!-- Back button row -->
           <div class="top-row">
             <button id="btnBack" type="button" class="btn btn-quiet">
               ← Back to Trials
@@ -1880,7 +1877,7 @@
         </div>
       </section>
 
-      <!-- New hero: overlapping trials warning -->
+      <!-- Overlapping trials warning -->
       <section id="overlapHero" class="overlap-hero" style="display:none;">
         <header class="overlap-head">
           <h2>Other trials using these fields</h2>
@@ -1896,14 +1893,17 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Confirm "no acres" toast bar -->
-  <div id="confirmNoAcres" class="toast-confirm" role="alertdialog" aria-modal="true" aria-live="assertive">
-    <div id="confirmNoAcresMsg" class="toast-confirm-text">
-      Are you sure no trial acres at this time?
-    </div>
-    <div class="toast-confirm-actions">
-      <button type="button" id="confirmNoAcresCancel" class="toast-btn toast-btn-secondary">Cancel</button>
-      <button type="button" id="confirmNoAcresOk" class="toast-btn toast-btn-primary">Okay</button>
+  <!-- Centered "No Acres" confirmation modal -->
+  <div id="noAcresModal" class="modal-backdrop" role="alertdialog" aria-modal="true">
+    <div class="modal-sheet">
+      <div class="modal-title">No Trial Acres Entered</div>
+      <div class="modal-body">
+        Are you sure you want to add this field without any trial acres? You can always enter them later.
+      </div>
+      <div class="modal-actions">
+        <button id="noAcresCancel" type="button" class="modal-btn">Cancel</button>
+        <button id="noAcresOk" type="button" class="modal-btn modal-btn-primary">Okay</button>
+      </div>
     </div>
   </div>
 </body>
