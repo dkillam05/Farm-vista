@@ -1,6 +1,6 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-11-27f (Divernon + °F forecast)
+// Rev: 2025-11-27g (Divernon + °F forecast + today-first)
 //
 // FarmVista Weather module
 // - Google Weather: current conditions + last 24h precip
@@ -12,7 +12,7 @@
 //
 // Modal popup:
 //   • Current conditions (detailed)
-//   • Next 5 days (rows, Fahrenheit)
+//   • Next 5 days (rows, Fahrenheit) – starting from *today*
 //   • Rainfall last 7 days (bar chart)
 //
 // Usage in dashboard:
@@ -66,7 +66,8 @@
     container.innerHTML = `
       <section class="fv-weather-card" style="
         border-radius:14px;border:1px solid var(--border,#d1d5db);
-        background:var(--surface,#fff);box-shadow:0 8px 18px rgba(0,0,0,.06);
+        background:var(--card-surface,var(--surface));
+        box-shadow:0 8px 18px rgba(0,0,0,.06);
         padding:10px 14px 12px;
       ">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
@@ -88,7 +89,8 @@
     container.innerHTML = `
       <section class="fv-weather-card" style="
         border-radius:14px;border:1px solid var(--border,#d1d5db);
-        background:var(--surface,#fff);box-shadow:0 8px 18px rgba(0,0,0,.06);
+        background:var(--card-surface,var(--surface));
+        box-shadow:0 8px 18px rgba(0,0,0,.06);
         padding:10px 14px 12px;
       ">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
@@ -267,7 +269,7 @@
       forecast_days: "7",
       timezone: "auto",
       precipitation_unit: "inch",
-      temperature_unit: "fahrenheit" // *** ensure forecast temps are °F ***
+      temperature_unit: "fahrenheit"
     });
 
     const url = `${OPEN_METEO_URL}?${params.toString()}`;
@@ -357,7 +359,8 @@
     container.innerHTML = `
       <section class="fv-weather-card" style="
         border-radius:14px;border:1px solid var(--border,#d1d5db);
-        background:var(--surface,#fff);box-shadow:0 8px 18px rgba(0,0,0,.06);
+        background:var(--card-surface,var(--surface));
+        box-shadow:0 8px 18px rgba(0,0,0,0.06);
         padding:10px 14px 12px;cursor:pointer;
       ">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
@@ -379,7 +382,8 @@
           </div>
           <button type="button" class="fv-weather-refresh" style="
             border-radius:999px;border:1px solid var(--border,#d1d5db);
-            background:var(--surface,#fff);padding:4px 8px;
+            background:var(--surface,#fff0);
+            padding:4px 8px;
             font-size:12px;cursor:pointer;
           " aria-label="Refresh weather">
             ⟳
@@ -407,26 +411,32 @@
         </div>
 
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
-          <div style="
-            padding:4px 8px;border-radius:999px;background:var(--subtle,#f3f4f6);
+          <div class="fv-weather-rain-pill" style="
+            padding:4px 8px;border-radius:999px;
+            background:var(--card-surface,var(--surface));
+            border:1px solid var(--border);
             font-size:11px;display:flex;gap:4px;align-items:center;
           ">
-            <span style="font-weight:500;">Rain last 24 hours</span>
-            <span style="font-variant-numeric:tabular-nums;">${rain24}</span>
+            <span class="fv-weather-label" style="font-weight:500;">Rain last 24 hours</span>
+            <span class="fv-weather-value" style="font-variant-numeric:tabular-nums;">${rain24}</span>
           </div>
-          <div style="
-            padding:4px 8px;border-radius:999px;background:var(--subtle,#f3f4f6);
+          <div class="fv-weather-rain-pill" style="
+            padding:4px 8px;border-radius:999px;
+            background:var(--card-surface,var(--surface));
+            border:1px solid var(--border);
             font-size:11px;display:flex;gap:4px;align-items:center;
           ">
-            <span style="font-weight:500;">Rain last 7 days</span>
-            <span style="font-variant-numeric:tabular-nums;">${rain7}</span>
+            <span class="fv-weather-label" style="font-weight:500;">Rain last 7 days</span>
+            <span class="fv-weather-value" style="font-variant-numeric:tabular-nums;">${rain7}</span>
           </div>
-          <div style="
-            padding:4px 8px;border-radius:999px;background:var(--subtle,#f3f4f6);
+          <div class="fv-weather-rain-pill" style="
+            padding:4px 8px;border-radius:999px;
+            background:var(--card-surface,var(--surface));
+            border:1px solid var(--border);
             font-size:11px;display:flex;gap:4px;align-items:center;
           ">
-            <span style="font-weight:500;">Rain last 30 days</span>
-            <span style="font-variant-numeric:tabular-nums;">${rain30}</span>
+            <span class="fv-weather-label" style="font-weight:500;">Rain last 30 days</span>
+            <span class="fv-weather-value" style="font-variant-numeric:tabular-nums;">${rain30}</span>
           </div>
         </div>
       </section>
@@ -493,21 +503,44 @@
             const val = seriesAmounts[idx] || 0;
             const pct = Math.max(5, (val / maxAmt) * 100);
             return `
-              <div class="fv-rain-row">
-                <div class="fv-rain-label">${fmtDayShort(d)}</div>
-                <div class="fv-rain-bar-wrap">
-                  <div class="fv-rain-bar" style="width:${pct}%;"></div>
+              <div class="fv-rain-row" style="
+                display:grid;grid-template-columns:50px 1fr 52px;
+                align-items:center;gap:6px;font-size:12px;
+              ">
+                <div class="fv-rain-label" style="font-weight:500;">${fmtDayShort(d)}</div>
+                <div class="fv-rain-bar-wrap" style="
+                  position:relative;height:8px;border-radius:999px;
+                  background:var(--border);opacity:.4;overflow:hidden;
+                ">
+                  <div class="fv-rain-bar" style="
+                    position:absolute;inset:0;border-radius:999px;
+                    background:#2F6C3C;width:${pct}%;
+                  "></div>
                 </div>
-                <div class="fv-rain-value">${roundTo2(val)}"</div>
+                <div class="fv-rain-value" style="
+                  text-align:right;font-variant-numeric:tabular-nums;
+                ">
+                  ${roundTo2(val)}"
+                </div>
               </div>
             `;
           })
           .join("")
-      : `<div class="fv-rain-chart-empty">
+      : `<div class="fv-rain-chart-empty" style="font-size:12px;color:var(--muted,#67706B);">
            No recent rainfall data.
          </div>`;
 
-    const forecastDays = (forecast.days || []).slice(0, 5);
+    // --- NEW: only show forecast for today and forward ---
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const allDays = forecast.days || [];
+    const upcoming = allDays.filter(d => {
+      const dt = new Date(d.date);
+      return dt >= today;
+    });
+    const forecastDays = upcoming.slice(0, 5);
+    // -----------------------------------------------------
+
     const forecastHtml = forecastDays.length
       ? `
       <div class="fv-forecast-list">
@@ -518,18 +551,31 @@
             const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "—";
             const prob = day.precipProb != null ? `${Math.round(day.precipProb)}%` : "—";
             return `
-              <div class="fv-forecast-row">
-                <div class="fv-forecast-day">
-                  <div class="fv-forecast-dow">${fmtDayShort(day.date)}</div>
-                  <div class="fv-forecast-date">${fmtMD(day.date)}</div>
+              <div class="fv-forecast-row" style="
+                display:grid;grid-template-columns:90px 1fr 110px;
+                align-items:center;gap:8px;padding:6px 0;
+                border-bottom:1px dashed rgba(148,163,184,0.4);
+                font-size:12px;
+              ">
+                <div class="fv-forecast-day" style="display:flex;flex-direction:column;gap:2px;">
+                  <div class="fv-forecast-dow" style="font-weight:600;">${fmtDayShort(day.date)}</div>
+                  <div class="fv-forecast-date" style="font-size:11px;color:var(--muted,#67706B);">
+                    ${fmtMD(day.date)}
+                  </div>
                 </div>
-                <div class="fv-forecast-temps">
-                  <span class="hi">${hi}</span>
-                  <span class="lo">${lo}</span>
+                <div class="fv-forecast-temps" style="
+                  display:flex;align-items:center;gap:6px;
+                  font-variant-numeric:tabular-nums;
+                ">
+                  <span class="hi" style="font-weight:600;">${hi}</span>
+                  <span class="lo" style="color:var(--muted,#67706B);">${lo}</span>
                 </div>
-                <div class="fv-forecast-rain">
-                  <span class="amt">${rainIn}</span>
-                  <span class="prob">${prob}</span>
+                <div class="fv-forecast-rain" style="
+                  display:flex;justify-content:flex-end;gap:6px;
+                  font-variant-numeric:tabular-nums;
+                ">
+                  <span class="amt" style="font-weight:500;">${rainIn}</span>
+                  <span class="prob" style="color:var(--muted,#67706B);">${prob}</span>
                 </div>
               </div>
             `;
@@ -537,40 +583,53 @@
           .join("")}
       </div>
     `
-      : `<div class="fv-forecast-empty">
+      : `<div class="fv-forecast-empty" style="font-size:12px;color:var(--muted,#67706B);">
            Forecast data not available.
          </div>`;
 
     container.innerHTML = `
       <section class="fv-weather-card fv-weather-modal-card" style="cursor:auto;box-shadow:none;border:none;padding:0;">
-        <header class="fv-weather-modal-head">
+        <header class="fv-weather-modal-head" style="margin-bottom:10px;">
           <div>
-            <div class="fv-weather-title">Weather · ${config.locationLabel || ""}</div>
-            <div class="fv-weather-meta">
+            <div class="fv-weather-title" style="
+              font-size:13px;font-weight:600;letter-spacing:.06em;
+              text-transform:uppercase;
+            ">
+              Weather · ${config.locationLabel || ""}
+            </div>
+            <div class="fv-weather-meta" style="
+              font-size:11px;color:var(--muted,#67706B);
+            ">
               Detailed conditions, 5-day outlook, and rain history.
             </div>
           </div>
         </header>
 
-        <div class="fv-weather-modal-body-inner">
-          <section class="fv-weather-modal-section fv-weather-current">
-            <div class="fv-weather-main">
-              <div class="fv-weather-temp-block">
-                <div class="fv-weather-temp" style="font-size:2rem;">${tempStr}</div>
+        <div class="fv-weather-modal-body-inner" style="display:flex;flex-direction:column;gap:14px;">
+          <section class="fv-weather-modal-section fv-weather-current" style="
+            border-radius:12px;border:1px solid var(--border,#e5e7eb);
+            padding:10px 12px 12px;background:var(--card-surface,var(--surface));
+          ">
+            <div class="fv-weather-main" style="
+              display:flex;align-items:center;justify-content:space-between;
+              gap:10px;flex-wrap:wrap;
+            ">
+              <div class="fv-weather-temp-block" style="display:flex;flex-direction:column;gap:2px;">
+                <div class="fv-weather-temp" style="font-size:2rem;font-weight:600;">${tempStr}</div>
                 <div class="fv-weather-desc" style="font-size:0.95rem;">${desc}</div>
-                <div class="fv-weather-feels">
+                <div class="fv-weather-feels" style="font-size:0.85rem;color:var(--muted,#67706B);">
                   Feels like <strong>${feelsStr}</strong>
                 </div>
-                <div class="fv-weather-humidity">
+                <div class="fv-weather-humidity" style="font-size:0.85rem;color:var(--muted,#67706B);">
                   Humidity: <strong>${humidStr}</strong> • Wind: <strong>${windStr}</strong>
                 </div>
-                <div class="fv-weather-rain-summary">
+                <div class="fv-weather-rain-summary" style="margin-top:6px;font-size:0.82rem;color:var(--muted,#67706B);">
                   Rain last 24h: <strong>${rain24}</strong> ·
                   7 days: <strong>${rain7}</strong> ·
                   30 days: <strong>${rain30}</strong>
                 </div>
               </div>
-              <div class="fv-weather-icon-block">
+              <div class="fv-weather-icon-block" style="flex:0 0 auto;">
                 ${
                   iconUrl
                     ? `<img src="${iconUrl}" alt="${desc}" class="fv-weather-icon" style="width:60px;height:60px;" loading="lazy">`
@@ -580,13 +639,31 @@
             </div>
           </section>
 
-          <section class="fv-weather-modal-section fv-weather-forecast">
-            <h3 class="fv-weather-modal-subtitle">Next 5 days</h3>
+          <section class="fv-weather-modal-section fv-weather-forecast" style="
+            border-radius:12px;border:1px solid var(--border,#e5e7eb);
+            padding:10px 12px 12px;background:var(--card-surface,var(--surface));
+          ">
+            <h3 class="fv-weather-modal-subtitle" style="
+              margin:0 0 6px 0;font-size:13px;font-weight:600;
+              letter-spacing:.05em;text-transform:uppercase;
+              color:var(--muted,#67706B);
+            ">
+              Next 5 days
+            </h3>
             ${forecastHtml}
           </section>
 
-          <section class="fv-weather-modal-section fv-weather-rain-history">
-            <h3 class="fv-weather-modal-subtitle">Rainfall – last 7 days</h3>
+          <section class="fv-weather-modal-section fv-weather-rain-history" style="
+            border-radius:12px;border:1px solid var(--border,#e5e7eb);
+            padding:10px 12px 12px;background:var(--card-surface,var(--surface));
+          ">
+            <h3 class="fv-weather-modal-subtitle" style="
+              margin:0 0 6px 0;font-size:13px;font-weight:600;
+              letter-spacing:.05em;text-transform:uppercase;
+              color:var(--muted,#67706B);
+            ">
+              Rainfall – last 7 days
+            </h3>
             <div class="fv-rain-chart">
               ${rainChartHtml}
             </div>
