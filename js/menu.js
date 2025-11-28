@@ -35,7 +35,10 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        // Field Maintenance at the top
+        // NEW: Weather at the very top
+        { type: 'link', id: 'crop-weather',    icon: '⛅', label: 'Weather',            href: '/Farm-vista/pages/crop-production/field-weather.html', activeMatch: 'exact' },
+
+        // Field Maintenance under Weather
         { type: 'link', id: 'crop-maint',      icon: '🛠️', label: 'Field Maintenance',  href: '/Farm-vista/pages/crop-production/maintenance.html', activeMatch: 'exact' },
         // Trials under that
         { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',              href: '/Farm-vista/pages/crop-production/trials.html',      activeMatch: 'exact' },
