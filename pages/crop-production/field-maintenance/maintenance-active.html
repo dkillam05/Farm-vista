@@ -1168,7 +1168,6 @@
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
-    import { wireDictation } from '/Farm-vista/js/fv-dictation.js';
 
     const CONFIG = {
       COLLECTION_PATH: 'fieldMaintenance',
@@ -1810,6 +1809,74 @@
       }, 200);
     }
 
+    // ===== Inline mic wiring for job notes (PWA-safe) =====
+    function makeInlineMic(btnEl, taEl){
+      if(!btnEl || !taEl) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        btnEl.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on) => {
+        btnEl.classList.toggle('mic-active', on);
+        btnEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
+      };
+
+      btnEl.addEventListener('click', () => {
+        if(!active){
+          baseText = taEl.value ? (taEl.value + ' ') : '';
+          try{
+            rec.start();
+            active = true;
+            setMic(true);
+          }catch(err){
+            // ignore double-start errors
+          }
+        }else{
+          try{
+            rec.stop();
+            rec.abort();
+          }catch(err){
+            // ignore
+          }
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev) => {
+        let txt = '';
+        for(let i = ev.resultIndex; i < ev.results.length; i++){
+          txt += ev.results[i][0].transcript;
+        }
+        taEl.value = baseText + txt;
+        // bubble input so any listeners pick it up
+        taEl.dispatchEvent(new Event('input', { bubbles:true }));
+      };
+
+      rec.onend = () => {
+        active = false;
+        setMic(false);
+      };
+
+      rec.onerror = () => {
+        active = false;
+        setMic(false);
+      };
+    }
+    // ===== End inline mic wiring =====
+
     async function openJobModal(item){
       if(!jobModal || !jobForm) return;
 
@@ -2068,8 +2135,11 @@
         });
       }
 
-      // Dictation for notes – same helper as elsewhere
-      wireDictation('jobMic', 'jobNotes');
+      // Wire inline dictation for job notes
+      const jobMicBtn = document.getElementById('jobMic');
+      if(jobMicBtn && jobNotesInput){
+        makeInlineMic(jobMicBtn, jobNotesInput);
+      }
 
       setupCrewDropdown();
       setupJobSubmittedBy();
