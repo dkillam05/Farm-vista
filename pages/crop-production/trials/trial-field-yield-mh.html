@@ -694,7 +694,6 @@
           <h2>Field in this multi-hybrid trial</h2>
         </header>
         <div class="fields-body">
-          <!-- For now we show a single field card. Later we can wire this to real trial/field docs. -->
           <div class="field-card" id="devFieldCard">
             <div class="field-card-top">
               <div>
@@ -763,7 +762,9 @@
     const STATE = {
       db: null,
       trialId: null,
-      trial: null
+      trial: null,
+      fieldId: null,
+      field: null
     };
 
     const $ = (sel, root = document) => root.querySelector(sel);
@@ -829,6 +830,93 @@
       }
     }
 
+    async function loadField(){
+      const fieldTitleEl = $('#mhFieldTitle');
+      const fieldSubEl   = $('#mhFieldSub');
+      const fieldNoteEl  = $('#devFieldSummary');
+      const params       = new URLSearchParams(window.location.search);
+
+      const fallbackFromParams = () => {
+        const farmName  = params.get('farmName') || '';
+        const fieldName = params.get('fieldName');
+        const trialAc   = params.get('trialAc');
+        const tillable  = params.get('tillable');
+
+        if(fieldName && fieldTitleEl){
+          fieldTitleEl.textContent = farmName
+            ? `${farmName} • ${fieldName}`
+            : fieldName;
+        }
+
+        if(fieldSubEl && trialAc){
+          const tillText = tillable ? ` (Max tillable: ${tillable})` : '';
+          fieldSubEl.innerHTML =
+            `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>${tillText}`;
+        }
+      };
+
+      // If we don't have enough info for Firestore, just use URL params.
+      if(!STATE.db || !STATE.trialId || !STATE.fieldId){
+        fallbackFromParams();
+        return;
+      }
+
+      try{
+        const fieldRef = doc(
+          STATE.db,
+          CONFIG.COLLECTION_TRIALS,
+          STATE.trialId,
+          'fields',
+          STATE.fieldId
+        );
+        const snap = await getDoc(fieldRef);
+
+        if(!snap.exists()){
+          fallbackFromParams();
+          return;
+        }
+
+        const f = snap.data() || {};
+        STATE.field = f;
+
+        const farmName  = f.farmName || f.farm || '';
+        const fieldName = f.fieldName || f.field || '';
+        const trialAc   = f.trialAcres ?? f.trialAc ?? null;
+        const tillable  = f.maxTillableAcres ?? f.tillableAc ?? f.fieldAcres ?? null;
+
+        if(fieldTitleEl){
+          const parts = [];
+          if(farmName)  parts.push(farmName);
+          if(fieldName) parts.push(fieldName);
+          fieldTitleEl.textContent = parts.length
+            ? parts.join(' • ')
+            : 'Field in multi-hybrid trial';
+        }
+
+        if(fieldSubEl){
+          let html = '';
+          if(trialAc != null){
+            html += `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>`;
+          }
+          if(tillable != null){
+            html += ` (Max tillable: ${Number(tillable).toFixed(2)})`;
+          }
+          fieldSubEl.innerHTML = html || '';
+        }
+
+        if(fieldNoteEl){
+          const bits = [];
+          if(f.township) bits.push(f.township);
+          if(f.range)    bits.push(f.range);
+          if(f.section)  bits.push(`Sec ${f.section}`);
+          fieldNoteEl.textContent = bits.join(' • ');
+        }
+      }catch(err){
+        console.error('Error loading MH trial field:', err);
+        fallbackFromParams();
+      }
+    }
+
     (async function boot(){
       await ready;
 
@@ -837,30 +925,23 @@
         shell.nav = NAV_MENU;
       }
 
-      STATE.db = getFirestore();
+      STATE.db      = getFirestore();
       STATE.trialId = getQueryParam('trialId');
+      STATE.fieldId = getQueryParam('fieldId');
 
       await loadTrial();
+      await loadField();
+
+      // Expose context so the MH helper can talk to Firestore.
+      window.MH_TRIAL_CONTEXT = {
+        db: STATE.db,
+        trialId: STATE.trialId,
+        trial: STATE.trial,
+        fieldId: STATE.fieldId,
+        field: STATE.field
+      };
 
       const params = new URLSearchParams(window.location.search);
-      const fieldTitleEl = $('#mhFieldTitle');
-      const fieldSubEl   = $('#mhFieldSub');
-
-      const farmName  = params.get('farmName') || '';
-      const fieldName = params.get('fieldName');
-      const trialAc   = params.get('trialAc');
-      const tillable  = params.get('tillable');
-
-      if(fieldName && fieldTitleEl){
-        fieldTitleEl.textContent = farmName
-          ? `${farmName} • ${fieldName}`
-          : fieldName;
-      }
-      if(fieldSubEl && trialAc){
-        const tillText = tillable ? ` (Max tillable: ${tillable})` : '';
-        fieldSubEl.innerHTML =
-          `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>${tillText}`;
-      }
 
       const btnBack = $('#btnBack');
       if(btnBack){
@@ -871,6 +952,7 @@
       }
 
       // Initialize the MH helper – it will manage the popup, dictation, files, etc.
+      // It can read window.MH_TRIAL_CONTEXT for Firestore details.
       initMhYieldHelper();
     })();
   </script>
