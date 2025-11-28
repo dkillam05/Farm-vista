@@ -1,6 +1,6 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-11-27g (Divernon + °F forecast + today-first)
+// Rev: 2025-11-27h (Divernon + °F forecast + today-first + day details)
 //
 // FarmVista Weather module
 // - Google Weather: current conditions + last 24h precip
@@ -13,6 +13,7 @@
 // Modal popup:
 //   • Current conditions (detailed)
 //   • Next 5 days (rows, Fahrenheit) – starting from *today*
+//   • Click a day → details panel (conditions, snow/rain range, wind, sunrise/sunset)
 //   • Rainfall last 7 days (bar chart)
 //
 // Usage in dashboard:
@@ -164,6 +165,49 @@
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
+  function toLocalTime(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  // Classify a day into Sunny / Cloudy / Rain / Snow and compute snow range text.
+  function classifyDay(day) {
+    const hi = day.tMax;
+    const lo = day.tMin;
+    const precip = day.precipIn || 0;
+    const prob = day.precipProb || 0;
+    const clouds = day.cloudCover != null ? day.cloudCover : 0;
+
+    let type = "Unknown";
+    // simple rule-of-thumb classification
+    if (precip >= 0.05 && hi <= 34) {
+      type = "Snow";
+    } else if (precip >= 0.05) {
+      type = "Rain";
+    } else if (clouds <= 20) {
+      type = "Sunny";
+    } else if (clouds <= 60) {
+      type = "Partly cloudy";
+    } else {
+      type = "Cloudy";
+    }
+
+    // snow range bucket from precip amount
+    let snowRange = null;
+    if (type === "Snow" && precip > 0) {
+      const inch = precip;
+      if (inch < 0.2) snowRange = "Dusting";
+      else if (inch < 1.0) snowRange = "½–1\"";
+      else if (inch < 2.0) snowRange = "1–2\"";
+      else if (inch < 3.0) snowRange = "2–4\"";
+      else if (inch < 5.0) snowRange = "3–5\"";
+      else snowRange = `${Math.round(inch)}"+`;
+    }
+
+    return { type, snowRange };
+  }
+
   /* ==========================
      Fetchers
      ========================== */
@@ -264,12 +308,22 @@
     const params = new URLSearchParams({
       latitude: String(config.lat),
       longitude: String(config.lon),
-      daily:
-        "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_mean",
+      daily: [
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "precipitation_sum",
+        "precipitation_probability_mean",
+        "cloudcover_mean",
+        "windspeed_10m_max",
+        "winddirection_10m_dominant",
+        "sunrise",
+        "sunset"
+      ].join(","),
       forecast_days: "7",
       timezone: "auto",
       precipitation_unit: "inch",
-      temperature_unit: "fahrenheit"
+      temperature_unit: "fahrenheit",
+      wind_speed_unit: "mph"
     });
 
     const url = `${OPEN_METEO_URL}?${params.toString()}`;
@@ -284,6 +338,11 @@
     const tMin = daily.temperature_2m_min || [];
     const precip = daily.precipitation_sum || [];
     const prob = daily.precipitation_probability_mean || [];
+    const clouds = daily.cloudcover_mean || [];
+    const windSpeed = daily.windspeed_10m_max || [];
+    const windDir = daily.winddirection_10m_dominant || [];
+    const sunrise = daily.sunrise || [];
+    const sunset = daily.sunset || [];
 
     const days = [];
     for (let i = 0; i < times.length; i++) {
@@ -292,7 +351,12 @@
         tMax: typeof tMax[i] === "number" ? tMax[i] : null,
         tMin: typeof tMin[i] === "number" ? tMin[i] : null,
         precipIn: typeof precip[i] === "number" ? precip[i] : 0,
-        precipProb: typeof prob[i] === "number" ? prob[i] : null
+        precipProb: typeof prob[i] === "number" ? prob[i] : null,
+        cloudCover: typeof clouds[i] === "number" ? clouds[i] : null,
+        windSpeedMax: typeof windSpeed[i] === "number" ? windSpeed[i] : null,
+        windDirDeg: typeof windDir[i] === "number" ? windDir[i] : null,
+        sunrise: sunrise[i],
+        sunset: sunset[i]
       });
     }
 
@@ -413,30 +477,30 @@
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
           <div class="fv-weather-rain-pill" style="
             padding:4px 8px;border-radius:999px;
-            background:var(--card-surface,var(--surface));
+            background:var(--surface);
             border:1px solid var(--border);
             font-size:11px;display:flex;gap:4px;align-items:center;
           ">
-            <span class="fv-weather-label" style="font-weight:500;">Rain last 24 hours</span>
-            <span class="fv-weather-value" style="font-variant-numeric:tabular-nums;">${rain24}</span>
+            <span style="font-weight:500;">Rain last 24 hours</span>
+            <span style="font-variant-numeric:tabular-nums;">${rain24}</span>
           </div>
           <div class="fv-weather-rain-pill" style="
             padding:4px 8px;border-radius:999px;
-            background:var(--card-surface,var(--surface));
+            background:var(--surface);
             border:1px solid var(--border);
             font-size:11px;display:flex;gap:4px;align-items:center;
           ">
-            <span class="fv-weather-label" style="font-weight:500;">Rain last 7 days</span>
-            <span class="fv-weather-value" style="font-variant-numeric:tabular-nums;">${rain7}</span>
+            <span style="font-weight:500;">Rain last 7 days</span>
+            <span style="font-variant-numeric:tabular-nums;">${rain7}</span>
           </div>
           <div class="fv-weather-rain-pill" style="
             padding:4px 8px;border-radius:999px;
-            background:var(--card-surface,var(--surface));
+            background:var(--surface);
             border:1px solid var(--border);
             font-size:11px;display:flex;gap:4px;align-items:center;
           ">
-            <span class="fv-weather-label" style="font-weight:500;">Rain last 30 days</span>
-            <span class="fv-weather-value" style="font-variant-numeric:tabular-nums;">${rain30}</span>
+            <span style="font-weight:500;">Rain last 30 days</span>
+            <span style="font-variant-numeric:tabular-nums;">${rain30}</span>
           </div>
         </div>
       </section>
@@ -530,7 +594,7 @@
            No recent rainfall data.
          </div>`;
 
-    // --- NEW: only show forecast for today and forward ---
+    // --- Forecast: only today and forward ---
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const allDays = forecast.days || [];
@@ -539,23 +603,21 @@
       return dt >= today;
     });
     const forecastDays = upcoming.slice(0, 5);
-    // -----------------------------------------------------
 
-    const forecastHtml = forecastDays.length
-      ? `
-      <div class="fv-forecast-list">
-        ${forecastDays
-          .map((day) => {
+    const forecastRowsHtml = forecastDays.length
+      ? forecastDays
+          .map((day, idx) => {
             const hi = day.tMax != null ? `${Math.round(day.tMax)}°` : "—";
             const lo = day.tMin != null ? `${Math.round(day.tMin)}°` : "—";
             const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "—";
             const prob = day.precipProb != null ? `${Math.round(day.precipProb)}%` : "—";
+            const selectedClass = idx === 0 ? " fv-forecast-row-selected" : "";
             return `
-              <div class="fv-forecast-row" style="
+              <div class="fv-forecast-row${selectedClass}" data-idx="${idx}" style="
                 display:grid;grid-template-columns:90px 1fr 110px;
                 align-items:center;gap:8px;padding:6px 0;
                 border-bottom:1px dashed rgba(148,163,184,0.4);
-                font-size:12px;
+                font-size:12px;cursor:pointer;
               ">
                 <div class="fv-forecast-day" style="display:flex;flex-direction:column;gap:2px;">
                   <div class="fv-forecast-dow" style="font-weight:600;">${fmtDayShort(day.date)}</div>
@@ -580,12 +642,20 @@
               </div>
             `;
           })
-          .join("")}
-      </div>
-    `
+          .join("")
       : `<div class="fv-forecast-empty" style="font-size:12px;color:var(--muted,#67706B);">
            Forecast data not available.
          </div>`;
+
+    const forecastHtml = `
+      <div class="fv-forecast-list">
+        ${forecastRowsHtml}
+      </div>
+      <div class="fv-forecast-detail" style="
+        margin-top:8px;padding-top:6px;border-top:1px solid rgba(148,163,184,0.25);
+        font-size:12px;color:var(--muted,#67706B);
+      "></div>
+    `;
 
     container.innerHTML = `
       <section class="fv-weather-card fv-weather-modal-card" style="cursor:auto;box-shadow:none;border:none;padding:0;">
@@ -671,6 +741,60 @@
         </div>
       </section>
     `;
+
+    // --- Wire up "day details" click behavior ---
+    const rows = container.querySelectorAll(".fv-forecast-row");
+    const detailEl = container.querySelector(".fv-forecast-detail");
+
+    function renderDetail(idx) {
+      const day = forecastDays[idx];
+      if (!day || !detailEl) return;
+      const { type, snowRange } = classifyDay(day);
+
+      const hi = day.tMax != null ? `${Math.round(day.tMax)}°F` : "—";
+      const lo = day.tMin != null ? `${Math.round(day.tMin)}°F` : "—";
+      const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "0";
+      const prob = day.precipProb != null ? `${Math.round(day.precipProb)}%` : "–";
+      const windSpeed = day.windSpeedMax != null ? `${Math.round(day.windSpeedMax)} mph` : "–";
+      const windDir = day.windDirDeg != null ? `${Math.round(day.windDirDeg)}°` : "–";
+      const sunrise = toLocalTime(day.sunrise);
+      const sunset = toLocalTime(day.sunset);
+
+      const precipLine =
+        type === "Snow"
+          ? `Snow: ${snowRange || `${rainIn}"`} (chance ${prob})`
+          : `Precip: ${rainIn}" (chance ${prob})`;
+
+      detailEl.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <div style="font-weight:600;">
+            ${fmtDayShort(day.date)} · ${fmtMD(day.date)} — ${type}
+          </div>
+          <div>High: <strong>${hi}</strong> · Low: <strong>${lo}</strong></div>
+          <div>${precipLine}</div>
+          <div>Wind: <strong>${windSpeed}</strong> (dir ${windDir})</div>
+          ${
+            sunrise || sunset
+              ? `<div>Sunrise: <strong>${sunrise || "–"}</strong> · Sunset: <strong>${sunset || "–"}</strong></div>`
+              : ""
+          }
+        </div>
+      `;
+    }
+
+    if (rows.length && detailEl && forecastDays.length) {
+      // default to first day
+      renderDetail(0);
+
+      rows.forEach(row => {
+        row.addEventListener("click", () => {
+          rows.forEach(r => r.classList.remove("fv-forecast-row-selected"));
+          row.classList.add("fv-forecast-row-selected");
+          const idx = Number(row.getAttribute("data-idx") || "0") || 0;
+          renderDetail(idx);
+        });
+      });
+    }
   }
 
   /* ==========================
