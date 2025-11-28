@@ -101,6 +101,30 @@
       gap:10px;
     }
 
+    .top-row{
+      display:flex;
+      flex-wrap:wrap;
+      align-items:flex-start;
+      justify-content:flex-start;
+      gap:10px 16px;
+    }
+
+    .trial-summary{
+      display:grid;
+      gap:4px;
+      font-size:0.9rem;
+    }
+
+    .trial-summary-title{
+      font-weight:800;
+      font-size:1rem;
+    }
+
+    .trial-summary-line{
+      font-size:0.85rem;
+      color:var(--muted,#67706B);
+    }
+
     .btn{
       display:inline-flex;
       align-items:center;
@@ -132,6 +156,19 @@
       min-width:auto;
       font-size:0.8rem;
       border-radius:999px;
+    }
+
+    /* Utility for keeping btnOpenModal in DOM but invisible to user */
+    .visually-hidden{
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      white-space:nowrap;
+      border:0;
     }
 
     .fields-hero{
@@ -194,7 +231,7 @@
       margin-top:2px;
     }
 
-    /* Hide the "View / Add Yield" button on phones – swipe only, same as other page */
+    /* Hide the "View / Add Yield" button on phones – swipe only */
     @media (max-width:640px){
       .field-card-top .btn-small{ display:none; }
     }
@@ -648,7 +685,7 @@
     .hidden{display:none;}
   </style>
 
-  <!-- Lazy-load fv-shell if needed (same pattern as normal trial page) -->
+  <!-- Lazy-load fv-shell if needed -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -681,9 +718,24 @@
             <button id="btnBack" type="button" class="btn btn-quiet">
               ← Back to Trials
             </button>
-            <button type="button" class="btn btn-primary" id="btnOpenModal">
+
+            <!-- Keep this in DOM for helper wiring, but visually remove it -->
+            <button type="button" class="btn btn-primary visually-hidden" id="btnOpenModal">
               Open Yield Popup
             </button>
+          </div>
+
+          <div class="top-row">
+            <div class="trial-summary">
+              <div class="trial-summary-title" id="mhTrialName">Multi-Hybrid Trial</div>
+              <div class="trial-summary-line">
+                <strong>Crop:</strong>
+                <span id="mhCropLine">—</span>
+              </div>
+              <div class="trial-summary-line" id="mhCheckLine"></div>
+              <div class="trial-summary-line" id="mhVarietyLine"></div>
+              <div class="trial-summary-line" id="mhPlantDateLine"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -746,9 +798,46 @@
   <script type="module">
     import { initMhYieldHelper } from '/Farm-vista/js/trials-mh-yield-helper.js';
 
-    // Grab URL params for optional overrides
     const params = new URLSearchParams(window.location.search);
-    const trialName = params.get('trialName');
+
+    // Summary fields
+    const trialNameParam   = params.get('trialName');   // e.g. "Xyway on Soybeans (MH)"
+    const cropYearParam   = params.get('cropYear');    // e.g. "2025"
+    const cropParam       = params.get('crop');        // e.g. "Soybeans"
+    const checkVariety    = params.get('checkVariety'); // just the check hybrid/variety
+    const varietyCount    = params.get('varietyCount'); // total unique varieties in the trial
+    const plantDate       = params.get('plantDate');    // can be wired later from setup
+
+    const mhTrialNameEl   = document.getElementById('mhTrialName');
+    const mhCropLineEl    = document.getElementById('mhCropLine');
+    const mhCheckLineEl   = document.getElementById('mhCheckLine');
+    const mhVarietyLineEl = document.getElementById('mhVarietyLine');
+    const mhPlantDateEl   = document.getElementById('mhPlantDateLine');
+
+    if (mhTrialNameEl && trialNameParam) {
+      mhTrialNameEl.textContent = trialNameParam;
+    }
+
+    if (mhCropLineEl) {
+      const bits = [];
+      if (cropYearParam) bits.push(cropYearParam);
+      if (cropParam) bits.push(cropParam);
+      mhCropLineEl.textContent = bits.length ? bits.join(' • ') : '—';
+    }
+
+    if (mhCheckLineEl && checkVariety) {
+      mhCheckLineEl.textContent = `Check variety: ${checkVariety}`;
+    }
+
+    if (mhVarietyLineEl && varietyCount) {
+      mhVarietyLineEl.textContent = `Total varieties in this trial: ${varietyCount}`;
+    }
+
+    if (mhPlantDateEl && plantDate) {
+      mhPlantDateEl.textContent = `Plant date: ${plantDate}`;
+    }
+
+    // Field title/acres from URL (same as before)
     const fieldName = params.get('fieldName');
     const trialAc   = params.get('trialAc');
     const tillable  = params.get('tillable');
@@ -768,7 +857,7 @@
       fieldSubEl.innerHTML = `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>${tillText}`;
     }
 
-    // Back button – go to returnUrl if provided, otherwise just history.back()
+    // Back button – go to returnUrl if provided, otherwise history.back()
     const btnBack = document.getElementById('btnBack');
     if(btnBack){
       btnBack.addEventListener('click', () => {
