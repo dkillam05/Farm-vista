@@ -1,8 +1,12 @@
+<!-- =====================================================================
+/Farm-vista/pages/settings-setup/ss-fields.html
+Fields setup – farms, counties, acres + optional GPS location (add + edit)
+===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Setup → Fields (Dev Location)</title>
+  <title>FarmVista • Setup → Fields</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -61,7 +65,7 @@
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
-    /* ==== List header + search + filter ==== */
+    /* List header + search + filter */
     .list-head{
       padding:14px 16px;
       border-top:1px solid var(--border);
@@ -304,8 +308,8 @@
 <body>
   <fv-shell>
     <div class="page container">
-      <h1 class="page-title">Fields (GPS Location)</h1>
-      <p class="page-sub">Assign fields to farms, track county and acres, and test GPS center points.</p>
+      <h1 class="page-title">Fields</h1>
+      <p class="page-sub">Assign fields to farms, track county and acres (tillable, HEL, CRP), and optionally set a GPS center.</p>
 
       <section class="section">
         <header class="section-head">
@@ -400,7 +404,7 @@
           <!-- Field GPS Location (Add) -->
           <div class="row-2">
             <div class="field">
-              <label>Field GPS Location <span class="muted"></span></label>
+              <label>Field GPS Location <span class="muted">(optional)</span></label>
               <button id="btnMarkLocation" class="btn" type="button">Mark Location</button>
               <input id="fieldLat" type="hidden">
               <input id="fieldLng" type="hidden">
@@ -426,7 +430,7 @@
           </div>
         </div>
 
-        <!-- ===== Fields list header ===== -->
+        <!-- Fields list header -->
         <div class="list-head">
           <div class="list-title">Fields</div>
 
@@ -525,7 +529,7 @@
         <!-- Field GPS Location (Edit) -->
         <div class="row-2">
           <div class="field">
-            <label>Field GPS Location <span class="muted"></span></label>
+            <label>Field GPS Location <span class="muted">(optional)</span></label>
             <button id="editBtnMarkLocation" class="btn" type="button">Edit Location on Map</button>
             <input id="editFieldLat" type="hidden">
             <input id="editFieldLng" type="hidden">
@@ -1143,7 +1147,7 @@
       $("editCrpAcres").value = it.crpAcres ?? "";
       setToggle($("editCrpToggle"), $("editHasCRP"), !!it.hasCRP, $("editCrpAcreWrap"), $("editCrpAcres"));
 
-      // Edit field location from Firestore
+      // Field location: saved or default text
       if(it.location && typeof it.location.lat === "number" && typeof it.location.lng === "number"){
         $("editFieldLat").value = it.location.lat;
         $("editFieldLng").value = it.location.lng;
@@ -1357,6 +1361,7 @@
         return;
       }
 
+      // Default center: Divernon, IL
       const center = { lat: 39.5650, lng: -89.6554 };
       fieldMap = new google.maps.Map(el, {
         center,
@@ -1409,6 +1414,7 @@
       }
 
       ensureFieldMap();
+      // If we already have a temp pin, center on that; else Divernon default from ensureFieldMap
       if(fieldMap && fieldMapLatLng){
         fieldMap.panTo(fieldMapLatLng);
         fieldMap.setZoom(18);
@@ -1477,7 +1483,7 @@
           }
           $("fieldLat").value = fieldMapLatLng.lat();
           $("fieldLng").value = fieldMapLatLng.lng();
-          showToast("Location saved for this field (dev).");
+          showToast("Location saved for this field.");
           closeFieldLocationModal();
         });
       }
@@ -1500,6 +1506,7 @@
         return;
       }
 
+      // Default center: Divernon, IL
       const center = { lat: 39.5650, lng: -89.6554 };
       editFieldMap = new google.maps.Map(el, {
         center,
@@ -1559,11 +1566,13 @@
       const lngN = Number(lngStr);
 
       if(editFieldMap && !Number.isNaN(latN) && !Number.isNaN(lngN)){
+        // Saved location → center and drop/move pin there
         const ll = new google.maps.LatLng(latN, lngN);
         editFieldMap.setCenter(ll);
         editFieldMap.setZoom(18);
         setEditFieldMapMarker(ll);
       }else if(editFieldMap){
+        // No saved location → default Divernon, IL
         editFieldMap.setCenter({ lat: 39.5650, lng: -89.6554 });
         editFieldMap.setZoom(15);
       }
@@ -1636,7 +1645,7 @@
           $("editFieldLng").value = lng;
           const lbl = $("editFieldLocationLabel");
           if(lbl) lbl.textContent = `Location set: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-          showToast("Field location updated (dev).");
+          showToast("Field location updated.");
           closeEditFieldLocationModal();
         });
       }
@@ -1652,7 +1661,7 @@
             editFieldMapMarker = null;
           }
           editFieldMapLatLng = null;
-          showToast("Field location cleared (dev).");
+          showToast("Field location cleared.");
           closeEditFieldLocationModal();
         });
       }
