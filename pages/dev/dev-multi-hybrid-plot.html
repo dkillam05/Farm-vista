@@ -179,7 +179,7 @@
       .field-card-top .btn-small{ display:none; }
     }
 
-    /* Modal shell copied from main yield page */
+    /* Modal shell */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -318,7 +318,7 @@
       margin-top:6px;
     }
 
-    /* === FV Combo from your template === */
+    /* === FV Combo === */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative; display:inline-block; width:100%;
@@ -645,7 +645,7 @@
     const stageShell    = document.getElementById('mhStageShell');
     const devFieldSummaryEl = document.getElementById('devFieldSummary');
 
-    const $ = sel => document.querySelector(sel);
+    const $  = sel => document.querySelector(sel);
     const $$ = sel => Array.from(document.querySelectorAll(sel));
 
     function nextRowId(){
@@ -674,6 +674,7 @@
       const w = Number(wetWeightLbs);
       if(!isFinite(m) || !isFinite(w) || m <= 0 || m >= 80 || w <= 0) return null;
 
+      // Drier than standard -> treat as standard, so no over-dry credit
       const used = Math.max(m, stdMoist);
       const dryWeightStd = w * (100 - used) / (100 - stdMoist);
       const bu = dryWeightStd / testWt;
@@ -718,6 +719,7 @@
         </div>
       `;
       modalBackdrop.classList.remove('hidden');
+      mhState.stage = 'setup';
       renderStage();
     }
 
@@ -729,7 +731,14 @@
     devFieldCard.addEventListener('click', openModal);
     btnClose.addEventListener('click', closeModal);
 
-    /* === Combo helper from your template (no search) === */
+    // Optionally close on ESC when modal open
+    document.addEventListener('keydown', e => {
+      if(e.key === 'Escape' && !modalBackdrop.classList.contains('hidden')){
+        closeModal();
+      }
+    });
+
+    /* === Combo helper === */
     function closeAllCombos(except=null){
       $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
     }
@@ -773,17 +782,6 @@
       });
 
       return { open, close };
-    }
-
-    function renderStage(){
-      btnSetUpPlot.textContent = mhState.blocks.length ? 'Edit Plot Setup' : 'Set Up Plot';
-
-      if(mhState.stage === 'setup'){
-        renderSetup();
-      }else{
-        renderBlocks();
-      }
-      renderDevSummary();
     }
 
     function renderSetup(){
@@ -855,40 +853,48 @@
       stageShell.innerHTML = html;
 
       // Length input
-      document.getElementById('mh-length-input').addEventListener('input', e => {
-        const v = e.target.value.replace(/[^0-9]/g,'');
-        e.target.value = v;
-        mhState.passLengthFt = v === '' ? 0 : Number(v);
-      });
+      const lenInput = document.getElementById('mh-length-input');
+      if(lenInput){
+        lenInput.addEventListener('input', e => {
+          const v = e.target.value.replace(/[^0-9]/g,'');
+          e.target.value = v;
+          mhState.passLengthFt = v === '' ? 0 : Number(v);
+        });
+      }
 
       // Pass width combo
       const widthBtn   = document.getElementById('mh-width-btn');
       const widthPanel = document.getElementById('mh-width-panel');
       const widthList  = document.getElementById('mh-width-list');
 
-      makeCombo({
-        btn: widthBtn,
-        panel: widthPanel,
-        list: widthList,
-        items: PASS_WIDTH_OPTIONS.map(v => ({ id:String(v), label:String(v), value:v })),
-        formatter: x => x.label,
-        onPick: it => {
-          mhState.passWidthFt = Number(it.value);
-          widthBtn.textContent = it.label;
-          renderDevSummary();
-        }
-      });
+      if(widthBtn && widthPanel && widthList){
+        makeCombo({
+          btn: widthBtn,
+          panel: widthPanel,
+          list: widthList,
+          items: PASS_WIDTH_OPTIONS.map(v => ({ id:String(v), label:String(v), value:v })),
+          formatter: x => x.label,
+          onPick: it => {
+            mhState.passWidthFt = Number(it.value);
+            widthBtn.textContent = it.label;
+            renderDevSummary();
+          }
+        });
+      }
 
       // Add variety
-      document.getElementById('mh-add-row-btn').addEventListener('click', () => {
-        mhState.hybrids.push({
-          rowId: nextRowId(),
-          productId: '',
-          name: '',
-          maturity: null
+      const addRowBtn = document.getElementById('mh-add-row-btn');
+      if(addRowBtn){
+        addRowBtn.addEventListener('click', () => {
+          mhState.hybrids.push({
+            rowId: nextRowId(),
+            productId: '',
+            name: '',
+            maturity: null
+          });
+          renderStage();
         });
-        renderStage();
-      });
+      }
 
       // Variety + check + remove
       mhState.hybrids.forEach(hyb => {
@@ -925,11 +931,6 @@
           });
         }
       });
-
-      btnSetUpPlot.onclick = () => {
-        const lenInput = document.getElementById('mh-length-input');
-        if(lenInput) lenInput.focus();
-      };
     }
 
     function validateSetup(){
@@ -1025,41 +1026,36 @@
       html += `</div>`;
       stageShell.innerHTML = html;
 
-      btnSetUpPlot.onclick = () => {
-        mhState.stage = 'setup';
-        renderStage();
-      };
-
       mhState.blocks.forEach(blk => {
         const moistEl = document.getElementById(`mh-moist-${blk.rowId}`);
         const weightEl = document.getElementById(`mh-weight-${blk.rowId}`);
         const yieldEl  = document.getElementById(`mh-yield-${blk.rowId}`);
         const voidEl   = document.getElementById(`mh-void-${blk.rowId}`);
 
-        moistEl.dataset.prev = moistEl.value;
-
-        function recalc(){
-          blk.yieldBuPerAc = calcDevYield({
-            cropKind: mhState.cropKind,
-            moisturePct: blk.moisturePct,
-            wetWeightLbs: blk.weightLbs,
-            lengthFt: mhState.passLengthFt,
-            widthFt: mhState.passWidthFt
-          });
-          if(yieldEl){
-            if(blk.yieldBuPerAc != null){
-              yieldEl.textContent = formatNumber(blk.yieldBuPerAc,2);
-              const bad = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
-              yieldEl.classList.toggle('bad', bad);
-            }else{
-              yieldEl.textContent = '—';
-              yieldEl.classList.remove('bad');
-            }
-          }
-          renderDevSummary();
-        }
-
         if(moistEl){
+          moistEl.dataset.prev = moistEl.value;
+
+          function recalc(){
+            blk.yieldBuPerAc = calcDevYield({
+              cropKind: mhState.cropKind,
+              moisturePct: blk.moisturePct,
+              wetWeightLbs: blk.weightLbs,
+              lengthFt: mhState.passLengthFt,
+              widthFt: mhState.passWidthFt
+            });
+            if(yieldEl){
+              if(blk.yieldBuPerAc != null){
+                yieldEl.textContent = formatNumber(blk.yieldBuPerAc,2);
+                const bad = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
+                yieldEl.classList.toggle('bad', bad);
+              }else{
+                yieldEl.textContent = '—';
+                yieldEl.classList.remove('bad');
+              }
+            }
+            renderDevSummary();
+          }
+
           moistEl.addEventListener('input', e => {
             const oldVal = e.target.dataset.prev || '';
             let v = e.target.value;
@@ -1098,11 +1094,32 @@
         }
 
         if(weightEl){
+          function recalcWeight(){
+            blk.yieldBuPerAc = calcDevYield({
+              cropKind: mhState.cropKind,
+              moisturePct: blk.moisturePct,
+              wetWeightLbs: blk.weightLbs,
+              lengthFt: mhState.passLengthFt,
+              widthFt: mhState.passWidthFt
+            });
+            if(yieldEl){
+              if(blk.yieldBuPerAc != null){
+                yieldEl.textContent = formatNumber(blk.yieldBuPerAc,2);
+                const bad = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
+                yieldEl.classList.toggle('bad', bad);
+              }else{
+                yieldEl.textContent = '—';
+                yieldEl.classList.remove('bad');
+              }
+            }
+            renderDevSummary();
+          }
+
           weightEl.addEventListener('input', e => {
             let v = e.target.value.replace(/\D/g,'');
             e.target.value = v;
             blk.weightLbs = v === '' ? null : Number(v);
-            recalc();
+            recalcWeight();
           });
           weightEl.addEventListener('blur', e => {
             if(blk.weightLbs != null){
@@ -1130,33 +1147,9 @@
       renderDevSummary();
     }
 
-    function validateSetup(){
-      const errors = [];
-      if(!mhState.passLengthFt || mhState.passLengthFt <= 0){
-        errors.push('Enter a positive plot length.');
-      }
-      if(!mhState.passWidthFt || mhState.passWidthFt <= 0){
-        errors.push('Select a positive pass width.');
-      }
-      if(!mhState.hybrids.length){
-        errors.push('Add at least one entry.');
-      }else{
-        mhState.hybrids.forEach((h, idx) => {
-          if(!h.productId){
-            errors.push(`Entry ${idx+1}: select a variety.`);
-          }
-        });
-      }
-      if(!mhState.checkProductId){
-        errors.push('Pick one check variety (tied to the variety).');
-      }
-      const box = document.getElementById('mh-setup-errors');
-      if(box){
-        box.innerHTML = errors.map(e => '• ' + e).join('<br>');
-      }
-      return errors.length === 0;
-    }
-
+    // Global Set Up Plot behavior:
+    // - When in setup: just focus length (your current dev behavior)
+    // - When in blocks: jump back to setup to edit
     btnSetUpPlot.addEventListener('click', () => {
       if(mhState.stage === 'setup'){
         const lenInput = document.getElementById('mh-length-input');
@@ -1190,6 +1183,7 @@
       closeModal();
     });
 
+    // Initial (so dev summary stays in sync even before opening modal)
     renderStage();
   </script>
 </body>
