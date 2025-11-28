@@ -11,11 +11,15 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
   <!-- Dictation + swipe helpers (used by the helper JS) -->
   <script src="/Farm-vista/js/fv-dictation.js"></script>
   <script src="/Farm-vista/js/fv-swipe-list.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <!-- Match normal trial page swipe styles -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
   <style>
     :root{
@@ -23,6 +27,7 @@
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
 
+      /* Combo + modal vars used by the MH helper */
       --combo-gap: 4px;
       --combo-radius: 12px;
       --combo-btn-radius: 10px;
@@ -41,7 +46,8 @@
       max-width: var(--card-max);
       margin: 0 auto;
       padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + 72px + var(--page-bottom-gap)) !important;
+      /* Match normal Trial Yields footer spacing */
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
       display:grid;
       gap:16px;
@@ -52,28 +58,33 @@
       border-radius:18px;
       background:var(--surface);
       box-shadow:var(--shadow,0 12px 28px rgba(0,0,0,.12));
-      overflow:hidden;
+      overflow:visible;
     }
 
     .hero-head{
-      display:grid;
-      grid-template-columns:auto 1fr;
-      gap:12px;
+      display:flex;
       align-items:flex-start;
+      gap:12px;
       padding:14px 16px;
       border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .hero-head-title{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
+
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+      margin-top:2px;
     }
+
     .hero-head h1{
       margin:0;
       font-size:clamp(20px,3.2vw,26px);
       line-height:1.2;
     }
+
     .muted{color:var(--muted,#67706B)}
 
     .body{
@@ -84,14 +95,17 @@
 
     .top-row-actions-left{
       display:flex;
+      flex-wrap:wrap;
+      align-items:flex-start;
       justify-content:flex-start;
+      gap:10px;
     }
 
     .btn{
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      min-width:150px;
+      min-width:140px;
       padding:11px 16px;
       border-radius:12px;
       border:1px solid var(--border);
@@ -110,7 +124,6 @@
       color:#fff!important;
     }
     .btn-quiet{
-      background:transparent;
       min-width:auto;
       padding-inline:10px;
     }
@@ -180,11 +193,21 @@
       color:var(--muted,#67706B);
       margin-top:2px;
     }
+
+    /* Hide the "View / Add Yield" button on phones – swipe only, same as other page */
     @media (max-width:640px){
       .field-card-top .btn-small{ display:none; }
     }
 
-    /* Modal shell – same look as dev helper */
+    .fields-hint{
+      font-size:0.78rem;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+    }
+
+    /* ===========================
+       Modal + MH helper styling
+       =========================== */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -287,7 +310,7 @@
       box-shadow:0 8px 18px rgba(46,123,53,0.35);
     }
 
-    /* Styles the helper relies on (same as dev helper) */
+    /* Form fields used inside MH helper modal */
     .row{
       display:grid;
       gap:10px;
@@ -321,6 +344,7 @@
       margin-top:6px;
     }
 
+    /* Combo styles (for dropdowns inside MH helper) */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative; display:inline-block; width:100%;
@@ -623,6 +647,18 @@
 
     .hidden{display:none;}
   </style>
+
+  <!-- Lazy-load fv-shell if needed (same pattern as normal trial page) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 </head>
 
 <body>
@@ -630,18 +666,22 @@
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="hero-head-title">
+          <div class="icon" aria-hidden="true">🧪</div>
+          <div>
             <h1>Trial Field Yields (Multi-Hybrid)</h1>
             <p class="muted">
               This page is dedicated to multi-hybrid seed variety trials. It uses the same FarmVista look and feel,
-              but with a yield popup designed for multiple hybrids, notes, attachments, and swipe on mobile.
+              but with a yield pop-up designed for multiple hybrids, notes, attachments, and swipe on mobile.
             </p>
           </div>
         </header>
 
         <div class="body">
           <div class="top-row-actions-left">
-            <button type="button" class="btn btn-quiet" id="btnOpenModal">
+            <button id="btnBack" type="button" class="btn btn-quiet">
+              ← Back to Trials
+            </button>
+            <button type="button" class="btn btn-primary" id="btnOpenModal">
               Open Yield Popup
             </button>
           </div>
@@ -667,6 +707,10 @@
               </div>
               <div><span class="btn btn-small">View / Add Yield</span></div>
             </div>
+          </div>
+
+          <div class="fields-hint">
+            On a phone, swipe right on the field card to add yield. On desktop, tap the card or use “View / Add Yield.”
           </div>
         </div>
       </section>
@@ -702,18 +746,19 @@
   <script type="module">
     import { initMhYieldHelper } from '/Farm-vista/js/trials-mh-yield-helper.js';
 
-    // Later we can read trialId/fieldId from URL and update the header text.
+    // Grab URL params for optional overrides
     const params = new URLSearchParams(window.location.search);
     const trialName = params.get('trialName');
     const fieldName = params.get('fieldName');
     const trialAc   = params.get('trialAc');
     const tillable  = params.get('tillable');
+    const farmName  = params.get('farmName') || '';
+    const returnUrl = params.get('returnUrl');
 
     const fieldTitleEl = document.getElementById('mhFieldTitle');
     const fieldSubEl   = document.getElementById('mhFieldSub');
 
     if(fieldName && fieldTitleEl){
-      const farmName = params.get('farmName') || '';
       fieldTitleEl.textContent = farmName
         ? `${farmName} • ${fieldName}`
         : fieldName;
@@ -723,10 +768,21 @@
       fieldSubEl.innerHTML = `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>${tillText}`;
     }
 
-    // Initialize the helper – it wires buttons, modal, swipe, notes & files.
+    // Back button – go to returnUrl if provided, otherwise just history.back()
+    const btnBack = document.getElementById('btnBack');
+    if(btnBack){
+      btnBack.addEventListener('click', () => {
+        if(returnUrl){
+          window.location.href = returnUrl;
+        }else{
+          window.history.back();
+        }
+      });
+    }
+
+    // Initialize the MH helper – it wires buttons, modal, swipe, notes & files.
     const mhHelper = initMhYieldHelper();
     // window.FV_MH_HELPER = mhHelper; // uncomment if you want to poke it from console
   </script>
 </body>
 </html>
-
