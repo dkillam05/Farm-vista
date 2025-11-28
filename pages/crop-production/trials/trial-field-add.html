@@ -248,10 +248,11 @@
       height:36px;
       border-radius:10px;
       border:1px solid var(--border);
-      background:var(--surface);
+      background:var(--surface-strong, var(--surface));
       display:grid;
       place-items:center;
       cursor:pointer;
+      color:var(--muted, #67706B); /* neutral gray in light and dark */
     }
     .mic-btn[disabled]{
       opacity:.6;
@@ -545,6 +546,55 @@
       85%{opacity:1}
       100%{opacity:0}
     }
+
+    /* Confirm "no acres" bar */
+    .toast-confirm{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:var(--surface-strong, #333);
+      color:var(--text,#fff);
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:100000;
+      display:none;
+      align-items:center;
+      gap:10px;
+      max-width:92vw;
+    }
+    .toast-confirm.show{
+      display:flex;
+    }
+    .toast-confirm-text{
+      font-size:0.88rem;
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .toast-confirm-actions{
+      display:flex;
+      gap:6px;
+      flex-shrink:0;
+    }
+    .toast-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.8rem;
+      cursor:pointer;
+      font-weight:600;
+      white-space:nowrap;
+    }
+    .toast-btn-secondary{
+      background:rgba(0,0,0,.12);
+      color:var(--text,#fff);
+    }
+    .toast-btn-primary{
+      background:#2F6C3C;
+      color:#fff;
+    }
+
   </style>
 
   <script>
@@ -591,12 +641,15 @@
       selectedFieldMaxAcres: null,
       existingFields: [],   // already saved
       pendingFields: [],    // new this session
-      overlaps: []          // overlapping trials using same fields + crop year
+      overlaps: [],         // overlapping trials using same fields + crop year
+      noAcresDraft: null
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
 
     let toastEl, errorBox, debugLogEl;
+    let confirmNoAcresEl, confirmNoAcresMsg, confirmNoAcresCancel, confirmNoAcresOk;
+
     let farmCombo, fieldCombo;
     let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
     let fieldFieldBtn, fieldFieldPanel, fieldFieldList, fieldFieldSearch;
@@ -1307,14 +1360,69 @@
       }
     }
 
+    function actuallyAddPendingRow(draft){
+      const { farm, field, acres, notes } = draft;
+      STATE.pendingFields.push({ farm, field, acres, notes });
+      sortFieldRows(STATE.pendingFields);
+      diag('addFieldToPending', {
+        farmId: farm.id,
+        fieldId: field.id,
+        acres,
+        notesLen: (notes || '').length
+      });
+      renderFieldLists();
+      showToast("Field Added - Not Save Yet");
+
+      // reset form
+      STATE.selectedFarm = null;
+      STATE.selectedField = null;
+      STATE.selectedFieldMaxAcres = null;
+      refreshFarmCombo();
+      refreshFieldComboForFarm(null);
+      if(trialAcresInput){
+        trialAcresInput.value = '';
+      }
+      if(trialAcresHelp){
+        trialAcresHelp.textContent = '';
+      }
+      if(notesInput){
+        notesInput.value = '';
+      }
+    }
+
+    function openNoAcresConfirm(draft){
+      if(!confirmNoAcresEl || !confirmNoAcresMsg){
+        // Fallback: just add without prompt if something is missing
+        actuallyAddPendingRow(draft);
+        return;
+      }
+      STATE.noAcresDraft = draft;
+      confirmNoAcresMsg.textContent = 'Are you sure no trial acres at this time?';
+      confirmNoAcresEl.classList.add('show');
+    }
+
+    function closeNoAcresConfirm(){
+      STATE.noAcresDraft = null;
+      if(confirmNoAcresEl){
+        confirmNoAcresEl.classList.remove('show');
+      }
+    }
+
     function addFieldToPending(e){
       e.preventDefault();
       showError('');
       if(trialAcresInput) trialAcresInput.classList.remove('input-error');
-      const farm=STATE.selectedFarm;
-      const field=STATE.selectedField;
-      if(!farm){ showError("Please select a farm."); return; }
-      if(!field){ showError("Please select a field."); return; }
+
+      const farm = STATE.selectedFarm;
+      const field = STATE.selectedField;
+      if(!farm){
+        showError("Please select a farm.");
+        return;
+      }
+      if(!field){
+        showError("Please select a field.");
+        return;
+      }
       if(field.farmId && field.farmId!==farm.id){
         showError("Selected field does not belong to the selected farm. Please choose a matching farm and field.");
         return;
@@ -1332,47 +1440,36 @@
         }
       }
 
-      const acresStr=trialAcresInput.value.trim();
-      const notes=notesInput.value.trim();
-      let acres=acresStr?Number(acresStr):null;
-      if(acresStr && isNaN(acres)){
-        showError("Trial acres must be a number.");
-        trialAcresInput.classList.add('input-error');
-        return;
+      const acresStr = trialAcresInput.value.trim();
+      const notes    = notesInput.value.trim();
+      let acres = null;
+
+      if(acresStr){
+        acres = Number(acresStr);
+        if(isNaN(acres)){
+          showError("Trial acres must be a number.");
+          if(trialAcresInput) trialAcresInput.classList.add('input-error');
+          return;
+        }
+        acres = Math.round(acres * 100) / 100;
       }
-      if(acres!=null) acres=Math.round(acres*100)/100;
-      const maxAcres=STATE.selectedFieldMaxAcres;
-      if(maxAcres!=null && acres!=null && acres>maxAcres+0.0001){
+
+      const maxAcres = STATE.selectedFieldMaxAcres;
+      if(maxAcres != null && acres != null && acres > maxAcres + 0.0001){
         showError(`Trial acres cannot be more than the field tillable acres (${maxAcres}).`);
-        trialAcresInput.classList.add('input-error');
+        if(trialAcresInput) trialAcresInput.classList.add('input-error');
         return;
       }
-      STATE.pendingFields.push({farm,field,acres,notes});
-      sortFieldRows(STATE.pendingFields);
-      diag('addFieldToPending', {
-        farmId: farm.id,
-        fieldId: field.id,
-        acres,
-        notesLen: notes.length
-      });
-      renderFieldLists();
 
-      showToast("Field Added - Not Save Yet");
+      const draft = { farm, field, acres, notes };
 
-      STATE.selectedFarm=null;
-      STATE.selectedField=null;
-      STATE.selectedFieldMaxAcres=null;
-      refreshFarmCombo();
-      refreshFieldComboForFarm(null);
-      if(trialAcresInput){
-        trialAcresInput.value='';
+      // If no acres entered, ask for confirmation before adding
+      if(acres == null){
+        openNoAcresConfirm(draft);
+        return;
       }
-      if(trialAcresHelp){
-        trialAcresHelp.textContent='';
-      }
-      if(notesInput){
-        notesInput.value='';
-      }
+
+      actuallyAddPendingRow(draft);
     }
 
     async function saveAllFields(e){
@@ -1445,6 +1542,25 @@
       toastEl=document.getElementById('toast');
       errorBox=document.getElementById('errBox');
       debugLogEl=document.getElementById('debugLog');
+
+      confirmNoAcresEl     = document.getElementById('confirmNoAcres');
+      confirmNoAcresMsg    = document.getElementById('confirmNoAcresMsg');
+      confirmNoAcresCancel = document.getElementById('confirmNoAcresCancel');
+      confirmNoAcresOk     = document.getElementById('confirmNoAcresOk');
+
+      if(confirmNoAcresCancel){
+        confirmNoAcresCancel.addEventListener('click', () => {
+          closeNoAcresConfirm();
+        });
+      }
+      if(confirmNoAcresOk){
+        confirmNoAcresOk.addEventListener('click', () => {
+          if(STATE.noAcresDraft){
+            actuallyAddPendingRow(STATE.noAcresDraft);
+          }
+          closeNoAcresConfirm();
+        });
+      }
 
       overlapHeroEl   = document.getElementById('overlapHero');
       overlapListEl   = document.getElementById('overlapList');
@@ -1779,5 +1895,16 @@
   </fv-shell>
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Confirm "no acres" toast bar -->
+  <div id="confirmNoAcres" class="toast-confirm" role="alertdialog" aria-modal="true" aria-live="assertive">
+    <div id="confirmNoAcresMsg" class="toast-confirm-text">
+      Are you sure no trial acres at this time?
+    </div>
+    <div class="toast-confirm-actions">
+      <button type="button" id="confirmNoAcresCancel" class="toast-btn toast-btn-secondary">Cancel</button>
+      <button type="button" id="confirmNoAcresOk" class="toast-btn toast-btn-primary">Okay</button>
+    </div>
+  </div>
 </body>
 </html>
