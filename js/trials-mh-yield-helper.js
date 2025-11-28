@@ -1,8 +1,44 @@
-// /Farm-vista/js/trials-mh-yield-helper.js
-// Reusable Multi-Hybrid Yield helper engine.
+/* ====================================================================
+/Farm-vista/js/trials-mh-yield-helper.js
+Reusable Multi-Hybrid Yield helper engine.
+Now:
+ • Still drives the modal UI (setup + blocks)
+ • Persists mhState to Firestore when trialId + fieldDocId are provided
+   at: fieldTrials/{trialId}/fields/{fieldDocId}/multiHybrid/state
+==================================================================== */
 
-export function initMhYieldHelper() {
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc
+} from '/Farm-vista/js/firebase-init.js';
+
+export function initMhYieldHelper(options = {}) {
   const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];
+
+  // Firestore wiring (optional – if not provided we stay in dev mode)
+  let db = options.db || null;
+  const trialId    = options.trialId || null;
+  const fieldDocId = options.fieldDocId || null;
+
+  function getDb() {
+    if (!db) db = getFirestore();
+    return db;
+  }
+
+  function getMhDocRef() {
+    if (!trialId || !fieldDocId) return null;
+    return doc(
+      getDb(),
+      'fieldTrials',
+      trialId,
+      'fields',
+      fieldDocId,
+      'multiHybrid',
+      'state'
+    );
+  }
 
   const mhState = {
     cropKind: 'corn',
@@ -679,6 +715,60 @@ export function initMhYieldHelper() {
     }, { passive: true });
   }
 
+  // ---------- Firestore load/save ----------
+
+  async function loadFromFirestore(){
+    const ref = getMhDocRef();
+    if(!ref) return;
+
+    try{
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return;
+      const data = snap.data() || {};
+
+      mhState.cropKind      = data.cropKind      || mhState.cropKind;
+      mhState.passLengthFt  = data.passLengthFt  ?? mhState.passLengthFt;
+      mhState.passWidthFt   = data.passWidthFt   ?? mhState.passWidthFt;
+      mhState.checkProductId= data.checkProductId|| mhState.checkProductId;
+      mhState.hybrids       = Array.isArray(data.hybrids) ? data.hybrids : [];
+      mhState.blocks        = Array.isArray(data.blocks)  ? data.blocks  : [];
+      mhState.stage         = mhState.blocks.length ? 'blocks' : 'setup';
+
+      renderStage();
+    }catch(err){
+      console.error('Error loading MH state from Firestore:', err);
+    }
+  }
+
+  async function saveToFirestore(){
+    const ref = getMhDocRef();
+    if(!ref){
+      // No IDs – dev mode
+      console.log('Multi-Hybrid Helper Save (dev only)', JSON.parse(JSON.stringify(mhState)));
+      alert('Saved locally (dev mode). Add trialId & fieldDocId to save in Firestore.');
+      return;
+    }
+
+    try{
+      const payload = {
+        cropKind: mhState.cropKind || 'corn',
+        passLengthFt: mhState.passLengthFt || 0,
+        passWidthFt: mhState.passWidthFt || 0,
+        checkProductId: mhState.checkProductId || null,
+        hybrids: mhState.hybrids || [],
+        blocks: mhState.blocks || [],
+        updatedAt: new Date()
+      };
+      await setDoc(ref, payload, { merge: true });
+      closeModal();
+    }catch(err){
+      console.error('Error saving MH state to Firestore:', err);
+      alert('Unable to save multi-hybrid data to Firestore.');
+    }
+  }
+
+  // ---------- Event wiring ----------
+
   if(btnOpenModal) btnOpenModal.addEventListener('click', openModal);
   if(devFieldCard) devFieldCard.addEventListener('click', openModal);
   if(btnClose)     btnClose.addEventListener('click', closeModal);
@@ -727,14 +817,15 @@ export function initMhYieldHelper() {
         return;
       }
 
-      console.log('Multi-Hybrid Helper Save', JSON.parse(JSON.stringify(mhState)));
-      alert('Dev helper only. In the real app this would save to Firestore and close.');
-      closeModal();
+      // Stage === 'blocks' -> save real data
+      saveToFirestore();
     });
   }
 
   renderStage();
   initSwipeForCard();
+  // Kick off Firestore hydration (non-blocking)
+  loadFromFirestore();
 
   return {
     open: openModal,
