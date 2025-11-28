@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
   <script src="/Farm-vista/js/theme-boot.js"></script>
-  <!-- Dictation helper (assumed plain script that wires .mic-btn) -->
+  <!-- Dictation helper -->
   <script src="/Farm-vista/js/fv-dictation.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
@@ -544,15 +544,10 @@
 
     /* Notes + files on blocks */
     .yield-extra{
-      display:grid;
-      grid-template-columns: minmax(0,2fr) minmax(0,1.6fr);
+      display:flex;
+      flex-direction:column;
       gap:8px;
       margin-top:8px;
-    }
-    @media (max-width:640px){
-      .yield-extra{
-        grid-template-columns:1fr;
-      }
     }
 
     .notes-shell{
@@ -560,7 +555,7 @@
     }
     .notes-input{
       width:100%;
-      min-height:72px;
+      min-height:96px;
       padding-right:52px; /* room for mic */
       resize:vertical;
     }
@@ -818,7 +813,14 @@
         </div>
       `;
       modalBackdrop.classList.remove('hidden');
-      mhState.stage = 'setup';
+
+      // If we've already generated blocks once, go straight to data entry
+      if (mhState.blocks.length > 0) {
+        mhState.stage = 'blocks';
+      } else {
+        mhState.stage = 'setup';
+      }
+
       renderStage();
     }
 
@@ -1280,7 +1282,7 @@
         if(voidEl){
           voidEl.addEventListener('change', e => {
             blk.voided = e.target.checked;
-            renderBlocks(); // safe: notes/files are in blk.* so they persist
+            renderBlocks(); // notes/files live in blk.* so they persist
           });
         }
 
@@ -1307,11 +1309,6 @@
           renderFileList();
 
           filesBtn.addEventListener('click', () => {
-            if(blk.files.length >= 5){
-              // still open input so they can replace, but we'll enforce cap on change
-              filesInput.click();
-              return;
-            }
             filesInput.click();
           });
 
@@ -1328,7 +1325,6 @@
                 type: f.type
               });
             });
-            // Clear the input so same file can be chosen again later if needed
             filesInput.value = '';
             renderFileList();
           });
