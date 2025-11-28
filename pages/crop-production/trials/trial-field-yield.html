@@ -723,7 +723,6 @@
       normalizeCropKind
     } from '/Farm-vista/js/fv-yield-math.js';
 
-    import { wireDictation } from '/Farm-vista/js/fv-dictation.js';
     import { initSwipeList } from '/Farm-vista/js/fv-swipe-list.js';
 
     const CONFIG = {
@@ -1399,6 +1398,73 @@
       renderList();
     }
 
+    // ----- INLINE MIC WIRING (same pattern as maintenance-add) -----
+    function makeInlineMic(btnEl, taEl){
+      if(!btnEl || !taEl) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        btnEl.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on) => {
+        btnEl.classList.toggle('mic-active', on);
+        btnEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
+      };
+
+      btnEl.addEventListener('click', () => {
+        if(!active){
+          baseText = taEl.value ? (taEl.value + ' ') : '';
+          try{
+            rec.start();
+            active = true;
+            setMic(true);
+          }catch(err){
+            // ignore start errors (double start, etc.)
+          }
+        }else{
+          try{
+            rec.stop();
+            rec.abort();
+          }catch(err){
+            // ignore
+          }
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev) => {
+        let txt = '';
+        for(let i = ev.resultIndex; i < ev.results.length; i++){
+          txt += ev.results[i][0].transcript;
+        }
+        taEl.value = baseText + txt;
+        // keep notes in sync with STATE.notes
+        taEl.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+
+      rec.onend = () => {
+        active = false;
+        setMic(false);
+      };
+
+      rec.onerror = () => {
+        active = false;
+        setMic(false);
+      };
+    }
+
     function renderNotes(block, card, notesId, micId){
       block.notes = block.notes || '';
       const ta = card.querySelector(`#${notesId}`);
@@ -1410,10 +1476,11 @@
         });
       }
       if(micBtn && ta){
-        // card is already in DOM when this runs
-        wireDictation(micId, notesId);
+        // card is already in DOM, wire inline mic here
+        makeInlineMic(micBtn, ta);
       }
     }
+    // ----- END INLINE MIC WIRING -----
 
     function renderBlocksForField(fieldRow){
       if(!yieldBlocksWrap) return;
