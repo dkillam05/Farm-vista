@@ -11,6 +11,8 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
   <script src="/Farm-vista/js/theme-boot.js"></script>
+  <!-- Dictation helper (assumed plain script that wires .mic-btn) -->
+  <script src="/Farm-vista/js/fv-dictation.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
@@ -537,6 +539,103 @@
       align-items:center;
       gap:6px;
       font-size:0.8rem;
+      margin-top:4px;
+    }
+
+    /* Notes + files on blocks */
+    .yield-extra{
+      display:grid;
+      grid-template-columns: minmax(0,2fr) minmax(0,1.6fr);
+      gap:8px;
+      margin-top:8px;
+    }
+    @media (max-width:640px){
+      .yield-extra{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .notes-shell{
+      position:relative;
+    }
+    .notes-input{
+      width:100%;
+      min-height:72px;
+      padding-right:52px; /* room for mic */
+      resize:vertical;
+    }
+
+    /* Mic button (square style you like) */
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:36px;
+      height:36px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+    }
+    .mic-btn[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .mic-btn.mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
+    .mic-svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
+    .files-shell{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .hidden-file{
+      display:none;
+    }
+    .file-list{
+      margin:0;
+      padding:0;
+      list-style:none;
+      font-size:0.8rem;
+    }
+    .file-list li{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:6px;
+      padding:4px 6px;
+      border-radius:6px;
+      border:1px solid var(--border);
+      background:var(--surface);
+    }
+    .file-name{
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      max-width:200px;
+    }
+    .file-remove{
+      border:none;
+      background:transparent;
+      font-size:14px;
+      line-height:1;
+      cursor:pointer;
+      padding:2px 4px;
+      border-radius:999px;
+      color:var(--muted,#67706B);
+    }
+    .file-remove:hover{
+      background:rgba(0,0,0,.06);
     }
 
     .hidden{display:none;}
@@ -731,7 +830,7 @@
     devFieldCard.addEventListener('click', openModal);
     btnClose.addEventListener('click', closeModal);
 
-    // Optionally close on ESC when modal open
+    // close on ESC when modal open
     document.addEventListener('keydown', e => {
       if(e.key === 'Escape' && !modalBackdrop.classList.contains('hidden')){
         closeModal();
@@ -822,18 +921,24 @@
       }else{
         hybrids.forEach((hyb, idx) => {
           const isCheckRow = hyb.productId && mhState.checkProductId === hyb.productId;
+          const label = hyb.productId
+            ? `${hyb.name || 'Variety'}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
+            : 'Select variety…';
+
           html += `
             <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
               <div class="entry-label">Entry ${idx+1}</div>
-              <div>
-                <select id="mh-hybrid-select-${hyb.rowId}" class="select">
-                  <option value="">Select variety…</option>
-                  ${mockHybrids.map(opt => `
-                    <option value="${opt.id}" ${opt.id === hyb.productId ? 'selected' : ''}>
-                      ${opt.name} (${opt.maturity} RM)
-                    </option>
-                  `).join('')}
-                </select>
+              <div class="combo">
+                <div class="combo-anchor">
+                  <button type="button"
+                          class="buttonish has-caret"
+                          id="mh-hybrid-btn-${hyb.rowId}">
+                    ${label}
+                  </button>
+                  <div class="combo-panel" id="mh-hybrid-panel-${hyb.rowId}">
+                    <div class="list" id="mh-hybrid-list-${hyb.rowId}"></div>
+                  </div>
+                </div>
               </div>
               <div class="check-indicator" data-row-id="${hyb.rowId}">
                 <span class="check-dot ${isCheckRow ? 'check-dot--on' : ''}"></span>
@@ -872,10 +977,10 @@
           btn: widthBtn,
           panel: widthPanel,
           list: widthList,
-          items: PASS_WIDTH_OPTIONS.map(v => ({ id:String(v), label:String(v), value:v })),
+          items: PASS_WIDTH_OPTIONS.map(v => ({ id:String(v), label:String(v) })),
           formatter: x => x.label,
           onPick: it => {
-            mhState.passWidthFt = Number(it.value);
+            mhState.passWidthFt = Number(it.id);
             widthBtn.textContent = it.label;
             renderDevSummary();
           }
@@ -896,17 +1001,29 @@
         });
       }
 
-      // Variety + check + remove
+      // Variety combos + check + remove
       mhState.hybrids.forEach(hyb => {
-        const sel = document.getElementById(`mh-hybrid-select-${hyb.rowId}`);
-        if(sel){
-          sel.addEventListener('change', e => {
-            const val = e.target.value;
-            const found = mockHybrids.find(m => m.id === val);
-            hyb.productId = val;
-            hyb.name = found ? found.name : '';
-            hyb.maturity = found ? found.maturity : null;
-            renderStage();
+        const btn   = document.getElementById(`mh-hybrid-btn-${hyb.rowId}`);
+        const panel = document.getElementById(`mh-hybrid-panel-${hyb.rowId}`);
+        const list  = document.getElementById(`mh-hybrid-list-${hyb.rowId}`);
+
+        if(btn && panel && list){
+          makeCombo({
+            btn,
+            panel,
+            list,
+            items: mockHybrids.map(m => ({
+              id: m.id,
+              label: `${m.name} (${m.maturity} RM)`
+            })),
+            formatter: x => x.label,
+            onPick: it => {
+              const found = mockHybrids.find(m => m.id === it.id);
+              hyb.productId = it.id;
+              hyb.name = found ? found.name : '';
+              hyb.maturity = found ? found.maturity : null;
+              renderStage();
+            }
           });
         }
 
@@ -980,6 +1097,9 @@
         blocks.forEach((blk, idx) => {
           const isCheck = mhState.checkProductId && blk.productId === mhState.checkProductId;
           const badYield = blk.yieldBuPerAc != null && (blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400);
+          const notesVal = blk.notes || '';
+          const files = blk.files || [];
+
           html += `
             <div class="yield-block-card" data-row-id="${blk.rowId}">
               <div class="yield-block-head">
@@ -1018,6 +1138,49 @@
                 <input type="checkbox" id="mh-void-${blk.rowId}" ${blk.voided ? 'checked' : ''}>
                 <label for="mh-void-${blk.rowId}">Void this hybrid</label>
               </div>
+
+              <div class="yield-extra">
+                <div class="field-mini">
+                  <span>Notes</span>
+                  <div class="notes-shell">
+                    <textarea class="input notes-input"
+                              id="mh-notes-${blk.rowId}"
+                              rows="2"
+                              placeholder="Notes about this hybrid…">${notesVal}</textarea>
+                    <button type="button"
+                            class="mic-btn"
+                            data-dict-target="mh-notes-${blk.rowId}"
+                            data-dictation-target="#mh-notes-${blk.rowId}"
+                            aria-label="Dictate notes">
+                      <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.08A7 7 0 0 0 19 11a1 1 0 0 0-2 0z"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="field-mini">
+                  <span>Attachments (max 5)</span>
+                  <div class="files-shell">
+                    <input type="file"
+                           id="mh-files-input-${blk.rowId}"
+                           class="hidden-file"
+                           multiple>
+                    <button type="button"
+                            class="btn btn-small"
+                            id="mh-files-btn-${blk.rowId}">
+                      Add files (${files.length}/5)
+                    </button>
+                    <ul class="file-list" id="mh-files-list-${blk.rowId}">
+                      ${files.map((f, i) => `
+                        <li data-idx="${i}">
+                          <span class="file-name">${f.name}</span>
+                          <button type="button" class="file-remove" aria-label="Remove file">&times;</button>
+                        </li>
+                      `).join('')}
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </div>
           `;
         });
@@ -1031,30 +1194,37 @@
         const weightEl = document.getElementById(`mh-weight-${blk.rowId}`);
         const yieldEl  = document.getElementById(`mh-yield-${blk.rowId}`);
         const voidEl   = document.getElementById(`mh-void-${blk.rowId}`);
+        const notesEl  = document.getElementById(`mh-notes-${blk.rowId}`);
+        const filesInput = document.getElementById(`mh-files-input-${blk.rowId}`);
+        const filesBtn   = document.getElementById(`mh-files-btn-${blk.rowId}`);
+        const filesList  = document.getElementById(`mh-files-list-${blk.rowId}`);
+
+        function updateYieldDisplay(){
+          if(!yieldEl) return;
+          if(blk.yieldBuPerAc != null){
+            yieldEl.textContent = formatNumber(blk.yieldBuPerAc,2);
+            const bad = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
+            yieldEl.classList.toggle('bad', bad);
+          }else{
+            yieldEl.textContent = '—';
+            yieldEl.classList.remove('bad');
+          }
+        }
+
+        function recalcYield(){
+          blk.yieldBuPerAc = calcDevYield({
+            cropKind: mhState.cropKind,
+            moisturePct: blk.moisturePct,
+            wetWeightLbs: blk.weightLbs,
+            lengthFt: mhState.passLengthFt,
+            widthFt: mhState.passWidthFt
+          });
+          updateYieldDisplay();
+          renderDevSummary();
+        }
 
         if(moistEl){
           moistEl.dataset.prev = moistEl.value;
-
-          function recalc(){
-            blk.yieldBuPerAc = calcDevYield({
-              cropKind: mhState.cropKind,
-              moisturePct: blk.moisturePct,
-              wetWeightLbs: blk.weightLbs,
-              lengthFt: mhState.passLengthFt,
-              widthFt: mhState.passWidthFt
-            });
-            if(yieldEl){
-              if(blk.yieldBuPerAc != null){
-                yieldEl.textContent = formatNumber(blk.yieldBuPerAc,2);
-                const bad = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
-                yieldEl.classList.toggle('bad', bad);
-              }else{
-                yieldEl.textContent = '—';
-                yieldEl.classList.remove('bad');
-              }
-            }
-            renderDevSummary();
-          }
 
           moistEl.addEventListener('input', e => {
             const oldVal = e.target.dataset.prev || '';
@@ -1071,14 +1241,14 @@
             e.target.value = v;
             e.target.dataset.prev = v;
             blk.moisturePct = v === '' ? null : Number(v);
-            recalc();
+            recalcYield();
           });
 
           moistEl.addEventListener('blur', e => {
             let v = e.target.value;
             if(v === ''){
               blk.moisturePct = null;
-              recalc();
+              recalcYield();
               return;
             }
             v = v.replace(/[^0-9.]/g,'');
@@ -1089,37 +1259,16 @@
             const num = Number(v);
             blk.moisturePct = isFinite(num) ? num : null;
             e.target.value = blk.moisturePct != null ? blk.moisturePct.toFixed(2) : '';
-            recalc();
+            recalcYield();
           });
         }
 
         if(weightEl){
-          function recalcWeight(){
-            blk.yieldBuPerAc = calcDevYield({
-              cropKind: mhState.cropKind,
-              moisturePct: blk.moisturePct,
-              wetWeightLbs: blk.weightLbs,
-              lengthFt: mhState.passLengthFt,
-              widthFt: mhState.passWidthFt
-            });
-            if(yieldEl){
-              if(blk.yieldBuPerAc != null){
-                yieldEl.textContent = formatNumber(blk.yieldBuPerAc,2);
-                const bad = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
-                yieldEl.classList.toggle('bad', bad);
-              }else{
-                yieldEl.textContent = '—';
-                yieldEl.classList.remove('bad');
-              }
-            }
-            renderDevSummary();
-          }
-
           weightEl.addEventListener('input', e => {
             let v = e.target.value.replace(/\D/g,'');
             e.target.value = v;
             blk.weightLbs = v === '' ? null : Number(v);
-            recalcWeight();
+            recalcYield();
           });
           weightEl.addEventListener('blur', e => {
             if(blk.weightLbs != null){
@@ -1131,7 +1280,69 @@
         if(voidEl){
           voidEl.addEventListener('change', e => {
             blk.voided = e.target.checked;
-            renderBlocks();
+            renderBlocks(); // safe: notes/files are in blk.* so they persist
+          });
+        }
+
+        if(notesEl){
+          notesEl.addEventListener('input', e => {
+            blk.notes = e.target.value;
+          });
+        }
+
+        if(filesBtn && filesInput && filesList){
+          if(!Array.isArray(blk.files)) blk.files = [];
+
+          function renderFileList(){
+            const files = blk.files || [];
+            filesList.innerHTML = files.map((f, i) => `
+              <li data-idx="${i}">
+                <span class="file-name">${f.name}</span>
+                <button type="button" class="file-remove" aria-label="Remove file">&times;</button>
+              </li>
+            `).join('');
+            filesBtn.textContent = `Add files (${files.length}/5)`;
+          }
+
+          renderFileList();
+
+          filesBtn.addEventListener('click', () => {
+            if(blk.files.length >= 5){
+              // still open input so they can replace, but we'll enforce cap on change
+              filesInput.click();
+              return;
+            }
+            filesInput.click();
+          });
+
+          filesInput.addEventListener('change', e => {
+            const selected = Array.from(e.target.files || []);
+            if(!selected.length) return;
+            if(!Array.isArray(blk.files)) blk.files = [];
+            const spaceLeft = Math.max(0, 5 - blk.files.length);
+            const toAdd = selected.slice(0, spaceLeft);
+            toAdd.forEach(f => {
+              blk.files.push({
+                name: f.name,
+                size: f.size,
+                type: f.type
+              });
+            });
+            // Clear the input so same file can be chosen again later if needed
+            filesInput.value = '';
+            renderFileList();
+          });
+
+          filesList.addEventListener('click', e => {
+            const li = e.target.closest('li');
+            if(!li) return;
+            if(e.target.classList.contains('file-remove')){
+              const idx = Number(li.dataset.idx);
+              if(!isNaN(idx)){
+                blk.files.splice(idx,1);
+                renderFileList();
+              }
+            }
           });
         }
       });
@@ -1147,9 +1358,9 @@
       renderDevSummary();
     }
 
-    // Global Set Up Plot behavior:
-    // - When in setup: just focus length (your current dev behavior)
-    // - When in blocks: jump back to setup to edit
+    // Set Up Plot button:
+    // - In setup: focus length
+    // - In blocks: jump back to setup for editing
     btnSetUpPlot.addEventListener('click', () => {
       if(mhState.stage === 'setup'){
         const lenInput = document.getElementById('mh-length-input');
@@ -1171,7 +1382,9 @@
           moisturePct: null,
           weightLbs: null,
           yieldBuPerAc: null,
-          voided: false
+          voided: false,
+          notes: '',
+          files: []
         }));
         mhState.stage = 'blocks';
         renderStage();
@@ -1183,7 +1396,7 @@
       closeModal();
     });
 
-    // Initial (so dev summary stays in sync even before opening modal)
+    // Initial so summary is ready even before open
     renderStage();
   </script>
 </body>
