@@ -228,6 +228,7 @@
       font-size:13px;
       color:var(--muted,#67706B);
     }
+    .help.warn{color:#b3261e;font-weight:600;}
 
     .delete-icon-btn{
       background:none;
@@ -264,7 +265,7 @@
       <h1 class="page-title">Seed Dictionary (Dev)</h1>
       <p class="page-sub">
         Dev page to test reading <code>productsSeed</code> and editing via a dropdown modal.
-        When this behaves, we’ll wire the same logic back into the real Seed page.
+        When this behaves, we’ll reuse the logic on the main Seed page.
       </p>
 
       <div id="alert" class="alert" role="alert"></div>
@@ -274,7 +275,7 @@
           <div class="icon" aria-hidden="true">📚</div>
           <div>
             <strong>Seed Dictionary</strong>
-            <div class="help">Click “View / Edit” to open the modal and verify crop / brand / trait dropdowns.</div>
+            <div class="help">Click “View / Edit” to open the modal. Legacy rows without crop/brand will show a warning.</div>
           </div>
         </header>
         <div class="section-body">
@@ -297,6 +298,11 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
       <div class="dialog-body">
+        <div id="legacyWarning" class="help warn" style="display:none;">
+          This product is missing crop and/or brand in Firestore (older entry).  
+          Pick the correct crop/brand and Save to upgrade it.
+        </div>
+
         <div class="grid-2">
           <div class="field">
             <label for="editCrop">Crop</label>
@@ -305,7 +311,7 @@
               <option value="corn">Corn</option>
               <option value="soybean">Soybean</option>
             </select>
-            <div class="help">Used to drive CRM vs RM and trait options.</div>
+            <div class="help">Drives CRM vs RM and trait options.</div>
           </div>
           <div class="field">
             <label for="editBrand">Brand</label>
@@ -324,7 +330,7 @@
               <option value="PIONEER">Pioneer</option>
               <option value="WYFFELS_HYBRIDS">Wyffels Hybrids</option>
             </select>
-            <div class="help">Stored as the label text (e.g., “Channel”).</div>
+            <div class="help">Stored as label text (e.g., “Channel”).</div>
           </div>
         </div>
 
@@ -410,7 +416,6 @@
       }catch{}
     }
 
-    /* Trait dictionary */
     const TRAITS = {
       corn: [
         {v:"CONV",t:"Conventional (Non-GMO)"},
@@ -446,17 +451,33 @@
     let current = null;
     let currentInUse = false;
 
-    function getCropCode(row){
+    function inferCrop(row){
+      // 1) Trusted explicit fields
       const c = (row.crop || "").toString().trim().toLowerCase();
       if(c === "corn") return "corn";
       if(c === "soybean" || c === "soybeans") return "soybean";
       if(row.cropCorn) return "corn";
       if(row.cropSoy) return "soybean";
+
+      // 2) Trait-based inference
+      const traitStr = ((row.traitLabel || "") + " " + (row.trait || "")).toLowerCase();
+      const cornHints = ["vt2p","trecepta","smartstax","qrome","powercore","viptera","duracade","enlist","clearfield"];
+      const soyHints  = ["xtendflex","rr2x","rr2y","libertylink","gt27","enlist e3","e3","sts"];
+      if(cornHints.some(h=>traitStr.includes(h))) return "corn";
+      if(soyHints.some(h=>traitStr.includes(h))) return "soybean";
+
+      // 3) Maturity-based inference
+      const m = Number(row.maturity);
+      if(isFinite(m)){
+        if(m >= 70 && m <= 120) return "corn";     // CRM range
+        if(m > 0 && m <= 5)      return "soybean"; // RM range
+      }
+
       return "";
     }
 
     function normalizeRow(row){
-      const crop = getCropCode(row);
+      const crop = inferCrop(row);
       return {
         id: row.id || row.__id,
         crop,
@@ -535,6 +556,7 @@
     const mdDelete  = $("mdDelete");
     const statusPill = $("statusPill");
     const rawJsonEl = $("rawJson");
+    const legacyWarning = $("legacyWarning");
 
     const editCrop      = $("editCrop");
     const editBrand     = $("editBrand");
@@ -584,7 +606,6 @@
       if(match){
         sel.value = match.value;
       }else{
-        // Fallback: add custom option
         const opt = document.createElement("option");
         opt.value = val;
         opt.textContent = val;
@@ -625,27 +646,32 @@
       }
     }
 
+    function getBrandLabelFromSelect(sel){
+      if(!sel) return "";
+      const opt = sel.selectedOptions && sel.selectedOptions[0];
+      return (opt && opt.textContent) ? opt.textContent.trim() : sel.value.trim();
+    }
+
     function openEdit(seed){
       current = {...seed};
       openModal();
 
-      // Crop select
-      const cropCode = getCropCode(seed);
+      const rawCropMissing  = !current._raw.crop && !current._raw.cropCorn && !current._raw.cropSoy;
+      const rawBrandMissing = !current._raw.brand;
+      legacyWarning.style.display = (rawCropMissing || rawBrandMissing) ? "block" : "none";
+
+      const cropCode = inferCrop(current._raw || current);
       syncSelectMatch(editCrop, cropCode || seed.crop || "");
 
-      // Trait options for that crop
       fillTraitOptions(cropCode || "");
       setMaturityUI(cropCode || "");
 
-      // Brand select (match by label or value)
       syncSelectMatch(editBrand, seed.brand || "");
 
-      // Other fields
       editVariety.value  = seed.variety || "";
       editMaturity.value = seed.maturity || "";
       editNotes.value    = seed.notes || "";
 
-      // Trait select: prefer trait code, else try traitLabel
       let traitCode = seed.trait || "";
       if(traitCode){
         syncSelectMatch(editTrait, traitCode);
@@ -676,8 +702,6 @@
       fillTraitOptions(c);
       setMaturityUI(c);
       editTrait.value = "";
-      // Don't clear maturity here so you can tweak crop without losing number,
-      // but you *can* if you want: editMaturity.value = "";
     });
 
     editTrait.addEventListener("change", ()=>{
@@ -705,8 +729,7 @@
       }
 
       const cropV   = editCrop.value;
-      const brandOpt= editBrand.selectedOptions?.[0];
-      const brandV  = brandOpt?.textContent?.trim() || editBrand.value.trim();
+      const brandV  = getBrandLabelFromSelect(editBrand);
       const varV    = editVariety.value.trim();
       const matV    = editMaturity.value.trim();
       const traitOpt= editTrait.selectedOptions?.[0];
