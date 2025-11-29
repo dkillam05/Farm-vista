@@ -160,24 +160,6 @@
       padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;
     }
 
-    /* Debug panel */
-    .debug-box{
-      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size:11px;
-      background:rgba(255,255,255,.03);
-      border-radius:8px;
-      padding:8px;
-      border:1px dashed var(--border);
-      white-space:pre-wrap;
-      max-height:140px;
-      overflow:auto;
-      color:var(--muted,#9aa29e);
-    }
-    .debug-label{
-      font-weight:700;
-      margin-bottom:4px;
-    }
-
     html.lock, body.lock { overflow:hidden; height:100%; }
   </style>
 </head>
@@ -185,7 +167,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Seed Products</h1>
-      <p class="page-sub">Choose a crop, then brand, product/variety, maturity, and trait system. Press Save to write to Firestore.</p>
+      <p class="page-sub">Choose a crop, brand, product/variety, maturity, and trait system. Press Save to write to Firestore.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
@@ -215,16 +197,16 @@
                 <option value="">—</option>
                 <option value="ASGROW">Asgrow</option>
                 <option value="BECKS">Becks</option>
-                <option value="BREVANT_SEEDS">Brevant seeds</option>
-                <option value="BURRUS_SEED">Burrus seed</option>
+                <option value="BREVANT_SEEDS">Brevant Seeds</option>
+                <option value="BURRUS_SEED">Burrus Seed</option>
                 <option value="CHANNEL">Channel</option>
                 <option value="DEKALB">DeKalb</option>
                 <option value="GENERIC">Generic</option>
                 <option value="HISOY">Hisoy</option>
-                <option value="MERSCHMAN_SEEDS">Merschman seeds</option>
-                <option value="NUTECH">Nutech</option>
+                <option value="MERSCHMAN_SEEDS">Merschman Seeds</option>
+                <option value="NUTECH">NuTech</option>
                 <option value="PIONEER">Pioneer</option>
-                <option value="WYFFELS_HYBRIDS">Wyffels hybrids</option>
+                <option value="WYFFELS_HYBRIDS">Wyffels Hybrids</option>
               </select>
             </div>
           </div>
@@ -301,16 +283,16 @@
               <option value="">—</option>
               <option value="ASGROW">Asgrow</option>
               <option value="BECKS">Becks</option>
-              <option value="BREVANT_SEEDS">Brevant seeds</option>
-              <option value="BURRUS_SEED">Burrus seed</option>
+              <option value="BREVANT_SEEDS">Brevant Seeds</option>
+              <option value="BURRUS_SEED">Burrus Seed</option>
               <option value="CHANNEL">Channel</option>
               <option value="DEKALB">DeKalb</option>
               <option value="GENERIC">Generic</option>
               <option value="HISOY">Hisoy</option>
-              <option value="MERSCHMAN_SEEDS">Merschman seeds</option>
-              <option value="NUTECH">Nutech</option>
+              <option value="MERSCHMAN_SEEDS">Merschman Seeds</option>
+              <option value="NUTECH">NuTech</option>
               <option value="PIONEER">Pioneer</option>
-              <option value="WYFFELS_HYBRIDS">Wyffels hybrids</option>
+              <option value="WYFFELS_HYBRIDS">Wyffels Hybrids</option>
             </select>
           </div>
         </div>
@@ -341,12 +323,6 @@
         <div class="field" style="align-self:end">
           <span class="pill" id="statusPill">Active</span>
         </div>
-
-        <!-- TEMP DEBUG PANEL -->
-        <div class="debug-box" id="debugBox">
-          <div class="debug-label">Debug (temp)</div>
-          <div>Open a seed and this will populate…</div>
-        </div>
       </div>
       <div class="dialog-footer">
         <div class="df-left">
@@ -364,9 +340,10 @@
 
   <script type="module">
     const $ = id => document.getElementById(id);
-    const toast = $("toast"), alertBox = $("alert");
+    const alertBox = $("alert");
+    const toast = $("toast");
     const listBox = $("list");
-    const debugBox = $("debugBox");
+    const modal = $("modal");
     const COLL = 'productsSeed';
 
     const showToast = (msg="Saved.")=>{
@@ -379,39 +356,10 @@
       alertBox.textContent = msg;
       alertBox.classList.add('show');
       clearTimeout(showError._t);
-      showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
+      showError._t = setTimeout(()=> alertBox.classList.remove('show'), 7000);
     };
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-    function updateDebug(stage, current){
-      if(!debugBox) return;
-      const selCrop = $("editCrop");
-      const selBrand = $("editBrand");
-      const normCrop = normalizeCropFromDoc(current || {});
-      const lines = [];
-      lines.push(`stage: ${stage}`);
-      if(current){
-        lines.push(`id: ${current.id}`);
-        lines.push(`brand: ${JSON.stringify(current.brand)}`);
-        lines.push(`crop: ${JSON.stringify(current.crop)}`);
-        lines.push(`cropCorn: ${JSON.stringify(current.cropCorn)}`);
-        lines.push(`cropSoy: ${JSON.stringify(current.cropSoy)}`);
-        lines.push(`used: ${JSON.stringify(current.used)}`);
-      }else{
-        lines.push('current: null');
-      }
-      lines.push(`normalizedCrop: ${JSON.stringify(normCrop)}`);
-      lines.push(`editCrop.value: ${JSON.stringify(selCrop && selCrop.value)}`);
-      lines.push(`editBrand.value: ${JSON.stringify(selBrand && selBrand.value)}`);
-      if(current){
-        try{
-          lines.push(`keys(current): ${Object.keys(current).join(', ')}`);
-          const smallJson = JSON.stringify(current).slice(0,260);
-          lines.push(`current JSON (trim): ${smallJson}${smallJson.length===260?'…':''}`);
-        }catch(e){}
-      }
-      debugBox.textContent = lines.join('\n');
-    }
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -425,7 +373,6 @@
       }catch{}
     }
 
-    /* Trait options */
     const TRAITS = {
       corn: [
         {v:"CONV",t:"Conventional (Non-GMO)"},
@@ -454,9 +401,9 @@
       ]
     };
 
-    const crop=$("crop"), brand=$("brand"), variety=$("variety"),
-          maturity=$("maturity"), matLabel=$("matLabel"), matHelp=$("matHelp"),
-          traits=$("traits"), traitHelp=$("traitHelp"), notes=$("notes");
+    const crop = $("crop"), brand = $("brand"), variety = $("variety"),
+          maturity = $("maturity"), matLabel = $("matLabel"), matHelp = $("matHelp"),
+          traits = $("traits"), traitHelp = $("traitHelp"), notes = $("notes");
 
     function fillTraitOptions(c){
       traits.innerHTML = '<option value="">—</option>';
@@ -486,10 +433,12 @@
         matHelp.textContent = "";
       }
     }
+
     crop.addEventListener("change", ()=>{
       fillTraitOptions(crop.value);
       setMaturityUI(crop.value);
     });
+
     maturity.addEventListener("blur", ()=>{
       const c=crop.value, raw=maturity.value.trim();
       if(!raw) return;
@@ -595,6 +544,7 @@
       el.querySelector(".btn").addEventListener("click", ()=> openEdit(it));
       return el;
     }
+
     async function renderList(){
       try{
         await FVData.ready();
@@ -616,10 +566,10 @@
       }
     }
 
-    /* ===== Edit modal helpers ===== */
-
-    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"),
+    /* Edit modal */
+    const mdClose = $("mdClose"), mdSave = $("mdSave"),
           mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
+
     let current = null;
     let currentInUse = false;
 
@@ -638,35 +588,7 @@
       modal.setAttribute('aria-hidden','true');
       lockBody(false);
       current=null;
-      currentInUse = false;
-      updateDebug('closed', null);
-    }
-
-    function fillEditTraitOptions(c){
-      const el = $("editTraits");
-      el.innerHTML = '<option value="">—</option>';
-      (TRAITS[c]||[]).forEach(o=>{
-        const opt=document.createElement("option");
-        opt.value=o.v;
-        opt.textContent=o.t;
-        el.appendChild(opt);
-      });
-    }
-    function setEditMaturityUI(c){
-      const lbl=$("editMatLabel"), help=$("editMatHelp"), inp=$("editMaturity");
-      if(c==="corn"){
-        lbl.textContent="Maturity (CRM days)";
-        inp.placeholder="e.g., 108";
-        help.textContent="Enter CRM (relative maturity) in days.";
-      }else if(c==="soybean"){
-        lbl.textContent="Maturity (RM group)";
-        inp.placeholder="e.g., 3.4";
-        help.textContent="Enter RM as a decimal (e.g., 2.8).";
-      }else{
-        lbl.textContent="Maturity";
-        inp.placeholder="—";
-        help.textContent="";
-      }
+      currentInUse=false;
     }
 
     function normalizeCropFromDoc(doc){
@@ -725,46 +647,57 @@
       }
     }
 
+    function fillEditTraitOptions(c){
+      const el = $("editTraits");
+      el.innerHTML = '<option value="">—</option>';
+      (TRAITS[c]||[]).forEach(o=>{
+        const opt=document.createElement("option");
+        opt.value=o.v;
+        opt.textContent=o.t;
+        el.appendChild(opt);
+      });
+    }
+    function setEditMaturityUI(c){
+      const lbl=$("editMatLabel"), help=$("editMatHelp"), inp=$("editMaturity");
+      if(c==="corn"){
+        lbl.textContent="Maturity (CRM days)";
+        inp.placeholder="e.g., 108";
+        help.textContent="Enter CRM (relative maturity) in days.";
+      }else if(c==="soybean"){
+        lbl.textContent="Maturity (RM group)";
+        inp.placeholder="e.g., 3.4";
+        help.textContent="Enter RM as a decimal (e.g., 2.8).";
+      }else{
+        lbl.textContent="Maturity";
+        inp.placeholder="—";
+        help.textContent="";
+      }
+    }
+
     function openEdit(it){
       current = {...it};
-      updateDebug('openEdit_start', current);
 
-      syncEditCropFromDoc(current);
-      syncEditBrandFromDoc(current);
-      const cropVal = normalizeCropFromDoc(current);
-
-      fillEditTraitOptions(cropVal || "");
-      setEditMaturityUI(cropVal || "");
-
-      $("editVariety").value = current.variety || "";
-      $("editMaturity").value = current.maturity ?? "";
-      $("editTraits").value = current.trait || "";
-      $("editNotes").value = current.notes || "";
-      $("statusPill").textContent = current.status==="archived" ? "Archived" : "Active";
-      mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
-
-      if(mdDelete) mdDelete.style.display = 'none';
-      currentInUse = !!current.used;
-
-      updateDebug('openEdit_afterSync', current);
+      // Open modal first (for iOS), then set selects in RAF
       openModal();
+      requestAnimationFrame(()=>{
+        syncEditCropFromDoc(current);
+        syncEditBrandFromDoc(current);
 
-      (async()=>{
-        try{
-          await FVData.ready();
-          await waitForAuthReady();
-          const extraUse = current.used ? true : await isInUse(current.id);
-          currentInUse = extraUse;
-          if(mdDelete){
-            mdDelete.style.display = currentInUse ? 'none' : '';
-          }
-          updateDebug('openEdit_afterUseCheck', current);
-        }catch(e){
-          console.warn('isInUse check failed', e);
-          if(mdDelete) mdDelete.style.display = 'none';
-          updateDebug('openEdit_useCheckError', current);
-        }
-      })();
+        const cropVal = normalizeCropFromDoc(current);
+        fillEditTraitOptions(cropVal || "");
+        setEditMaturityUI(cropVal || "");
+
+        $("editVariety").value = current.variety || "";
+        $("editMaturity").value = current.maturity ?? "";
+        $("editTraits").value = current.trait || "";
+        $("editNotes").value = current.notes || "";
+        $("statusPill").textContent = current.status==="archived" ? "Archived" : "Active";
+        mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
+
+        currentInUse = !!current.used;
+        if(currentInUse) mdDelete.style.display = "none";
+        else mdDelete.style.display = "";
+      });
     }
 
     $("editCrop").addEventListener("change", ()=>{
@@ -773,7 +706,6 @@
       setEditMaturityUI(c);
       $("editTraits").value="";
       $("editMaturity").value="";
-      updateDebug('editCrop_change', current);
     });
 
     mdClose.addEventListener('click', closeModal);
@@ -828,7 +760,6 @@
         current.status = next;
         $("statusPill").textContent = next==="archived" ? "Archived" : "Active";
         mdArchive.textContent = next==="archived" ? "Unarchive" : "Archive";
-        updateDebug('archive_toggle', current);
       }catch(e){
         console.error(e);
         showError('Archive failed: ' + (e?.message||e));
@@ -855,12 +786,13 @@
       try{
         await FVData.ready();
         await waitForAuthReady();
+
         const inUse = currentInUse || await isInUse(current.id);
         if(inUse){
           showToast("Product in use — cannot delete. Archive instead.");
-          updateDebug('delete_blocked_inUse', current);
           return;
         }
+
         if(!confirm(`Delete seed "${(current.brand||'') + ' ' + (current.variety||'')}"? This cannot be undone.`)) return;
         await FVData.remove(COLL, current.id);
         showToast("Product deleted.");
@@ -884,7 +816,6 @@
       setMaturityUI("");
       fillTraitOptions("");
       await renderList();
-      updateDebug('boot', null);
     })();
   </script>
 
