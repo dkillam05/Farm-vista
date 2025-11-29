@@ -131,7 +131,7 @@
       gap:10px;
       flex-wrap:wrap;
       align-items:center;
-      justify-content:space-between; /* Save+Archive on left, trash on right */
+      justify-content:space-between; /* Save+Archive left, trash right */
       padding:12px 14px;
       border-top:1px solid var(--border);
     }
@@ -617,40 +617,6 @@
       }
     }
 
-    // Generic helper: sync a <select> using value OR text; create fallback option if needed
-    function syncSelectByValueOrText(selectEl, rawVal){
-      if(!selectEl) return;
-      const raw = (rawVal || "").toString().trim();
-      if(!raw){
-        selectEl.value = "";
-        return;
-      }
-      const lower = raw.toLowerCase();
-      let matchIndex = -1;
-
-      const opts = Array.from(selectEl.options);
-      for(let i=0;i<opts.length;i++){
-        const opt = opts[i];
-        const ov = (opt.value || "").toString().trim().toLowerCase();
-        const ot = (opt.textContent || "").toString().trim().toLowerCase();
-        if(ov === lower || ot === lower){
-          matchIndex = i;
-          break;
-        }
-      }
-
-      if(matchIndex >= 0){
-        selectEl.selectedIndex = matchIndex;
-      }else{
-        // add one-off option so value shows even if not in standard list
-        const opt = document.createElement("option");
-        opt.value = raw;
-        opt.textContent = raw;
-        selectEl.appendChild(opt);
-        selectEl.value = raw;
-      }
-    }
-
     function normalizeCropFromDoc(doc){
       let c = (doc.crop || '').toString().trim().toLowerCase();
       if(c === 'corn' || c === 'soybean') return c;
@@ -661,16 +627,63 @@
       return '';
     }
 
+    function syncEditCropFromDoc(doc){
+      const sel = $("editCrop");
+      if(!sel) return;
+      const cropVal = normalizeCropFromDoc(doc);
+      if(!cropVal){
+        sel.value = "";
+        return;
+      }
+      sel.value = cropVal;
+      if(sel.value !== cropVal){
+        const opt = document.createElement("option");
+        opt.value = cropVal;
+        opt.textContent = cropVal;
+        sel.appendChild(opt);
+        sel.value = cropVal;
+      }
+    }
+
+    function syncEditBrandFromDoc(doc){
+      const sel = $("editBrand");
+      if(!sel) return;
+      const raw = (doc.brand || "").toString().trim();
+      if(!raw){
+        sel.value = "";
+        return;
+      }
+      const want = raw.toLowerCase();
+      let matched = false;
+      for(const opt of sel.options){
+        const v = (opt.value || "").toString().trim().toLowerCase();
+        const t = (opt.textContent || "").toString().trim().toLowerCase();
+        if(v === want || t === want){
+          sel.value = opt.value;
+          matched = true;
+          break;
+        }
+      }
+      if(!matched){
+        const opt = document.createElement("option");
+        opt.value = raw;
+        opt.textContent = raw;
+        sel.appendChild(opt);
+        sel.value = raw;
+      }
+    }
+
     function openEdit(it){
       current = {...it};
 
-      const cropVal = normalizeCropFromDoc(current);
-      syncSelectByValueOrText($("editCrop"), cropVal || "");
+      // Crop + brand selects
+      syncEditCropFromDoc(current);
+      syncEditBrandFromDoc(current);
 
+      const cropVal = normalizeCropFromDoc(current);
       fillEditTraitOptions(cropVal || "");
       setEditMaturityUI(cropVal || "");
 
-      syncSelectByValueOrText($("editBrand"), current.brand || "");
       $("editVariety").value = current.variety || "";
       $("editMaturity").value = current.maturity ?? "";
       $("editTraits").value = current.trait || "";
@@ -679,7 +692,7 @@
       mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
 
       if(mdDelete) mdDelete.style.display = 'none';
-      currentInUse = false;
+      currentInUse = !!current.used;
 
       openModal();
 
@@ -687,7 +700,9 @@
         try{
           await FVData.ready();
           await waitForAuthReady();
-          currentInUse = await isInUse(current.id);
+          // if used flag already true, skip queries
+          const extraUse = current.used ? true : await isInUse(current.id);
+          currentInUse = extraUse;
           if(mdDelete){
             mdDelete.style.display = currentInUse ? 'none' : '';
           }
@@ -765,6 +780,8 @@
     });
 
     async function isInUse(id){
+      // Honor existing used flag first
+      if(current && current.id === id && current.used) return true;
       try{
         const a = await FVData.getWhere('plantingRecords','seedProductId','==', id, { limit: 1 }) || [];
         if (a.length) return true;
@@ -784,11 +801,13 @@
       try{
         await FVData.ready();
         await waitForAuthReady();
+
         const inUse = currentInUse || await isInUse(current.id);
         if(inUse){
           showToast("Product in use — cannot delete. Archive instead.");
           return;
         }
+
         if(!confirm(`Delete seed "${(current.brand||'') + ' ' + (current.variety||'')}"? This cannot be undone.`)) return;
         await FVData.remove(COLL, current.id);
         showToast("Product deleted.");
