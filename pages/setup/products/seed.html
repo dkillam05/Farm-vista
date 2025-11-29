@@ -83,6 +83,18 @@
     .btn-quiet{min-width:auto;padding:8px 12px}
     .btn[disabled]{opacity:.45; cursor:not-allowed;}
 
+    /* Icon-only button for delete */
+    .btn-icon{
+      min-width:auto;
+      padding:10px 12px;
+      border-radius:999px;
+    }
+    .btn-icon svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
     .list{padding:14px 0;display:grid;gap:12px;}
     .item{
       border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));
@@ -127,8 +139,13 @@
       overflow-x:hidden;
     }
     .dialog-footer{
-      display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;
-      padding:12px 14px;border-top:1px solid var(--border)
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between; /* Save | Archive | Delete (trash) */
+      padding:12px 14px;
+      border-top:1px solid var(--border);
     }
     .closex{
       border:1px solid var(--border);background:var(--surface);border-radius:10px;
@@ -301,11 +318,16 @@
         </div>
       </div>
       <div class="dialog-footer">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
-          <button id="mdDelete" class="btn btn-danger" type="button">Delete</button>
-        </div>
+        <!-- Left: Save -->
         <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <!-- Middle + Right: Archive + Delete (trash) -->
+        <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
+        <button id="mdDelete" class="btn btn-danger btn-icon" type="button" title="Delete product" aria-label="Delete product">
+          <!-- Red trash can SVG -->
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M9 3h6a1 1 0 0 1 .97.757L16.72 5H20a1 1 0 1 1 0 2h-1.1l-.8 11.2A3 3 0 0 1 15.11 21H8.89a3 3 0 0 1-2.99-2.8L5.1 7H4a1 1 0 0 1 0-2h3.28l.75-1.243A1 1 0 0 1 9 3Zm2 6a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1Zm3 0a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1Z" />
+          </svg>
+        </button>
       </div>
     </div>
   </div>
@@ -538,6 +560,7 @@
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"),
           mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
     let current = null;
+    let currentInUse = false;
 
     function lockBody(lock){
       document.documentElement.classList.toggle('lock', lock);
@@ -547,7 +570,7 @@
       modal.setAttribute('open','');
       modal.setAttribute('aria-hidden','false');
       lockBody(true);
-      // focus Back button so iOS doesn't auto-open a <select>
+      // focus Back so iOS doesn't auto-open a <select>
       $("mdClose").focus();
     }
     function closeModal(){
@@ -555,6 +578,7 @@
       modal.setAttribute('aria-hidden','true');
       lockBody(false);
       current=null;
+      currentInUse = false;
     }
 
     function fillEditTraitOptions(c){
@@ -624,7 +648,28 @@
       $("editNotes").value = current.notes || "";
       $("statusPill").textContent = current.status==="archived" ? "Archived" : "Active";
       mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
+
+      // Hide delete until we know if it's been used
+      if(mdDelete) mdDelete.style.display = 'none';
+      currentInUse = false;
+
       openModal();
+
+      // Check usage async and show delete only if never used
+      (async()=>{
+        try{
+          await FVData.ready();
+          await waitForAuthReady();
+          currentInUse = await isInUse(current.id);
+          if(mdDelete){
+            mdDelete.style.display = currentInUse ? 'none' : '';
+          }
+        }catch(e){
+          console.warn('isInUse check failed', e);
+          // On error, keep delete hidden to be safe
+          if(mdDelete) mdDelete.style.display = 'none';
+        }
+      })();
     }
 
     $("editCrop").addEventListener("change", ()=>{
@@ -714,13 +759,14 @@
       try{
         await FVData.ready();
         await waitForAuthReady();
-        if (await isInUse(current.id)){
-          await FVData.update(COLL, current.id, { status:'archived', updatedAt: Date.now() });
-          showToast("In use — archived instead of deleted.");
-          await renderList();
-          closeModal();
+
+        // Double-check usage for safety
+        const inUse = currentInUse || await isInUse(current.id);
+        if(inUse){
+          showToast("Product in use — cannot delete. Archive instead.");
           return;
         }
+
         if(!confirm(`Delete seed "${(current.brand||'') + ' ' + (current.variety||'')}"? This cannot be undone.`)) return;
         await FVData.remove(COLL, current.id);
         showToast("Product deleted.");
