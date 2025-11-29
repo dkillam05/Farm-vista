@@ -617,9 +617,11 @@
       }
     }
 
+    // Improved brand sync: if not found, add a one-off option so the label still shows
     function syncBrandSelect(selectEl, label){
       if(!selectEl) return;
-      const txt = String(label || '').trim().toLowerCase();
+      const rawLabel = String(label || '').trim();
+      const txt = rawLabel.toLowerCase();
       if(!txt){
         selectEl.value = "";
         return;
@@ -635,21 +637,42 @@
       }
       if(!found){
         for(const opt of selectEl.options){
-          if(opt.value === label){
+          if(opt.value === rawLabel){
             selectEl.value = opt.value;
             found = true;
             break;
           }
         }
       }
-      if(!found) selectEl.value = "";
+      if(!found && rawLabel){
+        const opt = document.createElement('option');
+        opt.value = rawLabel;
+        opt.textContent = rawLabel;
+        selectEl.appendChild(opt);
+        selectEl.value = rawLabel;
+      }
+    }
+
+    function normalizeCropFromDoc(doc){
+      let c = (doc.crop || '').toString().trim().toLowerCase();
+      if(c === 'corn' || c === 'soybean') return c;
+      // fallbacks for older docs using cropCorn / cropSoy flags
+      if(doc.cropCorn) return 'corn';
+      if(doc.cropSoy) return 'soybean';
+      // fallbacks for capitalized strings
+      if(c === 'soybeans') return 'soybean';
+      if(c === 'maize') return 'corn';
+      return '';
     }
 
     function openEdit(it){
       current = {...it}; // clone so we can edit without side-effects
-      $("editCrop").value = current.crop || "";
-      fillEditTraitOptions(current.crop||"");
-      setEditMaturityUI(current.crop||"");
+
+      const cropVal = normalizeCropFromDoc(current);
+      $("editCrop").value = cropVal || "";
+      fillEditTraitOptions(cropVal || "");
+      setEditMaturityUI(cropVal || "");
+
       syncBrandSelect($("editBrand"), current.brand || "");
       $("editVariety").value = current.variety || "";
       $("editMaturity").value = current.maturity ?? "";
