@@ -78,7 +78,6 @@
       background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;
     }
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
     .btn[disabled]{opacity:.45; cursor:not-allowed;}
 
@@ -359,7 +358,7 @@
       showError._t = setTimeout(()=> alertBox.classList.remove('show'), 7000);
     };
 
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -524,24 +523,71 @@
       }
     });
 
-    /* List + in-memory items */
-    let items = [];
-    function card(it){
-      const cropPill = it.crop ? `<span class="pill">${esc(it.crop)}</span>` : "";
-      const matPill  = it.maturity ? `<span class="pill">${esc(it.maturity)} ${it.crop==="corn"?"CRM":"RM"}</span>` : "";
-      const traitPill= it.traitLabel ? `<span class="pill">${esc(it.traitLabel)}</span>`
-                                     : (it.trait ? `<span class="pill">${esc(it.trait)}</span>` : "");
-      const archPill = it.status==="archived" ? `<span class="pill">Archived</span>` : "";
+    /* ===========================
+       Seed Dictionary (rewritten)
+       =========================== */
+    const BRAND_MAP = {};
+    function buildBrandMap(){
+      const selects = [ $("brand"), $("editBrand") ];
+      selects.forEach(sel=>{
+        if(!sel) return;
+        Array.from(sel.options).forEach(opt=>{
+          const code = (opt.value || "").trim();
+          const label = (opt.textContent || "").trim();
+          if(!code && !label) return;
+          if(code) BRAND_MAP[code.toLowerCase()] = code;
+          if(label) BRAND_MAP[label.toLowerCase()] = code || label;
+        });
+      });
+    }
+    function mapBrandFromDoc(raw){
+      const key = (raw || "").toString().trim().toLowerCase();
+      return BRAND_MAP[key] || "";
+    }
+
+    function getCropCode(row){
+      const c = (row.crop || "").toString().trim().toLowerCase();
+      if(c === "corn") return "corn";
+      if(c === "soybean" || c === "soybeans") return "soybean";
+      if(row.cropCorn) return "corn";
+      if(row.cropSoy) return "soybean";
+      return "";
+    }
+
+    function normalizeSeed(row){
+      const cropCode = getCropCode(row);
+      return {
+        id: row.id,
+        crop: cropCode,
+        brand: row.brand || "",
+        variety: row.variety || "",
+        maturity: row.maturity || "",
+        trait: row.trait || "",
+        traitLabel: row.traitLabel || "",
+        notes: row.notes || "",
+        status: row.status || "active",
+        used: !!row.used
+      };
+    }
+
+    let seeds = [];
+
+    function makeCard(seed){
+      const cropPill = seed.crop ? `<span class="pill">${esc(seed.crop)}</span>` : "";
+      const matPill  = seed.maturity ? `<span class="pill">${esc(seed.maturity)} ${seed.crop==="corn"?"CRM":"RM"}</span>` : "";
+      const traitPill= seed.traitLabel ? `<span class="pill">${esc(seed.traitLabel)}</span>`
+                                       : (seed.trait ? `<span class="pill">${esc(seed.trait)}</span>` : "");
+      const archPill = seed.status==="archived" ? `<span class="pill">Archived</span>` : "";
       const el = document.createElement("div");
       el.className="item";
       el.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <div class="name">${esc(it.brand||'(Brand)')} ${esc(it.variety||'')}</div>
+          <div class="name">${esc(seed.brand||'(Brand)')} ${esc(seed.variety||'')}</div>
           ${cropPill}${matPill}${traitPill}${archPill}
         </div>
         <button class="btn" type="button">View / Edit</button>
       `;
-      el.querySelector(".btn").addEventListener("click", ()=> openEdit(it));
+      el.querySelector(".btn").addEventListener("click", ()=> openEdit(seed));
       return el;
     }
 
@@ -550,7 +596,9 @@
         await FVData.ready();
         await waitForAuthReady();
         const rows = await FVData.list(COLL, { limit:2000 }) || [];
-        items = rows.slice().sort((a,b)=>{
+        seeds = rows.map(normalizeSeed);
+
+        seeds.sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
           const ca = (a.crop==="corn") ? 0 : (a.crop==="soybean" ? 1 : 2);
           const cb = (b.crop==="corn") ? 0 : (b.crop==="soybean" ? 1 : 2);
@@ -558,15 +606,16 @@
           const nv = (a.variety||'').localeCompare(b.variety||'', undefined, {sensitivity:'base'});
           return (sa - sb) || (ca - cb) || nb || nv;
         });
-        listBox.innerHTML = items.length ? "" : '<div class="muted">No seed products yet.</div>';
-        items.forEach(it=> listBox.appendChild(card(it)));
+
+        listBox.innerHTML = seeds.length ? "" : '<div class="muted">No seed products yet.</div>';
+        seeds.forEach(s=> listBox.appendChild(makeCard(s)));
       }catch(e){
         console.error(e);
         showError(e?.message || "Load failed.");
       }
     }
 
-    /* Edit modal */
+    /* Edit modal, rebuilt */
     const mdClose = $("mdClose"), mdSave = $("mdSave"),
           mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
 
@@ -589,43 +638,6 @@
       lockBody(false);
       current=null;
       currentInUse=false;
-    }
-
-    // NEW: helpers to normalize crop / brand from a doc
-    function getCropFromDoc(doc){
-      const cRaw = (doc.crop || '').toString().trim().toLowerCase();
-      if(cRaw === 'corn') return 'corn';
-      if(cRaw === 'soybean' || cRaw === 'soybeans') return 'soybean';
-      if(doc.cropCorn) return 'corn';
-      if(doc.cropSoy) return 'soybean';
-      return '';
-    }
-
-    function syncSelectToDocValue(sel, raw){
-      if(!sel) return;
-      const val = (raw || "").toString().trim();
-      if(!val){
-        sel.value = "";
-        return;
-      }
-      const want = val.toLowerCase();
-      let matched = false;
-      for(const opt of sel.options){
-        const v = (opt.value || "").toString().trim().toLowerCase();
-        const t = (opt.textContent || "").toString().trim().toLowerCase();
-        if(v === want || t === want){
-          sel.value = opt.value;
-          matched = true;
-          break;
-        }
-      }
-      if(!matched){
-        const opt = document.createElement("option");
-        opt.value = val;
-        opt.textContent = val;
-        sel.appendChild(opt);
-        sel.value = val;
-      }
     }
 
     function fillEditTraitOptions(c){
@@ -655,48 +667,46 @@
       }
     }
 
-    function openEdit(it){
-      current = {...it};
+    function openEdit(seed){
+      current = {...seed};
       openModal();
 
       requestAnimationFrame(()=>{
-        const cropVal = getCropFromDoc(current);
-        const cropSel = $("editCrop");
-        const brandSel = $("editBrand");
+        buildBrandMap();
 
-        // Crop select
-        if(cropVal){
-          cropSel.value = cropVal;
-          if(cropSel.value !== cropVal){
-            const opt = document.createElement("option");
-            opt.value = cropVal;
-            opt.textContent = cropVal;
-            cropSel.appendChild(opt);
-            cropSel.value = cropVal;
-          }
+        const cropCode = getCropCode(seed);
+        const cropSel = $("editCrop");
+        cropSel.value = cropCode || "";
+
+        fillEditTraitOptions(cropCode || "");
+        setEditMaturityUI(cropCode || "");
+
+        $("editVariety").value = seed.variety || "";
+        $("editMaturity").value = seed.maturity || "";
+        $("editNotes").value   = seed.notes || "";
+
+        const editBrandSel = $("editBrand");
+        const brandCode = mapBrandFromDoc(seed.brand);
+        if(brandCode){
+          editBrandSel.value = brandCode;
         }else{
-          cropSel.value = "";
+          editBrandSel.value = "";
+          if(seed.brand){
+            const opt = document.createElement("option");
+            opt.value = seed.brand;
+            opt.textContent = seed.brand;
+            editBrandSel.appendChild(opt);
+            editBrandSel.value = seed.brand;
+          }
         }
 
-        // Trait + maturity UI for that crop
-        fillEditTraitOptions(cropVal || "");
-        setEditMaturityUI(cropVal || "");
+        $("editTraits").value = seed.trait || "";
 
-        // Brand select (handles "DEKALB" vs "DeKalb" vs "dekalb")
-        syncSelectToDocValue(brandSel, current.brand || "");
+        $("statusPill").textContent = seed.status==="archived" ? "Archived" : "Active";
+        mdArchive.textContent = seed.status==="archived" ? "Unarchive" : "Archive";
 
-        // Simple fields
-        $("editVariety").value = current.variety || "";
-        $("editMaturity").value = current.maturity ?? "";
-        $("editTraits").value = current.trait || "";
-        $("editNotes").value = current.notes || "";
-
-        $("statusPill").textContent = current.status==="archived" ? "Archived" : "Active";
-        mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
-
-        currentInUse = !!current.used;
-        if(currentInUse) mdDelete.style.display = "none";
-        else mdDelete.style.display = "";
+        currentInUse = !!seed.used;
+        mdDelete.style.display = currentInUse ? "none" : "";
       });
     }
 
@@ -815,6 +825,7 @@
       }
       setMaturityUI("");
       fillTraitOptions("");
+      buildBrandMap();
       await renderList();
     })();
   </script>
