@@ -8,7 +8,7 @@
 
   <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
-  <link rel="my-link icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
   <!-- Theme + base app styles -->
@@ -159,16 +159,6 @@
     }
     .kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media(max-width:700px){ .kv{ grid-template-columns:1fr } }
-
-    .raw-box{
-      font-family:system-ui, -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, Consolas, monospace;
-      font-size:12px;
-      background:rgba(0,0,0,.04);
-      border-radius:8px;
-      padding:8px;
-      max-height:180px;
-      overflow:auto;
-    }
   </style>
 </head>
 <body>
@@ -194,6 +184,7 @@
           <div class="grid-2">
             <div class="field">
               <label for="crop">Crop</label>
+              <!-- crop options are sorted A–Z -->
               <select id="crop" class="select">
                 <option value="">—</option>
                 <option value="corn">Corn</option>
@@ -203,6 +194,7 @@
             <div class="field">
               <label for="brand">Brand</label>
               <!-- values are LABEL STRINGS; these are what we store in Firestore -->
+              <!-- initial order is A–Z; script also uses the same sorted list for edit -->
               <select id="brand" class="select">
                 <option value="">—</option>
                 <option value="Asgrow">Asgrow</option>
@@ -233,7 +225,7 @@
             </div>
             <div class="field">
               <label for="traits">Trait System</label>
-              <!-- values are trait codes stored in Firestore -->
+              <!-- filled from TRAITS sorted A–Z -->
               <select id="traits" class="select">
                 <option value="">—</option>
               </select>
@@ -309,11 +301,6 @@
         <div class="field">
           <span class="pill" id="statusPill">Status</span>
         </div>
-
-        <div class="field" style="grid-column:1/-1">
-          <label>Raw document (debug)</label>
-          <pre id="rawJson" class="raw-box"></pre>
-        </div>
       </div>
     </div>
     <footer>
@@ -368,7 +355,6 @@
     const editTrait    = $("editTrait");
     const editNotes    = $("editNotes");
     const statusPill   = $("statusPill");
-    const rawJsonEl    = $("rawJson");
 
     let db = null;
     let SEEDS = [];
@@ -389,48 +375,52 @@
       alertBox._t = setTimeout(()=> alertBox.classList.remove('show'), 7000);
     };
 
+    // Always keep brands sorted A–Z
     const BRAND_VALUES = [
       "Asgrow","Becks","Brevant Seeds","Burrus Seed","Channel","DeKalb",
       "Generic","Hisoy","Merschman Seeds","NuTech","Pioneer","Wyffels Hybrids"
-    ];
+    ].sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'}));
 
+    // Trait codes; we'll sort by label whenever we build options
     const TRAITS = {
       corn: [
+        {v:"CLEAR",t:"CLEARFIELD (IMI)"},
         {v:"CONV",t:"Conventional (Non-GMO)"},
-        {v:"VT2P",t:"VT Double PRO (VT2P)"},
-        {v:"TRE",t:"Trecepta"},
-        {v:"TRERIB",t:"Trecepta RIB"},
-        {v:"SS",t:"SmartStax"},
-        {v:"SSPRO",t:"SmartStax PRO"},
-        {v:"QROME",t:"Qrome"},
-        {v:"PC",t:"PowerCore"},
-        {v:"PCU",t:"PowerCore Ultra"},
-        {v:"VIPTERA",t:"Agrisure Viptera"},
         {v:"DURACADE",t:"Agrisure Duracade"},
         {v:"ENLISTC",t:"Enlist Corn (herbicide)"},
-        {v:"CLEAR",t:"CLEARFIELD (IMI)"}
+        {v:"PC",t:"PowerCore"},
+        {v:"PCU",t:"PowerCore Ultra"},
+        {v:"QROME",t:"Qrome"},
+        {v:"SS",t:"SmartStax"},
+        {v:"SSPRO",t:"SmartStax PRO"},
+        {v:"TRE",t:"Trecepta"},
+        {v:"TRERIB",t:"Trecepta RIB"},
+        {v:"VIPTERA",t:"Agrisure Viptera"},
+        {v:"VT2P",t:"VT Double PRO (VT2P)"}
       ],
       soybean: [
+        {v:"CONV",t:"Conventional (Non-GMO)"},
         {v:"E3",t:"Enlist E3"},
-        {v:"XF",t:"XtendFlex"},
-        {v:"RR2X",t:"Roundup Ready 2 Xtend"},
-        {v:"RR2Y",t:"Roundup Ready 2 Yield"},
         {v:"LL",t:"LibertyLink"},
         {v:"LLGT27",t:"LibertyLink GT27"},
+        {v:"RR2X",t:"Roundup Ready 2 Xtend"},
+        {v:"RR2Y",t:"Roundup Ready 2 Yield"},
         {v:"STS",t:"STS"},
-        {v:"CONV",t:"Conventional (Non-GMO)"}
+        {v:"XF",t:"XtendFlex"}
       ]
     };
 
     function fillTraitOptions(cropVal){
       traits.innerHTML = '<option value="">—</option>';
-      (TRAITS[cropVal] || []).forEach(o=>{
+      const list = (TRAITS[cropVal] || []).slice()
+        .sort((a,b)=>a.t.localeCompare(b.t,'en',{sensitivity:'base'}));
+      list.forEach(o=>{
         const opt = document.createElement("option");
         opt.value = o.v;
         opt.textContent = o.t;
         traits.appendChild(opt);
       });
-      traitHelp.textContent = (TRAITS[cropVal] && TRAITS[cropVal].length)
+      traitHelp.textContent = list.length
         ? "Pick the matching trait system on the bag tag."
         : "Select crop to load trait options.";
     }
@@ -592,7 +582,7 @@
       current = null;
     }
 
-    // Build the edit dropdowns fresh based on the doc we just loaded.
+    // Build the edit dropdowns fresh, sorted A–Z, based on the doc.
     function buildEditCropSelect(selected){
       const val = (selected || "").toLowerCase();
       editCrop.innerHTML = "";
@@ -601,6 +591,7 @@
         ["corn", "Corn"],
         ["soybean", "Soybean"]
       ];
+      opts.sort((a,b)=>a[1].localeCompare(b[1],'en',{sensitivity:'base'}));
       opts.forEach(([v,label])=>{
         const o = document.createElement("option");
         o.value = v;
@@ -613,7 +604,9 @@
     function buildEditBrandSelect(selected){
       const val = (selected || "").toLowerCase();
       editBrand.innerHTML = "";
-      const opts = [["", "—"]].concat(BRAND_VALUES.map(v=>[v,v]));
+      const opts = [["", "—"]].concat(
+        BRAND_VALUES.slice().sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'})).map(v=>[v,v])
+      );
       opts.forEach(([v,label])=>{
         const o = document.createElement("option");
         o.value = v;
@@ -626,8 +619,9 @@
     function buildEditTraitSelect(cropVal, selectedTrait){
       const val = (selectedTrait || "").toUpperCase();
       editTrait.innerHTML = "";
-      const options = (TRAITS[cropVal] || []).slice();
-      const opts = [["", "—"]].concat(options.map(t=>[t.v, t.t]));
+      const list = (TRAITS[cropVal] || []).slice()
+        .sort((a,b)=>a.t.localeCompare(b.t,'en',{sensitivity:'base'}));
+      const opts = [["", "—"]].concat(list.map(t=>[t.v,t.t]));
       opts.forEach(([v,label])=>{
         const o = document.createElement("option");
         o.value = v;
@@ -661,8 +655,6 @@
         statusPill.textContent = st === "archived" ? "Archived" : "Active";
         statusPill.className   = "pill" + (st === "archived" ? " pill-arch" : "");
         mdArchive.textContent  = st === "archived" ? "Unarchive" : "Archive";
-
-        rawJsonEl.textContent = JSON.stringify(current, null, 2);
 
         openDialog();
       }catch(e){
