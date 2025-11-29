@@ -49,7 +49,6 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      /* overflow removed so dropdowns can extend outside the card */
     }
     .section-head{
       display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
@@ -131,7 +130,7 @@
       gap:10px;
       flex-wrap:wrap;
       align-items:center;
-      justify-content:space-between; /* Save+Archive left, trash right */
+      justify-content:space-between;
       padding:12px 14px;
       border-top:1px solid var(--border);
     }
@@ -161,7 +160,24 @@
       padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;
     }
 
-    /* Scroll lock when modal open */
+    /* Debug panel */
+    .debug-box{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:11px;
+      background:rgba(255,255,255,.03);
+      border-radius:8px;
+      padding:8px;
+      border:1px dashed var(--border);
+      white-space:pre-wrap;
+      max-height:140px;
+      overflow:auto;
+      color:var(--muted,#9aa29e);
+    }
+    .debug-label{
+      font-weight:700;
+      margin-bottom:4px;
+    }
+
     html.lock, body.lock { overflow:hidden; height:100%; }
   </style>
 </head>
@@ -325,6 +341,12 @@
         <div class="field" style="align-self:end">
           <span class="pill" id="statusPill">Active</span>
         </div>
+
+        <!-- TEMP DEBUG PANEL -->
+        <div class="debug-box" id="debugBox">
+          <div class="debug-label">Debug (temp)</div>
+          <div>Open a seed and this will populate…</div>
+        </div>
       </div>
       <div class="dialog-footer">
         <div class="df-left">
@@ -332,7 +354,6 @@
           <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
         </div>
         <button id="mdDelete" class="delete-icon-btn" type="button" title="Delete product" aria-label="Delete product">
-          <!-- plain red trash can SVG -->
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="#b3261e">
             <path d="M9 3h6a1 1 0 0 1 .97.75L16.7 5H20a1 1 0 1 1 0 2h-1.1l-.8 11.2A3 3 0 0 1 15.1 21H8.9a3 3 0 0 1-2.99-2.8L5.1 7H4a1 1 0 1 1 0-2h3.3l.75-1.25A1 1 0 0 1 9 3Zm2 6a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1Zm3 0a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1Z"/>
           </svg>
@@ -341,11 +362,11 @@
     </div>
   </div>
 
-  <!-- Page logic -->
   <script type="module">
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const listBox = $("list");
+    const debugBox = $("debugBox");
     const COLL = 'productsSeed';
 
     const showToast = (msg="Saved.")=>{
@@ -361,6 +382,36 @@
       showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+    function updateDebug(stage, current){
+      if(!debugBox) return;
+      const selCrop = $("editCrop");
+      const selBrand = $("editBrand");
+      const normCrop = normalizeCropFromDoc(current || {});
+      const lines = [];
+      lines.push(`stage: ${stage}`);
+      if(current){
+        lines.push(`id: ${current.id}`);
+        lines.push(`brand: ${JSON.stringify(current.brand)}`);
+        lines.push(`crop: ${JSON.stringify(current.crop)}`);
+        lines.push(`cropCorn: ${JSON.stringify(current.cropCorn)}`);
+        lines.push(`cropSoy: ${JSON.stringify(current.cropSoy)}`);
+        lines.push(`used: ${JSON.stringify(current.used)}`);
+      }else{
+        lines.push('current: null');
+      }
+      lines.push(`normalizedCrop: ${JSON.stringify(normCrop)}`);
+      lines.push(`editCrop.value: ${JSON.stringify(selCrop && selCrop.value)}`);
+      lines.push(`editBrand.value: ${JSON.stringify(selBrand && selBrand.value)}`);
+      if(current){
+        try{
+          lines.push(`keys(current): ${Object.keys(current).join(', ')}`);
+          const smallJson = JSON.stringify(current).slice(0,260);
+          lines.push(`current JSON (trim): ${smallJson}${smallJson.length===260?'…':''}`);
+        }catch(e){}
+      }
+      debugBox.textContent = lines.join('\n');
+    }
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -524,7 +575,7 @@
       }
     });
 
-    /* List + in-memory items so we never call FVData.get() */
+    /* List + in-memory items */
     let items = [];
     function card(it){
       const cropPill = it.crop ? `<span class="pill">${esc(it.crop)}</span>` : "";
@@ -580,7 +631,7 @@
       modal.setAttribute('open','');
       modal.setAttribute('aria-hidden','false');
       lockBody(true);
-      $("mdClose").focus(); // avoid auto-opening iOS selects
+      $("mdClose").focus();
     }
     function closeModal(){
       modal.removeAttribute('open');
@@ -588,6 +639,7 @@
       lockBody(false);
       current=null;
       currentInUse = false;
+      updateDebug('closed', null);
     }
 
     function fillEditTraitOptions(c){
@@ -675,12 +727,12 @@
 
     function openEdit(it){
       current = {...it};
+      updateDebug('openEdit_start', current);
 
-      // Crop + brand selects
       syncEditCropFromDoc(current);
       syncEditBrandFromDoc(current);
-
       const cropVal = normalizeCropFromDoc(current);
+
       fillEditTraitOptions(cropVal || "");
       setEditMaturityUI(cropVal || "");
 
@@ -694,21 +746,23 @@
       if(mdDelete) mdDelete.style.display = 'none';
       currentInUse = !!current.used;
 
+      updateDebug('openEdit_afterSync', current);
       openModal();
 
       (async()=>{
         try{
           await FVData.ready();
           await waitForAuthReady();
-          // if used flag already true, skip queries
           const extraUse = current.used ? true : await isInUse(current.id);
           currentInUse = extraUse;
           if(mdDelete){
             mdDelete.style.display = currentInUse ? 'none' : '';
           }
+          updateDebug('openEdit_afterUseCheck', current);
         }catch(e){
           console.warn('isInUse check failed', e);
           if(mdDelete) mdDelete.style.display = 'none';
+          updateDebug('openEdit_useCheckError', current);
         }
       })();
     }
@@ -719,6 +773,7 @@
       setEditMaturityUI(c);
       $("editTraits").value="";
       $("editMaturity").value="";
+      updateDebug('editCrop_change', current);
     });
 
     mdClose.addEventListener('click', closeModal);
@@ -773,6 +828,7 @@
         current.status = next;
         $("statusPill").textContent = next==="archived" ? "Archived" : "Active";
         mdArchive.textContent = next==="archived" ? "Unarchive" : "Archive";
+        updateDebug('archive_toggle', current);
       }catch(e){
         console.error(e);
         showError('Archive failed: ' + (e?.message||e));
@@ -780,8 +836,6 @@
     });
 
     async function isInUse(id){
-      // Honor existing used flag first
-      if(current && current.id === id && current.used) return true;
       try{
         const a = await FVData.getWhere('plantingRecords','seedProductId','==', id, { limit: 1 }) || [];
         if (a.length) return true;
@@ -801,13 +855,12 @@
       try{
         await FVData.ready();
         await waitForAuthReady();
-
         const inUse = currentInUse || await isInUse(current.id);
         if(inUse){
           showToast("Product in use — cannot delete. Archive instead.");
+          updateDebug('delete_blocked_inUse', current);
           return;
         }
-
         if(!confirm(`Delete seed "${(current.brand||'') + ' ' + (current.variety||'')}"? This cannot be undone.`)) return;
         await FVData.remove(COLL, current.id);
         showToast("Product deleted.");
@@ -831,6 +884,7 @@
       setMaturityUI("");
       fillTraitOptions("");
       await renderList();
+      updateDebug('boot', null);
     })();
   </script>
 
