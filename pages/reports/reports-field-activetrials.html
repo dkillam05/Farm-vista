@@ -116,7 +116,7 @@
       opacity:0.8;
     }
 
-    /* Empty + farm list */
+    /* Trial list */
     .wo-list {
       display:flex;
       flex-direction:column;
@@ -142,7 +142,7 @@
       padding:12px 14px 10px;
       display:flex;
       flex-direction:column;
-      gap:6px;
+      gap:8px;
     }
 
     .wo-row-top {
@@ -190,10 +190,10 @@
       font-weight:600;
     }
 
-    /* Fields table per farm */
+    /* Farms + fields inside a trial */
     .farm-fields-block{
-      margin-top:8px;
-      padding-top:8px;
+      margin-top:2px;
+      padding-top:4px;
       border-top:1px solid var(--border);
       font-size:0.9rem;
     }
@@ -203,6 +203,15 @@
       letter-spacing:0.06em;
       opacity:0.7;
       margin-bottom:4px;
+    }
+
+    .farm-group{
+      margin-top:6px;
+    }
+    .farm-group-title{
+      font-weight:600;
+      font-size:0.9rem;
+      margin:2px 0 4px;
     }
 
     .farm-table-wrap{
@@ -250,6 +259,38 @@
     .yield-chip--no{
       background:color-mix(in srgb, var(--surface) 80%, var(--border) 20%);
       opacity:0.9;
+    }
+
+    /* Overlap section */
+    .overlap-section{
+      margin-top:18px;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      box-shadow:var(--shadow-soft,var(--shadow));
+    }
+    .overlap-title{
+      margin:0;
+      font-size:0.96rem;
+      font-weight:700;
+    }
+    .overlap-sub{
+      margin:2px 0 8px;
+      font-size:0.85rem;
+      opacity:0.9;
+    }
+    .overlap-empty{
+      font-size:0.85rem;
+      opacity:0.9;
+    }
+    .overlap-list{
+      margin:0;
+      padding-left:18px;
+      font-size:0.85rem;
+    }
+    .overlap-list li{
+      margin:3px 0;
     }
 
     .bottom-actions{
@@ -304,7 +345,7 @@
 
     const STATE = {
       db: null,
-      farms: [],      // [{id,name,fields:[...]}]
+      trials: [],       // [{id, trialName, trialType, crop, cropYear, opTask, treatment, farms:[{id,name,fields:[]}]}]
       totals: {
         trials: 0,
         fields: 0,
@@ -312,6 +353,7 @@
         fieldsWithYield: 0,
         fieldsNoYield: 0
       },
+      overlaps: [],     // [{farmId,farmName,trials:[{id,name,crop,cropYear}]}]
       company: null
     };
 
@@ -370,8 +412,17 @@
 
     async function loadData(){
       const db = STATE.db;
-      const farmMap = new Map();  // farmId -> {id,name,fields:[]}
-      const seenTrialIds = new Set();
+      const trials = [];
+      const totals = {
+        trials: 0,
+        fields: 0,
+        farms: 0,
+        fieldsWithYield: 0,
+        fieldsNoYield: 0
+      };
+
+      const globalFarmIds = new Set();
+      const globalFarmTrials = new Map(); // farmId -> {id,name,trialInfos: Map(trialId -> {id,name,crop,cropYear})}
 
       const trialsSnap = await getDocs(
         query(
@@ -381,14 +432,12 @@
       );
 
       if(trialsSnap.empty){
-        return { farmMap, seenTrialIds };
+        return { trials:[], totals, overlaps:[] };
       }
 
       for(const trialDoc of trialsSnap.docs){
         const tData = trialDoc.data() || {};
         const trialId = trialDoc.id;
-
-        seenTrialIds.add(trialId);
 
         const trialName = tData.trialName || 'Unnamed trial';
         const trialType = tData.trialType || '';
@@ -400,6 +449,10 @@
         const fieldsSnap = await getDocs(
           collection(db, CONFIG.TRIAL_COLLECTION, trialId, 'fields')
         );
+
+        const farmMap = new Map();
+        let trialFieldCount = 0;
+        let trialFieldsWithYield = 0;
 
         for(const fieldDoc of fieldsSnap.docs){
           const fData = fieldDoc.data() || {};
@@ -446,7 +499,10 @@
               min,
               max
             };
+            trialFieldsWithYield++;
           }
+
+          trialFieldCount++;
 
           if(!farmMap.has(farmId)){
             farmMap.set(farmId, {
@@ -470,43 +526,76 @@
             trialAc,
             yieldSummary
           });
+
+          // global farm / trial tracking for overlap summary
+          globalFarmIds.add(farmId);
+          if(!globalFarmTrials.has(farmId)){
+            globalFarmTrials.set(farmId, {
+              id: farmId,
+              name: farmName,
+              trialInfos: new Map()
+            });
+          }
+          const gf = globalFarmTrials.get(farmId);
+          if(!gf.trialInfos.has(trialId)){
+            gf.trialInfos.set(trialId, {
+              id: trialId,
+              name: trialName,
+              crop,
+              cropYear
+            });
+          }
         }
-      }
 
-      return { farmMap, seenTrialIds };
-    }
+        const farmsArr = Array.from(farmMap.values())
+          .map(f => ({
+            ...f,
+            fields: f.fields.slice().sort((a,b)=> (a.fieldName || '').localeCompare(b.fieldName || ''))
+          }))
+          .sort((a,b)=> (a.name || '').localeCompare(b.name || ''));
 
-    function finalizeState({ farmMap, seenTrialIds }){
-      const farms = Array.from(farmMap.values())
-        .map(f => ({
-          ...f,
-          fields: f.fields.slice().sort((a,b)=> (a.fieldName || '').localeCompare(b.fieldName || ''))
-        }))
-        .sort((a,b)=> (a.name || '').localeCompare(b.name || ''));
+        totals.fields += trialFieldCount;
+        totals.fieldsWithYield += trialFieldsWithYield;
 
-      let totalFields = 0;
-      let fieldsWithYield = 0;
-      let fieldsNoYield = 0;
-
-      farms.forEach(f => {
-        totalFields += f.fields.length;
-        f.fields.forEach(fd => {
-          if(fd.yieldSummary && fd.yieldSummary.hasYield){
-            fieldsWithYield++;
-          }else{
-            fieldsNoYield++;
+        trials.push({
+          id: trialId,
+          trialName,
+          trialType,
+          crop,
+          cropYear,
+          opTask,
+          treatment,
+          farms: farmsArr,
+          summary: {
+            fields: trialFieldCount,
+            farms: farmsArr.length,
+            fieldsWithYield: trialFieldsWithYield
           }
         });
-      });
+      }
 
-      STATE.farms = farms;
-      STATE.totals = {
-        trials: seenTrialIds.size,
-        fields: totalFields,
-        farms: farms.length,
-        fieldsWithYield,
-        fieldsNoYield
-      };
+      totals.trials = trials.length;
+      totals.farms = globalFarmIds.size;
+      totals.fieldsNoYield = totals.fields - totals.fieldsWithYield;
+
+      // Overlaps: farms that appear in more than one active trial
+      const overlaps = Array.from(globalFarmTrials.values())
+        .filter(g => g.trialInfos.size > 1)
+        .map(g => ({
+          farmId: g.id,
+          farmName: g.name,
+          trials: Array.from(g.trialInfos.values())
+            .sort((a,b)=> (a.name || '').localeCompare(b.name || ''))
+        }))
+        .sort((a,b)=> (a.farmName || '').localeCompare(b.farmName || ''));
+
+      return { trials, totals, overlaps };
+    }
+
+    function finalizeState({ trials, totals, overlaps }){
+      STATE.trials   = trials || [];
+      STATE.totals   = totals || STATE.totals;
+      STATE.overlaps = overlaps || [];
     }
 
     function renderList(){
@@ -516,7 +605,7 @@
 
       listEl.innerHTML = '';
 
-      if(!STATE.farms.length){
+      if(!STATE.trials.length){
         emptyEl.style.display = 'block';
         emptyEl.textContent = 'No fields are currently in active trials.';
         if(metaEl){
@@ -533,27 +622,35 @@
         metaEl.textContent = `${formatInt(fields)} field${fields===1?'':'s'} • ${formatInt(farms)} farm${farms===1?'':'s'} • ${formatInt(trials)} active trial${trials===1?'':'s'} (${formatInt(fieldsWithYield)} with yield, ${formatInt(fieldsNoYield)} without)`;
       }
 
-      for(const farm of STATE.farms){
-        const fieldCount = farm.fields.length;
-        const trialIds = new Set(farm.fields.map(f=>f.trialId));
-        const farmTrials = trialIds.size;
-
+      for(const trial of STATE.trials){
         const card = document.createElement('article');
         card.className = 'wo-card';
 
-        const yieldFields = farm.fields.filter(f=>f.yieldSummary && f.yieldSummary.hasYield).length;
+        const cropBits = [];
+        if(trial.crop) cropBits.push(trial.crop);
+        if(trial.cropYear) cropBits.push(trial.cropYear);
+        const cropText = cropBits.join(' · ');
+
+        const subBits = [];
+        if(trial.trialType) subBits.push(trial.trialType);
+        if(trial.opTask)   subBits.push(trial.opTask);
+        if(trial.treatment) subBits.push(trial.treatment);
+        const subText = subBits.join(' · ');
+
+        const { fields: fieldCount, farms: farmCount, fieldsWithYield } = trial.summary;
 
         card.innerHTML = `
           <div class="wo-row-top">
             <div class="wo-main">
-              <div class="wo-title">${escapeHtml(farm.name || 'Unknown farm')}</div>
+              <div class="wo-title">${escapeHtml(trial.trialName || 'Unnamed trial')}</div>
               <div class="wo-sub">
-                ${fieldCount} field${fieldCount===1?'':'s'} in ${farmTrials} active trial${farmTrials===1?'':'s'}
+                ${escapeHtml(cropText || '')}
+                ${subText ? ` · ${escapeHtml(subText)}` : ''}
               </div>
               <div class="wo-meta">
                 <span><span class="wo-meta-label">Fields</span> ${fieldCount}</span>
-                <span><span class="wo-meta-label">Trials</span> ${farmTrials}</span>
-                <span><span class="wo-meta-label">With yield</span> ${yieldFields}</span>
+                <span><span class="wo-meta-label">Farms</span> ${farmCount}</span>
+                <span><span class="wo-meta-label">With yield</span> ${fieldsWithYield}</span>
               </div>
             </div>
           </div>
@@ -562,93 +659,125 @@
         const block = document.createElement('div');
         block.className = 'farm-fields-block';
         block.innerHTML = `
-          <div class="farm-fields-title">Fields in active trials</div>
-          <div class="farm-table-wrap">
-            <table class="farm-table">
-              <thead>
-                <tr>
-                  <th style="width:22%">Field</th>
-                  <th style="width:25%">Trial</th>
-                  <th style="width:18%">Crop / Year</th>
-                  <th style="width:18%">Trial ac / Tillable</th>
-                  <th style="width:17%">Yield summary</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${farm.fields.map(fd => {
-                  const y = fd.yieldSummary || {};
-                  let yieldText = '';
-                  if(y.hasYield){
-                    yieldText = `
-                      <span class="yield-chip">
-                        ${formatDecimal(y.avg,1)} bu/ac
-                      </span><br>
-                      <span style="font-size:.75rem;opacity:.9;">
-                        ${y.blockCount} blk · range ${formatDecimal(y.min,1)}–${formatDecimal(y.max,1)}
-                      </span>
-                    `;
-                  }else if(y.hasBlocks){
-                    yieldText = `
-                      <span class="yield-chip yield-chip--no">
-                        ${y.blockCount} block${y.blockCount===1?'':'s'} (yield not set)
-                      </span>
-                    `;
-                  }else{
-                    yieldText = `
-                      <span class="yield-chip yield-chip--no">
-                        No yield data
-                      </span>
-                    `;
-                  }
-
-                  const acPieces = [];
-                  if(fd.trialAc != null){
-                    acPieces.push(`${formatDecimal(fd.trialAc,1)} ac`);
-                  }
-                  if(fd.tillable != null){
-                    acPieces.push(`${formatDecimal(fd.tillable,1)} tillable`);
-                  }
-                  const acText = acPieces.join(' / ') || '';
-
-                  const cropBits = [];
-                  if(fd.crop) cropBits.push(fd.crop);
-                  if(fd.cropYear) cropBits.push(fd.cropYear);
-                  const cropText = cropBits.join(' · ') || '';
-
-                  const trialBits = [fd.trialName];
-                  const subBits = [];
-                  if(fd.trialType) subBits.push(fd.trialType);
-                  if(fd.opTask) subBits.push(fd.opTask);
-                  if(fd.treatment) subBits.push(fd.treatment);
-                  const sub = subBits.join(' · ');
-                  const trialSub = sub ? `<div style="font-size:.75rem;opacity:.9;margin-top:2px;">${escapeHtml(sub)}</div>` : '';
-
-                  return `
-                    <tr>
-                      <td>${escapeHtml(fd.fieldName || '')}</td>
-                      <td>
-                        ${escapeHtml(trialBits.filter(Boolean).join(''))}
-                        ${trialSub}
-                      </td>
-                      <td>${escapeHtml(cropText)}</td>
-                      <td>${escapeHtml(acText)}</td>
-                      <td>${yieldText}</td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
+          <div class="farm-fields-title">Farms &amp; fields in this trial</div>
         `;
+
+        trial.farms.forEach(farm => {
+          const farmDiv = document.createElement('div');
+          farmDiv.className = 'farm-group';
+
+          const fieldRows = farm.fields.map(fd => {
+            const y = fd.yieldSummary || {};
+            let yieldText = '';
+            if(y.hasYield){
+              yieldText = `
+                <span class="yield-chip">
+                  ${formatDecimal(y.avg,1)} bu/ac
+                </span><br>
+                <span style="font-size:.75rem;opacity:.9;">
+                  ${y.blockCount} blk · range ${formatDecimal(y.min,1)}–${formatDecimal(y.max,1)}
+                </span>
+              `;
+            }else if(y.hasBlocks){
+              yieldText = `
+                <span class="yield-chip yield-chip--no">
+                  ${y.blockCount} block${y.blockCount===1?'':'s'} (yield not set)
+                </span>
+              `;
+            }else{
+              yieldText = `
+                <span class="yield-chip yield-chip--no">
+                  No yield data
+                </span>
+              `;
+            }
+
+            const acPieces = [];
+            if(fd.trialAc != null){
+              acPieces.push(`${formatDecimal(fd.trialAc,1)} ac`);
+            }
+            if(fd.tillable != null){
+              acPieces.push(`${formatDecimal(fd.tillable,1)} tillable`);
+            }
+            const acText = acPieces.join(' / ') || '';
+
+            return `
+              <tr>
+                <td>${escapeHtml(fd.fieldName || '')}</td>
+                <td>${escapeHtml(acText)}</td>
+                <td>${yieldText}</td>
+              </tr>
+            `;
+          }).join('');
+
+          farmDiv.innerHTML = `
+            <div class="farm-group-title">${escapeHtml(farm.name || 'Unknown farm')}</div>
+            <div class="farm-table-wrap">
+              <table class="farm-table">
+                <thead>
+                  <tr>
+                    <th style="width:40%">Field</th>
+                    <th style="width:30%">Trial ac / Tillable</th>
+                    <th style="width:30%">Yield summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${fieldRows}
+                </tbody>
+              </table>
+            </div>
+          `;
+
+          block.appendChild(farmDiv);
+        });
 
         card.appendChild(block);
         listEl.appendChild(card);
       }
     }
 
+    function renderOverlaps(){
+      const listEl  = $('#overlapList');
+      const emptyEl = $('#overlapEmpty');
+
+      if(!listEl || !emptyEl) return;
+
+      listEl.innerHTML = '';
+
+      if(!STATE.overlaps.length){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'No farms are currently in more than one active trial.';
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+
+      STATE.overlaps.forEach(entry => {
+        const li = document.createElement('li');
+        const count = entry.trials.length;
+        const trialsText = entry.trials.map(t => {
+          const bits = [t.name];
+          const extra = [];
+          if(t.crop) extra.push(t.crop);
+          if(t.cropYear) extra.push(t.cropYear);
+          const sub = extra.join(' · ');
+          if(sub) bits.push(`(${sub})`);
+          return bits.filter(Boolean).join(' ');
+        }).join('; ');
+
+        li.innerHTML = `
+          <strong>${escapeHtml(entry.farmName || 'Unknown farm')}</strong>
+          – ${count} active trials:
+          ${escapeHtml(trialsText)}
+        `;
+        listEl.appendChild(li);
+      });
+    }
+
     function buildPrintHtml({ company, runStr, runDateOnly }){
-      const farms = STATE.farms || [];
-      const { trials, fields, farms: farmCount, fieldsWithYield, fieldsNoYield } = STATE.totals;
+      const trials   = STATE.trials   || [];
+      const overlaps = STATE.overlaps || [];
+      const { trials:trialCount, fields, farms, fieldsWithYield, fieldsNoYield } = STATE.totals;
 
       return `<!doctype html>
 <html>
@@ -761,24 +890,30 @@
     .summary-value{
       font-weight:600;
     }
-    .farm-block{
+    .trial-block{
       margin-top:14px;
       page-break-inside:avoid;
     }
-    .farm-title{
+    .trial-title{
       font-size:14px;
       font-weight:700;
       margin:0 0 2px;
     }
-    .farm-sub{
+    .trial-sub{
       font-size:11px;
       color:var(--fv-muted);
       margin:0 0 6px;
+    }
+    .farm-title{
+      font-size:12px;
+      font-weight:600;
+      margin:4px 0 2px;
     }
     .table-wrap{
       border-radius:10px;
       border:1px solid var(--fv-border);
       overflow:hidden;
+      margin-bottom:4px;
     }
     table{
       width:100%;
@@ -804,6 +939,21 @@
     }
     tr:nth-child(even) td{
       background:#F9FAFB;
+    }
+    .overlap-section{
+      margin-top:16px;
+      padding-top:8px;
+      border-top:1px solid #D1D5DB;
+    }
+    .overlap-title{
+      font-size:13px;
+      font-weight:700;
+      margin:0 0 4px;
+    }
+    .overlap-note{
+      font-size:11px;
+      color:#6B7280;
+      margin:0 0 4px;
     }
     .report-footer{
       margin-top:18px;
@@ -847,20 +997,20 @@
     </header>
 
     <h1 class="report-title">Fields in Active Trials</h1>
-    <p class="report-subtitle">Farms with fields currently participating in active trials, grouped by farm.</p>
+    <p class="report-subtitle">Trials with participating fields, grouped by trial then farm.</p>
 
     <div class="summary-strip">
       <div class="summary-pill">
+        <span class="summary-label">Trials</span>
+        <span class="summary-value">${formatInt(trialCount)}</span>
+      </div>
+      <div class="summary-pill">
         <span class="summary-label">Farms</span>
-        <span class="summary-value">${formatInt(farmCount)}</span>
+        <span class="summary-value">${formatInt(farms)}</span>
       </div>
       <div class="summary-pill">
         <span class="summary-label">Fields</span>
         <span class="summary-value">${formatInt(fields)}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Active trials</span>
-        <span class="summary-value">${formatInt(trials)}</span>
       </div>
       <div class="summary-pill">
         <span class="summary-label">With yield</span>
@@ -872,74 +1022,103 @@
       </div>
     </div>
 
-    ${farms.map(farm => {
-      const fieldCount = farm.fields.length;
-      const trialIds = new Set(farm.fields.map(fd => fd.trialId));
-      const farmTrials = trialIds.size;
+    ${trials.map(trial => {
+      const cropBits = [];
+      if(trial.crop) cropBits.push(trial.crop);
+      if(trial.cropYear) cropBits.push(trial.cropYear);
+      const cropText = cropBits.join(' · ');
 
-      const rows = farm.fields.map(fd => {
-        const y = fd.yieldSummary || {};
-        let yieldText = '';
-        if(y.hasYield){
-          yieldText = formatDecimal(y.avg,1) + ' bu/ac ('
-            + y.blockCount + ' blk, '
-            + formatDecimal(y.min,1) + '–' + formatDecimal(y.max,1) + ')';
-        }else if(y.hasBlocks){
-          yieldText = y.blockCount + ' block' + (y.blockCount===1?'':'s') + ', yield not set';
-        }else{
-          yieldText = 'No yield data';
-        }
+      const subBits = [];
+      if(trial.trialType) subBits.push(trial.trialType);
+      if(trial.opTask)   subBits.push(trial.opTask);
+      if(trial.treatment) subBits.push(trial.treatment);
+      const subText = subBits.join(' · ');
 
-        const acPieces = [];
-        if(fd.trialAc != null) acPieces.push(formatDecimal(fd.trialAc,1) + ' ac');
-        if(fd.tillable != null) acPieces.push(formatDecimal(fd.tillable,1) + ' tillable');
-        const acText = acPieces.join(' / ');
-        const cropBits = [];
-        if(fd.crop) cropBits.push(fd.crop);
-        if(fd.cropYear) cropBits.push(fd.cropYear);
-        const cropText = cropBits.join(' · ');
+      const fieldCount = trial.summary.fields;
+      const farmCount  = trial.summary.farms;
 
-        const trialBits = [fd.trialName];
-        const subBits = [];
-        if(fd.trialType) subBits.push(fd.trialType);
-        if(fd.opTask) subBits.push(fd.opTask);
-        if(fd.treatment) subBits.push(fd.treatment);
-        const trialSub = subBits.join(' · ');
+      const farmsHtml = trial.farms.map(farm => {
+        const rows = farm.fields.map(fd => {
+          const y = fd.yieldSummary || {};
+          let yieldText = '';
+          if(y.hasYield){
+            yieldText = formatDecimal(y.avg,1) + ' bu/ac (' +
+                        y.blockCount + ' blk, ' +
+                        formatDecimal(y.min,1) + '–' + formatDecimal(y.max,1) + ')';
+          }else if(y.hasBlocks){
+            yieldText = y.blockCount + ' block' + (y.blockCount===1?'':'s') + ', yield not set';
+          }else{
+            yieldText = 'No yield data';
+          }
+
+          const acPieces = [];
+          if(fd.trialAc != null) acPieces.push(formatDecimal(fd.trialAc,1) + ' ac');
+          if(fd.tillable != null) acPieces.push(formatDecimal(fd.tillable,1) + ' tillable');
+          const acText = acPieces.join(' / ');
+
+          return `
+            <tr>
+              <td>${escapeHtml(fd.fieldName || '')}</td>
+              <td>${escapeHtml(acText)}</td>
+              <td>${escapeHtml(yieldText)}</td>
+            </tr>
+          `;
+        }).join('');
 
         return `
-          <tr>
-            <td>${escapeHtml(fd.fieldName || '')}</td>
-            <td>${escapeHtml(trialBits.filter(Boolean).join(''))}${trialSub ? '<br><span style="font-size:10px;color:#6B7280;">'+escapeHtml(trialSub)+'</span>' : ''}</td>
-            <td>${escapeHtml(cropText)}</td>
-            <td>${escapeHtml(acText)}</td>
-            <td>${escapeHtml(yieldText)}</td>
-          </tr>
+          <div class="farm-block">
+            <div class="farm-title">${escapeHtml(farm.name || 'Unknown farm')}</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:40%">Field</th>
+                    <th style="width:30%">Trial ac / Tillable</th>
+                    <th style="width:30%">Yield summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </div>
+          </div>
         `;
       }).join('');
 
       return `
-        <section class="farm-block">
-          <h2 class="farm-title">${escapeHtml(farm.name || 'Unknown farm')}</h2>
-          <p class="farm-sub">${fieldCount} field${fieldCount===1?'':'s'} in ${farmTrials} active trial${farmTrials===1?'':'s'}</p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:22%">Field</th>
-                  <th style="width:26%">Trial</th>
-                  <th style="width:18%">Crop / Year</th>
-                  <th style="width:18%">Trial ac / Tillable</th>
-                  <th style="width:16%">Yield summary</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rows}
-              </tbody>
-            </table>
-          </div>
+        <section class="trial-block">
+          <h2 class="trial-title">${escapeHtml(trial.trialName || 'Unnamed trial')}</h2>
+          <p class="trial-sub">
+            ${escapeHtml(cropText || '')}
+            ${subText ? ' · ' + escapeHtml(subText) : ''}
+            · ${fieldCount} field${fieldCount===1?'':'s'} on ${farmCount} farm${farmCount===1?'':'s'}
+          </p>
+          ${farmsHtml}
         </section>
       `;
     }).join('')}
+
+    <section class="overlap-section">
+      <h2 class="overlap-title">Farms with overlapping trials</h2>
+      <p class="overlap-note">Farms that appear in more than one active trial.</p>
+      ${overlaps.length === 0
+        ? '<p class="overlap-note">No farms are currently enrolled in multiple active trials.</p>'
+        : `<ul>${overlaps.map(entry => {
+            const count = entry.trials.length;
+            const trialsText = entry.trials.map(t => {
+              const bits = [t.name];
+              const extra = [];
+              if(t.crop) extra.push(t.crop);
+              if(t.cropYear) extra.push(t.cropYear);
+              const sub = extra.join(' · ');
+              if(sub) bits.push('(' + sub + ')');
+              return bits.filter(Boolean).join(' ');
+            }).join('; ');
+            return `<li><strong>${escapeHtml(entry.farmName || 'Unknown farm')}</strong> – ${count} trials: ${escapeHtml(trialsText)}</li>`;
+          }).join('')}</ul>`
+      }
+    </section>
 
     <footer class="report-footer">
       <div>Internal use only. Yields are summarized from field trial yield blocks at the time of report generation.</div>
@@ -951,7 +1130,7 @@
     }
 
     async function handlePrintClick(){
-      if(!STATE.farms.length){
+      if(!STATE.trials.length){
         alert('No fields in active trials to print.');
         return;
       }
@@ -1006,6 +1185,7 @@
         const result = await loadData();
         finalizeState(result);
         renderList();
+        renderOverlaps();
       }catch(err){
         console.error('Error loading active trial fields:', err);
         const emptyEl = $('.wo-empty');
@@ -1013,6 +1193,10 @@
         emptyEl.textContent = 'Error loading fields in active trials. Check console or Firestore rules.';
         const metaEl = $('#reportMeta');
         if(metaEl) metaEl.textContent = 'Error loading active trials';
+        const overlapEmpty = $('#overlapEmpty');
+        if(overlapEmpty){
+          overlapEmpty.textContent = 'Error loading overlapping farms.';
+        }
       }
 
       const printTop    = $('#btnPrint');
@@ -1032,7 +1216,7 @@
           <div>
             <h1>Fields in Active Trials</h1>
             <p class="muted">
-              Farms with fields currently enrolled in active trials. Fields are grouped by farm and show basic trial context and any yield summary available from yield blocks.
+              Trials with fields currently enrolled, grouped by trial, then farm, then field. Yield summaries use any yield blocks found on the field.
             </p>
           </div>
         </header>
@@ -1052,11 +1236,20 @@
             </div>
           </div>
 
-          <section aria-label="Farms with fields in active trials">
+          <section aria-label="Trials with fields in active trials">
             <div class="wo-empty">
               Loading fields in active trials…
             </div>
             <div class="wo-list"></div>
+          </section>
+
+          <section class="overlap-section" aria-label="Farms with overlapping trials">
+            <h2 class="overlap-title">Farms with overlapping trials</h2>
+            <p class="overlap-sub">Farms that appear in more than one active trial.</p>
+            <div id="overlapEmpty" class="overlap-empty">
+              Loading overlapping farms…
+            </div>
+            <ul id="overlapList" class="overlap-list"></ul>
           </section>
 
           <div class="bottom-actions">
