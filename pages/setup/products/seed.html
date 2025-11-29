@@ -80,6 +80,37 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn[disabled]{opacity:.45; cursor:not-allowed;}
 
+    /* List + pills */
+    .list{padding:14px 0;display:grid;gap:12px;}
+    .item{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card-surface,var(--surface));
+      padding:12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      cursor:pointer;
+    }
+    .item-main{
+      display:flex;
+      flex-wrap:wrap;
+      align-items:center;
+      gap:8px;
+    }
+    .name{font-weight:800;}
+    .pill{
+      font-size:12px;
+      border:1px solid var(--border);
+      padding:4px 8px;
+      border-radius:999px;
+      color:var(--muted,#67706B);
+      background:var(--surface);
+    }
+    .pill-arch{border-color:#b3261e;color:#b3261e;}
+
     /* Toast */
     .toast{
       position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px)+72px);
@@ -88,6 +119,66 @@
     }
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* Modal */
+    .modal{
+      position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);
+      z-index:9999;transition:opacity .15s;opacity:0;
+    }
+    .modal[open]{display:grid;opacity:1;}
+    .dialog{
+      width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;
+      background:var(--surface);color:var(--text);
+      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);
+      overflow:hidden;
+    }
+    .dialog-head{
+      padding:12px 14px;border-bottom:1px solid var(--border);
+      display:flex;justify-content:space-between;align-items:center;
+    }
+    .dialog-body{
+      padding:14px;
+      display:grid;
+      gap:12px;
+      overflow-y:auto;
+      overflow-x:hidden;
+    }
+    .dialog-footer{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px 14px;
+      border-top:1px solid var(--border);
+    }
+    .df-left{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .delete-icon-btn{
+      background:none;
+      border:none;
+      padding:6px;
+      margin:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+    }
+    .delete-icon-btn svg{
+      width:22px;
+      height:22px;
+      display:block;
+    }
+    .closex{
+      border:1px solid var(--border);background:var(--surface);border-radius:10px;
+      padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;
+    }
+
+    html.lock, body.lock { overflow:hidden; height:100%; }
   </style>
 </head>
 <body>
@@ -98,7 +189,7 @@
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form ONLY -->
+      <!-- Create form -->
       <section class="section" aria-label="Add Seed Product">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🌱</div>
@@ -122,6 +213,7 @@
             </div>
             <div class="field">
               <label for="brand">Brand</label>
+              <!-- values here are codes; we store label via getBrandLabelFromSelect -->
               <select id="brand" class="select">
                 <option value="">—</option>
                 <option value="ASGROW">Asgrow</option>
@@ -170,16 +262,115 @@
           </div>
         </div>
       </section>
+
+      <!-- Seed Dictionary -->
+      <section class="section" aria-label="Seed Dictionary" style="margin-top:16px">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">📚</div>
+          <div><strong>Seed Dictionary</strong></div>
+        </header>
+        <div class="section-body">
+          <div id="list" class="list">
+            <div class="muted">No seed products yet.</div>
+          </div>
+        </div>
+      </section>
     </div>
   </fv-shell>
 
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- Edit Modal -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">View / Edit Seed Product</h3>
+        <button id="mdClose" class="closex" type="button">Back</button>
+      </div>
+      <div class="dialog-body">
+        <div class="grid-2">
+          <div class="field">
+            <label for="editCrop">Crop</label>
+            <select id="editCrop" class="select">
+              <option value="">—</option>
+              <option value="corn">Corn</option>
+              <option value="soybean">Soybean</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="editBrand">Brand</label>
+            <!-- VALUES HERE ARE LABEL STRINGS, because Firestore "brand" stores the label -->
+            <select id="editBrand" class="select">
+              <option value="">—</option>
+              <option value="Asgrow">Asgrow</option>
+              <option value="Becks">Becks</option>
+              <option value="Brevant Seeds">Brevant Seeds</option>
+              <option value="Burrus Seed">Burrus Seed</option>
+              <option value="Channel">Channel</option>
+              <option value="DeKalb">DeKalb</option>
+              <option value="Generic">Generic</option>
+              <option value="Hisoy">Hisoy</option>
+              <option value="Merschman Seeds">Merschman Seeds</option>
+              <option value="NuTech">NuTech</option>
+              <option value="Pioneer">Pioneer</option>
+              <option value="Wyffels Hybrids">Wyffels Hybrids</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="field">
+            <label for="editVariety">Product / Variety</label>
+            <input id="editVariety" class="input">
+          </div>
+          <div class="field">
+            <label for="editMaturity" id="editMatLabel">Maturity</label>
+            <input id="editMaturity" class="input" inputmode="decimal">
+            <div class="help" id="editMatHelp"></div>
+          </div>
+          <div class="field">
+            <label for="editTraits">Trait System</label>
+            <select id="editTraits" class="select">
+              <option value="">—</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="editNotes">Notes</label>
+          <textarea id="editNotes" class="textarea"></textarea>
+        </div>
+
+        <div class="field" style="align-self:end">
+          <span class="pill" id="statusPill">Status</span>
+        </div>
+
+        <div class="field">
+          <label>Raw document</label>
+          <pre id="rawJson" class="raw-box"></pre>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <div class="df-left">
+          <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
+        </div>
+        <button id="mdDelete" class="delete-icon-btn" type="button" title="Delete product" aria-label="Delete product">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="#b3261e">
+            <path d="M9 3h6a1 1 0 0 1 .97.75L16.7 5H20a1 1 0 1 1 0 2h-1.1l-.8 11.2A3 3 0 0 1 15.1 21H8.9a3 3 0 0 1-2.99-2.8L5.1 7H4a1 1 0 1 1 0-2h3.3l.75-1.25A1 1 0 0 1 9 3Zm2 6a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1Zm3 0a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1Z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     const $ = id => document.getElementById(id);
     const alertBox = $("alert");
     const toast = $("toast");
+    const listBox = $("list");
+    const modal = $("modal");
     const COLL = 'productsSeed';
 
     const showToast = (msg="Saved.")=>{
@@ -194,6 +385,8 @@
       clearTimeout(showError._t);
       showError._t = setTimeout(()=> alertBox.classList.remove('show'), 7000);
     };
+
+    const escHtml = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -350,10 +543,293 @@
         });
         setMaturityUI("");
         fillTraitOptions("");
+        await renderList();
         window.scrollTo({top:0,behavior:"smooth"});
       }catch(e){
         console.error(e);
         showError("Save failed: " + (e?.message||e));
+      }
+    });
+
+    /* =======================
+       Dictionary + edit modal
+       ======================= */
+
+    let items = [];
+    let current = null;
+    let currentInUse = false;
+
+    const editCrop = $("editCrop");
+    const editBrand = $("editBrand");
+    const editVariety = $("editVariety");
+    const editMaturity = $("editMaturity");
+    const editTraits = $("editTraits");
+    const editNotes = $("editNotes");
+    const editMatLabel = $("editMatLabel");
+    const editMatHelp = $("editMatHelp");
+    const statusPill = $("statusPill");
+    const rawJsonEl = $("rawJson");
+    const mdClose = $("mdClose");
+    const mdSave = $("mdSave");
+    const mdArchive = $("mdArchive");
+    const mdDelete = $("mdDelete");
+
+    function lockBody(lock){
+      document.documentElement.classList.toggle('lock', lock);
+      document.body.classList.toggle('lock', lock);
+    }
+    function openModal(){
+      modal.setAttribute('open','');
+      modal.setAttribute('aria-hidden','false');
+      lockBody(true);
+      mdClose.focus();
+    }
+    function closeModal(){
+      modal.removeAttribute('open');
+      modal.setAttribute('aria-hidden','true');
+      lockBody(false);
+      current = null;
+      currentInUse = false;
+    }
+
+    function normalizeCropFromDoc(doc){
+      let c = (doc.crop || '').toString().trim().toLowerCase();
+      if(c === 'corn' || c === 'soybean') return c;
+      if(doc.cropCorn) return 'corn';
+      if(doc.cropSoy) return 'soybean';
+      if(c === 'soybeans') return 'soybean';
+      return '';
+    }
+
+    function fillEditTraitOptions(c){
+      editTraits.innerHTML = '<option value="">—</option>';
+      (TRAITS[c]||[]).forEach(o=>{
+        const opt=document.createElement("option");
+        opt.value=o.v;
+        opt.textContent=o.t;
+        editTraits.appendChild(opt);
+      });
+    }
+    function setEditMaturityUI(c){
+      if(c==="corn"){
+        editMatLabel.textContent="Maturity (CRM days)";
+        editMaturity.placeholder="e.g., 108";
+        editMatHelp.textContent="Enter CRM (relative maturity) in days.";
+      }else if(c==="soybean"){
+        editMatLabel.textContent="Maturity (RM group)";
+        editMaturity.placeholder="e.g., 3.4";
+        editMatHelp.textContent="Enter RM as a decimal (e.g., 2.8).";
+      }else{
+        editMatLabel.textContent="Maturity";
+        editMaturity.placeholder="—";
+        editMatHelp.textContent="";
+      }
+    }
+
+    // Critical helper: set select value AND fire change (for fv-combo compatibility)
+    function setSelectFromDoc(sel, rawVal){
+      if(!sel) return;
+      const val = (rawVal || "").toString().trim();
+      if(!val){
+        sel.value = "";
+        sel.dispatchEvent(new Event("change", { bubbles:true }));
+        return;
+      }
+      const want = val.toLowerCase();
+      let match = null;
+      for(const opt of sel.options){
+        const v = (opt.value || "").toString().trim().toLowerCase();
+        const t = (opt.textContent || "").toString().trim().toLowerCase();
+        if(v === want || t === want){
+          match = opt;
+          break;
+        }
+      }
+      if(match){
+        sel.value = match.value;
+      }else{
+        // if no match, just clear – or you could add a custom option here
+        sel.value = "";
+      }
+      sel.dispatchEvent(new Event("change", { bubbles:true }));
+    }
+
+    function card(it){
+      const cropPill = it.crop ? `<span class="pill">${escHtml(it.crop)}</span>` : "";
+      const matPill  = it.maturity ? `<span class="pill">${escHtml(it.maturity)}${it.crop==="corn"?" CRM": it.crop==="soybean"?" RM":""}</span>` : "";
+      const traitPill= it.traitLabel ? `<span class="pill">${escHtml(it.traitLabel)}</span>` :
+                       (it.trait ? `<span class="pill">${escHtml(it.trait)}</span>` : "");
+      const archPill = it.status === "archived" ? `<span class="pill pill-arch">Archived</span>` : "";
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `
+        <div class="item-main">
+          <div class="name">${escHtml(it.brand || '(Brand)')} ${escHtml(it.variety || '')}</div>
+          ${cropPill}${matPill}${traitPill}${archPill}
+        </div>
+      `;
+      el.addEventListener("click", ()=> openEdit(it));
+      return el;
+    }
+
+    async function renderList(){
+      try{
+        await FVData.ready();
+        await waitForAuthReady();
+        const rows = await FVData.list(COLL, { limit:2000 }) || [];
+        items = rows.slice().sort((a,b)=>{
+          const sa = a.status==='archived', sb = b.status==='archived';
+          const ca = (a.crop==="corn") ? 0 : (a.crop==="soybean" ? 1 : 2);
+          const cb = (b.crop==="corn") ? 0 : (b.crop==="soybean" ? 1 : 2);
+          const nb = (a.brand||'').localeCompare(b.brand||'', undefined, {sensitivity:'base'});
+          const nv = (a.variety||'').localeCompare(b.variety||'', undefined, {sensitivity:'base'});
+          return (sa - sb) || (ca - cb) || nb || nv;
+        });
+        listBox.innerHTML = items.length ? "" : '<div class="muted">No seed products yet.</div>';
+        items.forEach(it=> listBox.appendChild(card(it)));
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Load failed.");
+      }
+    }
+
+    function openEdit(it){
+      current = {...it};
+      openModal();
+
+      requestAnimationFrame(()=>{
+        const cropVal = normalizeCropFromDoc(current);
+        setSelectFromDoc(editCrop, cropVal || current.crop || "");
+
+        fillEditTraitOptions(cropVal || "");
+        setEditMaturityUI(cropVal || "");
+
+        // Brand uses label strings in Firestore
+        setSelectFromDoc(editBrand, current.brand || "");
+
+        editVariety.value  = current.variety || "";
+        editMaturity.value = current.maturity ?? "";
+        editNotes.value    = current.notes || "";
+
+        setSelectFromDoc(editTraits, current.trait || "");
+
+        const st = current.status || "active";
+        statusPill.textContent = st === "archived" ? "Archived" : "Active";
+        statusPill.className = "pill" + (st === "archived" ? " pill-arch" : "");
+        mdArchive.textContent = st === "archived" ? "Unarchive" : "Archive";
+
+        currentInUse = !!current.used;
+        mdDelete.style.display = currentInUse ? "none" : "";
+
+        rawJsonEl.textContent = JSON.stringify(current, null, 2);
+      });
+    }
+
+    editCrop.addEventListener("change", ()=>{
+      const c = editCrop.value;
+      fillEditTraitOptions(c);
+      setEditMaturityUI(c);
+      editTraits.value="";
+      editMaturity.value="";
+    });
+
+    mdClose.addEventListener('click', closeModal);
+    modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
+
+    mdSave.addEventListener('click', async ()=>{
+      if(!current) return;
+      const cropV   = editCrop.value;
+      const brandLbl= editBrand.selectedOptions?.[0]?.textContent.trim() || editBrand.value.trim();
+      const varV    = editVariety.value.trim();
+      const matV    = editMaturity.value.trim();
+      const traitV  = editTraits.value;
+      if(!cropV){ alert("Choose a crop."); return; }
+      if(!brandLbl){ alert("Choose a brand."); return; }
+      if(!varV){ alert("Enter a product/variety."); return; }
+      if(!matV){ alert("Enter maturity."); return; }
+      if(!traitV){ alert("Select a trait system."); return; }
+
+      try{
+        await FVData.ready();
+        await waitForAuthReady();
+        const traitLabel = editTraits.selectedOptions?.[0]?.textContent || "";
+        await FVData.update(COLL, current.id, {
+          crop: cropV,
+          brand: brandLbl,
+          variety: varV,
+          maturity: matV,
+          trait: traitV,
+          traitLabel,
+          notes: editNotes.value.trim(),
+          cropCorn: cropV==="corn",
+          cropSoy: cropV==="soybean",
+          updatedAt: Date.now()
+        });
+        showToast("Changes saved.");
+        await renderList();
+        closeModal();
+      }catch(e){
+        console.error(e);
+        showError('Update failed: ' + (e?.message||e));
+      }
+    });
+
+    mdArchive.addEventListener('click', async ()=>{
+      if(!current) return;
+      try{
+        await FVData.ready();
+        await waitForAuthReady();
+        const next = current.status==="archived" ? "active" : "archived";
+        await FVData.update(COLL, current.id, { status: next, updatedAt: Date.now() });
+        showToast(next==="archived" ? "Product archived." : "Product unarchived.");
+        await renderList();
+        current.status = next;
+        statusPill.textContent = next==="archived" ? "Archived" : "Active";
+        statusPill.className = "pill" + (next==="archived" ? " pill-arch" : "");
+        mdArchive.textContent = next==="archived" ? "Unarchive" : "Archive";
+      }catch(e){
+        console.error(e);
+        showError('Archive failed: ' + (e?.message||e));
+      }
+    });
+
+    async function isInUse(id){
+      try{
+        const a = await FVData.getWhere('plantingRecords','seedProductId','==', id, { limit: 1 }) || [];
+        if (a.length) return true;
+      }catch(e){}
+      try{
+        const b = await FVData.getWhere('trialYields','seedProductId','==', id, { limit: 1 }) || [];
+        if (b.length) return true;
+      }catch(e){}
+      try{
+        const c = await FVData.getWhere('fields','seedProductId','==', id, { limit: 1 }) || [];
+        if (c.length) return true;
+      }catch(e){}
+      return false;
+    }
+
+    mdDelete.addEventListener('click', async ()=>{
+      if(!current) return;
+      try{
+        await FVData.ready();
+        await waitForAuthReady();
+
+        const inUse = currentInUse || await isInUse(current.id);
+        if(inUse){
+          showToast("Product in use — cannot delete. Archive instead.");
+          return;
+        }
+
+        if(!confirm(`Delete seed "${(current.brand||'') + ' ' + (current.variety||'')}"? This cannot be undone.`)) return;
+        await FVData.remove(COLL, current.id);
+        showToast("Product deleted.");
+        await renderList();
+        closeModal();
+      }catch(e){
+        console.error(e);
+        showError('Delete failed: ' + (e?.message||e));
       }
     });
 
@@ -368,6 +844,7 @@
       }
       setMaturityUI("");
       fillTraitOptions("");
+      await renderList();
     })();
   </script>
 
