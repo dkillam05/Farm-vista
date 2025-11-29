@@ -131,7 +131,7 @@
       gap:10px;
       flex-wrap:wrap;
       align-items:center;
-      justify-content:space-between; /* left group vs right trash icon */
+      justify-content:space-between; /* Save+Archive on left, trash on right */
       padding:12px 14px;
       border-top:1px solid var(--border);
     }
@@ -565,7 +565,8 @@
       }
     }
 
-    /* Edit modal (no FVData.get) */
+    /* ===== Edit modal helpers ===== */
+
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"),
           mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
     let current = null;
@@ -579,8 +580,7 @@
       modal.setAttribute('open','');
       modal.setAttribute('aria-hidden','false');
       lockBody(true);
-      // focus Back so iOS doesn't auto-open a <select>
-      $("mdClose").focus();
+      $("mdClose").focus(); // avoid auto-opening iOS selects
     }
     function closeModal(){
       modal.removeAttribute('open');
@@ -617,63 +617,60 @@
       }
     }
 
-    // Improved brand sync: if not found, add a one-off option so the label still shows
-    function syncBrandSelect(selectEl, label){
+    // Generic helper: sync a <select> using value OR text; create fallback option if needed
+    function syncSelectByValueOrText(selectEl, rawVal){
       if(!selectEl) return;
-      const rawLabel = String(label || '').trim();
-      const txt = rawLabel.toLowerCase();
-      if(!txt){
+      const raw = (rawVal || "").toString().trim();
+      if(!raw){
         selectEl.value = "";
         return;
       }
-      let found = false;
-      for(const opt of selectEl.options){
-        if(!opt.value) continue;
-        if(opt.textContent.trim().toLowerCase() === txt){
-          selectEl.value = opt.value;
-          found = true;
+      const lower = raw.toLowerCase();
+      let matchIndex = -1;
+
+      const opts = Array.from(selectEl.options);
+      for(let i=0;i<opts.length;i++){
+        const opt = opts[i];
+        const ov = (opt.value || "").toString().trim().toLowerCase();
+        const ot = (opt.textContent || "").toString().trim().toLowerCase();
+        if(ov === lower || ot === lower){
+          matchIndex = i;
           break;
         }
       }
-      if(!found){
-        for(const opt of selectEl.options){
-          if(opt.value === rawLabel){
-            selectEl.value = opt.value;
-            found = true;
-            break;
-          }
-        }
-      }
-      if(!found && rawLabel){
-        const opt = document.createElement('option');
-        opt.value = rawLabel;
-        opt.textContent = rawLabel;
+
+      if(matchIndex >= 0){
+        selectEl.selectedIndex = matchIndex;
+      }else{
+        // add one-off option so value shows even if not in standard list
+        const opt = document.createElement("option");
+        opt.value = raw;
+        opt.textContent = raw;
         selectEl.appendChild(opt);
-        selectEl.value = rawLabel;
+        selectEl.value = raw;
       }
     }
 
     function normalizeCropFromDoc(doc){
       let c = (doc.crop || '').toString().trim().toLowerCase();
       if(c === 'corn' || c === 'soybean') return c;
-      // fallbacks for older docs using cropCorn / cropSoy flags
       if(doc.cropCorn) return 'corn';
       if(doc.cropSoy) return 'soybean';
-      // fallbacks for capitalized strings
       if(c === 'soybeans') return 'soybean';
       if(c === 'maize') return 'corn';
       return '';
     }
 
     function openEdit(it){
-      current = {...it}; // clone so we can edit without side-effects
+      current = {...it};
 
       const cropVal = normalizeCropFromDoc(current);
-      $("editCrop").value = cropVal || "";
+      syncSelectByValueOrText($("editCrop"), cropVal || "");
+
       fillEditTraitOptions(cropVal || "");
       setEditMaturityUI(cropVal || "");
 
-      syncBrandSelect($("editBrand"), current.brand || "");
+      syncSelectByValueOrText($("editBrand"), current.brand || "");
       $("editVariety").value = current.variety || "";
       $("editMaturity").value = current.maturity ?? "";
       $("editTraits").value = current.trait || "";
@@ -681,13 +678,11 @@
       $("statusPill").textContent = current.status==="archived" ? "Archived" : "Active";
       mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
 
-      // Hide delete until we know if it's been used
       if(mdDelete) mdDelete.style.display = 'none';
       currentInUse = false;
 
       openModal();
 
-      // Check usage async and show delete only if never used
       (async()=>{
         try{
           await FVData.ready();
@@ -698,7 +693,6 @@
           }
         }catch(e){
           console.warn('isInUse check failed', e);
-          // On error, keep delete hidden to be safe
           if(mdDelete) mdDelete.style.display = 'none';
         }
       })();
@@ -761,7 +755,6 @@
         await FVData.update(COLL, current.id, { status: next, updatedAt: Date.now() });
         showToast(next==="archived" ? "Product archived." : "Product unarchived.");
         await renderList();
-        // keep modal open, just reflect state
         current.status = next;
         $("statusPill").textContent = next==="archived" ? "Archived" : "Active";
         mdArchive.textContent = next==="archived" ? "Unarchive" : "Archive";
@@ -791,14 +784,11 @@
       try{
         await FVData.ready();
         await waitForAuthReady();
-
-        // Double-check usage for safety
         const inUse = currentInUse || await isInUse(current.id);
         if(inUse){
           showToast("Product in use — cannot delete. Archive instead.");
           return;
         }
-
         if(!confirm(`Delete seed "${(current.brand||'') + ' ' + (current.variety||'')}"? This cannot be undone.`)) return;
         await FVData.remove(COLL, current.id);
         showToast("Product deleted.");
