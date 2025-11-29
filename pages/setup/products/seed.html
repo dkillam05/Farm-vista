@@ -189,7 +189,7 @@
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form -->
+      <!-- Create form ONLY -->
       <section class="section" aria-label="Add Seed Product">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🌱</div>
@@ -213,7 +213,6 @@
             </div>
             <div class="field">
               <label for="brand">Brand</label>
-              <!-- values here are codes; we store label via getBrandLabelFromSelect -->
               <select id="brand" class="select">
                 <option value="">—</option>
                 <option value="ASGROW">Asgrow</option>
@@ -300,7 +299,7 @@
           </div>
           <div class="field">
             <label for="editBrand">Brand</label>
-            <!-- VALUES HERE ARE LABEL STRINGS, because Firestore "brand" stores the label -->
+            <!-- VALUES HERE ARE LABEL STRINGS, because Firestore brand stores the label -->
             <select id="editBrand" class="select">
               <option value="">—</option>
               <option value="Asgrow">Asgrow</option>
@@ -693,8 +692,20 @@
       }
     }
 
-    function openEdit(it){
-      current = {...it};
+    // openEdit: re-fetch FULL doc before populating selects
+    async function openEdit(it){
+      try{
+        await FVData.ready();
+        await waitForAuthReady();
+        const full = await FVData.getDocData
+          ? await FVData.getDocData(`${COLL}/${it.id}`)
+          : it;
+        current = full || it;
+      }catch(e){
+        console.warn("getDocData failed, using list item", e);
+        current = it;
+      }
+
       openModal();
 
       requestAnimationFrame(()=>{
@@ -704,7 +715,7 @@
         fillEditTraitOptions(cropVal || "");
         setEditMaturityUI(cropVal || "");
 
-        // Brand uses label strings in Firestore
+        // Brand uses label strings in Firestore ("Becks", "Brevant Seeds", etc.)
         setSelectFromDoc(editBrand, current.brand || "");
 
         editVariety.value  = current.variety || "";
