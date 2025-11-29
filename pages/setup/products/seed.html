@@ -591,43 +591,24 @@
       currentInUse=false;
     }
 
-    function normalizeCropFromDoc(doc){
-      let c = (doc.crop || '').toString().trim().toLowerCase();
-      if(c === 'corn' || c === 'soybean') return c;
+    // NEW: helpers to normalize crop / brand from a doc
+    function getCropFromDoc(doc){
+      const cRaw = (doc.crop || '').toString().trim().toLowerCase();
+      if(cRaw === 'corn') return 'corn';
+      if(cRaw === 'soybean' || cRaw === 'soybeans') return 'soybean';
       if(doc.cropCorn) return 'corn';
       if(doc.cropSoy) return 'soybean';
-      if(c === 'soybeans') return 'soybean';
-      if(c === 'maize') return 'corn';
       return '';
     }
 
-    function syncEditCropFromDoc(doc){
-      const sel = $("editCrop");
+    function syncSelectToDocValue(sel, raw){
       if(!sel) return;
-      const cropVal = normalizeCropFromDoc(doc);
-      if(!cropVal){
+      const val = (raw || "").toString().trim();
+      if(!val){
         sel.value = "";
         return;
       }
-      sel.value = cropVal;
-      if(sel.value !== cropVal){
-        const opt = document.createElement("option");
-        opt.value = cropVal;
-        opt.textContent = cropVal;
-        sel.appendChild(opt);
-        sel.value = cropVal;
-      }
-    }
-
-    function syncEditBrandFromDoc(doc){
-      const sel = $("editBrand");
-      if(!sel) return;
-      const raw = (doc.brand || "").toString().trim();
-      if(!raw){
-        sel.value = "";
-        return;
-      }
-      const want = raw.toLowerCase();
+      const want = val.toLowerCase();
       let matched = false;
       for(const opt of sel.options){
         const v = (opt.value || "").toString().trim().toLowerCase();
@@ -640,10 +621,10 @@
       }
       if(!matched){
         const opt = document.createElement("option");
-        opt.value = raw;
-        opt.textContent = raw;
+        opt.value = val;
+        opt.textContent = val;
         sel.appendChild(opt);
-        sel.value = raw;
+        sel.value = val;
       }
     }
 
@@ -676,21 +657,40 @@
 
     function openEdit(it){
       current = {...it};
-
-      // Open modal first (for iOS), then set selects in RAF
       openModal();
-      requestAnimationFrame(()=>{
-        syncEditCropFromDoc(current);
-        syncEditBrandFromDoc(current);
 
-        const cropVal = normalizeCropFromDoc(current);
+      requestAnimationFrame(()=>{
+        const cropVal = getCropFromDoc(current);
+        const cropSel = $("editCrop");
+        const brandSel = $("editBrand");
+
+        // Crop select
+        if(cropVal){
+          cropSel.value = cropVal;
+          if(cropSel.value !== cropVal){
+            const opt = document.createElement("option");
+            opt.value = cropVal;
+            opt.textContent = cropVal;
+            cropSel.appendChild(opt);
+            cropSel.value = cropVal;
+          }
+        }else{
+          cropSel.value = "";
+        }
+
+        // Trait + maturity UI for that crop
         fillEditTraitOptions(cropVal || "");
         setEditMaturityUI(cropVal || "");
 
+        // Brand select (handles "DEKALB" vs "DeKalb" vs "dekalb")
+        syncSelectToDocValue(brandSel, current.brand || "");
+
+        // Simple fields
         $("editVariety").value = current.variety || "";
         $("editMaturity").value = current.maturity ?? "";
         $("editTraits").value = current.trait || "";
         $("editNotes").value = current.notes || "";
+
         $("statusPill").textContent = current.status==="archived" ? "Archived" : "Active";
         mdArchive.textContent = current.status==="archived" ? "Unarchive" : "Archive";
 
