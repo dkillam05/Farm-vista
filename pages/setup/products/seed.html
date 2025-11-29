@@ -8,7 +8,7 @@
 
   <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="my-link icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
   <!-- Theme + base app styles -->
@@ -87,9 +87,9 @@
       text-decoration:none;
     }
     .btn-primary{border-color:transparent;background:var(--brand);color:#fff;}
-    .btn-quiet{background:transparent;}
     .btn[disabled]{opacity:.45;cursor:not-allowed;}
-    .btn-danger{border-color:#B3261E;background:#B3261E;color:#fff!important;}
+    .btn-quiet{background:transparent;}
+    .btn-danger{border-color:#B3261E;background:#B3261E;color:#fff;}
 
     .alert{
       display:none;margin:0 0 12px 0;border:1px solid #c62828;background:#fdecea;color:#8a1c1c;
@@ -280,29 +280,11 @@
       <div class="kv">
         <div class="field">
           <label for="editCrop">Crop</label>
-          <select id="editCrop" class="select">
-            <option value="">—</option>
-            <option value="corn">Corn</option>
-            <option value="soybean">Soybean</option>
-          </select>
+          <select id="editCrop" class="select"></select>
         </div>
         <div class="field">
           <label for="editBrand">Brand</label>
-          <select id="editBrand" class="select">
-            <option value="">—</option>
-            <option value="Asgrow">Asgrow</option>
-            <option value="Becks">Becks</option>
-            <option value="Brevant Seeds">Brevant Seeds</option>
-            <option value="Burrus Seed">Burrus Seed</option>
-            <option value="Channel">Channel</option>
-            <option value="DeKalb">DeKalb</option>
-            <option value="Generic">Generic</option>
-            <option value="Hisoy">Hisoy</option>
-            <option value="Merschman Seeds">Merschman Seeds</option>
-            <option value="NuTech">NuTech</option>
-            <option value="Pioneer">Pioneer</option>
-            <option value="Wyffels Hybrids">Wyffels Hybrids</option>
-          </select>
+          <select id="editBrand" class="select"></select>
         </div>
 
         <div class="field">
@@ -316,30 +298,7 @@
 
         <div class="field">
           <label for="editTrait">Trait System</label>
-          <select id="editTrait" class="select">
-            <option value="">—</option>
-            <option value="CONV">Conventional (Non-GMO)</option>
-            <option value="VT2P">VT Double PRO (VT2P)</option>
-            <option value="TRE">Trecepta</option>
-            <option value="TRERIB">Trecepta RIB</option>
-            <option value="SS">SmartStax</option>
-            <option value="SSPRO">SmartStax PRO</option>
-            <option value="QROME">Qrome</option>
-            <option value="PC">PowerCore</option>
-            <option value="PCU">PowerCore Ultra</option>
-            <option value="VIPTERA">Agrisure Viptera</option>
-            <option value="DURACADE">Agrisure Duracade</option>
-            <option value="ENLISTC">Enlist Corn (herbicide)</option>
-            <option value="CLEAR">CLEARFIELD (IMI)</option>
-
-            <option value="E3">Enlist E3</option>
-            <option value="XF">XtendFlex</option>
-            <option value="RR2X">Roundup Ready 2 Xtend</option>
-            <option value="RR2Y">Roundup Ready 2 Yield</option>
-            <option value="LL">LibertyLink</option>
-            <option value="LLGT27">LibertyLink GT27</option>
-            <option value="STS">STS</option>
-          </select>
+          <select id="editTrait" class="select"></select>
         </div>
 
         <div class="field" style="grid-column:1/-1">
@@ -429,6 +388,11 @@
       clearTimeout(alertBox._t);
       alertBox._t = setTimeout(()=> alertBox.classList.remove('show'), 7000);
     };
+
+    const BRAND_VALUES = [
+      "Asgrow","Becks","Brevant Seeds","Burrus Seed","Channel","DeKalb",
+      "Generic","Hisoy","Merschman Seeds","NuTech","Pioneer","Wyffels Hybrids"
+    ];
 
     const TRAITS = {
       corn: [
@@ -628,17 +592,49 @@
       current = null;
     }
 
-    function setSelectValue(sel, raw){
-      const val = (raw || "").toString().trim();
-      if(!val){ sel.value = ""; return; }
-      const want = val.toLowerCase();
-      let match = null;
-      for(const opt of sel.options){
-        const v = (opt.value || "").toLowerCase();
-        const t = (opt.textContent || "").toLowerCase();
-        if(v === want || t === want){ match = opt; break; }
-      }
-      sel.value = match ? match.value : "";
+    // Build the edit dropdowns fresh based on the doc we just loaded.
+    function buildEditCropSelect(selected){
+      const val = (selected || "").toLowerCase();
+      editCrop.innerHTML = "";
+      const opts = [
+        ["", "—"],
+        ["corn", "Corn"],
+        ["soybean", "Soybean"]
+      ];
+      opts.forEach(([v,label])=>{
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = label;
+        if(v && v.toLowerCase() === val) o.selected = true;
+        editCrop.appendChild(o);
+      });
+    }
+
+    function buildEditBrandSelect(selected){
+      const val = (selected || "").toLowerCase();
+      editBrand.innerHTML = "";
+      const opts = [["", "—"]].concat(BRAND_VALUES.map(v=>[v,v]));
+      opts.forEach(([v,label])=>{
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = label;
+        if(v && v.toLowerCase() === val) o.selected = true;
+        editBrand.appendChild(o);
+      });
+    }
+
+    function buildEditTraitSelect(cropVal, selectedTrait){
+      const val = (selectedTrait || "").toUpperCase();
+      editTrait.innerHTML = "";
+      const options = (TRAITS[cropVal] || []).slice();
+      const opts = [["", "—"]].concat(options.map(t=>[t.v, t.t]));
+      opts.forEach(([v,label])=>{
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = label;
+        if(v && v.toUpperCase() === val) o.selected = true;
+        editTrait.appendChild(o);
+      });
     }
 
     async function openEditor(id){
@@ -649,10 +645,13 @@
         }
         current = { id:snap.id, ...snap.data() };
 
-        const c = normalizeCrop(current);
-        setSelectValue(editCrop,  c || current.crop || "");
-        setSelectValue(editBrand, current.brand || "");
-        setSelectValue(editTrait, current.trait || "");
+        const cropVal = normalizeCrop(current);
+        const brandVal= current.brand || "";
+        const traitVal= current.trait || "";
+
+        buildEditCropSelect(cropVal || current.crop || "");
+        buildEditBrandSelect(brandVal);
+        buildEditTraitSelect(cropVal || current.crop || "", traitVal);
 
         editVariety.value  = current.variety || "";
         editMaturity.value = current.maturity || "";
