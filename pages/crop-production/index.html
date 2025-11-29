@@ -55,13 +55,11 @@
     }
     .dash-kpi-main{
       display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:16px;
-      flex-wrap:wrap;
+      flex-direction:column;
+      gap:6px;
     }
     .dash-kpi-text{
-      flex:1 1 180px;
+      flex:1 1 auto;
       min-width:0;
     }
     .dash-kpi-label{
@@ -76,6 +74,18 @@
       font-size:15px;
       font-weight:600;
     }
+    .dash-kpi-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-top:4px;
+    }
+    .dash-kpi-title-secondary{
+      font-size:13px;
+      font-weight:500;
+      color:var(--muted,#67706B);
+    }
     .dash-kpi-count{
       min-width:52px;
       min-height:52px;
@@ -88,18 +98,24 @@
       border:1px solid rgba(59,126,70,0.4);
       background:rgba(59,126,70,0.10);
     }
+    .dash-kpi-count-secondary{
+      min-width:44px;
+      min-height:44px;
+      font-size:18px;
+    }
     .dash-kpi-sub{
       margin-top:6px;
       font-size:12px;
       color:var(--muted,#67706B);
     }
-    .dash-kpi-empty .dash-kpi-count{
+    .dash-kpi-empty .dash-kpi-count,
+    .dash-kpi-empty .dash-kpi-count-secondary{
       border-color:rgba(0,0,0,0.12);
       background:rgba(0,0,0,0.02);
       color:var(--muted,#67706B);
     }
 
-    /* Make the count badge link-only but keep visual style clean */
+    /* Badge links */
     .dash-kpi-count-link{
       text-decoration:none;
       display:inline-flex;
@@ -150,19 +166,24 @@
         <div class="dash-kpi-main">
           <div class="dash-kpi-text">
             <div class="dash-kpi-label">Field Maintenance</div>
-            <div class="dash-kpi-title">
-              Pending &amp; in-progress work orders
+            <div class="dash-kpi-row">
+              <div class="dash-kpi-title">
+                Pending &amp; in-progress work orders
+              </div>
+              <div class="dash-kpi-count" id="wo-active-count">–</div>
             </div>
           </div>
-          <div class="dash-kpi-count" id="wo-active-count">–</div>
-        </div>
-        <div class="dash-kpi-sub" id="wo-active-sub">
-          Checking for active field maintenance work orders…
+          <div class="dash-kpi-sub" id="wo-active-sub">
+            Checking for active field maintenance work orders…
+          </div>
         </div>
       </a>
 
       <!-- ============================
            KPI: Active Field Trials
+           Two rows:
+           • Row 1: Active trials (circle links to trials edit)
+           • Row 2: Enrolled fields (circle links to report)
            ============================ -->
       <div
         class="dash-kpi dash-kpi-empty"
@@ -171,21 +192,39 @@
         <div class="dash-kpi-main">
           <div class="dash-kpi-text">
             <div class="dash-kpi-label">Field Trials</div>
-            <div class="dash-kpi-title">
-              Active crop trials &amp; check strips
+
+            <!-- Row 1: Active crop trials & check strips -->
+            <div class="dash-kpi-row">
+              <div class="dash-kpi-title">
+                Active crop trials &amp; check strips
+              </div>
+              <a
+                href="trials/trials-edit.html"
+                class="dash-kpi-count-link"
+                aria-label="View active trials"
+              >
+                <div class="dash-kpi-count" id="trials-count-trials">–</div>
+              </a>
+            </div>
+
+            <!-- Row 2: Fields enrolled in those active trials -->
+            <div class="dash-kpi-row">
+              <div class="dash-kpi-title-secondary">
+                Fields enrolled in active trials
+              </div>
+              <a
+                href="/Farm-vista/pages/reports/reports-field-activetrials.html"
+                class="dash-kpi-count-link"
+                aria-label="View report of fields in active trials"
+              >
+                <div class="dash-kpi-count dash-kpi-count-secondary" id="trials-count-fields">–</div>
+              </a>
             </div>
           </div>
-          <!-- Only this circle is the link to the new report -->
-          <a
-            href="/Farm-vista/pages/reports/reports-field-activetrials.html"
-            class="dash-kpi-count-link"
-            aria-label="View active trial fields report"
-          >
-            <div class="dash-kpi-count" id="trials-count">–</div>
-          </a>
-        </div>
-        <div class="dash-kpi-sub" id="trials-sub">
-          Checking for active field trials and enrolled fields…
+
+          <div class="dash-kpi-sub" id="trials-sub">
+            Checking for active field trials and enrolled fields…
+          </div>
         </div>
       </div>
 
@@ -293,8 +332,10 @@
   </script>
 
   <!-- ===========================================
-       Field Trials KPI JS (status == "active")
-       Now also counts enrolled fields in those active trials
+       Field Trials KPI JS
+       - Counts active trials
+       - Counts fields in those active trials
+       - Feeds both circles
        =========================================== -->
   <script type="module">
     import {
@@ -306,25 +347,25 @@
       where
     } from '/Farm-vista/js/firebase-init.js';
 
-    const kpiEl   = document.getElementById("trials-kpi");
-    const countEl = document.getElementById("trials-count");
-    const subEl   = document.getElementById("trials-sub");
+    const kpiEl        = document.getElementById("trials-kpi");
+    const trialsEl     = document.getElementById("trials-count-trials");
+    const fieldsEl     = document.getElementById("trials-count-fields");
+    const subElTrials  = document.getElementById("trials-sub");
 
-    if (kpiEl && countEl && subEl) {
+    if (kpiEl && trialsEl && fieldsEl && subElTrials) {
       function applyState(trialCount, fieldCount){
         const nTrials = Number(trialCount) || 0;
         const nFields = Number(fieldCount) || 0;
 
-        countEl.textContent = nTrials.toString();
+        trialsEl.textContent = nTrials.toString();
+        fieldsEl.textContent = nFields.toString();
 
         if (!nTrials){
           kpiEl.classList.add("dash-kpi-empty");
-          subEl.textContent = "No active field trials found.";
+          subElTrials.textContent = "No active field trials found.";
         }else{
           kpiEl.classList.remove("dash-kpi-empty");
-          const trialLabel = nTrials === 1 ? "active trial" : "active trials";
-          const fieldLabel = nFields === 1 ? "enrolled field" : "enrolled fields";
-          subEl.textContent = `${nTrials} ${trialLabel} across ${nFields} ${fieldLabel}.`;
+          subElTrials.textContent = "Tap a circle to edit trials or open the active fields report.";
         }
       }
 
