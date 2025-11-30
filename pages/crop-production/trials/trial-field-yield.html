@@ -496,6 +496,7 @@
       border-radius:9px;
       padding:8px 10px;
       outline:none;
+      box-sizing:border-box;
     }
     .input:focus{
       box-shadow:0 0 0 1px rgba(47,108,60,.28);
@@ -525,6 +526,43 @@
     .yield-empty{
       font-size:0.82rem;
       color:var(--muted,#67706B);
+    }
+
+    /* --- Additional Info section per block --- */
+    .yield-block-extra-wrapper{
+      margin-top:6px;
+      display:grid;
+      gap:6px;
+    }
+    .yield-block-extra-toggle{
+      justify-self:flex-start;
+    }
+    .yield-block-extra{
+      border-radius:10px;
+      border:1px dashed var(--border);
+      padding:8px 10px;
+      display:none;
+      gap:8px;
+    }
+    .yield-block-extra-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:8px;
+    }
+    @media (max-width:640px){
+      .yield-block-extra-grid{
+        grid-template-columns:1fr;
+      }
+    }
+    .yield-block-extra-label{
+      font-size:0.8rem;
+      font-weight:600;
+    }
+    .yield-variety-select{
+      margin-top:4px;
+    }
+    .yield-variety-search{
+      margin-bottom:4px;
     }
 
     /* Notes section */
@@ -714,7 +752,8 @@
       getFirestore, getAuth,
       collection, getDocs, getDoc, doc,
       deleteDoc, setDoc,
-      getStorage, ref, uploadBytes, getDownloadURL
+      getStorage, ref, uploadBytes, getDownloadURL,
+      query, where
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -741,8 +780,10 @@
       trial: null,
       fields: [],
       selectedField: null,
-      // yieldData: { [fieldDocId]: [ { id, type, check:{...}, trial:{...}, notes:'', attachments:[] } ] }
-      yieldData: {}
+      // yieldData: { [fieldDocId]: [ { id, type, ..., notes, attachments, extraFields... } ] }
+      yieldData: {},
+      // seed varieties for this trial's crop
+      varieties: []
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -858,6 +899,40 @@
       }
     }
 
+    async function loadVarietiesForTrialCrop(){
+      if(!STATE.db || !STATE.trial) return;
+      const cropKind = normalizeCropKind(STATE.trial.crop);
+      if(!cropKind) return;
+
+      try{
+        const baseRef = collection(STATE.db, 'productsSeed');
+        // filter by cropKind + active (if present)
+        let qRef = query(baseRef, where('cropKind','==',cropKind));
+        // If you later want a strict active filter, you can add another where here.
+
+        const snap = await getDocs(qRef);
+        const rows = [];
+        snap.forEach(d => {
+          const data = d.data() || {};
+          const label =
+            data.productName ||
+            data.hybrid ||
+            data.name ||
+            'Seed variety';
+          const brand = data.brand || '';
+          rows.push({
+            id: d.id,
+            label,
+            brand,
+            cropKind: data.cropKind || cropKind
+          });
+        });
+        STATE.varieties = rows;
+      }catch(err){
+        console.error('Error loading varieties for trial crop:', err);
+      }
+    }
+
     async function loadFields(){
       if(!STATE.trialId) return;
       try{
@@ -920,6 +995,14 @@
                 lengthFt: trial.lengthFt != null ? String(trial.lengthFt) : '',
                 widthFt: trial.widthFt != null ? String(trial.widthFt) : ''
               },
+              // Extra info per block
+              plantDate: d.plantDate || '',
+              harvestDate: d.harvestDate || '',
+              combineCount: d.combineCount != null ? String(d.combineCount) : '',
+              checkVarietyId: d.checkVarietyId || '',
+              checkVarietyName: d.checkVarietyName || '',
+              trialVarietyId: d.trialVarietyId || '',
+              trialVarietyName: d.trialVarietyName || '',
               notes: d.notes || '',
               attachments
             });
@@ -1292,7 +1375,7 @@
             </div>
           </div>
           ${row.notes ? `<div class="field-card-note">${row.notes}</div>` : ''}
-        `;
+        */
 
         // Desktop button opens yield. No card click handler at all.
         const btn = div.querySelector('[data-role="open-yield"]');
@@ -1482,6 +1565,128 @@
     }
     // ----- END INLINE MIC WIRING -----
 
+    function buildVarietyOptions(selectedId){
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+      const items = (STATE.varieties || []).filter(v =>
+        normalizeCropKind(v.cropKind || cropKind) === cropKind
+      );
+
+      if(!items.length){
+        return '<option value="">No varieties for this crop</option>';
+      }
+
+      const out = ['<option value="">Select variety…</option>'];
+      items.forEach(v => {
+        const label = v.brand ? `${v.brand} • ${v.label}` : v.label;
+        const sel = v.id === selectedId ? 'selected' : '';
+        out.push(`<option value="${v.id}" ${sel}>${label}</option>`);
+      });
+      return out.join('');
+    }
+
+    function attachVarietySearch(searchInput, selectEl){
+      if(!searchInput || !selectEl) return;
+      const options = Array.from(selectEl.options);
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.trim().toLowerCase();
+        options.forEach((opt, idx) => {
+          if(idx === 0){
+            opt.hidden = false; // keep placeholder visible
+            return;
+          }
+          const text = (opt.textContent || '').toLowerCase();
+          opt.hidden = q && !text.includes(q);
+        });
+      });
+    }
+
+    function wireExtraBlockFields(block, card){
+      // Toggle
+      const toggleBtn = card.querySelector('[data-role="extra-toggle"]');
+      const panel = card.querySelector('[data-role="extra-panel"]');
+      if(toggleBtn && panel){
+        toggleBtn.addEventListener('click', () => {
+          const isHidden = panel.style.display === 'none' || panel.style.display === '';
+          if(isHidden){
+            panel.style.display = 'grid';
+          }else{
+            panel.style.display = 'none';
+          }
+        });
+      }
+
+      // Plant / Harvest dates
+      const plantInput = card.querySelector('[data-role="plantDate"]');
+      const harvestInput = card.querySelector('[data-role="harvestDate"]');
+      if(plantInput){
+        plantInput.value = block.plantDate || '';
+        plantInput.addEventListener('change', e => {
+          block.plantDate = e.target.value;
+        });
+      }
+      if(harvestInput){
+        harvestInput.value = block.harvestDate || '';
+        harvestInput.addEventListener('change', e => {
+          block.harvestDate = e.target.value;
+        });
+      }
+
+      // Number of combines
+      const combinesInput = card.querySelector('[data-role="combineCount"]');
+      if(combinesInput){
+        combinesInput.value = block.combineCount || '';
+        combinesInput.addEventListener('input', e => {
+          const v = e.target.value.replace(/[^0-9]/g,'');
+          block.combineCount = v;
+          e.target.value = v;
+        });
+      }
+
+      // Check / Trial varieties
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+
+      const wireVariety = (roleBase, idKey, nameKey) => {
+        const searchInput = card.querySelector(`[data-role="${roleBase}-search"]`);
+        const selectEl = card.querySelector(`[data-role="${roleBase}"]`);
+        if(selectEl){
+          // Ensure options reflect current STATE.varieties + crop
+          selectEl.innerHTML = buildVarietyOptions(block[idKey] || '');
+          // Set existing value if present
+          if(block[idKey]){
+            selectEl.value = block[idKey];
+          }
+          selectEl.addEventListener('change', e => {
+            const val = e.target.value || '';
+            block[idKey] = val;
+            const found = (STATE.varieties || []).find(v => v.id === val);
+            if(found){
+              const label = found.brand ? `${found.brand} ${found.label}` : found.label;
+              block[nameKey] = label;
+            }else{
+              block[nameKey] = '';
+            }
+          });
+        }
+        if(searchInput && selectEl){
+          attachVarietySearch(searchInput, selectEl);
+        }
+      };
+
+      wireVariety('check-variety', 'checkVarietyId', 'checkVarietyName');
+      wireVariety('trial-variety', 'trialVarietyId', 'trialVarietyName');
+
+      // Auto-open panel if any extra data exists
+      const hasExtra =
+        block.plantDate ||
+        block.harvestDate ||
+        (block.combineCount && block.combineCount !== '0') ||
+        block.checkVarietyId ||
+        block.trialVarietyId;
+      if(hasExtra && panel){
+        panel.style.display = 'grid';
+      }
+    }
+
     function renderBlocksForField(fieldRow){
       if(!yieldBlocksWrap) return;
       const key = fieldRow.docId;
@@ -1501,9 +1706,25 @@
         const card = document.createElement('div');
         card.className = 'yield-block-card';
 
+        // Ensure extra fields exist on block object
+        block.plantDate = block.plantDate || '';
+        block.harvestDate = block.harvestDate || '';
+        block.combineCount = block.combineCount || '';
+        block.checkVarietyId = block.checkVarietyId || '';
+        block.checkVarietyName = block.checkVarietyName || '';
+        block.trialVarietyId = block.trialVarietyId || '';
+        block.trialVarietyName = block.trialVarietyName || '';
+
         // Unique ids for notes + mic per block
         const notesId = `notes-${fieldRow.docId}-${idx}`;
         const micId   = `mic-notes-${fieldRow.docId}-${idx}`;
+
+        const hasExtra =
+          block.plantDate ||
+          block.harvestDate ||
+          (block.combineCount && block.combineCount !== '0') ||
+          block.checkVarietyId ||
+          block.trialVarietyId;
 
         if(block.type === 'combine'){
           block.check = block.check || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
@@ -1576,6 +1797,62 @@
               <span class="yield-block-error" data-role="errorText"></span>
             </div>
 
+            <div class="yield-block-extra-wrapper">
+              <button type="button"
+                      class="btn btn-small btn-inline yield-block-extra-toggle"
+                      data-role="extra-toggle">
+                Additional Information Required
+              </button>
+              <div class="yield-block-extra"
+                   data-role="extra-panel"
+                   style="${hasExtra ? 'display:grid;' : 'display:none;'}">
+                <div class="yield-block-extra-grid">
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Plant Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="plantDate" />
+                  </label>
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Harvest Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="harvestDate" />
+                  </label>
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
+                    <input type="text"
+                           inputmode="numeric"
+                           class="input"
+                           data-role="combineCount"
+                           placeholder="e.g. 1, 2" />
+                  </label>
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Check Variety</span>
+                    <input type="text"
+                           class="input yield-variety-search"
+                           data-role="check-variety-search"
+                           placeholder="Search varieties…" />
+                    <select class="input yield-variety-select"
+                            data-role="check-variety">
+                      ${buildVarietyOptions(block.checkVarietyId)}
+                    </select>
+                  </div>
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Trial Variety</span>
+                    <input type="text"
+                           class="input yield-variety-search"
+                           data-role="trial-variety-search"
+                           placeholder="Search varieties…" />
+                    <select class="input yield-variety-select"
+                            data-role="trial-variety">
+                      ${buildVarietyOptions(block.trialVarietyId)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="yield-block-notes">
               <div class="yield-block-notes-head">
                 <span class="yield-block-notes-label">Block Notes</span>
@@ -1603,7 +1880,7 @@
             </div>
           `;
 
-          // Append card before wiring dictation
+          // Append card before wiring dictation / extras
           yieldBlocksWrap.appendChild(card);
 
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -1661,6 +1938,7 @@
           recalcCombine(block, card);
           renderNotes(block, card, notesId, micId);
           renderAttachments(block, card);
+          wireExtraBlockFields(block, card);
 
         }else if(block.type === 'weight'){
           const defaultWidth = String(getDefaultStripWidthFt());
@@ -1771,6 +2049,62 @@
               <span class="yield-block-error" data-role="errorText"></span>
             </div>
 
+            <div class="yield-block-extra-wrapper">
+              <button type="button"
+                      class="btn btn-small btn-inline yield-block-extra-toggle"
+                      data-role="extra-toggle">
+                Additional Information Required
+              </button>
+              <div class="yield-block-extra"
+                   data-role="extra-panel"
+                   style="${hasExtra ? 'display:grid;' : 'display:none;'}">
+                <div class="yield-block-extra-grid">
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Plant Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="plantDate" />
+                  </label>
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Harvest Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="harvestDate" />
+                  </label>
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
+                    <input type="text"
+                           inputmode="numeric"
+                           class="input"
+                           data-role="combineCount"
+                           placeholder="e.g. 1, 2" />
+                  </label>
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Check Variety</span>
+                    <input type="text"
+                           class="input yield-variety-search"
+                           data-role="check-variety-search"
+                           placeholder="Search varieties…" />
+                    <select class="input yield-variety-select"
+                            data-role="check-variety">
+                      ${buildVarietyOptions(block.checkVarietyId)}
+                    </select>
+                  </div>
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Trial Variety</span>
+                    <input type="text"
+                           class="input yield-variety-search"
+                           data-role="trial-variety-search"
+                           placeholder="Search varieties…" />
+                    <select class="input yield-variety-select"
+                            data-role="trial-variety">
+                      ${buildVarietyOptions(block.trialVarietyId)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="yield-block-notes">
               <div class="yield-block-notes-head">
                 <span class="yield-block-notes-label">Block Notes</span>
@@ -1798,7 +2132,7 @@
             </div>
           `;
 
-          // Append card before wiring dictation
+          // Append card before wiring dictation / extras
           yieldBlocksWrap.appendChild(card);
 
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -1880,6 +2214,7 @@
           recalcWeight(block, card);
           renderNotes(block, card, notesId, micId);
           renderAttachments(block, card);
+          wireExtraBlockFields(block, card);
         }
       });
     }
@@ -1916,7 +2251,7 @@
         <div>${parts.join('<br>')}</div>
         <div class="muted">
           Add one or more trial blocks for this field. Each block can be based on <strong>Combine Yield Data</strong>
-          or <strong>Weight Data</strong>, with Check vs Trial passes, notes, and up to ${MAX_ATTACH_PER_BLOCK} attachments.
+          or <strong>Weight Data</strong>, with Check vs Trial passes, notes, attachments, and additional required info.
         </div>
       `;
 
@@ -1954,6 +2289,18 @@
 
       const defaultWidth = String(getDefaultStripWidthFt());
 
+      const baseExtra = {
+        plantDate: '',
+        harvestDate: '',
+        combineCount: '',
+        checkVarietyId: '',
+        checkVarietyName: '',
+        trialVarietyId: '',
+        trialVarietyName: '',
+        notes: '',
+        attachments: []
+      };
+
       if(type === 'weight'){
         STATE.yieldData[key].push({
           id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
@@ -1972,8 +2319,7 @@
             poundsRaw: '',
             yieldBuAc: null
           },
-          notes: '',
-          attachments: []
+          ...baseExtra
         });
       }else{
         STATE.yieldData[key].push({
@@ -1991,8 +2337,7 @@
             poundsRaw: '',
             yieldBuAc: null
           },
-          notes: '',
-          attachments: []
+          ...baseExtra
         });
       }
 
@@ -2121,6 +2466,14 @@
               lengthFt: trial.lengthFt ? Number(trial.lengthFt) : null,
               widthFt: trial.widthFt ? Number(trial.widthFt) : null
             },
+            // Extra info per block
+            plantDate: block.plantDate || null,
+            harvestDate: block.harvestDate || null,
+            combineCount: block.combineCount ? Number(block.combineCount) : null,
+            checkVarietyId: block.checkVarietyId || null,
+            checkVarietyName: block.checkVarietyName || null,
+            trialVarietyId: block.trialVarietyId || null,
+            trialVarietyName: block.trialVarietyName || null,
             notes: block.notes || '',
             attachments: serializeAttachmentsForFirestore(block)
           };
@@ -2254,6 +2607,7 @@
       STATE.db = getFirestore();
 
       await loadTrial();
+      await loadVarietiesForTrialCrop();
       await loadFields();
       await loadAllYieldBlocks();
       renderFieldList();
@@ -2278,8 +2632,8 @@
             <h1>Trial Field Yields</h1>
             <p class="muted">
               Review the fields in this trial and add yield data by field. This page dries corn to 15% and soybeans
-              to 13%, supports combine or strip-weight blocks, and lets you compare Check vs Trial, dictate notes,
-              attach photos/PDFs, and save yield data for each field.
+              to 13%, supports combine or strip-weight blocks, compares Check vs Trial, lets you dictate notes,
+              attach photos/PDFs, and capture additional required info per block.
             </p>
           </div>
         </header>
