@@ -16,7 +16,7 @@
   <!-- Swipe styles for shared helper -->
   <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
-  <!-- fv-combo (search-in-dropdown engine) -->
+  <!-- fv-combo (search-in-dropdown engine) – no longer used for varieties, but safe to keep -->
   <script src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
@@ -25,7 +25,7 @@
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
 
-      /* match tractor add control sizing */
+      /* for dd-style dropdowns */
       --ctl-h: 48px;
       --ctl-radius: 10px;
     }
@@ -564,9 +564,6 @@
       font-size:0.8rem;
       font-weight:600;
     }
-    .yield-variety-select{
-      margin-top:4px;
-    }
 
     /* Notes section */
     .yield-block-notes{
@@ -736,14 +733,9 @@
       background:#000;
     }
 
-    /* === VARIETY COMBO: style & dropdown like tractor Make/Model === */
-
-    /* Make the fv-combo act like the custom dd on tractor add */
-    .fv-field.fv-combo{
-      position:relative;
-    }
-
-    .fv-field.fv-combo .fv-buttonish{
+    /* === Custom dd dropdowns (mirroring Make/Model) for varieties === */
+    .dd{position:relative;}
+    .dd-btn{
       width:100%;
       text-align:left;
       padding:12px;
@@ -756,14 +748,13 @@
       color:var(--text);
       cursor:pointer;
       appearance:none;
+      position:relative;
       height:var(--ctl-h,48px);
       line-height:calc(var(--ctl-h,48px) - 2px);
       display:flex;
       align-items:center;
-      position:relative;
     }
-
-    .fv-field.fv-combo .fv-buttonish::after{
+    .dd-btn::after{
       content:"";
       position:absolute;
       right:12px;
@@ -773,49 +764,51 @@
       height:18px;
       pointer-events:none;
       opacity:.7;
-      background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+      background:no-repeat center/18px 18px
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
     }
-
-    /* Panel styling – rounded, shadow, and anchored so no side stripe */
-    .fv-panel.variety-panel,
-    .yield-variety-select + .fv-panel{
-      border-radius:10px;
-      border:1px solid var(--border);
-      box-shadow:0 4px 12px rgba(0,0,0,.1);
-      background:var(--surface);
+    .dd-list{
+      position:absolute;
+      z-index:40;
+      top:calc(100% + 4px);
+      left:0;
+      right:0;
       max-height:260px;
       overflow:auto;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--surface);
+      box-shadow:0 4px 12px rgba(0,0,0,.1);
+      display:none;
     }
-
-    .fv-field.fv-combo .fv-panel{
-      width:calc(var(--fv-anchor-width, 0px) + 2px) !important;
-      left:calc(var(--fv-anchor-left, 0px) - 1px) !important;
-      top:calc(var(--fv-anchor-bottom, 0px) + 4px) !important;
-    }
-
-    /* Optional: if fv-combo exposes search / option classes, make them neat */
-    .fv-panel.variety-panel .fv-search{
-      padding:10px 12px;
-      border-bottom:1px solid var(--border);
-    }
-    .fv-panel.variety-panel .fv-search-input{
+    .dd.open .dd-list{display:block;}
+    .dd-list input.dd-search{
       width:100%;
+      box-sizing:border-box;
+      padding:10px 12px;
+      border:none;
+      border-bottom:1px solid var(--border);
       font:inherit;
       font-size:0.9rem;
-      border:1px solid var(--border);
-      border-radius:8px;
-      padding:6px 10px;
-      background:var(--surface);
       outline:none;
+      background:var(--surface);
     }
-    .fv-panel.variety-panel .fv-option{
+    .dd-list ul.dd-options{
+      list-style:none;
+      margin:0;
+      padding:0;
+      max-height:220px;
+      overflow-y:auto;
+    }
+    .dd-list ul.dd-options li{
       padding:10px 12px;
       cursor:pointer;
       font-size:0.9rem;
     }
-    .fv-panel.variety-panel .fv-option:hover{
-      background:var(--hover,rgba(0,0,0,.06));
+    .dd-list ul.dd-options li:hover{
+      background:#f0f1f0;
     }
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed;}
   </style>
 
   <!-- Lazy-load fv-shell if needed -->
@@ -981,6 +974,17 @@
       }
     }
 
+    // Build label pieces for Brand-Variety-Trait system
+    function buildVarietyDisplay(v){
+      if(!v) return 'Select variety…';
+      const parts = [];
+      if(v.brand)   parts.push(v.brand);
+      if(v.variety) parts.push(v.variety);
+      if(v.trait)   parts.push(v.trait);
+      if(!parts.length && v.label) return v.label;
+      return parts.join(' • ') || 'Seed variety';
+    }
+
     async function loadVarietiesForTrialCrop(){
       if(!STATE.db || !STATE.trial) return;
       const cropKind = normalizeCropKind(STATE.trial.crop);
@@ -1011,7 +1015,7 @@
         snap.forEach(d => {
           const data = d.data() || {};
           const brand    = data.brand    || '';
-          const variety  = data.variety  || data.productName || data.name || 'Seed variety';
+          const variety  = data.variety  || data.productName || data.name || '';
           const maturity = data.maturity || '';
           const trait    = data.trait    || data.traitLabel || '';
 
@@ -1021,12 +1025,14 @@
           if(maturity) labelParts.push(maturity);
           if(trait)    labelParts.push(trait);
 
-          const label = labelParts.join(' • ') || variety;
+          const label = labelParts.join(' • ') || variety || 'Seed variety';
 
           rows.push({
             id: d.id,
             label,
             brand,
+            variety,
+            trait,
             cropKind
           });
         });
@@ -1655,23 +1661,6 @@
       }
     }
 
-    // Build options from STATE.varieties
-    function buildVarietyOptions(selectedId){
-      const items = STATE.varieties || [];
-
-      if(!items.length){
-        return '<option value="">No varieties for this crop</option>';
-      }
-
-      const out = ['<option value="">Select variety…</option>'];
-      items.forEach(v => {
-        const label = v.label || 'Seed variety';
-        const sel = v.id === selectedId ? 'selected' : '';
-        out.push(`<option value="${v.id}" ${sel}>${label}</option>`);
-      });
-      return out.join('');
-    }
-
     async function markVarietyUsed(varietyId){
       if(!varietyId || !STATE.db) return;
       try{
@@ -1682,28 +1671,46 @@
       }
     }
 
-    // Position variety combos so panel visually comes out of the button
-    function positionVarietyCombos(){
-      const sels = Array.from(document.querySelectorAll('select.yield-variety-select[data-fv-combo]'));
-      if(!sels.length) return;
+    // ===== Helper functions for dd dropdowns (mirroring Make/Model) =====
+    function wireDropdownOpenClose(root){
+      const btn = root.querySelector(".dd-btn");
+      if(!btn) return;
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+        if(btn.disabled) return;
+        root.classList.toggle("open");
+        const inp = root.querySelector(".dd-search");
+        if(root.classList.contains("open") && inp){
+          setTimeout(()=>inp.focus(), 60);
+        }
+      });
+    }
 
-      const panels = Array.from(document.querySelectorAll('.fv-panel'));
-      if(!panels.length) return;
+    document.addEventListener("click",(e)=>{
+      if(!e.target.closest(".dd")){
+        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+      }
+    });
 
-      sels.forEach((sel, idx) => {
-        const combo = sel.closest('.fv-combo');
-        if(!combo) return;
-        const btn = combo.querySelector('.fv-buttonish');
-        if(!btn) return;
+    function setupDdSearch(inputEl, listEl){
+      if(!inputEl || !listEl) return;
+      inputEl.addEventListener("input", ()=>{
+        const term = inputEl.value.toLowerCase();
+        listEl.querySelectorAll("li").forEach(li=>{
+          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+        });
+      });
+    }
 
-        const rect = btn.getBoundingClientRect();
-        const panel = panels[idx] || null;
-        if(!panel) return;
-
-        panel.style.setProperty('--fv-anchor-width', rect.width + 'px');
-        panel.style.setProperty('--fv-anchor-left', rect.left + 'px');
-        panel.style.setProperty('--fv-anchor-bottom', rect.bottom + 'px');
-        panel.classList.add('variety-panel');
+    function buildDdList(listEl, items, onPick){
+      if(!listEl) return;
+      listEl.innerHTML = "";
+      items.forEach(([val,label,meta])=>{
+        const li = document.createElement("li");
+        li.textContent = label;
+        li.dataset.value = val;
+        li.onclick = ()=>onPick(val,label,meta);
+        listEl.appendChild(li);
       });
     }
 
@@ -1742,41 +1749,47 @@
         });
       }
 
-      const wireVariety = (roleBase, idKey, nameKey) => {
-        const selectEl = card.querySelector(`[data-role="${roleBase}"]`);
-        if(selectEl){
-          selectEl.innerHTML = buildVarietyOptions(block[idKey] || '');
-          if(block[idKey]){
-            selectEl.value = block[idKey];
-          }
+      // dd wiring for varieties (Check / Trial)
+      const wireVarietyDd = (roleBase, idKey, nameKey) => {
+        const ddRoot = card.querySelector(`[data-role="${roleBase}-dd"]`);
+        if(!ddRoot) return;
 
-          try{
-            if(window.FVCombo && typeof window.FVCombo.upgradeSelect === 'function'){
-              window.FVCombo.upgradeSelect(selectEl);
-            }
-          }catch(e){
-            console.warn('FVCombo upgrade failed for variety select:', e);
-          }
+        const btn = ddRoot.querySelector('.dd-btn');
+        const searchInput = ddRoot.querySelector('.dd-search');
+        const listEl = ddRoot.querySelector('.dd-options');
 
-          selectEl.addEventListener('change', async e => {
-            const val = e.target.value || '';
-            block[idKey] = val;
-            const found = (STATE.varieties || []).find(v => v.id === val);
-            if(found){
-              const label = found.label || '';
-              block[nameKey] = label;
-            }else{
-              block[nameKey] = '';
-            }
-            if(val){
-              await markVarietyUsed(val);
-            }
-          });
+        const items = (STATE.varieties || []).map(v => {
+          const label = buildVarietyDisplay(v);
+          return [v.id, label, v];
+        });
+
+        buildDdList(listEl, items, async (val,label,meta)=>{
+          block[idKey] = val || '';
+          block[nameKey] = label || '';
+          btn.textContent = label || 'Select variety…';
+          ddRoot.classList.remove('open');
+          if(val){
+            await markVarietyUsed(val);
+          }
+        });
+
+        setupDdSearch(searchInput, listEl);
+        wireDropdownOpenClose(ddRoot);
+
+        // Initialize button label if existing value
+        if(block[idKey]){
+          const existing = (STATE.varieties || []).find(v => v.id === block[idKey]);
+          const lbl = existing ? buildVarietyDisplay(existing) : (block[nameKey] || 'Select variety…');
+          btn.textContent = lbl;
+        }else if(block[nameKey]){
+          btn.textContent = block[nameKey];
+        }else{
+          btn.textContent = 'Select variety…';
         }
       };
 
-      wireVariety('check-variety', 'checkVarietyId', 'checkVarietyName');
-      wireVariety('trial-variety', 'trialVarietyId', 'trialVarietyName');
+      wireVarietyDd('check-variety', 'checkVarietyId', 'checkVarietyName');
+      wireVarietyDd('trial-variety', 'trialVarietyId', 'trialVarietyName');
 
       const hasExtra =
         block.plantDate ||
@@ -1788,9 +1801,6 @@
       if(hasExtra && panel){
         panel.style.display = 'grid';
       }
-
-      // After this block's combos are wired, update their positioning
-      positionVarietyCombos();
     }
 
     function renderBlocksForField(fieldRow){
@@ -1933,21 +1943,23 @@
                   </label>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Check Variety</span>
-                    <select class="input yield-variety-select"
-                            data-role="check-variety"
-                            data-fv-combo
-                            data-fv-search="true">
-                      ${buildVarietyOptions(block.checkVarietyId)}
-                    </select>
+                    <div class="dd dd-variety" data-role="check-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
                   </div>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Trial Variety</span>
-                    <select class="input yield-variety-select"
-                            data-role="trial-variety"
-                            data-fv-combo
-                            data-fv-search="true">
-                      ${buildVarietyOptions(block.trialVarietyId)}
-                    </select>
+                    <div class="dd dd-variety" data-role="trial-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2177,21 +2189,23 @@
                   </label>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Check Variety</span>
-                    <select class="input yield-variety-select"
-                            data-role="check-variety"
-                            data-fv-combo
-                            data-fv-search="true">
-                      ${buildVarietyOptions(block.checkVarietyId)}
-                    </select>
+                    <div class="dd dd-variety" data-role="check-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
                   </div>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Trial Variety</span>
-                    <select class="input yield-variety-select"
-                            data-role="trial-variety"
-                            data-fv-combo
-                            data-fv-search="true">
-                      ${buildVarietyOptions(block.trialVarietyId)}
-                    </select>
+                    <div class="dd dd-variety" data-role="trial-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2306,9 +2320,6 @@
           wireExtraBlockFields(block, card);
         }
       });
-
-      // After all blocks are rendered, update combo positions
-      positionVarietyCombos();
     }
 
     function removeTrialBlock(fieldRow, idx){
@@ -2699,9 +2710,6 @@
       await loadFields();
       await loadAllYieldBlocks();
       renderFieldList();
-
-      // Initial combo positioning (in case a block is already open)
-      positionVarietyCombos();
 
       if(STATE.fieldDocId && STATE.fields.length){
         const row = STATE.fields.find(f => f.docId === STATE.fieldDocId);
