@@ -8,6 +8,7 @@ Now:
  • Variety chooser pulls from productsSeed (by crop + active)
  • Tracks plantDate from a calendar picker under plot length
  • Marks productsSeed/{productId}.used = true for any varieties used
+ • Uses fv-combo for searchable variety dropdowns
 ==================================================================== */
 
 import {
@@ -62,7 +63,7 @@ export function initMhYieldHelper(options = {}) {
   // Seed product options loaded from productsSeed
   let seedOptions = [];
 
-  // Try to pick cropKind from the trial (window.MH_TRIAL_CONTEXT.trial.crop)
+  // Pull cropKind from MH_TRIAL_CONTEXT if available
   (function initCropFromTrialContext(){
     try{
       const ctx = window.MH_TRIAL_CONTEXT || {};
@@ -80,6 +81,7 @@ export function initMhYieldHelper(options = {}) {
     }
   })();
 
+  // Basic DOM handles
   const modalBackdrop = document.getElementById('yieldModalBackdrop');
   const btnOpenModal  = document.getElementById('btnOpenModal');
   const devFieldCard  = document.getElementById('devFieldCard');
@@ -155,15 +157,8 @@ export function initMhYieldHelper(options = {}) {
 
   function openModal(){
     if(!modalBackdrop) return;
-
     modalBackdrop.classList.remove('hidden');
-
-    if (mhState.blocks.length > 0) {
-      mhState.stage = 'blocks';
-    } else {
-      mhState.stage = 'setup';
-    }
-
+    mhState.stage = mhState.blocks.length ? 'blocks' : 'setup';
     renderStage();
   }
 
@@ -265,10 +260,11 @@ export function initMhYieldHelper(options = {}) {
 
   function renderSetup(){
     if(!stageShell) return;
-    const hybrids = mhState.hybrids;
-    const lengthFt = mhState.passLengthFt;
-    const widthFt  = mhState.passWidthFt;
+    const hybrids      = mhState.hybrids;
+    const lengthFt     = mhState.passLengthFt;
+    const widthFt      = mhState.passWidthFt;
     const plantDateVal = mhState.plantDate || '';
+    const comboItems   = getHybridItemsForCombo(); // real seeds only
     let html = '';
 
     html += `
@@ -306,28 +302,33 @@ export function initMhYieldHelper(options = {}) {
       html += `<p class="muted">No entries yet. Tap <strong>+ Add variety</strong> to start.</p>`;
     }else{
       hybrids.forEach((hyb, idx) => {
-        const isCheckRow = hyb.productId && mhState.checkProductId === hyb.productId;
-        const displayName = hyb.productId
-          ? (hyb.name || `${hyb.brand || ''} ${hyb.variety || ''}`.trim() || 'Variety')
-          : 'Select variety…';
-        const label = hyb.productId
-          ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
-          : 'Select variety…';
+        const isCheckRow   = hyb.productId && mhState.checkProductId === hyb.productId;
+        const selectId     = `mh-hybrid-select-${hyb.rowId}`;
+        const labelDisplay = (() => {
+          if(!hyb.productId) return 'Select variety…';
+          const displayName = hyb.name || `${hyb.brand || ''} ${hyb.variety || ''}`.trim() || 'Variety';
+          return hyb.maturity != null
+            ? `${displayName} (${hyb.maturity} RM)`
+            : displayName;
+        })();
 
         html += `
           <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
             <div class="entry-label">Entry ${idx+1}</div>
-            <div class="combo">
-              <div class="combo-anchor">
-                <button type="button"
-                        class="buttonish has-caret"
-                        id="mh-hybrid-btn-${hyb.rowId}">
-                  ${label}
-                </button>
-                <div class="combo-panel" id="mh-hybrid-panel-${hyb.rowId}">
-                  <div class="list" id="mh-hybrid-list-${hyb.rowId}"></div>
-                </div>
-              </div>
+            <div class="field">
+              <select
+                id="${selectId}"
+                class="select"
+                data-fv-combo
+                data-fv-search="true"
+                aria-label="Select variety for entry ${idx+1}">
+                <option value="">Select variety…</option>
+                ${comboItems.map(item => `
+                  <option value="${item.id}" ${item.id === hyb.productId ? 'selected' : ''}>
+                    ${item.label}
+                  </option>
+                `).join('')}
+              </select>
             </div>
             <div class="check-indicator" data-row-id="${hyb.rowId}">
               <span class="check-dot ${isCheckRow ? 'check-dot--on' : ''}"></span>
@@ -346,6 +347,12 @@ export function initMhYieldHelper(options = {}) {
     html += `<div class="setup-errors" id="mh-setup-errors"></div></div>`;
     stageShell.innerHTML = html;
 
+    // Upgrade all fv-combo selects in this stage
+    if (window.FVCombo && typeof window.FVCombo.upgrade === 'function') {
+      window.FVCombo.upgrade(stageShell);
+    }
+
+    // Wire plot length / plant date
     const lenInput = document.getElementById('mh-length-input');
     if(lenInput){
       lenInput.addEventListener('input', e => {
@@ -363,6 +370,7 @@ export function initMhYieldHelper(options = {}) {
       });
     }
 
+    // Width combo (still custom, not fv-combo)
     const widthBtn   = document.getElementById('mh-width-btn');
     const widthPanel = document.getElementById('mh-width-panel');
     const widthList  = document.getElementById('mh-width-list');
@@ -382,6 +390,7 @@ export function initMhYieldHelper(options = {}) {
       });
     }
 
+    // Add-row button
     const addRowBtn = document.getElementById('mh-add-row-btn');
     if(addRowBtn){
       addRowBtn.addEventListener('click', () => {
@@ -395,49 +404,39 @@ export function initMhYieldHelper(options = {}) {
           maturity: null
         });
         renderStage();
-
         requestAnimationFrame(() => {
           const row = stageShell.querySelector(`.setup-hybrid-row[data-row-id="${newRowId}"]`);
           if(row){
             row.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
-          const btn = document.getElementById(`mh-hybrid-btn-${newRowId}`);
-          if(btn){
-            btn.click();
-          }
         });
       });
     }
 
-    const comboItems = getHybridItemsForCombo();
+    // Map of seedId -> item for quick lookup
+    const itemById = {};
+    comboItems.forEach(item => { itemById[item.id] = item; });
 
+    // Wire selects + check toggles + remove buttons
     mhState.hybrids.forEach(hyb => {
-      const btn   = document.getElementById(`mh-hybrid-btn-${hyb.rowId}`);
-      const panel = document.getElementById(`mh-hybrid-panel-${hyb.rowId}`);
-      const list  = document.getElementById(`mh-hybrid-list-${hyb.rowId}`);
+      const selId = `mh-hybrid-select-${hyb.rowId}`;
+      const sel   = document.getElementById(selId);
 
-      if(btn && panel && list){
-        makeCombo({
-          btn,
-          panel,
-          list,
-          items: comboItems,
-          formatter: x => x.label,
-          onPick: it => {
-            const found = comboItems.find(m => m.id === it.id) || null;
+      if(sel){
+        sel.addEventListener('change', (e) => {
+          const productId = e.target.value || '';
+          const found = productId ? itemById[productId] : null;
 
-            hyb.productId = found ? found.seedDocId : it.id;
-            hyb.name      = found ? found.label : it.label;
-            hyb.brand     = found ? found.brand : '';
-            hyb.variety   = found ? found.variety : '';
-            hyb.maturity  = found ? found.maturity : null;
+          hyb.productId = productId || '';
+          hyb.name      = found ? found.label   : '';
+          hyb.brand     = found ? found.brand   : '';
+          hyb.variety   = found ? found.variety : '';
+          hyb.maturity  = found ? found.maturity: null;
 
-            if(!mhState.checkProductId){
-              mhState.checkProductId = hyb.productId;
-            }
-
-            renderStage();
+          if(!mhState.checkProductId && productId){
+            mhState.checkProductId = productId;
           }
+          renderStage();
         });
       }
 
@@ -464,12 +463,272 @@ export function initMhYieldHelper(options = {}) {
     });
   }
 
-  // ... (UNCHANGED renderBlocks, initSwipeForCard, etc.)
+  // ---------- blocks UI (unchanged data flow) ----------
+  function renderBlocks(){
+    if(!stageShell) return;
+    const blocks = mhState.blocks;
+    const lengthFt = mhState.passLengthFt;
+    const widthFt  = mhState.passWidthFt;
+    let html = '';
 
-  function renderBlocks() {
-    // (same as previous answer – omitted here for brevity)
-    // no changes needed for seed usage
-    // ...
+    html += `
+      <div class="blocks-panel">
+        <div class="blocks-panel-header">
+          Plot length: <strong>${lengthFt} ft</strong> • Pass width: <strong>${widthFt} ft</strong> • Area per strip:
+          <strong>${formatNumber((lengthFt*widthFt)/43560,3)} ac</strong>
+        </div>
+    `;
+
+    if(!blocks.length){
+      html += `<p class="muted">No blocks generated. Hit Set Up Plot and try again.</p>`;
+    }else{
+      blocks.forEach((blk, idx) => {
+        const isCheck = mhState.checkProductId && blk.productId === mhState.checkProductId;
+        const badYield = blk.yieldBuPerAc != null && (blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400);
+        const notesVal = blk.notes || '';
+        const files = blk.files || [];
+
+        html += `
+          <div class="yield-block-card" data-row-id="${blk.rowId}">
+            <div class="yield-block-head">
+              <div>
+                <div class="yield-block-title">
+                  Entry ${idx+1} · ${blk.name || 'Variety'}
+                  ${isCheck ? '<span class="badge-check">Check</span>' : ''}
+                  ${blk.voided ? '<span class="badge-void">Voided</span>' : ''}
+                </div>
+                <div class="yield-block-sub">
+                  ${blk.maturity ? `${blk.maturity} RM` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="yield-block-grid">
+              <label class="field-mini">
+                <span>Moisture %</span>
+                <input type="text" inputmode="decimal"
+                       class="input" id="mh-moist-${blk.rowId}"
+                       value="${blk.moisturePct != null ? formatNumber(blk.moisturePct,2) : ''}">
+              </label>
+              <label class="field-mini">
+                <span>Weight (Lbs)</span>
+                <input type="text" inputmode="numeric"
+                       class="input" id="mh-weight-${blk.rowId}"
+                       value="${blk.weightLbs != null ? formatWithCommas(blk.weightLbs) : ''}">
+              </label>
+              <div class="field-mini">
+                <span>Yield (bu/ac)</span>
+                <div id="mh-yield-${blk.rowId}" class="yield-value ${badYield ? 'bad' : ''}">
+                  ${blk.yieldBuPerAc != null ? formatNumber(blk.yieldBuPerAc,2) : '—'}
+                </div>
+              </div>
+            </div>
+            <div class="void-row">
+              <input type="checkbox" id="mh-void-${blk.rowId}" ${blk.voided ? 'checked' : ''}>
+              <label for="mh-void-${blk.rowId}">Void this hybrid</label>
+            </div>
+
+            <div class="yield-extra">
+              <div class="field-mini">
+                <span>Notes</span>
+                <div class="notes-shell">
+                  <textarea class="input notes-input"
+                            id="mh-notes-${blk.rowId}"
+                            rows="2"
+                            placeholder="Notes about this hybrid…">${notesVal}</textarea>
+                  <button type="button"
+                          class="mic-btn"
+                          data-dict-target="mh-notes-${blk.rowId}"
+                          data-dictation-target="#mh-notes-${blk.rowId}"
+                          aria-label="Dictate notes">
+                    <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.08A7 7 0 0 0 19 11a1 1 0 0 0-2 0z"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="field-mini">
+                <span>Attachments (max 5)</span>
+                <div class="files-shell">
+                  <input type="file"
+                         id="mh-files-input-${blk.rowId}"
+                         class="hidden-file"
+                         multiple>
+                  <button type="button"
+                          class="btn btn-small"
+                          id="mh-files-btn-${blk.rowId}">
+                    Add files (${files.length}/5)
+                  </button>
+                  <ul class="file-list" id="mh-files-list-${blk.rowId}">
+                    ${files.map((f, i) => `
+                      <li data-idx="${i}">
+                        <span class="file-name">${f.name}</span>
+                        <button type="button" class="file-remove" aria-label="Remove file">&times;</button>
+                      </li>
+                    `).join('')}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    html += `</div>`;
+    stageShell.innerHTML = html;
+
+    // Blocks wiring (unchanged data flow)...
+    mhState.blocks.forEach(blk => {
+      const moistEl   = document.getElementById(`mh-moist-${blk.rowId}`);
+      const weightEl  = document.getElementById(`mh-weight-${blk.rowId}`);
+      const yieldEl   = document.getElementById(`mh-yield-${blk.rowId}`);
+      const voidEl    = document.getElementById(`mh-void-${blk.rowId}`);
+      const notesEl   = document.getElementById(`mh-notes-${blk.rowId}`);
+      const filesInput= document.getElementById(`mh-files-input-${blk.rowId}`);
+      const filesBtn  = document.getElementById(`mh-files-btn-${blk.rowId}`);
+      const filesList = document.getElementById(`mh-files-list-${blk.rowId}`);
+
+      function updateYieldDisplay(){
+        if(!yieldEl) return;
+        if(blk.yieldBuPerAc != null){
+          yieldEl.textContent = formatNumber(blk.yieldBuPerAc,2);
+          const bad = blk.yieldBuPerAc < 50 || blk.yieldBuPerAc > 400;
+          yieldEl.classList.toggle('bad', bad);
+        }else{
+          yieldEl.textContent = '—';
+          yieldEl.classList.remove('bad');
+        }
+      }
+
+      function recalcYield(){
+        blk.yieldBuPerAc = calcDevYield({
+          cropKind: mhState.cropKind,
+          moisturePct: blk.moisturePct,
+          wetWeightLbs: blk.weightLbs,
+          lengthFt: mhState.passLengthFt,
+          widthFt: mhState.passWidthFt
+        });
+        updateYieldDisplay();
+        renderDevSummary();
+      }
+
+      if(moistEl){
+        moistEl.dataset.prev = moistEl.value;
+
+        moistEl.addEventListener('input', e => {
+          const oldVal = e.target.dataset.prev || '';
+          let v = e.target.value;
+
+          v = v.replace(/[^0-9.]/g,'');
+          const parts = v.split('.');
+          if(parts.length > 2){
+            v = oldVal;
+          }else if(parts.length === 2 && parts[1].length > 2){
+            v = oldVal;
+          }
+
+          e.target.value = v;
+          e.target.dataset.prev = v;
+          blk.moisturePct = v === '' ? null : Number(v);
+          recalcYield();
+        });
+
+        moistEl.addEventListener('blur', e => {
+          let v = e.target.value;
+          if(v === ''){
+            blk.moisturePct = null;
+            recalcYield();
+            return;
+          }
+          v = v.replace(/[^0-9.]/g,'');
+          const parts = v.split('.');
+          if(parts.length > 2){
+            v = parts[0] + '.' + parts.slice(1).join('');
+          }
+          const num = Number(v);
+          blk.moisturePct = isFinite(num) ? num : null;
+          e.target.value = blk.moisturePct != null ? blk.moisturePct.toFixed(2) : '';
+          recalcYield();
+        });
+      }
+
+      if(weightEl){
+        weightEl.addEventListener('input', e => {
+          let v = e.target.value.replace(/\D/g,'');
+          e.target.value = v;
+          blk.weightLbs = v === '' ? null : Number(v);
+          recalcYield();
+        });
+        weightEl.addEventListener('blur', e => {
+          if(blk.weightLbs != null){
+            e.target.value = formatWithCommas(blk.weightLbs);
+          }
+        });
+      }
+
+      if(voidEl){
+        voidEl.addEventListener('change', e => {
+          blk.voided = e.target.checked;
+          renderBlocks();
+        });
+      }
+
+      if(notesEl){
+        notesEl.addEventListener('input', e => {
+          blk.notes = e.target.value;
+        });
+      }
+
+      if(filesBtn && filesInput && filesList){
+        if(!Array.isArray(blk.files)) blk.files = [];
+
+        function renderFileList(){
+          const files = blk.files || [];
+          filesList.innerHTML = files.map((f, i) => `
+            <li data-idx="${i}">
+              <span class="file-name">${f.name}</span>
+              <button type="button" class="file-remove" aria-label="Remove file">&times;</button>
+            </li>
+          `).join('');
+          filesBtn.textContent = `Add files (${files.length}/5)`;
+        }
+
+        renderFileList();
+
+        filesBtn.addEventListener('click', () => {
+          filesInput.click();
+        });
+
+        filesInput.addEventListener('change', e => {
+          const selected = Array.from(e.target.files || []);
+          if(!selected.length) return;
+          if(!Array.isArray(blk.files)) blk.files = [];
+          const spaceLeft = Math.max(0, 5 - blk.files.length);
+          const toAdd = selected.slice(0, spaceLeft);
+          toAdd.forEach(f => {
+            blk.files.push({
+              name: f.name,
+              size: f.size,
+              type: f.type
+            });
+          });
+          filesInput.value = '';
+          renderFileList();
+        });
+
+        filesList.addEventListener('click', e => {
+          const li = e.target.closest('li');
+          if(!li) return;
+          if(e.target.classList.contains('file-remove')){
+            const idx = Number(li.dataset.idx);
+            if(!isNaN(idx)){
+              blk.files.splice(idx,1);
+              renderFileList();
+            }
+          }
+        });
+      }
+    });
   }
 
   function renderStage(){
@@ -533,7 +792,6 @@ export function initMhYieldHelper(options = {}) {
       const db = getDb();
       const baseRef = collection(db, 'productsSeed');
 
-      // Load all seeds and filter in memory:
       const snap = await getDocs(baseRef);
       const rows = [];
       snap.forEach(docSnap => {
@@ -567,7 +825,6 @@ export function initMhYieldHelper(options = {}) {
     }catch(err){
       console.error('Error loading productsSeed for MH helper:', err);
       seedOptions = [];
-      // no fallback – combo will simply show "(no options)"
     }
   }
 
