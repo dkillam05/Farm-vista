@@ -7,6 +7,7 @@ Now:
    at: fieldTrials/{trialId}/fields/{fieldDocId}/multiHybrid/state
  • Variety chooser pulls from productsSeed (by crop + active)
  • Tracks plantDate from a calendar picker under plot length
+ • Marks productsSeed/{productId}.used = true for any varieties used
 ==================================================================== */
 
 import {
@@ -17,7 +18,8 @@ import {
   collection,
   query,
   where,
-  getDocs
+  getDocs,
+  serverTimestamp
 } from '/Farm-vista/js/firebase-init.js';
 
 export function initMhYieldHelper(options = {}) {
@@ -235,7 +237,7 @@ export function initMhYieldHelper(options = {}) {
         let label = `${brand} ${variety}`.trim();
         if(mat) label += ` (${mat} RM)`;
         return {
-          // FIX: use Firestore doc id as unique id so each variety is distinct
+          // Use Firestore doc id as unique id so each variety is distinct
           id: s.id,
           seedDocId: s.id,
           brand,
@@ -380,7 +382,7 @@ export function initMhYieldHelper(options = {}) {
     if(plantInput){
       plantInput.addEventListener('change', e => {
         const v = e.target.value || '';
-        mhState.plantDate = v || null;  // store as 'YYYY-MM-DD' string
+        mhState.plantDate = v || null;
       });
     }
 
@@ -417,7 +419,6 @@ export function initMhYieldHelper(options = {}) {
         });
         renderStage();
 
-        // UX: scroll new row into view and auto-open its dropdown
         requestAnimationFrame(() => {
           const row = stageShell.querySelector(`.setup-hybrid-row[data-row-id="${newRowId}"]`);
           if(row){
@@ -448,14 +449,12 @@ export function initMhYieldHelper(options = {}) {
           onPick: it => {
             const found = comboItems.find(m => m.id === it.id) || null;
 
-            // productId should be the Firestore doc id
             hyb.productId = found ? found.seedDocId : it.id;
             hyb.name      = found ? found.label : it.label;
             hyb.brand     = found ? found.brand : '';
             hyb.variety   = found ? found.variety : '';
             hyb.maturity  = found ? found.maturity : null;
 
-            // If no check picked yet, default first chosen hybrid as check
             if(!mhState.checkProductId){
               mhState.checkProductId = hyb.productId;
             }
@@ -848,7 +847,6 @@ export function initMhYieldHelper(options = {}) {
       });
 
       seedOptions = rows;
-      // Re-render setup so combo pulls from real products
       if(mhState.stage === 'setup'){
         renderStage();
       }
@@ -861,7 +859,6 @@ export function initMhYieldHelper(options = {}) {
   async function loadFromFirestore(){
     const ref = getMhDocRef();
     if(!ref) {
-      // Still want seed products (by trial crop) even if no state doc exists
       await loadSeedProducts();
       return;
     }
@@ -881,13 +878,10 @@ export function initMhYieldHelper(options = {}) {
         mhState.stage          = mhState.blocks.length ? 'blocks' : 'setup';
       }
 
-      // After we know cropKind for sure, load seed products
       await loadSeedProducts();
-
       renderStage();
     }catch(err){
       console.error('Error loading MH state from Firestore:', err);
-      // Still try to load seed products even if state load fails
       await loadSeedProducts();
     }
   }
@@ -895,7 +889,6 @@ export function initMhYieldHelper(options = {}) {
   async function saveToFirestore(){
     const ref = getMhDocRef();
     if(!ref){
-      // No IDs – dev mode
       console.log('Multi-Hybrid Helper Save (dev only)', JSON.parse(JSON.stringify(mhState)));
       alert('Saved locally (dev mode). Add trialId & fieldDocId to save in Firestore.');
       return;
@@ -910,17 +903,47 @@ export function initMhYieldHelper(options = {}) {
         checkProductId: mhState.checkProductId || null,
         hybrids: mhState.hybrids || [],
         blocks: mhState.blocks || [],
-        updatedAt: new Date()
+        updatedAt: serverTimestamp()
       };
+
       await setDoc(ref, payload, { merge: true });
+
+      // NEW: mark any seed products used in this MH trial as used=true
+      try{
+        const db = getDb();
+        const uniqueIds = new Set();
+
+        (mhState.hybrids || []).forEach(h => {
+          if(h && h.productId) uniqueIds.add(h.productId);
+        });
+        (mhState.blocks || []).forEach(b => {
+          if(b && b.productId) uniqueIds.add(b.productId);
+        });
+        if(mhState.checkProductId){
+          uniqueIds.add(mhState.checkProductId);
+        }
+
+        const writes = [];
+        uniqueIds.forEach(id => {
+          const seedRef = doc(db, 'productsSeed', id);
+          writes.push(
+            setDoc(seedRef, { used: true, updatedAt: serverTimestamp() }, { merge: true })
+          );
+        });
+
+        if(writes.length){
+          await Promise.all(writes);
+        }
+      }catch(markErr){
+        console.warn('Failed to mark seed products as used for MH trial:', markErr);
+      }
+
       closeModal();
     }catch(err){
       console.error('Error saving MH state to Firestore:', err);
       alert('Unable to save multi-hybrid data to Firestore.');
     }
   }
-
-  // ---------- Event wiring ----------
 
   if(btnOpenModal) btnOpenModal.addEventListener('click', openModal);
   if(devFieldCard) devFieldCard.addEventListener('click', openModal);
@@ -972,14 +995,12 @@ export function initMhYieldHelper(options = {}) {
         return;
       }
 
-      // Stage === 'blocks' -> save real data
       saveToFirestore();
     });
   }
 
   renderStage();
   initSwipeForCard();
-  // Kick off Firestore hydration + seed load (non-blocking)
   loadFromFirestore();
 
   return {
