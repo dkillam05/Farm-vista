@@ -16,6 +16,9 @@
   <!-- Swipe styles for shared helper -->
   <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
+  <!-- NEW: fv-combo (search-in-dropdown engine) -->
+  <script src="/Farm-vista/js/fv-combo.js"></script>
+
   <style>
     :root{
       --card-max: 900px;
@@ -561,6 +564,7 @@
     .yield-variety-select{
       margin-top:4px;
     }
+    /* leftover class; no standalone search input anymore, search lives inside fv-combo */
     .yield-variety-search{
       margin-bottom:4px;
     }
@@ -1600,6 +1604,7 @@
       return out.join('');
     }
 
+    // Old attachVarietySearch is kept, but not used now (search lives inside fv-combo)
     function attachVarietySearch(searchInput, selectEl){
       if(!searchInput || !selectEl) return;
       const options = Array.from(selectEl.options);
@@ -1662,13 +1667,23 @@
       }
 
       const wireVariety = (roleBase, idKey, nameKey) => {
-        const searchInput = card.querySelector(`[data-role="${roleBase}-search"]`);
         const selectEl = card.querySelector(`[data-role="${roleBase}"]`);
         if(selectEl){
+          // Fill options from STATE.varieties
           selectEl.innerHTML = buildVarietyOptions(block[idKey] || '');
           if(block[idKey]){
             selectEl.value = block[idKey];
           }
+
+          // Upgrade this select into fv-combo with built-in search
+          try{
+            if(window.FVCombo && typeof window.FVCombo.upgradeSelect === 'function'){
+              window.FVCombo.upgradeSelect(selectEl);
+            }
+          }catch(e){
+            console.warn('FVCombo upgrade failed for variety select:', e);
+          }
+
           selectEl.addEventListener('change', async e => {
             const val = e.target.value || '';
             block[idKey] = val;
@@ -1683,9 +1698,6 @@
               await markVarietyUsed(val);
             }
           });
-        }
-        if(searchInput && selectEl){
-          attachVarietySearch(searchInput, selectEl);
         }
       };
 
@@ -1844,23 +1856,21 @@
                   </label>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Check Variety</span>
-                    <input type="text"
-                           class="input yield-variety-search"
-                           data-role="check-variety-search"
-                           placeholder="Search varieties…" />
                     <select class="input yield-variety-select"
-                            data-role="check-variety">
+                            data-role="check-variety"
+                            data-fv-combo
+                            data-fv-search="true"
+                            placeholder="Search varieties…">
                       ${buildVarietyOptions(block.checkVarietyId)}
                     </select>
                   </div>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Trial Variety</span>
-                    <input type="text"
-                           class="input yield-variety-search"
-                           data-role="trial-variety-search"
-                           placeholder="Search varieties…" />
                     <select class="input yield-variety-select"
-                            data-role="trial-variety">
+                            data-role="trial-variety"
+                            data-fv-combo
+                            data-fv-search="true"
+                            placeholder="Search varieties…">
                       ${buildVarietyOptions(block.trialVarietyId)}
                     </select>
                   </div>
@@ -2094,23 +2104,21 @@
                   </label>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Check Variety</span>
-                    <input type="text"
-                           class="input yield-variety-search"
-                           data-role="check-variety-search"
-                           placeholder="Search varieties…" />
                     <select class="input yield-variety-select"
-                            data-role="check-variety">
+                            data-role="check-variety"
+                            data-fv-combo
+                            data-fv-search="true"
+                            placeholder="Search varieties…">
                       ${buildVarietyOptions(block.checkVarietyId)}
                     </select>
                   </div>
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Trial Variety</span>
-                    <input type="text"
-                           class="input yield-variety-search"
-                           data-role="trial-variety-search"
-                           placeholder="Search varieties…" />
                     <select class="input yield-variety-select"
-                            data-role="trial-variety">
+                            data-role="trial-variety"
+                            data-fv-combo
+                            data-fv-search="true"
+                            placeholder="Search varieties…">
                       ${buildVarietyOptions(block.trialVarietyId)}
                     </select>
                   </div>
