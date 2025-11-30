@@ -898,6 +898,7 @@
       }
     }
 
+    // --------- FIXED: load varieties from productsSeed using crop + status ----------
     async function loadVarietiesForTrialCrop(){
       if(!STATE.db || !STATE.trial) return;
       const cropKind = normalizeCropKind(STATE.trial.crop);
@@ -905,34 +906,62 @@
 
       try{
         const baseRef = collection(STATE.db, 'productsSeed');
-        const qRef = query(
-          baseRef,
-          where('cropKind','==',cropKind),
-          where('active','==',true)
-        );
+
+        // Map our normalized kind to your stored crop field
+        let cropValue = null;
+        if(cropKind === 'corn') {
+          cropValue = 'corn';
+        } else if(cropKind === 'soy') {
+          cropValue = 'soybeans';
+        }
+
+        let qRef;
+        if(cropValue){
+          qRef = query(
+            baseRef,
+            where('crop','==',cropValue),
+            where('status','==','active')
+          );
+        }else{
+          // Fallback – just status filter
+          qRef = query(
+            baseRef,
+            where('status','==','active')
+          );
+        }
 
         const snap = await getDocs(qRef);
         const rows = [];
         snap.forEach(d => {
           const data = d.data() || {};
-          const label =
-            data.productName ||
-            data.hybrid ||
-            data.name ||
-            'Seed variety';
-          const brand = data.brand || '';
+
+          const brand    = data.brand    || '';
+          const variety  = data.variety  || data.productName || data.name || 'Seed variety';
+          const maturity = data.maturity || '';
+          const trait    = data.trait    || data.traitLabel || '';
+
+          const labelParts = [];
+          if(brand)    labelParts.push(brand);
+          if(variety)  labelParts.push(variety);
+          if(maturity) labelParts.push(maturity);
+          if(trait)    labelParts.push(trait);
+
+          const label = labelParts.join(' • ') || variety;
+
           rows.push({
             id: d.id,
             label,
             brand,
-            cropKind: data.cropKind || cropKind
+            cropKind // we track which normalized kind this belongs to
           });
         });
+
         STATE.varieties = rows;
       }catch(err){
         console.error('Error loading varieties for trial crop:', err);
       }
     }
+    // -------------------------------------------------------------------------------
 
     async function loadFields(){
       if(!STATE.trialId) return;
@@ -1554,11 +1583,9 @@
     }
     // ----- END INLINE MIC -----
 
+    // Build options from STATE.varieties
     function buildVarietyOptions(selectedId){
-      const cropKind = normalizeCropKind(STATE.trial?.crop);
-      const items = (STATE.varieties || []).filter(v =>
-        normalizeCropKind(v.cropKind || cropKind) === cropKind
-      );
+      const items = STATE.varieties || [];
 
       if(!items.length){
         return '<option value="">No varieties for this crop</option>';
@@ -1566,7 +1593,7 @@
 
       const out = ['<option value="">Select variety…</option>'];
       items.forEach(v => {
-        const label = v.brand ? `${v.brand} • ${v.label}` : v.label;
+        const label = v.label || 'Seed variety';
         const sel = v.id === selectedId ? 'selected' : '';
         out.push(`<option value="${v.id}" ${sel}>${label}</option>`);
       });
@@ -1647,7 +1674,7 @@
             block[idKey] = val;
             const found = (STATE.varieties || []).find(v => v.id === val);
             if(found){
-              const label = found.brand ? `${found.brand} ${found.label}` : found.label;
+              const label = found.label || '';
               block[nameKey] = label;
             }else{
               block[nameKey] = '';
@@ -1787,7 +1814,7 @@
 
             <div class="yield-block-extra-wrapper">
               <button type="button"
-                      class="btn btn-small btn-inline yield-block-extra-toggle"
+                      class="btn btn-primary btn-inline yield-block-extra-toggle"
                       data-role="extra-toggle">
                 Additional Information Required
               </button>
@@ -2037,7 +2064,7 @@
 
             <div class="yield-block-extra-wrapper">
               <button type="button"
-                      class="btn btn-small btn-inline yield-block-extra-toggle"
+                      class="btn btn-primary btn-inline yield-block-extra-toggle"
                       data-role="extra-toggle">
                 Additional Information Required
               </button>
