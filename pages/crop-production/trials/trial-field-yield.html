@@ -16,7 +16,7 @@
   <!-- Swipe styles for shared helper -->
   <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
-  <!-- NEW: fv-combo (search-in-dropdown engine) -->
+  <!-- fv-combo (search-in-dropdown engine) -->
   <script src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
@@ -208,7 +208,6 @@
       display:grid;
       gap:4px;
       font-size:0.9rem;
-      /* NOT clickable anymore; swipe or button only */
     }
 
     .field-card-top{
@@ -236,7 +235,7 @@
     }
     @media (max-width:720px){
       .field-card-actions{
-        display:none !important; /* mobile = swipe only, no button */
+        display:none !important;
       }
     }
 
@@ -564,10 +563,6 @@
     .yield-variety-select{
       margin-top:4px;
     }
-    /* leftover class; no standalone search input anymore, search lives inside fv-combo */
-    .yield-variety-search{
-      margin-bottom:4px;
-    }
 
     /* Notes section */
     .yield-block-notes{
@@ -599,7 +594,7 @@
       border:1px solid var(--border);
       border-radius:9px;
       padding:8px 10px;
-      padding-right:48px; /* room for mic */
+      padding-right:48px;
       box-sizing:border-box;
       outline:none;
     }
@@ -608,14 +603,14 @@
       border-color:var(--accent);
     }
 
-    /* Dictation mic button – square with rounded corners (NO circle) */
+    /* Dictation mic button – square with rounded corners */
     .mic-btn{
       position:absolute;
       right:10px;
       bottom:10px;
       width:36px;
       height:36px;
-      border-radius:10px !important; /* force rounded square */
+      border-radius:10px !important;
       border:1px solid var(--border);
       background:var(--surface-strong, var(--surface));
       display:grid;
@@ -711,7 +706,7 @@
       overflow:hidden;
     }
 
-    /* Image lightbox for attachment thumbs */
+    /* Image lightbox */
     .img-lightbox{
       position:fixed;
       inset:0;
@@ -736,24 +731,22 @@
       box-shadow:0 18px 45px rgba(0,0,0,.5);
       background:#000;
     }
+
     /* === VARIETY COMBO: make panel look attached to button === */
-.fv-panel.variety-panel {
-  border-radius: 0 0 12px 12px !important;
-  margin-top: -2px !important;
-}
+    .fv-panel.variety-panel{
+      border-radius:0 0 12px 12px !important;
+      margin-top:-2px !important;
+    }
 
-/* The button container for variety selects */
-.yield-variety-select + .fv-panel {
-  border-radius: 0 0 12px 12px !important;
-}
+    .yield-variety-select + .fv-panel{
+      border-radius:0 0 12px 12px !important;
+    }
 
-/* Align panel width to button */
-.fv-field.fv-combo .fv-panel {
-  width: var(--fv-anchor-width) !important;
-  left: var(--fv-anchor-left) !important;
-  top: calc(var(--fv-anchor-bottom) - 1px) !important;
-}
-    
+    .fv-field.fv-combo .fv-panel{
+      width:var(--fv-anchor-width) !important;
+      left:var(--fv-anchor-left) !important;
+      top:calc(var(--fv-anchor-bottom) - 1px) !important;
+    }
   </style>
 
   <!-- Lazy-load fv-shell if needed -->
@@ -802,12 +795,11 @@
       trial: null,
       fields: [],
       selectedField: null,
-      // yieldData: { [fieldDocId]: [ { id, type, ..., notes, attachments, extraFields... } ] }
       yieldData: {},
-      varieties: [] // seed varieties for this trial crop
+      varieties: []
     };
 
-    const $  = (sel, root=document) => root.querySelector(sel);
+    const $ = (sel, root=document) => root.querySelector(sel);
 
     let toastEl, errBox;
     let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine, fieldCountLine;
@@ -842,16 +834,16 @@
       }
     }
 
-    async function waitForAuthReady() {
+    async function waitForAuthReady(){
       const auth = getAuth();
       let tries = 40;
       return await new Promise(resolve => {
         const int = setInterval(() => {
-          if (auth.currentUser) {
+          if(auth.currentUser){
             clearInterval(int);
             resolve(auth.currentUser);
           }
-          if (--tries <= 0) {
+          if(--tries <= 0){
             clearInterval(int);
             resolve(null);
           }
@@ -920,7 +912,6 @@
       }
     }
 
-    // --------- FIXED: load varieties from productsSeed using crop + status ----------
     async function loadVarietiesForTrialCrop(){
       if(!STATE.db || !STATE.trial) return;
       const cropKind = normalizeCropKind(STATE.trial.crop);
@@ -928,14 +919,9 @@
 
       try{
         const baseRef = collection(STATE.db, 'productsSeed');
-
-        // Map our normalized kind to your stored crop field
         let cropValue = null;
-        if(cropKind === 'corn') {
-          cropValue = 'corn';
-        } else if(cropKind === 'soy') {
-          cropValue = 'soybeans';
-        }
+        if(cropKind === 'corn') cropValue = 'corn';
+        else if(cropKind === 'soy') cropValue = 'soybeans';
 
         let qRef;
         if(cropValue){
@@ -945,7 +931,6 @@
             where('status','==','active')
           );
         }else{
-          // Fallback – just status filter
           qRef = query(
             baseRef,
             where('status','==','active')
@@ -956,7 +941,6 @@
         const rows = [];
         snap.forEach(d => {
           const data = d.data() || {};
-
           const brand    = data.brand    || '';
           const variety  = data.variety  || data.productName || data.name || 'Seed variety';
           const maturity = data.maturity || '';
@@ -974,7 +958,7 @@
             id: d.id,
             label,
             brand,
-            cropKind // we track which normalized kind this belongs to
+            cropKind
           });
         });
 
@@ -983,7 +967,6 @@
         console.error('Error loading varieties for trial crop:', err);
       }
     }
-    // -------------------------------------------------------------------------------
 
     async function loadFields(){
       if(!STATE.trialId) return;
@@ -1047,7 +1030,6 @@
                 lengthFt: trial.lengthFt != null ? String(trial.lengthFt) : '',
                 widthFt: trial.widthFt != null ? String(trial.widthFt) : ''
               },
-              // Extra info per block (may be undefined on older docs)
               plantDate: d.plantDate || '',
               harvestDate: d.harvestDate || '',
               combineCount: d.combineCount != null ? String(d.combineCount) : '',
@@ -1096,7 +1078,7 @@
           moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
           poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
           [acresInput, moistInput, poundsInput].forEach(el=>{
-            if(el) el && el.classList.remove('input-error');
+            if(el) el.classList.remove('input-error');
           });
         }
 
@@ -1527,7 +1509,7 @@
       renderList();
     }
 
-    // ----- INLINE MIC WIRING -----
+    // Dictation mic
     function makeInlineMic(btnEl, taEl){
       if(!btnEl || !taEl) return;
 
@@ -1603,7 +1585,6 @@
         makeInlineMic(micBtn, ta);
       }
     }
-    // ----- END INLINE MIC -----
 
     // Build options from STATE.varieties
     function buildVarietyOptions(selectedId){
@@ -1622,23 +1603,6 @@
       return out.join('');
     }
 
-    // Old attachVarietySearch is kept, but not used now (search lives inside fv-combo)
-    function attachVarietySearch(searchInput, selectEl){
-      if(!searchInput || !selectEl) return;
-      const options = Array.from(selectEl.options);
-      searchInput.addEventListener('input', () => {
-        const q = searchInput.value.trim().toLowerCase();
-        options.forEach((opt, idx) => {
-          if(idx === 0){
-            opt.hidden = false;
-            return;
-          }
-          const text = (opt.textContent || '').toLowerCase();
-          opt.hidden = q && !text.includes(q);
-        });
-      });
-    }
-
     async function markVarietyUsed(varietyId){
       if(!varietyId || !STATE.db) return;
       try{
@@ -1647,6 +1611,31 @@
       }catch(err){
         console.error('Error marking variety used:', err);
       }
+    }
+
+    // Position variety combos so panel visually comes out of the button
+    function positionVarietyCombos(){
+      const sels = Array.from(document.querySelectorAll('select.yield-variety-select[data-fv-combo]'));
+      if(!sels.length) return;
+
+      const panels = Array.from(document.querySelectorAll('.fv-panel'));
+      if(!panels.length) return;
+
+      sels.forEach((sel, idx) => {
+        const combo = sel.closest('.fv-combo');
+        if(!combo) return;
+        const btn = combo.querySelector('.fv-buttonish');
+        if(!btn) return;
+
+        const rect = btn.getBoundingClientRect();
+        const panel = panels[idx] || null;
+        if(!panel) return;
+
+        panel.style.setProperty('--fv-anchor-width', rect.width + 'px');
+        panel.style.setProperty('--fv-anchor-left', rect.left + 'px');
+        panel.style.setProperty('--fv-anchor-bottom', rect.bottom + 'px');
+        panel.classList.add('variety-panel');
+      });
     }
 
     function wireExtraBlockFields(block, card){
@@ -1687,13 +1676,11 @@
       const wireVariety = (roleBase, idKey, nameKey) => {
         const selectEl = card.querySelector(`[data-role="${roleBase}"]`);
         if(selectEl){
-          // Fill options from STATE.varieties
           selectEl.innerHTML = buildVarietyOptions(block[idKey] || '');
           if(block[idKey]){
             selectEl.value = block[idKey];
           }
 
-          // Upgrade this select into fv-combo with built-in search
           try{
             if(window.FVCombo && typeof window.FVCombo.upgradeSelect === 'function'){
               window.FVCombo.upgradeSelect(selectEl);
@@ -1701,26 +1688,6 @@
           }catch(e){
             console.warn('FVCombo upgrade failed for variety select:', e);
           }
-          
-          // After upgrading variety selects with FVCombo.upgradeSelect(...)
-setTimeout(() => {
-  document.querySelectorAll('.fv-combo').forEach(combo => {
-    const anchor = combo.querySelector('.fv-buttonish');
-    const panel  = combo.parentElement.querySelector('.fv-panel');
-
-    if (!anchor || !panel) return;
-
-    const r = anchor.getBoundingClientRect();
-
-    // Save anchor dimensions for CSS
-    panel.style.setProperty('--fv-anchor-width', `${r.width}px`);
-    panel.style.setProperty('--fv-anchor-left', `${r.left}px`);
-    panel.style.setProperty('--fv-anchor-bottom', `${r.bottom}px`);
-
-    // Add class so CSS knows it's a variety panel
-    panel.classList.add('variety-panel');
-  });
-}, 200);
 
           selectEl.addEventListener('change', async e => {
             const val = e.target.value || '';
@@ -1752,6 +1719,9 @@ setTimeout(() => {
       if(hasExtra && panel){
         panel.style.display = 'grid';
       }
+
+      // After this block's combos are wired, update their positioning
+      positionVarietyCombos();
     }
 
     function renderBlocksForField(fieldRow){
@@ -1897,8 +1867,7 @@ setTimeout(() => {
                     <select class="input yield-variety-select"
                             data-role="check-variety"
                             data-fv-combo
-                            data-fv-search="true"
-                            placeholder="Search varieties…">
+                            data-fv-search="true">
                       ${buildVarietyOptions(block.checkVarietyId)}
                     </select>
                   </div>
@@ -1907,8 +1876,7 @@ setTimeout(() => {
                     <select class="input yield-variety-select"
                             data-role="trial-variety"
                             data-fv-combo
-                            data-fv-search="true"
-                            placeholder="Search varieties…">
+                            data-fv-search="true">
                       ${buildVarietyOptions(block.trialVarietyId)}
                     </select>
                   </div>
@@ -1958,7 +1926,6 @@ setTimeout(() => {
             if(!el) return;
             el.addEventListener('input', e => {
               let v = e.target.value;
-
               v = v.replace(/[^0-9.]/g,'');
               const parts = v.split('.');
               if(parts.length > 2){
@@ -1969,7 +1936,6 @@ setTimeout(() => {
                 const frac = fracRaw.slice(0, 1);
                 v = frac === '' ? intPart + '.' : intPart + '.' + frac;
               }
-
               block[sideKey][prop] = v;
               e.target.value = v;
               recalcCombine(block, card);
@@ -2145,8 +2111,7 @@ setTimeout(() => {
                     <select class="input yield-variety-select"
                             data-role="check-variety"
                             data-fv-combo
-                            data-fv-search="true"
-                            placeholder="Search varieties…">
+                            data-fv-search="true">
                       ${buildVarietyOptions(block.checkVarietyId)}
                     </select>
                   </div>
@@ -2155,8 +2120,7 @@ setTimeout(() => {
                     <select class="input yield-variety-select"
                             data-role="trial-variety"
                             data-fv-combo
-                            data-fv-search="true"
-                            placeholder="Search varieties…">
+                            data-fv-search="true">
                       ${buildVarietyOptions(block.trialVarietyId)}
                     </select>
                   </div>
@@ -2228,7 +2192,6 @@ setTimeout(() => {
             if(!el) return;
             el.addEventListener('input', e => {
               let v = e.target.value;
-
               v = v.replace(/[^0-9.]/g,'');
               const parts = v.split('.');
               if(parts.length > 2){
@@ -2239,7 +2202,6 @@ setTimeout(() => {
                 const frac = fracRaw.slice(0, 1);
                 v = frac === '' ? intPart + '.' : intPart + '.' + frac;
               }
-
               block[sideKey][prop] = v;
               e.target.value = v;
               recalcWeight(block, card);
@@ -2275,6 +2237,9 @@ setTimeout(() => {
           wireExtraBlockFields(block, card);
         }
       });
+
+      // After all blocks are rendered, update combo positions
+      positionVarietyCombos();
     }
 
     function removeTrialBlock(fieldRow, idx){
@@ -2665,6 +2630,9 @@ setTimeout(() => {
       await loadFields();
       await loadAllYieldBlocks();
       renderFieldList();
+
+      // Initial combo positioning (in case a block is already open)
+      positionVarietyCombos();
 
       if(STATE.fieldDocId && STATE.fields.length){
         const row = STATE.fields.find(f => f.docId === STATE.fieldDocId);
