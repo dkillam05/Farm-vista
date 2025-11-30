@@ -751,7 +751,7 @@
       ready,
       getFirestore, getAuth,
       collection, getDocs, getDoc, doc,
-      deleteDoc, setDoc,
+      deleteDoc, setDoc, updateDoc,
       getStorage, ref, uploadBytes, getDownloadURL,
       query, where
     } from '/Farm-vista/js/firebase-init.js';
@@ -782,8 +782,7 @@
       selectedField: null,
       // yieldData: { [fieldDocId]: [ { id, type, ..., notes, attachments, extraFields... } ] }
       yieldData: {},
-      // seed varieties for this trial's crop
-      varieties: []
+      varieties: [] // seed varieties for this trial crop
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -906,9 +905,11 @@
 
       try{
         const baseRef = collection(STATE.db, 'productsSeed');
-        // filter by cropKind + active (if present)
-        let qRef = query(baseRef, where('cropKind','==',cropKind));
-        // If you later want a strict active filter, you can add another where here.
+        const qRef = query(
+          baseRef,
+          where('cropKind','==',cropKind),
+          where('active','==',true)
+        );
 
         const snap = await getDocs(qRef);
         const rows = [];
@@ -995,7 +996,7 @@
                 lengthFt: trial.lengthFt != null ? String(trial.lengthFt) : '',
                 widthFt: trial.widthFt != null ? String(trial.widthFt) : ''
               },
-              // Extra info per block
+              // Extra info per block (may be undefined on older docs)
               plantDate: d.plantDate || '',
               harvestDate: d.harvestDate || '',
               combineCount: d.combineCount != null ? String(d.combineCount) : '',
@@ -1023,7 +1024,6 @@
 
     function recalcCombine(block, card){
       const cropKind = normalizeCropKind(STATE.trial?.crop);
-      // Trials page standard: corn 15%, beans 13%
       const stdOverride =
         cropKind === 'corn' ? 15 :
         cropKind === 'soy'  ? 13 :
@@ -1056,7 +1056,7 @@
         data.yieldBuAc = null;
 
         if(!acres && !moisture && !pounds){
-          return; // side empty
+          return;
         }
 
         if(!acres || !moisture || !pounds){
@@ -1169,7 +1169,7 @@
         data.yieldBuAc = null;
 
         if(!lengthFt && !widthFt && !moisture && !pounds){
-          return; // side empty
+          return;
         }
 
         if(!lengthFt || !widthFt || !moisture || !pounds){
@@ -1196,7 +1196,6 @@
 
         if(errors.length) return;
 
-        // area in acres: length(ft) * width(ft) / 43,560
         const acres = (lengthFt * widthFt) / 43560;
 
         if(acres <= 0){
@@ -1289,7 +1288,7 @@
 
     function applySwipeToFieldList(){
       if(!fieldListEl) return;
-      if(!isTouchPointer()) return; // only phones / coarse pointer
+      if(!isTouchPointer()) return;
 
       try{
         initSwipeList(fieldListEl, {
@@ -1303,7 +1302,6 @@
               if(row) openYieldModal(row);
             }
           }
-          // no rightAction here
         });
       }catch(err){
         console.error('applySwipeToFieldList error:', err);
@@ -1330,7 +1328,6 @@
       label.textContent = 'Fields in this trial';
       fieldListEl.appendChild(label);
 
-      // Sort A–Z by Farm + Field
       const sorted = [...STATE.fields].sort((a,b)=>{
         const A = ((a.farmName || '') + ' ' + (a.fieldName || '')).toLowerCase();
         const B = ((b.farmName || '') + ' ' + (b.fieldName || '')).toLowerCase();
@@ -1375,9 +1372,8 @@
             </div>
           </div>
           ${row.notes ? `<div class="field-card-note">${row.notes}</div>` : ''}
-        */
+        `;
 
-        // Desktop button opens yield. No card click handler at all.
         const btn = div.querySelector('[data-role="open-yield"]');
         if(btn){
           btn.addEventListener('click', (ev) => {
@@ -1390,7 +1386,6 @@
         fieldListEl.appendChild(item);
       });
 
-      // Enable swipe-right Add Yield on phones
       applySwipeToFieldList();
     }
 
@@ -1481,7 +1476,7 @@
       renderList();
     }
 
-    // ----- INLINE MIC WIRING (same pattern as maintenance-add) -----
+    // ----- INLINE MIC WIRING -----
     function makeInlineMic(btnEl, taEl){
       if(!btnEl || !taEl) return;
 
@@ -1512,16 +1507,12 @@
             rec.start();
             active = true;
             setMic(true);
-          }catch(err){
-            // ignore start errors (double start, etc.)
-          }
+          }catch(err){}
         }else{
           try{
             rec.stop();
             rec.abort();
-          }catch(err){
-            // ignore
-          }
+          }catch(err){}
           active = false;
           setMic(false);
         }
@@ -1533,7 +1524,6 @@
           txt += ev.results[i][0].transcript;
         }
         taEl.value = baseText + txt;
-        // keep notes in sync with STATE.notes
         taEl.dispatchEvent(new Event('input', { bubbles: true }));
       };
 
@@ -1559,11 +1549,10 @@
         });
       }
       if(micBtn && ta){
-        // card is already in DOM, wire inline mic here
         makeInlineMic(micBtn, ta);
       }
     }
-    // ----- END INLINE MIC WIRING -----
+    // ----- END INLINE MIC -----
 
     function buildVarietyOptions(selectedId){
       const cropKind = normalizeCropKind(STATE.trial?.crop);
@@ -1591,7 +1580,7 @@
         const q = searchInput.value.trim().toLowerCase();
         options.forEach((opt, idx) => {
           if(idx === 0){
-            opt.hidden = false; // keep placeholder visible
+            opt.hidden = false;
             return;
           }
           const text = (opt.textContent || '').toLowerCase();
@@ -1600,22 +1589,26 @@
       });
     }
 
+    async function markVarietyUsed(varietyId){
+      if(!varietyId || !STATE.db) return;
+      try{
+        const refDoc = doc(STATE.db, 'productsSeed', varietyId);
+        await updateDoc(refDoc, { used: true });
+      }catch(err){
+        console.error('Error marking variety used:', err);
+      }
+    }
+
     function wireExtraBlockFields(block, card){
-      // Toggle
       const toggleBtn = card.querySelector('[data-role="extra-toggle"]');
       const panel = card.querySelector('[data-role="extra-panel"]');
       if(toggleBtn && panel){
         toggleBtn.addEventListener('click', () => {
           const isHidden = panel.style.display === 'none' || panel.style.display === '';
-          if(isHidden){
-            panel.style.display = 'grid';
-          }else{
-            panel.style.display = 'none';
-          }
+          panel.style.display = isHidden ? 'grid' : 'none';
         });
       }
 
-      // Plant / Harvest dates
       const plantInput = card.querySelector('[data-role="plantDate"]');
       const harvestInput = card.querySelector('[data-role="harvestDate"]');
       if(plantInput){
@@ -1631,7 +1624,6 @@
         });
       }
 
-      // Number of combines
       const combinesInput = card.querySelector('[data-role="combineCount"]');
       if(combinesInput){
         combinesInput.value = block.combineCount || '';
@@ -1642,20 +1634,15 @@
         });
       }
 
-      // Check / Trial varieties
-      const cropKind = normalizeCropKind(STATE.trial?.crop);
-
       const wireVariety = (roleBase, idKey, nameKey) => {
         const searchInput = card.querySelector(`[data-role="${roleBase}-search"]`);
         const selectEl = card.querySelector(`[data-role="${roleBase}"]`);
         if(selectEl){
-          // Ensure options reflect current STATE.varieties + crop
           selectEl.innerHTML = buildVarietyOptions(block[idKey] || '');
-          // Set existing value if present
           if(block[idKey]){
             selectEl.value = block[idKey];
           }
-          selectEl.addEventListener('change', e => {
+          selectEl.addEventListener('change', async e => {
             const val = e.target.value || '';
             block[idKey] = val;
             const found = (STATE.varieties || []).find(v => v.id === val);
@@ -1664,6 +1651,9 @@
               block[nameKey] = label;
             }else{
               block[nameKey] = '';
+            }
+            if(val){
+              await markVarietyUsed(val);
             }
           });
         }
@@ -1675,13 +1665,13 @@
       wireVariety('check-variety', 'checkVarietyId', 'checkVarietyName');
       wireVariety('trial-variety', 'trialVarietyId', 'trialVarietyName');
 
-      // Auto-open panel if any extra data exists
       const hasExtra =
         block.plantDate ||
         block.harvestDate ||
         (block.combineCount && block.combineCount !== '0') ||
         block.checkVarietyId ||
         block.trialVarietyId;
+
       if(hasExtra && panel){
         panel.style.display = 'grid';
       }
@@ -1706,7 +1696,6 @@
         const card = document.createElement('div');
         card.className = 'yield-block-card';
 
-        // Ensure extra fields exist on block object
         block.plantDate = block.plantDate || '';
         block.harvestDate = block.harvestDate || '';
         block.combineCount = block.combineCount || '';
@@ -1715,7 +1704,6 @@
         block.trialVarietyId = block.trialVarietyId || '';
         block.trialVarietyName = block.trialVarietyName || '';
 
-        // Unique ids for notes + mic per block
         const notesId = `notes-${fieldRow.docId}-${idx}`;
         const micId   = `mic-notes-${fieldRow.docId}-${idx}`;
 
@@ -1880,7 +1868,6 @@
             </div>
           `;
 
-          // Append card before wiring dictation / extras
           yieldBlocksWrap.appendChild(card);
 
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -1891,7 +1878,6 @@
             });
           }
 
-          // decimals to tenths
           const wireDecimal = (role, sideKey, prop) => {
             const el = card.querySelector(`[data-role="${role}"]`);
             if(!el) return;
@@ -2132,7 +2118,6 @@
             </div>
           `;
 
-          // Append card before wiring dictation / extras
           yieldBlocksWrap.appendChild(card);
 
           const removeBtn = card.querySelector('.yield-block-remove');
@@ -2409,7 +2394,6 @@
       }
     }
 
-    // Return true on success, false on any validation or Firestore error
     async function saveYieldForSelectedField(){
       if(!STATE.selectedField || !STATE.db || !STATE.trialId) return false;
       const fieldId = STATE.selectedField.docId;
@@ -2425,7 +2409,6 @@
         const colPath = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields/${fieldId}/yieldBlocks`;
         const colRef = collection(STATE.db, colPath);
 
-        // wipe existing Firestore docs (Storage cleanup can be added later if needed)
         const existing = await getDocs(colRef);
         const dels = [];
         existing.forEach(ds => {
@@ -2435,11 +2418,10 @@
           await Promise.all(dels);
         }
 
-        // For each block, upload any new attachments, then write doc with URLs
         const writes = [];
         for(let index = 0; index < blocks.length; index++){
           const block = blocks[index];
-          const blockDocRef = doc(colRef);   // new doc
+          const blockDocRef = doc(colRef);
           const blockDocId  = blockDocRef.id;
 
           await uploadNewAttachmentsForBlock(fieldId, block, blockDocId);
@@ -2466,7 +2448,6 @@
               lengthFt: trial.lengthFt ? Number(trial.lengthFt) : null,
               widthFt: trial.widthFt ? Number(trial.widthFt) : null
             },
-            // Extra info per block
             plantDate: block.plantDate || null,
             harvestDate: block.harvestDate || null,
             combineCount: block.combineCount ? Number(block.combineCount) : null,
