@@ -3,7 +3,6 @@
 
 Single-trial yield report
  • One trial at a time
- • Feels like other report pages (hero, toolbar, filters, fv-shell)
  • Filters under Back button:
       - Crop Year (from fieldTrials)
       - Trial (active or completed)
@@ -16,8 +15,8 @@ Single-trial yield report
       - Bottom totals for tillable acres, trial acres, weighted averages
 
 Print:
- • Print buttons now prompt:
-      - Summary report → current print (window.print)
+ • Print buttons open a themed modal:
+      - Summary report → single-trial PDF (Fields-in-Active-Trials style) via iframe
       - Detailed report → placeholder message (not implemented yet)
 ===================================================================== -->
 <!doctype html>
@@ -392,7 +391,7 @@ Print:
       justify-content:flex-end;
     }
 
-    /* Modal */
+    /* Modal (field details + shared backdrop) */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -531,6 +530,44 @@ Print:
       opacity:0.7;
     }
 
+    /* Print-type chooser modal */
+    .print-modal{
+      max-width:420px;
+      width:92vw;
+    }
+    .print-modal-head{
+      background:linear-gradient(135deg, rgba(47,108,60,0.12), transparent);
+    }
+    .print-modal-title{
+      font-size:1rem;
+      font-weight:700;
+    }
+    .print-modal-sub{
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:4px;
+    }
+    .print-modal-body{
+      padding:14px 16px 16px;
+      display:grid;
+      gap:10px;
+      font-size:0.88rem;
+    }
+    .print-modal-buttons{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      justify-content:flex-end;
+      margin-top:6px;
+    }
+    .print-modal-btn{
+      flex:1 1 120px;
+    }
+    .print-modal-note{
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
     @media (max-width:640px){
       .stats-grid{
         flex-direction:column;
@@ -542,9 +579,19 @@ Print:
         width:100%;
       }
     }
+
+    /* Hidden iframe for print */
+    #fv-print-frame{
+      position:fixed;
+      right:0;
+      bottom:0;
+      width:0;
+      height:0;
+      border:0;
+      visibility:hidden;
+    }
   </style>
 
-  <!-- Ensure fv-shell is available -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -556,7 +603,6 @@ Print:
     })();
   </script>
 
-  <!-- AI helper -->
   <script src="/Farm-vista/js/ai-reports.js"></script>
 
   <script type="module">
@@ -566,12 +612,14 @@ Print:
       doc,
       getDoc,
       collection,
-      getDocs,
-      query,
-      where
+      getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COMPANY_DOC_PATH: ['company','main']
+    };
 
     const $  = (sel, root=document) => root.querySelector(sel);
 
@@ -590,7 +638,8 @@ Print:
         checkAvgAll: null,
         trialAvgAll: null,
         advantageAll: null
-      }
+      },
+      company: null
     };
 
     const els = {
@@ -623,8 +672,15 @@ Print:
       modalSub: null,
       modalSummary: null,
       modalBlocksBody: null,
-      modalFiles: null
+      modalFiles: null,
+
+      printModalBackdrop: null,
+      printSummaryBtn: null,
+      printDetailedBtn: null,
+      printModalClose: null
     };
+
+    /* ---------- helpers ---------- */
 
     function wireDom(){
       els.title         = $('#pageTitle');
@@ -657,6 +713,11 @@ Print:
       els.modalSummary  = $('#field-modal-summary');
       els.modalBlocksBody = $('#field-modal-blocks-body');
       els.modalFiles    = $('#field-modal-files');
+
+      els.printModalBackdrop = $('#print-modal-backdrop');
+      els.printSummaryBtn    = $('#printSummaryBtn');
+      els.printDetailedBtn   = $('#printDetailedBtn');
+      els.printModalClose    = $('#printModalClose');
     }
 
     function getTrialIdFromUrl(){
@@ -671,6 +732,24 @@ Print:
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals
       });
+    }
+
+    function formatInt(n){
+      const num = Number(n);
+      if(!Number.isFinite(num)) return '0';
+      return num.toLocaleString();
+    }
+
+    function formatDecimal(n, digits=1){
+      const num = Number(n);
+      if(!Number.isFinite(num)) return '';
+      return num.toLocaleString(undefined, { maximumFractionDigits:digits, minimumFractionDigits:digits });
+    }
+
+    function escapeHtml(str){
+      return String(str || '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
     }
 
     function computeFieldStats(blocks = []) {
@@ -698,7 +777,6 @@ Print:
 
     async function loadTrialList(){
       const colRef = collection(STATE.db, 'fieldTrials');
-      // grab all, then filter to active + completed
       const snap = await getDocs(colRef);
 
       const trials = [];
@@ -720,6 +798,29 @@ Print:
       });
 
       STATE.trials = trials;
+    }
+
+    async function loadCompanyHeader(){
+      if (STATE.company) return STATE.company;
+      try{
+        const [col,id] = CONFIG.COMPANY_DOC_PATH;
+        const ref = doc(STATE.db, col, id);
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = d.name || '';
+        const address = [
+          d.addressStreet || '',
+          [d.addressCity, d.addressState].filter(Boolean).join(', '),
+          d.addressZip || ''
+        ].filter(Boolean).join(' · ');
+        const phone = d.phone || '';
+        const email = d.email || '';
+        STATE.company = { name, address, phone, email };
+      }catch(e){
+        console.warn('[trial-summary] failed to load company header', e);
+        STATE.company = { name:'', address:'', phone:'', email:'' };
+      }
+      return STATE.company;
     }
 
     function populateYearFilter(){
@@ -893,6 +994,8 @@ Print:
       };
     }
 
+    /* ---------- render main page ---------- */
+
     function renderTop() {
       const t = STATE.trialDoc;
       if (!t) return;
@@ -1061,6 +1164,8 @@ Print:
       });
     }
 
+    /* ---------- field detail modal ---------- */
+
     function openFieldModal(field) {
       if (!els.modalBackdrop) return;
 
@@ -1152,26 +1257,403 @@ Print:
       els.modalBackdrop.setAttribute('aria-hidden', 'true');
     }
 
-    function handlePrintClick(){
+    /* ---------- print: build summary PDF ---------- */
+
+    function buildPrintHtml({ company, runStr, runDateOnly }){
+      const t = STATE.trialDoc || {};
+      const s = STATE.totals || {};
+      const fields = STATE.fields || [];
+
+      // group fields by farm
+      const farmMap = new Map();
+      fields.forEach(f => {
+        const name = f.data.farmName || 'Unknown farm';
+        if (!farmMap.has(name)) farmMap.set(name, []);
+        farmMap.get(name).push(f);
+      });
+      const farmEntries = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Field Trial Yield Summary</title>
+  <style>
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--fv-text);
+      background:var(--fv-bg);
+    }
+    body{
+      display:flex;
+      justify-content:center;
+      padding:24px 12px;
+    }
+    .page{
+      width:100%;
+      max-width:900px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.15);
+      padding:24px 28px 28px;
+    }
+    .report-header{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      gap:16px;
+      align-items:center;
+      border-bottom:2px solid var(--fv-green);
+      padding-bottom:14px;
+      margin-bottom:18px;
+    }
+    .report-logo{
+      width:64px;
+      height:64px;
+      border-radius:16px;
+      border:1px solid var(--fv-border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:26px;
+      font-weight:800;
+      color:#fff;
+      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+    }
+    .report-logo span{letter-spacing:0.02em;}
+    .company-block{min-width:0;}
+    .company-name{
+      font-size:18px;
+      font-weight:800;
+      margin:0 0 2px;
+    }
+    .company-line{
+      font-size:12px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-meta-top{
+      text-align:right;
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .report-meta-top strong{color:var(--fv-text);}
+    .report-title{
+      font-size:20px;
+      font-weight:800;
+      margin:12px 0 4px;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+    }
+    .report-subtitle{
+      font-size:13px;
+      color:var(--fv-muted);
+      margin:0 0 10px;
+    }
+    .summary-strip{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 14px;
+      margin-top:4px;
+      padding:8px 10px;
+      border-radius:10px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
+      border:1px solid rgba(59,126,70,0.2);
+      font-size:11px;
+    }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+    }
+    .summary-label{
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .summary-value{
+      font-weight:600;
+    }
+    .section{
+      margin-top:16px;
+      page-break-inside:avoid;
+    }
+    .section-title{
+      font-size:14px;
+      font-weight:700;
+      margin:0 0 4px;
+    }
+    .section-sub{
+      font-size:11px;
+      color:var(--fv-muted);
+      margin:0 0 6px;
+    }
+    .farm-title{
+      font-size:12px;
+      font-weight:600;
+      margin:8px 0 2px;
+    }
+    .table-wrap{
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      overflow:hidden;
+      margin-bottom:4px;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:11px;
+    }
+    thead{
+      background:#F9FAFB;
+    }
+    th,td{
+      padding:6px 8px;
+      border-bottom:1px solid #E5E7EB;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:10px;
+      color:#4B5563;
+      border-bottom:1px solid #D1D5DB;
+    }
+    tr:nth-child(even) td{
+      background:#F9FAFB;
+    }
+    .cell-right{text-align:right;}
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid #D1D5DB;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:#6B7280;
+    }
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{
+        max-width:none;
+        border-radius:0;
+        box-shadow:none;
+        padding:12mm 14mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="report-header">
+      <div class="report-logo"><span>DF</span></div>
+      <div class="company-block">
+        <p class="company-name">${escapeHtml(company.name || '')}</p>
+        <p class="company-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="report-meta-top">
+        <div><strong>Field Trial Yield Summary</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <h1 class="report-title">${escapeHtml(t.trialName || 'Field Trial Yield Summary')}</h1>
+    <p class="report-subtitle">
+      ${escapeHtml([t.cropYear, t.crop, t.trialType].filter(Boolean).join(' • '))}
+      ${t.operationTask ? ' • ' + escapeHtml(t.operationTask) : ''}
+    </p>
+
+    <div class="summary-strip">
+      <div class="summary-pill">
+        <span class="summary-label">Fields</span>
+        <span class="summary-value">${formatInt(s.fieldCount || 0)}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Trial acres</span>
+        <span class="summary-value">${s.trialAcresAll ? formatInt(s.trialAcresAll) + ' ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Tillable acres</span>
+        <span class="summary-value">${s.tillableAll ? formatInt(s.tillableAll) + ' ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Check</span>
+        <span class="summary-value">${s.checkAvgAll !== null ? formatDecimal(s.checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Treatment</span>
+        <span class="summary-value">${s.trialAvgAll !== null ? formatDecimal(s.trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Advantage</span>
+        <span class="summary-value">${
+          s.advantageAll !== null
+            ? (s.advantageAll >= 0 ? '+' : '') + formatDecimal(s.advantageAll,1) + ' bu/ac'
+            : 'n/a'
+        }</span>
+      </div>
+    </div>
+
+    <section class="section">
+      <h2 class="section-title">Detail by farm and field</h2>
+      <p class="section-sub">Fields are grouped by farm, then listed alphabetically by field name.</p>
+
+      ${farmEntries.map(([farmName, fList]) => {
+        const rows = fList.map(f => {
+          const d = f.data;
+          const st = f.stats || {};
+          const adv = typeof st.advantage === 'number'
+            ? (st.advantage >= 0 ? '+' : '') + formatDecimal(st.advantage,1) + ' bu/ac'
+            : 'n/a';
+          const acParts = [];
+          if (d.trialAcres != null) acParts.push(formatDecimal(d.trialAcres,1) + ' trial ac');
+          if (d.tillable != null) acParts.push(formatDecimal(d.tillable,1) + ' tillable');
+          const acresText = acParts.join(' / ');
+
+          return `
+            <tr>
+              <td>${escapeHtml(d.fieldName || '')}</td>
+              <td>${escapeHtml(acresText || '')}</td>
+              <td class="cell-right">${st.checkAvg !== null ? formatDecimal(st.checkAvg,1) : ''}</td>
+              <td class="cell-right">${st.trialAvg !== null ? formatDecimal(st.trialAvg,1) : ''}</td>
+              <td class="cell-right">${adv}</td>
+            </tr>
+          `;
+        }).join('');
+
+        return `
+          <div class="farm-block">
+            <div class="farm-title">${escapeHtml(farmName || 'Unknown farm')}</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:40%">Field</th>
+                    <th style="width:28%">Acres</th>
+                    <th style="width:12%">Check bu/ac</th>
+                    <th style="width:12%">Trial bu/ac</th>
+                    <th style="width:8%">Adv.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </section>
+
+    <footer class="report-footer">
+      <div>Internal use only. Yields are summarized from trial yield blocks and may change as additional data is recorded.</div>
+      <div>FarmVista • Field Trial Yield Summary • ${escapeHtml(runDateOnly || '')}</div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
+
+    async function runSummaryPrint(){
       if (!STATE.trialDoc){
         alert('Select a trial first, then choose Print / Save PDF.');
         return;
       }
 
-      const isSummary = window.confirm(
-        'Print Summary or Detailed report?\n\n' +
-        'OK = Summary report (standard layout like other reports).\n' +
-        'Cancel = Detailed report (coming soon).'
-      );
+      const company = await loadCompanyHeader();
+      const now = new Date();
+      const runStr = now.toLocaleString();
+      const runDateOnly = now.toLocaleDateString();
 
-      if (!isSummary){
-        // Detailed not built yet
-        alert('The detailed trial report layout is not available yet.\n\nFor now, use the Summary option.');
+      const html = buildPrintHtml({ company, runStr, runDateOnly });
+
+      let iframe = document.getElementById('fv-print-frame');
+      if (!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        try{
+          win.focus();
+          win.print();
+        }catch(err){
+          console.warn('[trial-summary-report] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 400);
+    }
+
+    /* ---------- AI summary ---------- */
+
+    function kickOffAiSummary() {
+      if (!els.aiSummary) return;
+
+      if (!STATE.trialDoc) {
+        els.aiSummary.innerHTML = '<div class="ai-summary-note">Select a trial above to generate a written summary of how the treatment performed.</div>';
         return;
       }
 
-      // Summary = current behavior (browser print of this page)
-      window.print();
+      if (!window.FVAiReports || typeof window.FVAiReports.renderTrialSummary !== 'function') {
+        els.aiSummary.innerHTML = '<p class="ai-summary-error">AI helper script (ai-reports.js) is not available. The numeric summary above is still accurate.</p>';
+        return;
+      }
+
+      const payload = {
+        trial: STATE.trialDoc,
+        totals: STATE.totals,
+        fields: STATE.fields.map(f => ({
+          data: f.data,
+          stats: f.stats
+        }))
+      };
+
+      window.FVAiReports.renderTrialSummary(els.aiSummary, payload);
+    }
+
+    /* ---------- print modal + basic events ---------- */
+
+    function openPrintModal(){
+      if (!STATE.trialDoc){
+        alert('Select a trial first, then choose Print / Save PDF.');
+        return;
+      }
+      if (!els.printModalBackdrop) return;
+      els.printModalBackdrop.classList.remove('modal-hidden');
+      els.printModalBackdrop.setAttribute('aria-hidden','false');
+    }
+
+    function closePrintModal(){
+      if (!els.printModalBackdrop) return;
+      els.printModalBackdrop.classList.add('modal-hidden');
+      els.printModalBackdrop.setAttribute('aria-hidden','true');
     }
 
     function wireBasicEvents() {
@@ -1182,10 +1664,10 @@ Print:
       }
 
       if (els.btnPrint) {
-        els.btnPrint.addEventListener('click', handlePrintClick);
+        els.btnPrint.addEventListener('click', openPrintModal);
       }
       if (els.btnPrintBottom) {
-        els.btnPrintBottom.addEventListener('click', handlePrintClick);
+        els.btnPrintBottom.addEventListener('click', openPrintModal);
       }
 
       if (els.modalClose) els.modalClose.addEventListener('click', closeFieldModal);
@@ -1195,9 +1677,35 @@ Print:
         });
       }
 
+      if (els.printModalClose){
+        els.printModalClose.addEventListener('click', closePrintModal);
+      }
+      if (els.printModalBackdrop){
+        els.printModalBackdrop.addEventListener('click', (evt) => {
+          if (evt.target === els.printModalBackdrop) closePrintModal();
+        });
+      }
+      if (els.printSummaryBtn){
+        els.printSummaryBtn.addEventListener('click', async () => {
+          closePrintModal();
+          await runSummaryPrint();
+        });
+      }
+      if (els.printDetailedBtn){
+        els.printDetailedBtn.addEventListener('click', () => {
+          closePrintModal();
+          alert('The detailed trial report layout is not available yet.\n\nFor now, use the Summary report option.');
+        });
+      }
+
       document.addEventListener('keydown', (evt) => {
-        if (evt.key === 'Escape' && !els.modalBackdrop.classList.contains('modal-hidden')) {
-          closeFieldModal();
+        if (evt.key === 'Escape') {
+          if (!els.modalBackdrop.classList.contains('modal-hidden')) {
+            closeFieldModal();
+          }
+          if (els.printModalBackdrop && !els.printModalBackdrop.classList.contains('modal-hidden')) {
+            closePrintModal();
+          }
         }
       });
 
@@ -1250,30 +1758,7 @@ Print:
       }
     }
 
-    function kickOffAiSummary() {
-      if (!els.aiSummary) return;
-
-      if (!STATE.trialDoc) {
-        els.aiSummary.innerHTML = '<div class="ai-summary-note">Select a trial above to generate a written summary of how the treatment performed.</div>';
-        return;
-      }
-
-      if (!window.FVAiReports || typeof window.FVAiReports.renderTrialSummary !== 'function') {
-        els.aiSummary.innerHTML = '<p class="ai-summary-error">AI helper script (ai-reports.js) is not available. The numeric summary above is still accurate.</p>';
-        return;
-      }
-
-      const payload = {
-        trial: STATE.trialDoc,
-        totals: STATE.totals,
-        fields: STATE.fields.map(f => ({
-          data: f.data,
-          stats: f.stats
-        }))
-      };
-
-      window.FVAiReports.renderTrialSummary(els.aiSummary, payload);
-    }
+    /* ---------- boot ---------- */
 
     async function boot(){
       await ready;
@@ -1501,5 +1986,41 @@ Print:
       </div>
     </div>
   </div>
+
+  <!-- Print-type chooser modal -->
+  <div id="print-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
+    <div class="modal print-modal" role="dialog" aria-modal="true" aria-labelledby="print-modal-title">
+      <div class="modal-head print-modal-head">
+        <div class="modal-title-row">
+          <div>
+            <div id="print-modal-title" class="print-modal-title">Choose report type</div>
+            <div class="print-modal-sub">
+              How do you want to print this trial?
+            </div>
+          </div>
+          <button type="button" class="modal-close-btn" id="printModalClose" aria-label="Close">
+            ×
+          </button>
+        </div>
+      </div>
+      <div class="print-modal-body">
+        <p class="print-modal-note">
+          Summary reports match your other FarmVista PDF reports and show trial-wide stats with a farm / field table.
+          Detailed reports will drill into block-level data and notes (coming later).
+        </p>
+        <div class="print-modal-buttons">
+          <button id="printSummaryBtn" type="button" class="btn btn-primary print-modal-btn">
+            Summary report
+          </button>
+          <button id="printDetailedBtn" type="button" class="btn btn-quiet print-modal-btn">
+            Detailed report
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden iframe used for printing -->
+  <iframe id="fv-print-frame"></iframe>
 </body>
 </html>
