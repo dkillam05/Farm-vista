@@ -1,1 +1,1123 @@
-.gitkeep
+<!-- =====================================================================
+/Farm-vista/pages/reports/reports-trial-summary.html
+Single-trial summary report
+ • One trial at a time (expects ?trialId=TRIAL_DOC_ID in URL)
+ • Top hero with key stats
+ • AI-generated narrative paragraph (via /js/ai-reports.js)
+ • Farms grouped, fields sorted A→Z within farm
+ • Each field shows trial acres + weighted check/trial bu/ac + advantage
+ • Click a field row to open a modal with full yield block details + files
+ • Bottom totals for tillable acres, trial acres, weighted averages
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Trial Summary</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
+    }
+
+    body{
+      background: var(--app-bg, var(--surface));
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:16px;
+    }
+
+    /* Toolbar */
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+
+    .page-header-meta{
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    /* Stat pills */
+    .stats-grid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:8px;
+      font-size:0.82rem;
+    }
+    .stat-pill{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      padding:7px 10px;
+      border-radius:10px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:color-mix(in srgb, var(--surface) 82%, var(--border) 18%);
+      min-width:120px;
+    }
+    .stat-label{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.75;
+    }
+    .stat-value{
+      font-weight:700;
+      font-size:0.94rem;
+    }
+
+    /* AI summary card */
+    .ai-card{
+      border-radius:12px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      padding:12px 14px;
+      font-size:0.9rem;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .ai-card-title{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      font-weight:700;
+      font-size:0.9rem;
+    }
+    .ai-chip{
+      font-size:0.7rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      padding:3px 7px;
+      border-radius:999px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:color-mix(in srgb, var(--surface) 82%, var(--border) 18%);
+    }
+    .ai-summary-body{
+      font-size:0.88rem;
+      line-height:1.4;
+    }
+    .ai-summary-loading{
+      font-size:0.86rem;
+      opacity:0.8;
+    }
+    .ai-summary-error{
+      font-size:0.86rem;
+      color:var(--danger,#A33A3A);
+    }
+    .ai-summary-note{
+      font-size:0.76rem;
+      opacity:0.7;
+    }
+
+    /* Farms + fields */
+    .farm-fields-block{
+      margin-top:6px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+    .farm-fields-title{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+
+    .farm-group{
+      margin-top:10px;
+    }
+    .farm-group-title{
+      font-weight:600;
+      font-size:0.9rem;
+      margin:2px 0 4px;
+    }
+
+    .farm-table-wrap{
+      border-radius:10px;
+      border:1px solid var(--border-subtle,var(--border));
+      overflow:hidden;
+    }
+    table.farm-table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:0.82rem;
+    }
+    table.farm-table thead{
+      background:color-mix(in srgb, var(--surface) 78%, var(--border) 22%);
+    }
+    table.farm-table th,
+    table.farm-table td{
+      padding:7px 9px;
+      text-align:left;
+      border-bottom:1px solid color-mix(in srgb, var(--surface) 88%, var(--border) 12%);
+    }
+    table.farm-table th{
+      font-weight:600;
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.85;
+    }
+    table.farm-table tbody tr:last-child td{
+      border-bottom:none;
+    }
+    table.farm-table tbody tr{
+      cursor:pointer;
+    }
+    table.farm-table tbody tr:hover{
+      background:color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+    }
+    .field-name-cell{
+      font-weight:600;
+      font-size:0.84rem;
+    }
+    .numeric{
+      text-align:right;
+      white-space:nowrap;
+    }
+    .muted-small{
+      font-size:0.76rem;
+      opacity:0.75;
+    }
+
+    .adv-pos{
+      font-weight:700;
+    }
+    .adv-pos::before{
+      content:"+";
+    }
+    .adv-neg{
+      font-weight:700;
+    }
+
+    /* Totals footer */
+    .totals-card{
+      margin-top:10px;
+      border-radius:12px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      padding:12px 14px;
+      font-size:0.86rem;
+      display:grid;
+      gap:6px;
+    }
+    .totals-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px 18px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .totals-label{
+      font-weight:600;
+    }
+    .totals-metrics{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px 14px;
+      font-size:0.84rem;
+    }
+    .totals-metric span:first-child{
+      opacity:0.7;
+      font-size:0.78rem;
+    }
+    .totals-metric{
+      display:flex;
+      flex-direction:column;
+      gap:1px;
+    }
+
+    /* Empty state + error */
+    .wo-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+    .error-msg{
+      color:var(--danger,#A33A3A);
+      font-size:0.9rem;
+    }
+
+    /* Modal */
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.42);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:1400;
+    }
+    .modal-hidden{
+      display:none !important;
+    }
+    .modal{
+      width:min(900px, 94vw);
+      max-height:calc(100vh - 80px);
+      background:var(--surface);
+      border-radius:14px;
+      box-shadow:0 18px 40px rgba(0,0,0,.3);
+      border:1px solid var(--border);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    .modal-head{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .modal-title-row{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:flex-start;
+    }
+    .modal-title{
+      font-size:1rem;
+      font-weight:700;
+    }
+    .modal-sub{
+      font-size:0.82rem;
+      opacity:0.8;
+    }
+    .modal-close-btn{
+      border:none;
+      background:transparent;
+      font-size:1.3rem;
+      line-height:1;
+      cursor:pointer;
+      padding:2px 4px;
+      border-radius:999px;
+    }
+    .modal-body{
+      padding:12px 14px 14px;
+      overflow:auto;
+      display:grid;
+      gap:10px;
+      font-size:0.86rem;
+    }
+    .modal-section-title{
+      font-size:0.84rem;
+      font-weight:600;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.8;
+      margin-bottom:4px;
+    }
+    .modal-summary-grid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px 16px;
+    }
+    .modal-summary-item{
+      min-width:120px;
+    }
+    .modal-summary-item span:first-child{
+      font-size:0.76rem;
+      opacity:0.7;
+    }
+    .modal-summary-item span:last-child{
+      font-weight:600;
+    }
+
+    .blocks-table-wrap{
+      border-radius:10px;
+      border:1px solid var(--border-subtle,var(--border));
+      overflow:hidden;
+    }
+    table.blocks-table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:0.8rem;
+    }
+    table.blocks-table th,
+    table.blocks-table td{
+      padding:6px 8px;
+      border-bottom:1px solid color-mix(in srgb, var(--surface) 88%, var(--border) 12%);
+      text-align:left;
+    }
+    table.blocks-table thead{
+      background:color-mix(in srgb, var(--surface) 78%, var(--border) 22%);
+    }
+    table.blocks-table th{
+      font-weight:600;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      font-size:0.74rem;
+    }
+    table.blocks-table tbody tr:last-child td{
+      border-bottom:none;
+    }
+
+    .thumb-grid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .thumb{
+      width:90px;
+      height:70px;
+      border-radius:8px;
+      overflow:hidden;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--surface-variant, #222);
+      display:block;
+    }
+    .thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+    .thumb-empty{
+      font-size:0.8rem;
+      opacity:0.7;
+    }
+
+    @media (max-width:640px){
+      .stats-grid{
+        flex-direction:column;
+      }
+      .totals-row{
+        align-items:flex-start;
+      }
+      .totals-metrics{
+        width:100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="hero-head">
+        <div class="icon" aria-hidden="true">
+          <!-- simple beaker / test icon -->
+          <svg viewBox="0 0 24 24">
+            <path fill="currentColor" d="M9 3v2.5l-4.7 9.4A3 3 0 0 0 7 19h10a3 3 0 0 0 2.7-4.1L15 5.5V3h-2v3.1l4.5 9.1A1 1 0 0 1 16.6 17H7.4a1 1 0 0 1-.9-1.4L11 6.1V3H9z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 id="page-title">Trial Summary</h1>
+          <div class="page-header-meta">
+            <span id="page-subtitle" class="muted">Loading trial details…</span>
+          </div>
+        </div>
+      </div>
+      <div class="body">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <button class="btn btn-quiet" type="button" id="btn-back">
+              <!-- back chevron -->
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path fill="currentColor" d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+              </svg>
+              <span>Back</span>
+            </button>
+            <div id="trial-tags" class="page-header-meta"></div>
+          </div>
+          <div>
+            <button class="btn btn-primary" type="button" id="btn-print">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path fill="currentColor" d="M19 8H5a3 3 0 0 0-3 3v4h4v4h12v-4h4v-4a3 3 0 0 0-3-3zm-3 9H8v-4h8zm3-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zM18 3H6v4h12z"/>
+              </svg>
+              <span>Print</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Top stats -->
+        <div id="top-stats" class="stats-grid" aria-live="polite"></div>
+
+        <!-- AI summary -->
+        <section class="ai-card" aria-live="polite">
+          <div class="ai-card-title">
+            <span>Trial Story</span>
+            <span class="ai-chip">AI Summary</span>
+          </div>
+          <div id="ai-summary" class="ai-summary-body">
+            <div class="ai-summary-loading">Using your trial numbers to build a short written summary…</div>
+          </div>
+        </section>
+
+        <!-- Farms + fields -->
+        <section class="farm-fields-block">
+          <div class="farm-fields-title">Fields in this trial</div>
+          <div id="farms-container"></div>
+          <div id="empty-state" class="wo-empty" style="display:none;">
+            No fields were found for this trial yet.
+          </div>
+          <div id="error-state" class="error-msg" style="display:none;"></div>
+        </section>
+
+        <!-- Totals -->
+        <section id="totals-card" class="totals-card" style="display:none;">
+          <div class="totals-row">
+            <div class="totals-label">Overall Trial Totals</div>
+            <div class="totals-metrics">
+              <div class="totals-metric">
+                <span>Fields in trial</span>
+                <span id="tot-fields">–</span>
+              </div>
+              <div class="totals-metric">
+                <span>Tillable acres (all fields)</span>
+                <span id="tot-tillable">–</span>
+              </div>
+              <div class="totals-metric">
+                <span>Trial acres (with yield)</span>
+                <span id="tot-trial-acres">–</span>
+              </div>
+              <div class="totals-metric">
+                <span>Check weighted bu/ac</span>
+                <span id="tot-check-avg">–</span>
+              </div>
+              <div class="totals-metric">
+                <span>Treatment weighted bu/ac</span>
+                <span id="tot-trial-avg">–</span>
+              </div>
+              <div class="totals-metric">
+                <span>Treatment advantage (bu/ac)</span>
+                <span id="tot-adv">–</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Field detail modal -->
+  <div id="field-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="field-modal-title">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <div>
+            <div id="field-modal-title" class="modal-title">Field details</div>
+            <div id="field-modal-sub" class="modal-sub"></div>
+          </div>
+          <button type="button" class="modal-close-btn" id="field-modal-close" aria-label="Close">
+            ×
+          </button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <section>
+          <div class="modal-section-title">Summary</div>
+          <div class="modal-summary-grid" id="field-modal-summary"></div>
+        </section>
+
+        <section>
+          <div class="modal-section-title">Yield blocks</div>
+          <div class="blocks-table-wrap">
+            <table class="blocks-table">
+              <thead>
+                <tr>
+                  <th>Block</th>
+                  <th>Type</th>
+                  <th class="numeric">Check bu/ac</th>
+                  <th class="numeric">Trial bu/ac</th>
+                  <th class="numeric">Check acres</th>
+                  <th class="numeric">Trial acres</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="field-modal-blocks-body">
+                <!-- rows injected -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div class="modal-section-title">Files &amp; photos</div>
+          <div id="field-modal-files" class="thumb-grid"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Core shell + AI helper -->
+  <script src="/Farm-vista/js/core.js"></script>
+  <script src="/Farm-vista/js/ai-reports.js"></script>
+
+  <!-- Page logic -->
+  <script type="module">
+    import {
+      getFirestore,
+      doc,
+      getDoc,
+      collection,
+      getDocs
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const STATE = {
+      trialId: null,
+      trialDoc: null,
+      fields: [], // {id, data, blocks, stats}
+      totals: {
+        fieldCount: 0,
+        tillableAll: 0,
+        checkAcresAll: 0,
+        trialAcresAll: 0,
+        checkAvgAll: null,
+        trialAvgAll: null,
+        advantageAll: null
+      }
+    };
+
+    const els = {
+      title: document.getElementById('page-title'),
+      subtitle: document.getElementById('page-subtitle'),
+      tags: document.getElementById('trial-tags'),
+      topStats: document.getElementById('top-stats'),
+      farmsContainer: document.getElementById('farms-container'),
+      emptyState: document.getElementById('empty-state'),
+      errorState: document.getElementById('error-state'),
+      totalsCard: document.getElementById('totals-card'),
+      totFields: document.getElementById('tot-fields'),
+      totTillable: document.getElementById('tot-tillable'),
+      totTrialAcres: document.getElementById('tot-trial-acres'),
+      totCheckAvg: document.getElementById('tot-check-avg'),
+      totTrialAvg: document.getElementById('tot-trial-avg'),
+      totAdv: document.getElementById('tot-adv'),
+      aiSummary: document.getElementById('ai-summary'),
+      btnBack: document.getElementById('btn-back'),
+      btnPrint: document.getElementById('btn-print'),
+
+      modalBackdrop: document.getElementById('field-modal-backdrop'),
+      modalClose: document.getElementById('field-modal-close'),
+      modalTitle: document.getElementById('field-modal-title'),
+      modalSub: document.getElementById('field-modal-sub'),
+      modalSummary: document.getElementById('field-modal-summary'),
+      modalBlocksBody: document.getElementById('field-modal-blocks-body'),
+      modalFiles: document.getElementById('field-modal-files')
+    };
+
+    function getTrialIdFromUrl(){
+      const params = new URLSearchParams(window.location.search);
+      return params.get('trialId') || params.get('id');
+    }
+
+    function formatNumber(num, opts = {}) {
+      if (num === null || num === undefined || Number.isNaN(num)) return '–';
+      const { decimals = 1 } = opts;
+      return Number(num).toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+    }
+
+    function computeFieldStats(blocks = []) {
+      let checkAc = 0, trialAc = 0, checkBu = 0, trialBu = 0;
+
+      for (const b of blocks) {
+        const c = b.check || {};
+        const t = b.trial || {};
+        if (typeof c.acres === 'number' && typeof c.yieldBuAc === 'number') {
+          checkAc += c.acres;
+          checkBu += c.yieldBuAc * c.acres;
+        }
+        if (typeof t.acres === 'number' && typeof t.yieldBuAc === 'number') {
+          trialAc += t.acres;
+          trialBu += t.yieldBuAc * t.acres;
+        }
+      }
+
+      const checkAvg = checkAc > 0 ? (checkBu / checkAc) : null;
+      const trialAvg = trialAc > 0 ? (trialBu / trialAc) : null;
+      const advantage = (checkAvg !== null && trialAvg !== null) ? (trialAvg - checkAvg) : null;
+
+      return { checkAc, trialAc, checkAvg, trialAvg, advantage };
+    }
+
+    async function loadData() {
+      const trialId = getTrialIdFromUrl();
+      STATE.trialId = trialId;
+
+      if (!trialId) {
+        els.errorState.style.display = 'block';
+        els.errorState.textContent = 'No trialId was provided in the URL. Expected ?trialId=TRIAL_DOC_ID.';
+        return;
+      }
+
+      const db = getFirestore();
+      const trialRef = doc(db, 'fieldTrials', trialId);
+      const trialSnap = await getDoc(trialRef);
+      if (!trialSnap.exists()) {
+        els.errorState.style.display = 'block';
+        els.errorState.textContent = 'Trial not found. Check the link or try again.';
+        return;
+      }
+
+      const trialData = trialSnap.data();
+      STATE.trialDoc = { id: trialSnap.id, ...trialData };
+
+      // Load fields
+      const fieldsCol = collection(trialRef, 'fields');
+      const fieldsSnap = await getDocs(fieldsCol);
+
+      const fieldRecords = [];
+
+      for (const fieldDoc of fieldsSnap.docs) {
+        const fieldData = fieldDoc.data();
+
+        const blocksCol = collection(fieldDoc.ref, 'yieldBlocks');
+        const blocksSnap = await getDocs(blocksCol);
+        const blocks = blocksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        const stats = computeFieldStats(blocks);
+
+        fieldRecords.push({
+          id: fieldDoc.id,
+          data: fieldData,
+          blocks,
+          stats
+        });
+      }
+
+      STATE.fields = fieldRecords;
+
+      // Compute totals
+      let tillableAll = 0;
+      let checkAcresAll = 0;
+      let trialAcresAll = 0;
+      let checkBuAll = 0;
+      let trialBuAll = 0;
+
+      for (const f of STATE.fields) {
+        const { data, stats } = f;
+        tillableAll += typeof data.tillable === 'number' ? data.tillable : 0;
+
+        checkAcresAll += stats.checkAc;
+        trialAcresAll += stats.trialAc;
+
+        if (stats.checkAc > 0 && stats.checkAvg !== null) {
+          checkBuAll += stats.checkAvg * stats.checkAc;
+        }
+        if (stats.trialAc > 0 && stats.trialAvg !== null) {
+          trialBuAll += stats.trialAvg * stats.trialAc;
+        }
+      }
+
+      const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
+      const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
+      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null) ? (trialAvgAll - checkAvgAll) : null;
+
+      STATE.totals = {
+        fieldCount: STATE.fields.length,
+        tillableAll,
+        checkAcresAll,
+        trialAcresAll,
+        checkAvgAll,
+        trialAvgAll,
+        advantageAll
+      };
+    }
+
+    function renderTop() {
+      const t = STATE.trialDoc;
+      if (!t) return;
+
+      els.title.textContent = t.trialName || 'Trial Summary';
+
+      const pieces = [];
+      if (t.cropYear) pieces.push(t.cropYear);
+      if (t.crop) pieces.push(t.crop);
+      if (t.trialType) pieces.push(t.trialType);
+      els.subtitle.textContent = pieces.join(' • ') || 'Trial details';
+
+      const tags = [];
+      if (t.operationTask) tags.push(t.operationTask);
+      if (t.treatmentProduct || t.check) {
+        const checkLabel = t.check || 'Check';
+        const treatLabel = t.treatmentProduct || 'Treatment';
+        tags.push(`${treatLabel} vs ${checkLabel}`);
+      }
+      if (t.status) tags.push(`Status: ${t.status}`);
+
+      els.tags.textContent = tags.join(' • ');
+
+      // Top stat pills
+      const s = STATE.totals;
+      const top = [];
+
+      top.push({
+        label: 'Fields in trial',
+        value: s.fieldCount || 0
+      });
+      top.push({
+        label: 'Trial acres (with yield)',
+        value: s.trialAcresAll ? formatNumber(s.trialAcresAll, {decimals:0}) : '–'
+      });
+      top.push({
+        label: 'Tillable acres covered',
+        value: s.tillableAll ? formatNumber(s.tillableAll, {decimals:0}) : '–'
+      });
+      top.push({
+        label: 'Check weighted bu/ac',
+        value: s.checkAvgAll !== null ? formatNumber(s.checkAvgAll, {decimals:1}) : '–'
+      });
+      top.push({
+        label: 'Treatment weighted bu/ac',
+        value: s.trialAvgAll !== null ? formatNumber(s.trialAvgAll, {decimals:1}) : '–'
+      });
+      top.push({
+        label: 'Treatment advantage',
+        value: s.advantageAll !== null ? `${s.advantageAll >= 0 ? '+' : ''}${formatNumber(s.advantageAll, {decimals:1})} bu/ac` : '–'
+      });
+
+      els.topStats.innerHTML = top.map(stat => `
+        <div class="stat-pill">
+          <div class="stat-label">${stat.label}</div>
+          <div class="stat-value">${stat.value}</div>
+        </div>
+      `).join('');
+
+      // Totals card
+      els.totalsCard.style.display = 'block';
+      els.totFields.textContent = s.fieldCount || 0;
+      els.totTillable.textContent = s.tillableAll ? formatNumber(s.tillableAll, {decimals:1}) : '–';
+      els.totTrialAcres.textContent = s.trialAcresAll ? formatNumber(s.trialAcresAll, {decimals:1}) : '–';
+      els.totCheckAvg.textContent = s.checkAvgAll !== null ? formatNumber(s.checkAvgAll, {decimals:1}) : '–';
+      els.totTrialAvg.textContent = s.trialAvgAll !== null ? formatNumber(s.trialAvgAll, {decimals:1}) : '–';
+      els.totAdv.textContent = s.advantageAll !== null
+        ? `${s.advantageAll >= 0 ? '+' : ''}${formatNumber(s.advantageAll, {decimals:1})} bu/ac`
+        : '–';
+    }
+
+    function renderFarmsAndFields() {
+      const fields = STATE.fields || [];
+      if (!fields.length) {
+        els.emptyState.style.display = 'block';
+        els.farmsContainer.innerHTML = '';
+        return;
+      }
+      els.emptyState.style.display = 'none';
+
+      // group by farmName
+      const byFarm = new Map();
+      for (const f of fields) {
+        const name = f.data.farmName || 'Unknown Farm';
+        if (!byFarm.has(name)) byFarm.set(name, []);
+        byFarm.get(name).push(f);
+      }
+
+      const farmNames = Array.from(byFarm.keys()).sort((a, b) => a.localeCompare(b));
+
+      const farmHtml = [];
+
+      for (const farmName of farmNames) {
+        const fList = byFarm.get(farmName) || [];
+        fList.sort((a, b) => {
+          const an = a.data.fieldName || '';
+          const bn = b.data.fieldName || '';
+          return an.localeCompare(bn);
+        });
+
+        let rows = '';
+        for (const f of fList) {
+          const d = f.data;
+          const s = f.stats;
+          const adv = s.advantage;
+
+          let advClass = '';
+          let advText = '–';
+          if (adv !== null) {
+            advClass = adv >= 0 ? 'adv-pos' : 'adv-neg';
+            advText = `${adv.toFixed(1)} bu/ac`;
+          }
+
+          rows += `
+            <tr data-field-id="${f.id}">
+              <td class="field-name-cell">
+                ${d.fieldName || '(Unnamed field)'}
+                <div class="muted-small">${formatNumber(d.trialAcres || 0, {decimals:1})} trial ac • ${formatNumber(d.tillable || 0, {decimals:1})} tillable</div>
+              </td>
+              <td class="numeric">${s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–'}</td>
+              <td class="numeric">${s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–'}</td>
+              <td class="numeric ${advClass}">${advText}</td>
+            </tr>
+          `;
+        }
+
+        farmHtml.push(`
+          <div class="farm-group">
+            <div class="farm-group-title">${farmName}</div>
+            <div class="farm-table-wrap">
+              <table class="farm-table" data-farm="${farmName}">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th class="numeric">Check bu/ac</th>
+                    <th class="numeric">Trial bu/ac</th>
+                    <th class="numeric">Advantage (bu/ac)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `);
+      }
+
+      els.farmsContainer.innerHTML = farmHtml.join('');
+
+      // Attach row listeners
+      els.farmsContainer.querySelectorAll('tbody tr[data-field-id]').forEach(row => {
+        row.addEventListener('click', () => {
+          const id = row.getAttribute('data-field-id');
+          const field = STATE.fields.find(f => f.id === id);
+          if (field) openFieldModal(field);
+        });
+      });
+    }
+
+    function openFieldModal(field) {
+      const d = field.data;
+      const s = field.stats;
+      const blocks = field.blocks || [];
+
+      els.modalTitle.textContent = d.fieldName || 'Field details';
+
+      const subBits = [];
+      if (d.farmName) subBits.push(d.farmName);
+      if (typeof d.tillable === 'number') subBits.push(`${formatNumber(d.tillable, {decimals:1})} tillable ac`);
+      if (typeof d.trialAcres === 'number') subBits.push(`${formatNumber(d.trialAcres, {decimals:1})} trial ac`);
+      els.modalSub.textContent = subBits.join(' • ');
+
+      // Summary items
+      const sumHtml = [
+        { label: 'Check weighted bu/ac', value: s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
+        { label: 'Trial weighted bu/ac', value: s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–' },
+        { label: 'Treatment advantage', value: s.advantage !== null ? `${s.advantage >= 0 ? '+' : ''}${formatNumber(s.advantage, {decimals:1})} bu/ac` : '–' },
+        { label: 'Check acres (blocks)', value: s.checkAc ? formatNumber(s.checkAc, {decimals:1}) : '–' },
+        { label: 'Trial acres (blocks)', value: s.trialAc ? formatNumber(s.trialAc, {decimals:1}) : '–' }
+      ].map(item => `
+        <div class="modal-summary-item">
+          <span>${item.label}</span><br/>
+          <span>${item.value}</span>
+        </div>
+      `).join('');
+
+      els.modalSummary.innerHTML = sumHtml;
+
+      // Blocks table
+      if (!blocks.length) {
+        els.modalBlocksBody.innerHTML = `
+          <tr><td colspan="7" class="muted-small">No yield blocks recorded for this field yet.</td></tr>
+        `;
+      } else {
+        let i = 1;
+        els.modalBlocksBody.innerHTML = blocks.map(b => {
+          const c = b.check || {};
+          const t = b.trial || {};
+          const blockLabel = `Block ${i++}`;
+          const typeLabel = b.blockType || 'combine';
+
+          return `
+            <tr>
+              <td>${blockLabel}</td>
+              <td>${typeLabel}</td>
+              <td class="numeric">${typeof c.yieldBuAc === 'number' ? formatNumber(c.yieldBuAc, {decimals:1}) : '–'}</td>
+              <td class="numeric">${typeof t.yieldBuAc === 'number' ? formatNumber(t.yieldBuAc, {decimals:1}) : '–'}</td>
+              <td class="numeric">${typeof c.acres === 'number' ? formatNumber(c.acres, {decimals:1}) : '–'}</td>
+              <td class="numeric">${typeof t.acres === 'number' ? formatNumber(t.acres, {decimals:1}) : '–'}</td>
+              <td>${(b.notes || '').toString().trim() || '—'}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      // Attachments
+      const allAttachments = [];
+      for (const b of blocks) {
+        if (Array.isArray(b.attachments)) {
+          for (const url of b.attachments) {
+            if (url && typeof url === 'string') allAttachments.push(url);
+          }
+        }
+      }
+
+      if (!allAttachments.length) {
+        els.modalFiles.innerHTML = `<div class="thumb-empty">No files or photos are attached to this field’s blocks yet.</div>`;
+      } else {
+        els.modalFiles.innerHTML = allAttachments.map(url => `
+          <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb">
+            <img src="${url}" alt="Trial file thumbnail">
+          </a>
+        `).join('');
+      }
+
+      els.modalBackdrop.classList.remove('modal-hidden');
+      els.modalBackdrop.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeFieldModal() {
+      els.modalBackdrop.classList.add('modal-hidden');
+      els.modalBackdrop.setAttribute('aria-hidden', 'true');
+    }
+
+    function wireBasicEvents() {
+      els.btnBack.addEventListener('click', () => {
+        if (document.referrer) {
+          window.history.back();
+        } else {
+          window.location.href = '/Farm-vista/pages/reports/';
+        }
+      });
+
+      els.btnPrint.addEventListener('click', () => {
+        window.print();
+      });
+
+      els.modalClose.addEventListener('click', closeFieldModal);
+      els.modalBackdrop.addEventListener('click', (evt) => {
+        if (evt.target === els.modalBackdrop) closeFieldModal();
+      });
+
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && !els.modalBackdrop.classList.contains('modal-hidden')) {
+          closeFieldModal();
+        }
+      });
+    }
+
+    function kickOffAiSummary() {
+      if (!window.FVAiReports || typeof window.FVAiReports.renderTrialSummary !== 'function') {
+        // safety – leave the loading text, but note that AI helper is missing
+        els.aiSummary.innerHTML = '<p class="ai-summary-error">AI helper script (ai-reports.js) is not available. The numeric summary above is still accurate.</p>';
+        return;
+      }
+
+      const payload = {
+        trial: STATE.trialDoc,
+        totals: STATE.totals,
+        fields: STATE.fields.map(f => ({
+          data: f.data,
+          stats: f.stats
+        }))
+      };
+
+      window.FVAiReports.renderTrialSummary(els.aiSummary, payload);
+    }
+
+    async function init() {
+      try {
+        wireBasicEvents();
+        await loadData();
+        if (!STATE.trialDoc) return;
+
+        renderTop();
+        renderFarmsAndFields();
+        kickOffAiSummary();
+      } catch (err) {
+        console.error(err);
+        els.errorState.style.display = 'block';
+        els.errorState.textContent = 'Something went wrong loading this report.';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
