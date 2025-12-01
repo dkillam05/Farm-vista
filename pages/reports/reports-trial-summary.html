@@ -2,13 +2,18 @@
 /Farm-vista/pages/reports/reports-trial-summary.html
 
 Single-trial yield report
- • One trial at a time (expects ?trialId=TRIAL_DOC_ID in URL)
- • Feels like "Fields in Active Trials" (same hero, toolbar, wrap, shell)
- • Top meta strip + stat pills
- • AI narrative paragraph (via /Farm-vista/js/ai-reports.js)
- • Farms grouped, fields A→Z within farm
- • Each field: trial acres + tillable + weighted check/trial bu/ac + advantage
- • Click row → modal with yield blocks + file thumbnails
+ • One trial at a time
+ • Feels like other report pages (hero, toolbar, filters, fv-shell)
+ • Filters under Back button:
+      - Crop Year (from fieldTrials)
+      - Trial (active or completed)
+ • When a trial is chosen:
+      - Top stat pills
+      - AI narrative paragraph (via /Farm-vista/js/ai-reports.js)
+      - Farms grouped, fields A→Z within farm
+      - Each field: trial acres + tillable + weighted check/trial bu/ac + advantage
+      - Click row → modal with yield blocks + file thumbnails
+      - Bottom totals for tillable acres, trial acres, weighted averages
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -128,10 +133,44 @@ Single-trial yield report
       opacity:0.8;
     }
 
-    /* Stat strip (meta line under toolbar) */
-    .meta-strip{
+    /* Filters (under Back button) */
+    .filters{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      align-items:stretch;
+      margin-top:6px;
+    }
+    .filters-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:flex-end;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:150px;
+      flex:1 1 160px;
       font-size:0.8rem;
-      opacity:0.9;
+    }
+    .filter-field--grow{
+      flex:2 1 260px;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+    .filter-select{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:32px;
     }
 
     /* Stat pills */
@@ -207,7 +246,7 @@ Single-trial yield report
       opacity:0.7;
     }
 
-    /* Farms + fields inside the trial */
+    /* Farms + fields */
     .farm-fields-block{
       margin-top:2px;
       padding-top:4px;
@@ -500,7 +539,7 @@ Single-trial yield report
     }
   </style>
 
-  <!-- Make sure fv-shell is available (same pattern as active trials report) -->
+  <!-- Ensure fv-shell is available -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -512,7 +551,7 @@ Single-trial yield report
     })();
   </script>
 
-  <!-- AI helper (safe to include even if not used yet by other pages) -->
+  <!-- AI helper -->
   <script src="/Farm-vista/js/ai-reports.js"></script>
 
   <script type="module">
@@ -522,7 +561,9 @@ Single-trial yield report
       doc,
       getDoc,
       collection,
-      getDocs
+      getDocs,
+      query,
+      where
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -531,9 +572,11 @@ Single-trial yield report
 
     const STATE = {
       db: null,
+      trials: [],       // [{id, data}]
       trialId: null,
       trialDoc: null,
-      fields: [], // {id, data, blocks, stats}
+      fields: [],       // [{id, data, blocks, stats}]
+      selectedYear: 'all',
       totals: {
         fieldCount: 0,
         tillableAll: 0,
@@ -563,6 +606,11 @@ Single-trial yield report
       aiSummary: null,
       btnBack: null,
       btnPrint: null,
+      btnPrintBottom: null,
+
+      filterYear: null,
+      filterTrial: null,
+      filterClear: null,
 
       modalBackdrop: null,
       modalClose: null,
@@ -591,6 +639,11 @@ Single-trial yield report
       els.aiSummary     = $('#ai-summary');
       els.btnBack       = $('#btnBack');
       els.btnPrint      = $('#btnPrint');
+      els.btnPrintBottom= $('#btnPrintBottom');
+
+      els.filterYear    = $('#filterCropYear');
+      els.filterTrial   = $('#filterTrial');
+      els.filterClear   = $('#filterClear');
 
       els.modalBackdrop = $('#field-modal-backdrop');
       els.modalClose    = $('#field-modal-close');
@@ -638,31 +691,144 @@ Single-trial yield report
       return { checkAc, trialAc, checkAvg, trialAvg, advantage };
     }
 
-    async function loadData() {
-      const trialId = getTrialIdFromUrl();
-      STATE.trialId = trialId;
+    async function loadTrialList(){
+      const colRef = collection(STATE.db, 'fieldTrials');
+      // Pull all, then filter to active + completed so we don't fight compound queries
+      const snap = await getDocs(colRef);
 
-      if (!trialId) {
-        els.errorState.style.display = 'block';
-        els.errorState.textContent = 'No trialId was provided in the URL. Expected ?trialId=TRIAL_DOC_ID.';
-        if (els.metaLine) els.metaLine.textContent = 'Missing trial id in URL';
-        return;
+      const trials = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data() || {};
+        const status = (data.status || '').toString().toLowerCase();
+        if (status === 'active' || status === 'completed' || status === 'complete') {
+          trials.push({ id: docSnap.id, data });
+        }
+      });
+
+      // sort: newest cropYear first, then trialName
+      trials.sort((a,b) => {
+        const ay = Number(a.data.cropYear || 0);
+        const by = Number(b.data.cropYear || 0);
+        if (ay !== by) return by - ay;
+        const an = (a.data.trialName || '').toString();
+        const bn = (b.data.trialName || '').toString();
+        return an.localeCompare(bn);
+      });
+
+      STATE.trials = trials;
+    }
+
+    function populateYearFilter(){
+      if (!els.filterYear) return;
+
+      const years = Array.from(
+        new Set(
+          STATE.trials
+            .map(t => t.data.cropYear)
+            .filter(y => y !== null && y !== undefined)
+        )
+      ).sort((a,b) => Number(b) - Number(a));
+
+      els.filterYear.innerHTML = '';
+      const optAll = document.createElement('option');
+      optAll.value = 'all';
+      optAll.textContent = 'All years';
+      els.filterYear.appendChild(optAll);
+
+      years.forEach(y => {
+        const opt = document.createElement('option');
+        opt.value = String(y);
+        opt.textContent = String(y);
+        els.filterYear.appendChild(opt);
+      });
+    }
+
+    function populateTrialFilter(){
+      if (!els.filterTrial) return;
+
+      const yearFilter = STATE.selectedYear;
+      const list = STATE.trials.filter(t => {
+        if (yearFilter === 'all') return true;
+        return String(t.data.cropYear || '') === String(yearFilter);
+      });
+
+      els.filterTrial.innerHTML = '';
+      const optDefault = document.createElement('option');
+      optDefault.value = '';
+      optDefault.textContent = list.length ? 'Select a trial…' : 'No trials for this year';
+      els.filterTrial.appendChild(optDefault);
+
+      list.forEach(t => {
+        const d = t.data;
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        const bits = [];
+        bits.push(d.trialName || 'Unnamed trial');
+        const sub = [];
+        if (d.cropYear) sub.push(d.cropYear);
+        if (d.crop)     sub.push(d.crop);
+        if (d.trialType) sub.push(d.trialType);
+        if (sub.length) bits.push('• ' + sub.join(' · '));
+        opt.textContent = bits.join(' ');
+        els.filterTrial.appendChild(opt);
+      });
+
+      // keep selection if still valid
+      if (STATE.trialId) {
+        const match = list.find(t => t.id === STATE.trialId);
+        if (match) {
+          els.filterTrial.value = STATE.trialId;
+        } else {
+          STATE.trialId = null;
+        }
       }
+    }
 
-      const db = STATE.db;
-      const trialRef = doc(db, 'fieldTrials', trialId);
+    function clearTrialView(){
+      STATE.trialDoc = null;
+      STATE.fields = [];
+      STATE.totals = {
+        fieldCount: 0,
+        tillableAll: 0,
+        checkAcresAll: 0,
+        trialAcresAll: 0,
+        checkAvgAll: null,
+        trialAvgAll: null,
+        advantageAll: null
+      };
+
+      if (els.title) els.title.textContent = 'Field Trial Yield Summary';
+      if (els.subtitle) els.subtitle.textContent = 'Choose a crop year and trial to view yield summary.';
+
+      if (els.metaLine) els.metaLine.textContent = 'No trial selected yet. Pick a trial above to load details.';
+      if (els.topStats) els.topStats.innerHTML = '';
+      if (els.farmsContainer) els.farmsContainer.innerHTML = '';
+      if (els.emptyState) {
+        els.emptyState.style.display = 'block';
+        els.emptyState.textContent = 'No trial is selected. Choose a crop year and trial above.';
+      }
+      if (els.errorState) {
+        els.errorState.style.display = 'none';
+        els.errorState.textContent = '';
+      }
+      if (els.totalsCard) els.totalsCard.style.display = 'none';
+
+      if (els.aiSummary) {
+        els.aiSummary.innerHTML = '<div class="ai-summary-note">Once you select a trial, this section will summarize how the treatment performed across all fields.</div>';
+      }
+    }
+
+    async function loadTrialData(trialId){
+      if (!trialId) return;
+      const trialRef = doc(STATE.db, 'fieldTrials', trialId);
       const trialSnap = await getDoc(trialRef);
       if (!trialSnap.exists()) {
-        els.errorState.style.display = 'block';
-        els.errorState.textContent = 'Trial not found. Check the link or try again.';
-        if (els.metaLine) els.metaLine.textContent = 'Trial not found';
-        return;
+        throw new Error('Trial not found');
       }
 
       const trialData = trialSnap.data() || {};
       STATE.trialDoc = { id: trialSnap.id, ...trialData };
 
-      // Load fields
       const fieldsCol = collection(trialRef, 'fields');
       const fieldsSnap = await getDocs(fieldsCol);
 
@@ -804,8 +970,9 @@ Single-trial yield report
       if (!els.farmsContainer) return;
 
       if (!fields.length) {
-        els.emptyState.style.display = 'block';
         els.farmsContainer.innerHTML = '';
+        els.emptyState.style.display = 'block';
+        els.emptyState.textContent = 'No fields with yield were found for this trial yet.';
         return;
       }
       els.emptyState.style.display = 'none';
@@ -990,13 +1157,17 @@ Single-trial yield report
     function wireBasicEvents() {
       if (els.btnBack) {
         els.btnBack.addEventListener('click', () => {
-          // Line up with other report pages
           location.href = '/Farm-vista/pages/reports/reports-predefined.html';
         });
       }
 
       if (els.btnPrint) {
         els.btnPrint.addEventListener('click', () => {
+          window.print();
+        });
+      }
+      if (els.btnPrintBottom) {
+        els.btnPrintBottom.addEventListener('click', () => {
           window.print();
         });
       }
@@ -1013,10 +1184,63 @@ Single-trial yield report
           closeFieldModal();
         }
       });
+
+      if (els.filterYear) {
+        els.filterYear.addEventListener('change', () => {
+          STATE.selectedYear = els.filterYear.value || 'all';
+          populateTrialFilter();
+          clearTrialView();
+        });
+      }
+
+      if (els.filterTrial) {
+        els.filterTrial.addEventListener('change', async () => {
+          const id = els.filterTrial.value || '';
+          STATE.trialId = id || null;
+          if (!STATE.trialId) {
+            clearTrialView();
+            return;
+          }
+          try{
+            if (els.errorState){
+              els.errorState.style.display = 'none';
+              els.errorState.textContent = '';
+            }
+            if (els.metaLine) els.metaLine.textContent = 'Loading trial summary…';
+            await loadTrialData(STATE.trialId);
+            renderTop();
+            renderFarmsAndFields();
+            kickOffAiSummary();
+          }catch(err){
+            console.error('Error loading selected trial:', err);
+            clearTrialView();
+            if (els.errorState){
+              els.errorState.style.display = 'block';
+              els.errorState.textContent = 'Error loading the selected trial. Check console or Firestore rules.';
+            }
+          }
+        });
+      }
+
+      if (els.filterClear) {
+        els.filterClear.addEventListener('click', () => {
+          STATE.selectedYear = 'all';
+          STATE.trialId = null;
+          if (els.filterYear) els.filterYear.value = 'all';
+          populateTrialFilter();
+          if (els.filterTrial) els.filterTrial.value = '';
+          clearTrialView();
+        });
+      }
     }
 
     function kickOffAiSummary() {
       if (!els.aiSummary) return;
+
+      if (!STATE.trialDoc) {
+        els.aiSummary.innerHTML = '<div class="ai-summary-note">Select a trial above to generate a written summary of how the treatment performed.</div>';
+        return;
+      }
 
       if (!window.FVAiReports || typeof window.FVAiReports.renderTrialSummary !== 'function') {
         els.aiSummary.innerHTML = '<p class="ai-summary-error">AI helper script (ai-reports.js) is not available. The numeric summary above is still accurate.</p>';
@@ -1035,32 +1259,59 @@ Single-trial yield report
       window.FVAiReports.renderTrialSummary(els.aiSummary, payload);
     }
 
-    (async function boot(){
+    async function boot(){
       await ready;
       STATE.db = getFirestore();
 
-      // hook nav
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
       wireDom();
       wireBasicEvents();
+      clearTrialView();
 
       try{
-        await loadData();
-        if (!STATE.trialDoc) return;
-        renderTop();
-        renderFarmsAndFields();
-        kickOffAiSummary();
+        await loadTrialList();
+        populateYearFilter();
+        populateTrialFilter();
+
+        // If URL provided a trialId, pre-select it
+        const fromUrl = getTrialIdFromUrl();
+        if (fromUrl) {
+          const match = STATE.trials.find(t => t.id === fromUrl);
+          if (match) {
+            const yr = match.data.cropYear;
+            if (yr !== undefined && yr !== null) {
+              STATE.selectedYear = String(yr);
+              if (els.filterYear) els.filterYear.value = STATE.selectedYear;
+              populateTrialFilter();
+            }
+            STATE.trialId = fromUrl;
+            if (els.filterTrial) els.filterTrial.value = fromUrl;
+            if (els.metaLine) els.metaLine.textContent = 'Loading trial from link…';
+            await loadTrialData(fromUrl);
+            renderTop();
+            renderFarmsAndFields();
+            kickOffAiSummary();
+          }
+        }
+
+        if (!STATE.trialId && els.metaLine){
+          els.metaLine.textContent = STATE.trials.length
+            ? 'Choose a crop year and trial to view yield summary.'
+            : 'No active or completed trials are available yet.';
+        }
       }catch(err){
-        console.error('Error loading trial summary:', err);
+        console.error('Error loading trial list:', err);
         if (els.errorState){
           els.errorState.style.display = 'block';
-          els.errorState.textContent = 'Error loading this trial summary. Check console or Firestore rules.';
+          els.errorState.textContent = 'Error loading trials. Check console or Firestore rules.';
         }
-        if (els.metaLine) els.metaLine.textContent = 'Error loading trial summary';
+        if (els.metaLine) els.metaLine.textContent = 'Error loading trial list';
       }
-    })();
+    }
+
+    boot().catch(console.error);
   </script>
 </head>
 
@@ -1073,7 +1324,7 @@ Single-trial yield report
           <div>
             <h1 id="pageTitle">Field Trial Yield Summary</h1>
             <p id="pageSubtitle" class="muted">
-              Loading trial details…
+              Choose a crop year and trial to view yield performance by field.
             </p>
           </div>
         </header>
@@ -1088,8 +1339,31 @@ Single-trial yield report
                 Print / Save PDF
               </button>
             </div>
-            <div class="page-header-meta meta-strip" id="reportMeta">
-              Loading trial summary…
+            <div class="page-header-meta" id="reportMeta">
+              Loading trial list…
+            </div>
+          </div>
+
+          <!-- Filters: crop year + trial -->
+          <div class="filters" aria-label="Trial filters">
+            <div class="filters-row">
+              <div class="filter-field">
+                <label class="filter-label" for="filterCropYear">Crop Year</label>
+                <select id="filterCropYear" class="filter-select">
+                  <option value="all">All years</option>
+                </select>
+              </div>
+
+              <div class="filter-field filter-field--grow">
+                <label class="filter-label" for="filterTrial">Trial</label>
+                <select id="filterTrial" class="filter-select">
+                  <option value="">Select a trial…</option>
+                </select>
+              </div>
+
+              <button id="filterClear" type="button" class="btn btn-quiet">
+                Clear
+              </button>
             </div>
           </div>
 
@@ -1105,7 +1379,7 @@ Single-trial yield report
               <span class="ai-chip">AI Summary</span>
             </div>
             <div id="ai-summary" class="ai-summary-body">
-              <div class="ai-summary-loading">Using your trial numbers to build a short written summary…</div>
+              <div class="ai-summary-note">Select a trial above to generate a written summary of how the treatment performed.</div>
             </div>
           </section>
 
@@ -1114,7 +1388,7 @@ Single-trial yield report
             <div class="farm-fields-title">Farms &amp; fields in this trial</div>
             <div id="farms-container"></div>
             <div id="empty-state" class="wo-empty" style="display:none;">
-              No fields were found for this trial yet.
+              No trial is selected. Choose a crop year and trial above.
             </div>
             <div id="error-state" class="error-msg" style="display:none;"></div>
           </section>
@@ -1153,7 +1427,7 @@ Single-trial yield report
           </section>
 
           <div class="bottom-actions">
-            <button id="btnPrintBottom" type="button" class="btn btn-primary" onclick="window.print()">
+            <button id="btnPrintBottom" type="button" class="btn btn-primary">
               Print / Save PDF
             </button>
           </div>
@@ -1162,7 +1436,7 @@ Single-trial yield report
     </div>
   </fv-shell>
 
-  <!-- Field detail modal (outside shell content flow but above footer) -->
+  <!-- Field detail modal -->
   <div id="field-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="field-modal-title">
       <div class="modal-head">
