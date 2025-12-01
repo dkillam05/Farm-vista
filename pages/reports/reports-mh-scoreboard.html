@@ -277,7 +277,52 @@
         border:none;
       }
     }
+
+    /* =========================
+       EMBED MODE (dashboard)
+       - Only show filters + scorecard
+       ========================= */
+    html.embed-mode body{
+      background:transparent;
+    }
+    html.embed-mode .wrap{
+      max-width:none;
+      margin:0;
+      padding:0;
+      padding-bottom:0 !important;
+    }
+    html.embed-mode .hero{
+      border:none;
+      border-radius:0;
+      box-shadow:none;
+      background:transparent;
+    }
+    html.embed-mode .hero-head,
+    html.embed-mode .toolbar,
+    html.embed-mode .bottom-actions{
+      display:none !important;
+    }
+    html.embed-mode .scorecard{
+      margin-top:0;
+      box-shadow:none;
+      border:none;
+      padding:8px 0 0;
+    }
   </style>
+
+  <!-- mark embed mode on <html> if ?embed=1 -->
+  <script>
+    (function(){
+      try{
+        var params = new URL(location.href).searchParams;
+        if (params.get('embed') === '1') {
+          document.documentElement.classList.add('embed-mode');
+        }
+      }catch(e){
+        console.warn('[mh-scoreboard] failed to parse URL for embed mode', e);
+      }
+    })();
+  </script>
 
   <!-- lazy-load fv-shell if needed -->
   <script>
@@ -300,6 +345,10 @@
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
+    const urlParams = new URL(location.href).searchParams;
+    const IS_EMBED  = urlParams.get('embed') === '1';
+    const URL_YEAR  = urlParams.get('year'); // used to preselect year when embedded
+
     const CONFIG = {
       COMPANY_DOC_PATH: ['company','main']
     };
@@ -313,7 +362,8 @@
       filters: {
         year: null,
         status: 'active'
-      }
+      },
+      isEmbed: IS_EMBED
     };
 
     function escapeHtml(str){
@@ -377,7 +427,6 @@
       const nfPct   = new Intl.NumberFormat(undefined,{maximumFractionDigits:2});
 
       tbody.innerHTML = rows.map(row => {
-        const rankLabel = row.rank != null ? `#${row.rank}` : '—';
         const rankChip = row.rank != null
           ? `<span class="rank-pill"><strong>${row.rank}</strong> <span>rank</span></span>`
           : `<span class="rank-pill"><strong>—</strong> <span>rank</span></span>`;
@@ -864,17 +913,24 @@
       if(yearSel){
         const now = new Date();
         const currentYear = now.getFullYear();
-        const years = [currentYear + 1, currentYear, currentYear - 1, currentYear - 2];
+
+        // use URL year if provided, otherwise current year
+        let initialYear = currentYear;
+        if (URL_YEAR && /^\d{4}$/.test(URL_YEAR)) {
+          initialYear = parseInt(URL_YEAR, 10);
+        }
+
+        const years = [initialYear + 1, initialYear, initialYear - 1, initialYear - 2];
 
         years.forEach(y => {
           const opt = document.createElement('option');
           opt.value = String(y);
           opt.textContent = y;
-          if(y === currentYear) opt.selected = true;
+          if(y === initialYear) opt.selected = true;
           yearSel.appendChild(opt);
         });
 
-        STATE.filters.year = String(currentYear);
+        STATE.filters.year = String(initialYear);
 
         yearSel.addEventListener('change', () => {
           STATE.filters.year = yearSel.value || null;
