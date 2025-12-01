@@ -639,8 +639,6 @@
       ADD_FIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-add.html'
     };
 
-    const CACHE_KEY = 'fv_trials_cache_v1';
-
     const STATE = {
       db: null,
       allItems: [],
@@ -650,7 +648,7 @@
       loaded: false,
       pendingFilter: null,
       isLoading: false,
-      loadRetriedOnce: false
+      retryCount: 0
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -811,7 +809,7 @@
 
           ${check ? `
           <div>
-            <div class="trial-detail-item-label">Check</</div>
+            <div class="trial-detail-item-label">Check</div>
             <div class="trial-detail-item-value">${check}</div>
           </div>` : ''}
 
@@ -1076,51 +1074,6 @@
       renderList();
     }
 
-    function saveCache(items){
-      try{
-        const payload = {
-          ts: Date.now(),
-          items: items.map(x => ({ id: x.id, data: x.data }))
-        };
-        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-      }catch(e){
-        // best-effort only
-        console.warn('Failed to save trials cache', e);
-      }
-    }
-
-    function loadFromCache(){
-      try{
-        const raw = localStorage.getItem(CACHE_KEY);
-        if(!raw) return false;
-        const parsed = JSON.parse(raw);
-        if(!parsed || !Array.isArray(parsed.items)) return false;
-
-        const items = parsed.items.map(x => ({
-          id: x.id,
-          data: x.data || {}
-        }));
-
-        STATE.allItems = items;
-        STATE.loaded = true;
-        STATE.loadRetriedOnce = false;
-
-        const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
-        STATE.pendingFilter = null;
-        applyFilter(desired);
-
-        const countEl = $('#trialCount');
-        if(countEl){
-          countEl.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'} (cached)`;
-        }
-
-        return true;
-      }catch(e){
-        console.warn('Failed to load trials cache', e);
-        return false;
-      }
-    }
-
     async function loadAllTrials(){
       const db  = STATE.db;
       if(!db) return;
@@ -1167,9 +1120,7 @@
 
         STATE.allItems = items;
         STATE.loaded = true;
-        STATE.loadRetriedOnce = false;
-
-        saveCache(items);
+        STATE.retryCount = 0;
 
         const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
         STATE.pendingFilter = null;
@@ -1179,7 +1130,7 @@
 
         if(STATE.allItems.length === 0){
           if(emptyEl){
-            emptyEl.textContent = 'Error loading trials. Pull-to-refresh or reopen to try again.';
+            emptyEl.textContent = 'Error loading trials. Tap to retry.';
             emptyEl.style.display = 'block';
           }
           if(countEl) countEl.textContent = 'Error loading trials';
@@ -1190,8 +1141,8 @@
           }
         }
 
-        if(!STATE.loadRetriedOnce){
-          STATE.loadRetriedOnce = true;
+        if(STATE.retryCount < 1){
+          STATE.retryCount++;
           setTimeout(() => {
             STATE.loaded = false;
             STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
@@ -1227,8 +1178,6 @@
         if(itemFiltered){
           itemFiltered.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
         }
-
-        saveCache(STATE.allItems);
 
         const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
         applyFilter(currentFilter);
@@ -1274,8 +1223,6 @@
         STATE.items = STATE.items.filter(x => x.id !== id);
         STATE.selectedId = null;
 
-        saveCache(STATE.allItems);
-
         applyFilter(STATE.filterStatus || CONFIG.STATUS_ALL);
         clearDetails();
         showToast('Trial deleted.');
@@ -1294,6 +1241,7 @@
       STATE.filterStatus = CONFIG.STATUS_ALL;
       STATE.loaded = false;
       STATE.pendingFilter = null;
+      STATE.retryCount = 0;
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -1352,14 +1300,20 @@
         });
       }
 
-      // First: best-effort cached data so the page isn't blank
-      loadFromCache();
+      const emptyEl = $('.trial-empty');
+      if(emptyEl){
+        emptyEl.addEventListener('click', () => {
+          if(!STATE.db || STATE.isLoading) return;
+          STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+          loadAllTrials();
+        });
+      }
 
-      // Then: hit Firestore and refresh
+      // Always hit Firestore on boot
       await loadAllTrials();
     })();
 
-    // PWA / mobile reload helpers
+    // PWA / mobile reload helpers – always re-hit Firestore when you re-enter
     window.addEventListener('focus', () => {
       if(!STATE.db) return;
       STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
