@@ -615,7 +615,7 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, getDoc, doc, deleteDoc
+      collection, getDocs, getDoc, doc, deleteDoc, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -665,6 +665,7 @@
 
     let lastNavTime = 0;
     let overlapCheckTimer = null;
+    let trialFieldsUnsub = null;
 
     function diag(label, payload){
       const ts = new Date();
@@ -973,11 +974,16 @@
       }
     }
 
-    async function loadExistingTrialFields(){
+    function attachTrialFieldsListener(){
       if(!STATE.db || !STATE.trialId) return;
-      try{
-        const path = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields`;
-        const snap = await getDocs(collection(STATE.db, path));
+      if(trialFieldsUnsub) return;
+
+      const path = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields`;
+      const ref = collection(STATE.db, path);
+
+      diag('trialFields.listener.attach', { path });
+
+      trialFieldsUnsub = onSnapshot(ref, (snap)=>{
         const rows=[];
         snap.forEach(d=>{
           const data = d.data() || {};
@@ -1001,11 +1007,26 @@
         });
         sortFieldRows(rows);
         STATE.existingFields = rows;
-        diag('loadExistingTrialFields.ok', { count: rows.length });
-      }catch(err){
-        console.error("Error loading trial fields:", err);
-        diag('loadExistingTrialFields.error', { code: err.code, message: err.message });
-        STATE.existingFields = [];
+        diag('trialFields.listener.snap', { count: rows.length });
+        renderFieldLists();
+      }, (err)=>{
+        console.error('Error listening trial fields:', err);
+        diag('trialFields.listener.error', { code: err.code, message: err.message });
+      });
+    }
+
+    function detachTrialFieldsListener(){
+      if(trialFieldsUnsub){
+        try{ trialFieldsUnsub(); }catch{}
+        trialFieldsUnsub = null;
+        diag('trialFields.listener.detached', {});
+      }
+    }
+
+    function resume(){
+      if(!STATE.db || !STATE.trialId) return;
+      if(!trialFieldsUnsub){
+        attachTrialFieldsListener();
       }
     }
 
@@ -1054,8 +1075,7 @@
           docId: row.docId
         });
         await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId, 'fields', row.docId));
-        STATE.existingFields.splice(idx,1);
-        renderFieldLists();
+        // Snapshot listener will update STATE.existingFields and re-render
         showToast("Field removed from this trial.");
         diag('removeExistingField.success', {});
       }catch(err){
@@ -1782,7 +1802,6 @@
       try{
         await loadTrial();
         await loadFarmsAndFields();
-        await loadExistingTrialFields();
       }catch(err){
         console.error("Initial load error:",err);
         diag('boot.load.error', { code: err.code, message: err.message });
@@ -1791,6 +1810,29 @@
 
       refreshFarmCombo();
       refreshFieldComboForFarm(null);
+
+      // Attach live listener for existing trial fields
+      attachTrialFieldsListener();
+
+      // BFCache / visibility / focus handling similar to equipment page
+      window.addEventListener('pageshow', () => {
+        resume();
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if(document.visibilityState === 'visible'){
+          resume();
+        }
+      });
+
+      window.addEventListener('focus', () => {
+        resume();
+      });
+
+      window.addEventListener('pagehide', () => {
+        detachTrialFieldsListener();
+      });
+
       renderFieldLists();
       diag('boot.complete', {});
     })();
