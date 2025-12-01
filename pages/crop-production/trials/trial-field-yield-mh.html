@@ -1126,32 +1126,65 @@
     }
     // ===== End inline mic wiring =====
 
-    // ===== Variety row ordering: newest on TOP =====
-    function moveNewestVarietyRowToTop(){
+    // ===== Helpers for hybrid rows (ordering + labels) =====
+    function getHybridRowsContainer(){
       const stage = document.getElementById('mhStageShell');
-      if(!stage) return;
+      if(!stage) return null;
+      const row = stage.querySelector('.setup-hybrid-row');
+      return row ? row.parentElement : null;
+    }
 
-      const rows = stage.querySelectorAll('.setup-hybrid-row');
-      if(rows.length < 2) return;
+    function renumberCommittedRows(){
+      const container = getHybridRowsContainer();
+      if(!container) return;
 
-      const parent = rows[0].parentElement;
-      if(!parent) return;
+      let idx = 1;
+      container.querySelectorAll('.setup-hybrid-row').forEach(row => {
+        const label = row.querySelector('.entry-label');
+        if(!label) return;
 
-      const last = rows[rows.length - 1]; // helper appends new row at bottom
-      const first = rows[0];
-      if(last && first && last !== first){
-        parent.insertBefore(last, first);
-      }
-
-      // Renumber Entry labels so they stay in order from top → bottom
-      const labels = parent.querySelectorAll('.setup-hybrid-row .entry-label');
-      labels.forEach((lbl, idx) => {
-        lbl.textContent = `Entry ${idx + 1}`;
+        if(row.dataset.newEntry === '1'){
+          label.textContent = 'New Entry';
+        }else{
+          label.textContent = `Entry ${idx++}`;
+        }
       });
     }
 
+    function markNewestRowAsNewEntry(){
+      const container = getHybridRowsContainer();
+      if(!container) return;
+
+      const rows = container.querySelectorAll('.setup-hybrid-row');
+      if(!rows.length) return;
+
+      const last = rows[rows.length - 1];
+      const first = rows[0];
+
+      // Clear any previous "new entry" flags
+      rows.forEach(r => { r.dataset.newEntry = '0'; });
+
+      // Move newest to top
+      if(last && first && last !== first){
+        container.insertBefore(last, first);
+      }
+
+      last.dataset.newEntry = '1';
+      renumberCommittedRows();
+    }
+
+    function commitNewEntryRow(row){
+      if(!row) return;
+      const container = getHybridRowsContainer();
+      if(!container) return;
+
+      row.dataset.newEntry = '0';
+      container.appendChild(row);   // move to bottom
+      renumberCommittedRows();
+    }
+
     function wireAddVarietyBehavior(){
-      // Global delegate: look for the "+ Add variety" button inside the modal
+      // When "+ Add variety" is clicked → newest row becomes "New Entry" at top
       document.addEventListener('click', (ev) => {
         const btn = ev.target.closest('button');
         if(!btn) return;
@@ -1159,11 +1192,26 @@
         const text = (btn.textContent || '').trim();
         if(!text.startsWith('+ Add variety')) return;
 
-        // Let the helper handle the click first, then reorder rows
-        setTimeout(moveNewestVarietyRowToTop, 0);
+        // Let helper add the row first
+        setTimeout(markNewestRowAsNewEntry, 0);
+      });
+
+      // When a variety option is chosen in the "New Entry" row → commit it
+      document.addEventListener('click', (ev) => {
+        const item = ev.target.closest('.combo-item');
+        if(!item) return;
+
+        const stage = document.getElementById('mhStageShell');
+        if(!stage || !stage.contains(item)) return;
+
+        const row = item.closest('.setup-hybrid-row');
+        if(!row || row.dataset.newEntry !== '1') return;
+
+        // Give fv-combo a tick to update the button text, then commit
+        setTimeout(() => commitNewEntryRow(row), 0);
       });
     }
-    // ===== End variety row ordering =====
+    // ===== End hybrid row helpers =====
 
     (async function boot(){
       await ready;
@@ -1219,7 +1267,7 @@
         obs.observe(mhShell, { childList:true, subtree:true });
       }
 
-      // Make "+ Add variety" put new rows at the TOP
+      // Make "+ Add variety" use the New Entry → bottom flow
       wireAddVarietyBehavior();
 
       // ===== Desktop-only: only "View / Add Yield" opens modal =====
