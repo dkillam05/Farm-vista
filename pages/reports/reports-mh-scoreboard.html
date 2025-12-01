@@ -21,6 +21,15 @@
       --accent: #2F6C3C;
     }
 
+    html,
+    body{
+      margin:0;
+      padding:0;
+      max-width:100%;
+      overflow-x:hidden;
+      background: var(--app-bg, var(--surface));
+    }
+
     body{
       background: var(--app-bg, var(--surface));
     }
@@ -254,6 +263,102 @@
       justify-content:flex-end;
     }
 
+    /* Desktop vs mobile layout toggles */
+    .desktop-only{
+      display:block;
+    }
+    .mobile-only{
+      display:none;
+    }
+
+    /* Mobile stacked scorecards */
+    .score-mobile-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .score-mobile-empty{
+      padding:12px 10px;
+      border-radius:10px;
+      border:1px dashed var(--border);
+      font-size:0.86rem;
+      color:var(--muted,#6b766e);
+      background:var(--card-surface,var(--surface));
+    }
+    .score-card{
+      border-radius:12px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .score-card-header{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+    }
+    .score-card-main{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .score-card-rank{
+      font-size:0.8rem;
+      white-space:nowrap;
+    }
+    .score-card-variety{
+      font-weight:600;
+      font-size:0.95rem;
+    }
+    .score-card-brand{
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+    .score-card-tags{
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+      font-size:0.74rem;
+      opacity:0.9;
+    }
+    .score-card-chip{
+      padding:3px 7px;
+      border-radius:999px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:color-mix(in srgb, var(--surface) 88%, var(--border) 12%);
+    }
+    .score-card-metrics{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px 14px;
+      font-size:0.8rem;
+      margin-top:2px;
+    }
+    .score-card-metric{
+      display:flex;
+      flex-direction:column;
+      gap:1px;
+      min-width:90px;
+    }
+    .score-card-metric span{
+      opacity:0.7;
+      font-size:0.76rem;
+    }
+    .score-card-metric strong{
+      font-size:0.9rem;
+    }
+    .score-card-footer{
+      font-size:0.78rem;
+      opacity:0.85;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+    }
+
     /* Hidden iframe for print */
     #fv-print-frame{
       position:fixed;
@@ -276,6 +381,47 @@
         border-radius:0;
         box-shadow:none;
         border:none;
+      }
+    }
+
+    /* Mobile tweaks */
+    @media (max-width:640px){
+      .wrap{
+        padding-inline:10px;
+      }
+
+      .toolbar{
+        flex-direction:column;
+        align-items:stretch;
+        gap:8px;
+      }
+      .toolbar-left{
+        width:100%;
+        justify-content:stretch;
+      }
+      .toolbar-left .btn{
+        flex:1 1 auto;
+        width:100%;
+        justify-content:center;
+      }
+      .page-header-meta{
+        text-align:left;
+      }
+
+      .bottom-actions{
+        justify-content:stretch;
+      }
+      .bottom-actions .btn{
+        width:100%;
+        justify-content:center;
+      }
+
+      /* Layout switch: table on desktop, stacked cards on mobile */
+      .desktop-only{
+        display:none;
+      }
+      .mobile-only{
+        display:block;
       }
     }
 
@@ -416,7 +562,8 @@
       meta.textContent = `${year} • ${statusLabel} • ${count} entries`;
     }
 
-    function renderScoreboard(){
+    /* ---------- desktop table render ---------- */
+    function renderScoreboardTable(){
       const tbody = $('#mhScoreBody');
       if(!tbody) return;
 
@@ -460,6 +607,79 @@
           </tr>
         `;
       }).join('');
+    }
+
+    /* ---------- mobile stacked-card render ---------- */
+    function renderScoreboardMobile(){
+      const container = $('#mhScoreMobile');
+      if(!container) return;
+
+      const rows = STATE.rows;
+
+      if(!rows.length){
+        container.innerHTML = `
+          <div class="score-mobile-empty">
+            Select crop year and trial status above. Multiple Hybrid entries will appear here once we wire Firestore.
+          </div>
+        `;
+        return;
+      }
+
+      const nfYield = new Intl.NumberFormat(undefined,{maximumFractionDigits:1});
+      const nfPct   = new Intl.NumberFormat(undefined,{maximumFractionDigits:2});
+
+      container.innerHTML = rows.map(row => {
+        const rankLabel = row.rank != null ? '#' + row.rank : '—';
+        const y = (typeof row.yieldBuAc === 'number') ? nfYield.format(row.yieldBuAc) : '—';
+        const m = (typeof row.moisture === 'number') ? nfPct.format(row.moisture) : '—';
+        const p = (typeof row.pctVsCheck === 'number') ? nfPct.format(row.pctVsCheck) + '%' : '—';
+
+        const trial = escapeHtml(row.trialName || '');
+        const farmField = escapeHtml(row.farmField || '');
+
+        return `
+          <article class="score-card">
+            <div class="score-card-header">
+              <div class="score-card-main">
+                <div class="score-card-rank">${rankLabel}</div>
+                <div class="score-card-variety">${escapeHtml(row.variety || '') || '(Variety not set)'}</div>
+                <div class="score-card-brand">${escapeHtml(row.brand || '')}</div>
+              </div>
+            </div>
+
+            <div class="score-card-tags">
+              ${row.trait ? `<span class="score-card-chip">${escapeHtml(row.trait)}</span>` : ''}
+              ${row.maturity ? `<span class="score-card-chip">${escapeHtml(row.maturity)} RM</span>` : ''}
+            </div>
+
+            <div class="score-card-metrics">
+              <div class="score-card-metric">
+                <span>Yield (bu/ac)</span>
+                <strong>${y}</strong>
+              </div>
+              <div class="score-card-metric">
+                <span>Moisture (%)</span>
+                <strong>${m}</strong>
+              </div>
+              <div class="score-card-metric">
+                <span>% vs Check</span>
+                <strong>${p}</strong>
+              </div>
+            </div>
+
+            <div class="score-card-footer">
+              ${trial ? `<span>Trial: ${trial}</span>` : ''}
+              ${farmField ? `<span>• ${farmField}</span>` : ''}
+            </div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    function renderScoreboard(){
+      // One call that updates both desktop table and mobile cards
+      renderScoreboardTable();
+      renderScoreboardMobile();
     }
 
     async function loadCompanyHeader(){
@@ -1071,7 +1291,8 @@
               Scoreboard columns and layout are fixed. Ranking and % vs check will be calculated from MH yield data later.
             </div>
 
-            <div class="score-table-wrap">
+            <!-- Desktop table layout -->
+            <div class="score-table-wrap desktop-only">
               <table class="score-table">
                 <thead>
                   <tr>
@@ -1095,6 +1316,11 @@
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <!-- Mobile stacked cards layout -->
+            <div class="mobile-only">
+              <div id="mhScoreMobile" class="score-mobile-list"></div>
             </div>
           </section>
 
