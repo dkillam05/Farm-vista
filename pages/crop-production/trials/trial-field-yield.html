@@ -1130,115 +1130,168 @@
       return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     }
 
-    function recalcCombine(block, card){
-      const cropKind = normalizeCropKind(STATE.trial?.crop);
-      const stdOverride =
-        cropKind === 'corn' ? 15 :
-        cropKind === 'soy'  ? 13 :
-        undefined;
+function recalcCombine(block, card){
+  const cropKind = normalizeCropKind(STATE.trial?.crop);
+  const stdOverride =
+    cropKind === 'corn' ? 15 :
+    cropKind === 'soy'  ? 13 :
+    undefined;
 
-      const yields = { check: null, trial: null };
-      const errors = [];
+  const yields = { check: null, trial: null };
+  const errors = [];
 
-      ['check','trial'].forEach(side => {
-        const data = block[side] || {};
-        const label = side === 'check' ? 'Check' : 'Trial';
+  ['check','trial'].forEach(side => {
+    const data = block[side] || {};
+    const label = side === 'check' ? 'Check' : 'Trial';
 
-        let acresInput = null;
-        let moistInput = null;
-        let poundsInput = null;
+    let acresInput = null;
+    let moistInput = null;
+    let poundsInput = null;
 
-        if(card){
-          acresInput  = card.querySelector(`[data-role="${side}-acres"]`);
-          moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
-          poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
-          [acresInput, moistInput, poundsInput].forEach(el=>{
-            if(el) el.classList.remove('input-error');
+    if(card){
+      acresInput  = card.querySelector(`[data-role="${side}-acres"]`);
+      moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
+      poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
+      [acresInput, moistInput, poundsInput].forEach(el=>{
+        if(el) el.classList.remove('input-error');
+      });
+    }
+
+    const acres    = data.acres !== '' && data.acres != null ? Number(data.acres) : NaN;
+    const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
+    const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
+
+    // reset yield before recalculation
+    data.yieldBuAc = null;
+
+    // if nothing entered on this side, skip quietly
+    if(!acres && !moisture && !pounds){
+      return;
+    }
+
+    // require all three
+    if(!acres || !moisture || !pounds){
+      errors.push(`${label}: enter acres, moisture, and pounds.`);
+      return;
+    }
+
+    if(acres <= 0){
+      errors.push(`${label}: acres must be greater than 0.`);
+      if(acresInput) acresInput.classList.add('input-error');
+    }
+    if(moisture < 5 || moisture > 40){
+      errors.push(`${label}: moisture must be between 5% and 40%.`);
+      if(moistInput) moistInput.classList.add('input-error');
+    }
+    if(pounds <= 0){
+      errors.push(`${label}: pounds of grain must be greater than 0.`);
+      if(poundsInput) poundsInput.classList.add('input-error');
+    }
+
+    if(errors.length) return;
+
+    const res = calcTrueYield({
+      cropKind,
+      wetWeightLbs: pounds,
+      wetMoisturePct: moisture,
+      acres,
+      stdMoistOverride: stdOverride
+    });
+
+    if(!res){
+      errors.push(`${label}: unable to compute yield.`);
+      return;
+    }
+
+    const yld = res.yieldBuAc;
+    data.yieldBuAc = yld;
+    yields[side] = yld;
+
+    if(cropKind === 'corn' && (yld < 50 || yld > 400)){
+      errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
+    }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
+      errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
+    }
+  });
+
+  /* ============================================================
+     NEW: Per-block acres guardrail vs field trialAcres
+     - Only for combine blocks (this function is combine-only).
+     - Uses STATE.selectedField.trialAcres as the cap.
+     - If Check + Trial acres > cap:
+         • mark both acres inputs as input-error
+         • clear both yields (model + local)
+         • add a clear error message to this block
+     ============================================================ */
+  if (STATE && STATE.selectedField && STATE.selectedField.trialAcres != null) {
+    const capRaw = Number(STATE.selectedField.trialAcres);
+    if (Number.isFinite(capRaw) && capRaw > 0) {
+      const checkAcresRaw = block.check && block.check.acres !== '' && block.check.acres != null
+        ? Number(block.check.acres)
+        : 0;
+      const trialAcresRaw = block.trial && block.trial.acres !== '' && block.trial.acres != null
+        ? Number(block.trial.acres)
+        : 0;
+
+      const checkAcres = Number.isFinite(checkAcresRaw) ? checkAcresRaw : 0;
+      const trialAcresVal = Number.isFinite(trialAcresRaw) ? trialAcresRaw : 0;
+      const totalBlockAcres = checkAcres + trialAcresVal;
+
+      if (Number.isFinite(totalBlockAcres) && totalBlockAcres > capRaw) {
+        // highlight both acres inputs
+        if (card) {
+          const checkAcresInput = card.querySelector('[data-role="check-acres"]');
+          const trialAcresInput = card.querySelector('[data-role="trial-acres"]');
+          [checkAcresInput, trialAcresInput].forEach(el => {
+            if (el) el.classList.add('input-error');
           });
         }
 
-        const acres    = data.acres !== '' && data.acres != null ? Number(data.acres) : NaN;
-        const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
-        const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
+        // clear yields in the model
+        if (block.check) block.check.yieldBuAc = null;
+        if (block.trial) block.trial.yieldBuAc = null;
 
-        data.yieldBuAc = null;
+        // clear yields in this recalculation run
+        yields.check = null;
+        yields.trial = null;
 
-        if(!acres && !moisture && !pounds){
-          return;
-        }
-
-        if(!acres || !moisture || !pounds){
-          errors.push(`${label}: enter acres, moisture, and pounds.`);
-          return;
-        }
-
-        if(acres <= 0){
-          errors.push(`${label}: acres must be greater than 0.`);
-          if(acresInput) acresInput.classList.add('input-error');
-        }
-        if(moisture < 5 || moisture > 40){
-          errors.push(`${label}: moisture must be between 5% and 40%.`);
-          if(moistInput) moistInput.classList.add('input-error');
-        }
-        if(pounds <= 0){
-          errors.push(`${label}: pounds of grain must be greater than 0.`);
-          if(poundsInput) poundsInput.classList.add('input-error');
-        }
-
-        if(errors.length) return;
-
-        const res = calcTrueYield({
-          cropKind,
-          wetWeightLbs: pounds,
-          wetMoisturePct: moisture,
-          acres,
-          stdMoistOverride: stdOverride
-        });
-
-        if(!res){
-          errors.push(`${label}: unable to compute yield.`);
-          return;
-        }
-
-        const yld = res.yieldBuAc;
-        data.yieldBuAc = yld;
-        yields[side] = yld;
-
-        if(cropKind === 'corn' && (yld < 50 || yld > 400)){
-          errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
-        }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
-          errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
-        }
-      });
-
-      if(card){
-        const yieldTextEl = card.querySelector('[data-role="yieldText"]');
-        const errorTextEl = card.querySelector('[data-role="errorText"]');
-
-        if(yieldTextEl){
-          let txt = '';
-          if(yields.check == null && yields.trial == null){
-            txt = 'Enter acres, moisture, and pounds for Check and/or Trial.';
-          }else{
-            const parts = [];
-            if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
-            if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
-            if(yields.check != null && yields.trial != null){
-              const diff = yields.trial - yields.check;
-              const sign = diff >= 0 ? '+' : '−';
-              parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
-            }
-            txt = parts.join('  |  ');
-          }
-          yieldTextEl.textContent = txt;
-        }
-        if(errorTextEl){
-          errorTextEl.textContent = errors.join(' ');
-        }
+        // add guardrail error message
+        errors.push(
+          `Total acres for this block exceed the field’s trial acres (${capRaw.toFixed(2)} ac).`
+        );
       }
-
-      return { yields, errors };
     }
+  }
+
+  // === Update UI text for this block ===
+  if(card){
+    const yieldTextEl = card.querySelector('[data-role="yieldText"]');
+    const errorTextEl = card.querySelector('[data-role="errorText"]');
+
+    if(yieldTextEl){
+      let txt = '';
+      if(yields.check == null && yields.trial == null){
+        txt = 'Enter acres, moisture, and pounds for Check and/or Trial.';
+      }else{
+        const parts = [];
+        if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
+        if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
+        if(yields.check != null && yields.trial != null){
+          const diff = yields.trial - yields.check;
+          const sign = diff >= 0 ? '+' : '−';
+          parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+        }
+        txt = parts.join('  |  ');
+      }
+      yieldTextEl.textContent = txt;
+    }
+    if(errorTextEl){
+      errorTextEl.textContent = errors.join(' ');
+    }
+  }
+
+  return { yields, errors };
+}
 
     function recalcWeight(block, card){
       const cropKind = normalizeCropKind(STATE.trial?.crop);
