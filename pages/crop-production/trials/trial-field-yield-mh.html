@@ -33,7 +33,8 @@
       --combo-btn-radius: 10px;
       --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
       --combo-item-pad: 10px 8px;
-      --combo-max-h: 50vh;
+      /* tall list so you can see a bunch of hybrids */
+      --combo-max-h: 60vh;
     }
 
     html{-webkit-text-size-adjust:100%}
@@ -276,9 +277,10 @@
       border:1px solid var(--border);
       display:flex;
       flex-direction:column;
-      overflow:hidden;
       max-height:calc(100vh - 24px);
       margin:12px;
+      /* keep everything inside the box; header/footer stay put */
+      overflow:hidden;
     }
     .modal-header{
       padding:12px 16px;
@@ -317,6 +319,7 @@
       gap:10px;
       flex:1;
       min-height:0;
+      /* contents scroll INSIDE the box */
       overflow-y:auto;
     }
     .modal-footer{
@@ -421,12 +424,25 @@
       border-left:6px solid transparent; border-right:6px solid transparent;
       border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
     }
+
+    /* Dropdown is part of normal flow so it pushes content down */
     .combo-panel{
-      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
-      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
-      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
+      position:relative;
+      left:auto;
+      right:auto;
+      top:auto;
+      bottom:auto;
+      margin-top:var(--combo-gap);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:1;
+      padding:8px;
+      display:none;
     }
     .combo-panel.show{ display:block; }
+
     .combo-panel .list{
       max-height:var(--combo-max-h);
       overflow:auto;
@@ -781,7 +797,9 @@
       ready,
       getFirestore,
       doc,
-      getDoc
+      getDoc,
+      collection,
+      getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -888,12 +906,67 @@
         }
       };
 
-      if(!STATE.db || !STATE.trialId || !STATE.fieldDocId){
+      if(!STATE.db || !STATE.trialId){
         fallbackFromParams();
         return;
       }
 
       try{
+        // If we weren't passed a fieldDocId, auto-pick the first field
+        if(!STATE.fieldDocId){
+          const fieldsCol = collection(
+            STATE.db,
+            CONFIG.COLLECTION_TRIALS,
+            STATE.trialId,
+            'fields'
+          );
+          const snapAll = await getDocs(fieldsCol);
+          if(snapAll.empty){
+            fallbackFromParams();
+            return;
+          }
+          const first = snapAll.docs[0];
+          STATE.fieldDocId = first.id;
+          const f = first.data() || {};
+          STATE.field = f;
+
+          const farmName  = f.farmName || f.farm || '';
+          const fieldName = f.fieldName || f.field || '';
+          const trialAc   = f.trialAcres ?? f.trialAc ?? null;
+          const tillable  = f.maxTillableAcres ?? f.tillableAc ?? f.fieldAcres ?? null;
+
+          if(fieldTitleEl){
+            const parts = [];
+            if(farmName)  parts.push(farmName);
+            if(fieldName) parts.push(fieldName);
+            fieldTitleEl.textContent = parts.length
+              ? parts.join(' • ')
+              : 'Field in multi-hybrid trial';
+          }
+
+          if(fieldSubEl){
+            let html = '';
+            if(trialAc != null){
+              html += `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>`;
+            }
+            if(tillable != null){
+              html += ` (Max tillable: ${Number(tillable).toFixed(2)})`;
+            }
+            fieldSubEl.innerHTML = html || '';
+          }
+
+          if(fieldNoteEl){
+            const bits = [];
+            if(f.township) bits.push(f.township);
+            if(f.range)    bits.push(f.range);
+            if(f.section)  bits.push(`Sec ${f.section}`);
+            fieldNoteEl.textContent = bits.join(' • ');
+          }
+
+          return; // we're done
+        }
+
+        // Normal path: we *have* a fieldDocId
         const fieldRef = doc(
           STATE.db,
           CONFIG.COLLECTION_TRIALS,
@@ -1053,6 +1126,93 @@
     }
     // ===== End inline mic wiring =====
 
+    // ===== Helpers for hybrid rows (ordering + labels) =====
+    function getHybridRowsContainer(){
+      const stage = document.getElementById('mhStageShell');
+      if(!stage) return null;
+      const row = stage.querySelector('.setup-hybrid-row');
+      return row ? row.parentElement : null;
+    }
+
+    function renumberCommittedRows(){
+      const container = getHybridRowsContainer();
+      if(!container) return;
+
+      let idx = 1;
+      container.querySelectorAll('.setup-hybrid-row').forEach(row => {
+        const label = row.querySelector('.entry-label');
+        if(!label) return;
+
+        if(row.dataset.newEntry === '1'){
+          label.textContent = 'New Entry';
+        }else{
+          label.textContent = `Entry ${idx++}`;
+        }
+      });
+    }
+
+    function markNewestRowAsNewEntry(){
+      const container = getHybridRowsContainer();
+      if(!container) return;
+
+      const rows = container.querySelectorAll('.setup-hybrid-row');
+      if(!rows.length) return;
+
+      const last = rows[rows.length - 1];
+      const first = rows[0];
+
+      // Clear any previous "new entry" flags
+      rows.forEach(r => { r.dataset.newEntry = '0'; });
+
+      // Move newest to top
+      if(last && first && last !== first){
+        container.insertBefore(last, first);
+      }
+
+      last.dataset.newEntry = '1';
+      renumberCommittedRows();
+    }
+
+    function commitNewEntryRow(row){
+      if(!row) return;
+      const container = getHybridRowsContainer();
+      if(!container) return;
+
+      row.dataset.newEntry = '0';
+      container.appendChild(row);   // move to bottom
+      renumberCommittedRows();
+    }
+
+    function wireAddVarietyBehavior(){
+      // When "+ Add variety" is clicked → newest row becomes "New Entry" at top
+      document.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button');
+        if(!btn) return;
+
+        const text = (btn.textContent || '').trim();
+        if(!text.startsWith('+ Add variety')) return;
+
+        // Let helper add the row first
+        setTimeout(markNewestRowAsNewEntry, 0);
+      });
+
+      // When a variety option is chosen in the "New Entry" row → commit it
+      document.addEventListener('click', (ev) => {
+        const item = ev.target.closest('.combo-item');
+        if(!item) return;
+
+        const stage = document.getElementById('mhStageShell');
+        if(!stage || !stage.contains(item)) return;
+
+        const row = item.closest('.setup-hybrid-row');
+        if(!row || row.dataset.newEntry !== '1') return;
+
+        // Give fv-combo a tick to update the button text, then commit
+        setTimeout(() => commitNewEntryRow(row), 0);
+      });
+    }
+    // ===== End hybrid row helpers =====
+
     (async function boot(){
       await ready;
 
@@ -1107,9 +1267,11 @@
         obs.observe(mhShell, { childList:true, subtree:true });
       }
 
+      // Make "+ Add variety" use the New Entry → bottom flow
+      wireAddVarietyBehavior();
+
       // ===== Desktop-only: only "View / Add Yield" opens modal =====
       const fieldCard   = document.getElementById('devFieldCard');
-      const yieldBtn    = document.getElementById('btnFieldYield');
       const hiddenOpen  = document.getElementById('btnOpenModal');
 
       if(fieldCard){
