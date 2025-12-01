@@ -1,19 +1,20 @@
 <!-- =====================================================================
 /Farm-vista/pages/reports/reports-trial-summary.html
-Single-trial summary report
+
+Single-trial yield report
  • One trial at a time (expects ?trialId=TRIAL_DOC_ID in URL)
- • Top hero with key stats
- • AI-generated narrative paragraph (via /js/ai-reports.js)
- • Farms grouped, fields sorted A→Z within farm
- • Each field shows trial acres + weighted check/trial bu/ac + advantage
- • Click a field row to open a modal with full yield block details + files
- • Bottom totals for tillable acres, trial acres, weighted averages
+ • Feels like "Fields in Active Trials" (same hero, toolbar, wrap, shell)
+ • Top meta strip + stat pills
+ • AI narrative paragraph (via /Farm-vista/js/ai-reports.js)
+ • Farms grouped, fields A→Z within farm
+ • Each field: trial acres + tillable + weighted check/trial bu/ac + advantage
+ • Click row → modal with yield blocks + file thumbnails
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Trial Summary</title>
+  <title>FarmVista • Field Trial Yield Summary</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -77,10 +78,10 @@ Single-trial summary report
     .body{
       padding:16px;
       display:grid;
-      gap:16px;
+      gap:14px;
     }
 
-    /* Toolbar */
+    /* Toolbar + back / print buttons */
     .toolbar{
       display:flex;
       flex-wrap:wrap;
@@ -127,12 +128,18 @@ Single-trial summary report
       opacity:0.8;
     }
 
+    /* Stat strip (meta line under toolbar) */
+    .meta-strip{
+      font-size:0.8rem;
+      opacity:0.9;
+    }
+
     /* Stat pills */
     .stats-grid{
       display:flex;
       flex-wrap:wrap;
       gap:8px;
-      margin-top:8px;
+      margin-top:6px;
       font-size:0.82rem;
     }
     .stat-pill{
@@ -200,10 +207,10 @@ Single-trial summary report
       opacity:0.7;
     }
 
-    /* Farms + fields */
+    /* Farms + fields inside the trial */
     .farm-fields-block{
-      margin-top:6px;
-      padding-top:8px;
+      margin-top:2px;
+      padding-top:4px;
       border-top:1px solid var(--border);
       font-size:0.9rem;
     }
@@ -216,7 +223,7 @@ Single-trial summary report
     }
 
     .farm-group{
-      margin-top:10px;
+      margin-top:6px;
     }
     .farm-group-title{
       font-weight:600;
@@ -226,7 +233,7 @@ Single-trial summary report
 
     .farm-table-wrap{
       border-radius:10px;
-      border:1px solid var(--border-subtle,var(--border));
+      border:1px solid var(--border);
       overflow:hidden;
     }
     table.farm-table{
@@ -235,23 +242,24 @@ Single-trial summary report
       font-size:0.82rem;
     }
     table.farm-table thead{
-      background:color-mix(in srgb, var(--surface) 78%, var(--border) 22%);
+      background:var(--surface-alt,#F9FAFB);
     }
     table.farm-table th,
     table.farm-table td{
-      padding:7px 9px;
+      padding:6px 8px;
+      border-bottom:1px solid var(--border-subtle,#E5E7EB);
       text-align:left;
-      border-bottom:1px solid color-mix(in srgb, var(--surface) 88%, var(--border) 12%);
+      vertical-align:top;
     }
     table.farm-table th{
       font-weight:600;
-      font-size:0.78rem;
       text-transform:uppercase;
       letter-spacing:0.06em;
-      opacity:0.85;
+      font-size:0.72rem;
+      color:var(--muted,#4B5563);
     }
-    table.farm-table tbody tr:last-child td{
-      border-bottom:none;
+    table.farm-table tr:nth-child(even) td{
+      background:var(--surface-subtle,#F9FAFB);
     }
     table.farm-table tbody tr{
       cursor:pointer;
@@ -259,17 +267,18 @@ Single-trial summary report
     table.farm-table tbody tr:hover{
       background:color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
     }
+
     .field-name-cell{
       font-weight:600;
       font-size:0.84rem;
     }
-    .numeric{
-      text-align:right;
-      white-space:nowrap;
-    }
     .muted-small{
       font-size:0.76rem;
       opacity:0.75;
+    }
+    .numeric{
+      text-align:right;
+      white-space:nowrap;
     }
 
     .adv-pos{
@@ -309,14 +318,14 @@ Single-trial summary report
       gap:10px 14px;
       font-size:0.84rem;
     }
-    .totals-metric span:first-child{
-      opacity:0.7;
-      font-size:0.78rem;
-    }
     .totals-metric{
       display:flex;
       flex-direction:column;
       gap:1px;
+    }
+    .totals-metric span:first-child{
+      opacity:0.7;
+      font-size:0.78rem;
     }
 
     /* Empty state + error */
@@ -331,6 +340,12 @@ Single-trial summary report
     .error-msg{
       color:var(--danger,#A33A3A);
       font-size:0.9rem;
+    }
+
+    .bottom-actions{
+      margin-top:16px;
+      display:flex;
+      justify-content:flex-end;
     }
 
     /* Modal */
@@ -484,163 +499,25 @@ Single-trial summary report
       }
     }
   </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="hero">
-      <div class="hero-head">
-        <div class="icon" aria-hidden="true">
-          <!-- simple beaker / test icon -->
-          <svg viewBox="0 0 24 24">
-            <path fill="currentColor" d="M9 3v2.5l-4.7 9.4A3 3 0 0 0 7 19h10a3 3 0 0 0 2.7-4.1L15 5.5V3h-2v3.1l4.5 9.1A1 1 0 0 1 16.6 17H7.4a1 1 0 0 1-.9-1.4L11 6.1V3H9z"/>
-          </svg>
-        </div>
-        <div>
-          <h1 id="page-title">Trial Summary</h1>
-          <div class="page-header-meta">
-            <span id="page-subtitle" class="muted">Loading trial details…</span>
-          </div>
-        </div>
-      </div>
-      <div class="body">
-        <div class="toolbar">
-          <div class="toolbar-left">
-            <button class="btn btn-quiet" type="button" id="btn-back">
-              <!-- back chevron -->
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path fill="currentColor" d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
-              </svg>
-              <span>Back</span>
-            </button>
-            <div id="trial-tags" class="page-header-meta"></div>
-          </div>
-          <div>
-            <button class="btn btn-primary" type="button" id="btn-print">
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path fill="currentColor" d="M19 8H5a3 3 0 0 0-3 3v4h4v4h12v-4h4v-4a3 3 0 0 0-3-3zm-3 9H8v-4h8zm3-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zM18 3H6v4h12z"/>
-              </svg>
-              <span>Print</span>
-            </button>
-          </div>
-        </div>
 
-        <!-- Top stats -->
-        <div id="top-stats" class="stats-grid" aria-live="polite"></div>
+  <!-- Make sure fv-shell is available (same pattern as active trials report) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 
-        <!-- AI summary -->
-        <section class="ai-card" aria-live="polite">
-          <div class="ai-card-title">
-            <span>Trial Story</span>
-            <span class="ai-chip">AI Summary</span>
-          </div>
-          <div id="ai-summary" class="ai-summary-body">
-            <div class="ai-summary-loading">Using your trial numbers to build a short written summary…</div>
-          </div>
-        </section>
-
-        <!-- Farms + fields -->
-        <section class="farm-fields-block">
-          <div class="farm-fields-title">Fields in this trial</div>
-          <div id="farms-container"></div>
-          <div id="empty-state" class="wo-empty" style="display:none;">
-            No fields were found for this trial yet.
-          </div>
-          <div id="error-state" class="error-msg" style="display:none;"></div>
-        </section>
-
-        <!-- Totals -->
-        <section id="totals-card" class="totals-card" style="display:none;">
-          <div class="totals-row">
-            <div class="totals-label">Overall Trial Totals</div>
-            <div class="totals-metrics">
-              <div class="totals-metric">
-                <span>Fields in trial</span>
-                <span id="tot-fields">–</span>
-              </div>
-              <div class="totals-metric">
-                <span>Tillable acres (all fields)</span>
-                <span id="tot-tillable">–</span>
-              </div>
-              <div class="totals-metric">
-                <span>Trial acres (with yield)</span>
-                <span id="tot-trial-acres">–</span>
-              </div>
-              <div class="totals-metric">
-                <span>Check weighted bu/ac</span>
-                <span id="tot-check-avg">–</span>
-              </div>
-              <div class="totals-metric">
-                <span>Treatment weighted bu/ac</span>
-                <span id="tot-trial-avg">–</span>
-              </div>
-              <div class="totals-metric">
-                <span>Treatment advantage (bu/ac)</span>
-                <span id="tot-adv">–</span>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-  </div>
-
-  <!-- Field detail modal -->
-  <div id="field-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="field-modal-title">
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <div>
-            <div id="field-modal-title" class="modal-title">Field details</div>
-            <div id="field-modal-sub" class="modal-sub"></div>
-          </div>
-          <button type="button" class="modal-close-btn" id="field-modal-close" aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-      <div class="modal-body">
-        <section>
-          <div class="modal-section-title">Summary</div>
-          <div class="modal-summary-grid" id="field-modal-summary"></div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Yield blocks</div>
-          <div class="blocks-table-wrap">
-            <table class="blocks-table">
-              <thead>
-                <tr>
-                  <th>Block</th>
-                  <th>Type</th>
-                  <th class="numeric">Check bu/ac</th>
-                  <th class="numeric">Trial bu/ac</th>
-                  <th class="numeric">Check acres</th>
-                  <th class="numeric">Trial acres</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="field-modal-blocks-body">
-                <!-- rows injected -->
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Files &amp; photos</div>
-          <div id="field-modal-files" class="thumb-grid"></div>
-        </section>
-      </div>
-    </div>
-  </div>
-
-  <!-- Core shell + AI helper -->
-  <script src="/Farm-vista/js/core.js"></script>
+  <!-- AI helper (safe to include even if not used yet by other pages) -->
   <script src="/Farm-vista/js/ai-reports.js"></script>
 
-  <!-- Page logic -->
   <script type="module">
     import {
+      ready,
       getFirestore,
       doc,
       getDoc,
@@ -648,7 +525,12 @@ Single-trial summary report
       getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+
     const STATE = {
+      db: null,
       trialId: null,
       trialDoc: null,
       fields: [], // {id, data, blocks, stats}
@@ -664,32 +546,60 @@ Single-trial summary report
     };
 
     const els = {
-      title: document.getElementById('page-title'),
-      subtitle: document.getElementById('page-subtitle'),
-      tags: document.getElementById('trial-tags'),
-      topStats: document.getElementById('top-stats'),
-      farmsContainer: document.getElementById('farms-container'),
-      emptyState: document.getElementById('empty-state'),
-      errorState: document.getElementById('error-state'),
-      totalsCard: document.getElementById('totals-card'),
-      totFields: document.getElementById('tot-fields'),
-      totTillable: document.getElementById('tot-tillable'),
-      totTrialAcres: document.getElementById('tot-trial-acres'),
-      totCheckAvg: document.getElementById('tot-check-avg'),
-      totTrialAvg: document.getElementById('tot-trial-avg'),
-      totAdv: document.getElementById('tot-adv'),
-      aiSummary: document.getElementById('ai-summary'),
-      btnBack: document.getElementById('btn-back'),
-      btnPrint: document.getElementById('btn-print'),
+      title: null,
+      subtitle: null,
+      metaLine: null,
+      topStats: null,
+      farmsContainer: null,
+      emptyState: null,
+      errorState: null,
+      totalsCard: null,
+      totFields: null,
+      totTillable: null,
+      totTrialAcres: null,
+      totCheckAvg: null,
+      totTrialAvg: null,
+      totAdv: null,
+      aiSummary: null,
+      btnBack: null,
+      btnPrint: null,
 
-      modalBackdrop: document.getElementById('field-modal-backdrop'),
-      modalClose: document.getElementById('field-modal-close'),
-      modalTitle: document.getElementById('field-modal-title'),
-      modalSub: document.getElementById('field-modal-sub'),
-      modalSummary: document.getElementById('field-modal-summary'),
-      modalBlocksBody: document.getElementById('field-modal-blocks-body'),
-      modalFiles: document.getElementById('field-modal-files')
+      modalBackdrop: null,
+      modalClose: null,
+      modalTitle: null,
+      modalSub: null,
+      modalSummary: null,
+      modalBlocksBody: null,
+      modalFiles: null
     };
+
+    function wireDom(){
+      els.title         = $('#pageTitle');
+      els.subtitle      = $('#pageSubtitle');
+      els.metaLine      = $('#reportMeta');
+      els.topStats      = $('#top-stats');
+      els.farmsContainer= $('#farms-container');
+      els.emptyState    = $('#empty-state');
+      els.errorState    = $('#error-state');
+      els.totalsCard    = $('#totals-card');
+      els.totFields     = $('#tot-fields');
+      els.totTillable   = $('#tot-tillable');
+      els.totTrialAcres = $('#tot-trial-acres');
+      els.totCheckAvg   = $('#tot-check-avg');
+      els.totTrialAvg   = $('#tot-trial-avg');
+      els.totAdv        = $('#tot-adv');
+      els.aiSummary     = $('#ai-summary');
+      els.btnBack       = $('#btnBack');
+      els.btnPrint      = $('#btnPrint');
+
+      els.modalBackdrop = $('#field-modal-backdrop');
+      els.modalClose    = $('#field-modal-close');
+      els.modalTitle    = $('#field-modal-title');
+      els.modalSub      = $('#field-modal-sub');
+      els.modalSummary  = $('#field-modal-summary');
+      els.modalBlocksBody = $('#field-modal-blocks-body');
+      els.modalFiles    = $('#field-modal-files');
+    }
 
     function getTrialIdFromUrl(){
       const params = new URLSearchParams(window.location.search);
@@ -735,19 +645,21 @@ Single-trial summary report
       if (!trialId) {
         els.errorState.style.display = 'block';
         els.errorState.textContent = 'No trialId was provided in the URL. Expected ?trialId=TRIAL_DOC_ID.';
+        if (els.metaLine) els.metaLine.textContent = 'Missing trial id in URL';
         return;
       }
 
-      const db = getFirestore();
+      const db = STATE.db;
       const trialRef = doc(db, 'fieldTrials', trialId);
       const trialSnap = await getDoc(trialRef);
       if (!trialSnap.exists()) {
         els.errorState.style.display = 'block';
         els.errorState.textContent = 'Trial not found. Check the link or try again.';
+        if (els.metaLine) els.metaLine.textContent = 'Trial not found';
         return;
       }
 
-      const trialData = trialSnap.data();
+      const trialData = trialSnap.data() || {};
       STATE.trialDoc = { id: trialSnap.id, ...trialData };
 
       // Load fields
@@ -757,7 +669,7 @@ Single-trial summary report
       const fieldRecords = [];
 
       for (const fieldDoc of fieldsSnap.docs) {
-        const fieldData = fieldDoc.data();
+        const fieldData = fieldDoc.data() || {};
 
         const blocksCol = collection(fieldDoc.ref, 'yieldBlocks');
         const blocksSnap = await getDocs(blocksCol);
@@ -816,27 +728,27 @@ Single-trial summary report
       const t = STATE.trialDoc;
       if (!t) return;
 
-      els.title.textContent = t.trialName || 'Trial Summary';
+      if (els.title) els.title.textContent = t.trialName || 'Field Trial Yield Summary';
 
       const pieces = [];
       if (t.cropYear) pieces.push(t.cropYear);
       if (t.crop) pieces.push(t.crop);
       if (t.trialType) pieces.push(t.trialType);
-      els.subtitle.textContent = pieces.join(' • ') || 'Trial details';
+      if (els.subtitle) els.subtitle.textContent = pieces.join(' • ') || 'Trial details';
 
-      const tags = [];
-      if (t.operationTask) tags.push(t.operationTask);
-      if (t.treatmentProduct || t.check) {
-        const checkLabel = t.check || 'Check';
-        const treatLabel = t.treatmentProduct || 'Treatment';
-        tags.push(`${treatLabel} vs ${checkLabel}`);
+      const s = STATE.totals;
+
+      if (els.metaLine) {
+        const parts = [];
+        if (s.fieldCount) parts.push(`${s.fieldCount} field${s.fieldCount === 1 ? '' : 's'}`);
+        const farmSet = new Set(STATE.fields.map(f => f.data.farmId || f.data.farmName || ''));
+        const farmCount = Array.from(farmSet).filter(Boolean).length;
+        if (farmCount) parts.push(`${farmCount} farm${farmCount === 1 ? '' : 's'}`);
+        if (s.trialAcresAll) parts.push(`${formatNumber(s.trialAcresAll, {decimals:0})} trial acres with yield`);
+        els.metaLine.textContent = parts.join(' • ') || 'Trial summary ready';
       }
-      if (t.status) tags.push(`Status: ${t.status}`);
-
-      els.tags.textContent = tags.join(' • ');
 
       // Top stat pills
-      const s = STATE.totals;
       const top = [];
 
       top.push({
@@ -864,27 +776,33 @@ Single-trial summary report
         value: s.advantageAll !== null ? `${s.advantageAll >= 0 ? '+' : ''}${formatNumber(s.advantageAll, {decimals:1})} bu/ac` : '–'
       });
 
-      els.topStats.innerHTML = top.map(stat => `
-        <div class="stat-pill">
-          <div class="stat-label">${stat.label}</div>
-          <div class="stat-value">${stat.value}</div>
-        </div>
-      `).join('');
+      if (els.topStats) {
+        els.topStats.innerHTML = top.map(stat => `
+          <div class="stat-pill">
+            <div class="stat-label">${stat.label}</div>
+            <div class="stat-value">${stat.value}</div>
+          </div>
+        `).join('');
+      }
 
       // Totals card
-      els.totalsCard.style.display = 'block';
-      els.totFields.textContent = s.fieldCount || 0;
-      els.totTillable.textContent = s.tillableAll ? formatNumber(s.tillableAll, {decimals:1}) : '–';
-      els.totTrialAcres.textContent = s.trialAcresAll ? formatNumber(s.trialAcresAll, {decimals:1}) : '–';
-      els.totCheckAvg.textContent = s.checkAvgAll !== null ? formatNumber(s.checkAvgAll, {decimals:1}) : '–';
-      els.totTrialAvg.textContent = s.trialAvgAll !== null ? formatNumber(s.trialAvgAll, {decimals:1}) : '–';
-      els.totAdv.textContent = s.advantageAll !== null
-        ? `${s.advantageAll >= 0 ? '+' : ''}${formatNumber(s.advantageAll, {decimals:1})} bu/ac`
-        : '–';
+      if (els.totalsCard) els.totalsCard.style.display = 'block';
+      if (els.totFields)     els.totFields.textContent = s.fieldCount || 0;
+      if (els.totTillable)   els.totTillable.textContent   = s.tillableAll ? formatNumber(s.tillableAll, {decimals:1}) : '–';
+      if (els.totTrialAcres) els.totTrialAcres.textContent = s.trialAcresAll ? formatNumber(s.trialAcresAll, {decimals:1}) : '–';
+      if (els.totCheckAvg)   els.totCheckAvg.textContent   = s.checkAvgAll !== null ? formatNumber(s.checkAvgAll, {decimals:1}) : '–';
+      if (els.totTrialAvg)   els.totTrialAvg.textContent   = s.trialAvgAll !== null ? formatNumber(s.trialAvgAll, {decimals:1}) : '–';
+      if (els.totAdv) {
+        els.totAdv.textContent = s.advantageAll !== null
+          ? `${s.advantageAll >= 0 ? '+' : ''}${formatNumber(s.advantageAll, {decimals:1})} bu/ac`
+          : '–';
+      }
     }
 
     function renderFarmsAndFields() {
       const fields = STATE.fields || [];
+      if (!els.farmsContainer) return;
+
       if (!fields.length) {
         els.emptyState.style.display = 'block';
         els.farmsContainer.innerHTML = '';
@@ -895,7 +813,7 @@ Single-trial summary report
       // group by farmName
       const byFarm = new Map();
       for (const f of fields) {
-        const name = f.data.farmName || 'Unknown Farm';
+        const name = f.data.farmName || 'Unknown farm';
         if (!byFarm.has(name)) byFarm.set(name, []);
         byFarm.get(name).push(f);
       }
@@ -929,7 +847,10 @@ Single-trial summary report
             <tr data-field-id="${f.id}">
               <td class="field-name-cell">
                 ${d.fieldName || '(Unnamed field)'}
-                <div class="muted-small">${formatNumber(d.trialAcres || 0, {decimals:1})} trial ac • ${formatNumber(d.tillable || 0, {decimals:1})} tillable</div>
+                <div class="muted-small">
+                  ${formatNumber(d.trialAcres || 0, {decimals:1})} trial ac
+                  • ${formatNumber(d.tillable || 0, {decimals:1})} tillable
+                </div>
               </td>
               <td class="numeric">${s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–'}</td>
               <td class="numeric">${s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–'}</td>
@@ -945,10 +866,10 @@ Single-trial summary report
               <table class="farm-table" data-farm="${farmName}">
                 <thead>
                   <tr>
-                    <th>Field</th>
-                    <th class="numeric">Check bu/ac</th>
-                    <th class="numeric">Trial bu/ac</th>
-                    <th class="numeric">Advantage (bu/ac)</th>
+                    <th style="width:40%">Field</th>
+                    <th class="numeric" style="width:20%">Check bu/ac</th>
+                    <th class="numeric" style="width:20%">Trial bu/ac</th>
+                    <th class="numeric" style="width:20%">Advantage (bu/ac)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -973,79 +894,87 @@ Single-trial summary report
     }
 
     function openFieldModal(field) {
+      if (!els.modalBackdrop) return;
+
       const d = field.data;
       const s = field.stats;
       const blocks = field.blocks || [];
 
-      els.modalTitle.textContent = d.fieldName || 'Field details';
+      if (els.modalTitle) els.modalTitle.textContent = d.fieldName || 'Field details';
 
       const subBits = [];
       if (d.farmName) subBits.push(d.farmName);
       if (typeof d.tillable === 'number') subBits.push(`${formatNumber(d.tillable, {decimals:1})} tillable ac`);
       if (typeof d.trialAcres === 'number') subBits.push(`${formatNumber(d.trialAcres, {decimals:1})} trial ac`);
-      els.modalSub.textContent = subBits.join(' • ');
+      if (els.modalSub) els.modalSub.textContent = subBits.join(' • ');
 
       // Summary items
-      const sumHtml = [
-        { label: 'Check weighted bu/ac', value: s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
-        { label: 'Trial weighted bu/ac', value: s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–' },
-        { label: 'Treatment advantage', value: s.advantage !== null ? `${s.advantage >= 0 ? '+' : ''}${formatNumber(s.advantage, {decimals:1})} bu/ac` : '–' },
-        { label: 'Check acres (blocks)', value: s.checkAc ? formatNumber(s.checkAc, {decimals:1}) : '–' },
-        { label: 'Trial acres (blocks)', value: s.trialAc ? formatNumber(s.trialAc, {decimals:1}) : '–' }
-      ].map(item => `
-        <div class="modal-summary-item">
-          <span>${item.label}</span><br/>
-          <span>${item.value}</span>
-        </div>
-      `).join('');
+      if (els.modalSummary) {
+        const sumHtml = [
+          { label: 'Check weighted bu/ac', value: s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
+          { label: 'Trial weighted bu/ac', value: s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–' },
+          { label: 'Treatment advantage', value: s.advantage !== null ? `${s.advantage >= 0 ? '+' : ''}${formatNumber(s.advantage, {decimals:1})} bu/ac` : '–' },
+          { label: 'Check acres (blocks)', value: s.checkAc ? formatNumber(s.checkAc, {decimals:1}) : '–' },
+          { label: 'Trial acres (blocks)', value: s.trialAc ? formatNumber(s.trialAc, {decimals:1}) : '–' }
+        ].map(item => `
+          <div class="modal-summary-item">
+            <span>${item.label}</span><br/>
+            <span>${item.value}</span>
+          </div>
+        `).join('');
 
-      els.modalSummary.innerHTML = sumHtml;
-
-      // Blocks table
-      if (!blocks.length) {
-        els.modalBlocksBody.innerHTML = `
-          <tr><td colspan="7" class="muted-small">No yield blocks recorded for this field yet.</td></tr>
-        `;
-      } else {
-        let i = 1;
-        els.modalBlocksBody.innerHTML = blocks.map(b => {
-          const c = b.check || {};
-          const t = b.trial || {};
-          const blockLabel = `Block ${i++}`;
-          const typeLabel = b.blockType || 'combine';
-
-          return `
-            <tr>
-              <td>${blockLabel}</td>
-              <td>${typeLabel}</td>
-              <td class="numeric">${typeof c.yieldBuAc === 'number' ? formatNumber(c.yieldBuAc, {decimals:1}) : '–'}</td>
-              <td class="numeric">${typeof t.yieldBuAc === 'number' ? formatNumber(t.yieldBuAc, {decimals:1}) : '–'}</td>
-              <td class="numeric">${typeof c.acres === 'number' ? formatNumber(c.acres, {decimals:1}) : '–'}</td>
-              <td class="numeric">${typeof t.acres === 'number' ? formatNumber(t.acres, {decimals:1}) : '–'}</td>
-              <td>${(b.notes || '').toString().trim() || '—'}</td>
-            </tr>
-          `;
-        }).join('');
+        els.modalSummary.innerHTML = sumHtml;
       }
 
-      // Attachments
-      const allAttachments = [];
-      for (const b of blocks) {
-        if (Array.isArray(b.attachments)) {
-          for (const url of b.attachments) {
-            if (url && typeof url === 'string') allAttachments.push(url);
-          }
+      // Blocks table
+      if (els.modalBlocksBody) {
+        if (!blocks.length) {
+          els.modalBlocksBody.innerHTML = `
+            <tr><td colspan="7" class="muted-small">No yield blocks recorded for this field yet.</td></tr>
+          `;
+        } else {
+          let i = 1;
+          els.modalBlocksBody.innerHTML = blocks.map(b => {
+            const c = b.check || {};
+            const t = b.trial || {};
+            const blockLabel = `Block ${i++}`;
+            const typeLabel = b.blockType || 'combine';
+
+            return `
+              <tr>
+                <td>${blockLabel}</td>
+                <td>${typeLabel}</td>
+                <td class="numeric">${typeof c.yieldBuAc === 'number' ? formatNumber(c.yieldBuAc, {decimals:1}) : '–'}</td>
+                <td class="numeric">${typeof t.yieldBuAc === 'number' ? formatNumber(t.yieldBuAc, {decimals:1}) : '–'}</td>
+                <td class="numeric">${typeof c.acres === 'number' ? formatNumber(c.acres, {decimals:1}) : '–'}</td>
+                <td class="numeric">${typeof t.acres === 'number' ? formatNumber(t.acres, {decimals:1}) : '–'}</td>
+                <td>${(b.notes || '').toString().trim() || '—'}</td>
+              </tr>
+            `;
+          }).join('');
         }
       }
 
-      if (!allAttachments.length) {
-        els.modalFiles.innerHTML = `<div class="thumb-empty">No files or photos are attached to this field’s blocks yet.</div>`;
-      } else {
-        els.modalFiles.innerHTML = allAttachments.map(url => `
-          <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb">
-            <img src="${url}" alt="Trial file thumbnail">
-          </a>
-        `).join('');
+      // Attachments
+      if (els.modalFiles) {
+        const allAttachments = [];
+        for (const b of blocks) {
+          if (Array.isArray(b.attachments)) {
+            for (const url of b.attachments) {
+              if (url && typeof url === 'string') allAttachments.push(url);
+            }
+          }
+        }
+
+        if (!allAttachments.length) {
+          els.modalFiles.innerHTML = `<div class="thumb-empty">No files or photos are attached to this field’s blocks yet.</div>`;
+        } else {
+          els.modalFiles.innerHTML = allAttachments.map(url => `
+            <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb">
+              <img src="${url}" alt="Trial file thumbnail">
+            </a>
+          `).join('');
+        }
       }
 
       els.modalBackdrop.classList.remove('modal-hidden');
@@ -1053,27 +982,31 @@ Single-trial summary report
     }
 
     function closeFieldModal() {
+      if (!els.modalBackdrop) return;
       els.modalBackdrop.classList.add('modal-hidden');
       els.modalBackdrop.setAttribute('aria-hidden', 'true');
     }
 
     function wireBasicEvents() {
-      els.btnBack.addEventListener('click', () => {
-        if (document.referrer) {
-          window.history.back();
-        } else {
-          window.location.href = '/Farm-vista/pages/reports/';
-        }
-      });
+      if (els.btnBack) {
+        els.btnBack.addEventListener('click', () => {
+          // Line up with other report pages
+          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
+        });
+      }
 
-      els.btnPrint.addEventListener('click', () => {
-        window.print();
-      });
+      if (els.btnPrint) {
+        els.btnPrint.addEventListener('click', () => {
+          window.print();
+        });
+      }
 
-      els.modalClose.addEventListener('click', closeFieldModal);
-      els.modalBackdrop.addEventListener('click', (evt) => {
-        if (evt.target === els.modalBackdrop) closeFieldModal();
-      });
+      if (els.modalClose) els.modalClose.addEventListener('click', closeFieldModal);
+      if (els.modalBackdrop) {
+        els.modalBackdrop.addEventListener('click', (evt) => {
+          if (evt.target === els.modalBackdrop) closeFieldModal();
+        });
+      }
 
       document.addEventListener('keydown', (evt) => {
         if (evt.key === 'Escape' && !els.modalBackdrop.classList.contains('modal-hidden')) {
@@ -1083,8 +1016,9 @@ Single-trial summary report
     }
 
     function kickOffAiSummary() {
+      if (!els.aiSummary) return;
+
       if (!window.FVAiReports || typeof window.FVAiReports.renderTrialSummary !== 'function') {
-        // safety – leave the loading text, but note that AI helper is missing
         els.aiSummary.innerHTML = '<p class="ai-summary-error">AI helper script (ai-reports.js) is not available. The numeric summary above is still accurate.</p>';
         return;
       }
@@ -1101,23 +1035,181 @@ Single-trial summary report
       window.FVAiReports.renderTrialSummary(els.aiSummary, payload);
     }
 
-    async function init() {
-      try {
-        wireBasicEvents();
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      // hook nav
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      wireDom();
+      wireBasicEvents();
+
+      try{
         await loadData();
         if (!STATE.trialDoc) return;
-
         renderTop();
         renderFarmsAndFields();
         kickOffAiSummary();
-      } catch (err) {
-        console.error(err);
-        els.errorState.style.display = 'block';
-        els.errorState.textContent = 'Something went wrong loading this report.';
+      }catch(err){
+        console.error('Error loading trial summary:', err);
+        if (els.errorState){
+          els.errorState.style.display = 'block';
+          els.errorState.textContent = 'Error loading this trial summary. Check console or Firestore rules.';
+        }
+        if (els.metaLine) els.metaLine.textContent = 'Error loading trial summary';
       }
-    }
-
-    document.addEventListener('DOMContentLoaded', init);
+    })();
   </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧪</div>
+          <div>
+            <h1 id="pageTitle">Field Trial Yield Summary</h1>
+            <p id="pageSubtitle" class="muted">
+              Loading trial details…
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Reports
+              </button>
+              <button id="btnPrint" type="button" class="btn btn-primary">
+                Print / Save PDF
+              </button>
+            </div>
+            <div class="page-header-meta meta-strip" id="reportMeta">
+              Loading trial summary…
+            </div>
+          </div>
+
+          <!-- Top stats -->
+          <section aria-label="Trial overview stats">
+            <div id="top-stats" class="stats-grid" aria-live="polite"></div>
+          </section>
+
+          <!-- AI summary -->
+          <section class="ai-card" aria-label="AI summary of this trial" aria-live="polite">
+            <div class="ai-card-title">
+              <span>Trial Story</span>
+              <span class="ai-chip">AI Summary</span>
+            </div>
+            <div id="ai-summary" class="ai-summary-body">
+              <div class="ai-summary-loading">Using your trial numbers to build a short written summary…</div>
+            </div>
+          </section>
+
+          <!-- Farms + fields -->
+          <section class="farm-fields-block" aria-label="Fields in this trial">
+            <div class="farm-fields-title">Farms &amp; fields in this trial</div>
+            <div id="farms-container"></div>
+            <div id="empty-state" class="wo-empty" style="display:none;">
+              No fields were found for this trial yet.
+            </div>
+            <div id="error-state" class="error-msg" style="display:none;"></div>
+          </section>
+
+          <!-- Totals -->
+          <section id="totals-card" class="totals-card" style="display:none;" aria-label="Overall trial totals">
+            <div class="totals-row">
+              <div class="totals-label">Overall Trial Totals</div>
+              <div class="totals-metrics">
+                <div class="totals-metric">
+                  <span>Fields in trial</span>
+                  <span id="tot-fields">–</span>
+                </div>
+                <div class="totals-metric">
+                  <span>Tillable acres (all fields)</span>
+                  <span id="tot-tillable">–</span>
+                </div>
+                <div class="totals-metric">
+                  <span>Trial acres (with yield)</span>
+                  <span id="tot-trial-acres">–</span>
+                </div>
+                <div class="totals-metric">
+                  <span>Check weighted bu/ac</span>
+                  <span id="tot-check-avg">–</span>
+                </div>
+                <div class="totals-metric">
+                  <span>Treatment weighted bu/ac</span>
+                  <span id="tot-trial-avg">–</span>
+                </div>
+                <div class="totals-metric">
+                  <span>Treatment advantage (bu/ac)</span>
+                  <span id="tot-adv">–</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="bottom-actions">
+            <button id="btnPrintBottom" type="button" class="btn btn-primary" onclick="window.print()">
+              Print / Save PDF
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Field detail modal (outside shell content flow but above footer) -->
+  <div id="field-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="field-modal-title">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <div>
+            <div id="field-modal-title" class="modal-title">Field details</div>
+            <div id="field-modal-sub" class="modal-sub"></div>
+          </div>
+          <button type="button" class="modal-close-btn" id="field-modal-close" aria-label="Close">
+            ×
+          </button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <section>
+          <div class="modal-section-title">Summary</div>
+          <div class="modal-summary-grid" id="field-modal-summary"></div>
+        </section>
+
+        <section>
+          <div class="modal-section-title">Yield blocks</div>
+          <div class="blocks-table-wrap">
+            <table class="blocks-table">
+              <thead>
+                <tr>
+                  <th>Block</th>
+                  <th>Type</th>
+                  <th class="numeric">Check bu/ac</th>
+                  <th class="numeric">Trial bu/ac</th>
+                  <th class="numeric">Check acres</th>
+                  <th class="numeric">Trial acres</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="field-modal-blocks-body">
+                <!-- rows injected -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div class="modal-section-title">Files &amp; photos</div>
+          <div id="field-modal-files" class="thumb-grid"></div>
+        </section>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
