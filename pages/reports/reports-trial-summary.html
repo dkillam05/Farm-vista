@@ -2,6 +2,9 @@
 /Farm-vista/pages/reports/reports-trial-summary.html
 
 Single-trial yield report
+ • One trial at a time
+ • Desktop: farm/field table layout (unchanged)
+ • Mobile: stacked card layout (no horizontal tables)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -240,7 +243,7 @@ Single-trial yield report
       color:var(--danger,#A33A3A);
     }
 
-    /* Farms + fields */
+    /* Farms + fields block */
     .farm-fields-block{
       margin-top:2px;
       padding-top:4px;
@@ -264,6 +267,7 @@ Single-trial yield report
       margin:2px 0 4px;
     }
 
+    /* Desktop table layout (unchanged) */
     .farm-table-wrap{
       border-radius:10px;
       border:1px solid var(--border);
@@ -327,7 +331,7 @@ Single-trial yield report
       font-weight:700;
     }
 
-    /* Totals footer */
+    /* Totals footer (desktop base) */
     .totals-card{
       margin-top:10px;
       border-radius:12px;
@@ -561,6 +565,87 @@ Single-trial yield report
       opacity:0.8;
     }
 
+    /* Desktop vs mobile layout toggles */
+    .desktop-only{
+      display:block;
+    }
+    .mobile-only{
+      display:none;
+    }
+
+    /* Mobile field cards */
+    .field-card-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .farm-mobile-group{
+      margin-top:8px;
+    }
+    .farm-mobile-title{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+    .field-card{
+      border-radius:12px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      cursor:pointer;
+    }
+    .field-card-header{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+    }
+    .field-card-name{
+      font-weight:600;
+      font-size:0.95rem;
+    }
+    .field-card-adv{
+      font-size:0.86rem;
+      white-space:nowrap;
+    }
+    .field-card-meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      font-size:0.78rem;
+      opacity:0.82;
+    }
+    .field-card-chip{
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:color-mix(in srgb, var(--surface) 88%, var(--border) 12%);
+    }
+    .field-card-metrics{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px 14px;
+      font-size:0.8rem;
+    }
+    .field-card-metric{
+      display:flex;
+      flex-direction:column;
+      gap:1px;
+      min-width:90px;
+    }
+    .field-card-metric span{
+      opacity:0.7;
+      font-size:0.76rem;
+    }
+    .field-card-metric strong{
+      font-size:0.9rem;
+    }
+
     /* Mobile tweaks */
     @media (max-width:640px){
       .wrap{
@@ -597,6 +682,15 @@ Single-trial yield report
       }
       .totals-metrics{
         width:100%;
+        flex-direction:column;
+        gap:4px;
+      }
+      .totals-metric{
+        padding-top:4px;
+        border-top:1px solid var(--border-subtle,var(--border));
+      }
+      .totals-metric:first-child{
+        border-top:none;
       }
 
       .bottom-actions{
@@ -612,6 +706,14 @@ Single-trial yield report
         max-height:calc(100vh - 32px);
         border-radius:12px;
         margin:0 8px;
+      }
+
+      /* Layout switch: cards on mobile, table on desktop */
+      .desktop-only{
+        display:none;
+      }
+      .mobile-only{
+        display:block;
       }
     }
 
@@ -682,7 +784,11 @@ Single-trial yield report
       subtitle: null,
       metaLine: null,
       topStats: null,
-      farmsContainer: null,
+
+      // desktop + mobile fields
+      farmsContainer: null,        // desktop table
+      farmsMobileContainer: null,  // mobile cards
+
       emptyState: null,
       errorState: null,
       totalsCard: null,
@@ -722,7 +828,10 @@ Single-trial yield report
       els.subtitle      = $('#pageSubtitle');
       els.metaLine      = $('#reportMeta');
       els.topStats      = $('#top-stats');
-      els.farmsContainer= $('#farms-container');
+
+      els.farmsContainer      = $('#farms-container');        // desktop table container
+      els.farmsMobileContainer= $('#farms-mobile-container'); // mobile cards container
+
       els.emptyState    = $('#empty-state');
       els.errorState    = $('#error-state');
       els.totalsCard    = $('#totals-card');
@@ -941,7 +1050,10 @@ Single-trial yield report
 
       if (els.metaLine) els.metaLine.textContent = 'No trial selected yet. Pick a trial above to load details.';
       if (els.topStats) els.topStats.innerHTML = '';
+
       if (els.farmsContainer) els.farmsContainer.innerHTML = '';
+      if (els.farmsMobileContainer) els.farmsMobileContainer.innerHTML = '';
+
       if (els.emptyState) {
         els.emptyState.style.display = 'block';
         els.emptyState.textContent = 'No trial is selected. Choose a crop year and trial above.';
@@ -1106,17 +1218,22 @@ Single-trial yield report
       }
     }
 
-    function renderFarmsAndFields() {
+    /* ---------- desktop: farm/field table ---------- */
+
+    function renderFarmsAndFieldsTable() {
       const fields = STATE.fields || [];
       if (!els.farmsContainer) return;
 
       if (!fields.length) {
         els.farmsContainer.innerHTML = '';
-        els.emptyState.style.display = 'block';
-        els.emptyState.textContent = 'No fields with yield were found for this trial yet.';
+        if (els.farmsMobileContainer) els.farmsMobileContainer.innerHTML = '';
+        if (els.emptyState) {
+          els.emptyState.style.display = 'block';
+          els.emptyState.textContent = 'No fields with yield were found for this trial yet.';
+        }
         return;
       }
-      els.emptyState.style.display = 'none';
+      if (els.emptyState) els.emptyState.style.display = 'none';
 
       const byFarm = new Map();
       for (const f of fields) {
@@ -1126,7 +1243,6 @@ Single-trial yield report
       }
 
       const farmNames = Array.from(byFarm.keys()).sort((a, b) => a.localeCompare(b));
-
       const farmHtml = [];
 
       for (const farmName of farmNames) {
@@ -1193,6 +1309,93 @@ Single-trial yield report
       els.farmsContainer.querySelectorAll('tbody tr[data-field-id]').forEach(row => {
         row.addEventListener('click', () => {
           const id = row.getAttribute('data-field-id');
+          const field = STATE.fields.find(f => f.id === id);
+          if (field) openFieldModal(field);
+        });
+      });
+    }
+
+    /* ---------- mobile: stacked field cards ---------- */
+
+    function renderFarmsAndFieldsMobile() {
+      const fields = STATE.fields || [];
+      if (!els.farmsMobileContainer) return;
+
+      if (!fields.length) {
+        els.farmsMobileContainer.innerHTML = '';
+        return;
+      }
+
+      const byFarm = new Map();
+      for (const f of fields) {
+        const name = f.data.farmName || 'Unknown farm';
+        if (!byFarm.has(name)) byFarm.set(name, []);
+        byFarm.get(name).push(f);
+      }
+
+      const farmNames = Array.from(byFarm.keys()).sort((a, b) => a.localeCompare(b));
+      const farmHtml = [];
+
+      for (const farmName of farmNames) {
+        const fList = byFarm.get(farmName) || [];
+        fList.sort((a, b) => {
+          const an = a.data.fieldName || '';
+          const bn = b.data.fieldName || '';
+          return an.localeCompare(bn);
+        });
+
+        const cards = fList.map(f => {
+          const d = f.data;
+          const s = f.stats || {};
+          const adv = s.advantage;
+
+          let advClass = '';
+          let advText = '–';
+          if (adv !== null) {
+            advClass = adv >= 0 ? 'adv-pos' : 'adv-neg';
+            advText = `${adv >= 0 ? '+' : ''}${formatNumber(adv, {decimals:1})} bu/ac`;
+          }
+
+          const checkText = s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–';
+          const trialText = s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–';
+
+          return `
+            <div class="field-card" data-field-id="${f.id}">
+              <div class="field-card-header">
+                <div class="field-card-name">${d.fieldName || '(Unnamed field)'}</div>
+                <div class="field-card-adv ${advClass}">${advText}</div>
+              </div>
+              <div class="field-card-meta">
+                <span class="field-card-chip">${formatNumber(d.trialAcres || 0, {decimals:1})} trial ac</span>
+                <span class="field-card-chip">${formatNumber(d.tillable || 0, {decimals:1})} tillable</span>
+              </div>
+              <div class="field-card-metrics">
+                <div class="field-card-metric">
+                  <span>Check bu/ac</span>
+                  <strong>${checkText}</strong>
+                </div>
+                <div class="field-card-metric">
+                  <span>Trial bu/ac</span>
+                  <strong>${trialText}</strong>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        farmHtml.push(`
+          <div class="farm-mobile-group">
+            <div class="farm-mobile-title">${farmName}</div>
+            ${cards}
+          </div>
+        `);
+      }
+
+      els.farmsMobileContainer.innerHTML = farmHtml.join('');
+
+      els.farmsMobileContainer.querySelectorAll('.field-card[data-field-id]').forEach(card => {
+        card.addEventListener('click', () => {
+          const id = card.getAttribute('data-field-id');
           const field = STATE.fields.find(f => f.id === id);
           if (field) openFieldModal(field);
         });
@@ -1735,7 +1938,7 @@ Single-trial yield report
 
       document.addEventListener('keydown', (evt) => {
         if (evt.key === 'Escape') {
-          if (!els.modalBackdrop.classList.contains('modal-hidden')) {
+          if (els.modalBackdrop && !els.modalBackdrop.classList.contains('modal-hidden')) {
             closeFieldModal();
           }
           if (els.printModalBackdrop && !els.printModalBackdrop.classList.contains('modal-hidden')) {
@@ -1768,7 +1971,8 @@ Single-trial yield report
             if (els.metaLine) els.metaLine.textContent = 'Loading trial summary…';
             await loadTrialData(STATE.trialId);
             renderTop();
-            renderFarmsAndFields();
+            renderFarmsAndFieldsTable();
+            renderFarmsAndFieldsMobile();
             kickOffAiSummary();
           }catch(err){
             console.error('Error loading selected trial:', err);
@@ -1827,7 +2031,8 @@ Single-trial yield report
             if (els.metaLine) els.metaLine.textContent = 'Loading trial from link…';
             await loadTrialData(fromUrl);
             renderTop();
-            renderFarmsAndFields();
+            renderFarmsAndFieldsTable();
+            renderFarmsAndFieldsMobile();
             kickOffAiSummary();
           }
         }
@@ -1922,14 +2127,24 @@ Single-trial yield report
           <!-- Farms + fields -->
           <section class="farm-fields-block" aria-label="Fields in this trial">
             <div class="farm-fields-title">Farms &amp; fields in this trial</div>
-            <div id="farms-container"></div>
+
+            <!-- Desktop table layout -->
+            <div class="desktop-only">
+              <div id="farms-container"></div>
+            </div>
+
+            <!-- Mobile stacked cards layout -->
+            <div class="mobile-only">
+              <div id="farms-mobile-container" class="field-card-list"></div>
+            </div>
+
             <div id="empty-state" class="wo-empty" style="display:none;">
               No trial is selected. Choose a crop year and trial above.
             </div>
             <div id="error-state" class="error-msg" style="display:none;"></div>
           </section>
 
-          <!-- Totals -->
+          <!-- Totals (shared, but stacks differently on mobile) -->
           <section id="totals-card" class="totals-card" style="display:none;" aria-label="Overall trial totals">
             <div class="totals-row">
               <div class="totals-label">Overall Trial Totals</div>
