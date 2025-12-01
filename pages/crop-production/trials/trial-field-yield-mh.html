@@ -782,7 +782,9 @@
       ready,
       getFirestore,
       doc,
-      getDoc
+      getDoc,
+      collection,
+      getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -889,12 +891,67 @@
         }
       };
 
-      if(!STATE.db || !STATE.trialId || !STATE.fieldDocId){
+      if(!STATE.db || !STATE.trialId){
         fallbackFromParams();
         return;
       }
 
       try{
+        // If we weren't passed a fieldDocId, auto-pick the first field
+        if(!STATE.fieldDocId){
+          const fieldsCol = collection(
+            STATE.db,
+            CONFIG.COLLECTION_TRIALS,
+            STATE.trialId,
+            'fields'
+          );
+          const snapAll = await getDocs(fieldsCol);
+          if(snapAll.empty){
+            fallbackFromParams();
+            return;
+          }
+          const first = snapAll.docs[0];
+          STATE.fieldDocId = first.id;
+          const f = first.data() || {};
+          STATE.field = f;
+
+          const farmName  = f.farmName || f.farm || '';
+          const fieldName = f.fieldName || f.field || '';
+          const trialAc   = f.trialAcres ?? f.trialAc ?? null;
+          const tillable  = f.maxTillableAcres ?? f.tillableAc ?? f.fieldAcres ?? null;
+
+          if(fieldTitleEl){
+            const parts = [];
+            if(farmName)  parts.push(farmName);
+            if(fieldName) parts.push(fieldName);
+            fieldTitleEl.textContent = parts.length
+              ? parts.join(' • ')
+              : 'Field in multi-hybrid trial';
+          }
+
+          if(fieldSubEl){
+            let html = '';
+            if(trialAc != null){
+              html += `Trial acres: <strong>${Number(trialAc).toFixed(2)} ac</strong>`;
+            }
+            if(tillable != null){
+              html += ` (Max tillable: ${Number(tillable).toFixed(2)})`;
+            }
+            fieldSubEl.innerHTML = html || '';
+          }
+
+          if(fieldNoteEl){
+            const bits = [];
+            if(f.township) bits.push(f.township);
+            if(f.range)    bits.push(f.range);
+            if(f.section)  bits.push(`Sec ${f.section}`);
+            fieldNoteEl.textContent = bits.join(' • ');
+          }
+
+          return; // we're done
+        }
+
+        // Normal path: we *have* a fieldDocId
         const fieldRef = doc(
           STATE.db,
           CONFIG.COLLECTION_TRIALS,
