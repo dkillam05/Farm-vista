@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Add Field and Yield to Trials</title>
+  <title>FarmVista • Add Field to Trial</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -13,19 +13,28 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
-  <!-- Swipe list styles for mobile swipe actions -->
+  <!-- Swipe styles for shared helper -->
   <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
+
+  <!-- FVData helpers -->
+  <script src="/Farm-vista/js/fv-data.js"></script>
 
   <style>
     :root{
-      --card-max: 1200px;
-      --page-bottom-gap: 96px;
+      --card-max: 900px;
+      --page-bottom-gap: 72px;
       --accent: #2F6C3C;
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
     }
 
     html{-webkit-text-size-adjust:100%}
     body{
-      background: var(--app-bg, var(--surface));
+      background: var(--app-bg,var(--surface));
       overflow-x:hidden;
     }
 
@@ -36,25 +45,31 @@
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
       display:grid;
-      gap:12px;
+      gap:16px;
     }
 
     .hero{
       border:1px solid var(--border);
-      border-radius:14px;
+      border-radius:18px;
       background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      box-shadow:var(--shadow,0 12px 28px rgba(0,0,0,.12));
       overflow:visible;
     }
 
     .hero-head{
-      display:grid;
-      grid-template-columns:36px 1fr;
+      display:flex;
+      justify-content:flex-start;
+      align-items:flex-start;
       gap:12px;
-      align-items:center;
       padding:14px 16px;
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+
+    .hero-head-main{
+      display:flex;
+      align-items:flex-start;
+      gap:12px;
     }
 
     .hero-head .icon{
@@ -63,6 +78,7 @@
       color:var(--accent);
       display:grid;
       place-items:center;
+      margin-top:2px;
     }
 
     .hero-head h1{
@@ -76,498 +92,425 @@
     .body{
       padding:16px;
       display:grid;
-      gap:12px;
+      gap:14px;
     }
 
-    .toolbar{
+    .top-row{
       display:flex;
       flex-wrap:wrap;
-      gap:10px;
-      align-items:center;
+      align-items:flex-start;
       justify-content:space-between;
+      gap:10px 16px;
     }
 
-    .toolbar-left{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:center;
-    }
-
-    .toolbar-right{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      align-items:center;
+    .trial-summary{
+      display:grid;
+      gap:4px;
       font-size:0.9rem;
-      opacity:0.9;
+    }
+
+    .trial-summary-title{
+      font-weight:800;
+      font-size:1rem;
+    }
+
+    .trial-summary-line{
+      font-size:0.85rem;
+      color:var(--muted,#67706B);
     }
 
     .btn{
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      min-width:120px;
-      padding:10px 14px;
+      min-width:140px;
+      padding:11px 16px;
       border-radius:12px;
       border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
       font-weight:800;
+      font-size:0.95rem;
       text-decoration:none;
       cursor:pointer;
       user-select:none;
-      color:var(--text) !important;
-      background:var(--card-surface,var(--surface));
-      font-size:0.9rem;
+      color:var(--text)!important;
       gap:6px;
     }
-
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
+    }
     .btn-quiet{
       min-width:auto;
       padding-inline:10px;
     }
-
-    /* Status dropdown – now INSIDE hero */
-    .status-filter-wrap{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-      font-size:0.85rem;
-      margin-top:4px;
-      max-width:220px;
-    }
-
-    .status-filter-label{
-      font-size:0.78rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      opacity:0.7;
-    }
-
-    .status-filter-select{
-      min-width:180px;
-      padding:7px 10px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:var(--card-surface, var(--surface));
-      font-size:0.9rem;
-    }
-
-    /* Trial list */
-
-    .trial-list{
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      margin-top:4px;
-    }
-
-    .trial-empty{
-      padding:14px 16px;
-      border-radius:12px;
-      border:1px dashed var(--border);
-      background:var(--card-surface, var(--surface));
-      font-size:0.95rem;
-      opacity:0.9;
-      cursor:pointer;
-    }
-
-    .trial-card{
-      position:relative;
-      border-radius:14px;
-      border:1px solid var(--card-border, var(--border));
-      background:var(--card-surface, var(--surface));
-      box-shadow:var(--shadow-soft, var(--shadow));
-      padding:12px 14px 10px;
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
-      cursor:pointer;
-    }
-
-    .trial-card:active{
-      transform:scale(.995);
-      box-shadow:var(--shadow);
-    }
-
-    .trial-row-top{
-      display:flex;
-      align-items:flex-start;
-      gap:10px;
-    }
-
-    .trial-main{
-      flex:1 1 auto;
-      min-width:0;
-      padding-right:160px; /* room for Add Fields + Add Yield buttons */
-    }
-
-    .trial-title{
-      font-weight:700;
-      font-size:0.98rem;
-      line-height:1.3;
-    }
-
-    .trial-sub{
-      font-size:0.86rem;
-      opacity:0.9;
-      margin-top:2px;
-    }
-
-    .trial-meta{
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px 10px;
-      margin-top:4px;
-      font-size:0.8rem;
-      opacity:0.85;
-    }
-
-    .trial-meta span{
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      padding:2px 7px;
-      border-radius:999px;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-    }
-
-    .trial-meta-label{
-      font-weight:600;
-    }
-
-    .trial-bottom-row{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      font-size:0.78rem;
-      opacity:0.8;
-      margin-top:4px;
-      flex-wrap:wrap;
-    }
-
-    .trial-status-chip{
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      padding:2px 8px;
-      border-radius:999px;
-      font-size:0.78rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-    }
-
-    .trial-card-actions{
-      position:absolute;
-      top:10px;
-      right:12px;
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-
-    .trial-add-btn{
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:5px 12px;
-      font-size:0.78rem;
-      font-weight:700;
-      background:var(--surface-strong, var(--surface));
-      cursor:pointer;
-      white-space:nowrap;
-      color:var(--accent);
-    }
-
-    .trial-add-btn:hover{
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-    }
-
-    /* Detail panel */
-
-    .trial-detail-panel{
-      margin-top:10px;
-      border-radius:10px;
-      border:1px solid var(--card-border, var(--border));
-      background:var(--card-surface, var(--surface));
-      box-shadow:var(--shadow-soft, var(--shadow));
-      padding:14px 16px 12px;
-      display:none;
-      flex-direction:column;
-      gap:8px;
-    }
-
-    .trial-detail-header{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:10px;
-    }
-
-    .trial-detail-title{
-      font-weight:700;
-      font-size:1rem;
-    }
-
-    .trial-detail-close{
-      border:none;
-      outline:none;
-      background:transparent;
-      padding:0;
-      cursor:pointer;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      width:28px;
-      height:28px;
-      border-radius:999px;
-      color:var(--muted,#67706B);
-    }
-
-    .trial-detail-close:hover{
-      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
-      color:var(--text);
-    }
-
-    .trial-detail-close svg{
-      width:16px;
-      height:16px;
-      display:block;
-    }
-
-    .visually-hidden{
-      position:absolute;
-      width:1px;
-      height:1px;
-      padding:0;
-      margin:-1px;
-      overflow:hidden;
-      clip:rect(0,0,0,0);
-      white-space:nowrap;
-      border:0;
-    }
-
-    .trial-detail-grid{
-      display:grid;
-      grid-template-columns:minmax(0,1fr);
-      gap:6px 16px;
-      font-size:0.9rem;
-      margin-top:4px;
-    }
-
-    @media (min-width:700px){
-      .trial-detail-grid{
-        grid-template-columns:repeat(2, minmax(0,1fr));
-      }
-    }
-
-    .trial-detail-item-label{
-      font-size:0.8rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      opacity:0.7;
-      margin-bottom:1px;
-    }
-
-    .trial-detail-item-value{
-      font-size:0.92rem;
-    }
-
-    .trial-detail-notes{
-      margin-top:8px;
-      padding-top:8px;
-      border-top:1px solid var(--border);
-      font-size:0.92rem;
-      white-space:pre-wrap;
-    }
-
-    .trial-detail-notes-label{
-      font-size:0.8rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      opacity:0.7;
-      margin-bottom:2px;
-    }
-
-    .trial-detail-notes-body{
-      margin-top:2px;
-    }
-
-    .trial-attachments{
-      margin-top:8px;
-      padding-top:8px;
-      border-top:1px solid var(--border);
-      font-size:0.9rem;
-    }
-
-    .trial-attachments-label{
-      font-size:0.8rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      opacity:0.7;
-      margin-bottom:4px;
-    }
-
-    .trial-attachments-grid{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-    }
-
-    .trial-attachment-thumb{
-      width:64px;
-      height:64px;
-      border-radius:10px;
-      overflow:hidden;
-      border:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      font-size:0.8rem;
-      cursor:pointer;
-      padding:0;
-    }
-
-    .trial-attachment-thumb img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-      display:block;
-    }
-
-    .trial-attachment-empty{
-      font-size:0.86rem;
-      opacity:0.8;
-    }
-
-    .trial-actions{
-      margin-top:10px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:8px;
-    }
-
-    .btn-complete{
-      background:var(--accent);
-      border-color:var(--accent);
-      color:#fff !important;
-    }
-
-    .btn-complete[disabled]{
+    .btn[disabled]{
       opacity:.6;
       cursor:not-allowed;
     }
 
-    /* Delete trial button */
-    .trial-delete-btn{
-      width:32px;
-      height:32px;
-      border-radius:999px;
-      border:1px solid #C53030;
-      background:transparent;
-      color:#C53030;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      cursor:pointer;
-    }
-
-    .trial-delete-btn:hover{
-      background:rgba(197,48,48,0.08);
-    }
-
-    .trial-delete-btn svg{
-      width:16px;
-      height:16px;
-      display:block;
-    }
-
-    .trial-detail-footer{
-      margin-top:10px;
+    .btn-small{
+      padding:4px 8px;
+      min-width:auto;
       font-size:0.8rem;
-      opacity:0.8;
-    }
-
-    .trial-detail-pill{
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      padding:2px 8px;
       border-radius:999px;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-      font-size:0.8rem;
-      margin-left:6px;
     }
 
-    /* File viewer modal */
+    .btn-danger{
+      border-color:#b3261e;
+      color:#b3261e!important;
+      background:rgba(179,38,30,.06);
+    }
 
-    .file-modal{
-      position:fixed;
-      inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      z-index:100000;
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
     }
-    .file-modal.show{
-      display:flex;
+    @media (max-width:800px){
+      .row{ grid-template-columns:1fr; }
     }
-    .file-backdrop{
-      position:absolute;
-      inset:0;
-      background:rgba(0,0,0,.6);
-    }
-    .file-sheet{
+
+    .field{
       position:relative;
-      max-width:90vw;
-      max-height:90vh;
-      background:var(--surface);
-      border-radius:14px;
-      border:1px solid var(--border);
-      box-shadow:0 20px 40px rgba(0,0,0,.4);
-      padding:8px 10px 10px;
       display:flex;
       flex-direction:column;
-      gap:6px;
-      z-index:1;
+      gap:4px;
     }
-    .file-close-row{
-      display:flex;
-      justify-content:flex-end;
-      margin-bottom:4px;
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 2px;
     }
-    .file-close-btn{
-      border:none;
-      border-radius:999px;
-      padding:4px 10px;
-      font-size:0.85rem;
-      cursor:pointer;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    .field small{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+
+    .input,
+    .textarea{
+      width:100%;
+      font:inherit;
+      font-size:16px;
       color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
     }
-    .file-content-wrap{
-      border-radius:12px;
-      overflow:hidden;
-      background:#000;
-      max-width:calc(90vw - 20px);
-      max-height:calc(80vh - 40px);
-      display:flex;
-      align-items:center;
-      justify-content:center;
+    .textarea{
+      min-height:110px;
+      resize:vertical;
     }
-    .file-content-wrap img{
-      max-width:100%;
-      max-height:100%;
+
+    .helper{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+      margin-top:2px;
+    }
+
+    .error-box{
+      border:1px solid #b3261e;
+      background:#fff;
+      color:#b3261e;
+      border-radius:10px;
+      padding:10px 12px;
+      display:none;
+    }
+    .error-box.show{
       display:block;
     }
-    .file-content-wrap iframe{
-      border:0;
-      width:calc(90vw - 20px);
-      height:calc(80vh - 40px);
-      background:#fff;
+
+    .input-error{
+      border-color:#b3261e !important;
+      box-shadow:0 0 0 1px rgba(179,38,30,.3);
+      background:rgba(179,38,30,.03);
+    }
+
+    .ta-wrap{
+      position:relative;
+    }
+    .textarea.with-mic{
+      padding-right:52px;
+    }
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:36px;
+      height:36px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      color:var(--muted,#67706B);
+    }
+    .mic-btn[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .mic-btn.mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
+    .mic-svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
+    .no-spin::-webkit-outer-spin-button,
+    .no-spin::-webkit-inner-spin-button{
+      -webkit-appearance:none;
+      margin:0;
+    }
+    .no-spin{
+      -moz-appearance:textfield;
+    }
+
+    .combo{ position:relative; }
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:12px;
+      padding-right:42px;
+      outline:none;
+      text-align:left;
+      cursor:pointer;
+      position:relative;
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0; right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      padding:8px;
+      display:none;
+      z-index:10;
+    }
+    .combo-panel.show{
+      display:block;
+    }
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{
+      background:rgba(0,0,0,.04);
+    }
+    .combo-item:last-child{
+      border-bottom:none;
+    }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+    }
+
+    .fields-hero{
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 10px 22px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .fields-head{
+      padding:12px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .fields-head h2{
+      margin:0;
+      font-size:1rem;
+    }
+    .fields-body{
+      padding:14px 16px 8px;
+      display:grid;
+      gap:12px;
+    }
+
+    .field-list-label{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--muted,#67706B);
+      margin-bottom:4px;
+    }
+
+    .field-list-empty{
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+
+    .field-card{
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:9px 10px;
+      display:grid;
+      gap:4px;
+      font-size:0.9rem;
+      position:relative;
+    }
+    .field-card-top{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+    }
+    .field-card-title{
+      font-weight:700;
+    }
+    .field-card-sub{
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
+    }
+    .field-card-note{
+      font-size:0.85rem;
+      color:var(--muted,#67706B);
+    }
+
+    .field-card-actions{
+      display:flex;
+      gap:6px;
+    }
+
+    @media (max-width: 720px){
+      .field-card-actions{
+        display:none;
+      }
+    }
+
+    .fields-actions{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      padding:0 16px 14px;
+    }
+
+    .fields-swipe-hint{
+      font-size:0.78rem;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+    }
+
+    .overlap-hero{
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 18px rgba(0,0,0,.06));
+      overflow:hidden;
+    }
+    .overlap-head{
+      padding:10px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .overlap-head h2{
+      margin:0;
+      font-size:0.96rem;
+    }
+    .overlap-badge{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid #b3261e;
+      color:#b3261e;
+      background:rgba(179,38,30,.06);
+      white-space:nowrap;
+    }
+    .overlap-body{
+      padding:12px 16px 12px;
+      display:grid;
+      gap:8px;
+    }
+    .overlap-summary{
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
+    }
+    .overlap-row{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:8px 10px;
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+      font-size:0.86rem;
+    }
+    .overlap-row-main{
+      display:grid;
+      gap:2px;
+    }
+    .overlap-row-title{
+      font-weight:700;
+    }
+    .overlap-row-sub{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+    .overlap-row-meta{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+      white-space:nowrap;
+      padding-top:2px;
     }
 
     .toast{
@@ -582,10 +525,14 @@
       box-shadow:0 6px 20px rgba(0,0,0,.25);
       z-index:99999;
       display:none;
+      white-space:nowrap;
+      max-width:92vw;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     .toast.show{
       display:block;
-      animation:fadeout 5s forwards;
+      animation:fadeout 3.2s forwards;
     }
     @keyframes fadeout{
       0%{opacity:1}
@@ -593,22 +540,63 @@
       100%{opacity:0}
     }
 
-    /* ===== Mobile simplification ===== */
-    @media (max-width: 600px){
-      .trial-card{
-        padding:10px 12px;
-      }
-      .trial-main{
-        padding-right:90px;
-      }
-      .trial-meta,
-      .trial-bottom-row{
-        display:none;
-      }
-      /* Hide desktop action buttons on phone – rely on swipe */
-      .trial-card-actions{
-        display:none;
-      }
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.45);
+      backdrop-filter:blur(2px);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:200000;
+    }
+    .modal-backdrop.show{
+      display:flex;
+    }
+    .modal-sheet{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 20px 40px rgba(0,0,0,.35);
+      max-width:90%;
+      width:380px;
+      padding:20px 22px;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .modal-title{
+      font-size:1rem;
+      font-weight:700;
+      color:var(--text);
+    }
+    .modal-body{
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+    .modal-actions{
+      margin-top:6px;
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+    }
+    .modal-btn{
+      padding:8px 16px;
+      border-radius:10px;
+      font-size:0.9rem;
+      font-weight:700;
+      cursor:pointer;
+      border:1px solid var(--border);
+      background:var(--surface-strong,var(--surface));
+      color:var(--text);
+    }
+    .modal-btn:hover{
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .modal-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
     }
   </style>
 
@@ -626,13 +614,8 @@
   <script type="module">
     import {
       ready,
-      getFirestore,
-      collection,
-      getDocs,
-      doc,
-      updateDoc,
-      deleteDoc,
-      onSnapshot
+      getFirestore, getAuth,
+      collection, getDocs, getDoc, doc, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -640,761 +623,1176 @@
 
     const CONFIG = {
       COLLECTION_TRIALS: 'fieldTrials',
-      STATUS_FIELD:  'status',
-      STATUS_ALL: 'all',
-      STATUS_PENDING:'pending',
-      STATUS_ACTIVE: 'active',
-      STATUS_COMPLETED:'completed',
-      ADD_FIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-add.html',
-      ADD_YIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield.html',
-      ADD_YIELD_MH_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield-mh.html'
+      COLLECTION_FARMS:  'farms',
+      COLLECTION_FIELDS: 'fields',
+      RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html',
+      YIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield.html',
+      YIELD_URL_MH: '/Farm-vista/pages/crop-production/trials/trial-field-yield-mh.html'
     };
 
     const STATE = {
       db: null,
-      allItems: [],
-      items: [],
-      selectedId: null,
-      filterStatus: null,
-      loaded: false,
-      pendingFilter: null
+      auth: null,
+      user: null,
+      fvUser: null,
+      orgId: null,
+      trialId: null,
+      trial: null,
+      farms: [],
+
+      fields: [],
+      selectedFarm: null,
+      selectedField: null,
+      selectedFieldMaxAcres: null,
+      existingFields: [],
+      pendingFields: [],
+      overlaps: [],
+      noAcresDraft: null
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
-    let toastEl;
-    let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
+    let toastEl, errorBox, debugLogEl;
+    let noAcresModal, noAcresOk, noAcresCancel;
 
-    let trialsUnsub = null;
+    let farmCombo, fieldCombo;
+    let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
+    let fieldFieldBtn, fieldFieldPanel, fieldFieldList, fieldFieldSearch;
+    let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine;
+    let trialAcresInput, trialAcresHelp, notesInput, micBtn;
+    let existingListEl, pendingListEl;
+    let overlapHeroEl, overlapListEl, overlapSummaryEl, overlapBadgeEl;
 
-    function getTime(ts){
-      if(!ts) return 0;
-      try{
-        if(ts.toMillis) return ts.toMillis();
-        if(ts.toDate)   return ts.toDate().getTime();
-        if(ts instanceof Date) return ts.getTime();
-        return new Date(ts).getTime() || 0;
-      }catch{
-        return 0;
+    let lastNavTime = 0;
+    let overlapCheckTimer = null;
+
+    function diag(label, payload){
+      const ts = new Date();
+      const time = ts.toISOString().split('T')[1].replace('Z','');
+      let line = time + '  ' + label;
+      if(typeof payload !== 'undefined'){
+        try{
+          line += '  ' + JSON.stringify(payload, null, 2);
+        }catch{
+          line += '  ' + String(payload);
+        }
+      }
+      console.log('[AddFieldToTrial]', label, payload ?? '');
+      if(!debugLogEl) debugLogEl = document.getElementById('debugLog');
+      if(debugLogEl){
+        debugLogEl.textContent += line + '\n\n';
       }
     }
 
-    function getStatusLabel(code){
-      if(!code) return '';
-      const c = String(code).toLowerCase();
-      if(c === CONFIG.STATUS_ALL)       return 'All';
-      if(c === CONFIG.STATUS_PENDING)   return 'Pending';
-      if(c === CONFIG.STATUS_ACTIVE)    return 'Active';
-      if(c === CONFIG.STATUS_COMPLETED) return 'Completed';
-      return code;
+    async function waitForAuthReady() {
+      const auth = getAuth();
+      let tries = 40;
+      return await new Promise(resolve => {
+        const int = setInterval(() => {
+          if (auth.currentUser) {
+            clearInterval(int);
+            resolve(auth.currentUser);
+          }
+          if (--tries <= 0) {
+            clearInterval(int);
+            resolve(null);
+          }
+        }, 100);
+      });
     }
 
-    function isImageUrl(url){
-      if(!url || typeof url !== 'string') return false;
-      const u = url.split('?')[0].toLowerCase();
-      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') ||
-             u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
+    async function waitForFVUser() {
+      let tries = 40;
+      return await new Promise(resolve => {
+        const int = setInterval(() => {
+          try{
+            const fv = window.FVUserContext?.get?.();
+            if(fv && fv.email){
+              clearInterval(int);
+              resolve(fv);
+            }
+          }catch{}
+          if(--tries <= 0){
+            clearInterval(int);
+            resolve(null);
+          }
+        },100);
+      });
     }
 
-    function showToast(message){
+    function showToast(msg="Saved.", ms=3200){
       if(!toastEl) return;
-      toastEl.textContent = message || 'Saved.';
+      toastEl.textContent = msg;
       toastEl.classList.remove('show');
       void toastEl.offsetWidth;
       toastEl.classList.add('show');
+      setTimeout(()=>toastEl.classList.remove('show'), ms);
     }
 
-    function isMultiHybridTrialData(d){
-      if(!d) return false;
-      if(d.isMultiHybrid === true || d.multiHybrid === true) return true;
-      const raw = (d.trialType || d.trialSubtype || '').toString().toLowerCase();
-      return raw.includes('multi') && raw.includes('hybrid');
-    }
-
-    function buildYieldUrl(trialId, data){
-      const isMh = isMultiHybridTrialData(data);
-      const base = isMh ? CONFIG.ADD_YIELD_MH_URL : CONFIG.ADD_YIELD_URL;
-      return `${base}?trialId=${encodeURIComponent(trialId)}`;
-    }
-
-    function clearDetails(){
-      const panel = $('.trial-detail-panel');
-      if(!panel) return;
-      panel.style.display = 'none';
-      panel.dataset.id = '';
-      const titleEl = $('.trial-detail-title', panel);
-      if(titleEl) titleEl.textContent = 'Trial Details';
-      const grid = $('.trial-detail-grid', panel);
-      if(grid) grid.innerHTML = '';
-      const notesBody = $('.trial-detail-notes-body', panel);
-      if(notesBody) notesBody.textContent = '';
-      const footer = $('.trial-detail-footer', panel);
-      if(footer) footer.innerHTML = '';
-      const attGrid = $('#trialDetailAttachments');
-      if(attGrid) attGrid.innerHTML = '';
-      const completeBtn = $('#trialCompleteBtn');
-      if(completeBtn){
-        completeBtn.style.display = 'none';
-        completeBtn.disabled = false;
-        completeBtn.textContent = 'Mark Trial Completed';
-        delete completeBtn.dataset.id;
-      }
-      const delBtn = $('#trialDeleteBtn');
-      if(delBtn){
-        delBtn.disabled = false;
-      }
-    }
-
-    function openFileViewer(att){
-      if(!fileModal || !fileContentWrap || !att || !att.url) return;
-      fileContentWrap.innerHTML = '';
-      if(isImageUrl(att.url)){
-        const img = document.createElement('img');
-        img.src = att.url;
-        img.alt = att.name || 'Attachment';
-        fileContentWrap.appendChild(img);
+    function showError(msg){
+      if(!errorBox) errorBox = document.getElementById('errBox');
+      if(!errorBox) return;
+      if(msg){
+        errorBox.textContent = msg;
+        errorBox.classList.add('show');
       }else{
-        const iframe = document.createElement('iframe');
-        iframe.src = att.url;
-        fileContentWrap.appendChild(iframe);
+        errorBox.textContent = '';
+        errorBox.classList.remove('show');
       }
-      fileModal.classList.add('show');
-      document.body.style.overflow = 'hidden';
     }
 
-    function closeFileViewer(){
-      if(!fileModal) return;
-      fileModal.classList.remove('show');
-      if(fileContentWrap) fileContentWrap.innerHTML = '';
-      document.body.style.overflow = '';
+    function getQueryParam(name){
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name) || null;
     }
 
-    function renderDetails(){
-      const panel = $('.trial-detail-panel');
-      if(!panel) return;
-      const item = STATE.items.find(x => x.id === STATE.selectedId);
-      if(!item){
-        clearDetails();
+    function inferName(data){
+      return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
+    }
+
+    /* --- mic dictation, copied pattern from maintenance-add --- */
+    function wireMic(buttonId, textareaId){
+      const btn = document.getElementById(buttonId);
+      const ta  = document.getElementById(textareaId);
+      if(!btn || !ta) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        btn.style.display = "none";
         return;
       }
 
-      const d = item.data;
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = "en-US";
+      rec.interimResults = true;
+      rec.continuous = false;
 
-      const title = d.trialName || 'Field Trial';
-      const cropYear = d.cropYear ?? null;
-      const crop = d.crop || '';
-      const trialType = d.trialType || '';
-      const operationTask = d.operationTask || '';
-      const treatment = d.treatmentProduct || '';
-      const check = d.check || '';
-      const status = d[CONFIG.STATUS_FIELD] || '';
-      const statusLower = String(status || '').toLowerCase();
-      const createdBy = d.createdByName || d.createdByEmail || '';
-      const when = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate()
-                 : (d.createdAt ? new Date(d.createdAt) : null);
-      const notes = d.notes || '';
+      let active = false;
+      let baseText = "";
 
-      panel.dataset.id = item.id;
+      const setMic = on=>{
+        btn.classList.toggle("mic-active", on);
+        btn.setAttribute("aria-label", on ? "Stop dictation" : "Start dictation");
+      };
 
-      const titleEl = $('.trial-detail-title', panel);
-      if(titleEl){
-        titleEl.textContent = title;
-      }
-
-      const grid = $('.trial-detail-grid', panel);
-      if(grid){
-        grid.innerHTML = `
-          ${(cropYear !== null || crop) ? `
-          <div>
-            <div class="trial-detail-item-label">Crop Year / Crop</div>
-            <div class="trial-detail-item-value">
-              ${cropYear !== null ? cropYear : ''}${cropYear && crop ? ' • ' : ''}${crop}
-            </div>
-          </div>` : ''}
-
-          ${trialType ? `
-          <div>
-            <div class="trial-detail-item-label">Trial Type</div>
-            <div class="trial-detail-item-value">${trialType}</div>
-          </div>` : ''}
-
-          ${operationTask ? `
-          <div>
-            <div class="trial-detail-item-label">Operation</div>
-            <div class="trial-detail-item-value">${operationTask}</div>
-          </div>` : ''}
-
-          ${treatment ? `
-          <div>
-            <div class="trial-detail-item-label">Treatment Product</div>
-            <div class="trial-detail-item-value">${treatment}</div>
-          </div>` : ''}
-
-          ${check ? `
-          <div>
-            <div class="trial-detail-item-label">Check</div>
-            <div class="trial-detail-item-value">${check}</div>
-          </div>` : ''}
-
-          ${createdBy ? `
-          <div>
-            <div class="trial-detail-item-label">Created By</div>
-            <div class="trial-detail-item-value">${createdBy}</div>
-          </div>` : ''}
-
-          ${when ? `
-          <div>
-            <div class="trial-detail-item-label">Created</div>
-            <div class="trial-detail-item-value">${when.toLocaleString()}</div>
-          </div>` : ''}
-        `;
-      }
-
-      const notesBody = $('.trial-detail-notes-body', panel);
-      if(notesBody){
-        notesBody.textContent = notes || 'No additional notes recorded.';
-      }
-
-      const attGrid = $('#trialDetailAttachments');
-      if(attGrid){
-        attGrid.innerHTML = '';
-        const files = Array.isArray(d.files) ? d.files : [];
-        if(files.length){
-          files.forEach(raw => {
-            if(!raw || !raw.url) return;
-            const att = {
-              url: raw.url,
-              name: raw.name || raw.path || 'Attachment'
-            };
-
-            const thumbBtn = document.createElement('button');
-            thumbBtn.type = 'button';
-            thumbBtn.className = 'trial-attachment-thumb';
-            thumbBtn.title = att.name;
-
-            if(isImageUrl(att.url)){
-              const img = document.createElement('img');
-              img.src = att.url;
-              img.alt = att.name;
-              thumbBtn.appendChild(img);
-            }else{
-              thumbBtn.textContent = 'FILE';
-            }
-
-            thumbBtn.addEventListener('click', (ev)=>{
-              ev.stopPropagation();
-              openFileViewer(att);
-            });
-
-            attGrid.appendChild(thumbBtn);
-          });
+      btn.addEventListener("click", ()=>{
+        if(!active){
+          baseText = ta.value ? (ta.value + " ") : "";
+          try{ rec.start(); active=true; setMic(true); }catch{}
         }else{
-          const empty = document.createElement('div');
-          empty.className = 'trial-attachment-empty';
-          empty.textContent = 'No files or photos attached.';
-          attGrid.appendChild(empty);
+          try{ rec.stop(); rec.abort(); }catch{}
+          active=false; setMic(false);
         }
-      }
-
-      const footer = $('.trial-detail-footer', panel);
-      if(footer){
-        footer.innerHTML = `
-          Current status:
-          <span class="trial-detail-pill">${getStatusLabel(status) || 'unknown'}</span>
-        `;
-      }
-
-      const completeBtn = $('#trialCompleteBtn');
-      if(completeBtn){
-        if(statusLower === CONFIG.STATUS_COMPLETED){
-          completeBtn.style.display = 'none';
-          completeBtn.disabled = false;
-          completeBtn.textContent = 'Mark Trial Completed';
-          delete completeBtn.dataset.id;
-        }else{
-          completeBtn.style.display = 'inline-flex';
-          completeBtn.disabled = false;
-          completeBtn.textContent = 'Mark Trial Completed';
-          completeBtn.dataset.id = item.id;
-        }
-      }
-
-      const delBtn = $('#trialDeleteBtn');
-      if(delBtn){
-        delBtn.disabled = false;
-      }
-
-      panel.style.display = 'flex';
-    }
-
-    function setupMobileSwipe(listEl){
-      if(!listEl) return;
-      if(!window.matchMedia) return;
-      const isMobile = window.matchMedia('(max-width: 600px)').matches;
-      if(!isMobile) return;
-
-      const cards = listEl.querySelectorAll('.trial-card');
-      cards.forEach(card => {
-        card.classList.add('fv-swipe-item');
       });
 
-      initSwipeList(listEl, {
-        itemSelector: '.fv-swipe-item',
-        // Swipe RIGHT -> Add Yield (positive)
-        leftAction: {
-          label: 'Add Yield',
-          onAction: (itemEl) => {
-            const trialId = itemEl.dataset.trialId;
-            if(!trialId) return;
-            const item = STATE.items.find(x => x.id === trialId);
-            if(!item) return;
-            const url = buildYieldUrl(trialId, item.data);
-            window.location.href = url;
-          }
-        },
-        // Swipe LEFT -> Add Field
-        rightAction: {
-          label: 'Add Field',
-          onAction: (itemEl) => {
-            const trialId = itemEl.dataset.trialId;
-            if(!trialId) return;
-            const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(trialId)}`;
-            window.location.href = url;
-          }
+      rec.onresult = ev=>{
+        let txt = "";
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
+          txt += ev.results[i][0].transcript;
         }
+        ta.value = baseText + txt;
+      };
+      rec.onend = ()=>{ active=false; setMic(false); };
+      rec.onerror = ()=>{ active=false; setMic(false); };
+    }
+
+    function setupMic(){
+      const notes = document.getElementById("notes");
+      if(notes){
+        notes.classList.add("with-mic");
+      }
+      wireMic("notesMic", "notes");
+    }
+
+    function closeAllCombos(exceptPanel=null){
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==exceptPanel) p.classList.remove('show');
       });
     }
 
-    function renderList(){
-      const listEl  = $('.trial-list');
-      const emptyEl = $('.trial-empty');
-      const countEl = $('#trialCount');
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{
+      if(e.key==='Escape') closeAllCombos();
+    });
 
-      if(!listEl) return;
-
-      listEl.innerHTML = '';
-
-      const statusCode  = STATE.filterStatus || CONFIG.STATUS_ALL;
-
-      let labelLower = '';
-      if(statusCode === CONFIG.STATUS_ALL){
-        labelLower = 'trials';
-      }else{
-        const statusLabel = getStatusLabel(statusCode);
-        labelLower  = statusLabel ? statusLabel.toLowerCase() : 'pending';
-      }
-
-      if(!STATE.items.length){
-        if(emptyEl) {
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = statusCode === CONFIG.STATUS_ALL
-            ? 'No trials right now. Tap to refresh.'
-            : `No ${labelLower} trials right now. Tap to refresh.`;
-        }
-        if(countEl){
-          if(statusCode === CONFIG.STATUS_ALL){
-            countEl.textContent = '0 trials';
-          }else{
-            countEl.textContent = `0 ${labelLower} trials`;
-          }
-        }
-        clearDetails();
-        return;
-      }
-
-      if(emptyEl){
-        emptyEl.style.display = 'none';
-      }
-
-      for(const item of STATE.items){
-        const d = item.data;
-        const id = item.id;
-
-        const title = d.trialName || 'Field Trial';
-        const cropYear = d.cropYear ?? null;
-        const crop = d.crop || '';
-        const trialType = d.trialType || '';
-        const operationTask = d.operationTask || '';
-        const statusRaw = (d.status || '').toString() || CONFIG.STATUS_PENDING;
-        const createdAt = d.createdAt || null;
-        const when = createdAt && createdAt.toDate ? createdAt.toDate()
-                   : (createdAt ? new Date(createdAt) : null);
-
-        const statusLower = statusRaw.toLowerCase();
-        const friendlyStatus =
-          statusLower === CONFIG.STATUS_ACTIVE    ? 'Active'    :
-          statusLower === CONFIG.STATUS_PENDING   ? 'Pending'   :
-          statusLower === CONFIG.STATUS_COMPLETED ? 'Completed' :
-          statusRaw;
-
-        const card = document.createElement('article');
-        card.className = 'trial-card';
-        card.dataset.id = id;
-        card.dataset.trialId = id;
-
-        card.innerHTML = `
-          <div class="trial-card-actions">
-            <button type="button" class="trial-add-btn trial-add-fields-btn">Add Fields</button>
-            <button type="button" class="trial-add-btn trial-add-yield-btn">Add Yield</button>
-          </div>
-
-          <div class="trial-row-top">
-            <div class="trial-main">
-              <div class="trial-title">
-                ${title}
-              </div>
-              <div class="trial-sub">
-                ${cropYear !== null ? cropYear : ''}${cropYear && crop ? ' • ' : ''}${crop}
-                ${trialType ? ` • ${trialType}` : ''}
-              </div>
-              <div class="trial-meta">
-                ${operationTask ? `
-                  <span><span class="trial-meta-label">Operation</span> ${operationTask}</span>
-                ` : ''}
-                ${trialType ? `
-                  <span><span class="trial-meta-label">Type</span> ${trialType}</span>
-                ` : ''}
-              </div>
-            </div>
-          </div>
-
-          <div class="trial-bottom-row">
-            <div>
-              ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
-            </div>
-            <div class="trial-status-chip">${friendlyStatus}</div>
-          </div>
-        `;
-
-        card.addEventListener('click', () => {
-          STATE.selectedId = id;
-          renderDetails();
+    function makeCombo({btn,panel,list,searchInput=null,items=[],searchable=false,formatter=x=>String(x.label||x.name||x),onPick}){
+      if(!btn||!panel||!list) return;
+      panel.addEventListener('click',e=>e.stopPropagation());
+      panel.addEventListener('mousedown',e=>e.stopPropagation());
+      let DATA = items||[];
+      function render(q=''){
+        const qq=(q||'').toLowerCase();
+        const rows=(DATA||[]).filter(x=>{
+          const label=formatter(x).toLowerCase();
+          return !qq || label.includes(qq);
         });
-
-        const addFieldBtn = card.querySelector('.trial-add-fields-btn');
-        if(addFieldBtn){
-          addFieldBtn.addEventListener('click', (ev)=>{
-            ev.stopPropagation();
-            const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(id)}`;
-            window.location.href = url;
-          });
-        }
-
-        const addYieldBtn = card.querySelector('.trial-add-yield-btn');
-        if(addYieldBtn){
-          addYieldBtn.addEventListener('click', (ev)=>{
-            ev.stopPropagation();
-            const url = buildYieldUrl(id, d);
-            window.location.href = url;
-          });
-        }
-
-        listEl.appendChild(card);
-      }
-
-      if(countEl){
-        if(statusCode === CONFIG.STATUS_ALL){
-          countEl.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'}`;
+        let html='';
+        if(rows.length){
+          html=rows.map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`).join('');
         }else{
-          countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
+          html=`<div class="combo-empty">(no matches)</div>`;
+        }
+        list.innerHTML=html;
+      }
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render('');
+        if(searchable && searchInput){
+          searchInput.value=''; searchInput.focus();
         }
       }
-
-      // Wire mobile swipe after list is rendered
-      setupMobileSwipe(listEl);
+      function close(){ panel.classList.remove('show'); }
+      btn.addEventListener('click',e=>{
+        e.stopPropagation();
+        panel.classList.contains('show')?close():open();
+      });
+      list.addEventListener('mousedown',e=>{
+        const row=e.target.closest('.combo-item'); if(!row) return;
+        const id=row.dataset.id;
+        const it=(DATA||[]).find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it); close();
+      });
+      if(searchable && searchInput){
+        searchInput.addEventListener('input',e=>render(e.target.value));
+      }
+      return { setItems(arr){ DATA=Array.isArray(arr)?arr:[]; render(''); } };
     }
 
-    function applyFilter(statusCode){
-      const raw = statusCode || CONFIG.STATUS_ALL;
-      const status = String(raw).toLowerCase();
-
-      STATE.filterStatus = status;
-
-      const sel = $('#trialStatusFilter');
-      if(sel && sel.value !== status){
-        sel.value = status;
-      }
-
-      if(!STATE.loaded){
-        STATE.pendingFilter = status;
-
-        const emptyEl = $('.trial-empty');
-        const countEl = $('#trialCount');
-        const listEl  = $('.trial-list');
-
-        if(listEl) listEl.innerHTML = '';
-        if(emptyEl){
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'Loading trials...';
-        }
-        if(countEl){
-          countEl.textContent = 'Loading trials...';
-        }
-        clearDetails();
-        return;
-      }
-
-      let filtered;
-      if(status === CONFIG.STATUS_ALL){
-        filtered = STATE.allItems.slice();
-      }else{
-        filtered = STATE.allItems.filter(item => {
-          const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
-          return s === status;
-        });
-      }
-
-      STATE.items = filtered;
-      clearDetails();
-      renderList();
-    }
-
-    function detachTrialsListener(){
-      if(trialsUnsub){
-        try{ trialsUnsub(); }catch(e){}
-        trialsUnsub = null;
-      }
-    }
-
-    function attachTrialsListener(){
-      if(!STATE.db) return;
-      if(trialsUnsub) return;
-
-      const emptyEl = $('.trial-empty');
-      const countEl = $('#trialCount');
-      const listEl  = $('.trial-list');
-
-      if(listEl) listEl.innerHTML = '';
-      if(emptyEl){
-        emptyEl.style.display = 'block';
-        emptyEl.textContent = 'Loading trials...';
-      }
-      if(countEl){
-        countEl.textContent = 'Loading trials...';
-      }
-      clearDetails();
-
-      const ref = collection(STATE.db, CONFIG.COLLECTION_TRIALS);
-
-      trialsUnsub = onSnapshot(ref, (snap)=>{
-        const items = snap.docs.map(d => ({
-          id: d.id,
-          data: d.data()
-        }));
-
-        items.sort((a,b) => {
-          const ta = getTime(a.data.createdAt);
-          const tb = getTime(b.data.createdAt);
-          return tb - ta;
-        });
-
-        STATE.allItems = items;
-        STATE.loaded = true;
-
-        const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
-        STATE.pendingFilter = null;
-        applyFilter(desired);
-      }, (err)=>{
-        console.error('Error listening to trials:', err);
-        STATE.loaded = false;
-        detachTrialsListener();
-
-        if(emptyEl){
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'Error loading trials. Tap to retry.';
-        }
-        if(countEl){
-          countEl.textContent = 'Error loading trials';
-        }
-        clearDetails();
+    function sortFieldRows(arr){
+      if(!Array.isArray(arr)) return;
+      arr.sort((a,b)=>{
+        const aName = `${(a.farm && a.farm.name) || ''} • ${(a.field && a.field.fieldName) || ''}`.toLowerCase();
+        const bName = `${(b.farm && b.farm.name) || ''} • ${(b.field && b.field.fieldName) || ''}`.toLowerCase();
+        return aName.localeCompare(bName);
       });
     }
 
-    async function markTrialCompleted(){
-      const id = STATE.selectedId;
-      if(!id || !STATE.db) return;
-
-      const btn = $('#trialCompleteBtn');
-      if(btn){
-        btn.disabled = true;
-        btn.textContent = 'Saving...';
-      }
-
+    async function loadTrial(){
+      if(!STATE.trialId) return;
       try{
-        const ref = doc(STATE.db, CONFIG.COLLECTION_TRIALS, id);
-        await updateDoc(ref, {
-          [CONFIG.STATUS_FIELD]: CONFIG.STATUS_COMPLETED
-        });
-
-        const itemAll = STATE.allItems.find(x => x.id === id);
-        if(itemAll){
-          itemAll.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
+        diag('loadTrial.start', { trialId: STATE.trialId });
+        const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
+        const snap = await getDoc(refDoc);
+        if(!snap.exists()){
+          showError("This trial could not be found. It may have been deleted.");
+          diag('loadTrial.missing', {});
+          return;
         }
-        const itemFiltered = STATE.items.find(x => x.id === id);
-        if(itemFiltered){
-          itemFiltered.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
+        STATE.trial = snap.data()||{};
+        const t=STATE.trial;
+
+        if(!STATE.orgId && t.orgId){
+          STATE.orgId = t.orgId;
+          diag('loadTrial.orgIdFromTrial', { orgId: STATE.orgId });
         }
 
-        const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
-        applyFilter(currentFilter);
-
-        showToast('Trial marked as completed.');
+        if(trialNameMain) trialNameMain.textContent = t.trialName || "Field Trial";
+        if(trialCropMain){
+          const bits=[];
+          if(t.cropYear!=null) bits.push(t.cropYear);
+          if(t.crop) bits.push(t.crop);
+          trialCropMain.textContent = bits.join(" • ") || "—";
+        }
+        if(trialTypeLine){
+          const parts=[];
+          if(t.trialType) parts.push(`Type: ${t.trialType}`);
+          if(t.operationTask) parts.push(`Operation: ${t.operationTask}`);
+          trialTypeLine.textContent = parts.join("  |  ") || "";
+        }
+        if(trialTreatmentLine){
+          const parts=[];
+          if(t.treatmentProduct) parts.push(`Treatment: ${t.treatmentProduct}`);
+          if(t.check) parts.push(`Check: ${t.check}`);
+          trialTreatmentLine.textContent = parts.join("  |  ") || "";
+        }
+        diag('loadTrial.success', { trialName: t.trialName || null });
       }catch(err){
-        console.error('Error marking trial completed:', err);
-        showToast('Error updating trial.');
-        if(btn){
-          btn.disabled = false;
-          btn.textContent = 'Mark Trial Completed';
-        }
+        console.error("Error loading trial:",err);
+        diag('loadTrial.error', { code: err.code, message: err.message });
+        showError("Unable to load trial details. You can still add a field, but some labels may be missing.");
       }
     }
 
-    async function deleteTrial(){
-      const id = STATE.selectedId;
-      if(!id || !STATE.db) return;
+    // Use Firestore fields trialType + seedTrialType to detect multi-hybrid
+    function isMultiHybridTrial(){
+      const t = STATE.trial || {};
+      const type = (t.trialType || '').toLowerCase();
+      const seed = (t.seedTrialType || '').toLowerCase();
 
-      const ok = window.confirm('Delete this trial and its fields/yield blocks? This cannot be undone.');
+      const isSeedVarieties  = type === 'seed varieties';
+      const isMultiHybrid    = seed === 'multiple hybrid trial';
+
+      return isSeedVarieties && isMultiHybrid;
+    }
+
+    async function loadFarmsAndFields(){
+      const db=STATE.db;
+      try{
+        const farmSnap = await getDocs(collection(db, CONFIG.COLLECTION_FARMS));
+        const farms=[];
+        farmSnap.forEach(d=>{
+          const data=d.data()||{};
+          const name=inferName(data);
+          if(name) farms.push({id:d.id,name:String(name)});
+        });
+        farms.sort((a,b)=>a.name.localeCompare(b.name));
+        STATE.farms=farms;
+        diag('loadFarms.ok', { count: farms.length });
+      }catch(err){
+        console.error("Error loading farms:",err);
+        diag('loadFarms.error', { code: err.code, message: err.message });
+        STATE.farms=[];
+      }
+      try{
+        const fieldSnap = await getDocs(collection(db, CONFIG.COLLECTION_FIELDS));
+        const fields=[];
+        fieldSnap.forEach(d=>{
+          const data=d.data()||{};
+          const fieldName=inferName(data);
+          if(!fieldName) return;
+          const farmId=data.farmId||data.farmDocId||data.farm||null;
+          const farmName=data.farmName||data.farm||"";
+          const tillable=data.tillable ?? data.tillableAcres ?? data.acres ?? null;
+          fields.push({
+            id:d.id,
+            fieldName:String(fieldName),
+            farmId,
+            farmName: farmName ? String(farmName) : null,
+            tillable: tillable!=null ? Number(tillable) : null
+          });
+        });
+        STATE.fields=fields;
+        diag('loadFields.ok', { count: fields.length });
+      }catch(err){
+        console.error("Error loading fields:",err);
+        diag('loadFields.error', { code: err.code, message: err.message });
+        STATE.fields=[];
+      }
+    }
+
+    async function loadExistingTrialFields(){
+      if(!STATE.db || !STATE.trialId) return;
+      try{
+        const path = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields`;
+        const snap = await getDocs(collection(STATE.db, path));
+        const rows=[];
+        snap.forEach(d=>{
+          const data = d.data() || {};
+          const farm = {
+            id:   data.farmId || null,
+            name: data.farmName || 'Unknown farm'
+          };
+          const field = {
+            id:        data.fieldId || null,
+            fieldName: data.fieldName || 'Unknown field',
+            tillable:  data.tillable != null ? Number(data.tillable) : null
+          };
+          const acres = data.trialAcres != null ? Number(data.trialAcres) : null;
+          rows.push({
+            docId: d.id,
+            farm,
+            field,
+            acres,
+            notes: data.notes || ''
+          });
+        });
+        sortFieldRows(rows);
+        STATE.existingFields = rows;
+        diag('loadExistingTrialFields.ok', { count: rows.length });
+      }catch(err){
+        console.error("Error loading trial fields:", err);
+        diag('loadExistingTrialFields.error', { code: err.code, message: err.message });
+        STATE.existingFields = [];
+      }
+    }
+
+    function refreshFarmCombo(){
+      if(!farmCombo) return;
+      const items=STATE.farms.map(f=>({id:f.id,label:f.name}));
+      farmCombo.setItems(items);
+    }
+
+    function refreshFieldComboForFarm(farmId){
+      STATE.selectedFarm = STATE.farms.find(f=>f.id===farmId) || null;
+      STATE.selectedField = null;
+      STATE.selectedFieldMaxAcres = null;
+      if(fieldFarmBtn) fieldFarmBtn.textContent = STATE.selectedFarm ? STATE.selectedFarm.name : "— Select farm —";
+      if(fieldFieldBtn) fieldFieldBtn.textContent = "— Select field —";
+      if(trialAcresHelp) trialAcresHelp.textContent = "";
+      if(!fieldCombo) return;
+      const items = STATE.fields
+        .filter(f=>!farmId || f.farmId===farmId)
+        .map(f=>({
+          id:f.id,
+          label:f.farmName ? `${f.farmName} • ${f.fieldName}` : f.fieldName,
+          raw:f
+        }))
+        .sort((a,b)=>a.label.localeCompare(b.label));
+      fieldCombo.setItems(items);
+    }
+
+    function removePendingField(idx){
+      const row = STATE.pendingFields[idx];
+      if(!row) return;
+      STATE.pendingFields.splice(idx,1);
+      renderFieldLists();
+      showToast("Field removed.");
+    }
+
+    async function removeExistingField(idx){
+      const row = STATE.existingFields[idx];
+      if(!row) return;
+      const ok = window.confirm("Remove this field from the trial? This doesn't delete the field itself.");
       if(!ok) return;
 
-      const delBtn = $('#trialDeleteBtn');
-      if(delBtn){
-        delBtn.disabled = true;
-      }
-
       try{
-        const db = STATE.db;
-
-        const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
-        const fieldsSnap = await getDocs(fieldsRef);
-        await Promise.all(fieldsSnap.docs.map(d => deleteDoc(d.ref)));
-
-        const yieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'yieldBlocks');
-        const yieldsSnap = await getDocs(yieldsRef);
-        await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
-
-        const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
-        await deleteDoc(trialRef);
-
-        STATE.allItems = STATE.allItems.filter(x => x.id !== id);
-        STATE.items = STATE.items.filter(x => x.id !== id);
-        STATE.selectedId = null;
-
-        applyFilter(STATE.filterStatus || CONFIG.STATUS_ALL);
-        clearDetails();
-        showToast('Trial deleted.');
+        diag('removeExistingField.start', {
+          trialId: STATE.trialId,
+          docId: row.docId
+        });
+        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId, 'fields', row.docId));
+        STATE.existingFields.splice(idx,1);
+        renderFieldLists();
+        showToast("Field removed from this trial.");
+        diag('removeExistingField.success', {});
       }catch(err){
-        console.error('Error deleting trial:', err);
-        showToast('Error deleting trial.');
-        if(delBtn){
-          delBtn.disabled = false;
-        }
+        console.error("Error removing field:", err);
+        diag('removeExistingField.error', { code: err.code, message: err.message });
+        showError("Error removing field from trial: " + (err && (err.message || err.code) || "Unknown error"));
       }
     }
 
-    function resume(){
-      if(!STATE.db) return;
-      if(!trialsUnsub){
-        attachTrialsListener();
+    function openYieldForExisting(idx){
+      const row = STATE.existingFields[idx];
+      if(!row) return;
+      const trialId = STATE.trialId || '';
+      const fieldDocId = row.docId || '';
+
+      const multiHybrid = isMultiHybridTrial();
+      const base = multiHybrid ? CONFIG.YIELD_URL_MH : CONFIG.YIELD_URL;
+
+      const url = `${base}?trialId=${encodeURIComponent(trialId)}&fieldDocId=${encodeURIComponent(fieldDocId)}`;
+      window.location.href = url;
+    }
+
+    function openYieldForPending(){
+      showToast("Field Added - Not Save Yet. Save fields before adding yield.");
+    }
+
+    function isTouchPointer(){
+      return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    }
+
+    function applySwipeToLists(){
+      try{
+        if(!isTouchPointer()){
+          diag('applySwipeToLists.skip', { reason: 'non-touch pointer; buttons only' });
+          return;
+        }
+
+        if(existingListEl){
+          initSwipeList(existingListEl, {
+            itemSelector: '.fv-swipe-item[data-kind="existing"]',
+            leftAction: {
+              label: 'Add Yield',
+              onAction: (itemEl) => {
+                const idx = Number(itemEl.dataset.index);
+                if(!Number.isNaN(idx)) openYieldForExisting(idx);
+              }
+            },
+            rightAction: {
+              label: 'Remove',
+              onAction: (itemEl) => {
+                const idx = Number(itemEl.dataset.index);
+                if(!Number.isNaN(idx)) removeExistingField(idx);
+              }
+            }
+          });
+        }
+
+        if(pendingListEl){
+          initSwipeList(pendingListEl, {
+            itemSelector: '.fv-swipe-item[data-kind="pending"]',
+            leftAction: {
+              label: 'Add Yield',
+              onAction: () => {
+                openYieldForPending();
+              }
+            },
+            rightAction: {
+              label: 'Remove',
+              onAction: (itemEl) => {
+                const idx = Number(itemEl.dataset.index);
+                if(!Number.isNaN(idx)) removePendingField(idx);
+              }
+            }
+          });
+        }
+      }catch(err){
+        diag('applySwipeToLists.error', { message: err.message, stack: err.stack });
+      }
+    }
+
+    function renderOverlapConflicts(rows){
+      if(!overlapHeroEl || !overlapListEl || !overlapSummaryEl || !overlapBadgeEl) return;
+
+      if(!rows || !rows.length){
+        overlapHeroEl.style.display = 'none';
+        overlapListEl.innerHTML = '';
+        overlapSummaryEl.textContent = '';
+        overlapBadgeEl.textContent = '';
+        STATE.overlaps = [];
+        return;
+      }
+
+      STATE.overlaps = rows;
+      overlapHeroEl.style.display = 'block';
+
+      overlapBadgeEl.textContent = `${rows.length} overlap${rows.length === 1 ? '' : 's'}`;
+      overlapSummaryEl.textContent =
+        "These fields are also used in other trials with the same crop year. Make sure strips don't overlap or it can ruin the test.";
+
+      const html = rows.map(r => `
+        <div class="overlap-row">
+          <div class="overlap-row-main">
+            <div class="overlap-row-title">${r.farmName} • ${r.fieldName}</div>
+            <div class="overlap-row-sub">
+              Trial: <strong>${r.trialName}</strong> (${r.statusLabel})
+              ${r.operation ? ' • ' + r.operation : ''}
+            </div>
+          </div>
+          <div class="overlap-row-meta">
+            ${r.cropYear ?? ''}
+          </div>
+        </div>
+      `).join('');
+
+      overlapListEl.innerHTML = html;
+    }
+
+    async function checkOverlappingTrials(){
+      try{
+        if(!STATE.db || !STATE.trial || STATE.trial.cropYear == null){
+          diag('overlap.skip', { reason: 'no trial or cropYear' });
+          renderOverlapConflicts([]);
+          return;
+        }
+
+        const fieldIds = new Set();
+        (STATE.existingFields || []).forEach(row=>{
+          if(row.field && row.field.id) fieldIds.add(row.field.id);
+        });
+        (STATE.pendingFields || []).forEach(row=>{
+          if(row.field && row.field.id) fieldIds.add(row.field.id);
+        });
+
+        if(fieldIds.size === 0){
+          diag('overlap.skip', { reason: 'no fieldIds yet' });
+          renderOverlapConflicts([]);
+          return;
+        }
+
+        const targetCropYear = STATE.trial.cropYear;
+        const trialsSnap = await getDocs(collection(STATE.db, CONFIG.COLLECTION_TRIALS));
+        const relevantTrials = [];
+
+        trialsSnap.forEach(d=>{
+          const data = d.data() || {};
+          const id   = d.id;
+          if(id === STATE.trialId) return;
+
+          const cropYear = data.cropYear;
+          if(cropYear !== targetCropYear) return;
+
+          if(STATE.orgId && data.orgId && data.orgId !== STATE.orgId) return;
+
+          const statusRaw = (data.status || '').toString();
+          const status = statusRaw.toLowerCase();
+          if(!['pending','active','completed'].includes(status)) return;
+
+          relevantTrials.push({
+            id,
+            trialName: data.trialName || 'Unnamed trial',
+            statusRaw,
+            status,
+            cropYear,
+            operationTask: data.operationTask || '',
+          });
+        });
+
+        diag('overlap.trialsFiltered', {
+          totalTrials: trialsSnap.size,
+          relevantTrials: relevantTrials.length,
+          cropYear: targetCropYear
+        });
+
+        if(!relevantTrials.length){
+          renderOverlapConflicts([]);
+          return;
+        }
+
+        const conflicts = [];
+        const seen = new Set();
+
+        for(const t of relevantTrials){
+          const path = `${CONFIG.COLLECTION_TRIALS}/${t.id}/fields`;
+          const fieldsSnap = await getDocs(collection(STATE.db, path));
+          fieldsSnap.forEach(fd=>{
+            const fdata = fd.data() || {};
+            const fieldId = fdata.fieldId || null;
+            if(!fieldId || !fieldIds.has(fieldId)) return;
+
+            const key = `${t.id}::${fieldId}`;
+            if(seen.has(key)) return;
+            seen.add(key);
+
+            const farmName  = fdata.farmName || 'Unknown farm';
+            const fieldName = fdata.fieldName || 'Unknown field';
+
+            const niceStatus = t.statusRaw
+              ? (t.statusRaw[0].toUpperCase() + t.statusRaw.slice(1))
+              : 'Unknown';
+
+            conflicts.push({
+              trialId: t.id,
+              trialName: t.trialName,
+              statusLabel: niceStatus,
+              cropYear: t.cropYear,
+              farmName,
+              fieldName,
+              operation: t.operationTask || ''
+            });
+          });
+        }
+
+        diag('overlap.conflicts', { count: conflicts.length });
+        renderOverlapConflicts(conflicts);
+      }catch(err){
+        console.error('Error checking overlapping trials:', err);
+        diag('overlap.error', { message: err.message, stack: err.stack });
+        renderOverlapConflicts([]);
+      }
+    }
+
+    function renderFieldLists(){
+      if(!existingListEl || !pendingListEl) return;
+
+      existingListEl.innerHTML = '';
+      if(STATE.existingFields.length){
+        const frag = document.createDocumentFragment();
+        const label = document.createElement('div');
+        label.className = 'field-list-label';
+        label.textContent = 'Already saved fields';
+        frag.appendChild(label);
+
+        STATE.existingFields.forEach((row,idx)=>{
+          const item = document.createElement('div');
+          item.className = 'fv-swipe-item';
+          item.dataset.kind = 'existing';
+          item.dataset.index = String(idx);
+
+          const div = document.createElement('div');
+          div.className = 'field-card';
+          const farmField = `${row.farm.name} • ${row.field.fieldName}`;
+          const acresText = row.acres!=null ? `${row.acres.toFixed(2)} ac` : '—';
+          div.innerHTML = `
+            <div class="field-card-top">
+              <div>
+                <div class="field-card-title">${farmField}</div>
+                <div class="field-card-sub">
+                  Trial acres: <strong>${acresText}</strong>
+                  ${row.field.tillable!=null?` (Max tillable: ${row.field.tillable})`:''}
+                </div>
+              </div>
+              <div class="field-card-actions">
+                <button type="button" class="btn btn-small" data-existing-yield="${idx}">Add Yield</button>
+                <button type="button" class="btn btn-small btn-danger" data-existing-idx="${idx}">Remove</button>
+              </div>
+            </div>
+            ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
+          `;
+
+          item.appendChild(div);
+          frag.appendChild(item);
+        });
+
+        existingListEl.appendChild(frag);
+      }
+
+      pendingListEl.innerHTML = '';
+      if(STATE.pendingFields.length){
+        const label = document.createElement('div');
+        label.className = 'field-list-label';
+        label.textContent = 'New fields (pending save)';
+        pendingListEl.appendChild(label);
+
+        STATE.pendingFields.forEach((row,idx)=>{
+          const item = document.createElement('div');
+          item.className = 'fv-swipe-item';
+          item.dataset.kind = 'pending';
+          item.dataset.index = String(idx);
+
+          const div=document.createElement('div');
+          div.className='field-card';
+          const farmField=`${row.farm.name} • ${row.field.fieldName}`;
+          const acresText=row.acres!=null?`${row.acres.toFixed(2)} ac`:'—';
+          div.innerHTML=`
+            <div class="field-card-top">
+              <div>
+                <div class="field-card-title">${farmField}</div>
+                <div class="field-card-sub">
+                  Trial acres: <strong>${acresText}</strong>
+                  ${row.field.tillable!=null?` (Max tillable: ${row.field.tillable})`:''}
+                </div>
+              </div>
+              <div class="field-card-actions">
+                <button type="button" class="btn btn-small" data-pending-yield="${idx}">Add Yield</button>
+                <button type="button" class="btn btn-small btn-danger" data-pending-idx="${idx}">Remove</button>
+              </div>
+            </div>
+            ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
+          `;
+
+          item.appendChild(div);
+          pendingListEl.appendChild(item);
+        });
+      }else{
+        if(!STATE.existingFields.length){
+          pendingListEl.innerHTML =
+            `<div class="field-list-empty">No fields added yet. Use <strong>Add Field</strong> above to start building this trial.</div>`;
+        }else{
+          pendingListEl.innerHTML =
+            `<div class="field-list-empty">No new fields added yet. Use <strong>Add Field</strong> above to add more fields to this trial.</div>`;
+        }
+      }
+
+      applySwipeToLists();
+
+      if(overlapCheckTimer) clearTimeout(overlapCheckTimer);
+      overlapCheckTimer = setTimeout(()=>{
+        checkOverlappingTrials().catch(()=>{});
+      }, 120);
+    }
+
+    function formHasUnsavedStuff(){
+      if(STATE.pendingFields.length) return true;
+      if(trialAcresInput && trialAcresInput.value.trim()) return true;
+      if(notesInput && notesInput.value.trim()) return true;
+      if(STATE.selectedFarm || STATE.selectedField) return true;
+      return false;
+    }
+
+    function handleNavBack(){
+      if(!formHasUnsavedStuff()){
+        window.location.href = CONFIG.RETURN_URL;
+        return;
+      }
+      const now = Date.now();
+      if(now - lastNavTime < 2500){
+        window.location.href = CONFIG.RETURN_URL;
+      }else{
+        lastNavTime = now;
+        showToast("You have unsaved fields. Tap again to discard and go back.");
+      }
+    }
+
+    function actuallyAddPendingRow(draft){
+      const { farm, field, acres, notes } = draft;
+      STATE.pendingFields.push({ farm, field, acres, notes });
+      sortFieldRows(STATE.pendingFields);
+      diag('addFieldToPending', {
+        farmId: farm.id,
+        fieldId: field.id,
+        acres,
+        notesLen: (notes || '').length
+      });
+      renderFieldLists();
+      showToast("Field Added - Not Save Yet");
+
+      STATE.selectedFarm = null;
+      STATE.selectedField = null;
+      STATE.selectedFieldMaxAcres = null;
+      refreshFarmCombo();
+      refreshFieldComboForFarm(null);
+      if(trialAcresInput){
+        trialAcresInput.value = '';
+      }
+      if(trialAcresHelp){
+        trialAcresHelp.textContent = '';
+      }
+      if(notesInput){
+        notesInput.value = '';
+      }
+    }
+
+    function openNoAcresConfirm(draft){
+      STATE.noAcresDraft = draft;
+      if(noAcresModal){
+        noAcresModal.classList.add('show');
+      }else{
+        actuallyAddPendingRow(draft);
+      }
+    }
+
+    function closeNoAcresConfirm(){
+      STATE.noAcresDraft = null;
+      if(noAcresModal){
+        noAcresModal.classList.remove('show');
+      }
+    }
+
+    function addFieldToPending(e){
+      e.preventDefault();
+      showError('');
+      if(trialAcresInput) trialAcresInput.classList.remove('input-error');
+
+      const farm = STATE.selectedFarm;
+      const field = STATE.selectedField;
+      if(!farm){
+        showError("Please select a farm.");
+        return;
+      }
+      if(!field){
+        showError("Please select a field.");
+        return;
+      }
+      if(field.farmId && field.farmId!==farm.id){
+        showError("Selected field does not belong to the selected farm. Please choose a matching farm and field.");
+        return;
+      }
+
+      const fieldId = field.id;
+      if(fieldId){
+        const alreadyExisting = STATE.existingFields.some(row => row.field && row.field.id === fieldId);
+        const alreadyPending  = STATE.pendingFields.some(row => row.field && row.field.id === fieldId);
+        if(alreadyExisting || alreadyPending){
+          showError("This field is already in this trial. You can't add the same field twice.");
+          showToast("Field already added to this trial.");
+          return;
+        }
+      }
+
+      const acresStr = trialAcresInput.value.trim();
+      const notes    = notesInput.value.trim();
+      let acres = null;
+
+      if(acresStr){
+        acres = Number(acresStr);
+        if(isNaN(acres)){
+          showError("Trial acres must be a number.");
+          if(trialAcresInput) trialAcresInput.classList.add('input-error');
+          return;
+        }
+        acres = Math.round(acres * 100) / 100;
+      }
+
+      const maxAcres = STATE.selectedFieldMaxAcres;
+      if(maxAcres != null && acres != null && acres > maxAcres + 0.0001){
+        showError(`Trial acres cannot be more than the field tillable acres (${maxAcres}).`);
+        if(trialAcresInput) trialAcresInput.classList.add('input-error');
+        return;
+      }
+
+      const draft = { farm, field, acres, notes };
+
+      if(acres == null){
+        openNoAcresConfirm(draft);
+        return;
+      }
+
+      actuallyAddPendingRow(draft);
+    }
+
+    async function saveAllFields(e){
+      e.preventDefault();
+      showError('');
+      if(trialAcresInput) trialAcresInput.classList.remove('input-error');
+      if(!STATE.pendingFields.length){
+        showError("No new fields to save. Add at least one field to this trial.");
+        return;
+      }
+      if(!STATE.user){
+        showError("User is not signed in. Please re-login and try again.");
+        return;
+      }
+
+      const saveBtn=document.getElementById('btnSaveFields');
+      if(saveBtn) saveBtn.disabled=true;
+
+      try{
+        const trialId = STATE.trialId;
+        const basePath = `${CONFIG.COLLECTION_TRIALS}/${trialId}/fields`;
+
+        diag('saveAllFields.start', {
+          trialId,
+          basePath,
+          pendingCount: STATE.pendingFields.length,
+          userUid: STATE.user.uid,
+          orgId: STATE.orgId
+        });
+
+        await FVData.ready();
+
+        for(const row of STATE.pendingFields){
+          const payload = {
+            farmId: row.farm.id,
+            farmName: row.farm.name,
+            fieldId: row.field.id,
+            fieldName: row.field.fieldName,
+            tillable: row.field.tillable!=null?row.field.tillable:null,
+            trialAcres: row.acres!=null?row.acres:null,
+            notes: row.notes || null
+          };
+          diag('saveAllFields.addDoc', { basePath, payload });
+          await FVData.addDocWithMeta(basePath, payload);
+        }
+
+        diag('saveAllFields.updateTrial', { path: `${CONFIG.COLLECTION_TRIALS}/${trialId}` });
+        await FVData.updateDocWithMeta(
+          `${CONFIG.COLLECTION_TRIALS}/${trialId}`,
+          { status: 'active' }
+        );
+
+        diag('saveAllFields.success', {});
+        showToast("Fields saved and trial marked Active.");
+        setTimeout(()=>{ window.location.href=CONFIG.RETURN_URL; },800);
+      }catch(err){
+        console.error("Error saving fields:",err);
+        diag('saveAllFields.error', {
+          code: err.code,
+          message: err.message,
+          stack: err.stack
+        });
+        showError("Error saving fields: "+(err && (err.message||err.code) || "Unknown error"));
+        const saveBtn2=document.getElementById('btnSaveFields');
+        if(saveBtn2) saveBtn2.disabled=false;
       }
     }
 
     (async function boot(){
       await ready;
-      STATE.db = getFirestore();
-      STATE.filterStatus = CONFIG.STATUS_ALL;
-      STATE.loaded = false;
-      STATE.pendingFilter = null;
 
-      const shell = document.querySelector('fv-shell');
-      if (shell) shell.nav = NAV_MENU;
+      toastEl=document.getElementById('toast');
+      errorBox=document.getElementById('errBox');
+      debugLogEl=document.getElementById('debugLog');
 
-      toastEl = document.getElementById('toast');
+      noAcresModal  = document.getElementById('noAcresModal');
+      noAcresOk     = document.getElementById('noAcresOk');
+      noAcresCancel = document.getElementById('noAcresCancel');
 
-      const backBtn = document.getElementById('btnBack');
-      if(backBtn){
-        backBtn.addEventListener('click', () => {
-          location.href = '/Farm-vista/pages/crop-production/trials.html';
+      if(noAcresCancel){
+        noAcresCancel.addEventListener('click', closeNoAcresConfirm);
+      }
+      if(noAcresOk){
+        noAcresOk.addEventListener('click', () => {
+          if(STATE.noAcresDraft){
+            actuallyAddPendingRow(STATE.noAcresDraft);
+          }
+          closeNoAcresConfirm();
+        });
+      }
+      if(noAcresModal){
+        noAcresModal.addEventListener('click', (e)=>{
+          if(e.target === noAcresModal) closeNoAcresConfirm();
         });
       }
 
-      const closeDetailBtn = $('#trialDetailClose');
-      if(closeDetailBtn){
-        closeDetailBtn.addEventListener('click', () => {
-          STATE.selectedId = null;
-          clearDetails();
-        });
+      overlapHeroEl   = document.getElementById('overlapHero');
+      overlapListEl   = document.getElementById('overlapList');
+      overlapSummaryEl= document.getElementById('overlapSummary');
+      overlapBadgeEl  = document.getElementById('overlapBadge');
+
+      if(overlapHeroEl){
+        overlapHeroEl.style.display = 'none';
       }
 
-      const completeBtn = $('#trialCompleteBtn');
-      if(completeBtn){
-        completeBtn.addEventListener('click', () => {
-          if(!STATE.selectedId) return;
-          markTrialCompleted();
-        });
+      diag('boot.start', { href: window.location.href });
+
+      STATE.auth = getAuth();
+      STATE.user = await waitForAuthReady();
+
+      if(STATE.user){
+        diag('boot.user', { uid: STATE.user.uid, email: STATE.user.email });
+      }else{
+        diag('boot.user.missing', {});
       }
 
-      const deleteBtn = $('#trialDeleteBtn');
-      if(deleteBtn){
-        deleteBtn.addEventListener('click', () => {
-          if(!STATE.selectedId) return;
-          deleteTrial();
-        });
+      STATE.trialId=getQueryParam('trialId');
+      diag('boot.trialId', { trialId: STATE.trialId });
+
+      const shell=document.querySelector('fv-shell');
+      if(shell && NAV_MENU) shell.nav=NAV_MENU;
+
+      if(!STATE.trialId){
+        showError("Missing trialId in URL. Use this page from the Trials screen.");
+        return;
       }
 
-      fileModal       = $('#fileModal');
-      fileBackdrop    = $('#fileBackdrop');
-      fileCloseBtn    = $('#fileModalClose');
-      fileContentWrap = $('#fileContentWrap');
-
-      if(fileBackdrop){
-        fileBackdrop.addEventListener('click', closeFileViewer);
-      }
-      if(fileCloseBtn){
-        fileCloseBtn.addEventListener('click', closeFileViewer);
+      if(!STATE.user){
+        showError("User is not signed in. Please log in again.");
+        return;
       }
 
-      const statusSelect = $('#trialStatusFilter');
-      if(statusSelect){
-        statusSelect.value = CONFIG.STATUS_ALL;
-        statusSelect.addEventListener('change', () => {
-          const val = (statusSelect.value || CONFIG.STATUS_ALL).toLowerCase();
-          applyFilter(val);
-        });
+      const fvUser = await waitForFVUser();
+      diag('boot.fvUser', fvUser || { missing:true });
+      if(!fvUser){
+        showError("Unable to load user info. Please refresh.");
+        return;
       }
 
-      const emptyEl = $('.trial-empty');
-      if(emptyEl){
-        emptyEl.addEventListener('click', () => {
-          if(!STATE.db) return;
-          STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
-          if(!trialsUnsub){
-            attachTrialsListener();
+      STATE.fvUser = fvUser;
+      STATE.orgId  = fvUser.orgId || fvUser.org || fvUser.orgID || null;
+      diag('boot.orgId', { orgId: STATE.orgId });
+
+      STATE.db=getFirestore();
+
+      trialNameMain      = document.getElementById("trialNameMain");
+      trialCropMain      = document.getElementById("trialCropMain");
+      trialTypeLine      = document.getElementById("trialTypeLine");
+      trialTreatmentLine = document.getElementById("trialTreatmentLine");
+
+      fieldFarmBtn    = document.getElementById("fieldFarmBtn");
+      fieldFarmPanel  = document.getElementById("fieldFarmPanel");
+      fieldFarmList   = document.getElementById("fieldFarmList");
+      fieldFarmSearch = document.getElementById("fieldFarmSearch");
+
+      fieldFieldBtn   = document.getElementById("fieldFieldBtn");
+      fieldFieldPanel = document.getElementById("fieldFieldPanel");
+      fieldFieldList  = document.getElementById("fieldFieldList");
+      fieldFieldSearch= document.getElementById("fieldFieldSearch");
+
+      trialAcresInput = document.getElementById("trialAcres");
+      trialAcresHelp  = document.getElementById("trialAcresHelp");
+      notesInput      = document.getElementById("notes");
+      micBtn          = document.getElementById("notesMic");
+
+      existingListEl  = document.getElementById("existingFieldList");
+      pendingListEl   = document.getElementById("pendingFieldList");
+
+      const btnBack     = document.getElementById("btnBack");
+      const btnAddField = document.getElementById("btnAddField");
+      const btnSaveAll  = document.getElementById("btnSaveFields");
+      const btnCancel   = document.getElementById("btnCancel");
+
+      if(btnBack){
+        btnBack.addEventListener("click", handleNavBack);
+      }
+      if(btnCancel){
+        btnCancel.addEventListener("click", handleNavBack);
+      }
+      if(btnAddField){
+        btnAddField.addEventListener("click", addFieldToPending);
+      }
+      if(btnSaveAll){
+        btnSaveAll.addEventListener("click", saveAllFields);
+      }
+
+      if(existingListEl){
+        existingListEl.addEventListener('click', (e)=>{
+          const yieldBtn = e.target.closest('button[data-existing-yield]');
+          if(yieldBtn){
+            const idx = Number(yieldBtn.getAttribute('data-existing-yield'));
+            if(!Number.isNaN(idx)) openYieldForExisting(idx);
+            return;
+          }
+          const removeBtn = e.target.closest('button[data-existing-idx]');
+          if(removeBtn){
+            const idx = Number(removeBtn.getAttribute('data-existing-idx'));
+            if(!Number.isNaN(idx)) removeExistingField(idx);
           }
         });
       }
 
-      // Attach initial listener
-      attachTrialsListener();
+      if(pendingListEl){
+        pendingListEl.addEventListener('click', (e)=>{
+          const yieldBtn = e.target.closest('button[data-pending-yield]');
+          if(yieldBtn){
+            openYieldForPending();
+            return;
+          }
+          const removeBtn = e.target.closest('button[data-pending-idx]');
+          if(removeBtn){
+            const idx = Number(removeBtn.getAttribute('data-pending-idx'));
+            if(!Number.isNaN(idx)) removePendingField(idx);
+          }
+        });
+      }
 
-      // BFCache / focus handling similar to equipment page
-      window.addEventListener('pageshow', () => {
-        resume();
-      });
+      if(trialAcresInput){
+        trialAcresInput.addEventListener("blur", ()=>{
+          const v=trialAcresInput.value.trim();
+          if(!v) return;
+          const n=Number(v);
+          if(!isNaN(n)) trialAcresInput.value=(Math.round(n*100)/100).toFixed(2);
+        });
+      }
 
-      document.addEventListener('visibilitychange', () => {
-        if(document.visibilityState === 'visible'){
-          resume();
+      // mic wiring – same pattern as maintenance-add
+      setupMic();
+
+      farmCombo = makeCombo({
+        btn:fieldFarmBtn,
+        panel:fieldFarmPanel,
+        list:fieldFarmList,
+        searchInput:fieldFarmSearch,
+        searchable:true,
+        formatter:x=>x.label,
+        onPick:f=>{
+          STATE.selectedFarm=STATE.farms.find(ff=>ff.id===f.id)||null;
+          refreshFieldComboForFarm(f.id);
         }
       });
 
-      window.addEventListener('focus', () => {
-        resume();
+      fieldCombo = makeCombo({
+        btn:fieldFieldBtn,
+        panel:fieldFieldPanel,
+        list:fieldFieldList,
+        searchInput:fieldFieldSearch,
+        searchable:true,
+        formatter:x=>x.label,
+        onPick:item=>{
+          STATE.selectedField=item.raw;
+          if(item.raw.farmId){
+            const farm=STATE.farms.find(f=>f.id===item.raw.farmId);
+            if(farm){
+              STATE.selectedFarm=farm;
+              refreshFieldComboForFarm(farm.id);
+              STATE.selectedField=item.raw;
+              if(fieldFieldBtn) fieldFieldBtn.textContent=item.label;
+            }else if(fieldFieldBtn){
+              fieldFieldBtn.textContent=item.label;
+            }
+          }else if(fieldFieldBtn){
+            fieldFieldBtn.textContent=item.label;
+          }
+          const max=item.raw.tillable!=null?item.raw.tillable:null;
+          STATE.selectedFieldMaxAcres=max;
+          if(max!=null && trialAcresHelp){
+            trialAcresHelp.textContent=
+              `Max trial acres for this field: ${max}. Trial acres cannot be more than the tillable acres.`;
+          }else if(trialAcresHelp){
+            trialAcresHelp.textContent='';
+          }
+        }
       });
 
-      window.addEventListener('pagehide', () => {
-        detachTrialsListener();
-      });
+      try{
+        await loadTrial();
+        await loadFarmsAndFields();
+        await loadExistingTrialFields();
+      }catch(err){
+        console.error("Initial load error:",err);
+        diag('boot.load.error', { code: err.code, message: err.message });
+        showError("Error loading data. Some lists may be incomplete.");
+      }
+
+      refreshFarmCombo();
+      refreshFieldComboForFarm(null);
+      renderFieldLists();
+      diag('boot.complete', {});
     })();
   </script>
 </head>
@@ -1404,94 +1802,141 @@
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon" aria-hidden="true">🧪</div>
-          <div>
-            <h1>Add Field and Yield to Trials</h1>
-            <p class="muted">
-              Review trials, mark them completed, add fields to trials by swiping left and add yield to fields by swiping right. You can also delete a trial if made improperly.
-            </p>
+          <div class="hero-head-main">
+            <div class="icon" aria-hidden="true">🧪</div>
+            <div>
+              <h1>Add Field to Trial</h1>
+              <p class="muted">
+                Pick a farm and field, then enter the acres that are part of this trial. Trial acres can’t be more
+                than the field’s tillable acres.
+              </p>
+            </div>
           </div>
         </header>
 
         <div class="body">
-          <div class="toolbar">
-            <div class="toolbar-left">
-              <button id="btnBack" type="button" class="btn btn-quiet">
-                ← Back to Trials
+          <div id="errBox" class="error-box"></div>
+
+          <div class="top-row">
+            <button id="btnBack" type="button" class="btn btn-quiet">
+              ← Back to Trials
+            </button>
+          </div>
+
+          <div class="top-row">
+            <div class="trial-summary">
+              <div class="trial-summary-title" id="trialNameMain">Loading trial…</div>
+              <div class="trial-summary-line">
+                <strong>Crop:</strong> <span id="trialCropMain">—</span>
+              </div>
+              <div class="trial-summary-line" id="trialTypeLine"></div>
+              <div class="trial-summary-line" id="trialTreatmentLine"></div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field combo">
+              <label for="fieldFarmBtn">Farm</label>
+              <div class="combo-anchor">
+                <button id="fieldFarmBtn" class="buttonish has-caret" type="button">
+                  — Select farm —</button>
+                <div id="fieldFarmPanel" class="combo-panel" role="listbox" aria-label="Farm list">
+                  <div class="search">
+                    <input id="fieldFarmSearch" type="search" placeholder="Search farms…" />
+                  </div>
+                  <div class="list" id="fieldFarmList"></div>
+                </div>
+              </div>
+              <div class="helper">Pick the farm where this trial strip is located.</div>
+            </div>
+
+            <div class="field combo">
+              <label for="fieldFieldBtn">Field</label>
+              <div class="combo-anchor">
+                <button id="fieldFieldBtn" class="buttonish has-caret" type="button">
+                  — Select field —</button>
+                <div id="fieldFieldPanel" class="combo-panel" role="listbox" aria-label="Field list">
+                  <div class="search">
+                    <input id="fieldFieldSearch" type="search" placeholder="Search fields…" />
+                  </div>
+                  <div class="list" id="fieldFieldList"></div>
+                </div>
+              </div>
+              <div class="helper">You can pick a field first and the farm will auto-fill.</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="trialAcres">Trial Acres</label>
+            <input id="trialAcres" class="input no-spin" type="number" step="0.01"
+                   placeholder="Acres in this field that are part of the trial" />
+            <div id="trialAcresHelp" class="helper"></div>
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes</label>
+            <div class="ta-wrap">
+              <textarea id="notes" class="textarea with-mic"
+                        placeholder="Strip layout, passes, timing, or anything the crew needs to remember."></textarea>
+              <button id="notesMic" type="button" class="mic-btn" aria-label="Start dictation">
+                <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                </svg>
               </button>
             </div>
-            <div class="toolbar-right">
-              <span id="trialCount">Loading trials...</span>
-            </div>
+            <div class="helper">Optional, but really helpful when you come back to review results.</div>
           </div>
 
-          <div class="status-filter-wrap">
-            <label for="trialStatusFilter" class="status-filter-label">Status</label>
-            <select id="trialStatusFilter" class="status-filter-select">
-              <option value="all">All</option>
-              <option value="pending">Pending</option>
-              <option value="active">Active</option>
-              <option value="completed">Completed</option>
-            </select>
+          <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
+            <button id="btnAddField" type="button" class="btn btn-primary">
+              Add Field
+            </button>
           </div>
-
-          <section aria-label="Field trials">
-            <div class="trial-empty">
-              Loading trials...
-            </div>
-            <div class="trial-list"></div>
-          </section>
         </div>
       </section>
 
-      <section class="trial-detail-panel" aria-label="Trial details">
-        <div class="trial-detail-header">
-          <div class="trial-detail-title">Trial Details</div>
-          <button type="button" id="trialDetailClose" class="trial-detail-close">
-            <span class="visually-hidden">Close</span>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6.225 4.811 4.81 6.225 10.586 12l-5.775 5.775 1.414 1.414L12 13.414l5.775 5.775 1.414-1.414L13.414 12l5.775-5.775-1.414-1.414L12 10.586 6.225 4.811Z" fill="currentColor"/>
-            </svg>
-          </button>
+      <section class="fields-hero">
+        <header class="fields-head">
+          <h2>Fields in this trial</h2>
+        </header>
+        <div class="fields-body">
+          <div id="existingFieldList"></div>
+          <div id="pendingFieldList"></div>
+          <div class="fields-swipe-hint">
+            On a phone, swipe right on a field card to add yield, and swipe left to remove it from this list. On desktop, use the buttons.
+          </div>
         </div>
-
-        <div class="trial-detail-grid"></div>
-
-        <div class="trial-detail-notes">
-          <div class="trial-detail-notes-label">Trial Notes</div>
-          <div class="trial-detail-notes-body"></div>
+        <div class="fields-actions">
+          <button id="btnCancel" type="button" class="btn">Cancel</button>
+          <button id="btnSaveFields" type="button" class="btn btn-primary">Save Fields</button>
         </div>
+      </section>
 
-        <div class="trial-attachments">
-          <div class="trial-attachments-label">Files &amp; Photos</div>
-          <div class="trial-attachments-grid" id="trialDetailAttachments"></div>
+      <section id="overlapHero" class="overlap-hero" style="display:none;">
+        <header class="overlap-head">
+          <h2>Other trials using these fields</h2>
+          <span id="overlapBadge" class="overlap-badge"></span>
+        </header>
+        <div class="overlap-body">
+          <div id="overlapSummary" class="overlap-summary"></div>
+          <div id="overlapList"></div>
         </div>
-
-        <div class="trial-actions">
-          <button type="button" id="trialCompleteBtn" class="btn btn-complete" style="display:none;">
-            Mark Trial Completed
-          </button>
-          <button type="button" id="trialDeleteBtn" class="trial-delete-btn" aria-label="Delete trial">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
-            </svg>
-          </button>
-        </div>
-
-        <div class="trial-detail-footer"></div>
       </section>
     </div>
   </fv-shell>
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <div id="fileModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Trial attachment">
-    <div id="fileBackdrop" class="file-backdrop"></div>
-    <div class="file-sheet">
-      <div class="file-close-row">
-        <button id="fileModalClose" type="button" class="file-close-btn">Close</button>
+  <div id="noAcresModal" class="modal-backdrop" role="alertdialog" aria-modal="true">
+    <div class="modal-sheet">
+      <div class="modal-title">No Trial Acres Entered</div>
+      <div class="modal-body">
+        Are you sure you want to add this field without any trial acres? You can always enter them later.
       </div>
-      <div id="fileContentWrap" class="file-content-wrap"></div>
+      <div class="modal-actions">
+        <button id="noAcresCancel" type="button" class="modal-btn">Cancel</button>
+        <button id="noAcresOk" type="button" class="modal-btn modal-btn-primary">Okay</button>
+      </div>
     </div>
   </div>
 </body>
