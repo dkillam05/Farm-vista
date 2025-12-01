@@ -657,7 +657,9 @@
       loaded: false,
       pendingFilter: null,
       isLoading: false,
-      retryCount: 0
+      retryCount: 0,
+      // trialId -> boolean (true = has field, false = no field) for MH trials
+      mhHasFieldByTrial: {}
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -703,34 +705,76 @@
       toastEl.classList.add('show');
     }
 
-  function isMultiHybridTrialData(d){
-  if (!d) return false;
+    function isMultiHybridTrialData(d){
+      if (!d) return false;
 
-  // explicit flags still win
-  if (d.isMultiHybrid === true || d.multiHybrid === true) return true;
+      // explicit flags still win
+      if (d.isMultiHybrid === true || d.multiHybrid === true) return true;
 
-  const trialType     = (d.trialType      || '').toString().toLowerCase();
-  const seedTrialType = (d.seedTrialType  || '').toString().toLowerCase();
-  const trialSubtype  = (d.trialSubtype   || '').toString().toLowerCase();
+      const trialType     = (d.trialType      || '').toString().toLowerCase();
+      const seedTrialType = (d.seedTrialType  || '').toString().toLowerCase();
+      const trialSubtype  = (d.trialSubtype   || '').toString().toLowerCase();
 
-  // Your current structure: Seed Varieties + Multiple Hybrid Trial
-  if (trialType === 'seed varieties' &&
-      seedTrialType === 'multiple hybrid trial') {
-    return true;
-  }
+      // Your current structure: Seed Varieties + Multiple Hybrid Trial
+      if (trialType === 'seed varieties' &&
+          seedTrialType === 'multiple hybrid trial') {
+        return true;
+      }
 
-  // Fallback: any subtype text that literally says multi + hybrid
-  if (seedTrialType.includes('multi') && seedTrialType.includes('hybrid')) return true;
-  if (trialSubtype.includes('multi')  && trialSubtype.includes('hybrid'))  return true;
-  if (trialType.includes('multi')     && trialType.includes('hybrid'))     return true;
+      // Fallback: any subtype text that literally says multi + hybrid
+      if (seedTrialType.includes('multi') && seedTrialType.includes('hybrid')) return true;
+      if (trialSubtype.includes('multi')  && trialSubtype.includes('hybrid'))  return true;
+      if (trialType.includes('multi')     && trialType.includes('hybrid'))     return true;
 
-  return false;
-}
+      return false;
+    }
 
     function buildYieldUrl(trialId, data){
       const isMh = isMultiHybridTrialData(data);
       const base = isMh ? CONFIG.ADD_YIELD_MH_URL : CONFIG.ADD_YIELD_URL;
       return `${base}?trialId=${encodeURIComponent(trialId)}`;
+    }
+
+    // For MH trials, figure out whether a field already exists and
+    // show/hide Add Fields / Add Yield buttons on the card.
+    async function configureMhButtonsForTrial(card, trialId, data){
+      if (!STATE.db) return;
+      if (!isMultiHybridTrialData(data)) return;
+
+      const addFieldBtn = card.querySelector('.trial-add-fields-btn');
+      const addYieldBtn = card.querySelector('.trial-add-yield-btn');
+
+      // Optimistic default while loading: allow Add Field, hide Add Yield
+      if(addFieldBtn) addFieldBtn.style.display = 'none';
+      if(addYieldBtn) addYieldBtn.style.display = 'none';
+
+      try{
+        const fieldsRef = collection(
+          STATE.db,
+          CONFIG.COLLECTION_TRIALS,
+          trialId,
+          'fields'
+        );
+        const snap = await getDocs(fieldsRef);
+        const hasField = !snap.empty;
+        STATE.mhHasFieldByTrial[trialId] = hasField;
+
+        if(hasField){
+          // MH trial already has a field: hide Add Field, show Add Yield
+          if(addFieldBtn) addFieldBtn.style.display = 'none';
+          if(addYieldBtn) addYieldBtn.style.display = '';
+        }else{
+          // No field yet: show Add Field, hide Add Yield
+          if(addFieldBtn) addFieldBtn.style.display = '';
+          if(addYieldBtn) addYieldBtn.style.display = 'none';
+        }
+      }catch(err){
+        console.error('Error checking MH field status:', err);
+        // On error, prefer to allow adding a field, but keep yield hidden
+        STATE.mhHasFieldByTrial[trialId] = false;
+        if(addFieldBtn) addFieldBtn.style.display = '';
+        if(addYieldBtn) addYieldBtn.style.display = 'none';
+      }
     }
 
     function clearDetails(){
@@ -964,8 +1008,37 @@
             if(!trialId) return;
             const item = STATE.items.find(x => x.id === trialId);
             if(!item) return;
-            const url = buildYieldUrl(trialId, item.data);
-            window.location.href = url;
+            const data = item.data;
+
+            (async () => {
+              // For MH trials, only allow Add Yield if there is a field
+              if (isMultiHybridTrialData(data)) {
+                let hasField = STATE.mhHasFieldByTrial[trialId];
+                if (typeof hasField !== 'boolean' && STATE.db) {
+                  try{
+                    const fieldsRef = collection(
+                      STATE.db,
+                      CONFIG.COLLECTION_TRIALS,
+                      trialId,
+                      'fields'
+                    );
+                    const snap = await getDocs(fieldsRef);
+                    hasField = !snap.empty;
+                    STATE.mhHasFieldByTrial[trialId] = hasField;
+                  }catch(err){
+                    console.error('Error checking MH field (swipe Add Yield):', err);
+                  }
+                }
+
+                if(hasField === false){
+                  showToast('Add a field to this multi-hybrid trial first.');
+                  return;
+                }
+              }
+
+              const url = buildYieldUrl(trialId, data);
+              window.location.href = url;
+            })();
           }
         },
         // Swipe LEFT -> Add Field
@@ -974,8 +1047,38 @@
           onAction: (itemEl) => {
             const trialId = itemEl.dataset.trialId;
             if(!trialId) return;
-            const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(trialId)}`;
-            window.location.href = url;
+            const item = STATE.items.find(x => x.id === trialId);
+            const data = item?.data;
+
+            (async () => {
+              // For MH trials, only allow Add Field if one doesn't already exist
+              if (isMultiHybridTrialData(data)) {
+                let hasField = STATE.mhHasFieldByTrial[trialId];
+                if (typeof hasField !== 'boolean' && STATE.db) {
+                  try{
+                    const fieldsRef = collection(
+                      STATE.db,
+                      CONFIG.COLLECTION_TRIALS,
+                      trialId,
+                      'fields'
+                    );
+                    const snap = await getDocs(fieldsRef);
+                    hasField = !snap.empty;
+                    STATE.mhHasFieldByTrial[trialId] = hasField;
+                  }catch(err){
+                    console.error('Error checking MH field (swipe Add Field):', err);
+                  }
+                }
+
+                if(hasField === true){
+                  showToast('This multi-hybrid trial already has a field.');
+                  return;
+                }
+              }
+
+              const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(trialId)}`;
+              window.location.href = url;
+            })();
           }
         }
       });
@@ -1048,6 +1151,11 @@
         card.dataset.id = id;
         card.dataset.trialId = id;
 
+        const isMhTrial = isMultiHybridTrialData(d);
+        if(isMhTrial){
+          card.dataset.isMh = '1';
+        }
+
         card.innerHTML = `
           <div class="trial-card-actions">
             <button type="button" class="trial-add-btn trial-add-fields-btn">Add Fields</button>
@@ -1103,6 +1211,11 @@
             const url = buildYieldUrl(id, d);
             window.location.href = url;
           });
+        }
+
+        // For MH trials, we decide which buttons to show based on whether a field exists.
+        if(isMhTrial){
+          configureMhButtonsForTrial(card, id, d);
         }
 
         listEl.appendChild(card);
@@ -1171,6 +1284,9 @@
       if(STATE.isLoading) return;
 
       STATE.isLoading = true;
+
+      // Reset MH cache whenever we reload trials
+      STATE.mhHasFieldByTrial = {};
 
       const emptyEl = $('.trial-empty');
       const countEl = $('#trialCount');
@@ -1333,6 +1449,7 @@
       STATE.loaded = false;
       STATE.pendingFilter = null;
       STATE.retryCount = 0;
+      STATE.mhHasFieldByTrial = {};
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
