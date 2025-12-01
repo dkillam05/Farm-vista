@@ -83,6 +83,7 @@
       gap:12px;
       margin-top:6px;
     }
+    /* extra space between first and second row so circles don't touch */
     .dash-kpi-row + .dash-kpi-row{
       margin-top:10px;
     }
@@ -100,7 +101,9 @@
       background:rgba(59,126,70,0.10);
       color:var(--text,#1d211f);
     }
+    /* second circle same size as first */
     .dash-kpi-count-secondary{
+      /* same size, just re-use base style */
     }
 
     .dash-kpi-sub{
@@ -115,6 +118,7 @@
       color:var(--muted,#67706B);
     }
 
+    /* Badge links (keep numbers black, no purple visited) */
     .dash-kpi-count-link{
       text-decoration:none;
       display:inline-flex;
@@ -196,8 +200,7 @@
     .trial-scorecard-embed iframe{
       width:100%;
       border:0;
-      /* 🔽 bigger min-height so native dropdown has room inside iframe */
-      min-height:500px;
+      min-height:460px;
       display:block;
       background:#ffffff;
     }
@@ -231,7 +234,9 @@
         <em>Aerial Applications</em>, and <em>Trials</em>.
       </p>
 
-      <!-- KPIs (unchanged) -->
+      <!-- ============================
+           KPI: Pending / In-Progress Field Maintenance
+           ============================ -->
       <a
         href="field-maintenance/maintenance-active.html"
         class="dash-kpi dash-kpi-empty"
@@ -253,11 +258,21 @@
         </div>
       </a>
 
-      <div class="dash-kpi dash-kpi-empty" id="trials-kpi">
+      <!-- ============================
+           KPI: Active Field Trials
+           Two rows:
+           • Row 1: Active trials (circle links to trials edit)
+           • Row 2: Enrolled fields (circle links to report)
+           ============================ -->
+      <div
+        class="dash-kpi dash-kpi-empty"
+        id="trials-kpi"
+      >
         <div class="dash-kpi-main">
           <div class="dash-kpi-text">
             <div class="dash-kpi-label">Field Trials</div>
 
+            <!-- Row 1: Active crop trials & check strips -->
             <div class="dash-kpi-row">
               <div class="dash-kpi-title">
                 Active crop trials &amp; check strips
@@ -271,6 +286,7 @@
               </a>
             </div>
 
+            <!-- Row 2: Fields enrolled in those active trials -->
             <div class="dash-kpi-row">
               <div class="dash-kpi-title-secondary">
                 Fields enrolled in active trials
@@ -291,7 +307,9 @@
         </div>
       </div>
 
-      <!-- Embedded Trial Scorecard -->
+      <!-- ============================
+           Embedded Trial Scorecard
+           ============================ -->
       <section class="card trial-scorecard-card" id="trial-scorecard-card">
         <div class="trial-scorecard-header">
           <div>
@@ -307,6 +325,10 @@
             The embedded report defaults to the current year. Use the report’s own controls to pick which trial you want to review each time you open this page.
           </p>
           <div class="trial-scorecard-embed">
+            <!--
+              NOTE: If your scorecard report file is named differently,
+              update SCORECARD_PATH in the script at the bottom of the page.
+            -->
             <iframe
               id="trial-scorecard-frame"
               title="Hybrid &amp; treatment trial scorecard"
@@ -320,7 +342,7 @@
     </div>
   </fv-shell>
 
-  <!-- Bootloader (unchanged) -->
+  <!-- Bootloader: identical order/paths as the working Setup page -->
   <script>
     (function () {
       const urlRev = new URL(location.href).searchParams.get('rev');
@@ -347,18 +369,23 @@
     })();
   </script>
 
-  <!-- Field Maintenance KPI JS (unchanged) -->
+  <!-- ===========================================
+       Field Maintenance KPI JS (pending + in progress)
+       =========================================== -->
   <script>
     (function(){
       "use strict";
+
       const kpiEl   = document.getElementById("wo-active-kpi");
       const countEl = document.getElementById("wo-active-count");
       const subEl   = document.getElementById("wo-active-sub");
+
       if (!kpiEl || !countEl || !subEl) return;
 
       function applyState(count){
         const n = Number(count) || 0;
         countEl.textContent = n.toString();
+
         if (!n){
           kpiEl.classList.add("dash-kpi-empty");
           subEl.textContent = "No pending or in-progress field maintenance work orders.";
@@ -377,22 +404,28 @@
             applyState(0);
             return;
           }
+
           if (typeof FVData.ready === "function"){
             await FVData.ready();
           }
+
+          // Count docs where status == "pending" OR status == "in progress"
           const [pendingDocs, inProgDocs] = await Promise.all([
             FVData.getWhere("fieldMaintenance", "status", "==", "pending",     { limit: 500 }) || [],
             FVData.getWhere("fieldMaintenance", "status", "==", "in progress", { limit: 500 }) || []
           ]);
+
           const ids = new Set();
           pendingDocs.forEach(d => { if (d && d.id) ids.add(d.id); });
           inProgDocs.forEach(d => { if (d && d.id) ids.add(d.id); });
+
           applyState(ids.size);
         }catch(err){
           console.warn("[crop-production] failed to load active work-order KPI:", err);
           applyState(0);
         }
       }
+
       loadActive();
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") loadActive();
@@ -400,7 +433,12 @@
     })();
   </script>
 
-  <!-- Field Trials KPI JS (unchanged) -->
+  <!-- ===========================================
+       Field Trials KPI JS
+       - Counts active trials
+       - Counts fields in those active trials
+       - Feeds both circles
+       =========================================== -->
   <script type="module">
     import {
       ready,
@@ -420,8 +458,10 @@
       function applyState(trialCount, fieldCount){
         const nTrials = Number(trialCount) || 0;
         const nFields = Number(fieldCount) || 0;
+
         trialsEl.textContent = nTrials.toString();
         fieldsEl.textContent = nFields.toString();
+
         if (!nTrials){
           kpiEl.classList.add("dash-kpi-empty");
           subElTrials.textContent = "No active field trials found.";
@@ -433,23 +473,34 @@
 
       async function loadTrials(){
         try{
+          // Ensure Firebase is initialized
           await ready;
           const db = getFirestore();
+
+          // Only count trials where status == "active"
           const trialsRef = collection(db, "fieldTrials");
           const q = query(trialsRef, where("status", "==", "active"));
           const snap = await getDocs(q);
+
           const trialCount = typeof snap.size === "number" ? snap.size : 0;
+
+          // If no active trials, we can short-circuit
           if (!trialCount){
             applyState(0, 0);
             return;
           }
+
+          // For each active trial, count enrolled fields from subcollection:
+          // fieldTrials/{trialId}/fields
           const trialIds = [];
           snap.forEach(docSnap => {
             if (docSnap && docSnap.id) {
               trialIds.push(docSnap.id);
             }
           });
+
           let fieldCount = 0;
+
           if (trialIds.length){
             const fieldPromises = trialIds.map(trialId => {
               const fieldsRef = collection(db, "fieldTrials", trialId, "fields");
@@ -457,9 +508,11 @@
                 return typeof fieldsSnap.size === "number" ? fieldsSnap.size : 0;
               });
             });
+
             const fieldCounts = await Promise.all(fieldPromises);
             fieldCount = fieldCounts.reduce((sum, n) => sum + (Number(n) || 0), 0);
           }
+
           applyState(trialCount, fieldCount);
         }catch(err){
           console.warn("[crop-production] failed to load field trials KPI:", err);
@@ -474,15 +527,52 @@
     }
   </script>
 
-  <!-- Trial Scorecard iframe bootstrap -->
+  <!-- ===========================================
+       Trial Scorecard iframe bootstrap
+       - Sets src with current year by default
+       =========================================== -->
   <script>
     (function(){
       const frame = document.getElementById('trial-scorecard-frame');
       if (!frame) return;
+
       const year = new Date().getFullYear();
+
+      // If your scorecard report file name/path is different,
+      // update this constant to match.
       const SCORECARD_PATH = '/Farm-vista/pages/reports/reports-mh-scoreboard.html';
+
       const url = SCORECARD_PATH + '?embed=1&year=' + encodeURIComponent(year);
       frame.src = url;
+    })();
+  </script>
+
+  <!-- ===========================================
+       Auto-resize listener for embedded scorecard
+       =========================================== -->
+  <script>
+    (function(){
+      const FRAME_ID = 'trial-scorecard-frame';
+
+      window.addEventListener('message', function(event){
+        try{
+          // Only trust messages from our own origin
+          if (event.origin !== window.location.origin) return;
+          const data = event.data || {};
+          if (data.type !== 'fv-scorecard-height') return;
+
+          const frame = document.getElementById(FRAME_ID);
+          if (!frame) return;
+
+          const h = Number(data.height) || 0;
+          if (!h) return;
+
+          // add a little breathing room under the content
+          frame.style.height = (h + 24) + 'px';
+        }catch(err){
+          console.warn('[crop-production] scorecard height listener failed', err);
+        }
+      });
     })();
   </script>
 
