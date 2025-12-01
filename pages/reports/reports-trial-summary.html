@@ -14,6 +14,11 @@ Single-trial yield report
       - Each field: trial acres + tillable + weighted check/trial bu/ac + advantage
       - Click row → modal with yield blocks + file thumbnails
       - Bottom totals for tillable acres, trial acres, weighted averages
+
+Print:
+ • Print buttons now prompt:
+      - Summary report → current print (window.print)
+      - Detailed report → placeholder message (not implemented yet)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -693,7 +698,7 @@ Single-trial yield report
 
     async function loadTrialList(){
       const colRef = collection(STATE.db, 'fieldTrials');
-      // Pull all, then filter to active + completed so we don't fight compound queries
+      // grab all, then filter to active + completed
       const snap = await getDocs(colRef);
 
       const trials = [];
@@ -705,7 +710,6 @@ Single-trial yield report
         }
       });
 
-      // sort: newest cropYear first, then trialName
       trials.sort((a,b) => {
         const ay = Number(a.data.cropYear || 0);
         const by = Number(b.data.cropYear || 0);
@@ -773,7 +777,6 @@ Single-trial yield report
         els.filterTrial.appendChild(opt);
       });
 
-      // keep selection if still valid
       if (STATE.trialId) {
         const match = list.find(t => t.id === STATE.trialId);
         if (match) {
@@ -977,7 +980,6 @@ Single-trial yield report
       }
       els.emptyState.style.display = 'none';
 
-      // group by farmName
       const byFarm = new Map();
       for (const f of fields) {
         const name = f.data.farmName || 'Unknown farm';
@@ -1050,7 +1052,6 @@ Single-trial yield report
 
       els.farmsContainer.innerHTML = farmHtml.join('');
 
-      // Attach row listeners
       els.farmsContainer.querySelectorAll('tbody tr[data-field-id]').forEach(row => {
         row.addEventListener('click', () => {
           const id = row.getAttribute('data-field-id');
@@ -1075,7 +1076,6 @@ Single-trial yield report
       if (typeof d.trialAcres === 'number') subBits.push(`${formatNumber(d.trialAcres, {decimals:1})} trial ac`);
       if (els.modalSub) els.modalSub.textContent = subBits.join(' • ');
 
-      // Summary items
       if (els.modalSummary) {
         const sumHtml = [
           { label: 'Check weighted bu/ac', value: s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
@@ -1093,7 +1093,6 @@ Single-trial yield report
         els.modalSummary.innerHTML = sumHtml;
       }
 
-      // Blocks table
       if (els.modalBlocksBody) {
         if (!blocks.length) {
           els.modalBlocksBody.innerHTML = `
@@ -1122,7 +1121,6 @@ Single-trial yield report
         }
       }
 
-      // Attachments
       if (els.modalFiles) {
         const allAttachments = [];
         for (const b of blocks) {
@@ -1154,6 +1152,28 @@ Single-trial yield report
       els.modalBackdrop.setAttribute('aria-hidden', 'true');
     }
 
+    function handlePrintClick(){
+      if (!STATE.trialDoc){
+        alert('Select a trial first, then choose Print / Save PDF.');
+        return;
+      }
+
+      const isSummary = window.confirm(
+        'Print Summary or Detailed report?\n\n' +
+        'OK = Summary report (standard layout like other reports).\n' +
+        'Cancel = Detailed report (coming soon).'
+      );
+
+      if (!isSummary){
+        // Detailed not built yet
+        alert('The detailed trial report layout is not available yet.\n\nFor now, use the Summary option.');
+        return;
+      }
+
+      // Summary = current behavior (browser print of this page)
+      window.print();
+    }
+
     function wireBasicEvents() {
       if (els.btnBack) {
         els.btnBack.addEventListener('click', () => {
@@ -1162,14 +1182,10 @@ Single-trial yield report
       }
 
       if (els.btnPrint) {
-        els.btnPrint.addEventListener('click', () => {
-          window.print();
-        });
+        els.btnPrint.addEventListener('click', handlePrintClick);
       }
       if (els.btnPrintBottom) {
-        els.btnPrintBottom.addEventListener('click', () => {
-          window.print();
-        });
+        els.btnPrintBottom.addEventListener('click', handlePrintClick);
       }
 
       if (els.modalClose) els.modalClose.addEventListener('click', closeFieldModal);
