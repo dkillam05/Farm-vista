@@ -425,7 +425,7 @@
       border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
     }
 
-    /* KEY CHANGE: make dropdown part of normal flow instead of overlay */
+    /* Dropdown is part of normal flow so it pushes content down */
     .combo-panel{
       position:relative;
       left:auto;
@@ -1126,6 +1126,45 @@
     }
     // ===== End inline mic wiring =====
 
+    // ===== Variety row ordering: newest on TOP =====
+    function moveNewestVarietyRowToTop(){
+      const stage = document.getElementById('mhStageShell');
+      if(!stage) return;
+
+      const rows = stage.querySelectorAll('.setup-hybrid-row');
+      if(rows.length < 2) return;
+
+      const parent = rows[0].parentElement;
+      if(!parent) return;
+
+      const last = rows[rows.length - 1]; // helper appends new row at bottom
+      const first = rows[0];
+      if(last && first && last !== first){
+        parent.insertBefore(last, first);
+      }
+
+      // Renumber Entry labels so they stay in order from top → bottom
+      const labels = parent.querySelectorAll('.setup-hybrid-row .entry-label');
+      labels.forEach((lbl, idx) => {
+        lbl.textContent = `Entry ${idx + 1}`;
+      });
+    }
+
+    function wireAddVarietyBehavior(){
+      // Global delegate: look for the "+ Add variety" button inside the modal
+      document.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button');
+        if(!btn) return;
+
+        const text = (btn.textContent || '').trim();
+        if(!text.startsWith('+ Add variety')) return;
+
+        // Let the helper handle the click first, then reorder rows
+        setTimeout(moveNewestVarietyRowToTop, 0);
+      });
+    }
+    // ===== End variety row ordering =====
+
     (async function boot(){
       await ready;
 
@@ -1180,9 +1219,11 @@
         obs.observe(mhShell, { childList:true, subtree:true });
       }
 
+      // Make "+ Add variety" put new rows at the TOP
+      wireAddVarietyBehavior();
+
       // ===== Desktop-only: only "View / Add Yield" opens modal =====
       const fieldCard   = document.getElementById('devFieldCard');
-      const yieldBtn    = document.getElementById('btnFieldYield');
       const hiddenOpen  = document.getElementById('btnOpenModal');
 
       if(fieldCard){
