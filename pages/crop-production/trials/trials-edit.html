@@ -13,6 +13,8 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <!-- Swipe list styles for mobile swipe actions -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
 
   <style>
     :root{
@@ -196,7 +198,7 @@
     .trial-main{
       flex:1 1 auto;
       min-width:0;
-      padding-right:110px; /* room for Add Fields btn */
+      padding-right:160px; /* room for Add Fields + Add Yield buttons */
     }
 
     .trial-title{
@@ -602,6 +604,10 @@
       .trial-bottom-row{
         display:none;
       }
+      /* Hide desktop action buttons on phone – rely on swipe */
+      .trial-card-actions{
+        display:none;
+      }
     }
   </style>
 
@@ -628,6 +634,7 @@
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
+    import { initSwipeList } from '/Farm-vista/js/fv-swipe-list.js';
 
     const CONFIG = {
       COLLECTION_TRIALS: 'fieldTrials',
@@ -636,7 +643,9 @@
       STATUS_PENDING:'pending',
       STATUS_ACTIVE: 'active',
       STATUS_COMPLETED:'completed',
-      ADD_FIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-add.html'
+      ADD_FIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-add.html',
+      ADD_YIELD_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield.html',
+      ADD_YIELD_MH_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield-mh.html'
     };
 
     const STATE = {
@@ -692,6 +701,19 @@
       toastEl.classList.remove('show');
       void toastEl.offsetWidth;
       toastEl.classList.add('show');
+    }
+
+    function isMultiHybridTrialData(d){
+      if(!d) return false;
+      if(d.isMultiHybrid === true || d.multiHybrid === true) return true;
+      const raw = (d.trialType || d.trialSubtype || '').toString().toLowerCase();
+      return raw.includes('multi') && raw.includes('hybrid');
+    }
+
+    function buildYieldUrl(trialId, data){
+      const isMh = isMultiHybridTrialData(data);
+      const base = isMh ? CONFIG.ADD_YIELD_MH_URL : CONFIG.ADD_YIELD_URL;
+      return `${base}?trialId=${encodeURIComponent(trialId)}`;
     }
 
     function clearDetails(){
@@ -809,7 +831,7 @@
 
           ${check ? `
           <div>
-            <div class="trial-detail-item-label">Check</div>
+            <div class="trial-detail-item-label">Check</</div>
             <div class="trial-detail-item-value">${check}</div>
           </div>` : ''}
 
@@ -904,6 +926,44 @@
       panel.style.display = 'flex';
     }
 
+    function setupMobileSwipe(listEl){
+      if(!listEl) return;
+      if(!window.matchMedia) return;
+      const isMobile = window.matchMedia('(max-width: 600px)').matches;
+      if(!isMobile) return;
+
+      const cards = listEl.querySelectorAll('.trial-card');
+      cards.forEach(card => {
+        card.classList.add('fv-swipe-item');
+      });
+
+      initSwipeList(listEl, {
+        itemSelector: '.fv-swipe-item',
+        // Swipe RIGHT -> Add Yield (positive)
+        leftAction: {
+          label: 'Add Yield',
+          onAction: (itemEl) => {
+            const trialId = itemEl.dataset.trialId;
+            if(!trialId) return;
+            const item = STATE.items.find(x => x.id === trialId);
+            if(!item) return;
+            const url = buildYieldUrl(trialId, item.data);
+            window.location.href = url;
+          }
+        },
+        // Swipe LEFT -> Add Field
+        rightAction: {
+          label: 'Add Field',
+          onAction: (itemEl) => {
+            const trialId = itemEl.dataset.trialId;
+            if(!trialId) return;
+            const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(trialId)}`;
+            window.location.href = url;
+          }
+        }
+      });
+    }
+
     function renderList(){
       const listEl  = $('.trial-list');
       const emptyEl = $('.trial-empty');
@@ -969,10 +1029,12 @@
         const card = document.createElement('article');
         card.className = 'trial-card';
         card.dataset.id = id;
+        card.dataset.trialId = id;
 
         card.innerHTML = `
           <div class="trial-card-actions">
-            <button type="button" class="trial-add-btn">Add Fields</button>
+            <button type="button" class="trial-add-btn trial-add-fields-btn">Add Fields</button>
+            <button type="button" class="trial-add-btn trial-add-yield-btn">Add Yield</button>
           </div>
 
           <div class="trial-row-top">
@@ -1008,11 +1070,20 @@
           renderDetails();
         });
 
-        const addBtn = card.querySelector('.trial-add-btn');
-        if(addBtn){
-          addBtn.addEventListener('click', (ev)=>{
+        const addFieldBtn = card.querySelector('.trial-add-fields-btn');
+        if(addFieldBtn){
+          addFieldBtn.addEventListener('click', (ev)=>{
             ev.stopPropagation();
             const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(id)}`;
+            window.location.href = url;
+          });
+        }
+
+        const addYieldBtn = card.querySelector('.trial-add-yield-btn');
+        if(addYieldBtn){
+          addYieldBtn.addEventListener('click', (ev)=>{
+            ev.stopPropagation();
+            const url = buildYieldUrl(id, d);
             window.location.href = url;
           });
         }
@@ -1027,6 +1098,9 @@
           countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
         }
       }
+
+      // Wire mobile swipe after list is rendered
+      setupMobileSwipe(listEl);
     }
 
     function applyFilter(statusCode){
