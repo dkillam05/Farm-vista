@@ -21,7 +21,10 @@ Standalone reference/teaching page with print support.
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
   <style>
-    :root {
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
       --mh-check-bg: var(--accent, #2F6C3C);
       --mh-check-text: #ffffff;
       --mh-test-bg: #e3f0e6;
@@ -31,399 +34,1063 @@ Standalone reference/teaching page with print support.
       --mh-diagram-max: 1100px;
     }
 
-    body {
-      background: var(--page, #f5f5f5);
+    body{
+      background: var(--app-bg, var(--surface));
     }
 
-    .page-shell {
-      min-height: 100vh;
-      padding: 16px;
-      padding-bottom: 72px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
     }
 
-    .hero-card {
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    /* Toolbar + back / print buttons */
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+
+    .page-header-meta{
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    /* Content card for diagram */
+    .content-card{
       max-width: var(--mh-diagram-max);
       margin: 0 auto;
-      background: var(--card, #ffffff);
-      border-radius: 16px;
-      box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,0.08));
-      padding: 16px 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .hero-title {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--text-strong, #222);
-    }
-
-    .hero-sub {
-      font-size: 0.9rem;
-      color: var(--mh-muted);
-      margin-top: 4px;
-    }
-
-    .hero-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .btn-print {
-      border: 1px solid var(--accent, #2F6C3C);
-      background: #ffffff;
-      color: var(--accent, #2F6C3C);
-      padding: 6px 14px;
-      border-radius: 999px;
-      font-size: 0.9rem;
-      font-weight: 500;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .btn-print:hover {
-      background: rgba(47,108,60,0.05);
-    }
-
-    .btn-print svg {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-    }
-
-    .content-card {
-      max-width: var(--mh-diagram-max);
-      margin: 0 auto;
-      background: var(--card, #ffffff);
-      border-radius: 16px;
-      box-shadow: var(--shadow-md, 0 6px 18px rgba(0,0,0,0.06));
-      padding: 20px 20px 24px;
-    }
-
-    .diagram-title {
-      text-align: center;
-      font-weight: 600;
-      margin-bottom: 12px;
-      font-size: 1rem;
-    }
-
-    .diagram-sub {
-      text-align: center;
-      font-size: 0.85rem;
-      color: var(--mh-muted);
-      margin-bottom: 16px;
-    }
-
-    .mh-diagram {
+      background: var(--card, var(--surface));
       border-radius: 14px;
-      border: 1px solid #d7e0d9;
-      padding: 14px 14px 18px;
-      background: #f7faf8;
+      box-shadow: var(--shadow-soft, var(--shadow));
+      padding: 18px 18px 22px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
     }
 
-    .mh-pass-length {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.85rem;
-      color: var(--mh-pass-label);
-      margin-bottom: 10px;
+    .diagram-title{
+      text-align:center;
+      font-weight:600;
+      margin-bottom:4px;
+      font-size:1rem;
     }
 
+    .diagram-sub{
+      text-align:center;
+      font-size:0.85rem;
+      color:var(--mh-muted);
+      margin-bottom:10px;
+    }
+
+    .mh-diagram{
+      border-radius:14px;
+      border:1px solid #d7e0d9;
+      padding:14px 14px 18px;
+      background:#f7faf8;
+    }
+
+    .mh-pass-length{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      gap:6px;
+      font-size:0.85rem;
+      color:var(--mh-pass-label);
+      margin-bottom:10px;
+    }
     .mh-pass-length::before,
-    .mh-pass-length::after {
-      content: "";
-      flex: 1;
-      border-bottom: 1px dashed #c3cec6;
+    .mh-pass-length::after{
+      content:"";
+      flex:1;
+      border-bottom:1px dashed #c3cec6;
     }
 
-    .mh-pass-grid {
-      display: grid;
+    .mh-pass-grid{
+      display:grid;
       grid-template-columns: repeat(10, minmax(0, 1fr));
-      gap: 2px;
+      gap:2px;
     }
 
-    .mh-tile {
-      border-radius: 8px;
-      padding: 6px 4px 8px;
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 4px;
-      font-size: 0.7rem;
-      min-height: 64px;
+    .mh-tile{
+      border-radius:8px;
+      padding:6px 4px 8px;
+      text-align:center;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap:4px;
+      font-size:0.7rem;
+      min-height:64px;
     }
 
-    .mh-tile.mh-check {
-      background: var(--mh-check-bg);
-      color: var(--mh-check-text);
-      font-weight: 600;
+    .mh-tile.mh-check{
+      background:var(--mh-check-bg);
+      color:var(--mh-check-text);
+      font-weight:600;
     }
 
-    .mh-check-label {
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.03em;
+    .mh-check-label{
+      font-size:0.8rem;
+      font-weight:600;
+      letter-spacing:0.03em;
     }
 
-    .mh-check-sub {
-      font-size: 0.7rem;
-      opacity: 0.85;
+    .mh-check-sub{
+      font-size:0.7rem;
+      opacity:0.85;
     }
 
-    .mh-tile.mh-test {
-      background: var(--mh-test-bg);
-      border: 1px solid var(--mh-test-border);
-      color: #16331f;
+    .mh-tile.mh-test{
+      background:var(--mh-test-bg);
+      border:1px solid var(--mh-test-border);
+      color:#16331f;
     }
 
-    .mh-test-top {
-      font-size: 0.7rem;
-      font-weight: 600;
+    .mh-test-top{
+      font-size:0.7rem;
+      font-weight:600;
     }
 
-    .mh-test-bottom {
-      font-size: 0.68rem;
-      line-height: 1.25;
+    .mh-test-bottom{
+      font-size:0.68rem;
+      line-height:1.25;
     }
 
-    .mh-strip-labels {
-      display: grid;
+    .mh-strip-labels{
+      display:grid;
       grid-template-columns: repeat(10, minmax(0, 1fr));
-      gap: 2px;
-      margin-top: 6px;
-      font-size: 0.65rem;
-      color: var(--mh-pass-label);
-      text-align: center;
+      gap:2px;
+      margin-top:6px;
+      font-size:0.65rem;
+      color:var(--mh-pass-label);
+      text-align:center;
     }
 
-    .mh-strip-labels span {
-      padding-top: 2px;
+    .mh-strip-labels span{
+      padding-top:2px;
     }
 
-    .mh-legend {
-      margin-top: 18px;
-      font-size: 0.85rem;
-      color: var(--mh-muted);
-      line-height: 1.6;
+    .mh-legend{
+      margin-top:14px;
+      font-size:0.85rem;
+      color:var(--mh-muted);
+      line-height:1.6;
     }
 
-    .mh-legend h3 {
-      font-size: 0.9rem;
-      margin: 0 0 6px;
-      color: var(--text-strong, #222);
-      font-weight: 600;
+    .mh-legend h3{
+      font-size:0.9rem;
+      margin:0 0 6px;
+      color:var(--text-strong,#222);
+      font-weight:600;
     }
 
-    .mh-legend ul {
-      margin: 0 0 8px 1.2rem;
-      padding: 0;
+    .mh-legend ul{
+      margin:0 0 8px 1.2rem;
+      padding:0;
     }
 
-    .mh-legend li {
-      margin-bottom: 2px;
+    .mh-legend li{
+      margin-bottom:2px;
     }
 
-    .mh-formula {
-      margin-top: 10px;
-      padding: 8px 10px;
-      border-radius: 8px;
-      background: #eef4f0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 0.78rem;
+    .mh-formula{
+      margin-top:10px;
+      padding:8px 10px;
+      border-radius:8px;
+      background:#eef4f0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      font-size:0.78rem;
     }
 
-    .mh-formula code {
-      font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 0.74rem;
-      background: rgba(255,255,255,0.6);
-      padding: 1px 3px;
-      border-radius: 4px;
+    .mh-formula code{
+      font-family:"SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:0.74rem;
+      background:rgba(255,255,255,0.6);
+      padding:1px 3px;
+      border-radius:4px;
     }
 
-    @media (max-width: 800px) {
-      .hero-card {
-        flex-direction: column;
-        align-items: flex-start;
+    .bottom-actions{
+      margin-top:16px;
+      display:flex;
+      justify-content:flex-end;
+    }
+
+    /* Hidden iframe for print */
+    #fv-print-frame{
+      position:fixed;
+      right:0;
+      bottom:0;
+      width:0;
+      height:0;
+      border:0;
+      visibility:hidden;
+    }
+
+    @media (max-width:800px){
+      .hero-head{
+        grid-template-columns:32px 1fr;
       }
       .mh-pass-grid,
-      .mh-strip-labels {
-        font-size: 0.6rem;
+      .mh-strip-labels{
+        font-size:0.6rem;
       }
-      .mh-tile {
-        min-height: 70px;
+      .mh-tile{
+        min-height:70px;
       }
     }
 
-    @media print {
-      body {
-        background: #ffffff;
+    @media print{
+      html,body{
+        background:#fff;
       }
-      .page-shell {
-        padding: 0;
+      .wrap{
+        padding:0 !important;
       }
-      .hero-card {
-        box-shadow: none;
-        border-radius: 0;
-        border-bottom: 1px solid #dddddd;
+      .hero{
+        border-radius:0;
+        box-shadow:none;
+        border:none;
       }
-      .content-card {
-        box-shadow: none;
-        border-radius: 0;
+    }
+  </style>
+
+  <!-- lazy-load fv-shell if needed -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
       }
-      .btn-print {
-        display: none !important;
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      doc, getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COMPANY_DOC_PATH: ['company','main']
+    };
+
+    const $ = (sel, root=document) => root.querySelector(sel);
+
+    const STATE = {
+      db: null,
+      company: null
+    };
+
+    function escapeHtml(str){
+      return String(str ?? '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
+    }
+
+    function formatDate(d){
+      if(!d) return '';
+      try{
+        return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+      }catch{ return ''; }
+    }
+
+    function formatDateTime(d){
+      if(!d) return '';
+      try{
+        return d.toLocaleString();
+      }catch{ return ''; }
+    }
+
+    async function loadCompanyHeader(){
+      if(STATE.company) return STATE.company;
+      try{
+        const [col,id] = CONFIG.COMPANY_DOC_PATH;
+        const ref = doc(STATE.db, col, id);
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = d.name || '';
+        const address = [
+          d.addressStreet || '',
+          [d.addressCity, d.addressState].filter(Boolean).join(', '),
+          d.addressZip || ''
+        ].filter(Boolean).join(' · ');
+        const phone = d.phone || '';
+        const email = d.email || '';
+        STATE.company = { name, address, phone, email };
+      }catch(e){
+        console.warn('[mh-weighting] failed to load company header', e);
+        STATE.company = { name:'', address:'', phone:'', email:'' };
+      }
+      return STATE.company;
+    }
+
+    function buildPrintHtml({ company, runStr, runDateOnly }){
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Multi-Hybrid % vs Check Weighting</title>
+  <style>
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+      --mh-check-bg:#3B7E46;
+      --mh-check-text:#ffffff;
+      --mh-test-bg:#e3f0e6;
+      --mh-test-border:#c4d7c9;
+      --mh-pass-label:#555555;
+    }
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--fv-text);
+      background:var(--fv-bg);
+    }
+    body{
+      display:flex;
+      justify-content:center;
+      padding:24px 12px;
+    }
+    .page{
+      width:100%;
+      max-width:900px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.15);
+      padding:24px 28px 28px;
+    }
+    .report-header{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      gap:16px;
+      align-items:center;
+      border-bottom:2px solid var(--fv-green);
+      padding-bottom:14px;
+      margin-bottom:18px;
+    }
+    .report-logo{
+      width:64px;
+      height:64px;
+      border-radius:16px;
+      border:1px solid var(--fv-border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:26px;
+      font-weight:800;
+      color:#fff;
+      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+    }
+    .report-logo span{letter-spacing:0.02em;}
+    .company-block{min-width:0;}
+    .company-name{
+      font-size:18px;
+      font-weight:800;
+      margin:0 0 2px;
+    }
+    .company-line{
+      font-size:12px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-meta-top{
+      text-align:right;
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .report-meta-top strong{color:var(--fv-text);}
+    .report-title-block{margin-bottom:16px;}
+    .report-title{
+      font-size:20px;
+      font-weight:800;
+      margin:4px 0 4px;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+    }
+    .report-subtitle{
+      font-size:13px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-summary-strip{
+      margin-top:12px;
+      padding:8px 10px;
+      border-radius:10px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
+      border:1px solid rgba(59,126,70,0.20);
+      font-size:11px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 16px;
+    }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      white-space:nowrap;
+    }
+    .summary-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-weight:600;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .summary-value{
+      font-weight:600;
+      font-size:11px;
+    }
+    .section{margin-top:18px;}
+    .section-heading-row{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .section-title-main{
+      font-size:15px;
+      font-weight:700;
+      letter-spacing:0.03em;
+      text-transform:uppercase;
+    }
+    .section-note{
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .kpi-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:6px;
+    }
+    .kpi-card{
+      flex:1 1 140px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      padding:8px 10px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #ffffff);
+    }
+    .kpi-label{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--fv-muted);
+      margin-bottom:2px;
+    }
+    .kpi-value{
+      font-size:16px;
+      font-weight:800;
+    }
+    .kpi-footnote{
+      font-size:10px;
+      color:var(--fv-muted);
+      margin-top:2px;
+    }
+    .section-title{
+      font-size:13px;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .section-body{
+      font-size:12px;
+      line-height:1.5;
+    }
+
+    .mh-diagram{
+      margin-top:6px;
+      border-radius:12px;
+      border:1px solid #d7e0d9;
+      padding:12px 12px 16px;
+      background:#f7faf8;
+      font-size:11px;
+    }
+    .mh-pass-length{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      gap:6px;
+      font-size:11px;
+      color:var(--mh-pass-label);
+      margin-bottom:8px;
+    }
+    .mh-pass-length::before,
+    .mh-pass-length::after{
+      content:"";
+      flex:1;
+      border-bottom:1px dashed #c3cec6;
+    }
+    .mh-pass-grid{
+      display:grid;
+      grid-template-columns: repeat(10, minmax(0,1fr));
+      gap:2px;
+    }
+    .mh-tile{
+      border-radius:7px;
+      padding:4px 3px 6px;
+      text-align:center;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap:3px;
+      min-height:46px;
+    }
+    .mh-check{
+      background:var(--mh-check-bg);
+      color:var(--mh-check-text);
+      font-weight:600;
+    }
+    .mh-check-label{
+      font-size:11px;
+      font-weight:600;
+      letter-spacing:0.03em;
+    }
+    .mh-check-sub{
+      font-size:10px;
+      opacity:0.85;
+    }
+    .mh-test{
+      background:var(--mh-test-bg);
+      border:1px solid var(--mh-test-border);
+      color:#16331f;
+      font-size:10px;
+    }
+    .mh-test-top{
+      font-weight:600;
+    }
+    .mh-test-bottom{
+      font-size:10px;
+      line-height:1.25;
+    }
+    .mh-strip-labels{
+      display:grid;
+      grid-template-columns: repeat(10, minmax(0,1fr));
+      gap:2px;
+      margin-top:4px;
+      font-size:10px;
+      color:var(--mh-pass-label);
+      text-align:center;
+    }
+
+    .mh-legend{
+      margin-top:12px;
+      font-size:12px;
+      color:var(--fv-muted);
+      line-height:1.6;
+    }
+    .mh-legend h3{
+      font-size:13px;
+      margin:0 0 6px;
+      color:var(--fv-text);
+    }
+    .mh-legend ul{
+      margin:0 0 8px 1.1rem;
+      padding:0;
+    }
+    .mh-legend li{
+      margin-bottom:2px;
+    }
+    .mh-formula{
+      margin-top:8px;
+      padding:7px 9px;
+      border-radius:7px;
+      background:#eef4f0;
+      font-size:11px;
+    }
+    .mh-formula code{
+      font-family:"SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace;
+      font-size:10px;
+      background:rgba(255,255,255,0.6);
+      padding:1px 3px;
+      border-radius:4px;
+    }
+
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid var(--fv-border);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .footer-left{max-width:60%;}
+    .footer-right{text-align:right;}
+
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{
+        max-width:none;
+        border-radius:0;
+        box-shadow:none;
+        padding:12mm 14mm;
       }
     }
   </style>
 </head>
 <body>
-<div class="page-shell">
+  <div class="page">
+    <header class="report-header">
+      <div class="report-logo">
+        <span>DF</span>
+      </div>
+      <div class="company-block">
+        <p class="company-name">${escapeHtml(company.name || '')}</p>
+        <p class="company-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="report-meta-top">
+        <div><strong>Multi-Hybrid % vs Check Weighting</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
 
-  <!-- HERO / TITLE -->
-  <section class="hero-card">
-    <div>
-      <div class="hero-title">Multi-Hybrid Yield % vs Check – Weighting Diagram</div>
-      <div class="hero-sub">
+    <section class="report-title-block">
+      <h1 class="report-title">Multi-Hybrid Yield % vs Check – Weighting Diagram</h1>
+      <p class="report-subtitle">
         600' pass at 20' wide, showing how each test strip blends C1, C2, and the global check average.
-      </div>
-    </div>
-    <div class="hero-actions">
-      <button type="button" class="btn-print" onclick="window.print()">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 3h10a2 2 0 0 1 2 2v3h-2V5H7v3H5V5a2 2 0 0 1 2-2Zm10 8h2a2 2 0 0 1 2 2v5h-4v3H7v-3H3v-5a2 2 0 0 1 2-2h2v2H5v3h14v-3h-2v-2ZM9 17v3h6v-3H9Zm0-7h6v2H9v-2Z" />
-        </svg>
-        Print
-      </button>
-    </div>
-  </section>
+      </p>
 
-  <!-- CONTENT / DIAGRAM -->
-  <section class="content-card">
-    <div class="diagram-title">600' Pass at 20' Wide</div>
-    <div class="diagram-sub">
-      C1 and C2 are check hybrids. Each test strip (T) uses 10% of the plot-wide check average
-      and 90% from nearby checks, based on location.
-    </div>
-
-    <div class="mh-diagram">
-      <div class="mh-pass-length">600' Pass at 20' Wide</div>
-
-      <!-- Tiles -->
-      <div class="mh-pass-grid">
-        <!-- C1 -->
-        <div class="mh-tile mh-check">
-          <div class="mh-check-label">C1</div>
-          <div class="mh-check-sub">Check Hybrid</div>
+      <div class="report-summary-strip">
+        <div class="summary-pill">
+          <span class="summary-label">Pass</span>
+          <span class="summary-value">600' long · 20' wide</span>
         </div>
-
-        <!-- T2 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">90% C1 &nbsp;&middot;&nbsp; 0% C2</div>
+        <div class="summary-pill">
+          <span class="summary-label">Strips</span>
+          <span class="summary-value">10 strips (C1, T2–T9, C2)</span>
         </div>
-
-        <!-- T3 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">70% C1 &nbsp;&middot;&nbsp; 20% C2</div>
-        </div>
-
-        <!-- T4 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">60% C1 &nbsp;&middot;&nbsp; 30% C2</div>
-        </div>
-
-        <!-- T5 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">50% C1 &nbsp;&middot;&nbsp; 40% C2</div>
-        </div>
-
-        <!-- T6 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">40% C1 &nbsp;&middot;&nbsp; 50% C2</div>
-        </div>
-
-        <!-- T7 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">30% C1 &nbsp;&middot;&nbsp; 60% C2</div>
-        </div>
-
-        <!-- T8 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">20% C1 &nbsp;&middot;&nbsp; 70% C2</div>
-        </div>
-
-        <!-- T9 -->
-        <div class="mh-tile mh-test">
-          <div class="mh-test-top">10% All Checks</div>
-          <div class="mh-test-bottom">0% C1 &nbsp;&middot;&nbsp; 90% C2</div>
-        </div>
-
-        <!-- C2 -->
-        <div class="mh-tile mh-check">
-          <div class="mh-check-label">C2</div>
-          <div class="mh-check-sub">Check Hybrid</div>
+        <div class="summary-pill">
+          <span class="summary-label">Purpose</span>
+          <span class="summary-value">Explain % vs check weighting in a MH plot</span>
         </div>
       </div>
+    </section>
 
-      <!-- Strip numbers (optional) -->
-      <div class="mh-strip-labels">
-        <span>1</span>
-        <span>2</span>
-        <span>3</span>
-        <span>4</span>
-        <span>5</span>
-        <span>6</span>
-        <span>7</span>
-        <span>8</span>
-        <span>9</span>
-        <span>10</span>
+    <section class="section">
+      <div class="section-heading-row">
+        <div class="section-title-main">Key Diagram Parameters</div>
+        <div class="section-note">Fixed example used for teaching and reference only.</div>
       </div>
-    </div>
-
-    <!-- Legend / Explanation -->
-    <div class="mh-legend">
-      <h3>How the Effective Check Yield is Built</h3>
-      <ul>
-        <li><strong>10%</strong> of the weighting always comes from the <strong>average of all check strips</strong> in the plot.</li>
-        <li><strong>90%.</strong> Each test strip blends <strong>C1</strong> and <strong>C2</strong> based on how close it is to each check.</li>
-        <li>Strips touching a check (T2 next to C1, T9 next to C2) get the full 90% from that single check.</li>
-        <li>Strips between checks share the 90%: closer side gets more of the weight, middle strips are nearly balanced.</li>
-      </ul>
-
-      <div class="mh-formula">
-        <div><strong>Effective Check Yield for a test strip T:</strong></div>
-        <div style="margin-top:4px;">
-          <code>EffCheck(T) = 0.10 × Avg(All Checks) + 0.90 × (wC1(T) × C1 + wC2(T) × C2)</code>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Pass Length</div>
+          <div class="kpi-value">600'</div>
+          <div class="kpi-footnote">Single combine pass</div>
         </div>
-        <div style="margin-top:4px;">
-          <code>wC1(T)</code> and <code>wC2(T)</code> are the location-based weights (for example, T5 uses 50% C1 and 40% C2).
+        <div class="kpi-card">
+          <div class="kpi-label">Pass Width</div>
+          <div class="kpi-value">20'</div>
+          <div class="kpi-footnote">Effective harvested width</div>
         </div>
-        <div style="margin-top:6px;">
-          <strong>% High / Low vs Check:</strong>
-          <code>(Yield(T) − EffCheck(T)) ÷ EffCheck(T) × 100</code>
+        <div class="kpi-card">
+          <div class="kpi-label">Check Strips</div>
+          <div class="kpi-value">2</div>
+          <div class="kpi-footnote">C1 at one end, C2 at the other</div>
         </div>
       </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Weighting Diagram</h2>
+      <div class="section-body">
+        <p>This diagram shows how each test strip uses:</p>
+        <ul>
+          <li><strong>10%</strong> from the average of <strong>all check strips</strong> in the plot, plus</li>
+          <li><strong>90%</strong> from nearby checks C1 and C2, based on location.</li>
+        </ul>
+
+        <div class="mh-diagram">
+          <div class="mh-pass-length">600' Pass at 20' Wide</div>
+          <div class="mh-pass-grid">
+            <div class="mh-tile mh-check">
+              <div class="mh-check-label">C1</div>
+              <div class="mh-check-sub">Check Hybrid</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">90% C1 · 0% C2</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">70% C1 · 20% C2</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">60% C1 · 30% C2</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">50% C1 · 40% C2</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">40% C1 · 50% C2</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">30% C1 · 60% C2</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">20% C1 · 70% C2</div>
+            </div>
+            <div class="mh-tile mh-test">
+              <div class="mh-test-top">10% All Checks</div>
+              <div class="mh-test-bottom">0% C1 · 90% C2</div>
+            </div>
+            <div class="mh-tile mh-check">
+              <div class="mh-check-label">C2</div>
+              <div class="mh-check-sub">Check Hybrid</div>
+            </div>
+          </div>
+          <div class="mh-strip-labels">
+            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+            <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Explanation & Formulas</h2>
+      <div class="section-body mh-legend">
+        <h3>How the Effective Check Yield is Built</h3>
+        <ul>
+          <li><strong>10%</strong> of the weighting always comes from the <strong>average of all check strips</strong> in the plot.</li>
+          <li><strong>90%</strong> is a location-based blend of <strong>C1</strong> and <strong>C2</strong>.</li>
+          <li>Strips touching a check (T2 next to C1, T9 next to C2) get the full 90% from that single check.</li>
+          <li>Strips between checks share the 90%: closer side gets more of the weight, middle strips are nearly balanced.</li>
+        </ul>
+
+        <div class="mh-formula">
+          <div><strong>Effective Check Yield for a test strip T:</strong></div>
+          <div style="margin-top:4px;">
+            <code>EffCheck(T) = 0.10 × Avg(All Checks) + 0.90 × (wC1(T) × C1 + wC2(T) × C2)</code>
+          </div>
+          <div style="margin-top:4px;">
+            <code>wC1(T)</code> and <code>wC2(T)</code> are the location-based weights (for example, T5 uses 50% C1 and 40% C2).
+          </div>
+          <div style="margin-top:6px;">
+            <strong>% High / Low vs Check:</strong>
+            <code>(Yield(T) − EffCheck(T)) ÷ EffCheck(T) × 100</code>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="report-footer">
+      <div class="footer-left">
+        Internal use only. Diagram is a fixed example and may not match every plot layout exactly.
+      </div>
+      <div class="footer-right">
+        FarmVista • Multi-Hybrid % vs Check Weighting • ${escapeHtml(runDateOnly || '')}
+      </div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
+
+    async function handlePrintClick(){
+      const company = await loadCompanyHeader();
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const html = buildPrintHtml({ company, runStr, runDateOnly });
+
+      let iframe = document.getElementById('fv-print-frame');
+      if(!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        try{
+          win.focus();
+          win.print();
+        }catch(err){
+          console.warn('[mh-weighting] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 400);
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if(shell) shell.nav = NAV_MENU;
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
+        });
+      }
+
+      const printTop    = $('#btnPrint');
+      const printBottom = $('#btnPrintBottom');
+      if(printTop)    printTop.addEventListener('click', handlePrintClick);
+      if(printBottom) printBottom.addEventListener('click', handlePrintClick);
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧮</div>
+          <div>
+            <h1>Multi-Hybrid Yield % vs Check – Weighting Diagram</h1>
+            <p class="muted">
+              600' pass at 20' wide, showing how each test strip blends C1, C2, and the global check average.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Reports
+              </button>
+              <button id="btnPrint" type="button" class="btn btn-primary">
+                Print / Save PDF
+              </button>
+            </div>
+            <div class="page-header-meta">
+              Teaching reference – no live data. Print to share with agronomists or seed reps.
+            </div>
+          </div>
+
+          <section class="content-card">
+            <div class="diagram-title">600' Pass at 20' Wide</div>
+            <div class="diagram-sub">
+              C1 and C2 are check hybrids. Each test strip (T) uses 10% of the plot-wide check average
+              and 90% from nearby checks, based on location.
+            </div>
+
+            <div class="mh-diagram">
+              <div class="mh-pass-length">600' Pass at 20' Wide</div>
+
+              <div class="mh-pass-grid">
+                <!-- C1 -->
+                <div class="mh-tile mh-check">
+                  <div class="mh-check-label">C1</div>
+                  <div class="mh-check-sub">Check Hybrid</div>
+                </div>
+
+                <!-- T2 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">90% C1 · 0% C2</div>
+                </div>
+
+                <!-- T3 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">70% C1 · 20% C2</div>
+                </div>
+
+                <!-- T4 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">60% C1 · 30% C2</div>
+                </div>
+
+                <!-- T5 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">50% C1 · 40% C2</div>
+                </div>
+
+                <!-- T6 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">40% C1 · 50% C2</div>
+                </div>
+
+                <!-- T7 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">30% C1 · 60% C2</div>
+                </div>
+
+                <!-- T8 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">20% C1 · 70% C2</div>
+                </div>
+
+                <!-- T9 -->
+                <div class="mh-tile mh-test">
+                  <div class="mh-test-top">10% All Checks</div>
+                  <div class="mh-test-bottom">0% C1 · 90% C2</div>
+                </div>
+
+                <!-- C2 -->
+                <div class="mh-tile mh-check">
+                  <div class="mh-check-label">C2</div>
+                  <div class="mh-check-sub">Check Hybrid</div>
+                </div>
+              </div>
+
+              <div class="mh-strip-labels">
+                <span>1</span>
+                <span>2</span>
+                <span>3</span>
+                <span>4</span>
+                <span>5</span>
+                <span>6</span>
+                <span>7</span>
+                <span>8</span>
+                <span>9</span>
+                <span>10</span>
+              </div>
+            </div>
+
+            <div class="mh-legend">
+              <h3>How the Effective Check Yield is Built</h3>
+              <ul>
+                <li><strong>10%</strong> of the weighting always comes from the <strong>average of all check strips</strong> in the plot.</li>
+                <li><strong>90%</strong> is a location-based blend of <strong>C1</strong> and <strong>C2</strong>.</li>
+                <li>Strips touching a check (T2 next to C1, T9 next to C2) get the full 90% from that single check.</li>
+                <li>Strips between checks share the 90%: closer side gets more of the weight, middle strips are nearly balanced.</li>
+              </ul>
+
+              <div class="mh-formula">
+                <div><strong>Effective Check Yield for a test strip T:</strong></div>
+                <div style="margin-top:4px;">
+                  <code>EffCheck(T) = 0.10 × Avg(All Checks) + 0.90 × (wC1(T) × C1 + wC2(T) × C2)</code>
+                </div>
+                <div style="margin-top:4px;">
+                  <code>wC1(T)</code> and <code>wC2(T)</code> are the location-based weights (for example, T5 uses 50% C1 and 40% C2).
+                </div>
+                <div style="margin-top:6px;">
+                  <strong>% High / Low vs Check:</strong>
+                  <code>(Yield(T) − EffCheck(T)) ÷ EffCheck(T) × 100</code>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="bottom-actions">
+            <button id="btnPrintBottom" type="button" class="btn btn-primary">
+              Print / Save PDF
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
 
-  </section>
-</div>
+    <!-- Hidden iframe used for print so we don't open a new tab -->
+    <iframe id="fv-print-frame"></iframe>
+  </fv-shell>
 </body>
 </html>
