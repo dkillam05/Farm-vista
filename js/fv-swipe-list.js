@@ -1,16 +1,18 @@
 /* =======================================================================
 /Farm-vista/js/fv-swipe-list.js
-Rev: 2025-11-26c
+Rev: 2025-12-01
 
 Reusable swipeable-list helper for FarmVista.
 
 Features
 - Turns simple list items into swipeable rows with:
     • Right-swipe: "positive" action (e.g., Add / Confirm)
-    • Left-swipe:  "danger" action (e.g., Delete / Remove)
+    • Left-swipe:  can be "danger" (Delete) or "positive" (Add Field)
 - Only one row can be open at a time.
 - Handles touch vs. scroll on phones (only horizontal drags become swipes).
 - Provides callbacks for your page to handle the actions.
+- NEW: rightAction can now be styled as positive when label is "Add...", or
+        you can force intent with action.intent = 'positive' or 'danger'.
 
 Usage on a page (example):
 
@@ -29,14 +31,15 @@ Usage on a page (example):
 
     initSwipeList('#trial-fields-list', {
       itemSelector: '.fv-swipe-item',
-      rightAction: { // swipe LEFT to reveal (danger)
+      rightAction: { // swipe LEFT to reveal
         label: 'Remove',
+        // optional: intent: 'danger' | 'positive'
         onAction: (itemEl) => {
           const fieldId = itemEl.dataset.fieldId;
           // call your delete/remove logic here
         }
       },
-      leftAction: {  // swipe RIGHT to reveal (positive)
+      leftAction: {  // swipe RIGHT to reveal
         label: 'Add Yield',
         onAction: (itemEl) => {
           const fieldId = itemEl.dataset.fieldId;
@@ -62,6 +65,38 @@ const ICON_TRASH = `
 `;
 
 /**
+ * Infer whether an action should look "positive" (green/check) or "danger" (red/trash)
+ * based on:
+ *  - explicit action.intent ('positive' | 'danger'), if provided
+ *  - label text (Add / Remove / Delete / etc.)
+ *  - fallback if nothing matches
+ */
+function inferIntent(action, fallbackIntent) {
+  if (!action) return fallbackIntent;
+
+  // 1) Explicit override wins
+  if (action.intent === 'positive' || action.intent === 'danger') {
+    return action.intent;
+  }
+
+  // 2) Infer from label text
+  const label = (action.label || '').toString().toLowerCase();
+
+  // Negative / destructive verbs
+  if (/delete|remove|archive|trash|clear|close/.test(label)) {
+    return 'danger';
+  }
+
+  // Positive verbs (add/save/confirm/etc.)
+  if (/add|create|save|done|confirm|complete|ok/.test(label)) {
+    return 'positive';
+  }
+
+  // 3) Fallback if nothing matched
+  return fallbackIntent;
+}
+
+/**
  * Initialize swipe behavior on a list.
  *
  * @param {string|Element} rootSelectorOrEl - container element or selector.
@@ -69,9 +104,11 @@ const ICON_TRASH = `
  * @param {string} [options.itemSelector='.fv-swipe-item'] - which children to make swipeable.
  * @param {Object|null} [options.leftAction]  - revealed when swiping RIGHT.
  * @param {string} [options.leftAction.label=''] - label text.
+ * @param {'positive'|'danger'} [options.leftAction.intent] - optional styling hint.
  * @param {Function} [options.leftAction.onAction] - callback(itemEl).
  * @param {Object|null} [options.rightAction] - revealed when swiping LEFT.
  * @param {string} [options.rightAction.label=''] - label text.
+ * @param {'positive'|'danger'} [options.rightAction.intent] - optional styling hint.
  * @param {Function} [options.rightAction.onAction] - callback(itemEl).
  */
 export function initSwipeList(rootSelectorOrEl, options = {}) {
@@ -125,32 +162,55 @@ export function initSwipeList(rootSelectorOrEl, options = {}) {
     const actions = document.createElement('div');
     actions.className = 'fv-swipe-actions';
 
+    // Determine intents for left/right actions with auto-inference.
+    const leftIntent  = inferIntent(leftAction, 'positive'); // left is almost always positive
+    const rightIntent = inferIntent(rightAction, 'danger');  // right defaults to danger but
+                                                             // can auto-switch to positive (e.g. "Add Field")
+
     // Left (swipe RIGHT) action – typically "positive"
     let leftBtn = null;
     if (leftAction) {
+      const leftClass =
+        leftIntent === 'danger'
+          ? 'fv-swipe-intent-danger'
+          : 'fv-swipe-intent-positive';
+      const leftIcon =
+        leftIntent === 'danger'
+          ? ICON_TRASH
+          : ICON_CHECK;
+
       leftBtn = document.createElement('button');
       leftBtn.type = 'button';
       leftBtn.className =
-        'fv-swipe-action fv-swipe-action-left fv-swipe-intent-positive';
+        `fv-swipe-action fv-swipe-action-left ${leftClass}`;
       leftBtn.innerHTML = `
         <span class="fv-swipe-action-inner">
-          ${ICON_CHECK}
+          ${leftIcon}
           ${leftAction.label ? `<span class="fv-swipe-label">${leftAction.label}</span>` : ''}
         </span>
       `;
       actions.appendChild(leftBtn);
     }
 
-    // Right (swipe LEFT) action – typically "danger"
+    // Right (swipe LEFT) action – can now be danger OR positive
     let rightBtn = null;
     if (rightAction) {
+      const rightClass =
+        rightIntent === 'danger'
+          ? 'fv-swipe-intent-danger'
+          : 'fv-swipe-intent-positive';
+      const rightIcon =
+        rightIntent === 'danger'
+          ? ICON_TRASH
+          : ICON_CHECK;
+
       rightBtn = document.createElement('button');
       rightBtn.type = 'button';
       rightBtn.className =
-        'fv-swipe-action fv-swipe-action-right fv-swipe-intent-danger';
+        `fv-swipe-action fv-swipe-action-right ${rightClass}`;
       rightBtn.innerHTML = `
         <span class="fv-swipe-action-inner">
-          ${ICON_TRASH}
+          ${rightIcon}
           ${rightAction.label ? `<span class="fv-swipe-label">${rightAction.label}</span>` : ''}
         </span>
       `;
@@ -267,7 +327,7 @@ export function initSwipeList(rootSelectorOrEl, options = {}) {
         finalState = 'left';
         openRow = rowState;
       } else if (dx < -OPEN_THRESHOLD && rightAction) {
-        // Open right (danger) action – swipe LEFT
+        // Open right (danger or positive) action – swipe LEFT
         content.style.transform = `translateX(${-ACTION_WIDTH}px)`;
         row.classList.add('fv-swipe-open-right');
         row.classList.remove('fv-swipe-open-left');
