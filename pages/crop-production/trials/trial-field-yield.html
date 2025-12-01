@@ -2448,41 +2448,44 @@
       renderFieldList();
     }
 
-    function validateBlocksForField(fieldId){
-      const blocks = STATE.yieldData[fieldId] || [];
-      if(!blocks.length){
-        showError('Add at least one trial block or close without saving.');
-        return false;
+function validateBlocksForField(fieldId){
+  const blocks = STATE.yieldData[fieldId] || [];
+
+  // NEW: allow zero blocks – user might have deleted the last one
+  if(!blocks.length){
+    // zero blocks is valid; save() will clear the Firestore collection
+    return true;
+  }
+
+  // Otherwise, require each block to be fully valid
+  let ok = true;
+  for (const block of blocks) {
+    const c = block.check || {};
+    const t = block.trial || {};
+
+    if (block.type === 'combine') {
+      const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+      const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+      if (!(hasC && hasT)) {
+        ok = false;
+        break;
       }
-
-      let ok = true;
-      for(const block of blocks){
-        const c = block.check || {};
-        const t = block.trial || {};
-
-        if(block.type === 'combine'){
-          const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
-          const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
-          if(!(hasC && hasT)){
-            ok = false;
-            break;
-          }
-        }else if(block.type === 'weight'){
-          const hasC = c.lengthFt && c.widthFt && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
-          const hasT = t.lengthFt && t.widthFt && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
-          if(!(hasC && hasT)){
-            ok = false;
-            break;
-          }
-        }
+    } else if (block.type === 'weight') {
+      const hasC = c.lengthFt && c.widthFt && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+      const hasT = t.lengthFt && t.widthFt && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+      if (!(hasC && hasT)) {
+        ok = false;
+        break;
       }
-
-      if(!ok){
-        showError('Each trial block must have valid data for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
-      }
-
-      return ok;
     }
+  }
+
+  if (!ok) {
+    showError('Each trial block must have valid data for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
+  }
+
+  return ok;
+}}
 
     async function uploadNewAttachmentsForBlock(fieldId, block, blockDocId){
       const storage = getStorage();
