@@ -598,6 +598,11 @@
       border-color:var(--accent);
       color:#fff;
     }
+
+    /* MH trials: dim the Add Field form when locked */
+    #addFieldForm.is-locked{
+      opacity:0.45;
+    }
   </style>
 
   <script>
@@ -662,6 +667,8 @@
     let trialAcresInput, trialAcresHelp, notesInput, micBtn;
     let existingListEl, pendingListEl;
     let overlapHeroEl, overlapListEl, overlapSummaryEl, overlapBadgeEl;
+
+    let addFieldFormEl, btnAddFieldEl, btnSaveFieldsEl;
 
     let lastNavTime = 0;
     let overlapCheckTimer = null;
@@ -1297,6 +1304,52 @@
       }
     }
 
+    // === MH guardrails: allow exactly one field (saved or pending) for multi-hybrid trials ===
+    function updateMHGuardrails(){
+      const isMH = isMultiHybridTrial();
+      const existingCount = (STATE.existingFields || []).length;
+      const pendingCount  = (STATE.pendingFields || []).length;
+      const totalCount    = existingCount + pendingCount;
+
+      if(!addFieldFormEl && !btnAddFieldEl && !btnSaveFieldsEl){
+        return;
+      }
+
+      if(!isMH){
+        // Non-MH: everything behaves normally.
+        if(addFieldFormEl) addFieldFormEl.classList.remove('is-locked');
+        if(btnAddFieldEl) btnAddFieldEl.disabled = false;
+        if(btnSaveFieldsEl) btnSaveFieldsEl.disabled = false;
+        return;
+      }
+
+      // MH trial logic: exactly one field at a time (saved OR pending)
+      const hasPending = pendingCount > 0;
+
+      if(totalCount >= 1){
+        // Lock the Add Field form (can't add a second field)
+        if(addFieldFormEl) addFieldFormEl.classList.add('is-locked');
+        if(btnAddFieldEl) btnAddFieldEl.disabled = true;
+      }else{
+        // No fields at all yet — form fully open
+        if(addFieldFormEl) addFieldFormEl.classList.remove('is-locked');
+        if(btnAddFieldEl) btnAddFieldEl.disabled = false;
+      }
+
+      // Save button: only enabled when there is something pending to save
+      if(btnSaveFieldsEl){
+        btnSaveFieldsEl.disabled = !hasPending;
+      }
+
+      diag('updateMHGuardrails', {
+        isMH,
+        existingCount,
+        pendingCount,
+        totalCount,
+        formLocked: totalCount >= 1
+      });
+    }
+
     function renderFieldLists(){
       if(!existingListEl || !pendingListEl) return;
 
@@ -1391,6 +1444,9 @@
 
       applySwipeToLists();
 
+      // Re-evaluate MH guardrails every time the lists change
+      updateMHGuardrails();
+
       if(overlapCheckTimer) clearTimeout(overlapCheckTimer);
       overlapCheckTimer = setTimeout(()=>{
         checkOverlappingTrials().catch(()=>{});
@@ -1469,6 +1525,16 @@
       showError('');
       if(trialAcresInput) trialAcresInput.classList.remove('input-error');
 
+      // MH hard guard: never allow adding a 2nd field
+      if(isMultiHybridTrial()){
+        const totalCount = (STATE.existingFields || []).length + (STATE.pendingFields || []).length;
+        if(totalCount >= 1){
+          showError("Multiple-hybrid trials can only have one field. Remove the existing field before adding another.");
+          showToast("MH trial: only one field allowed.");
+          return;
+        }
+      }
+
       const farm = STATE.selectedFarm;
       const field = STATE.selectedField;
       if(!farm){
@@ -1530,6 +1596,7 @@
       e.preventDefault();
       showError('');
       if(trialAcresInput) trialAcresInput.classList.remove('input-error');
+
       if(!STATE.pendingFields.length){
         showError("No new fields to save. Add at least one field to this trial.");
         return;
@@ -1539,7 +1606,19 @@
         return;
       }
 
-      const saveBtn=document.getElementById('btnSaveFields');
+      // MH safety net: prevent saving if somehow more than one field exists+pending
+      if(isMultiHybridTrial()){
+        const existingCount = (STATE.existingFields || []).length;
+        const pendingCount  = (STATE.pendingFields || []).length;
+        const totalCount    = existingCount + pendingCount;
+        if(totalCount > 1){
+          showError("Multiple-hybrid trials can only have one field. Remove extra fields before saving.");
+          if(btnSaveFieldsEl) btnSaveFieldsEl.disabled = true;
+          return;
+        }
+      }
+
+      const saveBtn = btnSaveFieldsEl || document.getElementById('btnSaveFields');
       if(saveBtn) saveBtn.disabled=true;
 
       try{
@@ -1587,7 +1666,7 @@
           stack: err.stack
         });
         showError("Error saving fields: "+(err && (err.message||err.code) || "Unknown error"));
-        const saveBtn2=document.getElementById('btnSaveFields');
+        const saveBtn2=btnSaveFieldsEl || document.getElementById('btnSaveFields');
         if(saveBtn2) saveBtn2.disabled=false;
       }
     }
@@ -1628,6 +1707,8 @@
       if(overlapHeroEl){
         overlapHeroEl.style.display = 'none';
       }
+
+      addFieldFormEl  = document.getElementById('addFieldForm');
 
       diag('boot.start', { href: window.location.href });
 
@@ -1696,6 +1777,9 @@
       const btnAddField = document.getElementById("btnAddField");
       const btnSaveAll  = document.getElementById("btnSaveFields");
       const btnCancel   = document.getElementById("btnCancel");
+
+      btnAddFieldEl   = btnAddField || null;
+      btnSaveFieldsEl = btnSaveAll  || null;
 
       if(btnBack){
         btnBack.addEventListener("click", handleNavBack);
@@ -1801,6 +1885,8 @@
 
       try{
         await loadTrial();
+        // As soon as trial is known, update MH guardrails once (will re-run after lists render too)
+        updateMHGuardrails();
         await loadFarmsAndFields();
       }catch(err){
         console.error("Initial load error:",err);
@@ -1876,63 +1962,66 @@
             </div>
           </div>
 
-          <div class="row">
-            <div class="field combo">
-              <label for="fieldFarmBtn">Farm</label>
-              <div class="combo-anchor">
-                <button id="fieldFarmBtn" class="buttonish has-caret" type="button">
-                  — Select farm —</button>
-                <div id="fieldFarmPanel" class="combo-panel" role="listbox" aria-label="Farm list">
-                  <div class="search">
-                    <input id="fieldFarmSearch" type="search" placeholder="Search farms…" />
+          <!-- Add Field form (locked for MH when a field already exists) -->
+          <div id="addFieldForm">
+            <div class="row">
+              <div class="field combo">
+                <label for="fieldFarmBtn">Farm</label>
+                <div class="combo-anchor">
+                  <button id="fieldFarmBtn" class="buttonish has-caret" type="button">
+                    — Select farm —</button>
+                  <div id="fieldFarmPanel" class="combo-panel" role="listbox" aria-label="Farm list">
+                    <div class="search">
+                      <input id="fieldFarmSearch" type="search" placeholder="Search farms…" />
+                    </div>
+                    <div class="list" id="fieldFarmList"></div>
                   </div>
-                  <div class="list" id="fieldFarmList"></div>
                 </div>
+                <div class="helper">Pick the farm where this trial strip is located.</div>
               </div>
-              <div class="helper">Pick the farm where this trial strip is located.</div>
+
+              <div class="field combo">
+                <label for="fieldFieldBtn">Field</label>
+                <div class="combo-anchor">
+                  <button id="fieldFieldBtn" class="buttonish has-caret" type="button">
+                    — Select field —</button>
+                  <div id="fieldFieldPanel" class="combo-panel" role="listbox" aria-label="Field list">
+                    <div class="search">
+                      <input id="fieldFieldSearch" type="search" placeholder="Search fields…" />
+                    </div>
+                    <div class="list" id="fieldFieldList"></div>
+                  </div>
+                </div>
+                <div class="helper">You can pick a field first and the farm will auto-fill.</div>
+              </div>
             </div>
 
-            <div class="field combo">
-              <label for="fieldFieldBtn">Field</label>
-              <div class="combo-anchor">
-                <button id="fieldFieldBtn" class="buttonish has-caret" type="button">
-                  — Select field —</button>
-                <div id="fieldFieldPanel" class="combo-panel" role="listbox" aria-label="Field list">
-                  <div class="search">
-                    <input id="fieldFieldSearch" type="search" placeholder="Search fields…" />
-                  </div>
-                  <div class="list" id="fieldFieldList"></div>
-                </div>
-              </div>
-              <div class="helper">You can pick a field first and the farm will auto-fill.</div>
+            <div class="field">
+              <label for="trialAcres">Trial Acres</label>
+              <input id="trialAcres" class="input no-spin" type="number" step="0.01"
+                    placeholder="Acres in this field that are part of the trial" />
+              <div id="trialAcresHelp" class="helper"></div>
             </div>
-          </div>
 
-          <div class="field">
-            <label for="trialAcres">Trial Acres</label>
-            <input id="trialAcres" class="input no-spin" type="number" step="0.01"
-                   placeholder="Acres in this field that are part of the trial" />
-            <div id="trialAcresHelp" class="helper"></div>
-          </div>
+            <div class="field">
+              <label for="notes">Notes</label>
+              <div class="ta-wrap">
+                <textarea id="notes" class="textarea with-mic"
+                          placeholder="Strip layout, passes, timing, or anything the crew needs to remember."></textarea>
+                <button id="notesMic" type="button" class="mic-btn" aria-label="Start dictation">
+                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="helper">Optional, but really helpful when you come back to review results.</div>
+            </div>
 
-          <div class="field">
-            <label for="notes">Notes</label>
-            <div class="ta-wrap">
-              <textarea id="notes" class="textarea with-mic"
-                        placeholder="Strip layout, passes, timing, or anything the crew needs to remember."></textarea>
-              <button id="notesMic" type="button" class="mic-btn" aria-label="Start dictation">
-                <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
-                </svg>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
+              <button id="btnAddField" type="button" class="btn btn-primary">
+                Add Field
               </button>
             </div>
-            <div class="helper">Optional, but really helpful when you come back to review results.</div>
-          </div>
-
-          <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
-            <button id="btnAddField" type="button" class="btn btn-primary">
-              Add Field
-            </button>
           </div>
         </div>
       </section>
