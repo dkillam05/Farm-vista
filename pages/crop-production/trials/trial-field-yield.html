@@ -986,62 +986,74 @@
     }
 
     async function loadVarietiesForTrialCrop(){
-      if(!STATE.db || !STATE.trial) return;
-      const cropKind = normalizeCropKind(STATE.trial.crop);
-      if(!cropKind) return;
+  if(!STATE.db || !STATE.trial) return;
 
-      try{
-        const baseRef = collection(STATE.db, 'productsSeed');
-        let cropValue = null;
-        if(cropKind === 'corn') cropValue = 'corn';
-        else if(cropKind === 'soy') cropValue = 'soybeans';
+  const cropKind = normalizeCropKind(STATE.trial.crop);
+  if(!cropKind) return;
 
-        let qRef;
-        if(cropValue){
-          qRef = query(
-            baseRef,
-            where('crop','==',cropValue),
-            where('status','==','active')
-          );
-        }else{
-          qRef = query(
-            baseRef,
-            where('status','==','active')
-          );
-        }
+  try{
+    const baseRef = collection(STATE.db, 'productsSeed');
 
-        const snap = await getDocs(qRef);
-        const rows = [];
-        snap.forEach(d => {
-          const data = d.data() || {};
-          const brand    = data.brand    || '';
-          const variety  = data.variety  || data.productName || data.name || '';
-          const maturity = data.maturity || '';
-          const trait    = data.trait    || data.traitLabel || '';
+    // Determine Firestore crop value
+    let cropValue = null;
+    if(cropKind === 'corn') cropValue = 'corn';
+    else if(cropKind === 'soy') cropValue = 'soybeans';
 
-          const labelParts = [];
-          if(brand)    labelParts.push(brand);
-          if(variety)  labelParts.push(variety);
-          if(maturity) labelParts.push(maturity);
-          if(trait)    labelParts.push(trait);
-
-          const label = labelParts.join(' • ') || variety || 'Seed variety';
-
-          rows.push({
-            id: d.id,
-            label,
-            brand,
-            variety,
-            trait,
-            cropKind
-          });
-        });
-
-        STATE.varieties = rows;
-      }catch(err){
-        console.error('Error loading varieties for trial crop:', err);
-      }
+    // Build query
+    let qRef;
+    if(cropValue){
+      qRef = query(
+        baseRef,
+        where('crop', '==', cropValue),
+        where('status', '==', 'active')
+      );
+    } else {
+      qRef = query(
+        baseRef,
+        where('status', '==', 'active')
+      );
     }
+
+    // Pull varieties
+    const snap = await getDocs(qRef);
+    const rows = [];
+
+    snap.forEach(d => {
+      const data = d.data() || {};
+
+      const brand    = data.brand    || '';
+      const variety  = data.variety  || data.productName || data.name || '';
+      const maturity = data.maturity || '';
+      const trait    = data.trait    || data.traitLabel || '';
+
+      const labelParts = [];
+      if(brand)    labelParts.push(brand);
+      if(variety)  labelParts.push(variety);
+      if(maturity) labelParts.push(maturity);
+      if(trait)    labelParts.push(trait);
+
+      const label = labelParts.join(' • ') || variety || 'Seed variety';
+
+      rows.push({
+        id: d.id,
+        label,
+        brand,
+        variety,
+        trait,
+        cropKind
+      });
+    });
+
+    // 🔥 SORT ALPHABETICALLY BY LABEL
+    rows.sort((a, b) => a.label.localeCompare(b.label));
+
+    // Save to state
+    STATE.varieties = rows;
+
+  } catch(err){
+    console.error('Error loading varieties for trial crop:', err);
+  }
+}
 
     async function loadFields(){
       if(!STATE.trialId) return;
