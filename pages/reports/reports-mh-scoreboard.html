@@ -307,7 +307,7 @@
       width:100%;
       border-collapse:collapse;
       font-size:0.8rem;
-      min-width:620px;
+      min-width:700px;
     }
 
     .score-table thead{
@@ -344,25 +344,6 @@
       text-align:center;
       color:var(--muted,#6b766e);
       font-size:0.8rem;
-    }
-
-    .rank-pill{
-      border-radius:999px;
-      padding:2px 10px;
-      border:1px solid #d0ddcf;
-      font-size:0.74rem;
-      font-weight:500;
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      background:#f7fbf7;
-      color:#19351f;
-    }
-    .rank-pill span{
-      font-size:0.7rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      color:var(--muted,#6b766e);
     }
 
     .cell-right{
@@ -940,7 +921,8 @@
             pctVsChecks: [],
             trialName: trialName || '',
             farmFieldSet: new Set(),
-            isCheck: false
+            isCheck: false,
+            entryNumber: null
           };
           scoreboardMap.set(key, bucket);
         } else if (!bucket.trait && trait) {
@@ -986,9 +968,8 @@
           const yieldNum = Number(rawYield);
           if (!Number.isFinite(yieldNum)) return;
 
-          // NEW: use entryNumber from data set first, then fall back
+          // Use entryNumber from data set first, then fall back
           let entryNum;
-
           if (b.entryNumber !== null && b.entryNumber !== undefined && b.entryNumber !== '') {
             entryNum = Number(b.entryNumber);
           } else if (b.entryNum !== null && b.entryNum !== undefined && b.entryNum !== '') {
@@ -996,8 +977,7 @@
           } else if (typeof b.rowIndex === 'number') {
             entryNum = b.rowIndex;
           } else {
-            // default to 1-based index so the first strip is always a real entry
-            entryNum = idx + 1;
+            entryNum = idx + 1; // 1-based index, keeps first strip as real entry
           }
 
           if (!Number.isFinite(entryNum)) {
@@ -1104,6 +1084,11 @@
             s.trait
           );
 
+          // capture entryNumber at the variety level
+          if (bucket.entryNumber == null && Number.isFinite(s.entryNum)) {
+            bucket.entryNumber = s.entryNum;
+          }
+
           // every strip contributes to the bucket so no variety gets dropped
           bucket.yields.push(s.yieldBuPerAc);
           if (typeof pctVsCheck === 'number' && isFinite(pctVsCheck)) {
@@ -1134,7 +1119,7 @@
 
       const rows = [];
 
-      scoreboardMap.forEach(bucket => {
+      scoreboardMap.forEach((bucket, key) => {
         if (!bucket.yields.length) return;
 
         const avgYield = bucket.yields.reduce((a,b) => a + b, 0) / bucket.yields.length;
@@ -1144,6 +1129,7 @@
         }
 
         rows.push({
+          key,
           brand:    bucket.brand,
           variety:  bucket.variety,
           trait:    bucket.trait,
@@ -1153,13 +1139,32 @@
           pctVsCheck: avgPct,
           trialName: STATE.summary.trialName,
           farmField: '',
-          isCheck:  !!bucket.isCheck
+          isCheck:  !!bucket.isCheck,
+          entryNumber: bucket.entryNumber
         });
       });
 
-      rows.sort((a, b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0));
-      rows.forEach((row, idx) => {
-        row.rank = idx + 1;
+      // Build rank by yield (checks get no rank)
+      const rankByKey = new Map();
+      const sortedForRank = [...rows].sort((a, b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0));
+      let rankCounter = 1;
+      for (const r of sortedForRank) {
+        if (r.isCheck) continue;
+        if (typeof r.yieldBuAc !== 'number' || !Number.isFinite(r.yieldBuAc)) continue;
+        if (!rankByKey.has(r.key)) {
+          rankByKey.set(r.key, rankCounter++);
+        }
+      }
+
+      // Permanently sort by entryNumber order – this is the fixed display order
+      rows.sort((a, b) => {
+        const aNum = (a.entryNumber != null) ? a.entryNumber : Number.MAX_SAFE_INTEGER;
+        const bNum = (b.entryNumber != null) ? b.entryNumber : Number.MAX_SAFE_INTEGER;
+        return aNum - bNum;
+      });
+
+      rows.forEach(row => {
+        row.rank = rankByKey.get(row.key) ?? null;
       });
 
       STATE.rows = rows;
@@ -1175,14 +1180,19 @@
       }
 
       if (rows.length) {
-        const top = rows[0];
-        STATE.summary.topVariety = {
-          brand: top.brand,
-          variety: top.variety,
-          yieldBuAc: top.yieldBuAc,
-          pctVsCheck: top.pctVsCheck,
-          isCheck: top.isCheck
-        };
+        // top variety by yield (not by entry)
+        const best = [...rows]
+          .filter(r => !r.isCheck && typeof r.yieldBuAc === 'number' && isFinite(r.yieldBuAc))
+          .sort((a,b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0))[0];
+        if (best) {
+          STATE.summary.topVariety = {
+            brand: best.brand,
+            variety: best.variety,
+            yieldBuAc: best.yieldBuAc,
+            pctVsCheck: best.pctVsCheck,
+            isCheck: best.isCheck
+          };
+        }
       }
 
       console.log('[MH Scoreboard] Variety rows:', STATE.rows.length);
@@ -1199,7 +1209,7 @@
       if(!rows.length){
         tbody.innerHTML = `
           <tr class="score-placeholder-row">
-            <td colspan="7">
+            <td colspan="8">
               Select crop year and Variety Plot trial above. Variety rows will appear once strips are available.
             </td>
           </tr>
@@ -1211,24 +1221,37 @@
       const nfPct   = new Intl.NumberFormat(undefined,{maximumFractionDigits:2});
 
       tbody.innerHTML = rows.map(row => {
-        const rankChip = row.rank != null
-          ? `<span class="rank-pill"><strong>${row.rank}</strong> <span>rank</span></span>`
-          : `<span class="rank-pill"><strong>—</strong> <span>rank</span></span>`;
+        const entryLabel = (row.entryNumber != null)
+          ? String(row.entryNumber)
+          : '';
 
         const varietyLabel = escapeHtml(row.variety || '') + (row.isCheck ? ' *' : '');
 
-        const y = (typeof row.yieldBuAc === 'number') ? nfYield.format(row.yieldBuAc) : '';
-        const p = (typeof row.pctVsCheck === 'number') ? nfPct.format(row.pctVsCheck) + '%' : '';
+        const y = (typeof row.yieldBuAc === 'number')
+          ? nfYield.format(row.yieldBuAc)
+          : '';
+
+        const p = (typeof row.pctVsCheck === 'number')
+          ? nfPct.format(row.pctVsCheck) + '%'
+          : '';
+
+        let rankText = '';
+        if (row.isCheck) {
+          rankText = '-';
+        } else if (typeof row.rank === 'number' && Number.isFinite(row.rank)) {
+          rankText = String(row.rank);
+        }
 
         return `
           <tr>
-            <td>${rankChip}</td>
+            <td>${escapeHtml(entryLabel)}</td>
             <td>${escapeHtml(row.brand || '')}</td>
             <td>${varietyLabel}</td>
             <td>${escapeHtml(row.trait || '')}</td>
             <td>${escapeHtml(row.maturity || '')}</td>
             <td class="cell-right">${y}</td>
             <td class="cell-right">${p}</td>
+            <td class="cell-right">${escapeHtml(rankText)}</td>
           </tr>
         `;
       }).join('');
@@ -1266,6 +1289,31 @@
           ? `${pctNum >= 0 ? '+' : ''}${nfPct.format(pctNum)}% vs check`
           : '—';
 
+        const entryLabel = (row.entryNumber != null)
+          ? String(row.entryNumber)
+          : '—';
+
+        let rankChip = '';
+        if (row.isCheck) {
+          rankChip = `<span class="score-card-chip">Rank -</span>`;
+        } else if (typeof row.rank === 'number' && Number.isFinite(row.rank)) {
+          rankChip = `<span class="score-card-chip">Rank #${row.rank}</span>`;
+        }
+
+        const traitChip = row.trait
+          ? `<span class="score-card-chip">${escapeHtml(row.trait)}</span>`
+          : '';
+
+        const matChip = row.maturity
+          ? `<span class="score-card-chip">${escapeHtml(row.maturity)} RM</span>`
+          : '';
+
+        const checkChip = row.isCheck
+          ? `<span class="score-card-chip">Check *</span>`
+          : '';
+
+        const entryChip = `<span class="score-card-chip">Entry ${escapeHtml(entryLabel)}</span>`;
+
         return `
           <article class="score-card">
             <div class="score-card-header">
@@ -1277,10 +1325,11 @@
             </div>
 
             <div class="score-card-tags">
-              ${row.trait ? `<span class="score-card-chip">${escapeHtml(row.trait)}</span>` : ''}
-              ${row.maturity ? `<span class="score-card-chip">${escapeHtml(row.maturity)} RM</span>` : ''}
-              ${row.isCheck ? `<span class="score-card-chip">Check *</span>` : ''}
-              ${row.rank != null ? `<span class="score-card-chip">Rank #${row.rank}</span>` : ''}
+              ${entryChip}
+              ${traitChip}
+              ${matChip}
+              ${checkChip}
+              ${rankChip}
             </div>
 
             <div class="score-card-metrics">
@@ -1655,32 +1704,42 @@
             <table>
               <thead>
                 <tr>
-                  <th style="width:10%;">Rank</th>
+                  <th style="width:10%;">Entry #</th>
                   <th style="width:12%;">Brand</th>
                   <th style="width:14%;">Variety</th>
                   <th style="width:10%;">Trait</th>
                   <th style="width:10%;">Maturity</th>
                   <th style="width:10%;">Yield (bu/ac)</th>
                   <th style="width:10%;">% vs Check</th>
+                  <th style="width:10%;">Rank</th>
                 </tr>
               </thead>
               <tbody>
                 ${rows.map(r => {
+                  const entryLabel = (r.entryNumber != null) ? String(r.entryNumber) : '';
                   const y = (typeof r.yieldBuAc === 'number') ? nfYield.format(r.yieldBuAc) : '';
-                  const p = (typeof r.pctVsCheck === 'number') ? new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(r.pctVsCheck) + '%' : '';
+                  const p = (typeof r.pctVsCheck === 'number')
+                    ? new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(r.pctVsCheck) + '%'
+                    : '';
 
-                  const rankLabel = r.rank != null ? '#' + r.rank : '—';
+                  const rankLabel = r.isCheck
+                    ? '-'
+                    : (typeof r.rank === 'number' && Number.isFinite(r.rank))
+                      ? '#' + r.rank
+                      : '';
+
                   const varietyLabel = (r.variety || '') + (r.isCheck ? ' *' : '');
 
                   return `
                     <tr>
-                      <td>${escapeHtml(rankLabel)}</td>
+                      <td>${escapeHtml(entryLabel)}</td>
                       <td>${escapeHtml(r.brand || '')}</td>
                       <td>${escapeHtml(varietyLabel)}</td>
                       <td>${escapeHtml(r.trait || '')}</td>
                       <td>${escapeHtml(r.maturity || '')}</td>
                       <td class="cell-right">${escapeHtml(y)}</td>
                       <td class="cell-right">${escapeHtml(p)}</td>
+                      <td class="cell-right">${escapeHtml(rankLabel)}</td>
                     </tr>
                   `;
                 }).join('')}
@@ -1988,18 +2047,19 @@
               <table class="score-table">
                 <thead>
                   <tr>
-                    <th style="width:80px;">Rank</th>
+                    <th style="width:80px;">Entry #</th>
                     <th>Brand</th>
                     <th>Variety</th>
                     <th>Trait</th>
                     <th>Maturity</th>
                     <th class="cell-right">Yield (bu/ac)</th>
                     <th class="cell-right">% vs Check</th>
+                    <th class="cell-right">Rank</th>
                   </tr>
                 </thead>
                 <tbody id="mhScoreBody">
                   <tr class="score-placeholder-row">
-                    <td colspan="7">
+                    <td colspan="8">
                       Select crop year and Variety Plot trial above. Variety rows will appear once strips are available.
                     </td>
                   </tr>
