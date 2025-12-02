@@ -8,10 +8,13 @@ Now:
  • Variety chooser pulls from productsSeed (by crop + active)
  • Tracks plantDate from a calendar picker under plot length
  • Marks productsSeed/{productId}.used = true for any varieties used
- • Stores entryNumber for each entry (hybrid + block) and renumbers 1..N
+ • Stores entryNumber for each entry (hybrid + block), renumbered 1..N
    on hard delete so scorecard/reports stay in order.
  • Preserves moisture/weight/yield/notes/files when editing setup and
    returning to blocks – existing blocks are reused by rowId.
+ • "New Entry" UX: new variety row shows at the top as "New Entry"
+   until a variety is chosen, then it drops to the bottom as the
+   next entry number.
 ==================================================================== */
 
 import {
@@ -57,8 +60,8 @@ export function initMhYieldHelper(options = {}) {
     passWidthFt: 20,
     plantDate: null,       // 'YYYY-MM-DD' string
     checkProductId: null,
-    hybrids: [],
-    blocks: []
+    hybrids: [],           // [{ rowId, entryNumber, productId, ..., isCheck, isNewEntry }]
+    blocks: []             // [{ rowId, entryNumber, productId, moisturePct, weightLbs, ... }]
   };
 
   // Ensure entryNumber stays in sync with current hybrid order,
@@ -297,10 +300,23 @@ export function initMhYieldHelper(options = {}) {
 
   function renderSetup(){
     if(!stageShell) return;
-    const hybrids      = mhState.hybrids;
+
     const lengthFt     = mhState.passLengthFt;
     const widthFt      = mhState.passWidthFt;
     const plantDateVal = mhState.plantDate || '';
+
+    // Sort hybrids so any "New Entry" row appears on top visually,
+    // but entryNumber still reflects final planting order.
+    const hybrids = (mhState.hybrids || []).slice().sort((a, b) => {
+      const aNew = !!a.isNewEntry;
+      const bNew = !!b.isNewEntry;
+      if (aNew && !bNew) return -1;
+      if (!aNew && bNew) return 1;
+      const aNum = a.entryNumber ?? 0;
+      const bNum = b.entryNumber ?? 0;
+      return aNum - bNum;
+    });
+
     let html = '';
 
     html += `
@@ -346,10 +362,11 @@ export function initMhYieldHelper(options = {}) {
           ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
           : 'Select variety…';
         const entryNum     = hyb.entryNumber ?? (idx + 1);
+        const entryLabel   = hyb.isNewEntry ? 'New Entry' : `Entry ${entryNum}`;
 
         html += `
           <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
-            <div class="entry-label">Entry ${entryNum}</div>
+            <div class="entry-label">${entryLabel}</div>
             <div class="combo">
               <div class="combo-anchor">
                 <button type="button"
@@ -425,6 +442,9 @@ export function initMhYieldHelper(options = {}) {
         );
         const nextEntry = maxEntry + 1;
 
+        // Only one "New Entry" at a time
+        mhState.hybrids.forEach(h => { h.isNewEntry = false; });
+
         mhState.hybrids.push({
           rowId: newRowId,
           entryNumber: nextEntry,
@@ -433,7 +453,8 @@ export function initMhYieldHelper(options = {}) {
           brand: '',
           variety: '',
           maturity: null,
-          isCheck: false
+          isCheck: false,
+          isNewEntry: true
         });
 
         // Keep entryNumber 1..N and mirror to blocks
@@ -455,7 +476,11 @@ export function initMhYieldHelper(options = {}) {
 
     const comboItems = getHybridItemsForCombo();
 
-    mhState.hybrids.forEach(hyb => {
+    hybrids.forEach(hybView => {
+      // hybView is a sorted view; find the real object in mhState.hybrids
+      const hyb = mhState.hybrids.find(h => h.rowId === hybView.rowId);
+      if(!hyb) return;
+
       const btn   = document.getElementById(`mh-hybrid-btn-${hyb.rowId}`);
       const panel = document.getElementById(`mh-hybrid-panel-${hyb.rowId}`);
       const list  = document.getElementById(`mh-hybrid-list-${hyb.rowId}`);
@@ -475,6 +500,11 @@ export function initMhYieldHelper(options = {}) {
             hyb.brand     = found ? found.brand : '';
             hyb.variety   = found ? found.variety : '';
             hyb.maturity  = found ? found.maturity : null;
+
+            // Once a variety is chosen, this is no longer the "New Entry"
+            if(hyb.isNewEntry){
+              hyb.isNewEntry = false;
+            }
 
             // If no check yet, first selected variety becomes the check
             if(!mhState.checkProductId){
@@ -790,11 +820,11 @@ export function initMhYieldHelper(options = {}) {
         let hybrids = Array.isArray(data.hybrids) ? data.hybrids : [];
         let blocks  = Array.isArray(data.blocks)  ? data.blocks  : [];
 
-        // Ensure each hybrid has a rowId, and if entryNumber exists in Firestore,
-        // use it to sort before we renumber.
+        // Ensure each hybrid has a rowId and default isNewEntry=false.
         hybrids = hybrids.map(h => ({
           ...h,
-          rowId: h.rowId || nextRowId()
+          rowId: h.rowId || nextRowId(),
+          isNewEntry: !!h.isNewEntry && !h.productId ? true : false
         }));
         const hasEntryNumbers = hybrids.some(h => typeof h.entryNumber === 'number');
         if (hasEntryNumbers) {
@@ -981,7 +1011,7 @@ export function initMhYieldHelper(options = {}) {
             variety: h.variety,
             maturity: h.maturity,
             isCheck: !!(h.productId && h.productId === mhState.checkProductId),
-            // make sure required fields exist even if existing block was empty
+            // keep stored yield data if we had it
             moisturePct: existing.moisturePct ?? null,
             weightLbs: existing.weightLbs ?? null,
             yieldBuPerAc: existing.yieldBuPerAc ?? null,
