@@ -518,7 +518,8 @@
       rows: [],   // scoreboard rows
       filters: {
         year: null,
-        status: 'active'
+        trialId: 'all',          // 'all' or specific fieldTrials doc id
+        trialName: 'All MH trials'
       },
       isEmbed: IS_EMBED
     };
@@ -543,24 +544,29 @@
       }catch{ return ''; }
     }
 
+    function getSelectedTrialLabel(){
+      const trialSel = $('#filterTrial');
+      if(!trialSel) return STATE.filters.trialName || 'All MH trials';
+      const val = trialSel.value || 'all';
+      if(val === 'all') return 'All MH trials';
+      const opt = trialSel.options[trialSel.selectedIndex];
+      return opt ? opt.textContent || 'Selected MH trial' : 'Selected MH trial';
+    }
+
     function updateMeta(){
       const meta = $('#mhSummaryMeta');
       if(!meta) return;
 
-      const year   = STATE.filters.year;
-      const status = STATE.filters.status;
-      const count  = STATE.rows.length;
+      const year       = STATE.filters.year;
+      const trialLabel = getSelectedTrialLabel();
+      const count      = STATE.rows.length;
 
       if(!year){
-        meta.textContent = 'Choose crop year and trial status. Scoreboard will populate once data is wired.';
+        meta.textContent = 'Choose crop year and MH trial. Scoreboard will populate once data is wired.';
         return;
       }
 
-      let statusLabel = 'Active trials';
-      if(status === 'completed') statusLabel = 'Completed trials';
-      if(status === 'all')       statusLabel = 'All statuses';
-
-      meta.textContent = `${year} • ${statusLabel} • ${count} entries`;
+      meta.textContent = `${year} • ${trialLabel} • ${count} entries`;
     }
 
     /* ---------- load MH data into STATE.rows ---------- */
@@ -571,7 +577,9 @@
       STATE.rows = [];
 
       const yearFilter   = STATE.filters.year ? Number(STATE.filters.year) : null;
-      const statusFilter = STATE.filters.status; // 'active' | 'completed' | 'all'
+      const trialIdFilter = STATE.filters.trialId && STATE.filters.trialId !== 'all'
+        ? STATE.filters.trialId
+        : null;
 
       // 1) Load MH trials from fieldTrials
       const trialsSnap = await getDocs(collection(db, 'fieldTrials'));
@@ -586,10 +594,12 @@
         // Crop year filter
         if (yearFilter && Number(d.cropYear) !== yearFilter) return;
 
+        // Only active / completed / complete
         const st = (d.status || '').toString().toLowerCase();
-        if (statusFilter === 'active' && st !== 'active') return;
-        if (statusFilter === 'completed' && st !== 'completed' && st !== 'complete') return;
-        // 'all' → no status filter
+        if (st !== 'active' && st !== 'completed' && st !== 'complete') return;
+
+        // Trial filter (if specific trial selected)
+        if (trialIdFilter && docSnap.id !== trialIdFilter) return;
 
         mhTrials.push({ id: docSnap.id, data: d });
       });
@@ -614,6 +624,20 @@
             if (b.voided) continue;
             if (typeof b.yieldBuPerAc !== 'number') continue; // only scored entries
 
+            // ---------- % vs Check logic ----------
+            let pctVsCheck = null;
+
+            // 1) If block already has pctVsCheck stored, use it.
+            if (typeof b.pctVsCheck === 'number') {
+              pctVsCheck = b.pctVsCheck;
+            }
+            // 2) Otherwise, if both yield and check yield exist, compute.
+            else if (typeof b.checkYieldBuPerAc === 'number' &&
+                     typeof b.yieldBuPerAc === 'number' &&
+                     b.checkYieldBuPerAc > 0) {
+              pctVsCheck = (b.yieldBuPerAc / b.checkYieldBuPerAc) * 100;
+            }
+
             STATE.rows.push({
               // variety info
               brand:    b.brand    || '',
@@ -624,7 +648,7 @@
               // metrics
               yieldBuAc: b.yieldBuPerAc,
               moisture:  (typeof b.moisturePct === 'number') ? b.moisturePct : null,
-              pctVsCheck: null, // can add later once we define check math
+              pctVsCheck: (typeof pctVsCheck === 'number') ? pctVsCheck : null,
 
               // context
               trialName: trial.data.trialName || '',
@@ -658,7 +682,7 @@
         tbody.innerHTML = `
           <tr class="score-placeholder-row">
             <td colspan="10">
-              Select crop year and trial status. Multiple Hybrid entries will appear here once MH yield data is available.
+              Select crop year and MH trial. Multiple Hybrid entries will appear here once MH yield data is available.
             </td>
           </tr>
         `;
@@ -704,7 +728,7 @@
       if(!rows.length){
         container.innerHTML = `
           <div class="score-mobile-empty">
-            Select crop year and trial status above. Multiple Hybrid entries will appear here once MH yield data is available.
+            Select crop year and MH trial above. Multiple Hybrid entries will appear here once MH yield data is available.
           </div>
         `;
         return;
@@ -789,7 +813,7 @@
       return STATE.company;
     }
 
-    function buildPrintHtml({ company, runStr, runDateOnly, cropYearLabel, statusLabel, rows }){
+    function buildPrintHtml({ company, runStr, runDateOnly, cropYearLabel, trialLabel, rows }){
       const totalEntries = rows.length;
       const brandSet = new Set();
       const varietySet = new Set();
@@ -808,7 +832,7 @@
       const varietiesCount= varietySet.size;
       const topYieldLabel = maxYield == null ? 'N/A' : nfYield.format(maxYield) + ' bu/ac';
 
-      const filterSummary = `${cropYearLabel || 'All years'} • ${statusLabel || 'All statuses'}`;
+      const filterSummary = `${cropYearLabel || 'All years'} • ${trialLabel || 'All MH trials (active + completed)'}`;
 
       return `<!doctype html>
 <html>
@@ -1064,7 +1088,7 @@
     <section class="report-title-block">
       <h1 class="report-title">Multiple Hybrid Trial Scoreboard</h1>
       <p class="report-subtitle">
-        Ranked multiple hybrid entries by yield and % vs check for the selected crop year and trial status.
+        Ranked multiple hybrid entries by yield and % vs check for the selected crop year and MH trial filter.
       </p>
 
       <div class="report-summary-strip">
@@ -1073,7 +1097,7 @@
           <span class="summary-value">${escapeHtml(cropYearLabel || 'All')}</span>
         </div>
         <div class="summary-pill">
-          <span class="summary-label">Filters</span>
+          <span class="summary-label">Filter</span>
           <span class="summary-value">${escapeHtml(filterSummary)}</span>
         </div>
         <div class="summary-pill">
@@ -1111,7 +1135,7 @@
       <h2 class="section-title">Entries</h2>
       <div class="section-body">
         ${rows.length === 0 ? `
-          <p>No scoreboard entries for the selected crop year and status yet.</p>
+          <p>No scoreboard entries for the selected crop year and MH trial yet.</p>
         ` : `
           <div class="table-wrap">
             <table>
@@ -1174,14 +1198,14 @@
 
     async function handlePrintClick(){
       const yearSel   = $('#filterYear');
-      const statusSel = $('#filterStatus');
+      const trialSel  = $('#filterTrial');
 
       const cropYearLabel = yearSel?.value || '';
-      let statusLabel = 'Active trials';
-      if(statusSel){
-        if(statusSel.value === 'completed') statusLabel = 'Completed trials';
-        else if(statusSel.value === 'all')  statusLabel = 'All statuses';
-      }
+      const trialLabel = trialSel
+        ? (trialSel.value === 'all'
+            ? 'All MH trials (active + completed)'
+            : (trialSel.options[trialSel.selectedIndex]?.textContent || 'Selected MH trial'))
+        : 'All MH trials (active + completed)';
 
       const company = await loadCompanyHeader();
       const now = new Date();
@@ -1193,7 +1217,7 @@
         runStr,
         runDateOnly,
         cropYearLabel,
-        statusLabel,
+        trialLabel,
         rows: STATE.rows
       });
 
@@ -1222,8 +1246,61 @@
       }, 400);
     }
 
-    function initFilters(){
+    async function populateTrialFilterOptions(){
+      const trialSel = $('#filterTrial');
+      if(!trialSel || !STATE.db) return;
+
+      const db = STATE.db;
+      const yearFilter = STATE.filters.year ? Number(STATE.filters.year) : null;
+
+      trialSel.innerHTML = '';
+
+      const trialsSnap = await getDocs(collection(db, 'fieldTrials'));
+      const mhTrials = [];
+
+      trialsSnap.forEach(docSnap => {
+        const d = docSnap.data() || {};
+
+        if ((d.seedTrialType || '').toString() !== 'Multiple Hybrid Trial') return;
+        if (yearFilter && Number(d.cropYear) !== yearFilter) return;
+
+        const st = (d.status || '').toString().toLowerCase();
+        if (st !== 'active' && st !== 'completed' && st !== 'complete') return;
+
+        mhTrials.push({
+          id: docSnap.id,
+          name: d.trialName || '(Unnamed MH trial)'
+        });
+      });
+
+      // Default "All MH trials"
+      const allOpt = document.createElement('option');
+      allOpt.value = 'all';
+      allOpt.textContent = 'All MH trials';
+      trialSel.appendChild(allOpt);
+
+      mhTrials.sort((a,b) => a.name.localeCompare(b.name));
+
+      mhTrials.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        trialSel.appendChild(opt);
+      });
+
+      // Preserve selection if still valid, otherwise reset to 'all'
+      let selected = STATE.filters.trialId;
+      if(!selected || (selected !== 'all' && !mhTrials.find(t => t.id === selected))){
+        selected = 'all';
+      }
+      trialSel.value = selected;
+      STATE.filters.trialId = selected;
+      STATE.filters.trialName = getSelectedTrialLabel();
+    }
+
+    async function initFilters(){
       const yearSel = $('#filterYear');
+
       if(yearSel){
         const now = new Date();
         const currentYear = now.getFullYear();
@@ -1248,20 +1325,25 @@
 
         yearSel.addEventListener('change', async () => {
           STATE.filters.year = yearSel.value || null;
+          // When year changes, rebuild MH trial list and reload rows
+          await populateTrialFilterOptions();
           await loadMhScoreboardRows();
           renderScoreboard();
         });
       }
 
-      const statusSel = $('#filterStatus');
-      if(statusSel){
-        statusSel.addEventListener('change', async () => {
-          STATE.filters.status = statusSel.value || 'active';
+      const trialSel = $('#filterTrial');
+      if(trialSel){
+        trialSel.addEventListener('change', async () => {
+          STATE.filters.trialId = trialSel.value || 'all';
+          STATE.filters.trialName = getSelectedTrialLabel();
           await loadMhScoreboardRows();
           renderScoreboard();
         });
       }
 
+      // Initial trial list for initial year
+      await populateTrialFilterOptions();
       updateMeta();
     }
 
@@ -1284,7 +1366,7 @@
       if(printTop && !STATE.isEmbed)    printTop.addEventListener('click', handlePrintClick);
       if(printBottom && !STATE.isEmbed) printBottom.addEventListener('click', handlePrintClick);
 
-      initFilters();
+      await initFilters();
       await loadMhScoreboardRows();
       renderScoreboard();
     })();
@@ -1327,7 +1409,7 @@
           <div>
             <h1>Multiple Hybrid Trial Scoreboard</h1>
             <p class="muted">
-              Compare multiple hybrid entries by brand, variety, and yield once MH yield data is wired in.
+              Compare multiple hybrid entries by brand, variety, yield, and % vs check across active and completed MH trials.
             </p>
           </div>
         </header>
@@ -1343,7 +1425,7 @@
               </button>
             </div>
             <div class="page-header-meta" id="mhSummaryMeta">
-              Choose crop year and trial status. Scoreboard will populate once data is wired.
+              Choose crop year and MH trial. Scoreboard will populate once data is wired.
             </div>
           </div>
 
@@ -1356,11 +1438,9 @@
             </div>
 
             <div class="filter-field">
-              <label class="filter-label" for="filterStatus">Trial Status</label>
-              <select id="filterStatus" class="filter-select">
-                <option value="active">Active trials</option>
-                <option value="completed">Completed trials</option>
-                <option value="all">All statuses</option>
+              <label class="filter-label" for="filterTrial">MH Trial</label>
+              <select id="filterTrial" class="filter-select">
+                <!-- options added by JS (All MH trials + active/completed for that year) -->
               </select>
             </div>
           </div>
@@ -1371,7 +1451,7 @@
                 <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.4" />
                 <path d="M11.2 7.2h1.6v1.6h-1.6V7.2Zm0 3.2h1.6v6.4h-1.6v-6.4Z" fill="currentColor"/>
               </svg>
-              Scoreboard columns and layout are fixed. Ranking is by yield; % vs check can be wired later from MH math.
+              Scoreboard columns and layout are fixed. Ranking is by yield; % vs check uses MH check yield math when available.
             </div>
 
             <!-- Desktop table layout -->
@@ -1394,7 +1474,7 @@
                 <tbody id="mhScoreBody">
                   <tr class="score-placeholder-row">
                     <td colspan="10">
-                      Select crop year and trial status above. Multiple Hybrid entries will appear here once MH yield data is available.
+                      Select crop year and MH trial above. Multiple Hybrid entries will appear here once MH yield data is available.
                     </td>
                   </tr>
                 </tbody>
