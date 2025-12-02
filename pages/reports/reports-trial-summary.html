@@ -630,6 +630,24 @@
       -webkit-box-orient:vertical;
     }
 
+    /* Photo viewer modal */
+    .photo-modal{
+      width:min(900px, 96vw);
+      max-height:calc(100vh - 80px);
+    }
+    .photo-modal-body{
+      padding:0;
+      background:#000;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .photo-modal-body img{
+      max-width:100%;
+      max-height:calc(100vh - 120px);
+      display:block;
+    }
+
     /* Print-type chooser modal */
     .print-modal{
       max-width:420px;
@@ -667,7 +685,6 @@
       font-size:0.8rem;
       opacity:0.8;
     }
-
 
     /* Desktop vs mobile layout toggles */
     .desktop-only{
@@ -917,8 +934,16 @@
       modalSub: null,
       modalSummary: null,
       modalBlocksBody: null,
+      modalBlocksCards: null,
       modalFiles: null,
 
+      // photo viewer
+      photoViewerBackdrop: null,
+      photoViewerImg: null,
+      photoViewerCaption: null,
+      photoViewerClose: null,
+
+      // print modal
       printModalBackdrop: null,
       printSummaryBtn: null,
       printDetailedBtn: null,
@@ -954,14 +979,22 @@
       els.filterTrial   = $('#filterTrial');
       els.filterClear   = $('#filterClear');
 
-      els.modalBackdrop = $('#field-modal-backdrop');
-      els.modalClose    = $('#field-modal-close');
-      els.modalTitle    = $('#field-modal-title');
-      els.modalSub      = $('#field-modal-sub');
-      els.modalSummary  = $('#field-modal-summary');
+      els.modalBackdrop   = $('#field-modal-backdrop');
+      els.modalClose      = $('#field-modal-close');
+      els.modalTitle      = $('#field-modal-title');
+      els.modalSub        = $('#field-modal-sub');
+      els.modalSummary    = $('#field-modal-summary');
       els.modalBlocksBody = $('#field-modal-blocks-body');
-      els.modalFiles    = $('#field-modal-files');
+      els.modalBlocksCards= $('#field-modal-blocks-cards');
+      els.modalFiles      = $('#field-modal-files');
 
+      // photo viewer
+      els.photoViewerBackdrop = $('#photo-viewer-backdrop');
+      els.photoViewerImg      = $('#photo-viewer-img');
+      els.photoViewerCaption  = $('#photo-viewer-caption');
+      els.photoViewerClose    = $('#photo-viewer-close');
+
+      // print modal
       els.printModalBackdrop = $('#print-modal-backdrop');
       els.printSummaryBtn    = $('#printSummaryBtn');
       els.printDetailedBtn   = $('#printDetailedBtn');
@@ -1759,11 +1792,12 @@
         if (!allAttachments.length) {
           els.modalFiles.innerHTML = `<div class="thumb-empty">No files or photos are attached to this field’s blocks yet.</div>`;
         } else {
-          // For now: keep behavior = open in new tab. We'll convert to popup viewer in a later step.
           els.modalFiles.innerHTML = allAttachments.map(att => {
-            const url = escapeHtml(att.url);
+            const rawUrl = att.url || '';
+            const url = escapeHtml(rawUrl);
             const nameRaw = att.name || '';
-            const name = escapeHtml(nameRaw || `Block ${att._blockIndex} file`);
+            const safeNameRaw = nameRaw || `Block ${att._blockIndex} file`;
+            const name = escapeHtml(safeNameRaw);
             const title = `Block ${att._blockIndex}${nameRaw ? ' • ' + nameRaw : ''}`;
 
             const ct = (att.contentType || '').toString().toLowerCase();
@@ -1771,23 +1805,48 @@
 
             if (isImage) {
               return `
-                <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb" title="${escapeHtml(title)}">
+                <button
+                  type="button"
+                  class="thumb"
+                  data-url="${url}"
+                  data-name="${escapeHtml(safeNameRaw)}"
+                  data-block-index="${att._blockIndex}"
+                  title="${escapeHtml(title)}">
                   <img src="${url}" alt="${name}">
-                </a>
+                </button>
               `;
             }
 
             const extGuess = ct.includes('/') ? ct.split('/').pop().toUpperCase() : 'FILE';
 
             return `
-              <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb thumb-file" title="${escapeHtml(title)}">
+              <button
+                  type="button"
+                  class="thumb thumb-file"
+                  data-url="${url}"
+                  data-name="${escapeHtml(safeNameRaw)}"
+                  data-block-index="${att._blockIndex}"
+                  title="${escapeHtml(title)}">
                 <div class="thumb-file-inner">
                   <div class="thumb-file-ext">${escapeHtml(extGuess)}</div>
                   <div class="thumb-file-name">${name}</div>
                 </div>
-              </a>
+              </button>
             `;
           }).join('');
+
+          // wire up click handlers to open the viewer
+          const thumbs = els.modalFiles.querySelectorAll('.thumb');
+          thumbs.forEach(btn => {
+            btn.addEventListener('click', () => {
+              const url = btn.getAttribute('data-url');
+              const name = btn.getAttribute('data-name') || '';
+              const blockIndex = btn.getAttribute('data-block-index') || '';
+              if (url) {
+                openPhotoViewer({ url, name, blockIndex });
+              }
+            });
+          });
         }
       }
 
@@ -1800,6 +1859,39 @@
       if (!els.modalBackdrop) return;
       els.modalBackdrop.classList.add('modal-hidden');
       els.modalBackdrop.setAttribute('aria-hidden', 'true');
+    }
+
+    /* ---------- photo viewer (thumbnails) ---------- */
+
+    function openPhotoViewer(info = {}) {
+      if (!els.photoViewerBackdrop) return;
+
+      const url        = info.url || '';
+      const name       = info.name || '';
+      const blockIndex = info.blockIndex || '';
+
+      if (els.photoViewerImg) {
+        els.photoViewerImg.src = url;
+      }
+
+      if (els.photoViewerCaption) {
+        const parts = [];
+        if (blockIndex) parts.push(`Block ${blockIndex}`);
+        if (name) parts.push(name);
+        els.photoViewerCaption.textContent = parts.join(' • ') || 'File preview';
+      }
+
+      els.photoViewerBackdrop.classList.remove('modal-hidden');
+      els.photoViewerBackdrop.setAttribute('aria-hidden', 'false');
+    }
+
+    function closePhotoViewer() {
+      if (!els.photoViewerBackdrop) return;
+      els.photoViewerBackdrop.classList.add('modal-hidden');
+      els.photoViewerBackdrop.setAttribute('aria-hidden', 'true');
+      if (els.photoViewerImg) {
+        els.photoViewerImg.src = '';
+      }
     }
 
     /* ---------- print: build summary PDF ---------- */
@@ -2222,6 +2314,18 @@
         });
       }
 
+      // photo viewer events
+      if (els.photoViewerClose) {
+        els.photoViewerClose.addEventListener('click', closePhotoViewer);
+      }
+      if (els.photoViewerBackdrop) {
+        els.photoViewerBackdrop.addEventListener('click', (evt) => {
+          if (evt.target === els.photoViewerBackdrop) {
+            closePhotoViewer();
+          }
+        });
+      }
+
       if (els.printModalClose){
         els.printModalClose.addEventListener('click', closePrintModal);
       }
@@ -2245,8 +2349,14 @@
 
       document.addEventListener('keydown', (evt) => {
         if (evt.key === 'Escape') {
+          // close photo viewer first if open
+          if (els.photoViewerBackdrop && !els.photoViewerBackdrop.classList.contains('modal-hidden')) {
+            closePhotoViewer();
+            return;
+          }
           if (els.modalBackdrop && !els.modalBackdrop.classList.contains('modal-hidden')) {
             closeFieldModal();
+            return;
           }
           if (els.printModalBackdrop && !els.printModalBackdrop.classList.contains('modal-hidden')) {
             closePrintModal();
@@ -2555,6 +2665,27 @@
           <div class="modal-section-title">Files &amp; photos</div>
           <div id="field-modal-files" class="thumb-grid"></div>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Photo viewer modal (for thumbnails in Files & photos) -->
+  <div id="photo-viewer-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
+    <div class="modal photo-modal" role="dialog" aria-modal="true" aria-labelledby="photo-viewer-caption">
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <div id="photo-viewer-caption" class="modal-title">File preview</div>
+          <button
+            type="button"
+            class="modal-close-btn"
+            id="photo-viewer-close"
+            aria-label="Close image viewer">
+            ×
+          </button>
+        </div>
+      </div>
+      <div class="modal-body photo-modal-body">
+        <img id="photo-viewer-img" src="" alt="Trial file preview" />
       </div>
     </div>
   </div>
