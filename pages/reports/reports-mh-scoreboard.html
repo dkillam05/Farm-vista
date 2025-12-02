@@ -1124,6 +1124,20 @@
       updateMeta();
       renderSummaryCard();
     }
+    // helper to tell parent iframe our height when embedded
+    function sendEmbedHeight(){
+      try{
+        if (!(window.parent && window.parent !== window)) return;
+        const h = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+        if (!h) return;
+        window.parent.postMessage(
+          { type: 'fv-scorecard-height', height: h },
+          window.location.origin
+        );
+      }catch(e){
+        console.warn('[mh-scoreboard] auto-resize failed', e);
+      }
+    }
 
     function renderScoreboardTable(){
       const tbody = $('#mhScoreBody');
@@ -1274,10 +1288,14 @@
       }).join('');
     }
 
-    function renderScoreboard(){
+        function renderScoreboard(){
       renderScoreboardTable();
       renderScoreboardMobile();
+      if (STATE.isEmbed) {
+        sendEmbedHeight();
+      }
     }
+
 
     async function loadCompanyHeader(){
       if(STATE.company) return STATE.company;
@@ -1879,28 +1897,6 @@
       renderScoreboard();
     })();
 
-    // auto-resize for embed mode
-    (function(){
-      try{
-        if (window.parent && window.parent !== window) {
-          const sendHeight = () => {
-            const h = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
-            window.parent.postMessage(
-              { type: 'fv-scorecard-height', height: h },
-              window.location.origin
-            );
-          };
-
-          const ro = new ResizeObserver(sendHeight);
-          ro.observe(document.body);
-
-          window.addEventListener('load', sendHeight);
-          sendHeight();
-        }
-      }catch(e){
-        console.warn('[mh-scoreboard] auto-resize failed', e);
-      }
-    })();
   </script>
 </head>
 
