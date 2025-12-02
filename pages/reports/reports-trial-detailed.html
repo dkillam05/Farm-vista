@@ -291,8 +291,17 @@
     const STATE = {
       db: null,
       trialId: null,
-      trialDoc: null,   // {id, ...data}
-      fields: [],       // [{id, data, blocks, stats}]
+      trialDoc: null,
+      fields: [],    // [{id, data, blocks, stats}]
+      totals: {
+        fieldCount: 0,
+        tillableAll: 0,
+        checkAcresAll: 0,
+        trialAcresAll: 0,
+        checkAvgAll: null,
+        trialAvgAll: null,
+        advantageAll: null
+      },
       company: null
     };
 
@@ -300,13 +309,10 @@
       title: null,
       subtitle: null,
       metaLine: null,
-
       btnBack: null,
       btnPrint: null,
-
       statusLine: null,
       fieldTableBody: null,
-
       iframe: null
     };
 
@@ -335,7 +341,10 @@
     function formatDecimal(n, digits=1){
       const num = Number(n);
       if(!Number.isFinite(num)) return '';
-      return num.toLocaleString(undefined, { maximumFractionDigits:digits, minimumFractionDigits:digits });
+      return num.toLocaleString(undefined, {
+        maximumFractionDigits:digits,
+        minimumFractionDigits:digits
+      });
     }
 
     function escapeHtml(str){
@@ -412,13 +421,10 @@
       els.title        = $('#pageTitle');
       els.subtitle     = $('#pageSubtitle');
       els.metaLine     = $('#pageMeta');
-
       els.btnBack      = $('#btnBack');
       els.btnPrint     = $('#btnPrint');
-
       els.statusLine   = $('#statusLine');
       els.fieldTableBody = $('#fieldTableBody');
-
       els.iframe       = $('#fv-print-frame');
     }
 
@@ -469,6 +475,44 @@
       });
 
       STATE.fields = fieldRecords;
+
+      // compute trial totals (same math as summary report)
+      let tillableAll = 0;
+      let checkAcresAll = 0;
+      let trialAcresAll = 0;
+      let checkBuAll = 0;
+      let trialBuAll = 0;
+
+      for (const f of STATE.fields) {
+        const d = f.data || {};
+        const s = f.stats || {};
+        if (typeof d.tillable === 'number') tillableAll += d.tillable;
+
+        if (s.checkAc > 0 && s.checkAvg !== null) {
+          checkAcresAll += s.checkAc;
+          checkBuAll += s.checkAc * s.checkAvg;
+        }
+        if (s.trialAc > 0 && s.trialAvg !== null) {
+          trialAcresAll += s.trialAc;
+          trialBuAll += s.trialAc * s.trialAvg;
+        }
+      }
+
+      const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
+      const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
+      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null)
+        ? (trialAvgAll - checkAvgAll)
+        : null;
+
+      STATE.totals = {
+        fieldCount: STATE.fields.length,
+        tillableAll,
+        checkAcresAll,
+        trialAcresAll,
+        checkAvgAll,
+        trialAvgAll,
+        advantageAll
+      };
     }
 
     /* ---------- render selection UI ---------- */
@@ -482,12 +526,11 @@
       if (t.crop) bits.push(t.crop);
       if (t.trialType) bits.push(t.trialType);
       if (t.operationTask) bits.push(t.operationTask);
-      if (els.subtitle) els.subtitle.textContent = bits.join(' • ') || 'Block-level detailed report with images';
+      if (els.subtitle) els.subtitle.textContent =
+        bits.join(' • ') || 'Block-level detailed report with images';
 
       if (els.metaLine) {
-        els.metaLine.textContent = t.status
-          ? `Status: ${t.status} • Detailed report is optimized for printing in landscape.`
-          : 'Detailed report is optimized for printing in landscape.';
+        els.metaLine.textContent = 'Select one field below, then click Print Detailed Report.';
       }
     }
 
@@ -499,22 +542,27 @@
         const s = f.stats || {};
         const farmName = d.farmName || 'Unknown farm';
         const fieldName = d.fieldName || '(Unnamed field)';
-        const trialAc = typeof d.trialAcres === 'number' ? formatNumber(d.trialAcres, {decimals:1}) : '–';
-        const tillable = typeof d.tillable === 'number' ? formatNumber(d.tillable, {decimals:1}) : '–';
+        const trialAc = typeof d.trialAcres === 'number'
+          ? formatNumber(d.trialAcres, {decimals:1})
+          : '–';
+        const tillable = typeof d.tillable === 'number'
+          ? formatNumber(d.tillable, {decimals:1})
+          : '–';
 
         const advText = s.advantage !== null
           ? `${s.advantage >= 0 ? '+' : ''}${formatNumber(s.advantage,{decimals:1})}`
           : '–';
 
-        // default: include field, but not attachments
         const includeId = `include-field-${idx}`;
-        const attachId  = `include-att-${idx}`;
+
+        // default: FIRST field checked, others unchecked
+        const checkedAttr = idx === 0 ? 'checked' : '';
 
         return `
           <tr data-field-id="${f.id}">
             <td>
               <label class="field-name-main" for="${includeId}">
-                <input type="checkbox" id="${includeId}" class="js-include-field" data-field-id="${f.id}" checked />
+                <input type="checkbox" id="${includeId}" class="js-include-field" data-field-id="${f.id}" ${checkedAttr} />
                 ${escapeHtml(fieldName)}
               </label>
               <div class="field-name-sub">
@@ -524,45 +572,26 @@
             <td class="numeric">${s.checkAvg !== null ? formatNumber(s.checkAvg,{decimals:1}) : '–'}</td>
             <td class="numeric">${s.trialAvg !== null ? formatNumber(s.trialAvg,{decimals:1}) : '–'}</td>
             <td class="numeric">${advText}</td>
-            <td class="numeric">
-              <label for="${attachId}">
-                <input type="checkbox" id="${attachId}" class="js-include-att" data-field-id="${f.id}" />
-                Attachments
-              </label>
-            </td>
           </tr>
         `;
       }).join('');
 
       els.fieldTableBody.innerHTML = rows || `
-        <tr><td colspan="5">No fields with yield blocks were found for this trial.</td></tr>
+        <tr><td colspan="4">No fields with yield blocks were found for this trial.</td></tr>
       `;
     }
 
-    function getSelection(){
-      const includeFields = new Set();
-      const includeAttachments = new Set();
-
-      document.querySelectorAll('.js-include-field').forEach(cb => {
-        if (cb.checked) {
-          includeFields.add(cb.getAttribute('data-field-id'));
-        }
-      });
-
-      document.querySelectorAll('.js-include-att').forEach(cb => {
-        if (cb.checked) {
-          includeAttachments.add(cb.getAttribute('data-field-id'));
-        }
-      });
-
-      return { includeFields, includeAttachments };
+    function getFirstSelectedField(){
+      const cbs = Array.from(document.querySelectorAll('.js-include-field'));
+      const selected = cbs.filter(cb => cb.checked);
+      if (!selected.length) return null;
+      const id = selected[0].getAttribute('data-field-id');
+      return STATE.fields.find(f => f.id === id) || null;
     }
 
     function wireSelectionActions(){
       const btnAllFields = $('#btnAllFields');
       const btnNoFields  = $('#btnNoFields');
-      const btnAllAtt    = $('#btnAllAttachments');
-      const btnNoAtt     = $('#btnNoAttachments');
 
       if (btnAllFields){
         btnAllFields.addEventListener('click', () => {
@@ -574,61 +603,68 @@
           document.querySelectorAll('.js-include-field').forEach(cb => { cb.checked = false; });
         });
       }
-      if (btnAllAtt){
-        btnAllAtt.addEventListener('click', () => {
-          document.querySelectorAll('.js-include-att').forEach(cb => { cb.checked = true; });
-        });
-      }
-      if (btnNoAtt){
-        btnNoAtt.addEventListener('click', () => {
-          document.querySelectorAll('.js-include-att').forEach(cb => { cb.checked = false; });
-        });
-      }
     }
 
-    /* ---------- build print HTML (landscape) ---------- */
+    /* ---------- build SIMPLE 2-PAGE print HTML ---------- */
 
-    function buildDetailedPrintHtml({ company, runStr, runDateOnly, includeFields, includeAttachments }){
+    function buildDetailedPrintHtml({ company, runStr, runDateOnly, field }) {
       const t = STATE.trialDoc || {};
-      const fields = STATE.fields || [];
+      const totals = STATE.totals || {};
+      const d = field.data || {};
+      const s = field.stats || {};
 
-      // overall trial stats across included fields
-      let totalFields = 0;
-      let tillableAll = 0;
-      let trialAcresAll = 0;
-      let checkAcresAll = 0;
-      let checkBuAll = 0;
-      let trialBuAll = 0;
+      const farmName = d.farmName || 'Unknown farm';
+      const fieldName = d.fieldName || '(Unnamed field)';
 
-      const includedFieldObjs = [];
+      // Choose first block; if none, make an empty shell
+      const blocks = Array.isArray(field.blocks) ? field.blocks : [];
+      const block = blocks.length ? blocks[0] : {};
 
-      for (const f of fields){
-        if (!includeFields.has(f.id)) continue;
-        includedFieldObjs.push(f);
-        totalFields += 1;
-        const d = f.data || {};
-        const s = f.stats || {};
-        if (typeof d.tillable === 'number') tillableAll += d.tillable;
-        if (typeof d.trialAcres === 'number') trialAcresAll += d.trialAcres;
-        if (s.checkAc) {
-          checkAcresAll += s.checkAc;
-          if (s.checkAvg !== null) checkBuAll += s.checkAc * s.checkAvg;
-        }
-        if (s.trialAc) {
-          trialAcresAll += 0; // already counted above from data.trialAcres; keep stats separate
-          if (s.trialAvg !== null) trialBuAll += s.trialAc * s.trialAvg;
+      const c = block.check || {};
+      const tr = block.trial || {};
+
+      // Collect up to 4 image attachments from this block
+      const images = [];
+      if (Array.isArray(block.attachments)) {
+        for (const att of block.attachments) {
+          if (!att || typeof att !== 'object' || !att.url) continue;
+          const ct = (att.contentType || '').toString().toLowerCase();
+          const isImage = ct ? ct.startsWith('image/') : true;
+          if (!isImage) continue;
+          images.push(att);
+          if (images.length >= 4) break;
         }
       }
 
-      const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
-      const trialAvgAll = trialBuAll && checkAcresAll ? (trialBuAll / (checkAcresAll || 1)) : null; // approximate
-      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null) ? (trialAvgAll - checkAvgAll) : null;
+      const plantDateStr   = formatDate(block.plantDate);
+      const harvestDateStr = formatDate(block.harvestDate);
+      const combineCount   = (block.combineCount !== undefined && block.combineCount !== null)
+        ? String(block.combineCount)
+        : '';
 
-      // Build pages
-      const pages = [];
+      const checkVariety = (block.checkVarietyName || '').toString();
+      const trialVariety = (block.trialVarietyName || '').toString();
 
-      // --- Cover / summary page ---
-      pages.push(`
+      const checkMoist = typeof c.moisture === 'number' ? formatDecimal(c.moisture,1) + ' %' : '';
+      const trialMoist = typeof tr.moisture === 'number' ? formatDecimal(tr.moisture,1) + ' %' : '';
+      const checkLbs   = typeof c.pounds === 'number' ? formatInt(c.pounds) + ' lb' : '';
+      const trialLbs   = typeof tr.pounds === 'number' ? formatInt(tr.pounds) + ' lb' : '';
+
+      const notes = (block.notes || '').toString().trim();
+
+      const checkBu    = typeof c.yieldBuAc === 'number' ? formatDecimal(c.yieldBuAc,1) : '';
+      const trialBu    = typeof tr.yieldBuAc === 'number' ? formatDecimal(tr.yieldBuAc,1) : '';
+      const checkAcres = typeof c.acres === 'number' ? formatDecimal(c.acres,2) : '';
+      const trialAcres = typeof tr.acres === 'number' ? formatDecimal(tr.acres,2) : '';
+      let advVal = null;
+      if (typeof c.yieldBuAc === 'number' && typeof tr.yieldBuAc === 'number') {
+        advVal = tr.yieldBuAc - c.yieldBuAc;
+      }
+      const advText = advVal !== null
+        ? (advVal >= 0 ? '+' : '') + formatDecimal(advVal,1)
+        : '';
+
+      const coverHtml = `
 <section class="page">
   <header class="report-header">
     <div class="report-logo"><span>DF</span></div>
@@ -655,73 +691,66 @@
 
   <div class="summary-strip">
     <div class="summary-pill">
-      <span class="summary-label">Fields (included)</span>
-      <span class="summary-value">${formatInt(totalFields)}</span>
+      <span class="summary-label">Fields</span>
+      <span class="summary-value">${formatInt(totals.fieldCount || 0)}</span>
     </div>
     <div class="summary-pill">
       <span class="summary-label">Tillable acres</span>
-      <span class="summary-value">${tillableAll ? formatInt(tillableAll) + ' ac' : 'n/a'}</span>
+      <span class="summary-value">${totals.tillableAll ? formatInt(totals.tillableAll) + ' ac' : 'n/a'}</span>
     </div>
     <div class="summary-pill">
       <span class="summary-label">Trial acres</span>
-      <span class="summary-value">${trialAcresAll ? formatInt(trialAcresAll) + ' ac' : 'n/a'}</span>
+      <span class="summary-value">${totals.trialAcresAll ? formatInt(totals.trialAcresAll) + ' ac' : 'n/a'}</span>
     </div>
     <div class="summary-pill">
       <span class="summary-label">Check</span>
-      <span class="summary-value">${checkAvgAll !== null ? formatDecimal(checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+      <span class="summary-value">${totals.checkAvgAll !== null ? formatDecimal(totals.checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
     </div>
     <div class="summary-pill">
       <span class="summary-label">Treatment</span>
-      <span class="summary-value">${trialAvgAll !== null ? formatDecimal(trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+      <span class="summary-value">${totals.trialAvgAll !== null ? formatDecimal(totals.trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
     </div>
     <div class="summary-pill">
       <span class="summary-label">Advantage</span>
       <span class="summary-value">${
-        advantageAll !== null
-          ? (advantageAll >= 0 ? '+' : '') + formatDecimal(advantageAll,1) + ' bu/ac'
+        totals.advantageAll !== null
+          ? (totals.advantageAll >= 0 ? '+' : '') + formatDecimal(totals.advantageAll,1) + ' bu/ac'
           : 'n/a'
       }</span>
     </div>
   </div>
 
   <section class="section">
-    <h2 class="section-title">Fields included in this detailed report</h2>
-    <p class="section-sub">Each field is summarized below; subsequent pages show block-level maps and yield details.</p>
+    <h2 class="section-title">Field selected for detail</h2>
+    <p class="section-sub">This detailed packet focuses on the field you selected from the summary report.</p>
+
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th style="width:40%">Field</th>
-            <th style="width:24%">Farm / acres</th>
-            <th style="width:12%">Check bu/ac</th>
-            <th style="width:12%">Trial bu/ac</th>
-            <th style="width:12%">Adv.</th>
+            <th style="width:28%">Farm / acres</th>
+            <th style="width:16%">Check bu/ac</th>
+            <th style="width:16%">Trial bu/ac</th>
           </tr>
         </thead>
         <tbody>
-          ${
-            includedFieldObjs.map(f => {
-              const d = f.data || {};
-              const s = f.stats || {};
-              const farmName = d.farmName || 'Unknown farm';
-              const trialAc = typeof d.trialAcres === 'number' ? formatDecimal(d.trialAcres,1) + ' trial ac' : '';
-              const tillable = typeof d.tillable === 'number' ? formatDecimal(d.tillable,1) + ' tillable' : '';
-              const acresTxt = [trialAc, tillable].filter(Boolean).join(' / ');
-              const adv = s.advantage !== null
-                ? (s.advantage >= 0 ? '+' : '') + formatDecimal(s.advantage,1) + ' bu/ac'
-                : '–';
-
-              return `
-                <tr>
-                  <td>${escapeHtml(d.fieldName || '(Unnamed field)')}</td>
-                  <td>${escapeHtml(farmName)}<br><span class="muted-small">${escapeHtml(acresTxt)}</span></td>
-                  <td class="cell-right">${s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : ''}</td>
-                  <td class="cell-right">${s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : ''}</td>
-                  <td class="cell-right">${adv}</td>
-                </tr>
-              `;
-            }).join('')
-          }
+          <tr>
+            <td>${escapeHtml(fieldName)}</td>
+            <td>
+              ${escapeHtml(farmName)}<br>
+              <span class="muted-small">
+                ${
+                  [
+                    typeof d.trialAcres === 'number' ? formatDecimal(d.trialAcres,1) + ' trial ac' : '',
+                    typeof d.tillable === 'number' ? formatDecimal(d.tillable,1) + ' tillable' : ''
+                  ].filter(Boolean).join(' / ')
+                }
+              </span>
+            </td>
+            <td class="cell-right">${s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : '–'}</td>
+            <td class="cell-right">${s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : '–'}</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -731,198 +760,28 @@
     <div>Internal use only. Results may change as additional yield blocks are recorded.</div>
     <div>FarmVista • Field Trial Detailed Report • ${escapeHtml(runDateOnly || '')}</div>
   </footer>
-</section>
-      `);
+</section>`;
 
-      // --- Per-field + per-block pages ---
-      includedFieldObjs.forEach(field => {
-        const d = field.data || {};
-        const s = field.stats || {};
-        const farmName = d.farmName || 'Unknown farm';
-        const fieldName = d.fieldName || '(Unnamed field)';
+      const imagesHtml = images.length
+        ? images.map(att => {
+            const url  = escapeHtml(att.url || '');
+            const name = escapeHtml(att.name || '');
+            return `
+              <figure class="photo-fig">
+                <img src="${url}" alt="${name || 'Block image'}" class="photo-img" />
+                ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
+              </figure>
+            `;
+          }).join('')
+        : '<p class="section-sub">No images are attached to this block yet.</p>';
 
-        const fieldBlocks = Array.isArray(field.blocks) ? field.blocks.slice() : [];
-        fieldBlocks.sort((a,b) => {
-          const ai = Number(a.blockIndex || a.index || 0);
-          const bi = Number(b.blockIndex || b.index || 0);
-          return ai - bi;
-        });
-
-        // Field numeric page (summary + block table)
-        pages.push(`
-<section class="page">
-  <h2 class="section-title">Field summary</h2>
-  <p class="section-sub">
-    ${escapeHtml(farmName)} • ${escapeHtml(fieldName)}
-  </p>
-
-  <div class="summary-strip">
-    <div class="summary-pill">
-      <span class="summary-label">Tillable</span>
-      <span class="summary-value">${typeof d.tillable === 'number' ? formatDecimal(d.tillable,1) + ' ac' : 'n/a'}</span>
-    </div>
-    <div class="summary-pill">
-      <span class="summary-label">Trial acres</span>
-      <span class="summary-value">${typeof d.trialAcres === 'number' ? formatDecimal(d.trialAcres,1) + ' ac' : 'n/a'}</span>
-    </div>
-    <div class="summary-pill">
-      <span class="summary-label">Check</span>
-      <span class="summary-value">${s.checkAvg !== null ? formatDecimal(s.checkAvg,1) + ' bu/ac' : 'n/a'}</span>
-    </div>
-    <div class="summary-pill">
-      <span class="summary-label">Trial</span>
-      <span class="summary-value">${s.trialAvg !== null ? formatDecimal(s.trialAvg,1) + ' bu/ac' : 'n/a'}</span>
-    </div>
-    <div class="summary-pill">
-      <span class="summary-label">Advantage</span>
-      <span class="summary-value">${
-        s.advantage !== null
-          ? (s.advantage >= 0 ? '+' : '') + formatDecimal(s.advantage,1) + ' bu/ac'
-          : 'n/a'
-      }</span>
-    </div>
-  </div>
-
-  <section class="section">
-    <h3 class="section-title">Yield blocks</h3>
-    <p class="section-sub">Each block below may have its own map / image page in this report.</p>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:16%">Block</th>
-            <th style="width:14%">Type</th>
-            <th style="width:14%">Check bu/ac</th>
-            <th style="width:14%">Trial bu/ac</th>
-            <th style="width:14%">Check acres</th>
-            <th style="width:14%">Trial acres</th>
-            <th style="width:14%">Adv.</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${
-            fieldBlocks.map((b, idx) => {
-              const c = b.check || {};
-              const tBlock = b.trial || {};
-              const blockLabel = `Block ${idx + 1}`;
-              const typeLabel  = (b.blockType || 'combine').toString();
-              const checkBu    = typeof c.yieldBuAc === 'number' ? formatDecimal(c.yieldBuAc,1) : '';
-              const trialBu    = typeof tBlock.yieldBuAc === 'number' ? formatDecimal(tBlock.yieldBuAc,1) : '';
-              const checkAcres = typeof c.acres === 'number' ? formatDecimal(c.acres,1) : '';
-              const trialAcres = typeof tBlock.acres === 'number' ? formatDecimal(tBlock.acres,1) : '';
-              let advVal = null;
-              if (typeof c.yieldBuAc === 'number' && typeof tBlock.yieldBuAc === 'number') {
-                advVal = tBlock.yieldBuAc - c.yieldBuAc;
-              }
-              const advText = advVal !== null
-                ? (advVal >= 0 ? '+' : '') + formatDecimal(advVal,1)
-                : '';
-
-              return `
-                <tr>
-                  <td>${escapeHtml(blockLabel)}</td>
-                  <td>${escapeHtml(typeLabel)}</td>
-                  <td class="cell-right">${checkBu}</td>
-                  <td class="cell-right">${trialBu}</td>
-                  <td class="cell-right">${checkAcres}</td>
-                  <td class="cell-right">${trialAcres}</td>
-                  <td class="cell-right">${advText}</td>
-                </tr>
-              `;
-            }).join('')
-          }
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <footer class="report-footer">
-    <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)}</div>
-    <div>Field summary • ${escapeHtml(runDateOnly || '')}</div>
-  </footer>
-</section>
-        `);
-
-        // Block-level pages with images + numbers, only if field is flagged for attachments
-        const includeAttForField = includeAttachments.has(field.id);
-
-        if (includeAttForField){
-          fieldBlocks.forEach((b, idx) => {
-            const c = b.check || {};
-            const tBlock = b.trial || {};
-            const blockLabel = `Block ${idx + 1}`;
-            const typeLabel  = (b.blockType || 'combine').toString();
-
-            const attachments = [];
-            if (Array.isArray(b.attachments)) {
-              b.attachments.forEach(att => {
-                if (att && typeof att === 'object' && att.url) {
-                  attachments.push(att);
-                }
-              });
-            }
-
-            const hasImages = attachments.length > 0;
-
-            const plantDateStr   = formatDate(b.plantDate);
-            const harvestDateStr = formatDate(b.harvestDate);
-            const combineCount   = (b.combineCount !== undefined && b.combineCount !== null)
-              ? String(b.combineCount)
-              : '';
-
-            const checkVariety = (b.checkVarietyName || '').toString();
-            const trialVariety = (b.trialVarietyName || '').toString();
-
-            const checkMoist = typeof c.moisture === 'number' ? formatDecimal(c.moisture,1) + ' %' : '';
-            const trialMoist = typeof tBlock.moisture === 'number' ? formatDecimal(tBlock.moisture,1) + ' %' : '';
-            const checkLbs   = typeof c.pounds === 'number' ? formatInt(c.pounds) + ' lb' : '';
-            const trialLbs   = typeof tBlock.pounds === 'number' ? formatInt(tBlock.pounds) + ' lb' : '';
-
-            const notes = (b.notes || '').toString().trim();
-
-            const checkBu    = typeof c.yieldBuAc === 'number' ? formatDecimal(c.yieldBuAc,1) : '';
-            const trialBu    = typeof tBlock.yieldBuAc === 'number' ? formatDecimal(tBlock.yieldBuAc,1) : '';
-            const checkAcres = typeof c.acres === 'number' ? formatDecimal(c.acres,2) : '';
-            const trialAcres = typeof tBlock.acres === 'number' ? formatDecimal(tBlock.acres,2) : '';
-            let advVal = null;
-            if (typeof c.yieldBuAc === 'number' && typeof tBlock.yieldBuAc === 'number') {
-              advVal = tBlock.yieldBuAc - c.yieldBuAc;
-            }
-            const advText = advVal !== null
-              ? (advVal >= 0 ? '+' : '') + formatDecimal(advVal,1)
-              : '';
-
-            const imagesHtml = hasImages
-              ? attachments.map(att => {
-                  const url  = escapeHtml(att.url || '');
-                  const name = escapeHtml(att.name || '');
-                  const ct   = (att.contentType || '').toString().toLowerCase();
-                  const isImage = ct ? ct.startsWith('image/') : true;
-                  if (!isImage) {
-                    // non-image "chip"
-                    return `
-                      <div class="file-chip">
-                        <div class="file-chip-ext">${escapeHtml(ct.split('/').pop() || 'FILE')}</div>
-                        <div class="file-chip-name">${name || 'Attachment'}</div>
-                      </div>
-                    `;
-                  }
-                  return `
-                    <figure class="photo-fig">
-                      <img src="${url}" alt="${name || 'Block image'}" class="photo-img" />
-                      ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
-                    </figure>
-                  `;
-                }).join('')
-              : '<p class="section-sub">No attachments are stored for this block.</p>';
-
-            pages.push(`
+      const fieldPageHtml = `
 <section class="page">
   <header class="block-header">
     <div>
       <div class="block-title">${escapeHtml(farmName)} • ${escapeHtml(fieldName)}</div>
       <div class="block-sub">
-        ${escapeHtml(t.trialName || 'Trial')} • ${escapeHtml(blockLabel)} (${escapeHtml(typeLabel)})
+        ${escapeHtml(t.trialName || 'Trial')} • Block 1 (${escapeHtml(block.blockType || 'combine')})
       </div>
     </div>
     <div class="block-metrics">
@@ -957,21 +816,21 @@
       </div>
       <div>
         <div class="meta-label">Varieties</div>
-        <div class="meta-value">
-          ${
-            [checkVariety ? 'Check – ' + escapeHtml(checkVariety) : '',
-             trialVariety ? 'Trial – ' + escapeHtml(trialVariety) : '']
-              .filter(Boolean).join('<br>')
-              || '—'
-          }
-        </div>
+        <div class="meta-value">${
+          [checkVariety ? 'Check – ' + escapeHtml(checkVariety) : '',
+           trialVariety ? 'Trial – ' + escapeHtml(trialVariety) : '']
+            .filter(Boolean).join('<br>') || '—'
+        }</div>
       </div>
     </div>
   </section>
 
   <section class="section">
     <h3 class="section-title">Block images</h3>
-    <p class="section-sub">Maps and screenshots associated with this block. Images are scaled to fit but their aspect ratio is preserved.</p>
+    <p class="section-sub">
+      Up to four key images (maps, screenshots, etc.) are shown below. Images are scaled to fit the page but keep
+      their original shape so nothing is distorted.
+    </p>
     <div class="photo-grid">
       ${imagesHtml}
     </div>
@@ -1016,16 +875,12 @@
   </section>
 
   <footer class="report-footer">
-    <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)} • ${escapeHtml(blockLabel)}</div>
+    <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)} • Block 1</div>
     <div>Block detail • ${escapeHtml(runDateOnly || '')}</div>
   </footer>
-</section>
-            `);
-          });
-        }
-      });
+</section>`;
 
-      // full HTML document for iframe
+      // full document
       return `<!doctype html>
 <html>
 <head>
@@ -1045,30 +900,27 @@
       padding:0;
       font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
       color:var(--fv-text);
-      background:var(--fv-bg);
-    }
-    body{
-      display:flex;
-      justify-content:center;
-      padding:12px 8px;
-    }
-    .page{
-      width:100%;
-      max-width:1120px;
       background:#fff;
-      border-radius:10px;
-      box-shadow:0 10px 30px rgba(15,23,42,0.15);
-      padding:14px 18px 16px;
-      margin-bottom:12px;
-      page-break-after:always;
-    }
-    .page:last-child{
-      page-break-after:auto;
     }
 
     @page{
       size: landscape;
       margin:12mm 14mm;
+    }
+
+    .page{
+      width:100%;
+      padding:0;
+      margin:0;
+      page-break-after:always;
+    }
+    .page-inner{
+      padding:12mm 14mm;
+    }
+
+    /* Wrap content inside page for padding */
+    .page > *{
+      padding:12mm 14mm;
     }
 
     .report-header{
@@ -1078,7 +930,7 @@
       align-items:center;
       border-bottom:2px solid var(--fv-green);
       padding-bottom:8px;
-      margin-bottom:12px;
+      margin-bottom:10px;
     }
     .report-logo{
       width:54px;
@@ -1200,6 +1052,10 @@
       background:#F9FAFB;
     }
     .cell-right{text-align:right; white-space:nowrap;}
+    .muted-small{
+      font-size:9px;
+      color:#6B7280;
+    }
 
     .report-footer{
       margin-top:10px;
@@ -1212,7 +1068,7 @@
       color:#6B7280;
     }
 
-    /* Block pages */
+    /* Field / block page */
     .block-header{
       display:flex;
       justify-content:space-between;
@@ -1277,8 +1133,8 @@
       justify-content:flex-start;
     }
     .photo-fig{
-      flex:1 1 calc(33% - 6px);
-      max-width:calc(33% - 6px);
+      flex:1 1 calc(50% - 6px);
+      max-width:calc(50% - 6px);
       border:1px solid #E5E7EB;
       border-radius:6px;
       padding:4px;
@@ -1301,23 +1157,6 @@
       text-align:center;
     }
 
-    .file-chip{
-      border-radius:6px;
-      border:1px solid #E5E7EB;
-      padding:4px 6px;
-      min-width:80px;
-      font-size:9px;
-      page-break-inside:avoid;
-    }
-    .file-chip-ext{
-      font-weight:700;
-      font-size:9px;
-    }
-    .file-chip-name{
-      font-size:9px;
-      color:#4B5563;
-    }
-
     .numbers-table th,
     .numbers-table td{
       padding:4px 6px;
@@ -1333,21 +1172,14 @@
         background:#fff;
         padding:0;
       }
-      body{
-        box-shadow:none;
-        justify-content:stretch;
-      }
-      .page{
-        max-width:none;
-        border-radius:0;
-        box-shadow:none;
-        margin:0;
+      .page > *{
+        padding:0;
       }
     }
   </style>
 </head>
 <body>
-  ${pages.join('')}
+  ${coverHtml}${fieldPageHtml}
 </body>
 </html>`;
     }
@@ -1358,9 +1190,9 @@
         return;
       }
 
-      const { includeFields, includeAttachments } = getSelection();
-      if (!includeFields.size){
-        alert('Select at least one field to include in the detailed report.');
+      const field = getFirstSelectedField();
+      if (!field){
+        alert('Select at least one field (we will use the first checked one) before printing.');
         return;
       }
 
@@ -1373,8 +1205,7 @@
         company,
         runStr,
         runDateOnly,
-        includeFields,
-        includeAttachments
+        field
       });
 
       let iframe = els.iframe;
@@ -1408,10 +1239,12 @@
     function wireBasicEvents(){
       if (els.btnBack){
         els.btnBack.addEventListener('click', () => {
-          // Go back to predefined reports or previous page
-          history.length > 1
-            ? history.back()
-            : (location.href = '/Farm-vista/pages/reports/reports-predefined.html');
+          // Go back to previous page if possible, otherwise reports home
+          if (history.length > 1){
+            history.back();
+          }else{
+            location.href = '/Farm-vista/pages/reports/reports-predefined.html';
+          }
         });
       }
 
@@ -1460,7 +1293,7 @@
         wireBasicEvents();
 
         if (els.statusLine){
-          els.statusLine.textContent = 'Select the fields and attachments you want, then click Print Detailed Report.';
+          els.statusLine.textContent = 'Choose the field you want (we’ll use the first checked one), then click Print Detailed Report.';
         }
       }catch(err){
         console.error('Error loading trial detailed data:', err);
@@ -1484,7 +1317,7 @@
           <div>
             <h1 id="pageTitle">Trial Detailed Report</h1>
             <p id="pageSubtitle" class="muted">
-              Block-level detailed report with maps, screenshots, and numbers. Optimized for landscape printing.
+              One trial, one field, four images and numbers – optimized for landscape printing.
             </p>
           </div>
         </header>
@@ -1504,17 +1337,15 @@
           <section class="field-select-panel">
             <div class="field-select-header">
               <div>
-                <div class="field-select-title">Choose fields and attachments</div>
+                <div class="field-select-title">Choose the field for this detailed report</div>
                 <div class="field-select-note">
-                  Each selected field gets a numeric summary page. If you also include attachments, each block with files
-                  gets its own landscape page with images and numbers together.
+                  For now, the detailed PDF focuses on a single field and up to four images from its first block.
+                  If multiple fields are checked, the first one in the list is used.
                 </div>
               </div>
               <div class="field-select-actions">
-                <button id="btnAllFields" type="button" class="btn btn-quiet">All fields</button>
-                <button id="btnNoFields" type="button" class="btn btn-quiet">No fields</button>
-                <button id="btnAllAttachments" type="button" class="btn btn-quiet">All attachments</button>
-                <button id="btnNoAttachments" type="button" class="btn btn-quiet">No attachments</button>
+                <button id="btnAllFields" type="button" class="btn btn-quiet">Check all</button>
+                <button id="btnNoFields" type="button" class="btn btn-quiet">Uncheck all</button>
               </div>
             </div>
 
@@ -1526,11 +1357,10 @@
                     <th class="numeric">Check bu/ac</th>
                     <th class="numeric">Trial bu/ac</th>
                     <th class="numeric">Adv.</th>
-                    <th class="numeric">Attachments</th>
                   </tr>
                 </thead>
                 <tbody id="fieldTableBody">
-                  <tr><td colspan="5">Loading fields…</td></tr>
+                  <tr><td colspan="4">Loading fields…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1554,4 +1384,3 @@
   <iframe id="fv-print-frame"></iframe>
 </body>
 </html>
-
