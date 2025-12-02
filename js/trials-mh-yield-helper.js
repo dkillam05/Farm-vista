@@ -21,7 +21,7 @@ import {
 } from '/Farm-vista/js/firebase-init.js';
 
 export function initMhYieldHelper(options = {}) {
-  const PASS_WIDTH_OPTIONS = [15, 20, 25, 30, 35, 40, 45, 50, 60];
+  const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];
 
   // Firestore wiring (optional – if not provided we stay in dev mode)
   let db = options.db || null;
@@ -61,19 +61,19 @@ export function initMhYieldHelper(options = {}) {
   let seedOptions = [];
 
   // Try to pick cropKind from the trial (window.MH_TRIAL_CONTEXT.trial.crop)
-  (function initCropFromTrialContext() {
-    try {
+  (function initCropFromTrialContext(){
+    try{
       const ctx = window.MH_TRIAL_CONTEXT || {};
       const t   = ctx.trial || {};
       const raw = t.crop || t.cropKind || '';
-      if (!raw) return;
+      if(!raw) return;
       const v = String(raw).toLowerCase();
-      if (v.includes('soy')) {
+      if(v.includes('soy')){
         mhState.cropKind = 'soy';
-      } else if (v.includes('corn')) {
+      }else if(v.includes('corn')){
         mhState.cropKind = 'corn';
       }
-    } catch (err) {
+    }catch(err){
       console.warn('MH helper: unable to read crop from MH_TRIAL_CONTEXT', err);
     }
   })();
@@ -90,31 +90,31 @@ export function initMhYieldHelper(options = {}) {
   const $  = sel => document.querySelector(sel);
   const $$ = sel => Array.from(document.querySelectorAll(sel));
 
-  function nextRowId() {
-    return 'row_' + Math.random().toString(36).slice(2, 9);
+  function nextRowId(){
+    return 'row_' + Math.random().toString(36).slice(2,9);
   }
 
-  function formatNumber(num, decimals) {
-    if (num === null || num === undefined || isNaN(num)) return '—';
+  function formatNumber(num, decimals){
+    if(num === null || num === undefined || isNaN(num)) return '—';
     return Number(num).toFixed(decimals);
   }
 
-  function formatWithCommas(num) {
-    if (num === null || num === undefined || isNaN(num)) return '';
+  function formatWithCommas(num){
+    if(num === null || num === undefined || isNaN(num)) return '';
     const s = String(Math.round(num));
     return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
-  function calcDevYield({ cropKind, moisturePct, wetWeightLbs, lengthFt, widthFt }) {
-    if (!moisturePct || !wetWeightLbs || !lengthFt || !widthFt) return null;
+  function calcDevYield({ cropKind, moisturePct, wetWeightLbs, lengthFt, widthFt }){
+    if(!moisturePct || !wetWeightLbs || !lengthFt || !widthFt) return null;
     const areaAc = (lengthFt * widthFt) / 43560;
-    if (areaAc <= 0) return null;
+    if(areaAc <= 0) return null;
 
     const stdMoist = cropKind === 'soy' ? 13.0 : 15.0;
     const testWt   = cropKind === 'soy' ? 60.0 : 56.0;
     const m = Number(moisturePct);
     const w = Number(wetWeightLbs);
-    if (!isFinite(m) || !isFinite(w) || m <= 0 || m >= 80 || w <= 0) return null;
+    if(!isFinite(m) || !isFinite(w) || m <= 0 || m >= 80 || w <= 0) return null;
 
     const used = Math.max(m, stdMoist);
     const dryWeightStd = w * (100 - used) / (100 - stdMoist);
@@ -122,14 +122,14 @@ export function initMhYieldHelper(options = {}) {
     return bu / areaAc;
   }
 
-  function renderDevSummary() {
-    if (!devFieldSummaryEl) return;
-    if (!mhState.hybrids.length) {
+  function renderDevSummary(){
+    if(!devFieldSummaryEl) return;
+    if(!mhState.hybrids.length){
       devFieldSummaryEl.textContent = '';
       return;
     }
     const lines = mhState.hybrids.map((h, idx) => {
-      if (!h.productId) return null;
+      if(!h.productId) return null;
       const blk = mhState.blocks.find(b => b.rowId === h.rowId) || {};
       const hasData = blk.moisturePct != null && blk.weightLbs != null && blk.yieldBuPerAc != null;
       const isCheck = mhState.checkProductId && h.productId === mhState.checkProductId;
@@ -141,18 +141,18 @@ export function initMhYieldHelper(options = {}) {
       ].join(' ').trim() || 'Variety';
 
       parts.push(`Entry ${idx+1}: ${displayName}`);
-      if (h.maturity != null) parts.push(`(${h.maturity} RM)`);
-      if (isCheck) parts.push('– CHECK');
-      if (hasData) {
-        parts.push(`– ${formatNumber(blk.moisturePct, 2)}% • ${formatNumber(blk.yieldBuPerAc, 1)} bu/ac`);
+      if(h.maturity != null) parts.push(`(${h.maturity} RM)`);
+      if(isCheck) parts.push('– CHECK');
+      if(hasData){
+        parts.push(`– ${formatNumber(blk.moisturePct,2)}% • ${formatNumber(blk.yieldBuPerAc,1)} bu/ac`);
       }
       return parts.join(' ');
     }).filter(Boolean);
     devFieldSummaryEl.innerHTML = lines.join('<br>');
   }
 
-  function openModal() {
-    if (!modalBackdrop) return;
+  function openModal(){
+    if(!modalBackdrop) return;
 
     modalBackdrop.classList.remove('hidden');
 
@@ -165,33 +165,33 @@ export function initMhYieldHelper(options = {}) {
     renderStage();
   }
 
-  function closeModal() {
-    if (!modalBackdrop) return;
+  function closeModal(){
+    if(!modalBackdrop) return;
     modalBackdrop.classList.add('hidden');
   }
 
-  function closeAllCombos(except=null) {
-    $$('.combo-panel.show').forEach(p => { if (p !== except) p.classList.remove('show'); });
+  function closeAllCombos(except=null){
+    $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
   }
 
-  function makeCombo({ btn, panel, list, items=[], formatter=x=>String(x.label ?? x), onPick }) {
-    if (!btn || !panel || !list) return;
+  function makeCombo({ btn, panel, list, items=[], formatter=x=>String(x.label ?? x), onPick }){
+    if(!btn || !panel || !list) return;
 
     panel.addEventListener('click', e => e.stopPropagation());
     panel.addEventListener('mousedown', e => e.stopPropagation());
 
-    function renderList() {
-      list.innerHTML = (items || []).map(x => `
+    function renderList(){
+      list.innerHTML = (items||[]).map(x => `
         <div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>
       `).join('') || `<div class="combo-empty">(no options)</div>`;
     }
 
-    function open() {
+    function open(){
       closeAllCombos(panel);
       panel.classList.add('show');
       renderList();
     }
-    function close() {
+    function close(){
       panel.classList.remove('show');
     }
 
@@ -202,10 +202,10 @@ export function initMhYieldHelper(options = {}) {
 
     list.addEventListener('mousedown', e => {
       const row = e.target.closest('.combo-item');
-      if (!row) return;
+      if(!row) return;
       const id  = row.dataset.id;
-      const it  = (items || []).find(x => String(x.id) === id);
-      if (!it) return;
+      const it  = (items||[]).find(x => String(x.id) === id);
+      if(!it) return;
       onPick?.(it);
       close();
     });
@@ -214,15 +214,15 @@ export function initMhYieldHelper(options = {}) {
   }
 
   // Build display items for the variety combo based *only* on seedOptions.
-  function getHybridItemsForCombo() {
+  function getHybridItemsForCombo(){
     const rows = (seedOptions || []).slice();
-    if (!rows.length) return [];
+    if(!rows.length) return [];
     return rows.map(s => {
       const brand   = s.brand   || '';
       const variety = s.variety || '';
       const mat     = s.maturity != null ? String(s.maturity) : '';
       let label = `${brand} ${variety}`.trim();
-      if (mat) label += ` (${mat} RM)`;
+      if(mat) label += ` (${mat} RM)`;
       return {
         id: s.id,
         seedDocId: s.id,
@@ -234,35 +234,35 @@ export function initMhYieldHelper(options = {}) {
     });
   }
 
-  function validateSetup() {
+  function validateSetup(){
     const errors = [];
-    if (!mhState.passLengthFt || mhState.passLengthFt <= 0) {
+    if(!mhState.passLengthFt || mhState.passLengthFt <= 0){
       errors.push('Enter a positive plot length.');
     }
-    if (!mhState.passWidthFt || mhState.passWidthFt <= 0) {
+    if(!mhState.passWidthFt || mhState.passWidthFt <= 0){
       errors.push('Select a positive pass width.');
     }
-    if (!mhState.hybrids.length) {
+    if(!mhState.hybrids.length){
       errors.push('Add at least one entry.');
-    } else {
+    }else{
       mhState.hybrids.forEach((h, idx) => {
-        if (!h.productId) {
+        if(!h.productId){
           errors.push(`Entry ${idx+1}: select a variety.`);
         }
       });
     }
-    if (!mhState.checkProductId) {
+    if(!mhState.checkProductId){
       errors.push('Pick one check variety (tied to the variety).');
     }
     const box = document.getElementById('mh-setup-errors');
-    if (box) {
+    if(box){
       box.innerHTML = errors.map(e => '• ' + e).join('<br>');
     }
     return errors.length === 0;
   }
 
-  function renderSetup() {
-    if (!stageShell) return;
+  function renderSetup(){
+    if(!stageShell) return;
     const hybrids = mhState.hybrids;
     const lengthFt = mhState.passLengthFt;
     const widthFt  = mhState.passWidthFt;
@@ -300,9 +300,9 @@ export function initMhYieldHelper(options = {}) {
         </div>
     `;
 
-    if (!hybrids.length) {
+    if(!hybrids.length){
       html += `<p class="muted">No entries yet. Tap <strong>+ Add variety</strong> to start.</p>`;
-    } else {
+    }else{
       hybrids.forEach((hyb, idx) => {
         const isCheckRow = hyb.productId && mhState.checkProductId === hyb.productId;
         const displayName = hyb.productId
@@ -319,7 +319,9 @@ export function initMhYieldHelper(options = {}) {
               <div class="combo-anchor">
                 <button type="button"
                         class="buttonish has-caret"
-                        id="mh-hybrid-btn-${hyb.rowId}">${label}</button>
+                        id="mh-hybrid-btn-${hyb.rowId}">
+                  ${label}
+                </button>
                 <div class="combo-panel" id="mh-hybrid-panel-${hyb.rowId}">
                   <div class="list" id="mh-hybrid-list-${hyb.rowId}"></div>
                 </div>
@@ -342,31 +344,28 @@ export function initMhYieldHelper(options = {}) {
     html += `<div class="setup-errors" id="mh-setup-errors"></div></div>`;
     stageShell.innerHTML = html;
 
-    // Length
     const lenInput = document.getElementById('mh-length-input');
-    if (lenInput) {
+    if(lenInput){
       lenInput.addEventListener('input', e => {
-        const vRaw = e.target.value.replace(/[^0-9]/g, '');
+        const vRaw = e.target.value.replace(/[^0-9]/g,'');
         e.target.value = vRaw;
         mhState.passLengthFt = vRaw === '' ? 0 : Number(vRaw);
       });
     }
 
-    // Plant date
     const plantInput = document.getElementById('mh-plantdate-input');
-    if (plantInput) {
+    if(plantInput){
       plantInput.addEventListener('change', e => {
         const v = e.target.value || '';
         mhState.plantDate = v || null;
       });
     }
 
-    // Pass width combo
     const widthBtn   = document.getElementById('mh-width-btn');
     const widthPanel = document.getElementById('mh-width-panel');
     const widthList  = document.getElementById('mh-width-list');
 
-    if (widthBtn && widthPanel && widthList) {
+    if(widthBtn && widthPanel && widthList){
       makeCombo({
         btn: widthBtn,
         panel: widthPanel,
@@ -381,9 +380,8 @@ export function initMhYieldHelper(options = {}) {
       });
     }
 
-    // Add variety
     const addRowBtn = document.getElementById('mh-add-row-btn');
-    if (addRowBtn) {
+    if(addRowBtn){
       addRowBtn.addEventListener('click', () => {
         const newRowId = nextRowId();
         mhState.hybrids.push({
@@ -398,11 +396,11 @@ export function initMhYieldHelper(options = {}) {
 
         requestAnimationFrame(() => {
           const row = stageShell.querySelector(`.setup-hybrid-row[data-row-id="${newRowId}"]`);
-          if (row) {
+          if(row){
             row.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
           const btn = document.getElementById(`mh-hybrid-btn-${newRowId}`);
-          if (btn) {
+          if(btn){
             btn.click();
           }
         });
@@ -416,7 +414,7 @@ export function initMhYieldHelper(options = {}) {
       const panel = document.getElementById(`mh-hybrid-panel-${hyb.rowId}`);
       const list  = document.getElementById(`mh-hybrid-list-${hyb.rowId}`);
 
-      if (btn && panel && list) {
+      if(btn && panel && list){
         makeCombo({
           btn,
           panel,
@@ -432,7 +430,7 @@ export function initMhYieldHelper(options = {}) {
             hyb.variety   = found ? found.variety : '';
             hyb.maturity  = found ? found.maturity : null;
 
-            if (!mhState.checkProductId) {
+            if(!mhState.checkProductId){
               mhState.checkProductId = hyb.productId;
             }
 
@@ -442,20 +440,20 @@ export function initMhYieldHelper(options = {}) {
       }
 
       const checkEl = stageShell.querySelector(`.check-indicator[data-row-id="${hyb.rowId}"]`);
-      if (checkEl) {
+      if(checkEl){
         checkEl.addEventListener('click', () => {
-          if (!hyb.productId) return;
+          if(!hyb.productId) return;
           mhState.checkProductId = hyb.productId;
           renderStage();
         });
       }
 
       const removeBtn = stageShell.querySelector(`.row-remove[data-row-id="${hyb.rowId}"]`);
-      if (removeBtn) {
+      if(removeBtn){
         removeBtn.addEventListener('click', () => {
           const idx = mhState.hybrids.findIndex(h => h.rowId === hyb.rowId);
-          if (idx !== -1) mhState.hybrids.splice(idx, 1);
-          if (mhState.hybrids.every(h => h.productId !== mhState.checkProductId)) {
+          if(idx !== -1) mhState.hybrids.splice(idx,1);
+          if(mhState.hybrids.every(h => h.productId !== mhState.checkProductId)){
             mhState.checkProductId = null;
           }
           renderStage();
@@ -466,11 +464,11 @@ export function initMhYieldHelper(options = {}) {
 
   // ---------- BLOCKS (yield entry) UI ----------
 
-  function renderBlocks() {
-    if (!stageShell) return;
+  function renderBlocks(){
+    if(!stageShell) return;
 
     const blocks = (mhState.blocks || []).filter(b => !b.voided);
-    if (!blocks.length) {
+    if(!blocks.length){
       stageShell.innerHTML = `
         <div class="blocks-panel">
           <div class="blocks-panel-header">
@@ -543,15 +541,14 @@ export function initMhYieldHelper(options = {}) {
     html += `</div>`;
     stageShell.innerHTML = html;
 
-    // Wire inputs for each block
     blocks.forEach(b => {
       const moistInput = document.getElementById(`mh-block-moist-${b.rowId}`);
       const wtInput    = document.getElementById(`mh-block-wt-${b.rowId}`);
       const yldEl      = document.getElementById(`mh-block-yield-${b.rowId}`);
 
-      function recalc() {
-        const mRaw = moistInput ? moistInput.value.replace(/[^0-9.]/g, '') : '';
-        const wRaw = wtInput    ? wtInput.value.replace(/[^0-9]/g, '')   : '';
+      function recalc(){
+        const mRaw = moistInput ? moistInput.value.replace(/[^0-9.]/g,'') : '';
+        const wRaw = wtInput    ? wtInput.value.replace(/[^0-9]/g,'')   : '';
 
         const m = mRaw === '' ? null : Number(mRaw);
         const w = wRaw === '' ? null : Number(wRaw);
@@ -569,52 +566,52 @@ export function initMhYieldHelper(options = {}) {
 
         b.yieldBuPerAc = y != null ? y : null;
 
-        if (yldEl) {
-          yldEl.textContent = y != null ? formatNumber(y, 1) : '—';
+        if(yldEl){
+          yldEl.textContent = y != null ? formatNumber(y,1) : '—';
         }
 
         renderDevSummary();
       }
 
-      if (moistInput) {
+      if(moistInput){
         moistInput.addEventListener('input', () => {
-          const clean = moistInput.value.replace(/[^0-9.]/g, '');
+          const clean = moistInput.value.replace(/[^0-9.]/g,'');
           moistInput.value = clean;
           recalc();
         });
       }
-      if (wtInput) {
+      if(wtInput){
         wtInput.addEventListener('input', () => {
-          const clean = wtInput.value.replace(/[^0-9]/g, '');
+          const clean = wtInput.value.replace(/[^0-9]/g,'');
           wtInput.value = clean ? formatWithCommas(clean) : '';
           recalc();
         });
       }
 
-      // Initial paint in case we had stored values
+      // Initial draw if we already had values
       recalc();
     });
   }
 
-  function renderStage() {
-    if (btnSetUpPlot) {
+  function renderStage(){
+    if(btnSetUpPlot){
       btnSetUpPlot.textContent = mhState.blocks.length ? 'Edit Plot Setup' : 'Set Up Plot';
     }
-    if (mhState.stage === 'setup') {
+    if(mhState.stage === 'setup'){
       renderSetup();
-    } else {
+    }else{
       renderBlocks();
     }
     renderDevSummary();
   }
 
-  function initSwipeForCard() {
-    if (!devFieldCard) return;
+  function initSwipeForCard(){
+    if(!devFieldCard) return;
     const isMobile =
       (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
       window.innerWidth <= 768;
 
-    if (!isMobile) return;
+    if(!isMobile) return;
 
     if (window.FVSwipeList && typeof window.FVSwipeList.attach === 'function') {
       try {
@@ -639,12 +636,12 @@ export function initMhYieldHelper(options = {}) {
     }, { passive: true });
 
     devFieldCard.addEventListener('touchend', e => {
-      if (!tracking) return;
+      if(!tracking) return;
       tracking = false;
       const t = e.changedTouches[0];
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
-      if (dx > 40 && Math.abs(dy) < 30) {
+      if(dx > 40 && Math.abs(dy) < 30){
         openModal();
       }
     }, { passive: true });
@@ -652,8 +649,8 @@ export function initMhYieldHelper(options = {}) {
 
   // ---------- Firestore load/save ----------
 
-  async function loadSeedProducts() {
-    try {
+  async function loadSeedProducts(){
+    try{
       const db = getDb();
       const baseRef = collection(db, 'productsSeed');
 
@@ -672,38 +669,37 @@ export function initMhYieldHelper(options = {}) {
       seedOptions = rows
         .filter(r => r[cropField] === true)
         .filter(r => (r.status || '').toLowerCase() === 'active')
-        .sort((a, b) => {
+        .sort((a,b) => {
           const aBrand = (a.brand || '').toLowerCase();
           const bBrand = (b.brand || '').toLowerCase();
-          if (aBrand < bBrand) return -1;
-          if (aBrand > bBrand) return 1;
+          if(aBrand < bBrand) return -1;
+          if(aBrand > bBrand) return 1;
           const aVar = (a.variety || '').toLowerCase();
           const bVar = (b.variety || '').toLowerCase();
-          if (aVar < bVar) return -1;
-          if (aVar > bVar) return 1;
+          if(aVar < bVar) return -1;
+          if(aVar > bVar) return 1;
           return 0;
         });
 
-      if (mhState.stage === 'setup') {
+      if(mhState.stage === 'setup'){
         renderStage();
       }
-    } catch (err) {
+    }catch(err){
       console.error('Error loading productsSeed for MH helper:', err);
       seedOptions = [];
-      // no fallback – combo will simply show "(no options)"
     }
   }
 
-  async function loadFromFirestore() {
+  async function loadFromFirestore(){
     const ref = getMhDocRef();
-    if (!ref) {
+    if(!ref) {
       await loadSeedProducts();
       return;
     }
 
-    try {
+    try{
       const snap = await getDoc(ref);
-      if (snap.exists()) {
+      if(snap.exists()){
         const data = snap.data() || {};
 
         mhState.cropKind       = data.cropKind      || mhState.cropKind;
@@ -718,21 +714,21 @@ export function initMhYieldHelper(options = {}) {
 
       await loadSeedProducts();
       renderStage();
-    } catch (err) {
+    }catch(err){
       console.error('Error loading MH state from Firestore:', err);
       await loadSeedProducts();
     }
   }
 
-  async function saveToFirestore() {
+  async function saveToFirestore(){
     const ref = getMhDocRef();
-    if (!ref) {
+    if(!ref){
       console.log('Multi-Hybrid Helper Save (dev only)', JSON.parse(JSON.stringify(mhState)));
       alert('Saved locally (dev mode). Add trialId & fieldDocId to save in Firestore.');
       return;
     }
 
-    try {
+    try{
       const payload = {
         cropKind: mhState.cropKind || 'corn',
         passLengthFt: mhState.passLengthFt || 0,
@@ -747,17 +743,17 @@ export function initMhYieldHelper(options = {}) {
       await setDoc(ref, payload, { merge: true });
 
       // Mark any seed products used in this MH trial as used=true
-      try {
+      try{
         const db = getDb();
         const uniqueIds = new Set();
 
         (mhState.hybrids || []).forEach(h => {
-          if (h && h.productId) uniqueIds.add(h.productId);
+          if(h && h.productId) uniqueIds.add(h.productId);
         });
         (mhState.blocks || []).forEach(b => {
-          if (b && b.productId) uniqueIds.add(b.productId);
+          if(b && b.productId) uniqueIds.add(b.productId);
         });
-        if (mhState.checkProductId) {
+        if(mhState.checkProductId){
           uniqueIds.add(mhState.checkProductId);
         }
 
@@ -769,15 +765,15 @@ export function initMhYieldHelper(options = {}) {
           );
         });
 
-        if (writes.length) {
+        if(writes.length){
           await Promise.all(writes);
         }
-      } catch (markErr) {
+      }catch(markErr){
         console.warn('Failed to mark seed products as used for MH trial:', markErr);
       }
 
       closeModal();
-    } catch (err) {
+    }catch(err){
       console.error('Error saving MH state to Firestore:', err);
       alert('Unable to save multi-hybrid data to Firestore.');
     }
@@ -785,13 +781,13 @@ export function initMhYieldHelper(options = {}) {
 
   // ---------- Event wiring ----------
 
-  if (btnOpenModal) btnOpenModal.addEventListener('click', openModal);
-  if (devFieldCard) devFieldCard.addEventListener('click', openModal);
-  if (btnClose)     btnClose.addEventListener('click', closeModal);
+  if(btnOpenModal) btnOpenModal.addEventListener('click', openModal);
+  if(devFieldCard) devFieldCard.addEventListener('click', openModal);
+  if(btnClose)     btnClose.addEventListener('click', closeModal);
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      if (!modalBackdrop?.classList.contains('hidden')) {
+    if(e.key === 'Escape'){
+      if(!modalBackdrop?.classList.contains('hidden')){
         closeModal();
       }
       closeAllCombos();
@@ -800,22 +796,22 @@ export function initMhYieldHelper(options = {}) {
 
   document.addEventListener('click', () => closeAllCombos());
 
-  if (btnSetUpPlot) {
+  if(btnSetUpPlot){
     btnSetUpPlot.addEventListener('click', () => {
-      if (mhState.stage === 'setup') {
+      if(mhState.stage === 'setup'){
         const lenInput = document.getElementById('mh-length-input');
-        if (lenInput) lenInput.focus();
-      } else {
+        if(lenInput) lenInput.focus();
+      }else{
         mhState.stage = 'setup';
         renderStage();
       }
     });
   }
 
-  if (btnOk) {
+  if(btnOk){
     btnOk.addEventListener('click', () => {
-      if (mhState.stage === 'setup') {
-        if (!validateSetup()) return;
+      if(mhState.stage === 'setup'){
+        if(!validateSetup()) return;
         mhState.blocks = mhState.hybrids.map(h => ({
           rowId: h.rowId,
           productId: h.productId,
@@ -831,11 +827,11 @@ export function initMhYieldHelper(options = {}) {
           files: []
         }));
         mhState.stage = 'blocks';
-        renderStage();   // show yield cards immediately
+        renderStage();
         return;
       }
 
-      // In blocks mode → save yields
+      // In blocks mode we actually save to Firestore
       saveToFirestore();
     });
   }
