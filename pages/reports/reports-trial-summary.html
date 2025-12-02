@@ -1,7 +1,7 @@
 <!-- ===================================================================
 /Farm-vista/pages/reports/reports-trial-summary.html
 
-Single-trial yield report (NON multi-hybrid trials)
+Single-trial yield report
  • One trial at a time
  • Desktop: farm/field table layout (unchanged)
  • Mobile: stacked card layout (no horizontal tables)
@@ -762,7 +762,7 @@ Single-trial yield report (NON multi-hybrid trials)
 
     const STATE = {
       db: null,
-      trials: [],       // [{id, data}] (active/completed, non multi-hybrid)
+      trials: [],       // [{id, data}]
       trialId: null,
       trialDoc: null,
       fields: [],       // [{id, data, blocks, stats}]
@@ -928,13 +928,19 @@ Single-trial yield report (NON multi-hybrid trials)
         const data = docSnap.data() || {};
         const status = (data.status || '').toString().toLowerCase();
 
-        // NEW: skip multi-hybrid trials on this summary page
-        const typeRaw = (data.trialType || '').toString().toLowerCase();
+        // NEW: identify multi-hybrid trials using seedTrialType
+        const seedTypeRaw = (data.seedTrialType || '').toString().toLowerCase();
         const isMultiHybrid =
-          typeRaw.includes('multi') &&
-          typeRaw.includes('hybrid');
+          seedTypeRaw.includes('multiple hybrid') ||           // exact phrase
+          (seedTypeRaw.includes('multi') && seedTypeRaw.includes('hybrid'));
 
-        if ((status === 'active' || status === 'completed' || status === 'complete') && !isMultiHybrid) {
+        const isGoodStatus =
+          status === 'active' ||
+          status === 'completed' ||
+          status === 'complete';
+
+        // Only include non-multi-hybrid trials
+        if (isGoodStatus && !isMultiHybrid) {
           trials.push({ id: docSnap.id, data });
         }
       });
@@ -2022,7 +2028,7 @@ Single-trial yield report (NON multi-hybrid trials)
         populateYearFilter();
         populateTrialFilter();
 
-        // If URL provided a trialId, pre-select it (only if it's not a multi-hybrid, because those are filtered out)
+        // If URL provided a trialId, pre-select it
         const fromUrl = getTrialIdFromUrl();
         if (fromUrl) {
           const match = STATE.trials.find(t => t.id === fromUrl);
@@ -2046,8 +2052,8 @@ Single-trial yield report (NON multi-hybrid trials)
 
         if (!STATE.trialId && els.metaLine){
           els.metaLine.textContent = STATE.trials.length
-            ? 'Choose a crop year and non multi-hybrid trial to view yield summary.'
-            : 'No active or completed non multi-hybrid trials are available yet.';
+            ? 'Choose a crop year and trial to view yield summary.'
+            : 'No active or completed trials are available yet.';
         }
       }catch(err){
         console.error('Error loading trial list:', err);
