@@ -496,7 +496,8 @@
     import {
       ready,
       getFirestore,
-      doc, getDoc
+      doc, getDoc,
+      collection, getDocs
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -514,7 +515,7 @@
     const STATE = {
       db: null,
       company: null,
-      rows: [],   // TODO: wire MH scoreboard data into this later
+      rows: [],   // scoreboard rows
       filters: {
         year: null,
         status: 'active'
@@ -562,18 +563,102 @@
       meta.textContent = `${year} • ${statusLabel} • ${count} entries`;
     }
 
+    /* ---------- load MH data into STATE.rows ---------- */
+    async function loadMhScoreboardRows(){
+      const db = STATE.db;
+      if(!db) return;
+
+      STATE.rows = [];
+
+      const yearFilter   = STATE.filters.year ? Number(STATE.filters.year) : null;
+      const statusFilter = STATE.filters.status; // 'active' | 'completed' | 'all'
+
+      // 1) Load MH trials from fieldTrials
+      const trialsSnap = await getDocs(collection(db, 'fieldTrials'));
+      const mhTrials = [];
+
+      trialsSnap.forEach(docSnap => {
+        const d = docSnap.data() || {};
+
+        // Only Multiple Hybrid trials
+        if ((d.seedTrialType || '').toString() !== 'Multiple Hybrid Trial') return;
+
+        // Crop year filter
+        if (yearFilter && Number(d.cropYear) !== yearFilter) return;
+
+        const st = (d.status || '').toString().toLowerCase();
+        if (statusFilter === 'active' && st !== 'active') return;
+        if (statusFilter === 'completed' && st !== 'completed' && st !== 'complete') return;
+        // 'all' → no status filter
+
+        mhTrials.push({ id: docSnap.id, data: d });
+      });
+
+      // 2) For each MH trial, walk its fields and read multiHybrid/state.blocks
+      for (const trial of mhTrials) {
+        const trialRef   = doc(db, 'fieldTrials', trial.id);
+        const fieldsSnap = await getDocs(collection(trialRef, 'fields'));
+
+        for (const fieldDoc of fieldsSnap.docs) {
+          const fieldData = fieldDoc.data() || {};
+
+          const mhStateRef = doc(fieldDoc.ref, 'multiHybrid', 'state');
+          const mhSnap = await getDoc(mhStateRef);
+          if (!mhSnap.exists()) continue;
+
+          const mh = mhSnap.data() || {};
+          const blocks = Array.isArray(mh.blocks) ? mh.blocks : [];
+
+          for (const b of blocks) {
+            if (!b) continue;
+            if (b.voided) continue;
+            if (typeof b.yieldBuPerAc !== 'number') continue; // only scored entries
+
+            STATE.rows.push({
+              // variety info
+              brand:    b.brand    || '',
+              variety:  b.variety  || '',
+              trait:    '', // can be wired from productsSeed later
+              maturity: b.maturity || '',
+
+              // metrics
+              yieldBuAc: b.yieldBuPerAc,
+              moisture:  (typeof b.moisturePct === 'number') ? b.moisturePct : null,
+              pctVsCheck: null, // can add later once we define check math
+
+              // context
+              trialName: trial.data.trialName || '',
+              farmField: [
+                fieldData.farmName  || '',
+                fieldData.fieldName || ''
+              ].filter(Boolean).join(' • ')
+            });
+          }
+        }
+      }
+
+      // 3) Rank by yield (highest first)
+      STATE.rows.sort((a, b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0));
+      STATE.rows.forEach((row, idx) => {
+        row.rank = idx + 1;
+      });
+
+      console.log('[MH Scoreboard] Loaded rows:', STATE.rows.length);
+      updateMeta();
+    }
+
     /* ---------- desktop table render ---------- */
     function renderScoreboardTable(){
       const tbody = $('#mhScoreBody');
       if(!tbody) return;
 
-      const rows = STATE.rows; // in future, you can filter here by year/status
+      const rows = STATE.rows;
 
       if(!rows.length){
         tbody.innerHTML = `
           <tr class="score-placeholder-row">
             <td colspan="10">
-              Select crop year and trial status. Multiple Hybrid entries will appear here once we wire Firestore.
+              Select crop year and trial status. Multiple Hybrid entries will appear here once MH yield data is available.
             </td>
           </tr>
         `;
@@ -619,7 +704,7 @@
       if(!rows.length){
         container.innerHTML = `
           <div class="score-mobile-empty">
-            Select crop year and trial status above. Multiple Hybrid entries will appear here once we wire Firestore.
+            Select crop year and trial status above. Multiple Hybrid entries will appear here once MH yield data is available.
           </div>
         `;
         return;
@@ -677,7 +762,6 @@
     }
 
     function renderScoreboard(){
-      // One call that updates both desktop table and mobile cards
       renderScoreboardTable();
       renderScoreboardMobile();
     }
@@ -1110,7 +1194,7 @@
         runDateOnly,
         cropYearLabel,
         statusLabel,
-        rows: STATE.rows   // in future: filtered rows
+        rows: STATE.rows
       });
 
       let iframe = document.getElementById('fv-print-frame');
@@ -1162,21 +1246,19 @@
 
         STATE.filters.year = String(initialYear);
 
-        yearSel.addEventListener('change', () => {
+        yearSel.addEventListener('change', async () => {
           STATE.filters.year = yearSel.value || null;
-          updateMeta();
-          // later: reload data by year
-          console.log('[MH Scoreboard] Year changed:', STATE.filters.year);
+          await loadMhScoreboardRows();
+          renderScoreboard();
         });
       }
 
       const statusSel = $('#filterStatus');
       if(statusSel){
-        statusSel.addEventListener('change', () => {
+        statusSel.addEventListener('change', async () => {
           STATE.filters.status = statusSel.value || 'active';
-          updateMeta();
-          // later: reload / re-filter data by status
-          console.log('[MH Scoreboard] Status changed:', STATE.filters.status);
+          await loadMhScoreboardRows();
+          renderScoreboard();
         });
       }
 
@@ -1203,6 +1285,7 @@
       if(printBottom && !STATE.isEmbed) printBottom.addEventListener('click', handlePrintClick);
 
       initFilters();
+      await loadMhScoreboardRows();
       renderScoreboard();
     })();
   </script>
@@ -1288,7 +1371,7 @@
                 <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.4" />
                 <path d="M11.2 7.2h1.6v1.6h-1.6V7.2Zm0 3.2h1.6v6.4h-1.6v-6.4Z" fill="currentColor"/>
               </svg>
-              Scoreboard columns and layout are fixed. Ranking and % vs check will be calculated from MH yield data later.
+              Scoreboard columns and layout are fixed. Ranking is by yield; % vs check can be wired later from MH math.
             </div>
 
             <!-- Desktop table layout -->
@@ -1311,7 +1394,7 @@
                 <tbody id="mhScoreBody">
                   <tr class="score-placeholder-row">
                     <td colspan="10">
-                      Select crop year and trial status above. Multiple Hybrid entries will appear here once we wire Firestore.
+                      Select crop year and trial status above. Multiple Hybrid entries will appear here once MH yield data is available.
                     </td>
                   </tr>
                 </tbody>
