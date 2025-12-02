@@ -620,6 +620,9 @@
       isEmbed: IS_EMBED
     };
 
+    // cache for productsSeed
+    const productMetaCache = new Map();
+
     function escapeHtml(str){
       return String(str ?? '').replace(/[&<>"']/g, m => (
         { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
@@ -787,12 +790,34 @@
         ${topHtml}
 
         <div class="trial-summary-footer">
-          <a href="/Farm-vista/pages/docs/plot-layout.html"
+          <a href="../docs/plot-layout.html"
              class="helper-link">
             Plot layout &amp; weighting guide
           </a>
         </div>
       `;
+    }
+
+    async function getProductMeta(productId){
+      if (!productId) return null;
+      if (productMetaCache.has(productId)) {
+        return productMetaCache.get(productId);
+      }
+      try{
+        const ref = doc(STATE.db, 'productsSeed', productId);
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const meta = {
+          trait: d.trait || '',
+          traitLabel: d.traitLabel || ''
+        };
+        productMetaCache.set(productId, meta);
+        return meta;
+      }catch(e){
+        console.warn('[mh-scoreboard] failed to load product meta', productId, e);
+        productMetaCache.set(productId, null);
+        return null;
+      }
     }
 
     async function loadMhScoreboardRows(){
@@ -849,7 +874,6 @@
       STATE.summary.crop      = tData.crop || tData.cropType || '';
       STATE.summary.status    = tData.status || '';
 
-      // best-effort plant date from trial root, if present
       if (tData.plantDate && !STATE.summary.plantDate) {
         const d = coerceDate(tData.plantDate);
         if (d) STATE.summary.plantDate = d;
@@ -865,12 +889,12 @@
       let globalCheckSumAll = 0;
       let globalCheckCountAll = 0;
 
-      function getVarietyBucket(brand, variety, trait, maturity, trialName){
+      function getVarietyBucket(brand, variety, maturity, productId, trialName, trait){
         const key = [
           brand || '',
           variety || '',
-          trait || '',
-          maturity || ''
+          maturity || '',
+          productId || ''
         ].join('||');
 
         let bucket = scoreboardMap.get(key);
@@ -880,6 +904,7 @@
             variety: variety || '',
             trait: trait || '',
             maturity: maturity || '',
+            productId: productId || null,
             yields: [],
             pctVsChecks: [],
             trialName: trialName || '',
@@ -887,6 +912,8 @@
             isCheck: false
           };
           scoreboardMap.set(key, bucket);
+        } else if (!bucket.trait && trait) {
+          bucket.trait = trait;
         }
         return bucket;
       }
@@ -903,13 +930,12 @@
         const mh = mhSnap.data() || {};
         const blocks = Array.isArray(mh.blocks) ? mh.blocks : [];
 
-        // pick up plant date / layout from the first mh state we see
         if (!STATE.summary.plantDate && mh.plantDate) {
           const d = coerceDate(mh.plantDate);
           if (d) STATE.summary.plantDate = d;
         }
         if (STATE.summary.plotLengthFt == null) {
-          const len = mh.plotLengthFt ?? mh.stripLengthFt ?? mh.lengthFt ?? null;
+          const len = mh.passLengthFt ?? mh.plotLengthFt ?? mh.stripLengthFt ?? mh.lengthFt ?? null;
           if (len != null) STATE.summary.plotLengthFt = Number(len);
         }
         if (STATE.summary.plotWidthFt == null) {
@@ -918,7 +944,6 @@
         }
 
         const strips = [];
-        // allow missing entryNum – fall back to array index
         blocks.forEach((b, idx) => {
           if (!b || b.voided) return;
 
@@ -933,7 +958,8 @@
           } else if (typeof b.rowIndex === 'number') {
             entryNum = b.rowIndex;
           } else {
-            entryNum = idx + 1;
+            // 0-based fallback so first strip is entry 0
+            entryNum = idx;
           }
           if (!Number.isFinite(entryNum)) return;
 
@@ -945,6 +971,7 @@
             variety:  b.variety  || '',
             trait:    b.trait    || '',
             maturity: b.maturity || '',
+            productId: b.productId || null,
             farmName,
             fieldName
           });
@@ -974,7 +1001,6 @@
           globalCheckAvg = sum / checks.length;
         }
 
-        // now push ALL strips (tests and checks) into buckets
         for (const s of strips) {
           let pctVsCheck = null;
 
@@ -1025,16 +1051,16 @@
               pctVsCheck = ((s.yieldBuPerAc - effectiveCheck) / effectiveCheck) * 100;
             }
           } else if (s.isCheck && globalCheckAvg != null && globalCheckAvg > 0) {
-            // define check vs itself as 0% for clarity
             pctVsCheck = 0;
           }
 
           const bucket = getVarietyBucket(
             s.brand,
             s.variety,
-            s.trait,
             s.maturity,
-            STATE.summary.trialName
+            s.productId,
+            STATE.summary.trialName,
+            s.trait
           );
 
           bucket.yields.push(s.yieldBuPerAc);
@@ -1050,6 +1076,16 @@
 
           if (s.isCheck) {
             bucket.isCheck = true;
+          }
+        }
+      }
+
+      // fill trait from productsSeed if missing
+      for (const bucket of scoreboardMap.values()) {
+        if (!bucket.trait && bucket.productId) {
+          const meta = await getProductMeta(bucket.productId);
+          if (meta && meta.trait) {
+            bucket.trait = meta.trait;
           }
         }
       }
@@ -1074,7 +1110,7 @@
           moisture: null,
           pctVsCheck: avgPct,
           trialName: STATE.summary.trialName,
-          farmField: '',           // removed from visible table
+          farmField: '',
           isCheck:  !!bucket.isCheck
         });
       });
@@ -1243,7 +1279,6 @@
     }
 
     function buildPrintHtml({ company, runStr, runDateOnly, cropYearLabel, trialLabel, rows }){
-      const totalEntries = rows.length;
       const brandSet = new Set();
       const varietySet = new Set();
       let maxYield = null;
