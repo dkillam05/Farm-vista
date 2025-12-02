@@ -724,7 +724,7 @@
       const topHtml = top
         ? `
           <div class="trial-summary-top">
-            Top variety:
+            Top entry:
             <strong>${escapeHtml(top.variety || '(Variety)')}${top.isCheck ? ' *' : ''}</strong>
             ${top.brand ? ' · ' + escapeHtml(top.brand) : ''}
             ${typeof top.yieldBuAc === 'number'
@@ -737,7 +737,7 @@
         `
         : `
           <div class="trial-summary-top">
-            Top variety will appear here once Variety Plot strips are entered for this trial.
+            Top entry will appear here once Variety Plot strips are entered for this trial.
           </div>
         `;
 
@@ -896,40 +896,10 @@
       const fieldIdsWithData = new Set();
       let totalTestStrips = 0;
 
-      const scoreboardMap = new Map();
+      const rows = [];
 
       let globalCheckSumAll = 0;
       let globalCheckCountAll = 0;
-
-      function getVarietyBucket(brand, variety, maturity, productId, trialName, trait){
-        const key = [
-          brand || '',
-          variety || '',
-          maturity || '',
-          productId || ''
-        ].join('||');
-
-        let bucket = scoreboardMap.get(key);
-        if(!bucket){
-          bucket = {
-            brand: brand || '',
-            variety: variety || '',
-            trait: trait || '',
-            maturity: maturity || '',
-            productId: productId || null,
-            yields: [],
-            pctVsChecks: [],
-            trialName: trialName || '',
-            farmFieldSet: new Set(),
-            isCheck: false,
-            entryNumber: null
-          };
-          scoreboardMap.set(key, bucket);
-        } else if (!bucket.trait && trait) {
-          bucket.trait = trait;
-        }
-        return bucket;
-      }
 
       for (const fieldDoc of fieldsSnap.docs) {
         const fieldData = fieldDoc.data() || {};
@@ -968,7 +938,7 @@
           const yieldNum = Number(rawYield);
           if (!Number.isFinite(yieldNum)) return;
 
-          // Use entryNumber from data set first, then fall back
+          // each pass gets its own entryNumber
           let entryNum;
           if (b.entryNumber !== null && b.entryNumber !== undefined && b.entryNumber !== '') {
             entryNum = Number(b.entryNumber);
@@ -977,7 +947,7 @@
           } else if (typeof b.rowIndex === 'number') {
             entryNum = b.rowIndex;
           } else {
-            entryNum = idx + 1; // 1-based index, keeps first strip as real entry
+            entryNum = idx + 1; // 1-based index
           }
 
           if (!Number.isFinite(entryNum)) {
@@ -1075,103 +1045,63 @@
             pctVsCheck = 0;
           }
 
-          const bucket = getVarietyBucket(
-            s.brand,
-            s.variety,
-            s.maturity,
-            s.productId,
-            STATE.summary.trialName,
-            s.trait
-          );
+          const farmFieldLabel = [s.farmName, s.fieldName].filter(Boolean).join(' • ');
 
-          // capture entryNumber at the variety level
-          if (bucket.entryNumber == null && Number.isFinite(s.entryNum)) {
-            bucket.entryNumber = s.entryNum;
-          }
-
-          // every strip contributes to the bucket so no variety gets dropped
-          bucket.yields.push(s.yieldBuPerAc);
-          if (typeof pctVsCheck === 'number' && isFinite(pctVsCheck)) {
-            bucket.pctVsChecks.push(pctVsCheck);
-          }
-
-          if (farmName || fieldName) {
-            bucket.farmFieldSet.add(
-              [farmName, fieldName].filter(Boolean).join(' • ')
-            );
-          }
-
-          if (s.isCheck) {
-            bucket.isCheck = true;
-          }
+          rows.push({
+            brand:    s.brand,
+            variety:  s.variety,
+            trait:    s.trait,
+            maturity: s.maturity,
+            productId: s.productId,
+            yieldBuAc: s.yieldBuPerAc,
+            pctVsCheck,
+            trialName: STATE.summary.trialName,
+            farmField: farmFieldLabel,
+            isCheck:  s.isCheck,
+            entryNumber: s.entryNum,
+            rank: null
+          });
         }
       }
 
-      // fill trait from productsSeed if missing
-      for (const bucket of scoreboardMap.values()) {
-        if (!bucket.trait && bucket.productId) {
-          const meta = await getProductMeta(bucket.productId);
+      // enrich trait from productsSeed if missing
+      for (const row of rows) {
+        if (!row.trait && row.productId) {
+          const meta = await getProductMeta(row.productId);
           if (meta && meta.trait) {
-            bucket.trait = meta.trait;
+            row.trait = meta.trait;
           }
         }
       }
 
-      const rows = [];
+      // Rank per PASS (non-check), by yield
+      const sortedForRank = rows
+        .filter(r => !r.isCheck && typeof r.yieldBuAc === 'number' && Number.isFinite(r.yieldBuAc))
+        .slice()
+        .sort((a,b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0));
 
-      scoreboardMap.forEach((bucket, key) => {
-        if (!bucket.yields.length) return;
-
-        const avgYield = bucket.yields.reduce((a,b) => a + b, 0) / bucket.yields.length;
-        let avgPct = null;
-        if (bucket.pctVsChecks.length) {
-          avgPct = bucket.pctVsChecks.reduce((a,b) => a + b, 0) / bucket.pctVsChecks.length;
-        }
-
-        rows.push({
-          key,
-          brand:    bucket.brand,
-          variety:  bucket.variety,
-          trait:    bucket.trait,
-          maturity: bucket.maturity,
-          yieldBuAc: avgYield,
-          moisture: null,
-          pctVsCheck: avgPct,
-          trialName: STATE.summary.trialName,
-          farmField: '',
-          isCheck:  !!bucket.isCheck,
-          entryNumber: bucket.entryNumber
-        });
-      });
-
-      // Build rank by yield (checks get no rank)
-      const rankByKey = new Map();
-      const sortedForRank = [...rows].sort((a, b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0));
       let rankCounter = 1;
       for (const r of sortedForRank) {
-        if (r.isCheck) continue;
-        if (typeof r.yieldBuAc !== 'number' || !Number.isFinite(r.yieldBuAc)) continue;
-        if (!rankByKey.has(r.key)) {
-          rankByKey.set(r.key, rankCounter++);
-        }
+        r.rank = rankCounter++;
       }
 
-      // Permanently sort by entryNumber order – this is the fixed display order
-      rows.sort((a, b) => {
+      // Fixed display order: by entryNumber only (never by yield)
+      rows.sort((a,b) => {
         const aNum = (a.entryNumber != null) ? a.entryNumber : Number.MAX_SAFE_INTEGER;
         const bNum = (b.entryNumber != null) ? b.entryNumber : Number.MAX_SAFE_INTEGER;
         return aNum - bNum;
-      });
-
-      rows.forEach(row => {
-        row.rank = rankByKey.get(row.key) ?? null;
       });
 
       STATE.rows = rows;
 
       STATE.summary.fieldCount   = fieldIdsWithData.size;
       STATE.summary.stripCount   = totalTestStrips;
-      STATE.summary.varietyCount = rows.length;
+
+      const varietySet = new Set();
+      rows.forEach(r => {
+        if (r.variety) varietySet.add(r.variety);
+      });
+      STATE.summary.varietyCount = varietySet.size;
 
       if (globalCheckCountAll > 0) {
         STATE.summary.checkAvgYield = globalCheckSumAll / globalCheckCountAll;
@@ -1179,23 +1109,18 @@
         STATE.summary.checkAvgYield = null;
       }
 
-      if (rows.length) {
-        // top variety by yield (not by entry)
-        const best = [...rows]
-          .filter(r => !r.isCheck && typeof r.yieldBuAc === 'number' && isFinite(r.yieldBuAc))
-          .sort((a,b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0))[0];
-        if (best) {
-          STATE.summary.topVariety = {
-            brand: best.brand,
-            variety: best.variety,
-            yieldBuAc: best.yieldBuAc,
-            pctVsCheck: best.pctVsCheck,
-            isCheck: best.isCheck
-          };
-        }
+      if (sortedForRank.length) {
+        const top = sortedForRank[0];
+        STATE.summary.topVariety = {
+          brand: top.brand,
+          variety: top.variety,
+          yieldBuAc: top.yieldBuAc,
+          pctVsCheck: top.pctVsCheck,
+          isCheck: top.isCheck
+        };
       }
 
-      console.log('[MH Scoreboard] Variety rows:', STATE.rows.length);
+      console.log('[MH Scoreboard] Entry rows:', STATE.rows.length);
       updateMeta();
       renderSummaryCard();
     }
@@ -1210,7 +1135,7 @@
         tbody.innerHTML = `
           <tr class="score-placeholder-row">
             <td colspan="8">
-              Select crop year and Variety Plot trial above. Variety rows will appear once strips are available.
+              Select crop year and Variety Plot trial above. Entry rows will appear once strips are available.
             </td>
           </tr>
         `;
@@ -1266,7 +1191,7 @@
       if(!rows.length){
         container.innerHTML = `
           <div class="score-mobile-empty">
-            Select crop year and Variety Plot trial above. Variety rows will appear once strips are available.
+            Select crop year and Variety Plot trial above. Entry rows will appear once strips are available.
           </div>
         `;
         return;
@@ -1651,7 +1576,7 @@
     <section class="report-title-block">
       <h1 class="report-title">Multiple Hybrid Trial Scoreboard</h1>
       <p class="report-subtitle">
-        Ranked Multiple Hybrid entries by variety, using MH distance-weighted check math and equal weighting per strip.
+        Entry-level scoreboard for Multiple Hybrid trials, using MH distance-weighted check math and equal weighting per strip.
       </p>
 
       <div class="report-summary-strip">
@@ -1689,7 +1614,7 @@
         <div class="kpi-card">
           <div class="kpi-label">Top Yield</div>
           <div class="kpi-value">${escapeHtml(topYieldLabel)}</div>
-          <div class="kpi-footnote">Highest variety yield (bu/ac)</div>
+          <div class="kpi-footnote">Highest entry yield (bu/ac)</div>
         </div>
       </div>
     </section>
@@ -1988,8 +1913,8 @@
           <div>
             <h1>Multiple Hybrid Trial Scoreboard</h1>
             <p class="muted">
-              Variety-level scoreboard for Multiple Hybrid trials, using MH distance-weighted check math with equal weighting per strip.
-              Varieties marked with * are checks.
+              Entry-level scoreboard for Multiple Hybrid trials, one row per pass. % vs check uses the Multiple Hybrid global + local distance-weighted check math.
+              Varieties marked with * are checks; checks show “-” for rank.
             </p>
           </div>
         </header>
@@ -2038,8 +1963,7 @@
                 <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.4" />
                 <path d="M11.2 7.2h1.6v1.6h-1.6V7.2Zm0 3.2h1.6v6.4h-1.6v-6.4Z" fill="currentColor"/>
               </svg>
-              Scoreboard is one row per variety. % vs check uses the Multiple Hybrid global + local distance-weighted check yield formula.
-              Varieties marked with * are check strips.
+              Each entry number is its own pass (including checks). Rank is based on yield for tests only; checks always show “-” for rank.
             </div>
 
             <!-- Desktop table -->
@@ -2060,7 +1984,7 @@
                 <tbody id="mhScoreBody">
                   <tr class="score-placeholder-row">
                     <td colspan="8">
-                      Select crop year and Variety Plot trial above. Variety rows will appear once strips are available.
+                      Select crop year and Variety Plot trial above. Entry rows will appear once strips are available.
                     </td>
                   </tr>
                 </tbody>
