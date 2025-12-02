@@ -1,7 +1,7 @@
 <!-- ===================================================================
 /Farm-vista/pages/reports/reports-trial-summary.html
 
-Single-trial yield report
+Single-trial yield report (NON multi-hybrid trials)
  • One trial at a time
  • Desktop: farm/field table layout (unchanged)
  • Mobile: stacked card layout (no horizontal tables)
@@ -762,7 +762,7 @@ Single-trial yield report
 
     const STATE = {
       db: null,
-      trials: [],       // [{id, data}]
+      trials: [],       // [{id, data}] (active/completed, non multi-hybrid)
       trialId: null,
       trialDoc: null,
       fields: [],       // [{id, data, blocks, stats}]
@@ -927,7 +927,14 @@ Single-trial yield report
       snap.forEach(docSnap => {
         const data = docSnap.data() || {};
         const status = (data.status || '').toString().toLowerCase();
-        if (status === 'active' || status === 'completed' || status === 'complete') {
+
+        // NEW: skip multi-hybrid trials on this summary page
+        const typeRaw = (data.trialType || '').toString().toLowerCase();
+        const isMultiHybrid =
+          typeRaw.includes('multi') &&
+          typeRaw.includes('hybrid');
+
+        if ((status === 'active' || status === 'completed' || status === 'complete') && !isMultiHybrid) {
           trials.push({ id: docSnap.id, data });
         }
       });
@@ -2015,7 +2022,7 @@ Single-trial yield report
         populateYearFilter();
         populateTrialFilter();
 
-        // If URL provided a trialId, pre-select it
+        // If URL provided a trialId, pre-select it (only if it's not a multi-hybrid, because those are filtered out)
         const fromUrl = getTrialIdFromUrl();
         if (fromUrl) {
           const match = STATE.trials.find(t => t.id === fromUrl);
@@ -2039,8 +2046,8 @@ Single-trial yield report
 
         if (!STATE.trialId && els.metaLine){
           els.metaLine.textContent = STATE.trials.length
-            ? 'Choose a crop year and trial to view yield summary.'
-            : 'No active or completed trials are available yet.';
+            ? 'Choose a crop year and non multi-hybrid trial to view yield summary.'
+            : 'No active or completed non multi-hybrid trials are available yet.';
         }
       }catch(err){
         console.error('Error loading trial list:', err);
