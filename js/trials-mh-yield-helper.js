@@ -132,7 +132,7 @@ export function initMhYieldHelper(options = {}) {
       if(!h.productId) return null;
       const blk = mhState.blocks.find(b => b.rowId === h.rowId) || {};
       const hasData = blk.moisturePct != null && blk.weightLbs != null && blk.yieldBuPerAc != null;
-      const isCheck = mhState.checkProductId && h.productId === mhState.checkProductId;
+      const isCheck = !!h.isCheck; // use per-entry flag now
 
       const parts = [];
       const displayName = h.name || [
@@ -304,7 +304,7 @@ export function initMhYieldHelper(options = {}) {
       html += `<p class="muted">No entries yet. Tap <strong>+ Add variety</strong> to start.</p>`;
     }else{
       hybrids.forEach((hyb, idx) => {
-        const isCheckRow = hyb.productId && mhState.checkProductId === hyb.productId;
+        const isCheckRow = !!hyb.isCheck;
         const displayName = hyb.productId
           ? (hyb.name || `${hyb.brand || ''} ${hyb.variety || ''}`.trim() || 'Variety')
           : 'Select variety…';
@@ -390,7 +390,8 @@ export function initMhYieldHelper(options = {}) {
           name: '',
           brand: '',
           variety: '',
-          maturity: null
+          maturity: null,
+          isCheck: false
         });
         renderStage();
 
@@ -430,9 +431,15 @@ export function initMhYieldHelper(options = {}) {
             hyb.variety   = found ? found.variety : '';
             hyb.maturity  = found ? found.maturity : null;
 
+            // If no check yet, first selected variety becomes the check
             if(!mhState.checkProductId){
               mhState.checkProductId = hyb.productId;
             }
+
+            // Keep per-entry isCheck flags in sync with the chosen checkProductId
+            mhState.hybrids.forEach(h => {
+              h.isCheck = !!(h.productId && h.productId === mhState.checkProductId);
+            });
 
             renderStage();
           }
@@ -443,7 +450,14 @@ export function initMhYieldHelper(options = {}) {
       if(checkEl){
         checkEl.addEventListener('click', () => {
           if(!hyb.productId) return;
+
           mhState.checkProductId = hyb.productId;
+
+          // Update per-entry flags so the check shows clearly in Firestore
+          mhState.hybrids.forEach(h => {
+            h.isCheck = !!(h.productId && h.productId === mhState.checkProductId);
+          });
+
           renderStage();
         });
       }
@@ -453,9 +467,16 @@ export function initMhYieldHelper(options = {}) {
         removeBtn.addEventListener('click', () => {
           const idx = mhState.hybrids.findIndex(h => h.rowId === hyb.rowId);
           if(idx !== -1) mhState.hybrids.splice(idx,1);
+
+          // If the check hybrid was removed, clear the check and flags
           if(mhState.hybrids.every(h => h.productId !== mhState.checkProductId)){
             mhState.checkProductId = null;
           }
+
+          mhState.hybrids.forEach(h => {
+            h.isCheck = !!(h.productId && h.productId === mhState.checkProductId);
+          });
+
           renderStage();
         });
       }
@@ -492,7 +513,7 @@ export function initMhYieldHelper(options = {}) {
     `;
 
     blocks.forEach((b, idx) => {
-      const isCheck = mhState.checkProductId && b.productId === mhState.checkProductId;
+      const isCheck = !!b.isCheck;
       const entryLabel = `Entry ${idx + 1}`;
       const name = b.name || `${b.brand || ''} ${b.variety || ''}`.trim() || 'Variety';
       const mat  = b.maturity != null ? ` (${b.maturity} RM)` : '';
@@ -710,6 +731,33 @@ export function initMhYieldHelper(options = {}) {
         mhState.hybrids        = Array.isArray(data.hybrids) ? data.hybrids : [];
         mhState.blocks         = Array.isArray(data.blocks)  ? data.blocks  : [];
         mhState.stage          = mhState.blocks.length ? 'blocks' : 'setup';
+
+        // Sync check flags both ways:
+        // 1) If we have checkProductId, mark hybrids/blocks with isCheck.
+        // 2) If we only have isCheck flags, infer checkProductId.
+        if(mhState.checkProductId){
+          mhState.hybrids = mhState.hybrids.map(h => ({
+            ...h,
+            isCheck: !!(h.productId && h.productId === mhState.checkProductId)
+          }));
+          mhState.blocks = mhState.blocks.map(b => ({
+            ...b,
+            isCheck: !!(b.productId && b.productId === mhState.checkProductId)
+          }));
+        }else{
+          const checkHybrid = mhState.hybrids.find(h => h.isCheck && h.productId);
+          if(checkHybrid){
+            mhState.checkProductId = checkHybrid.productId;
+            mhState.hybrids = mhState.hybrids.map(h => ({
+              ...h,
+              isCheck: !!(h.productId && h.productId === mhState.checkProductId)
+            }));
+            mhState.blocks = mhState.blocks.map(b => ({
+              ...b,
+              isCheck: !!(b.productId && b.productId === mhState.checkProductId)
+            }));
+          }
+        }
       }
 
       await loadSeedProducts();
@@ -812,6 +860,9 @@ export function initMhYieldHelper(options = {}) {
     btnOk.addEventListener('click', () => {
       if(mhState.stage === 'setup'){
         if(!validateSetup()) return;
+
+        // Build one block per hybrid, including isCheck so each entry
+        // has its own clear line + check flag in Firestore.
         mhState.blocks = mhState.hybrids.map(h => ({
           rowId: h.rowId,
           productId: h.productId,
@@ -819,6 +870,7 @@ export function initMhYieldHelper(options = {}) {
           brand: h.brand,
           variety: h.variety,
           maturity: h.maturity,
+          isCheck: !!(h.productId && h.productId === mhState.checkProductId),
           moisturePct: null,
           weightLbs: null,
           yieldBuPerAc: null,
