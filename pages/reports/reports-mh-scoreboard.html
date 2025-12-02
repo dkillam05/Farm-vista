@@ -170,7 +170,7 @@
       width:100%;
     }
 
-    /* Summary card (Variety Plot header) */
+    /* Summary card (Variety Plot header) – DESKTOP KPI TILES */
     .trial-summary{
       margin-top:8px;
       border-radius:12px;
@@ -223,6 +223,10 @@
     .trial-summary-kpi{
       flex:1 1 90px;
       min-width:90px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:8px 10px;
+      background:var(--card-surface,var(--surface));
     }
     .kpi-label-small{
       display:block;
@@ -267,6 +271,51 @@
     .helper-link:hover{
       border-color:rgba(47,108,60,0.7);
       background:rgba(47,108,60,0.12);
+    }
+
+    /* MOBILE SUMMARY TILES (7 tiles under hero on phones) */
+    .mh-mobile-summary{
+      display:none;         /* turned on in mobile breakpoint */
+      margin-top:8px;
+    }
+    .mh-mobile-tiles{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .mh-mobile-tile{
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:8px 12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:baseline;
+      font-size:0.86rem;
+    }
+    .mh-mobile-label{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--muted,#6b766e);
+      margin-right:8px;
+      white-space:nowrap;
+    }
+    .mh-mobile-value{
+      font-weight:700;
+      font-size:0.9rem;
+      text-align:right;
+      flex:1;
+    }
+    .mh-mobile-sub{
+      font-size:0.78rem;
+      color:var(--muted,#6b766e);
+      margin-top:2px;
+    }
+    .mh-mobile-helper{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-start;
     }
 
     /* AI summary card (Plot Summary) */
@@ -531,6 +580,21 @@
         padding-inline:10px;
       }
 
+      /* Remove hero header on mobile (trial name + description) */
+      .hero-head{
+        display:none;
+      }
+
+      /* Desktop summary card hidden on mobile */
+      .trial-summary{
+        display:none;
+      }
+
+      /* Turn on MH mobile tiles + helper button area */
+      .mh-mobile-summary{
+        display:block;
+      }
+
       .toolbar{
         flex-direction:column;
         align-items:stretch;
@@ -758,6 +822,7 @@
 
       if(!year || !s.trialName){
         card.innerHTML = `<p class="trial-summary-empty">Select crop year and Variety Plot trial to see a variety scoreboard summary.</p>`;
+        renderMobileSummaryTiles();
         return;
       }
 
@@ -882,6 +947,115 @@
              class="helper-link">
             Plot layout &amp; weighting guide
           </a>
+        </div>
+      `;
+
+      // also update the mobile 7-tile summary
+      renderMobileSummaryTiles();
+    }
+
+    // MOBILE: 7 summary tiles under hero (farm/field, varieties, plant date, pass size, check, top, strongest)
+    function renderMobileSummaryTiles(){
+      const container = document.getElementById('mhMobileTiles');
+      if (!container) return;
+
+      const s = STATE.summary;
+      const year = STATE.filters.year;
+
+      if (!year || !s.trialName) {
+        container.innerHTML = `
+          <div class="mh-mobile-tile">
+            <div class="mh-mobile-label">Trial</div>
+            <div class="mh-mobile-value">Select crop year &amp; Variety Plot trial</div>
+          </div>
+        `;
+        return;
+      }
+
+      const farmField = [s.farmName, s.fieldName].filter(Boolean).join(' • ') || '—';
+      const varietiesLabel = s.varietyCount ? String(s.varietyCount) : '—';
+      const plantDateLabel = s.plantDate ? formatDate(s.plantDate) : '—';
+
+      let passSizeLabel = '—';
+      if (s.plotLengthFt || s.plotWidthFt) {
+        const len = s.plotLengthFt ? `${s.plotLengthFt} ft` : '';
+        const wid = s.plotWidthFt ? `${s.plotWidthFt} ft` : '';
+        passSizeLabel = [len, wid].filter(Boolean).join(' × ') || '—';
+      }
+
+      const checkNameRaw = `${s.checkVarietyBrand ? s.checkVarietyBrand + ' ' : ''}${s.checkVariety || ''}`.trim();
+      const checkName = checkNameRaw ? `${checkNameRaw} *` : '';
+      const checkYield = (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield))
+        ? `${s.checkAvgYield.toFixed(1)} bu/ac`
+        : '';
+      const checkValue = (checkName || checkYield)
+        ? `
+          <div>${escapeHtml(checkName || '*')}</div>
+          ${checkYield ? `<div class="mh-mobile-sub">${escapeHtml(checkYield)} avg</div>` : ''}
+        `
+        : '—';
+
+      const top = s.topVariety;
+      let topValue = '—';
+      if (top) {
+        const name = [top.brand, top.variety].filter(Boolean).join(' ');
+        const nameMarked = name + (top.isCheck ? ' *' : '');
+        const y = (typeof top.yieldBuAc === 'number' && Number.isFinite(top.yieldBuAc))
+          ? `${top.yieldBuAc.toFixed(1)} bu/ac`
+          : '';
+        topValue = `
+          <div>${escapeHtml(nameMarked || '(Top yielder)')}</div>
+          ${y ? `<div class="mh-mobile-sub">${escapeHtml(y)}</div>` : ''}
+        `;
+      }
+
+      const sw = s.strongestWinner;
+      let swValue = '—';
+      if (sw) {
+        const name = [sw.brand, sw.variety].filter(Boolean).join(' ');
+        const pct = (typeof sw.pctVsCheck === 'number' && Number.isFinite(sw.pctVsCheck))
+          ? `${sw.pctVsCheck.toFixed(1)}% vs check`
+          : '';
+        swValue = `
+          <div>${escapeHtml(name || '(Strongest winner)')}</div>
+          ${pct ? `<div class="mh-mobile-sub">${escapeHtml(pct)}</div>` : ''}
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="mh-mobile-tile">
+          <div class="mh-mobile-label">Farm / field</div>
+          <div class="mh-mobile-value">${escapeHtml(farmField)}</div>
+        </div>
+
+        <div class="mh-mobile-tile">
+          <div class="mh-mobile-label">Varieties in plot</div>
+          <div class="mh-mobile-value">${escapeHtml(varietiesLabel)}</div>
+        </div>
+
+        <div class="mh-mobile-tile">
+          <div class="mh-mobile-label">Plant date</div>
+          <div class="mh-mobile-value">${plantDateLabel ? escapeHtml(plantDateLabel) : '—'}</div>
+        </div>
+
+        <div class="mh-mobile-tile">
+          <div class="mh-mobile-label">Pass size</div>
+          <div class="mh-mobile-value">${escapeHtml(passSizeLabel)}</div>
+        </div>
+
+        <div class="mh-mobile-tile">
+          <div class="mh-mobile-label">Check variety</div>
+          <div class="mh-mobile-value">${checkValue}</div>
+        </div>
+
+        <div class="mh-mobile-tile">
+          <div class="mh-mobile-label">Top yielder</div>
+          <div class="mh-mobile-value">${topValue}</div>
+        </div>
+
+        <div class="mh-mobile-tile">
+          <div class="mh-mobile-label">Strongest winner</div>
+          <div class="mh-mobile-value">${swValue}</div>
         </div>
       `;
     }
@@ -2079,6 +2253,7 @@
     })();
 
   </script>
+
 </head>
 
 <body>
@@ -2126,7 +2301,19 @@
             </div>
           </div>
 
-          <!-- Variety Plot header card -->
+          <!-- MOBILE: 7-tile summary that replaces hero on phones -->
+          <section class="mh-mobile-summary mobile-only" aria-label="Variety Plot mobile summary">
+            <div class="mh-mobile-tiles" id="mhMobileTiles">
+              <!-- Filled by renderMobileSummaryTiles() -->
+            </div>
+            <div class="mh-mobile-helper">
+              <a href="/Farm-vista/docs/plot-layout.html" class="helper-link">
+                Plot layout &amp; weighting guide
+              </a>
+            </div>
+          </section>
+
+          <!-- Variety Plot header card (desktop KPI tiles) -->
           <section class="trial-summary" id="trialSummaryCard">
             <p class="trial-summary-empty">
               Select crop year and Variety Plot trial to see a variety scoreboard summary.
