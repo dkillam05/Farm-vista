@@ -80,7 +80,7 @@
       gap:14px;
     }
 
-    /* Toolbar + buttons (match trial summary) */
+    /* Toolbar + buttons */
     .toolbar{
       display:flex;
       flex-wrap:wrap;
@@ -129,7 +129,7 @@
       text-align:right;
     }
 
-    /* Filters – same layout as Field Trial Summary */
+    /* Filters – match Field Trial Summary */
     .filters{
       display:flex;
       flex-direction:column;
@@ -170,7 +170,7 @@
       width:100%;
     }
 
-    /* Summary card (top of scoreboard) */
+    /* Summary card */
     .trial-summary{
       margin-top:8px;
       border-radius:12px;
@@ -382,7 +382,7 @@
       display:none;
     }
 
-    /* MOBILE SCORECARDS – match the feel of field cards */
+    /* MOBILE SCORECARDS – styled like field cards */
     .score-mobile-list{
       display:flex;
       flex-direction:column;
@@ -417,11 +417,6 @@
       gap:2px;
       min-width:0;
     }
-    .score-card-rank{
-      font-size:0.8rem;
-      white-space:nowrap;
-      opacity:0.8;
-    }
     .score-card-variety{
       font-weight:600;
       font-size:0.95rem;
@@ -430,6 +425,15 @@
       font-size:0.8rem;
       opacity:0.8;
     }
+    .score-card-adv{
+      font-size:0.86rem;
+      white-space:nowrap;
+      font-weight:700;
+    }
+    .score-card-adv--pos::before{
+      content:"+";
+    }
+
     .score-card-tags{
       display:flex;
       flex-wrap:wrap;
@@ -443,6 +447,7 @@
       border:1px solid var(--border-subtle,var(--border));
       background:color-mix(in srgb, var(--surface) 88%, var(--border) 12%);
     }
+
     .score-card-metrics{
       display:flex;
       flex-wrap:wrap;
@@ -463,6 +468,7 @@
     .score-card-metric strong{
       font-size:0.9rem;
     }
+
     .score-card-footer{
       font-size:0.78rem;
       opacity:0.85;
@@ -969,23 +975,30 @@
         }
 
         const strips = [];
+
         blocks.forEach((b, idx) => {
-          if (!b || b.voided) return;
+          if (!b) return;
+          if (b.voided) return;
 
           const rawYield = b.yieldBuPerAc;
-          if (rawYield == null || rawYield === '') return;
+          if (rawYield === null || rawYield === undefined || rawYield === '') return;
+
           const yieldNum = Number(rawYield);
           if (!Number.isFinite(yieldNum)) return;
 
           let entryNum;
-          if (b.entryNum != null && b.entryNum !== '') {
+          if (b.entryNum !== null && b.entryNum !== undefined && b.entryNum !== '') {
             entryNum = Number(b.entryNum);
           } else if (typeof b.rowIndex === 'number') {
             entryNum = b.rowIndex;
           } else {
-            entryNum = idx; // fallback 0-based
+            // make sure earliest row is still a real entry
+            entryNum = idx;
           }
-          if (!Number.isFinite(entryNum)) return;
+
+          if (!Number.isFinite(entryNum)) {
+            entryNum = idx;
+          }
 
           strips.push({
             entryNum,
@@ -1087,6 +1100,7 @@
             s.trait
           );
 
+          // every strip contributes to the bucket so no variety gets dropped
           bucket.yields.push(s.yieldBuPerAc);
           if (typeof pctVsCheck === 'number' && isFinite(pctVsCheck)) {
             bucket.pctVsChecks.push(pctVsCheck);
@@ -1235,26 +1249,34 @@
       const nfPct   = new Intl.NumberFormat(undefined,{maximumFractionDigits:2});
 
       container.innerHTML = rows.map(row => {
-        const rankLabel = row.rank != null ? '#' + row.rank : '—';
         const y = (typeof row.yieldBuAc === 'number') ? nfYield.format(row.yieldBuAc) : '—';
-        const p = (typeof row.pctVsCheck === 'number') ? nfPct.format(row.pctVsCheck) + '%' : '—';
+        const pctNum = (typeof row.pctVsCheck === 'number') ? row.pctVsCheck : null;
+        const pctLabel = pctNum !== null ? nfPct.format(pctNum) + '%' : '—';
+        const advClass = pctNum !== null
+          ? (pctNum >= 0 ? 'score-card-adv score-card-adv--pos' : 'score-card-adv')
+          : 'score-card-adv';
 
         const varietyLabel = (escapeHtml(row.variety || '') || '(Variety not set)') + (row.isCheck ? ' *' : '');
+
+        const advText = pctNum !== null
+          ? `${pctNum >= 0 ? '+' : ''}${nfPct.format(pctNum)}% vs check`
+          : '—';
 
         return `
           <article class="score-card">
             <div class="score-card-header">
               <div class="score-card-main">
-                <div class="score-card-rank">${rankLabel}</div>
                 <div class="score-card-variety">${varietyLabel}</div>
                 <div class="score-card-brand">${escapeHtml(row.brand || '')}</div>
               </div>
+              <div class="${advClass}">${advText}</div>
             </div>
 
             <div class="score-card-tags">
               ${row.trait ? `<span class="score-card-chip">${escapeHtml(row.trait)}</span>` : ''}
               ${row.maturity ? `<span class="score-card-chip">${escapeHtml(row.maturity)} RM</span>` : ''}
               ${row.isCheck ? `<span class="score-card-chip">Check *</span>` : ''}
+              ${row.rank != null ? `<span class="score-card-chip">Rank #${row.rank}</span>` : ''}
             </div>
 
             <div class="score-card-metrics">
@@ -1264,7 +1286,7 @@
               </div>
               <div class="score-card-metric">
                 <span>% vs Check</span>
-                <strong>${p}</strong>
+                <strong>${pctLabel}</strong>
               </div>
             </div>
 
