@@ -811,7 +811,7 @@
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed;}
   </style>
 
-  <!-- Lazy-load fv-shell if needed -->
+   <!-- Lazy-load fv-shell if needed -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -1130,168 +1130,187 @@
       return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     }
 
-function recalcCombine(block, card){
-  const cropKind = normalizeCropKind(STATE.trial?.crop);
-  const stdOverride =
-    cropKind === 'corn' ? 15 :
-    cropKind === 'soy'  ? 13 :
-    undefined;
+    // --- Shared helper: validate Plant vs Harvest dates for a block ---
+    function validateBlockDates(block){
+      if(!block) return { ok: true };
+      const { plantDate, harvestDate } = block;
+      if(!plantDate || !harvestDate) return { ok: true }; // only one date → no rule
 
-  const yields = { check: null, trial: null };
-  const errors = [];
+      const p = new Date(plantDate);
+      const h = new Date(harvestDate);
+      if(isNaN(p.getTime()) || isNaN(h.getTime())) return { ok: true };
 
-  ['check','trial'].forEach(side => {
-    const data = block[side] || {};
-    const label = side === 'check' ? 'Check' : 'Trial';
+      const diffMs = h.getTime() - p.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
-    let acresInput = null;
-    let moistInput = null;
-    let poundsInput = null;
-
-    if(card){
-      acresInput  = card.querySelector(`[data-role="${side}-acres"]`);
-      moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
-      poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
-      [acresInput, moistInput, poundsInput].forEach(el=>{
-        if(el) el.classList.remove('input-error');
-      });
+      if(diffDays < 75){
+        return {
+          ok: false,
+          message: 'Harvest Date must be at least 75 days after Plant Date.'
+        };
+      }
+      return { ok: true };
     }
 
-    const acres    = data.acres !== '' && data.acres != null ? Number(data.acres) : NaN;
-    const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
-    const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
+    function recalcCombine(block, card){
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+      const stdOverride =
+        cropKind === 'corn' ? 15 :
+        cropKind === 'soy'  ? 13 :
+        undefined;
 
-    // reset yield before recalculation
-    data.yieldBuAc = null;
+      const yields = { check: null, trial: null };
+      const errors = [];
 
-    // if nothing entered on this side, skip quietly
-    if(!acres && !moisture && !pounds){
-      return;
-    }
+      ['check','trial'].forEach(side => {
+        const data = block[side] || {};
+        const label = side === 'check' ? 'Check' : 'Trial';
 
-    // require all three
-    if(!acres || !moisture || !pounds){
-      errors.push(`${label}: enter acres, moisture, and pounds.`);
-      return;
-    }
+        let acresInput = null;
+        let moistInput = null;
+        let poundsInput = null;
 
-    if(acres <= 0){
-      errors.push(`${label}: acres must be greater than 0.`);
-      if(acresInput) acresInput.classList.add('input-error');
-    }
-    if(moisture < 5 || moisture > 40){
-      errors.push(`${label}: moisture must be between 5% and 40%.`);
-      if(moistInput) moistInput.classList.add('input-error');
-    }
-    if(pounds <= 0){
-      errors.push(`${label}: pounds of grain must be greater than 0.`);
-      if(poundsInput) poundsInput.classList.add('input-error');
-    }
-
-    if(errors.length) return;
-
-    const res = calcTrueYield({
-      cropKind,
-      wetWeightLbs: pounds,
-      wetMoisturePct: moisture,
-      acres,
-      stdMoistOverride: stdOverride
-    });
-
-    if(!res){
-      errors.push(`${label}: unable to compute yield.`);
-      return;
-    }
-
-    const yld = res.yieldBuAc;
-    data.yieldBuAc = yld;
-    yields[side] = yld;
-
-    if(cropKind === 'corn' && (yld < 50 || yld > 400)){
-      errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
-    }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
-      errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
-    }
-  });
-
-  /* ============================================================
-     NEW: Per-block acres guardrail vs field trialAcres
-     - Only for combine blocks (this function is combine-only).
-     - Uses STATE.selectedField.trialAcres as the cap.
-     - If Check + Trial acres > cap:
-         • mark both acres inputs as input-error
-         • clear both yields (model + local)
-         • add a clear error message to this block
-     ============================================================ */
-  if (STATE && STATE.selectedField && STATE.selectedField.trialAcres != null) {
-    const capRaw = Number(STATE.selectedField.trialAcres);
-    if (Number.isFinite(capRaw) && capRaw > 0) {
-      const checkAcresRaw = block.check && block.check.acres !== '' && block.check.acres != null
-        ? Number(block.check.acres)
-        : 0;
-      const trialAcresRaw = block.trial && block.trial.acres !== '' && block.trial.acres != null
-        ? Number(block.trial.acres)
-        : 0;
-
-      const checkAcres = Number.isFinite(checkAcresRaw) ? checkAcresRaw : 0;
-      const trialAcresVal = Number.isFinite(trialAcresRaw) ? trialAcresRaw : 0;
-      const totalBlockAcres = checkAcres + trialAcresVal;
-
-      if (Number.isFinite(totalBlockAcres) && totalBlockAcres > capRaw) {
-        // highlight both acres inputs
-        if (card) {
-          const checkAcresInput = card.querySelector('[data-role="check-acres"]');
-          const trialAcresInput = card.querySelector('[data-role="trial-acres"]');
-          [checkAcresInput, trialAcresInput].forEach(el => {
-            if (el) el.classList.add('input-error');
+        if(card){
+          acresInput  = card.querySelector(`[data-role="${side}-acres"]`);
+          moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
+          poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
+          [acresInput, moistInput, poundsInput].forEach(el=>{
+            if(el) el.classList.remove('input-error');
           });
         }
 
-        // clear yields in the model
-        if (block.check) block.check.yieldBuAc = null;
-        if (block.trial) block.trial.yieldBuAc = null;
+        const acres    = data.acres !== '' && data.acres != null ? Number(data.acres) : NaN;
+        const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
+        const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
 
-        // clear yields in this recalculation run
-        yields.check = null;
-        yields.trial = null;
+        // reset yield before recalculation
+        data.yieldBuAc = null;
 
-        // add guardrail error message
-        errors.push(
-          `Total acres for this block exceed the field’s trial acres (${capRaw.toFixed(2)} ac).`
-        );
-      }
-    }
-  }
-
-  // === Update UI text for this block ===
-  if(card){
-    const yieldTextEl = card.querySelector('[data-role="yieldText"]');
-    const errorTextEl = card.querySelector('[data-role="errorText"]');
-
-    if(yieldTextEl){
-      let txt = '';
-      if(yields.check == null && yields.trial == null){
-        txt = 'Enter acres, moisture, and pounds for Check and/or Trial.';
-      }else{
-        const parts = [];
-        if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
-        if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
-        if(yields.check != null && yields.trial != null){
-          const diff = yields.trial - yields.check;
-          const sign = diff >= 0 ? '+' : '−';
-          parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+        // if nothing entered on this side, skip quietly
+        if(!acres && !moisture && !pounds){
+          return;
         }
-        txt = parts.join('  |  ');
-      }
-      yieldTextEl.textContent = txt;
-    }
-    if(errorTextEl){
-      errorTextEl.textContent = errors.join(' ');
-    }
-  }
 
-  return { yields, errors };
-}
+        // require all three
+        if(!acres || !moisture || !pounds){
+          errors.push(`${label}: enter acres, moisture, and pounds.`);
+          return;
+        }
+
+        if(acres <= 0){
+          errors.push(`${label}: acres must be greater than 0.`);
+          if(acresInput) acresInput.classList.add('input-error');
+        }
+        if(moisture < 5 || moisture > 40){
+          errors.push(`${label}: moisture must be between 5% and 40%.`);
+          if(moistInput) moistInput.classList.add('input-error');
+        }
+        if(pounds <= 0){
+          errors.push(`${label}: pounds of grain must be greater than 0.`);
+          if(poundsInput) poundsInput.classList.add('input-error');
+        }
+
+        if(errors.length) return;
+
+        const res = calcTrueYield({
+          cropKind,
+          wetWeightLbs: pounds,
+          wetMoisturePct: moisture,
+          acres,
+          stdMoistOverride: stdOverride
+        });
+
+        if(!res){
+          errors.push(`${label}: unable to compute yield.`);
+          return;
+        }
+
+        const yld = res.yieldBuAc;
+        data.yieldBuAc = yld;
+        yields[side] = yld;
+
+        if(cropKind === 'corn' && (yld < 50 || yld > 400)){
+          errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
+        }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
+          errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
+        }
+      });
+
+      // --- Per-block acres guardrail vs field trialAcres ---
+      if (STATE && STATE.selectedField && STATE.selectedField.trialAcres != null) {
+        const capRaw = Number(STATE.selectedField.trialAcres);
+        if (Number.isFinite(capRaw) && capRaw > 0) {
+          const checkAcresRaw = block.check && block.check.acres !== '' && block.check.acres != null
+            ? Number(block.check.acres)
+            : 0;
+          const trialAcresRaw = block.trial && block.trial.acres !== '' && block.trial.acres != null
+            ? Number(block.trial.acres)
+            : 0;
+
+          const checkAcres = Number.isFinite(checkAcresRaw) ? checkAcresRaw : 0;
+          const trialAcresVal = Number.isFinite(trialAcresRaw) ? trialAcresRaw : 0;
+          const totalBlockAcres = checkAcres + trialAcresVal;
+
+          if (Number.isFinite(totalBlockAcres) && totalBlockAcres > capRaw) {
+            // highlight both acres inputs
+            if (card) {
+              const checkAcresInput = card.querySelector('[data-role="check-acres"]');
+              const trialAcresInput = card.querySelector('[data-role="trial-acres"]');
+              [checkAcresInput, trialAcresInput].forEach(el => {
+                if (el) el.classList.add('input-error');
+              });
+            }
+
+            // clear yields in the model
+            if (block.check) block.check.yieldBuAc = null;
+            if (block.trial) block.trial.yieldBuAc = null;
+
+            // clear yields in this recalculation run
+            yields.check = null;
+            yields.trial = null;
+
+            errors.push(
+              `Total acres for this block exceed the field’s trial acres (${capRaw.toFixed(2)} ac).`
+            );
+          }
+        }
+      }
+
+      // --- NEW: Plant vs Harvest date rule per block ---
+      const dateCheck = validateBlockDates(block);
+      if(!dateCheck.ok){
+        errors.push(dateCheck.message);
+      }
+
+      // === Update UI text for this block ===
+      if(card){
+        const yieldTextEl = card.querySelector('[data-role="yieldText"]');
+        const errorTextEl = card.querySelector('[data-role="errorText"]');
+
+        if(yieldTextEl){
+          let txt = '';
+          if(yields.check == null && yields.trial == null){
+            txt = 'Enter acres, moisture, and pounds for Check and/or Trial.';
+          }else{
+            const parts = [];
+            if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
+            if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
+            if(yields.check != null && yields.trial != null){
+              const diff = yields.trial - yields.check;
+              const sign = diff >= 0 ? '+' : '−';
+              parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+            }
+            txt = parts.join('  |  ');
+          }
+          yieldTextEl.textContent = txt;
+        }
+        if(errorTextEl){
+          errorTextEl.textContent = errors.join(' ');
+        }
+      }
+
+      return { yields, errors };
+    }
 
     function recalcWeight(block, card){
       const cropKind = normalizeCropKind(STATE.trial?.crop);
@@ -1389,6 +1408,12 @@ function recalcCombine(block, card){
           errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
         }
       });
+
+      // --- NEW: Plant vs Harvest date rule per block ---
+      const dateCheck = validateBlockDates(block);
+      if(!dateCheck.ok){
+        errors.push(dateCheck.message);
+      }
 
       if(card){
         const yieldTextEl = card.querySelector('[data-role="yieldText"]');
@@ -1783,12 +1808,22 @@ function recalcCombine(block, card){
         plantInput.value = block.plantDate || '';
         plantInput.addEventListener('change', e => {
           block.plantDate = e.target.value;
+          if(block.type === 'combine'){
+            recalcCombine(block, card);
+          }else if(block.type === 'weight'){
+            recalcWeight(block, card);
+          }
         });
       }
       if(harvestInput){
         harvestInput.value = block.harvestDate || '';
         harvestInput.addEventListener('change', e => {
           block.harvestDate = e.target.value;
+          if(block.type === 'combine'){
+            recalcCombine(block, card);
+          }else if(block.type === 'weight'){
+            recalcWeight(block, card);
+          }
         });
       }
 
@@ -1974,6 +2009,7 @@ function recalcCombine(block, card){
                    data-role="extra-panel"
                    style="${hasExtra ? 'display:grid;' : 'display:none;'}">
                 <div class="yield-block-extra-grid">
+                  <!-- Row 1: Plant | Harvest -->
                   <label class="field-mini">
                     <span class="yield-block-extra-label">Plant Date</span>
                     <input type="date"
@@ -1986,14 +2022,7 @@ function recalcCombine(block, card){
                            class="input"
                            data-role="harvestDate" />
                   </label>
-                  <label class="field-mini">
-                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
-                    <input type="text"
-                           inputmode="numeric"
-                           class="input"
-                           data-role="combineCount"
-                           placeholder="e.g. 1, 2" />
-                  </label>
+                  <!-- Row 2: Check Variety | Trial Variety -->
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Check Variety</span>
                     <div class="dd dd-variety" data-role="check-variety-dd">
@@ -2014,6 +2043,15 @@ function recalcCombine(block, card){
                       </div>
                     </div>
                   </div>
+                  <!-- Row 3: Number of Combines (full width) -->
+                  <label class="field-mini" style="grid-column:1 / -1;">
+                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
+                    <input type="text"
+                           inputmode="numeric"
+                           class="input"
+                           data-role="combineCount"
+                           placeholder="e.g. 1, 2" />
+                  </label>
                 </div>
               </div>
             </div>
@@ -2220,6 +2258,7 @@ function recalcCombine(block, card){
                    data-role="extra-panel"
                    style="${hasExtra ? 'display:grid;' : 'display:none;'}">
                 <div class="yield-block-extra-grid">
+                  <!-- Row 1: Plant | Harvest -->
                   <label class="field-mini">
                     <span class="yield-block-extra-label">Plant Date</span>
                     <input type="date"
@@ -2232,14 +2271,7 @@ function recalcCombine(block, card){
                            class="input"
                            data-role="harvestDate" />
                   </label>
-                  <label class="field-mini">
-                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
-                    <input type="text"
-                           inputmode="numeric"
-                           class="input"
-                           data-role="combineCount"
-                           placeholder="e.g. 1, 2" />
-                  </label>
+                  <!-- Row 2: Check Variety | Trial Variety -->
                   <div class="field-mini">
                     <span class="yield-block-extra-label">Check Variety</span>
                     <div class="dd dd-variety" data-role="check-variety-dd">
@@ -2260,6 +2292,15 @@ function recalcCombine(block, card){
                       </div>
                     </div>
                   </div>
+                  <!-- Row 3: Number of Combines (full width) -->
+                  <label class="field-mini" style="grid-column:1 / -1;">
+                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
+                    <input type="text"
+                           inputmode="numeric"
+                           class="input"
+                           data-role="combineCount"
+                           placeholder="e.g. 1, 2" />
+                  </label>
                 </div>
               </div>
             </div>
@@ -2501,44 +2542,58 @@ function recalcCombine(block, card){
       renderFieldList();
     }
 
-function validateBlocksForField(fieldId){
-  const blocks = STATE.yieldData[fieldId] || [];
+    function validateBlocksForField(fieldId){
+      const blocks = STATE.yieldData[fieldId] || [];
 
-  // NEW: allow zero blocks – user might have deleted the last one
-  if(!blocks.length){
-    // zero blocks is valid; save() will clear the Firestore collection
-    return true;
-  }
-
-  // Otherwise, require each block to be fully valid
-  let ok = true;
-  for (const block of blocks) {
-    const c = block.check || {};
-    const t = block.trial || {};
-
-    if (block.type === 'combine') {
-      const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
-      const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
-      if (!(hasC && hasT)) {
-        ok = false;
-        break;
+      // allow zero blocks – save() will clear the Firestore collection
+      if(!blocks.length){
+        return true;
       }
-    } else if (block.type === 'weight') {
-      const hasC = c.lengthFt && c.widthFt && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
-      const hasT = t.lengthFt && t.widthFt && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
-      if (!(hasC && hasT)) {
-        ok = false;
-        break;
+
+      let ok = true;
+      let hasYieldError = false;
+      let hasDateError = false;
+
+      for (const block of blocks) {
+        const c = block.check || {};
+        const t = block.trial || {};
+
+        if (block.type === 'combine') {
+          const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+          const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+          if (!(hasC && hasT)) {
+            ok = false;
+            hasYieldError = true;
+            break;
+          }
+        } else if (block.type === 'weight') {
+          const hasC = c.lengthFt && c.widthFt && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+          const hasT = t.lengthFt && t.widthFt && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+          if (!(hasC && hasT)) {
+            ok = false;
+            hasYieldError = true;
+            break;
+          }
+        }
+
+        const dateCheck = validateBlockDates(block);
+        if(!dateCheck.ok){
+          ok = false;
+          hasDateError = true;
+          break;
+        }
       }
+
+      if (!ok) {
+        if (hasDateError) {
+          showError('Harvest Date must be at least 75 days after Plant Date for any block where both dates are filled in. Fix the red errors inside each block and try again.');
+        } else if (hasYieldError) {
+          showError('Each trial block must have valid data for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
+        }
+      }
+
+      return ok;
     }
-  }
-
-  if (!ok) {
-    showError('Each trial block must have valid data for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
-  }
-
-  return ok;
-}
 
     async function uploadNewAttachmentsForBlock(fieldId, block, blockDocId){
       const storage = getStorage();
@@ -2775,6 +2830,7 @@ function validateBlocksForField(fieldId){
       }
     })();
   </script>
+
 </head>
 
 <body>
