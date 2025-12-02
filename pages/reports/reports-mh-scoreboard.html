@@ -856,20 +856,24 @@
         const blocks = Array.isArray(mh.blocks) ? mh.blocks : [];
 
         const strips = [];
-        for (const b of blocks) {
-          if (!b || b.voided) continue;
+        // IMPORTANT: allow missing entryNum – fall back to array index
+        blocks.forEach((b, idx) => {
+          if (!b || b.voided) return;
 
-          // yield can be number or numeric string
           const rawYield = b.yieldBuPerAc;
-          if (rawYield == null || rawYield === '') continue;
+          if (rawYield == null || rawYield === '') return;
           const yieldNum = Number(rawYield);
-          if (!Number.isFinite(yieldNum)) continue;
+          if (!Number.isFinite(yieldNum)) return;
 
-          // entryNum can be number or numeric string
-          const rawEntry = b.entryNum;
-          if (rawEntry == null || rawEntry === '') continue;
-          const entryNum = Number(rawEntry);
-          if (!Number.isFinite(entryNum)) continue;
+          let entryNum;
+          if (b.entryNum != null && b.entryNum !== '') {
+            entryNum = Number(b.entryNum);
+          } else if (typeof b.rowIndex === 'number') {
+            entryNum = b.rowIndex;
+          } else {
+            entryNum = idx + 1; // <— use array order as strip position
+          }
+          if (!Number.isFinite(entryNum)) return;
 
           strips.push({
             entryNum,
@@ -882,7 +886,7 @@
             farmName,
             fieldName
           });
-        }
+        });
 
         if (!strips.length) continue;
 
