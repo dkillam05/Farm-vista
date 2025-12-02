@@ -465,6 +465,7 @@
       font-weight:600;
     }
 
+    /* Desktop blocks table */
     .blocks-table-wrap{
       border-radius:10px;
       border:1px solid var(--border-subtle,var(--border));
@@ -495,7 +496,65 @@
       border-bottom:none;
     }
 
-    /* Block meta details inside Notes column */
+    /* Mobile block cards (no table on phone) */
+    .block-card-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .block-card{
+      border-radius:10px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      padding:8px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .block-card-header{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+      margin-bottom:2px;
+    }
+    .block-card-title{
+      font-size:0.9rem;
+      font-weight:600;
+    }
+    .block-card-type{
+      font-size:0.78rem;
+      opacity:0.75;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+    }
+    .block-card-main{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 16px;
+      font-size:0.8rem;
+    }
+    .block-card-metric{
+      display:flex;
+      flex-direction:column;
+      gap:1px;
+      min-width:120px;
+    }
+    .block-card-metric span:first-child{
+      font-size:0.72rem;
+      opacity:0.7;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+    }
+    .block-card-metric span:last-child{
+      font-weight:600;
+    }
+    .block-card-notes{
+      margin-top:4px;
+      font-size:0.8rem;
+    }
+
+    /* Block meta details inside Notes column / cards */
     .block-notes-main{
       margin-bottom:2px;
     }
@@ -511,6 +570,7 @@
       font-weight:600;
     }
 
+    /* Files & photos thumbnails */
     .thumb-grid{
       display:flex;
       flex-wrap:wrap;
@@ -525,6 +585,7 @@
       background:var(--surface-variant, #222);
       display:block;
       text-decoration:none;
+      cursor:pointer;
     }
     .thumb img{
       width:100%;
@@ -606,6 +667,7 @@
       font-size:0.8rem;
       opacity:0.8;
     }
+
 
     /* Desktop vs mobile layout toggles */
     .desktop-only{
@@ -1485,6 +1547,7 @@
       const s = field.stats || {};
       const blocks = Array.isArray(field.blocks) ? field.blocks : [];
 
+      // Title + sub
       if (els.modalTitle) els.modalTitle.textContent = d.fieldName || 'Field details';
 
       const subBits = [];
@@ -1511,25 +1574,34 @@
         els.modalSummary.innerHTML = sumHtml;
       }
 
-      // Yield blocks table: show all blocks, including extra meta in the Notes column
+      // Yield blocks: desktop table + mobile cards, both driven from the same blocks array
       if (els.modalBlocksBody) {
         if (!blocks.length) {
           els.modalBlocksBody.innerHTML = `
             <tr><td colspan="7" class="muted-small">No yield blocks recorded for this field yet.</td></tr>
           `;
+          if (els.modalBlocksCards) {
+            els.modalBlocksCards.innerHTML = `
+              <div class="block-card muted-small">No yield blocks recorded for this field yet.</div>
+            `;
+          }
         } else {
           let idx = 1;
-          els.modalBlocksBody.innerHTML = blocks.map(b => {
+          const rows = [];
+          const cards = [];
+
+          blocks.forEach(b => {
             const c = b.check || {};
             const t = b.trial || {};
 
-            const blockLabel   = `Block ${idx++}`;
-            const typeLabel    = (b.blockType || 'combine').toString();
+            const blockIndex = idx++;
+            const blockLabel = `Block ${blockIndex}`;
+            const typeLabel  = (b.blockType || 'combine').toString();
 
-            const checkBu      = typeof c.yieldBuAc === 'number' ? formatNumber(c.yieldBuAc, {decimals:1}) : '–';
-            const trialBu      = typeof t.yieldBuAc === 'number' ? formatNumber(t.yieldBuAc, {decimals:1}) : '–';
-            const checkAcres   = typeof c.acres === 'number' ? formatNumber(c.acres, {decimals:1}) : '–';
-            const trialAcres   = typeof t.acres === 'number' ? formatNumber(t.acres, {decimals:1}) : '–';
+            const checkBu    = typeof c.yieldBuAc === 'number' ? formatNumber(c.yieldBuAc, {decimals:1}) : '–';
+            const trialBu    = typeof t.yieldBuAc === 'number' ? formatNumber(t.yieldBuAc, {decimals:1}) : '–';
+            const checkAcres = typeof c.acres === 'number' ? formatNumber(c.acres, {decimals:1}) : '–';
+            const trialAcres = typeof t.acres === 'number' ? formatNumber(t.acres, {decimals:1}) : '–';
 
             const plantDateStr   = formatDate(b.plantDate);
             const harvestDateStr = formatDate(b.harvestDate);
@@ -1558,9 +1630,15 @@
 
             const metaLines = [];
 
-            if (plantDateStr || harvestDateStr) {
+            // Explicit Plant / Harvest labels
+            if (plantDateStr) {
               metaLines.push(
-                `<div class="block-meta-line"><strong>Dates:</strong> ${plantDateStr || '—'} → ${harvestDateStr || '—'}</div>`
+                `<div class="block-meta-line"><strong>Plant date:</strong> ${plantDateStr}</div>`
+              );
+            }
+            if (harvestDateStr) {
+              metaLines.push(
+                `<div class="block-meta-line"><strong>Harvest date:</strong> ${harvestDateStr}</div>`
               );
             }
 
@@ -1609,7 +1687,8 @@
               ? `<div class="block-meta">${metaLines.join('')}</div>`
               : '';
 
-            return `
+            // Desktop row
+            rows.push(`
               <tr>
                 <td>${blockLabel}</td>
                 <td>${escapeHtml(typeLabel)}</td>
@@ -1619,8 +1698,44 @@
                 <td class="numeric">${trialAcres}</td>
                 <td>${notesHtml}${metaHtml}</td>
               </tr>
-            `;
-          }).join('');
+            `);
+
+            // Mobile card
+            cards.push(`
+              <div class="block-card">
+                <div class="block-card-header">
+                  <div class="block-card-title">${blockLabel}</div>
+                  <div class="block-card-type">${escapeHtml(typeLabel)}</div>
+                </div>
+                <div class="block-card-main">
+                  <div class="block-card-metric">
+                    <span>Check bu/ac</span>
+                    <span>${checkBu}</span>
+                  </div>
+                  <div class="block-card-metric">
+                    <span>Trial bu/ac</span>
+                    <span>${trialBu}</span>
+                  </div>
+                  <div class="block-card-metric">
+                    <span>Check acres</span>
+                    <span>${checkAcres}</span>
+                  </div>
+                  <div class="block-card-metric">
+                    <span>Trial acres</span>
+                    <span>${trialAcres}</span>
+                  </div>
+                </div>
+                <div class="block-card-notes">
+                  ${notesHtml}${metaHtml}
+                </div>
+              </div>
+            `);
+          });
+
+          els.modalBlocksBody.innerHTML = rows.join('');
+          if (els.modalBlocksCards) {
+            els.modalBlocksCards.innerHTML = cards.join('');
+          }
         }
       }
 
@@ -1640,6 +1755,47 @@
             });
           }
         });
+
+        if (!allAttachments.length) {
+          els.modalFiles.innerHTML = `<div class="thumb-empty">No files or photos are attached to this field’s blocks yet.</div>`;
+        } else {
+          // For now: keep behavior = open in new tab. We'll convert to popup viewer in a later step.
+          els.modalFiles.innerHTML = allAttachments.map(att => {
+            const url = escapeHtml(att.url);
+            const nameRaw = att.name || '';
+            const name = escapeHtml(nameRaw || `Block ${att._blockIndex} file`);
+            const title = `Block ${att._blockIndex}${nameRaw ? ' • ' + nameRaw : ''}`;
+
+            const ct = (att.contentType || '').toString().toLowerCase();
+            const isImage = ct ? ct.startsWith('image/') : true;
+
+            if (isImage) {
+              return `
+                <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb" title="${escapeHtml(title)}">
+                  <img src="${url}" alt="${name}">
+                </a>
+              `;
+            }
+
+            const extGuess = ct.includes('/') ? ct.split('/').pop().toUpperCase() : 'FILE';
+
+            return `
+              <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb thumb-file" title="${escapeHtml(title)}">
+                <div class="thumb-file-inner">
+                  <div class="thumb-file-ext">${escapeHtml(extGuess)}</div>
+                  <div class="thumb-file-name">${name}</div>
+                </div>
+              </a>
+            `;
+          }).join('');
+        }
+      }
+
+      // Show the modal
+      els.modalBackdrop.classList.remove('modal-hidden');
+      els.modalBackdrop.setAttribute('aria-hidden', 'false');
+    }
+
 
         if (!allAttachments.length) {
           els.modalFiles.innerHTML = `<div class="thumb-empty">No files or photos are attached to this field’s blocks yet.</div>`;
@@ -2386,20 +2542,29 @@
             <div id="field-modal-title" class="modal-title">Field details</div>
             <div id="field-modal-sub" class="modal-sub"></div>
           </div>
-          <button type="button" class="modal-close-btn" id="field-modal-close" aria-label="Close">
+          <button
+            type="button"
+            class="modal-close-btn"
+            id="field-modal-close"
+            aria-label="Close">
             ×
           </button>
         </div>
       </div>
+
       <div class="modal-body">
+        <!-- Summary (uses same field.stats that drives main table) -->
         <section>
           <div class="modal-section-title">Summary</div>
           <div class="modal-summary-grid" id="field-modal-summary"></div>
         </section>
 
+        <!-- Yield blocks: table on desktop, stacked cards on mobile -->
         <section>
           <div class="modal-section-title">Yield blocks</div>
-          <div class="blocks-table-wrap">
+
+          <!-- Desktop layout: table (unchanged conceptually) -->
+          <div class="blocks-table-wrap desktop-only">
             <table class="blocks-table">
               <thead>
                 <tr>
@@ -2413,12 +2578,18 @@
                 </tr>
               </thead>
               <tbody id="field-modal-blocks-body">
-                <!-- rows injected -->
+                <!-- rows injected by JS -->
               </tbody>
             </table>
           </div>
+
+          <!-- Mobile layout: cards (no table on phone) -->
+          <div id="field-modal-blocks-cards" class="mobile-only block-card-list">
+            <!-- block cards injected by JS -->
+          </div>
         </section>
 
+        <!-- Files & photos (thumbnails aggregated from all blocks) -->
         <section>
           <div class="modal-section-title">Files &amp; photos</div>
           <div id="field-modal-files" class="thumb-grid"></div>
