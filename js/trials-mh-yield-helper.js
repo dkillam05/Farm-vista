@@ -8,6 +8,8 @@ Now:
  • Variety chooser pulls from productsSeed (by crop + active)
  • Tracks plantDate from a calendar picker under plot length
  • Marks productsSeed/{productId}.used = true for any varieties used
+ • NEW: entryNumber is stored for each entry (hybrid + block), and
+        renumbered 1..N on hard delete so scorecard/reports stay in order.
 ==================================================================== */
 
 import {
@@ -56,6 +58,34 @@ export function initMhYieldHelper(options = {}) {
     hybrids: [],
     blocks: []
   };
+
+  // Ensure entryNumber stays in sync with current hybrid order,
+  // and mirror it onto blocks by rowId so reports/scorecard
+  // can sort off entryNumber.
+  function renumberEntries() {
+    mhState.hybrids = (mhState.hybrids || []).map((h, idx) => ({
+      ...h,
+      entryNumber: idx + 1
+    }));
+
+    const byRow = new Map();
+    mhState.hybrids.forEach(h => {
+      if (h && h.rowId) {
+        byRow.set(h.rowId, h.entryNumber);
+      }
+    });
+
+    mhState.blocks = (mhState.blocks || []).map(b => {
+      let entryNumber = b.entryNumber;
+      if (byRow.has(b.rowId)) {
+        entryNumber = byRow.get(b.rowId);
+      }
+      return {
+        ...b,
+        entryNumber
+      };
+    });
+  }
 
   // Seed product options loaded from productsSeed
   let seedOptions = [];
@@ -133,6 +163,7 @@ export function initMhYieldHelper(options = {}) {
       const blk = mhState.blocks.find(b => b.rowId === h.rowId) || {};
       const hasData = blk.moisturePct != null && blk.weightLbs != null && blk.yieldBuPerAc != null;
       const isCheck = !!h.isCheck; // use per-entry flag now
+      const entryNum = h.entryNumber ?? (idx + 1);
 
       const parts = [];
       const displayName = h.name || [
@@ -140,7 +171,7 @@ export function initMhYieldHelper(options = {}) {
         h.variety || ''
       ].join(' ').trim() || 'Variety';
 
-      parts.push(`Entry ${idx+1}: ${displayName}`);
+      parts.push(`Entry ${entryNum}: ${displayName}`);
       if(h.maturity != null) parts.push(`(${h.maturity} RM)`);
       if(isCheck) parts.push('– CHECK');
       if(hasData){
@@ -247,7 +278,8 @@ export function initMhYieldHelper(options = {}) {
     }else{
       mhState.hybrids.forEach((h, idx) => {
         if(!h.productId){
-          errors.push(`Entry ${idx+1}: select a variety.`);
+          const entryNum = h.entryNumber ?? (idx + 1);
+          errors.push(`Entry ${entryNum}: select a variety.`);
         }
       });
     }
@@ -311,10 +343,11 @@ export function initMhYieldHelper(options = {}) {
         const label = hyb.productId
           ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
           : 'Select variety…';
+        const entryNum = hyb.entryNumber ?? (idx + 1);
 
         html += `
           <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
-            <div class="entry-label">Entry ${idx+1}</div>
+            <div class="entry-label">Entry ${entryNum}</div>
             <div class="combo">
               <div class="combo-anchor">
                 <button type="button"
@@ -384,8 +417,15 @@ export function initMhYieldHelper(options = {}) {
     if(addRowBtn){
       addRowBtn.addEventListener('click', () => {
         const newRowId = nextRowId();
+        const maxEntry = mhState.hybrids.reduce(
+          (max, h) => Math.max(max, h.entryNumber || 0),
+          0
+        );
+        const nextEntry = maxEntry + 1;
+
         mhState.hybrids.push({
           rowId: newRowId,
+          entryNumber: nextEntry,
           productId: '',
           name: '',
           brand: '',
@@ -393,6 +433,9 @@ export function initMhYieldHelper(options = {}) {
           maturity: null,
           isCheck: false
         });
+
+        // Keep entryNumber 1..N and mirror to blocks
+        renumberEntries();
         renderStage();
 
         requestAnimationFrame(() => {
@@ -477,6 +520,10 @@ export function initMhYieldHelper(options = {}) {
             h.isCheck = !!(h.productId && h.productId === mhState.checkProductId);
           });
 
+          // Also drop any blocks linked to this rowId, then renumber all entries
+          mhState.blocks = (mhState.blocks || []).filter(b => b.rowId !== hyb.rowId);
+          renumberEntries();
+
           renderStage();
         });
       }
@@ -488,7 +535,15 @@ export function initMhYieldHelper(options = {}) {
   function renderBlocks(){
     if(!stageShell) return;
 
-    const blocks = (mhState.blocks || []).filter(b => !b.voided);
+    const blocks = (mhState.blocks || [])
+      .filter(b => !b.voided)
+      .slice()
+      .sort((a, b) => {
+        const aNum = a.entryNumber ?? 0;
+        const bNum = b.entryNumber ?? 0;
+        return aNum - bNum;
+      });
+
     if(!blocks.length){
       stageShell.innerHTML = `
         <div class="blocks-panel">
@@ -514,7 +569,8 @@ export function initMhYieldHelper(options = {}) {
 
     blocks.forEach((b, idx) => {
       const isCheck = !!b.isCheck;
-      const entryLabel = `Entry ${idx + 1}`;
+      const entryNum = b.entryNumber ?? (idx + 1);
+      const entryLabel = `Entry ${entryNum}`;
       const name = b.name || `${b.brand || ''} ${b.variety || ''}`.trim() || 'Variety';
       const mat  = b.maturity != null ? ` (${b.maturity} RM)` : '';
       const moistVal = b.moisturePct != null ? String(b.moisturePct) : '';
@@ -728,9 +784,39 @@ export function initMhYieldHelper(options = {}) {
         mhState.passWidthFt    = data.passWidthFt   ?? mhState.passWidthFt;
         mhState.plantDate      = data.plantDate     || mhState.plantDate || null;
         mhState.checkProductId = data.checkProductId|| mhState.checkProductId;
-        mhState.hybrids        = Array.isArray(data.hybrids) ? data.hybrids : [];
-        mhState.blocks         = Array.isArray(data.blocks)  ? data.blocks  : [];
-        mhState.stage          = mhState.blocks.length ? 'blocks' : 'setup';
+
+        let hybrids = Array.isArray(data.hybrids) ? data.hybrids : [];
+        let blocks  = Array.isArray(data.blocks)  ? data.blocks  : [];
+
+        // Ensure each hybrid has a rowId, and if entryNumber exists in Firestore,
+        // use it to sort before we renumber.
+        hybrids = hybrids.map(h => ({
+          ...h,
+          rowId: h.rowId || nextRowId()
+        }));
+        const hasEntryNumbers = hybrids.some(h => typeof h.entryNumber === 'number');
+        if (hasEntryNumbers) {
+          hybrids.sort((a, b) => {
+            const aNum = a.entryNumber ?? 0;
+            const bNum = b.entryNumber ?? 0;
+            return aNum - bNum;
+          });
+        }
+        mhState.hybrids = hybrids;
+
+        // Ensure each block has a rowId that lines up with hybrids if possible.
+        blocks = blocks.map(b => {
+          let rowId = b.rowId;
+          if (!rowId && b.productId) {
+            const match = hybrids.find(h => h.productId && h.productId === b.productId);
+            if (match) rowId = match.rowId;
+          }
+          if (!rowId) rowId = nextRowId();
+          return { ...b, rowId };
+        });
+        mhState.blocks = blocks;
+
+        mhState.stage = mhState.blocks.length ? 'blocks' : 'setup';
 
         // Sync check flags both ways:
         // 1) If we have checkProductId, mark hybrids/blocks with isCheck.
@@ -758,6 +844,10 @@ export function initMhYieldHelper(options = {}) {
             }));
           }
         }
+
+        // Normalize entryNumber 1..N and mirror onto blocks so reports
+        // and the scoreboard can sort by entryNumber.
+        renumberEntries();
       }
 
       await loadSeedProducts();
@@ -777,6 +867,9 @@ export function initMhYieldHelper(options = {}) {
     }
 
     try{
+      // Make sure entryNumber is clean before saving
+      renumberEntries();
+
       const payload = {
         cropKind: mhState.cropKind || 'corn',
         passLengthFt: mhState.passLengthFt || 0,
@@ -861,10 +954,14 @@ export function initMhYieldHelper(options = {}) {
       if(mhState.stage === 'setup'){
         if(!validateSetup()) return;
 
-        // Build one block per hybrid, including isCheck so each entry
-        // has its own clear line + check flag in Firestore.
+        // Before building blocks, normalize entry numbers 1..N
+        renumberEntries();
+
+        // Build one block per hybrid, including isCheck and entryNumber so each entry
+        // has its own clear line + check flag + stable entry number in Firestore.
         mhState.blocks = mhState.hybrids.map(h => ({
           rowId: h.rowId,
+          entryNumber: h.entryNumber ?? null,
           productId: h.productId,
           name: h.name,
           brand: h.brand,
@@ -888,6 +985,7 @@ export function initMhYieldHelper(options = {}) {
     });
   }
 
+  // Initial empty render (then Firestore load will replace)
   renderStage();
   initSwipeForCard();
   loadFromFirestore();
