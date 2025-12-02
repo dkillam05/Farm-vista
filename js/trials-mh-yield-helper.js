@@ -8,8 +8,10 @@ Now:
  • Variety chooser pulls from productsSeed (by crop + active)
  • Tracks plantDate from a calendar picker under plot length
  • Marks productsSeed/{productId}.used = true for any varieties used
- • NEW: entryNumber is stored for each entry (hybrid + block), and
-        renumbered 1..N on hard delete so scorecard/reports stay in order.
+ • Stores entryNumber for each entry (hybrid + block) and renumbers 1..N
+   on hard delete so scorecard/reports stay in order.
+ • Preserves moisture/weight/yield/notes/files when editing setup and
+   returning to blocks – existing blocks are reused by rowId.
 ==================================================================== */
 
 import {
@@ -108,14 +110,14 @@ export function initMhYieldHelper(options = {}) {
     }
   })();
 
-  const modalBackdrop = document.getElementById('yieldModalBackdrop');
-  const btnOpenModal  = document.getElementById('btnOpenModal');
-  const devFieldCard  = document.getElementById('devFieldCard');
-  const btnClose      = document.getElementById('btnYieldClose');
-  const btnOk         = document.getElementById('btnYieldOk');
-  const btnSetUpPlot  = document.getElementById('btnSetUpPlot');
-  const stageShell    = document.getElementById('mhStageShell');
-  const devFieldSummaryEl = document.getElementById('devFieldSummary');
+  const modalBackdrop      = document.getElementById('yieldModalBackdrop');
+  const btnOpenModal       = document.getElementById('btnOpenModal');
+  const devFieldCard       = document.getElementById('devFieldCard');
+  const btnClose           = document.getElementById('btnYieldClose');
+  const btnOk              = document.getElementById('btnYieldOk');
+  const btnSetUpPlot       = document.getElementById('btnSetUpPlot');
+  const stageShell         = document.getElementById('mhStageShell');
+  const devFieldSummaryEl  = document.getElementById('devFieldSummary');
 
   const $  = sel => document.querySelector(sel);
   const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -162,7 +164,7 @@ export function initMhYieldHelper(options = {}) {
       if(!h.productId) return null;
       const blk = mhState.blocks.find(b => b.rowId === h.rowId) || {};
       const hasData = blk.moisturePct != null && blk.weightLbs != null && blk.yieldBuPerAc != null;
-      const isCheck = !!h.isCheck; // use per-entry flag now
+      const isCheck = !!h.isCheck;
       const entryNum = h.entryNumber ?? (idx + 1);
 
       const parts = [];
@@ -295,9 +297,9 @@ export function initMhYieldHelper(options = {}) {
 
   function renderSetup(){
     if(!stageShell) return;
-    const hybrids = mhState.hybrids;
-    const lengthFt = mhState.passLengthFt;
-    const widthFt  = mhState.passWidthFt;
+    const hybrids      = mhState.hybrids;
+    const lengthFt     = mhState.passLengthFt;
+    const widthFt      = mhState.passWidthFt;
     const plantDateVal = mhState.plantDate || '';
     let html = '';
 
@@ -336,14 +338,14 @@ export function initMhYieldHelper(options = {}) {
       html += `<p class="muted">No entries yet. Tap <strong>+ Add variety</strong> to start.</p>`;
     }else{
       hybrids.forEach((hyb, idx) => {
-        const isCheckRow = !!hyb.isCheck;
-        const displayName = hyb.productId
+        const isCheckRow   = !!hyb.isCheck;
+        const displayName  = hyb.productId
           ? (hyb.name || `${hyb.brand || ''} ${hyb.variety || ''}`.trim() || 'Variety')
           : 'Select variety…';
-        const label = hyb.productId
+        const label        = hyb.productId
           ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
           : 'Select variety…';
-        const entryNum = hyb.entryNumber ?? (idx + 1);
+        const entryNum     = hyb.entryNumber ?? (idx + 1);
 
         html += `
           <div class="setup-hybrid-row" data-row-id="${hyb.rowId}">
@@ -568,14 +570,14 @@ export function initMhYieldHelper(options = {}) {
     `;
 
     blocks.forEach((b, idx) => {
-      const isCheck = !!b.isCheck;
-      const entryNum = b.entryNumber ?? (idx + 1);
-      const entryLabel = `Entry ${entryNum}`;
-      const name = b.name || `${b.brand || ''} ${b.variety || ''}`.trim() || 'Variety';
-      const mat  = b.maturity != null ? ` (${b.maturity} RM)` : '';
-      const moistVal = b.moisturePct != null ? String(b.moisturePct) : '';
-      const wtVal    = b.weightLbs    != null ? formatWithCommas(b.weightLbs) : '';
-      const yldVal   = b.yieldBuPerAc != null ? formatNumber(b.yieldBuPerAc, 1) : '—';
+      const isCheck   = !!b.isCheck;
+      const entryNum  = b.entryNumber ?? (idx + 1);
+      const entryLabel= `Entry ${entryNum}`;
+      const name      = b.name || `${b.brand || ''} ${b.variety || ''}`.trim() || 'Variety';
+      const mat       = b.maturity != null ? ` (${b.maturity} RM)` : '';
+      const moistVal  = b.moisturePct != null ? String(b.moisturePct) : '';
+      const wtVal     = b.weightLbs    != null ? formatWithCommas(b.weightLbs) : '';
+      const yldVal    = b.yieldBuPerAc != null ? formatNumber(b.yieldBuPerAc, 1) : '—';
 
       html += `
         <div class="yield-block-card" data-row-id="${b.rowId}">
@@ -957,24 +959,38 @@ export function initMhYieldHelper(options = {}) {
         // Before building blocks, normalize entry numbers 1..N
         renumberEntries();
 
-        // Build one block per hybrid, including isCheck and entryNumber so each entry
-        // has its own clear line + check flag + stable entry number in Firestore.
-        mhState.blocks = mhState.hybrids.map(h => ({
-          rowId: h.rowId,
-          entryNumber: h.entryNumber ?? null,
-          productId: h.productId,
-          name: h.name,
-          brand: h.brand,
-          variety: h.variety,
-          maturity: h.maturity,
-          isCheck: !!(h.productId && h.productId === mhState.checkProductId),
-          moisturePct: null,
-          weightLbs: null,
-          yieldBuPerAc: null,
-          voided: false,
-          notes: '',
-          files: []
-        }));
+        // Preserve existing block data by rowId (moisture, weight, yield, notes, files)
+        const existingByRowId = new Map();
+        (mhState.blocks || []).forEach(b => {
+          if(b && b.rowId){
+            existingByRowId.set(b.rowId, b);
+          }
+        });
+
+        mhState.blocks = mhState.hybrids.map(h => {
+          const existing = existingByRowId.get(h.rowId) || {};
+
+          return {
+            // preserve previous values where they exist
+            ...existing,
+            rowId: h.rowId,
+            entryNumber: h.entryNumber ?? existing.entryNumber ?? null,
+            productId: h.productId,
+            name: h.name,
+            brand: h.brand,
+            variety: h.variety,
+            maturity: h.maturity,
+            isCheck: !!(h.productId && h.productId === mhState.checkProductId),
+            // make sure required fields exist even if existing block was empty
+            moisturePct: existing.moisturePct ?? null,
+            weightLbs: existing.weightLbs ?? null,
+            yieldBuPerAc: existing.yieldBuPerAc ?? null,
+            voided: existing.voided ?? false,
+            notes: existing.notes ?? '',
+            files: existing.files ?? []
+          };
+        });
+
         mhState.stage = 'blocks';
         renderStage();
         return;
