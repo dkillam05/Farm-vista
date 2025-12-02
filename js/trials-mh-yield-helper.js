@@ -423,7 +423,8 @@ export function initMhYieldHelper(options = {}) {
         panel: widthPanel,
         list: widthList,
         items: PASS_WIDTH_OPTIONS.map(v => ({ id:String(v), label:String(v) })),
-        formatter: x => x.label,
+
+formatter: x => x.label,
         onPick: it => {
           mhState.passWidthFt = Number(it.id);
           widthBtn.textContent = it.label;
@@ -605,7 +606,7 @@ export function initMhYieldHelper(options = {}) {
       const entryLabel= `Entry ${entryNum}`;
       const name      = b.name || `${b.brand || ''} ${b.variety || ''}`.trim() || 'Variety';
       const mat       = b.maturity != null ? ` (${b.maturity} RM)` : '';
-      const moistVal  = b.moisturePct != null ? String(b.moisturePct) : '';
+      const moistVal  = b.moisturePct != null ? formatNumber(b.moisturePct, 2) : '';
       const wtVal     = b.weightLbs    != null ? formatWithCommas(b.weightLbs) : '';
       const yldVal    = b.yieldBuPerAc != null ? formatNumber(b.yieldBuPerAc, 1) : '—';
 
@@ -643,6 +644,7 @@ export function initMhYieldHelper(options = {}) {
             Yield (to ${mhState.cropKind === 'soy' ? '13.0%' : '15.0%'} std moisture):
             <strong id="mh-block-yield-${b.rowId}">${yldVal}</strong> bu/ac
           </div>
+          <div class="help mh-block-error" id="mh-block-error-${b.rowId}"></div>
         </div>
       `;
     });
@@ -654,6 +656,7 @@ export function initMhYieldHelper(options = {}) {
       const moistInput = document.getElementById(`mh-block-moist-${b.rowId}`);
       const wtInput    = document.getElementById(`mh-block-wt-${b.rowId}`);
       const yldEl      = document.getElementById(`mh-block-yield-${b.rowId}`);
+      const errEl      = document.getElementById(`mh-block-error-${b.rowId}`);
 
       function recalc(){
         const mRaw = moistInput ? moistInput.value.replace(/[^0-9.]/g,'') : '';
@@ -679,16 +682,79 @@ export function initMhYieldHelper(options = {}) {
           yldEl.textContent = y != null ? formatNumber(y,1) : '—';
         }
 
+        // ---- Range validation for moisture and yield ----
+        let errMsg = '';
+
+        // Moisture range
+        if (m != null && isFinite(m)) {
+          if (mhState.cropKind === 'corn') {
+            if (m < 10 || m > 40) {
+              errMsg = 'Moisture looks off for corn (expected 10–40%).';
+            }
+          } else { // soy
+            if (m < 5 || m > 20) {
+              errMsg = 'Moisture looks off for soybeans (expected 5–20%).';
+            }
+          }
+        }
+
+        // Yield range
+        if (!errMsg && y != null && isFinite(y)) {
+          if (mhState.cropKind === 'corn') {
+            if (y < 100 || y > 400) {
+              errMsg = 'Yield looks off for corn (expected 100–400 bu/ac).';
+            }
+          } else { // soy
+            if (y < 25 || y > 150) {
+              errMsg = 'Yield looks off for soybeans (expected 25–150 bu/ac).';
+            }
+          }
+        }
+
+        if (errEl) {
+          errEl.textContent = errMsg || '';
+        }
+
         renderDevSummary();
       }
 
       if(moistInput){
         moistInput.addEventListener('input', () => {
-          const clean = moistInput.value.replace(/[^0-9.]/g,'');
-          moistInput.value = clean;
+          // Keep only digits and one dot, and limit to 2 decimals
+          let clean = moistInput.value.replace(/[^0-9.]/g, '');
+          const parts = clean.split('.');
+          if (parts.length > 2) {
+            clean = parts[0] + '.' + parts.slice(1).join('');
+          }
+          if (clean.includes('.')) {
+            const [intPart, decPart = ''] = clean.split('.');
+            const limitedDec = decPart.slice(0, 2);
+            moistInput.value = limitedDec.length > 0 ? `${intPart}.${limitedDec}` : intPart + '.';
+          } else {
+            moistInput.value = clean;
+          }
+          recalc();
+        });
+
+        // On blur, normalize to exactly 2 decimals: 15 -> 15.00
+        moistInput.addEventListener('blur', () => {
+          let v = moistInput.value;
+          if (v === '' || v === '.') {
+            moistInput.value = '';
+            recalc();
+            return;
+          }
+          const num = Number(v);
+          if (!isFinite(num)) {
+            moistInput.value = '';
+            recalc();
+            return;
+          }
+          moistInput.value = num.toFixed(2);
           recalc();
         });
       }
+
       if(wtInput){
         wtInput.addEventListener('input', () => {
           const clean = wtInput.value.replace(/[^0-9]/g,'');
