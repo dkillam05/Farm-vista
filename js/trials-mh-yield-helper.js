@@ -423,8 +423,7 @@ export function initMhYieldHelper(options = {}) {
         panel: widthPanel,
         list: widthList,
         items: PASS_WIDTH_OPTIONS.map(v => ({ id:String(v), label:String(v) })),
-
-formatter: x => x.label,
+        formatter: x => x.label,
         onPick: it => {
           mhState.passWidthFt = Number(it.id);
           widthBtn.textContent = it.label;
@@ -711,6 +710,10 @@ formatter: x => x.label,
           }
         }
 
+        // Store the error state on the block so we can check before saving
+        b.rangeError = !!errMsg;
+        b.rangeErrorMsg = errMsg;
+
         if (errEl) {
           errEl.textContent = errMsg || '';
         }
@@ -766,6 +769,62 @@ formatter: x => x.label,
       // Initial draw if we already had values
       recalc();
     });
+  }
+
+  // Check all blocks for out-of-range values before saving.
+  // This uses the same ranges as the helper text and also
+  // makes sure the helper text shows if we hit the guard.
+  function hasBlockRangeErrors() {
+    let hasError = false;
+
+    (mhState.blocks || []).forEach(b => {
+      if (b.voided) return;
+
+      const m = b.moisturePct;
+      const y = b.yieldBuPerAc;
+
+      let errMsg = '';
+
+      if (m != null && isFinite(m)) {
+        if (mhState.cropKind === 'corn') {
+          if (m < 10 || m > 40) {
+            errMsg = 'Moisture looks off for corn (expected 10–40%).';
+          }
+        } else {
+          if (m < 5 || m > 20) {
+            errMsg = 'Moisture looks off for soybeans (expected 5–20%).';
+          }
+        }
+      }
+
+      if (!errMsg && y != null && isFinite(y)) {
+        if (mhState.cropKind === 'corn') {
+          if (y < 100 || y > 400) {
+            errMsg = 'Yield looks off for corn (expected 100–400 bu/ac).';
+          }
+        } else {
+          if (y < 25 || y > 150) {
+            errMsg = 'Yield looks off for soybeans (expected 25–150 bu/ac).';
+          }
+        }
+      }
+
+      if (errMsg) {
+        hasError = true;
+        b.rangeError = true;
+        b.rangeErrorMsg = errMsg;
+
+        const errEl = document.getElementById(`mh-block-error-${b.rowId}`);
+        if (errEl && !errEl.textContent) {
+          errEl.textContent = errMsg;
+        }
+      } else {
+        b.rangeError = false;
+        b.rangeErrorMsg = '';
+      }
+    });
+
+    return hasError;
   }
 
   function renderStage(){
@@ -1092,7 +1151,13 @@ formatter: x => x.label,
         return;
       }
 
-      // In blocks mode we actually save to Firestore
+      // In blocks mode we actually save to Firestore,
+      // but only if all entries are within valid ranges.
+      if (hasBlockRangeErrors()) {
+        alert('Some entries have moisture or yield outside the allowed ranges. Fix the red helper text before saving.');
+        return;
+      }
+
       saveToFirestore();
     });
   }
