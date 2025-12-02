@@ -605,7 +605,7 @@
       }
     }
 
-    /* ---------- build SIMPLE 2-PAGE print HTML ---------- */
+    /* ---------- build SIMPLE 2-PAGE print HTML (hero + 3 small) ---------- */
 
     function buildDetailedPrintHtml({ company, runStr, runDateOnly, field }) {
       const t = STATE.trialDoc || {};
@@ -624,17 +624,19 @@
       const tr = block.trial || {};
 
       // Collect up to 4 image attachments from this block
-      const images = [];
+      const imgList = [];
       if (Array.isArray(block.attachments)) {
         for (const att of block.attachments) {
           if (!att || typeof att !== 'object' || !att.url) continue;
           const ct = (att.contentType || '').toString().toLowerCase();
           const isImage = ct ? ct.startsWith('image/') : true;
           if (!isImage) continue;
-          images.push(att);
-          if (images.length >= 4) break;
+          imgList.push(att);
+          if (imgList.length >= 4) break;
         }
       }
+      const heroImg = imgList[0] || null;
+      const smallImgs = heroImg ? imgList.slice(1) : imgList.slice(0, 3);
 
       const plantDateStr   = formatDate(block.plantDate);
       const harvestDateStr = formatDate(block.harvestDate);
@@ -766,20 +768,30 @@
   </div>
 </section>`;
 
-      /* ---------- PAGE 2: FIELD SUMMARY + IMAGES + NUMBERS ---------- */
+      /* ---------- PAGE 2: FIELD SUMMARY + HERO IMAGE + 3 SMALL + NUMBERS ---------- */
 
-      const imagesHtml = images.length
-        ? images.map(att => {
-            const url  = escapeHtml(att.url || '');
-            const name = escapeHtml(att.name || '');
-            return `
-              <figure class="photo-fig">
-                <img src="${url}" alt="${name || 'Block image'}" class="photo-img" />
-                ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
-              </figure>
-            `;
-          }).join('')
-        : '<p class="section-sub">No images are attached to this block yet.</p>';
+      let heroHtml = '';
+      if (heroImg){
+        const url  = escapeHtml(heroImg.url || '');
+        const name = escapeHtml(heroImg.name || '');
+        heroHtml = `
+          <figure class="photo-fig photo-hero">
+            <img src="${url}" alt="${name || 'Block image'}" class="photo-img photo-img-hero" />
+            ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
+          </figure>
+        `;
+      }
+
+      const smallHtml = smallImgs.map(att => {
+        const url  = escapeHtml(att.url || '');
+        const name = escapeHtml(att.name || '');
+        return `
+          <figure class="photo-fig photo-small">
+            <img src="${url}" alt="${name || 'Block image'}" class="photo-img photo-img-small" />
+            ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
+          </figure>
+        `;
+      }).join('');
 
       const fieldPageHtml = `
 <section class="page">
@@ -854,13 +866,13 @@
     </section>
 
     <section class="section">
-      <h3 class="section-title">Block images</h3>
-      <p class="section-sub">
-        Up to four key images (maps, screenshots, etc.) are shown below. Images are scaled to fit the page but keep
-        their original shape so nothing is distorted.
-      </p>
       <div class="photo-grid">
-        ${imagesHtml}
+        ${heroHtml}
+        ${
+          smallHtml
+            ? `<div class="photo-row">${smallHtml}</div>`
+            : ''
+        }
       </div>
     </section>
 
@@ -977,15 +989,15 @@
     }
     .company-line{
       font-size:11px;
-      color:var(--fv-muted);
+      color:#6B7280;
       margin:0;
     }
     .report-meta-top{
       text-align:right;
       font-size:10px;
-      color:var(--fv-muted);
+      color:#6B7280;
     }
-    .report-meta-top strong{color:var(--fv-text);}
+    .report-meta-top strong{color:#111827;}
     .report-title{
       font-size:18px;
       font-weight:800;
@@ -995,7 +1007,7 @@
     }
     .report-subtitle{
       font-size:12px;
-      color:var(--fv-muted);
+      color:#6B7280;
       margin:0 0 8px;
     }
 
@@ -1020,7 +1032,7 @@
       text-transform:uppercase;
       letter-spacing:.08em;
       font-size:9px;
-      color:var(--fv-muted);
+      color:#6B7280;
     }
     .summary-value{
       font-weight:600;
@@ -1040,13 +1052,13 @@
     }
     .section-sub{
       font-size:10px;
-      color:var(--fv-muted);
+      color:#6B7280;
       margin:0 0 5px;
     }
 
     .table-wrap{
       border-radius:9px;
-      border:1px solid var(--fv-border);
+      border:1px solid #D1D5DB;
       overflow:hidden;
     }
     table{
@@ -1107,7 +1119,7 @@
     }
     .block-sub{
       font-size:10px;
-      color:var(--fv-muted);
+      color:#6B7280;
       margin-top:2px;
     }
     .block-metrics{
@@ -1124,7 +1136,7 @@
     .block-metric .label{
       text-transform:uppercase;
       letter-spacing:0.08em;
-      color:var(--fv-muted);
+      color:#6B7280;
     }
     .block-metric .value{
       font-weight:600;
@@ -1140,7 +1152,7 @@
     .meta-label{
       text-transform:uppercase;
       letter-spacing:0.08em;
-      color:var(--fv-muted);
+      color:#6B7280;
       margin-bottom:1px;
     }
     .meta-value{
@@ -1148,16 +1160,15 @@
       font-size:10px;
     }
 
+    /* HERO + 3 SMALL LAYOUT */
     .photo-grid{
       display:flex;
-      flex-wrap:wrap;
+      flex-direction:column;
       gap:6px;
-      align-items:flex-start;
+      align-items:stretch;
       justify-content:flex-start;
     }
     .photo-fig{
-      flex:1 1 calc(50% - 8px);
-      max-width:calc(50% - 8px);
       border:1px solid #E5E7EB;
       border-radius:6px;
       padding:4px;
@@ -1165,13 +1176,34 @@
       flex-direction:column;
       align-items:center;
       page-break-inside:avoid;
+      background:#FFFFFF;
+    }
+    .photo-hero{
+      width:100%;
+      max-width:100%;
+    }
+    .photo-row{
+      display:flex;
+      flex-wrap:nowrap;
+      gap:6px;
+      align-items:flex-start;
+      justify-content:flex-start;
+    }
+    .photo-small{
+      flex:1 1 0;
+      max-width:33%;
     }
     .photo-img{
       width:100%;
       height:auto;
-      max-height:3in; /* smaller so 4 imgs + numbers fit */
       object-fit:contain;
       border-radius:4px;
+    }
+    .photo-img-hero{
+      max-height:3.0in; /* hero gets more height */
+    }
+    .photo-img-small{
+      max-height:1.9in; /* smalls are shorter so numbers fit */
     }
     .photo-caption{
       margin-top:3px;
@@ -1337,7 +1369,7 @@
           <div>
             <h1 id="pageTitle">Trial Detailed Report</h1>
             <p id="pageSubtitle" class="muted">
-              One trial, one field, four images and numbers – optimized for landscape printing.
+              One trial, one field, one hero image and three smaller images – plus block numbers – locked into two pages.
             </p>
           </div>
         </header>
