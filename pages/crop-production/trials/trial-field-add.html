@@ -651,14 +651,12 @@
       selectedFieldMaxAcres: null,
       existingFields: [],
       pendingFields: [],
-      overlaps: [],
-      noAcresDraft: null
+      overlaps: []
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
 
     let toastEl, errorBox, debugLogEl;
-    let noAcresModal, noAcresOk, noAcresCancel;
 
     let farmCombo, fieldCombo;
     let fieldFarmBtn, fieldFarmPanel, fieldFarmList, fieldFarmSearch;
@@ -1106,7 +1104,7 @@
     }
 
     function openYieldForPending(){
-      showToast("Field Added - Not Save Yet. Save fields before adding yield.");
+      showToast("Save fields first, then come back to add yield.");
     }
 
     function isTouchPointer(){
@@ -1486,7 +1484,7 @@
         notesLen: (notes || '').length
       });
       renderFieldLists();
-      showToast("Field Added - Not Save Yet");
+      showToast("Field added. Save fields when you're done.");
 
       STATE.selectedFarm = null;
       STATE.selectedField = null;
@@ -1501,22 +1499,6 @@
       }
       if(notesInput){
         notesInput.value = '';
-      }
-    }
-
-    function openNoAcresConfirm(draft){
-      STATE.noAcresDraft = draft;
-      if(noAcresModal){
-        noAcresModal.classList.add('show');
-      }else{
-        actuallyAddPendingRow(draft);
-      }
-    }
-
-    function closeNoAcresConfirm(){
-      STATE.noAcresDraft = null;
-      if(noAcresModal){
-        noAcresModal.classList.remove('show');
       }
     }
 
@@ -1561,33 +1543,32 @@
         }
       }
 
-      const acresStr = trialAcresInput.value.trim();
-      const notes    = notesInput.value.trim();
-      let acres = null;
+      const acresStr = trialAcresInput ? trialAcresInput.value.trim() : '';
+      const notes    = notesInput ? notesInput.value.trim() : '';
+      let acres;
 
-      if(acresStr){
-        acres = Number(acresStr);
-        if(isNaN(acres)){
-          showError("Trial acres must be a number.");
-          if(trialAcresInput) trialAcresInput.classList.add('input-error');
-          return;
-        }
-        acres = Math.round(acres * 100) / 100;
+      if(!acresStr){
+        showError("Trial acres are required. Enter acres for this field before adding it.");
+        if(trialAcresInput) trialAcresInput.classList.add('input-error');
+        return;
       }
 
+      acres = Number(acresStr);
+      if(isNaN(acres)){
+        showError("Trial acres must be a number.");
+        if(trialAcresInput) trialAcresInput.classList.add('input-error');
+        return;
+      }
+      acres = Math.round(acres * 100) / 100;
+
       const maxAcres = STATE.selectedFieldMaxAcres;
-      if(maxAcres != null && acres != null && acres > maxAcres + 0.0001){
+      if(maxAcres != null && acres > maxAcres + 0.0001){
         showError(`Trial acres cannot be more than the field tillable acres (${maxAcres}).`);
         if(trialAcresInput) trialAcresInput.classList.add('input-error');
         return;
       }
 
       const draft = { farm, field, acres, notes };
-
-      if(acres == null){
-        openNoAcresConfirm(draft);
-        return;
-      }
 
       actuallyAddPendingRow(draft);
     }
@@ -1677,27 +1658,6 @@
       toastEl=document.getElementById('toast');
       errorBox=document.getElementById('errBox');
       debugLogEl=document.getElementById('debugLog');
-
-      noAcresModal  = document.getElementById('noAcresModal');
-      noAcresOk     = document.getElementById('noAcresOk');
-      noAcresCancel = document.getElementById('noAcresCancel');
-
-      if(noAcresCancel){
-        noAcresCancel.addEventListener('click', closeNoAcresConfirm);
-      }
-      if(noAcresOk){
-        noAcresOk.addEventListener('click', () => {
-          if(STATE.noAcresDraft){
-            actuallyAddPendingRow(STATE.noAcresDraft);
-          }
-          closeNoAcresConfirm();
-        });
-      }
-      if(noAcresModal){
-        noAcresModal.addEventListener('click', (e)=>{
-          if(e.target === noAcresModal) closeNoAcresConfirm();
-        });
-      }
 
       overlapHeroEl   = document.getElementById('overlapHero');
       overlapListEl   = document.getElementById('overlapList');
@@ -1998,8 +1958,14 @@
 
             <div class="field">
               <label for="trialAcres">Trial Acres</label>
-              <input id="trialAcres" class="input no-spin" type="number" step="0.01"
-                    placeholder="Acres in this field that are part of the trial" />
+              <input
+                id="trialAcres"
+                class="input no-spin"
+                type="number"
+                step="0.01"
+                required
+                placeholder="Acres in this field that are part of the trial"
+              />
               <div id="trialAcresHelp" class="helper"></div>
             </div>
 
@@ -2057,18 +2023,5 @@
   </fv-shell>
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
-
-  <div id="noAcresModal" class="modal-backdrop" role="alertdialog" aria-modal="true">
-    <div class="modal-sheet">
-      <div class="modal-title">No Trial Acres Entered</div>
-      <div class="modal-body">
-        Are you sure you want to add this field without any trial acres? You can always enter them later.
-      </div>
-      <div class="modal-actions">
-        <button id="noAcresCancel" type="button" class="modal-btn">Cancel</button>
-        <button id="noAcresOk" type="button" class="modal-btn modal-btn-primary">Okay</button>
-      </div>
-    </div>
-  </div>
 </body>
 </html>
