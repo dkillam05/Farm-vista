@@ -47,7 +47,6 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      /* IMPORTANT: allow dropdown to extend outside card */
       overflow:visible;
     }
     .hero-head{
@@ -79,7 +78,6 @@
       gap:14px;
     }
 
-    /* Toolbar + back / print buttons */
     .toolbar{
       display:flex;
       flex-wrap:wrap;
@@ -126,7 +124,6 @@
       opacity:0.8;
     }
 
-    /* Filters */
     .filters{
       display:flex;
       flex-wrap:wrap;
@@ -157,7 +154,6 @@
       min-height:32px;
     }
 
-    /* Trial summary card */
     .trial-summary{
       margin-top:8px;
       border-radius:12px;
@@ -260,7 +256,6 @@
       background:rgba(47,108,60,0.12);
     }
 
-    /* Scoreboard table card */
     .scorecard{
       margin-top:8px;
       border-radius:12px;
@@ -359,14 +354,12 @@
       text-align:right;
     }
 
-    /* Bottom print button */
     .bottom-actions{
       margin-top:16px;
       display:flex;
       justify-content:flex-end;
     }
 
-    /* Desktop vs mobile layout toggles */
     .desktop-only{
       display:block;
     }
@@ -374,7 +367,6 @@
       display:none;
     }
 
-    /* Mobile stacked scorecards */
     .score-mobile-list{
       display:flex;
       flex-direction:column;
@@ -462,7 +454,6 @@
       gap:6px;
     }
 
-    /* Hidden iframe for print */
     #fv-print-frame{
       position:fixed;
       right:0;
@@ -487,7 +478,6 @@
       }
     }
 
-    /* Mobile tweaks */
     @media (max-width:640px){
       .wrap{
         padding-inline:10px;
@@ -519,7 +509,6 @@
         justify-content:center;
       }
 
-      /* Layout switch: table on desktop, stacked cards on mobile */
       .desktop-only{
         display:none;
       }
@@ -528,17 +517,12 @@
       }
     }
 
-    /* =========================
-       EMBED MODE (dashboard)
-       Only show filters + scorecard
-       ========================= */
     html.embed-mode body{
       background:transparent;
     }
     html.embed-mode .wrap{
       max-width:none;
       margin:0;
-      /* give extra vertical room when embedded so native dropdown can't clip */
       padding:0 0 56px 0;
       padding-bottom:56px !important;
       box-sizing:border-box;
@@ -564,7 +548,6 @@
     }
   </style>
 
-  <!-- detect embed mode from ?embed=1 -->
   <script>
     (function(){
       try{
@@ -578,14 +561,10 @@
     })();
   </script>
 
-  <!-- lazy-load fv-shell unless we're embedded -->
   <script>
     (function(){
       var isEmbed = document.documentElement.classList.contains('embed-mode');
-      if (isEmbed) {
-        // In embed mode we don't want the app header/footer at all.
-        return;
-      }
+      if (isEmbed) return;
       if(!customElements.get('fv-shell')){
         const s=document.createElement('script');
         s.src='/Farm-vista/js/fv-shell.js';
@@ -607,8 +586,8 @@
 
     const urlParams = new URL(location.href).searchParams;
     const IS_EMBED  = urlParams.get('embed') === '1';
-    const URL_YEAR  = urlParams.get('year');     // used to preselect year when embedded
-    const URL_TRIAL = urlParams.get('trialId');  // optional: preselect specific MH trial
+    const URL_YEAR  = urlParams.get('year');
+    const URL_TRIAL = urlParams.get('trialId');
 
     const CONFIG = {
       COMPANY_DOC_PATH: ['company','main']
@@ -632,10 +611,10 @@
     const STATE = {
       db: null,
       company: null,
-      rows: [],   // scoreboard rows (one per variety)
+      rows: [],
       filters: {
         year: null,
-        trialId: null,          // specific fieldTrials doc id
+        trialId: null,
         trialName: ''
       },
       summary: createEmptySummary(),
@@ -778,7 +757,6 @@
       `;
     }
 
-    /* ---------- load MH data into STATE.rows using MH math ---------- */
     async function loadMhScoreboardRows(){
       const db = STATE.db;
       if(!db) return;
@@ -795,7 +773,6 @@
         return;
       }
 
-      // 1) Load the selected MH trial
       const trialRef  = doc(db, 'fieldTrials', trialId);
       const trialSnap = await getDoc(trialRef);
       if (!trialSnap.exists()) {
@@ -807,7 +784,6 @@
 
       const tData = trialSnap.data() || {};
 
-      // Enforce MH-only + year + status rules
       if ((tData.seedTrialType || '').toString() !== 'Multiple Hybrid Trial') {
         console.warn('[MH Scoreboard] selected trial is not Multiple Hybrid Trial');
         updateMeta();
@@ -830,7 +806,6 @@
         return;
       }
 
-      // Initialize summary basics
       STATE.summary.trialName = tData.trialName || '(Unnamed MH trial)';
       STATE.summary.cropYear  = tData.cropYear || String(yearFilter);
       STATE.summary.crop      = tData.crop || tData.cropType || '';
@@ -841,10 +816,8 @@
       const fieldIdsWithData = new Set();
       let totalTestStrips = 0;
 
-      // Scoreboard aggregation: key by brand/variety/trait/maturity
       const scoreboardMap = new Map();
 
-      // Helper to get or create variety record
       function getVarietyBucket(brand, variety, trait, maturity, trialName){
         const key = [
           brand || '',
@@ -860,8 +833,8 @@
             variety: variety || '',
             trait: trait || '',
             maturity: maturity || '',
-            yields: [],          // per-strip yieldBuPerAc
-            pctVsChecks: [],     // per-strip % vs check (for tests)
+            yields: [],
+            pctVsChecks: [],
             trialName: trialName || '',
             farmFieldSet: new Set()
           };
@@ -870,7 +843,6 @@
         return bucket;
       }
 
-      // 2) Walk each field's MH state and apply MH math per field
       for (const fieldDoc of fieldsSnap.docs) {
         const fieldData = fieldDoc.data() || {};
         const farmName  = fieldData.farmName  || '';
@@ -883,17 +855,26 @@
         const mh = mhSnap.data() || {};
         const blocks = Array.isArray(mh.blocks) ? mh.blocks : [];
 
-        // Build strips for this field
         const strips = [];
         for (const b of blocks) {
           if (!b || b.voided) continue;
-          if (typeof b.yieldBuPerAc !== 'number') continue;
-          if (typeof b.entryNum !== 'number') continue;
+
+          // yield can be number or numeric string
+          const rawYield = b.yieldBuPerAc;
+          if (rawYield == null || rawYield === '') continue;
+          const yieldNum = Number(rawYield);
+          if (!Number.isFinite(yieldNum)) continue;
+
+          // entryNum can be number or numeric string
+          const rawEntry = b.entryNum;
+          if (rawEntry == null || rawEntry === '') continue;
+          const entryNum = Number(rawEntry);
+          if (!Number.isFinite(entryNum)) continue;
 
           strips.push({
-            entryNum: Number(b.entryNum),
+            entryNum,
             isCheck:  !!b.isCheck,
-            yieldBuPerAc: b.yieldBuPerAc,
+            yieldBuPerAc: yieldNum,
             brand:    b.brand    || '',
             variety:  b.variety  || '',
             trait:    b.trait    || '',
@@ -907,7 +888,6 @@
 
         fieldIdsWithData.add(fieldDoc.id);
 
-        // Sort by strip position
         strips.sort((a,b) => a.entryNum - b.entryNum);
 
         const checks = strips.filter(s => s.isCheck);
@@ -923,12 +903,10 @@
           globalCheckAvg = sum / checks.length;
         }
 
-        // For each test strip, compute Effective Check and % vs Check
         for (const t of tests) {
           let pctVsCheck = null;
 
           if (checks.length && globalCheckAvg != null && globalCheckAvg > 0) {
-            // find nearest left/right checks by entryNum
             let leftCheck  = null;
             let rightCheck = null;
 
@@ -942,7 +920,6 @@
                   rightCheck = c;
                 }
               } else {
-                // exact same entry as a check - treat as touching check
                 leftCheck = c;
                 rightCheck = null;
                 break;
@@ -998,9 +975,7 @@
         }
       }
 
-      // 3) Build variety-level rows from the buckets
       const nfYield = new Intl.NumberFormat(undefined,{maximumFractionDigits:1});
-      const nfPct   = new Intl.NumberFormat(undefined,{maximumFractionDigits:2});
 
       const rows = [];
 
@@ -1026,14 +1001,13 @@
           trait:    bucket.trait,
           maturity: bucket.maturity,
           yieldBuAc: avgYield,
-          moisture: null, // not part of MH scoreboard requirements
+          moisture: null,
           pctVsCheck: avgPct,
           trialName: STATE.summary.trialName,
           farmField
         });
       });
 
-      // Rank by yield (highest first)
       rows.sort((a, b) => (b.yieldBuAc || 0) - (a.yieldBuAc || 0));
       rows.forEach((row, idx) => {
         row.rank = idx + 1;
@@ -1041,7 +1015,6 @@
 
       STATE.rows = rows;
 
-      // Fill summary KPIs
       STATE.summary.fieldCount   = fieldIdsWithData.size;
       STATE.summary.stripCount   = totalTestStrips;
       STATE.summary.varietyCount = rows.length;
@@ -1061,7 +1034,6 @@
       renderSummaryCard();
     }
 
-    /* ---------- desktop table render ---------- */
     function renderScoreboardTable(){
       const tbody = $('#mhScoreBody');
       if(!tbody) return;
@@ -1071,7 +1043,7 @@
       if(!rows.length){
         tbody.innerHTML = `
           <tr class="score-placeholder-row">
-            <td colspan="10">
+            <td colspan="9">
               Select crop year and Multiple Hybrid trial. Variety rows will appear once MH strips are available for that trial.
             </td>
           </tr>
@@ -1098,7 +1070,6 @@
             <td>${escapeHtml(row.trait || '')}</td>
             <td>${escapeHtml(row.maturity || '')}</td>
             <td class="cell-right">${y}</td>
-            <td class="cell-right">—</td>
             <td class="cell-right">${p}</td>
             <td>${escapeHtml(row.trialName || '')}</td>
             <td>${escapeHtml(row.farmField || '')}</td>
@@ -1107,7 +1078,6 @@
       }).join('');
     }
 
-    /* ---------- mobile stacked-card render ---------- */
     function renderScoreboardMobile(){
       const container = $('#mhScoreMobile');
       if(!container) return;
@@ -1671,16 +1641,13 @@
 
       trialSel.disabled = false;
 
-      // Determine selected trial id
       let selectedId = STATE.filters.trialId;
 
-      // URL param (embed mode) can override initial
       if (!selectedId && URL_TRIAL) {
         const hasUrl = mhTrials.find(t => t.id === URL_TRIAL);
         if (hasUrl) selectedId = URL_TRIAL;
       }
 
-      // Fallback to first trial if no valid selection
       if (!selectedId || !mhTrials.find(t => t.id === selectedId)) {
         selectedId = mhTrials[0].id;
       }
@@ -1705,7 +1672,6 @@
         const now = new Date();
         const currentYear = now.getFullYear();
 
-        // use URL year if provided, otherwise current year
         let initialYear = currentYear;
         if (URL_YEAR && /^\d{4}$/.test(URL_YEAR)) {
           initialYear = parseInt(URL_YEAR, 10);
@@ -1743,7 +1709,6 @@
         });
       }
 
-      // Initial trial list for initial year
       await populateTrialFilterOptions();
       updateMeta();
       renderSummaryCard();
@@ -1774,9 +1739,6 @@
     })();
   </script>
 
-  <!-- ===========================================
-       Auto-resize: send height to parent for iframe
-       =========================================== -->
   <script>
     (function(){
       try{
@@ -1834,20 +1796,15 @@
           <div class="filters">
             <div class="filter-field">
               <label class="filter-label" for="filterYear">Crop Year</label>
-              <select id="filterYear" class="filter-select">
-                <!-- options added by JS -->
-              </select>
+              <select id="filterYear" class="filter-select"></select>
             </div>
 
             <div class="filter-field">
               <label class="filter-label" for="filterTrial">MH Trial</label>
-              <select id="filterTrial" class="filter-select">
-                <!-- options added by JS (MH trials for that year) -->
-              </select>
+              <select id="filterTrial" class="filter-select"></select>
             </div>
           </div>
 
-          <!-- Trial summary: mobile + desktop -->
           <section class="trial-summary" id="trialSummaryCard">
             <p class="trial-summary-empty">
               Select crop year and Multiple Hybrid trial to see a variety scoreboard summary.
@@ -1863,7 +1820,6 @@
               Scoreboard is one row per variety. % vs check uses the Multiple Hybrid global + local distance-weighted check yield formula.
             </div>
 
-            <!-- Desktop table layout -->
             <div class="score-table-wrap desktop-only">
               <table class="score-table">
                 <thead>
@@ -1889,7 +1845,6 @@
               </table>
             </div>
 
-            <!-- Mobile stacked cards layout -->
             <div class="mobile-only">
               <div id="mhScoreMobile" class="score-mobile-list"></div>
             </div>
@@ -1904,7 +1859,6 @@
       </section>
     </div>
 
-    <!-- Hidden iframe used for print so we don't open a new tab -->
     <iframe id="fv-print-frame"></iframe>
   </fv-shell>
 </body>
