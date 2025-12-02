@@ -409,7 +409,7 @@
       display:none;
     }
 
-    /* MOBILE SCORECARDS – now styled like trial field cards */
+    /* MOBILE SCORECARDS – styled like trial field cards */
     .score-mobile-list{
       display:flex;
       flex-direction:column;
@@ -503,6 +503,47 @@
       font-weight:500;
     }
 
+    /* MOBILE SUMMARY 7 TILES (mobile-only wrapper) */
+    .mobile-summary-tiles{
+      display:none; /* shown only in mobile media query */
+    }
+    .mobile-summary-tiles-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      margin-bottom:8px;
+    }
+    .m-tile{
+      border-radius:10px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      padding:8px 10px;
+      font-size:0.8rem;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .m-tile-label{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.75;
+    }
+    .m-tile-value{
+      font-weight:600;
+      font-size:0.9rem;
+    }
+    .m-tile-note{
+      font-size:0.72rem;
+      opacity:0.8;
+    }
+    .mobile-helper-link{
+      margin-top:4px;
+      width:100%;
+      justify-content:center;
+      text-align:center;
+    }
+
     /* Hidden iframe for print */
     #fv-print-frame{
       position:fixed;
@@ -563,6 +604,10 @@
         display:none;
       }
       .mobile-only{
+        display:block;
+      }
+
+      .mobile-summary-tiles{
         display:block;
       }
     }
@@ -897,6 +942,133 @@
       `).join('');
     }
 
+    /* MOBILE 7-TILE SUMMARY */
+    function renderMobileTiles(){
+      const wrap = $('#mhMobileTiles');
+      if (!wrap) return;
+
+      const s = STATE.summary;
+      const year = STATE.filters.year;
+
+      if (!year || !s.trialName) {
+        wrap.innerHTML = '';
+        return;
+      }
+
+      const farmField = [s.farmName, s.fieldName].filter(Boolean).join(' • ');
+      const varieties = s.varietyCount || 0;
+
+      let plantDateLabel = '';
+      if (s.plantDate) {
+        const d = formatDate(s.plantDate);
+        if (d) plantDateLabel = d;
+      }
+
+      let passSize = '';
+      if (s.plotLengthFt || s.plotWidthFt) {
+        const len = s.plotLengthFt ? `${s.plotLengthFt} ft` : '';
+        const wid = s.plotWidthFt ? `${s.plotWidthFt} ft` : '';
+        passSize = [len, wid].filter(Boolean).join(' × ');
+      }
+
+      let checkName = '';
+      if (s.checkVarietyBrand || s.checkVariety) {
+        checkName = `${s.checkVarietyBrand ? s.checkVarietyBrand + ' ' : ''}${s.checkVariety || ''}`.trim();
+        if (checkName) checkName += ' *';
+      }
+      const checkYieldLabel =
+        (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield))
+          ? `${s.checkAvgYield.toFixed(1)} bu/ac`
+          : '—';
+
+      const top = s.topVariety;
+      let topLabel = '—';
+      if (top) {
+        const nParts = [];
+        if (top.brand) nParts.push(top.brand);
+        if (top.variety) nParts.push(top.variety);
+        let n = nParts.join(' ') || '(Variety)';
+        if (top.isCheck) n += ' *';
+        const y = (typeof top.yieldBuAc === 'number')
+          ? ` • ${top.yieldBuAc.toFixed(1)} bu/ac`
+          : '';
+        const p = (typeof top.pctVsCheck === 'number')
+          ? ` • ${top.pctVsCheck.toFixed(1)}% vs check`
+          : '';
+        topLabel = n + y + p;
+      }
+
+      const sw = s.strongestWinner;
+      let swLabel = '—';
+      if (sw) {
+        const nParts = [];
+        if (sw.brand) nParts.push(sw.brand);
+        if (sw.variety) nParts.push(sw.variety);
+        let n = nParts.join(' ') || '(Variety)';
+        const p = (typeof sw.pctVsCheck === 'number')
+          ? ` • ${sw.pctVsCheck.toFixed(1)}% vs check`
+          : '';
+        swLabel = n + p;
+      }
+
+      wrap.innerHTML = `
+        <div class="mobile-summary-tiles-grid">
+          <!-- 1. Farm / field name -->
+          <div class="m-tile">
+            <div class="m-tile-label">Field</div>
+            <div class="m-tile-value">${farmField ? escapeHtml(farmField) : '—'}</div>
+          </div>
+
+          <!-- 2. Total number of varieties in plot -->
+          <div class="m-tile">
+            <div class="m-tile-label">Varieties in plot</div>
+            <div class="m-tile-value">${escapeHtml(String(varieties))}</div>
+          </div>
+
+          <!-- 3. Plant date -->
+          <div class="m-tile">
+            <div class="m-tile-label">Plant date</div>
+            <div class="m-tile-value">${plantDateLabel ? escapeHtml(plantDateLabel) : '—'}</div>
+          </div>
+
+          <!-- 4. Length & width of each pass -->
+          <div class="m-tile">
+            <div class="m-tile-label">Pass size</div>
+            <div class="m-tile-value">${passSize ? escapeHtml(passSize) : '—'}</div>
+            <div class="m-tile-note">Length × width per pass</div>
+          </div>
+
+          <!-- 5. Check variety + avg yield (with *) -->
+          <div class="m-tile">
+            <div class="m-tile-label">Check variety</div>
+            <div class="m-tile-value">
+              ${checkName ? escapeHtml(checkName) : '—'}
+            </div>
+            <div class="m-tile-note">
+              ${checkYieldLabel ? escapeHtml(checkYieldLabel) : '—'}
+            </div>
+          </div>
+
+          <!-- 6. Top yielder -->
+          <div class="m-tile">
+            <div class="m-tile-label">Top yielder</div>
+            <div class="m-tile-value">${escapeHtml(topLabel)}</div>
+          </div>
+
+          <!-- 7. Strongest winner vs check % -->
+          <div class="m-tile">
+            <div class="m-tile-label">Strongest winner vs check</div>
+            <div class="m-tile-value">${escapeHtml(swLabel)}</div>
+          </div>
+        </div>
+
+        <a href="/Farm-vista/docs/plot-layout.html"
+           class="helper-link mobile-helper-link">
+          Plot layout &amp; weighting guide
+        </a>
+      `;
+    }
+
     async function getProductMeta(productId){
       if (!productId) return null;
       if (productMetaCache.has(productId)) {
@@ -933,6 +1105,7 @@
         updateMeta();
         renderSummaryCard();
         renderPlotStats();
+        renderMobileTiles();
         kickOffAiSummary();
         return;
       }
@@ -944,6 +1117,7 @@
         updateMeta();
         renderSummaryCard();
         renderPlotStats();
+        renderMobileTiles();
         kickOffAiSummary();
         return;
       }
@@ -955,6 +1129,7 @@
         updateMeta();
         renderSummaryCard();
         renderPlotStats();
+        renderMobileTiles();
         kickOffAiSummary();
         return;
       }
@@ -964,6 +1139,7 @@
         updateMeta();
         renderSummaryCard();
         renderPlotStats();
+        renderMobileTiles();
         kickOffAiSummary();
         return;
       }
@@ -974,6 +1150,7 @@
         updateMeta();
         renderSummaryCard();
         renderPlotStats();
+        renderMobileTiles();
         kickOffAiSummary();
         return;
       }
@@ -1255,6 +1432,7 @@
       updateMeta();
       renderSummaryCard();
       renderPlotStats();
+      renderMobileTiles();
       kickOffAiSummary();
     }
 
@@ -1940,6 +2118,7 @@
         updateMeta();
         renderSummaryCard();
         renderPlotStats();
+        renderMobileTiles();
         kickOffAiSummary();
         return;
       }
@@ -2018,6 +2197,7 @@
       updateMeta();
       renderSummaryCard();
       renderPlotStats();
+      renderMobileTiles();
       kickOffAiSummary();
     }
 
@@ -2205,8 +2385,12 @@
               </table>
             </div>
 
-            <!-- Mobile stacked cards -->
+            <!-- Mobile stacked cards + 7 tiles -->
             <div class="mobile-only">
+              <!-- 7 summary tiles for mobile -->
+              <div id="mhMobileTiles" class="mobile-summary-tiles"></div>
+
+              <!-- Entry cards -->
               <div id="mhScoreMobile" class="score-mobile-list"></div>
             </div>
           </section>
