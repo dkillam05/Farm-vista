@@ -408,7 +408,11 @@
       db: null,
       company: null,
       siteMap: new Map(),  // siteId -> siteName
-      cropSet: new Set()
+      cropSet: new Set(),
+      // NEW: overall totals including empty bins / sites
+      totalCapacityAll: 0,
+      totalBinsAll: 0,
+      totalSitesAll: 0
     };
 
     function formatDate(d){
@@ -471,28 +475,48 @@
 
       listEl.innerHTML = '';
 
+      // Only bins with grain on hand are shown in the list
       const items = getWorkingItems().filter(it => Number(it.data.onHand || 0) > 0);
 
       if(!items.length){
         emptyEl.style.display = 'block';
         emptyEl.textContent = 'No grain currently on hand in tracked bins for the selected filters.';
-        if(summaryEl) summaryEl.textContent = '0 bu on hand';
+
+        // Even when no grain, still show total tracked capacity if we have it
+        if(summaryEl){
+          const totalCap = STATE.totalCapacityAll || 0;
+          const totalBins = STATE.totalBinsAll || 0;
+          const totalSites = STATE.totalSitesAll || 0;
+          if(totalCap > 0){
+            summaryEl.textContent =
+              `0 bu on hand right now. Total tracked bin capacity: ${formatNumber(totalCap)} bu across ${totalBins} bin${totalBins === 1 ? '' : 's'} at ${totalSites} bin site${totalSites === 1 ? '' : 's'}.`;
+          }else{
+            summaryEl.textContent = '0 bu on hand and no tracked bin capacity found.';
+          }
+        }
         return;
       }
 
       emptyEl.style.display = 'none';
 
       const totalOnHand = items.reduce((sum,it) => sum + (Number(it.data.onHand) || 0), 0);
-      const totalCapacity = items.reduce((sum,it) => sum + (Number(it.data.capacity) || 0), 0);
-      const sites = new Set(items.map(it => it.data.siteId));
-      const crops = new Set(items.map(it => (it.data.lastCropType || 'Unknown crop')));
+      const activeSitesSet = new Set(items.map(it => it.data.siteId));
       const binsCount = items.length;
 
-      const pct = totalCapacity > 0 ? (totalOnHand / totalCapacity) * 100 : 0;
-      const pctStr = totalCapacity > 0 ? `${pct.toFixed(1)}% full` : 'N/A';
+      const totalCapAll = STATE.totalCapacityAll || 0;
+      const totalBinsAll = STATE.totalBinsAll || 0;
+      const totalSitesAll = STATE.totalSitesAll || activeSitesSet.size;
+
+      const pctTracked = totalCapAll > 0 ? (totalOnHand / totalCapAll) * 100 : 0;
+      const pctLabel = totalCapAll > 0
+        ? `${pctTracked.toFixed(1)}% of ${formatNumber(totalCapAll)} bu tracked capacity`
+        : 'Tracked capacity not set';
 
       if(summaryEl){
-        summaryEl.textContent = `${formatNumber(totalOnHand)} bu on hand across ${binsCount} bin${binsCount === 1 ? '' : 's'} at ${sites.size} site${sites.size === 1 ? '' : 's'} (${pctStr})`;
+        summaryEl.textContent =
+          `${formatNumber(totalOnHand)} bu on hand in ${binsCount} bin${binsCount === 1 ? '' : 's'} ` +
+          `at ${activeSitesSet.size} of ${totalSitesAll} bin site${totalSitesAll === 1 ? '' : 's'} ` +
+          `(${pctLabel}).`;
       }
 
       const grouped = groupItemsByCropSite(items);
@@ -693,6 +717,20 @@
             STATE.cropSet.add('Unknown crop');
           }
         });
+
+        // NEW: compute overall totals including empty bins/sites
+        STATE.totalBinsAll = items.length;
+        const allSitesSet = new Set();
+        let totalCapAll = 0;
+        items.forEach(it => {
+          const d = it.data;
+          if(d.siteId){
+            allSitesSet.add(d.siteId);
+          }
+          totalCapAll += Number(d.capacity) || 0;
+        });
+        STATE.totalSitesAll = allSitesSet.size;
+        STATE.totalCapacityAll = totalCapAll;
       }catch(err){
         console.error('Error loading binSites:', err);
         const emptyEl = $('.wo-empty');
