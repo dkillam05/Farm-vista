@@ -903,16 +903,15 @@ export function initMhYieldHelper(options = {}) {
       seedOptions = rows
         .filter(r => r[cropField] === true)
         .filter(r => (r.status || '').toLowerCase() === 'active')
-        .sort((a,b) => {
-          const aBrand = (a.brand || '').toLowerCase();
-          const bBrand = (b.brand || '').toLowerCase();
-          if(aBrand < bBrand) return -1;
-          if(aBrand > bBrand) return 1;
-          const aVar = (a.variety || '').toLowerCase();
-          const bVar = (b.variety || '').toLowerCase();
-          if(aVar < bVar) return -1;
-          if(aVar > bVar) return 1;
-          return 0;
+            seedOptions = rows
+      .filter(r => r[cropField] === true)
+      .filter(r => (r.status || '').toLowerCase() === 'active')
+      .sort((a, b) => {
+        const aLabel = `${a.brand || ''} ${a.variety || ''}`.trim().toLowerCase();
+        const bLabel = `${b.brand || ''} ${b.variety || ''}`.trim().toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      });
+
         });
 
       if(mhState.stage === 'setup'){
