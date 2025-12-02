@@ -214,29 +214,6 @@
       white-space:nowrap;
     }
 
-    .trial-summary-kpis{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      font-size:0.8rem;
-    }
-    .trial-summary-kpi{
-      flex:1 1 90px;
-      min-width:90px;
-    }
-    .kpi-label-small{
-      display:block;
-      text-transform:uppercase;
-      letter-spacing:0.08em;
-      font-size:0.7rem;
-      color:var(--muted,#6b766e);
-      margin-bottom:1px;
-    }
-    .kpi-value-small{
-      font-size:1rem;
-      font-weight:700;
-    }
-
     .trial-summary-top{
       font-size:0.82rem;
       color:var(--muted,#5c665f);
@@ -267,6 +244,35 @@
     .helper-link:hover{
       border-color:rgba(47,108,60,0.7);
       background:rgba(47,108,60,0.12);
+    }
+
+    /* Plot stats tiles (copied style from Field Trial Summary) */
+    .stats-grid{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      margin-top:6px;
+      font-size:0.82rem;
+    }
+    .stat-pill{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:color-mix(in srgb, var(--surface) 82%, var(--border) 18%);
+      min-width:0;
+    }
+    .stat-label{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.75;
+    }
+    .stat-value{
+      font-weight:700;
+      font-size:0.96rem;
     }
 
     /* AI summary card (Plot Summary) */
@@ -441,10 +447,6 @@
     .score-card-variety{
       font-weight:600;
       font-size:0.95rem;
-    }
-    .score-card-brand{
-      font-size:0.8rem;
-      opacity:0.8;
     }
     .score-card-adv{
       font-size:0.86rem;
@@ -829,10 +831,6 @@
             : ''}`
         : 'Strongest winner vs check will appear here once more strips are entered.';
 
-      const checkAvgLabel = (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield))
-        ? s.checkAvgYield.toFixed(1)
-        : '—';
-
       card.innerHTML = `
         <div class="trial-summary-head">
           <div>
@@ -851,25 +849,6 @@
             : ''}
         </div>
 
-        <div class="trial-summary-kpis">
-          <div class="trial-summary-kpi">
-            <span class="kpi-label-small">Fields</span>
-            <strong class="kpi-value-small">${s.fieldCount}</strong>
-          </div>
-          <div class="trial-summary-kpi">
-            <span class="kpi-label-small">Strips</span>
-            <strong class="kpi-value-small">${s.stripCount}</strong>
-          </div>
-          <div class="trial-summary-kpi">
-            <span class="kpi-label-small">Varieties</span>
-            <strong class="kpi-value-small">${s.varietyCount}</strong>
-          </div>
-          <div class="trial-summary-kpi">
-            <span class="kpi-label-small">Check Avg (bu/ac)</span>
-            <strong class="kpi-value-small">${checkAvgLabel}</strong>
-          </div>
-        </div>
-
         <div class="trial-summary-top">
           ${topLine}
         </div>
@@ -884,6 +863,38 @@
           </a>
         </div>
       `;
+    }
+
+    function renderPlotStats(){
+      const grid = $('#plotStats');
+      if (!grid) return;
+
+      const s = STATE.summary;
+      const year = STATE.filters.year;
+
+      if (!year || !s.trialName) {
+        grid.innerHTML = '';
+        return;
+      }
+
+      const items = [
+        { label: 'Fields in plot',   value: s.fieldCount || 0 },
+        { label: 'Strips in plot',   value: s.stripCount || 0 },
+        { label: 'Varieties in plot', value: s.varietyCount || 0 },
+        {
+          label: 'Check avg (bu/ac)',
+          value: (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield))
+            ? s.checkAvgYield.toFixed(1)
+            : '–'
+        }
+      ];
+
+      grid.innerHTML = items.map(item => `
+        <div class="stat-pill">
+          <div class="stat-label">${escapeHtml(item.label)}</div>
+          <div class="stat-value">${escapeHtml(String(item.value))}</div>
+        </div>
+      `).join('');
     }
 
     async function getProductMeta(productId){
@@ -921,6 +932,7 @@
       if(!yearFilter || !trialId){
         updateMeta();
         renderSummaryCard();
+        renderPlotStats();
         kickOffAiSummary();
         return;
       }
@@ -931,6 +943,7 @@
         console.warn('[MH Scoreboard] selected trial not found:', trialId);
         updateMeta();
         renderSummaryCard();
+        renderPlotStats();
         kickOffAiSummary();
         return;
       }
@@ -941,6 +954,7 @@
         console.warn('[MH Scoreboard] selected trial is not Multiple Hybrid Trial');
         updateMeta();
         renderSummaryCard();
+        renderPlotStats();
         kickOffAiSummary();
         return;
       }
@@ -949,6 +963,7 @@
         console.warn('[MH Scoreboard] selected trial cropYear mismatch year filter');
         updateMeta();
         renderSummaryCard();
+        renderPlotStats();
         kickOffAiSummary();
         return;
       }
@@ -958,6 +973,7 @@
         console.warn('[MH Scoreboard] selected trial status not active/completed:', st);
         updateMeta();
         renderSummaryCard();
+        renderPlotStats();
         kickOffAiSummary();
         return;
       }
@@ -1238,6 +1254,7 @@
       console.log('[MH Scoreboard] Entry rows:', STATE.rows.length);
       updateMeta();
       renderSummaryCard();
+      renderPlotStats();
       kickOffAiSummary();
     }
 
@@ -1922,6 +1939,7 @@
         STATE.summary = createEmptySummary();
         updateMeta();
         renderSummaryCard();
+        renderPlotStats();
         kickOffAiSummary();
         return;
       }
@@ -1999,6 +2017,7 @@
       await populateTrialFilterOptions();
       updateMeta();
       renderSummaryCard();
+      renderPlotStats();
       kickOffAiSummary();
     }
 
@@ -2131,6 +2150,11 @@
             <p class="trial-summary-empty">
               Select crop year and Variety Plot trial to see a variety scoreboard summary.
             </p>
+          </section>
+
+          <!-- Plot stats tiles -->
+          <section aria-label="Plot stats">
+            <div id="plotStats" class="stats-grid"></div>
           </section>
 
           <!-- AI Plot Summary -->
