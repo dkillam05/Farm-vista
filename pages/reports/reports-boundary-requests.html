@@ -291,6 +291,52 @@
       font-size:0.92rem;
     }
 
+    /* NEW: photos section inside detail panel */
+    .wo-detail-photos{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      display:none;
+      flex-direction:column;
+      gap:6px;
+    }
+    .wo-detail-photos-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+    }
+    .wo-detail-photos-grid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .photo-thumb{
+      border:none;
+      padding:0;
+      margin:0;
+      border-radius:8px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:var(--surface);
+      cursor:pointer;
+      display:inline-flex;
+      align-items:stretch;
+      justify-content:stretch;
+    }
+    .photo-thumb img{
+      display:block;
+      width:80px;
+      height:80px;
+      object-fit:cover;
+    }
+    @media (min-width:800px){
+      .photo-thumb img{
+        width:96px;
+        height:96px;
+      }
+    }
+
     .wo-detail-notes {
       margin-top:8px;
       padding-top:8px;
@@ -344,6 +390,68 @@
       height:0;
       border:0;
       visibility:hidden;
+    }
+
+    /* NEW: full-screen photo modal */
+    .photo-modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,0.7);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      z-index:9999;
+    }
+    .photo-modal-backdrop[hidden]{
+      display:none;
+    }
+    .photo-modal{
+      background:var(--surface,#fff);
+      border-radius:14px;
+      max-width:min(900px, 94vw);
+      max-height:min(700px, 90vh);
+      padding:10px 10px 14px;
+      box-shadow:0 20px 45px rgba(0,0,0,0.45);
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .photo-modal-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.9rem;
+    }
+    .photo-modal-title{
+      font-weight:600;
+    }
+    .photo-modal-close{
+      border:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .photo-modal-imgwrap{
+      flex:1 1 auto;
+      min-height:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .photo-modal-imgwrap img{
+      max-width:100%;
+      max-height:64vh;
+      border-radius:10px;
+      object-fit:contain;
+    }
+    .photo-modal-caption{
+      font-size:0.8rem;
+      opacity:0.8;
+      margin-top:2px;
     }
   </style>
 
@@ -496,7 +604,45 @@
       $('.wo-detail-grid', panel).innerHTML = '';
       $('.wo-detail-notes-body', panel).textContent = '';
       $('.wo-detail-footer', panel).innerHTML = '';
+
+      const photosWrap = $('.wo-detail-photos', panel);
+      const photosGrid = $('#woDetailPhotosGrid');
+      if (photosWrap) photosWrap.style.display = 'none';
+      if (photosGrid) photosGrid.innerHTML = '';
     }
+
+    // ===== NEW: photo modal helpers =====
+    function openPhotoModal(photo){
+      const backdrop = $('#photoModal');
+      const imgEl = $('#photoModalImg');
+      const capEl = $('#photoModalCaption');
+
+      if(!backdrop || !imgEl || !capEl) return;
+
+      imgEl.src = photo.url || '';
+      imgEl.alt = photo.name || 'Boundary request photo';
+      capEl.textContent = photo.name || '';
+
+      backdrop.hidden = false;
+      // light focus management
+      imgEl.focus?.();
+    }
+
+    function closePhotoModal(){
+      const backdrop = $('#photoModal');
+      const imgEl = $('#photoModalImg');
+      const capEl = $('#photoModalCaption');
+      if(!backdrop) return;
+      backdrop.hidden = true;
+      if(imgEl){
+        imgEl.src = '';
+        imgEl.alt = '';
+      }
+      if(capEl){
+        capEl.textContent = '';
+      }
+    }
+    // ====================================
 
     function renderDetails(){
       const panel = $('.wo-detail-panel');
@@ -517,6 +663,7 @@
       const createdAt = d._createdAtDate || null;
       const createdStr = formatDateTime(createdAt);
       const notes = d.notes || '';
+      const photos = Array.isArray(d.photos) ? d.photos.filter(p => p && (p.url || p.path)) : [];
 
       panel.dataset.id = item.id;
       $('.wo-detail-title', panel).textContent =
@@ -545,13 +692,45 @@
         </div>
       `;
 
+      // Notes
       $('.wo-detail-notes-body', panel).textContent = notes || 'No notes recorded for this request.';
 
+      // Status footer
       const footer = $('.wo-detail-footer', panel);
       footer.innerHTML = `
         Current status:
         <span class="wo-detail-pill">${status || 'unknown'}</span>
       `;
+
+      // NEW: Photos thumbnails
+      const photosWrap = $('.wo-detail-photos', panel);
+      const photosGrid = $('#woDetailPhotosGrid');
+      if (photosWrap && photosGrid){
+        photosGrid.innerHTML = '';
+        if (photos.length){
+          photosWrap.style.display = 'flex';
+          photos.forEach((p, idx) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'photo-thumb';
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.src = p.url || p.path || '';
+            img.alt = p.name || `Photo ${idx+1}`;
+            btn.setAttribute('aria-label', p.name || `View photo ${idx+1}`);
+            btn.appendChild(img);
+            btn.addEventListener('click', () => {
+              openPhotoModal({
+                url: img.src,
+                name: img.alt
+              });
+            });
+            photosGrid.appendChild(btn);
+          });
+        } else {
+          photosWrap.style.display = 'none';
+        }
+      }
 
       panel.style.display = 'flex';
     }
@@ -821,7 +1000,7 @@
         grouped
       });
 
-      // ======= NEW: print via hidden iframe, no new tab =======
+      // print via hidden iframe, no new tab
       let iframe = document.getElementById('fv-print-frame');
       if (!iframe){
         iframe = document.createElement('iframe');
@@ -836,7 +1015,6 @@
       doc.write(html);
       doc.close();
 
-      // Give the iframe a moment to render before printing
       setTimeout(() => {
         try{
           win.focus();
@@ -1236,6 +1414,23 @@
         clearDetails();
       });
 
+      // NEW: photo modal wiring
+      const photoModal = $('#photoModal');
+      const photoModalClose = $('#photoModalClose');
+      if (photoModal && photoModalClose){
+        photoModalClose.addEventListener('click', closePhotoModal);
+        photoModal.addEventListener('click', (e) => {
+          if (e.target === photoModal){
+            closePhotoModal();
+          }
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape'){
+            closePhotoModal();
+          }
+        });
+      }
+
       await loadBoundaryRequests();
       populateFarmFilterFromItems();
 
@@ -1346,6 +1541,12 @@
               <!-- filled by JS -->
             </div>
 
+            <!-- NEW: photos row -->
+            <div class="wo-detail-photos">
+              <div class="wo-detail-photos-label">Photos</div>
+              <div class="wo-detail-photos-grid" id="woDetailPhotosGrid"></div>
+            </div>
+
             <div class="wo-detail-notes">
               <div class="wo-detail-notes-label">Notes</div>
               <div class="wo-detail-notes-body"></div>
@@ -1363,6 +1564,20 @@
           </div>
         </div>
       </section>
+    </div>
+
+    <!-- NEW: image preview modal -->
+    <div id="photoModal" class="photo-modal-backdrop" hidden>
+      <div class="photo-modal" role="dialog" aria-modal="true" aria-label="Photo preview">
+        <div class="photo-modal-header">
+          <div class="photo-modal-title">Boundary request photo</div>
+          <button type="button" id="photoModalClose" class="photo-modal-close">Close</button>
+        </div>
+        <div class="photo-modal-imgwrap">
+          <img id="photoModalImg" src="" alt="" />
+        </div>
+        <div id="photoModalCaption" class="photo-modal-caption"></div>
+      </div>
     </div>
 
     <!-- Hidden iframe used for print so we don't open a new tab -->
