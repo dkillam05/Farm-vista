@@ -246,11 +246,6 @@
       gap:4px;
       cursor:pointer;
     }
-    .helper-link::after{
-      content:'↗';
-      font-size:0.75rem;
-      opacity:0.8;
-    }
     .helper-link:hover{
       border-color:rgba(47,108,60,0.7);
       background:rgba(47,108,60,0.12);
@@ -292,7 +287,7 @@
       width:100%;
       border-collapse:collapse;
       font-size:0.8rem;
-      min-width:720px;
+      min-width:620px;
     }
 
     .score-table thead{
@@ -604,7 +599,11 @@
         fieldCount: 0,
         stripCount: 0,
         varietyCount: 0,
-        topVariety: null
+        topVariety: null,
+        plantDate: null,
+        plotLengthFt: null,
+        plotWidthFt: null,
+        checkAvgYield: null
       };
     }
 
@@ -625,6 +624,19 @@
       return String(str ?? '').replace(/[&<>"']/g, m => (
         { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
       ));
+    }
+
+    function coerceDate(val){
+      if(!val) return null;
+      try{
+        if (val.toDate && typeof val.toDate === 'function') {
+          return val.toDate();
+        }
+      }catch{}
+      if (val instanceof Date) return val;
+      const n = Date.parse(val);
+      if (!Number.isNaN(n)) return new Date(n);
+      return null;
     }
 
     function formatDate(d){
@@ -656,7 +668,7 @@
       const s = STATE.summary;
 
       if(!year || !s.trialName){
-        meta.textContent = 'Choose crop year and Multiple Hybrid trial. Scoreboard will populate once MH strips are available.';
+        meta.textContent = 'Choose crop year and Variety Plot trial. Scoreboard will populate once strips are available.';
         return;
       }
 
@@ -679,7 +691,7 @@
       const year = STATE.filters.year;
 
       if(!year || !s.trialName){
-        card.innerHTML = `<p class="trial-summary-empty">Select crop year and Multiple Hybrid trial to see a variety scoreboard summary.</p>`;
+        card.innerHTML = `<p class="trial-summary-empty">Select crop year and Variety Plot trial to see a variety scoreboard summary.</p>`;
         return;
       }
 
@@ -698,7 +710,7 @@
         ? `
           <div class="trial-summary-top">
             Top variety:
-            <strong>${escapeHtml(top.variety || '(Variety)')}</strong>
+            <strong>${escapeHtml(top.variety || '(Variety)')}${top.isCheck ? ' *' : ''}</strong>
             ${top.brand ? ' · ' + escapeHtml(top.brand) : ''}
             ${typeof top.yieldBuAc === 'number'
               ? ` • ${top.yieldBuAc.toFixed(1)} bu/ac`
@@ -710,19 +722,43 @@
         `
         : `
           <div class="trial-summary-top">
-            Top variety will appear here once Multiple Hybrid strips are entered for this trial.
+            Top variety will appear here once Variety Plot strips are entered for this trial.
           </div>
         `;
+
+      const layoutParts = [];
+      if (s.plantDate) {
+        const d = formatDate(s.plantDate);
+        if (d) layoutParts.push(`Planted ${d}`);
+      }
+      if (s.plotLengthFt || s.plotWidthFt) {
+        const len = s.plotLengthFt ? `${s.plotLengthFt} ft` : '';
+        const wid = s.plotWidthFt ? `${s.plotWidthFt} ft pass` : '';
+        const combo = [len, wid].filter(Boolean).join(' × ');
+        if (combo) layoutParts.push(`Plot layout ${combo}`);
+      }
+      if (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield)) {
+        layoutParts.push(`Check avg ${s.checkAvgYield.toFixed(1)} bu/ac`);
+      }
+
+      const layoutLine = layoutParts.length
+        ? `<div class="trial-summary-meta">${layoutParts.map(escapeHtml).join(' • ')}</div>`
+        : '';
+
+      const checkAvgLabel = (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield))
+        ? s.checkAvgYield.toFixed(1)
+        : '—';
 
       card.innerHTML = `
         <div class="trial-summary-head">
           <div>
             <div class="trial-summary-title">
-              ${escapeHtml(s.trialName || 'Multiple Hybrid Trial')}
+              ${escapeHtml(s.trialName || 'Variety Plot Trial')}
             </div>
             <div class="trial-summary-meta">
               ${metaParts.join(' • ')}
             </div>
+            ${layoutLine}
           </div>
           ${statusLabel
             ? `<span class="status-chip">${escapeHtml(statusLabel)}</span>`
@@ -742,14 +778,16 @@
             <span class="kpi-label-small">Varieties</span>
             <strong class="kpi-value-small">${s.varietyCount}</strong>
           </div>
+          <div class="trial-summary-kpi">
+            <span class="kpi-label-small">Check Avg (bu/ac)</span>
+            <strong class="kpi-value-small">${checkAvgLabel}</strong>
+          </div>
         </div>
 
         ${topHtml}
 
         <div class="trial-summary-footer">
           <a href="/Farm-vista/pages/docs/plot-layout.html"
-             target="_blank"
-             rel="noopener"
              class="helper-link">
             Plot layout &amp; weighting guide
           </a>
@@ -806,10 +844,16 @@
         return;
       }
 
-      STATE.summary.trialName = tData.trialName || '(Unnamed MH trial)';
+      STATE.summary.trialName = tData.trialName || '(Unnamed Variety Plot)';
       STATE.summary.cropYear  = tData.cropYear || String(yearFilter);
       STATE.summary.crop      = tData.crop || tData.cropType || '';
       STATE.summary.status    = tData.status || '';
+
+      // best-effort plant date from trial root, if present
+      if (tData.plantDate && !STATE.summary.plantDate) {
+        const d = coerceDate(tData.plantDate);
+        if (d) STATE.summary.plantDate = d;
+      }
 
       const fieldsSnap = await getDocs(collection(trialRef, 'fields'));
 
@@ -817,6 +861,9 @@
       let totalTestStrips = 0;
 
       const scoreboardMap = new Map();
+
+      let globalCheckSumAll = 0;
+      let globalCheckCountAll = 0;
 
       function getVarietyBucket(brand, variety, trait, maturity, trialName){
         const key = [
@@ -836,7 +883,8 @@
             yields: [],
             pctVsChecks: [],
             trialName: trialName || '',
-            farmFieldSet: new Set()
+            farmFieldSet: new Set(),
+            isCheck: false
           };
           scoreboardMap.set(key, bucket);
         }
@@ -855,8 +903,22 @@
         const mh = mhSnap.data() || {};
         const blocks = Array.isArray(mh.blocks) ? mh.blocks : [];
 
+        // pick up plant date / layout from the first mh state we see
+        if (!STATE.summary.plantDate && mh.plantDate) {
+          const d = coerceDate(mh.plantDate);
+          if (d) STATE.summary.plantDate = d;
+        }
+        if (STATE.summary.plotLengthFt == null) {
+          const len = mh.plotLengthFt ?? mh.stripLengthFt ?? mh.lengthFt ?? null;
+          if (len != null) STATE.summary.plotLengthFt = Number(len);
+        }
+        if (STATE.summary.plotWidthFt == null) {
+          const wid = mh.passWidthFt ?? mh.plotWidthFt ?? mh.stripWidthFt ?? mh.widthFt ?? null;
+          if (wid != null) STATE.summary.plotWidthFt = Number(wid);
+        }
+
         const strips = [];
-        // IMPORTANT: allow missing entryNum – fall back to array index
+        // allow missing entryNum – fall back to array index
         blocks.forEach((b, idx) => {
           if (!b || b.voided) return;
 
@@ -871,7 +933,7 @@
           } else if (typeof b.rowIndex === 'number') {
             entryNum = b.rowIndex;
           } else {
-            entryNum = idx + 1; // <— use array order as strip position
+            entryNum = idx + 1;
           }
           if (!Number.isFinite(entryNum)) return;
 
@@ -897,9 +959,14 @@
         const checks = strips.filter(s => s.isCheck);
         const tests  = strips.filter(s => !s.isCheck);
 
-        if (!tests.length) continue;
-
         totalTestStrips += tests.length;
+
+        if (checks.length) {
+          for (const c of checks) {
+            globalCheckSumAll += c.yieldBuPerAc || 0;
+            globalCheckCountAll += 1;
+          }
+        }
 
         let globalCheckAvg = null;
         if (checks.length) {
@@ -907,19 +974,20 @@
           globalCheckAvg = sum / checks.length;
         }
 
-        for (const t of tests) {
+        // now push ALL strips (tests and checks) into buckets
+        for (const s of strips) {
           let pctVsCheck = null;
 
-          if (checks.length && globalCheckAvg != null && globalCheckAvg > 0) {
+          if (!s.isCheck && checks.length && globalCheckAvg != null && globalCheckAvg > 0) {
             let leftCheck  = null;
             let rightCheck = null;
 
             for (const c of checks) {
-              if (c.entryNum < t.entryNum) {
+              if (c.entryNum < s.entryNum) {
                 if (!leftCheck || c.entryNum > leftCheck.entryNum) {
                   leftCheck = c;
                 }
-              } else if (c.entryNum > t.entryNum) {
+              } else if (c.entryNum > s.entryNum) {
                 if (!rightCheck || c.entryNum < rightCheck.entryNum) {
                   rightCheck = c;
                 }
@@ -934,8 +1002,8 @@
             let localPart = 0;
 
             if (leftCheck && rightCheck) {
-              const dL = t.entryNum - leftCheck.entryNum;
-              const dR = rightCheck.entryNum - t.entryNum;
+              const dL = s.entryNum - leftCheck.entryNum;
+              const dR = rightCheck.entryNum - s.entryNum;
               const denom = dL + dR;
 
               if (denom > 0) {
@@ -954,19 +1022,22 @@
             const effectiveCheck = globalPart + localPart;
 
             if (effectiveCheck > 0) {
-              pctVsCheck = ((t.yieldBuPerAc - effectiveCheck) / effectiveCheck) * 100;
+              pctVsCheck = ((s.yieldBuPerAc - effectiveCheck) / effectiveCheck) * 100;
             }
+          } else if (s.isCheck && globalCheckAvg != null && globalCheckAvg > 0) {
+            // define check vs itself as 0% for clarity
+            pctVsCheck = 0;
           }
 
           const bucket = getVarietyBucket(
-            t.brand,
-            t.variety,
-            t.trait,
-            t.maturity,
+            s.brand,
+            s.variety,
+            s.trait,
+            s.maturity,
             STATE.summary.trialName
           );
 
-          bucket.yields.push(t.yieldBuPerAc);
+          bucket.yields.push(s.yieldBuPerAc);
           if (typeof pctVsCheck === 'number' && isFinite(pctVsCheck)) {
             bucket.pctVsChecks.push(pctVsCheck);
           }
@@ -976,10 +1047,12 @@
               [farmName, fieldName].filter(Boolean).join(' • ')
             );
           }
+
+          if (s.isCheck) {
+            bucket.isCheck = true;
+          }
         }
       }
-
-      const nfYield = new Intl.NumberFormat(undefined,{maximumFractionDigits:1});
 
       const rows = [];
 
@@ -992,13 +1065,6 @@
           avgPct = bucket.pctVsChecks.reduce((a,b) => a + b, 0) / bucket.pctVsChecks.length;
         }
 
-        let farmField = '';
-        if (bucket.farmFieldSet.size === 1) {
-          farmField = Array.from(bucket.farmFieldSet)[0];
-        } else if (bucket.farmFieldSet.size > 1) {
-          farmField = `${bucket.farmFieldSet.size} fields`;
-        }
-
         rows.push({
           brand:    bucket.brand,
           variety:  bucket.variety,
@@ -1008,7 +1074,8 @@
           moisture: null,
           pctVsCheck: avgPct,
           trialName: STATE.summary.trialName,
-          farmField
+          farmField: '',           // removed from visible table
+          isCheck:  !!bucket.isCheck
         });
       });
 
@@ -1023,13 +1090,20 @@
       STATE.summary.stripCount   = totalTestStrips;
       STATE.summary.varietyCount = rows.length;
 
+      if (globalCheckCountAll > 0) {
+        STATE.summary.checkAvgYield = globalCheckSumAll / globalCheckCountAll;
+      } else {
+        STATE.summary.checkAvgYield = null;
+      }
+
       if (rows.length) {
         const top = rows[0];
         STATE.summary.topVariety = {
           brand: top.brand,
           variety: top.variety,
           yieldBuAc: top.yieldBuAc,
-          pctVsCheck: top.pctVsCheck
+          pctVsCheck: top.pctVsCheck,
+          isCheck: top.isCheck
         };
       }
 
@@ -1047,8 +1121,8 @@
       if(!rows.length){
         tbody.innerHTML = `
           <tr class="score-placeholder-row">
-            <td colspan="9">
-              Select crop year and Multiple Hybrid trial. Variety rows will appear once MH strips are available for that trial.
+            <td colspan="7">
+              Select crop year and Variety Plot trial. Variety rows will appear once strips are available for that trial.
             </td>
           </tr>
         `;
@@ -1063,6 +1137,8 @@
           ? `<span class="rank-pill"><strong>${row.rank}</strong> <span>rank</span></span>`
           : `<span class="rank-pill"><strong>—</strong> <span>rank</span></span>`;
 
+        const varietyLabel = escapeHtml(row.variety || '') + (row.isCheck ? ' *' : '');
+
         const y = (typeof row.yieldBuAc === 'number') ? nfYield.format(row.yieldBuAc) : '';
         const p = (typeof row.pctVsCheck === 'number') ? nfPct.format(row.pctVsCheck) + '%' : '';
 
@@ -1070,13 +1146,11 @@
           <tr>
             <td>${rankChip}</td>
             <td>${escapeHtml(row.brand || '')}</td>
-            <td>${escapeHtml(row.variety || '')}</td>
+            <td>${varietyLabel}</td>
             <td>${escapeHtml(row.trait || '')}</td>
             <td>${escapeHtml(row.maturity || '')}</td>
             <td class="cell-right">${y}</td>
             <td class="cell-right">${p}</td>
-            <td>${escapeHtml(row.trialName || '')}</td>
-            <td>${escapeHtml(row.farmField || '')}</td>
           </tr>
         `;
       }).join('');
@@ -1091,7 +1165,7 @@
       if(!rows.length){
         container.innerHTML = `
           <div class="score-mobile-empty">
-            Select crop year and Multiple Hybrid trial above. Variety rows will appear once MH strips are available.
+            Select crop year and Variety Plot trial above. Variety rows will appear once strips are available.
           </div>
         `;
         return;
@@ -1105,15 +1179,14 @@
         const y = (typeof row.yieldBuAc === 'number') ? nfYield.format(row.yieldBuAc) : '—';
         const p = (typeof row.pctVsCheck === 'number') ? nfPct.format(row.pctVsCheck) + '%' : '—';
 
-        const trial = escapeHtml(row.trialName || '');
-        const farmField = escapeHtml(row.farmField || '');
+        const varietyLabel = (escapeHtml(row.variety || '') || '(Variety not set)') + (row.isCheck ? ' *' : '');
 
         return `
           <article class="score-card">
             <div class="score-card-header">
               <div class="score-card-main">
                 <div class="score-card-rank">${rankLabel}</div>
-                <div class="score-card-variety">${escapeHtml(row.variety || '') || '(Variety not set)'}</div>
+                <div class="score-card-variety">${varietyLabel}</div>
                 <div class="score-card-brand">${escapeHtml(row.brand || '')}</div>
               </div>
             </div>
@@ -1121,6 +1194,7 @@
             <div class="score-card-tags">
               ${row.trait ? `<span class="score-card-chip">${escapeHtml(row.trait)}</span>` : ''}
               ${row.maturity ? `<span class="score-card-chip">${escapeHtml(row.maturity)} RM</span>` : ''}
+              ${row.isCheck ? `<span class="score-card-chip">Check *</span>` : ''}
             </div>
 
             <div class="score-card-metrics">
@@ -1134,10 +1208,7 @@
               </div>
             </div>
 
-            <div class="score-card-footer">
-              ${trial ? `<span>Trial: ${trial}</span>` : ''}
-              ${farmField ? `<span>• ${farmField}</span>` : ''}
-            </div>
+            <div class="score-card-footer"></div>
           </article>
         `;
       }).join('');
@@ -1506,8 +1577,6 @@
                   <th style="width:10%;">Maturity</th>
                   <th style="width:10%;">Yield (bu/ac)</th>
                   <th style="width:10%;">% vs Check</th>
-                  <th style="width:12%;">Trial</th>
-                  <th>Farm / Field</th>
                 </tr>
               </thead>
               <tbody>
@@ -1516,18 +1585,17 @@
                   const p = (typeof r.pctVsCheck === 'number') ? new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(r.pctVsCheck) + '%' : '';
 
                   const rankLabel = r.rank != null ? '#' + r.rank : '—';
+                  const varietyLabel = (r.variety || '') + (r.isCheck ? ' *' : '');
 
                   return `
                     <tr>
                       <td>${escapeHtml(rankLabel)}</td>
                       <td>${escapeHtml(r.brand || '')}</td>
-                      <td>${escapeHtml(r.variety || '')}</td>
+                      <td>${escapeHtml(varietyLabel)}</td>
                       <td>${escapeHtml(r.trait || '')}</td>
                       <td>${escapeHtml(r.maturity || '')}</td>
                       <td class="cell-right">${escapeHtml(y)}</td>
                       <td class="cell-right">${escapeHtml(p)}</td>
-                      <td>${escapeHtml(r.trialName || '')}</td>
-                      <td>${escapeHtml(r.farmField || '')}</td>
                     </tr>
                   `;
                 }).join('')}
@@ -1622,7 +1690,7 @@
 
         mhTrials.push({
           id: docSnap.id,
-          name: d.trialName || '(Unnamed MH trial)'
+          name: d.trialName || '(Unnamed Variety Plot)'
         });
       });
 
@@ -1631,7 +1699,7 @@
       if (!mhTrials.length) {
         const opt = document.createElement('option');
         opt.value = '';
-        opt.textContent = 'No Multiple Hybrid trials';
+        opt.textContent = 'No Variety Plot trials';
         trialSel.appendChild(opt);
         trialSel.disabled = true;
 
@@ -1778,6 +1846,7 @@
             <h1>Multiple Hybrid Trial Scoreboard</h1>
             <p class="muted">
               Variety-level scoreboard for Multiple Hybrid trials, using MH distance-weighted check math with equal weighting per strip.
+              Varieties marked with * are checks.
             </p>
           </div>
         </header>
@@ -1793,7 +1862,7 @@
               </button>
             </div>
             <div class="page-header-meta" id="mhSummaryMeta">
-              Choose crop year and Multiple Hybrid trial. Scoreboard will populate once MH strips are available.
+              Choose crop year and Variety Plot trial. Scoreboard will populate once strips are available.
             </div>
           </div>
 
@@ -1804,14 +1873,14 @@
             </div>
 
             <div class="filter-field">
-              <label class="filter-label" for="filterTrial">MH Trial</label>
+              <label class="filter-label" for="filterTrial">Variety Plots</label>
               <select id="filterTrial" class="filter-select"></select>
             </div>
           </div>
 
           <section class="trial-summary" id="trialSummaryCard">
             <p class="trial-summary-empty">
-              Select crop year and Multiple Hybrid trial to see a variety scoreboard summary.
+              Select crop year and Variety Plot trial to see a variety scoreboard summary.
             </p>
           </section>
 
@@ -1822,6 +1891,7 @@
                 <path d="M11.2 7.2h1.6v1.6h-1.6V7.2Zm0 3.2h1.6v6.4h-1.6v-6.4Z" fill="currentColor"/>
               </svg>
               Scoreboard is one row per variety. % vs check uses the Multiple Hybrid global + local distance-weighted check yield formula.
+              Varieties marked with * are check strips.
             </div>
 
             <div class="score-table-wrap desktop-only">
@@ -1835,14 +1905,12 @@
                     <th>Maturity</th>
                     <th class="cell-right">Yield (bu/ac)</th>
                     <th class="cell-right">% vs Check</th>
-                    <th>Trial</th>
-                    <th>Farm / Field</th>
                   </tr>
                 </thead>
                 <tbody id="mhScoreBody">
                   <tr class="score-placeholder-row">
-                    <td colspan="9">
-                      Select crop year and Multiple Hybrid trial above. Variety rows will appear once MH strips are available.
+                    <td colspan="7">
+                      Select crop year and Variety Plot trial above. Variety rows will appear once strips are available.
                     </td>
                   </tr>
                 </tbody>
