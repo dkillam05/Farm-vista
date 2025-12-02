@@ -474,28 +474,6 @@
       }
     }
 
-    // Central reset for the CREATE form (does NOT touch edit form)
-    function resetCreateForm(){
-      // Clear selects
-      crop.value = "";
-      brand.value = "";
-
-      // Fire change so any styled combo wrappers update the visible label
-      crop.dispatchEvent(new Event('change', { bubbles: true }));
-      brand.dispatchEvent(new Event('change', { bubbles: true }));
-
-      // Clear text inputs / textarea
-      variety.value  = "";
-      maturity.value = "";
-      traits.value   = "";
-      notes.value    = "";
-
-      // Reset maturity + traits UI
-      setMaturityUI("");
-      fillTraitOptions("");
-      traitHelp.textContent = "Select crop to load trait options.";
-    }
-
     crop.addEventListener("change", ()=>{
       fillTraitOptions(crop.value);
       setMaturityUI(crop.value);
@@ -547,10 +525,12 @@
       };
     }
 
+    // CLEAR button: hard reset via page reload so styled selects and native state are always in sync
     $("clear").addEventListener("click", ()=>{
-      resetCreateForm();
+      window.location.reload();
     });
 
+    // SAVE button: save to Firestore, then full reload so the form + combos reset cleanly
     $("save").addEventListener("click", async ()=>{
       const err = validateCreate();
       if(err){ alert(err); return; }
@@ -558,9 +538,8 @@
         const payload = buildCreatePayload();
         await addDoc(collection(db, "productsSeed"), payload);
         showToast("Seed saved.");
-        // After save, reset the CREATE form so you can add another seed
-        resetCreateForm();
-        await renderList();
+        // Force a fresh load so crop/brand dropdowns visually go back to "—"
+        window.location.reload();
       }catch(e){
         console.error(e);
         showError("Save failed: " + (e?.message || e));
