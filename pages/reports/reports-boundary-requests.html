@@ -110,6 +110,11 @@
       background:#2F6C3C;
       color:#fff !important;
     }
+    .btn-small{
+      min-width:auto;
+      padding:8px 12px;
+      font-size:0.85rem;
+    }
 
     .page-header-meta{
       font-size:0.9rem;
@@ -374,6 +379,48 @@
       margin-left:6px;
     }
 
+    /* NEW: detail actions (mark completed + delete) */
+    .wo-detail-actions{
+      margin-top:10px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .wo-detail-actions-left{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .wo-detail-actions-right{
+      display:flex;
+      align-items:center;
+      gap:4px;
+    }
+    .btn-mark-completed[disabled]{
+      opacity:0.6;
+      cursor:default;
+    }
+    .trash-btn{
+      border:none;
+      background:transparent;
+      padding:6px;
+      border-radius:999px;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .trash-btn svg{
+      width:18px;
+      height:18px;
+      stroke:#B91C1C;
+      fill:none;
+    }
+    .trash-btn:hover{
+      background:rgba(185,28,28,0.08);
+    }
+
     /* Bottom print button */
     .bottom-actions{
       margin-top:16px;
@@ -471,7 +518,8 @@
       ready,
       getFirestore,
       collection, getDocs,
-      doc, getDoc
+      doc, getDoc,
+      updateDoc, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -609,6 +657,12 @@
       const photosGrid = $('#woDetailPhotosGrid');
       if (photosWrap) photosWrap.style.display = 'none';
       if (photosGrid) photosGrid.innerHTML = '';
+
+      const markBtn = $('#btnMarkCompleted');
+      if (markBtn){
+        markBtn.disabled = true;
+        markBtn.textContent = 'Mark completed';
+      }
     }
 
     // ===== NEW: photo modal helpers =====
@@ -624,7 +678,6 @@
       capEl.textContent = photo.name || '';
 
       backdrop.hidden = false;
-      // light focus management
       imgEl.focus?.();
     }
 
@@ -701,6 +754,16 @@
         Current status:
         <span class="wo-detail-pill">${status || 'unknown'}</span>
       `;
+
+      // NEW: Mark Completed button state
+      const markBtn = $('#btnMarkCompleted');
+      if (markBtn){
+        const isOpen = normalizeStatus(status) === 'open';
+        markBtn.disabled = !isOpen;
+        markBtn.textContent = isOpen
+          ? 'Mark completed'
+          : (status ? `Status: ${status}` : 'Mark completed');
+      }
 
       // NEW: Photos thumbnails
       const photosWrap = $('.wo-detail-photos', panel);
@@ -1395,6 +1458,62 @@
 </html>`;
     }
 
+    async function handleMarkCompleted(){
+      if(!STATE.selectedId){
+        alert('Select a boundary fix request first.');
+        return;
+      }
+      const item = STATE.items.find(it => it.id === STATE.selectedId);
+      if(!item){
+        alert('Could not find this request in memory.');
+        return;
+      }
+      const currentStatus = item.data.status || '';
+      if (normalizeStatus(currentStatus) !== 'open'){
+        // Already not open; nothing to do
+        return;
+      }
+
+      try{
+        const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
+        await updateDoc(ref, {
+          status: 'Completed',
+          updatedAt: new Date()
+        });
+        item.data.status = 'Completed';
+        item.data.updatedAt = new Date();
+
+        // Re-apply filters + refresh list + details
+        applyFilters();
+        renderDetails();
+      }catch(err){
+        console.error('Error marking boundary request completed:', err);
+        alert('Could not mark this request as completed. Check console for details.');
+      }
+    }
+
+    async function handleDeleteRequest(){
+      if(!STATE.selectedId){
+        alert('Select a boundary fix request first.');
+        return;
+      }
+      const confirmDelete = confirm('Delete this boundary fix request? This cannot be undone.');
+      if(!confirmDelete) return;
+
+      try{
+        const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
+        await deleteDoc(ref);
+
+        STATE.items = STATE.items.filter(it => it.id !== STATE.selectedId);
+        STATE.selectedId = null;
+        clearDetails();
+        applyFilters();
+      }catch(err){
+        console.error('Error deleting boundary request:', err);
+        alert('Could not delete this request. Check console for details.');
+      }
+    }
+
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
@@ -1413,6 +1532,16 @@
         STATE.selectedId = null;
         clearDetails();
       });
+
+      // NEW: detail actions
+      const markBtn = $('#btnMarkCompleted');
+      if (markBtn){
+        markBtn.addEventListener('click', handleMarkCompleted);
+      }
+      const deleteBtn = $('#btnDeleteRequest');
+      if (deleteBtn){
+        deleteBtn.addEventListener('click', handleDeleteRequest);
+      }
 
       // NEW: photo modal wiring
       const photoModal = $('#photoModal');
@@ -1554,6 +1683,36 @@
 
             <div class="wo-detail-footer">
               <!-- status pill by JS -->
+            </div>
+
+            <!-- NEW: mark completed + delete actions -->
+            <div class="wo-detail-actions">
+              <div class="wo-detail-actions-left">
+                <button
+                  type="button"
+                  id="btnMarkCompleted"
+                  class="btn btn-primary btn-small btn-mark-completed"
+                >
+                  Mark completed
+                </button>
+              </div>
+              <div class="wo-detail-actions-right">
+                <button
+                  type="button"
+                  id="btnDeleteRequest"
+                  class="trash-btn"
+                  aria-label="Delete boundary request"
+                  title="Delete boundary request"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16" stroke-width="1.8" stroke-linecap="round"/>
+                    <path d="M10 4h4a1 1 0 0 1 1 1v2H9V5a1 1 0 0 1 1-1Z" stroke-width="1.8" stroke-linejoin="round"/>
+                    <path d="M9 11v6" stroke-width="1.8" stroke-linecap="round"/>
+                    <path d="M15 11v6" stroke-width="1.8" stroke-linecap="round"/>
+                    <path d="M6 7h12v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7Z" stroke-width="1.8" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </section>
 
