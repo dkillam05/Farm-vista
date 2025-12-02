@@ -1,11 +1,3 @@
-<!-- ===================================================================
-/Farm-vista/pages/reports/reports-trial-summary.html
-
-Single-trial yield report
- • One trial at a time
- • Desktop: farm/field table layout (unchanged)
- • Mobile: stacked card layout (no horizontal tables)
-===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -488,6 +480,7 @@ Single-trial yield report
       padding:6px 8px;
       border-bottom:1px solid color-mix(in srgb, var(--surface) 88%, var(--border) 12%);
       text-align:left;
+      vertical-align:top;
     }
     table.blocks-table thead{
       background:color-mix(in srgb, var(--surface) 78%, var(--border) 22%);
@@ -500,6 +493,22 @@ Single-trial yield report
     }
     table.blocks-table tbody tr:last-child td{
       border-bottom:none;
+    }
+
+    /* Block meta details inside Notes column */
+    .block-notes-main{
+      margin-bottom:2px;
+    }
+    .block-meta{
+      margin-top:4px;
+      font-size:0.76rem;
+      opacity:0.9;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .block-meta-line strong{
+      font-weight:600;
     }
 
     .thumb-grid{
@@ -515,6 +524,7 @@ Single-trial yield report
       border:1px solid var(--border-subtle,var(--border));
       background:var(--surface-variant, #222);
       display:block;
+      text-decoration:none;
     }
     .thumb img{
       width:100%;
@@ -525,6 +535,38 @@ Single-trial yield report
     .thumb-empty{
       font-size:0.8rem;
       opacity:0.7;
+    }
+
+    /* Non-image file thumbnails */
+    .thumb.thumb-file{
+      background:var(--surface-subtle,#F3F4F6);
+      display:flex;
+      align-items:stretch;
+    }
+    .thumb-file-inner{
+      padding:6px 6px;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:flex-start;
+      gap:3px;
+      width:100%;
+      height:100%;
+      box-sizing:border-box;
+    }
+    .thumb-file-ext{
+      font-size:0.7rem;
+      font-weight:700;
+      text-transform:uppercase;
+    }
+    .thumb-file-name{
+      font-size:0.7rem;
+      line-height:1.1;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
     }
 
     /* Print-type chooser modal */
@@ -896,6 +938,25 @@ Single-trial yield report
       ));
     }
 
+    function formatDate(value){
+      if (!value) return '';
+      try{
+        let d = value;
+        // Firestore Timestamp
+        if (typeof d === 'object' && typeof d.toDate === 'function') {
+          d = d.toDate();
+        } else if (typeof d === 'string') {
+          d = new Date(d);
+        }
+        if (d instanceof Date && !Number.isNaN(d.getTime())) {
+          return d.toLocaleDateString();
+        }
+      }catch(e){
+        console.warn('[trial-summary] formatDate error', e);
+      }
+      return '';
+    }
+
     function computeFieldStats(blocks = []) {
       let checkAc = 0, trialAc = 0, checkBu = 0, trialBu = 0;
 
@@ -931,7 +992,7 @@ Single-trial yield report
         // NEW: identify multi-hybrid trials using seedTrialType
         const seedTypeRaw = (data.seedTrialType || '').toString().toLowerCase();
         const isMultiHybrid =
-          seedTypeRaw.includes('multiple hybrid') ||           // exact phrase
+          seedTypeRaw.includes('multiple hybrid') ||
           (seedTypeRaw.includes('multi') && seedTypeRaw.includes('hybrid'));
 
         const isGoodStatus =
@@ -1421,8 +1482,8 @@ Single-trial yield report
       if (!els.modalBackdrop) return;
 
       const d = field.data;
-      const s = field.stats;
-      const blocks = field.blocks || [];
+      const s = field.stats || {};
+      const blocks = Array.isArray(field.blocks) ? field.blocks : [];
 
       if (els.modalTitle) els.modalTitle.textContent = d.fieldName || 'Field details';
 
@@ -1432,6 +1493,7 @@ Single-trial yield report
       if (typeof d.trialAcres === 'number') subBits.push(`${formatNumber(d.trialAcres, {decimals:1})} trial ac`);
       if (els.modalSub) els.modalSub.textContent = subBits.join(' • ');
 
+      // Summary: use the same stats object used by the main table (combined block stats)
       if (els.modalSummary) {
         const sumHtml = [
           { label: 'Check weighted bu/ac', value: s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
@@ -1449,52 +1511,167 @@ Single-trial yield report
         els.modalSummary.innerHTML = sumHtml;
       }
 
+      // Yield blocks table: show all blocks, including extra meta in the Notes column
       if (els.modalBlocksBody) {
         if (!blocks.length) {
           els.modalBlocksBody.innerHTML = `
             <tr><td colspan="7" class="muted-small">No yield blocks recorded for this field yet.</td></tr>
           `;
         } else {
-          let i = 1;
+          let idx = 1;
           els.modalBlocksBody.innerHTML = blocks.map(b => {
             const c = b.check || {};
             const t = b.trial || {};
-            const blockLabel = `Block ${i++}`;
-            const typeLabel = b.blockType || 'combine';
+
+            const blockLabel   = `Block ${idx++}`;
+            const typeLabel    = (b.blockType || 'combine').toString();
+
+            const checkBu      = typeof c.yieldBuAc === 'number' ? formatNumber(c.yieldBuAc, {decimals:1}) : '–';
+            const trialBu      = typeof t.yieldBuAc === 'number' ? formatNumber(t.yieldBuAc, {decimals:1}) : '–';
+            const checkAcres   = typeof c.acres === 'number' ? formatNumber(c.acres, {decimals:1}) : '–';
+            const trialAcres   = typeof t.acres === 'number' ? formatNumber(t.acres, {decimals:1}) : '–';
+
+            const plantDateStr   = formatDate(b.plantDate);
+            const harvestDateStr = formatDate(b.harvestDate);
+            const combineCount   = (b.combineCount !== undefined && b.combineCount !== null)
+              ? String(b.combineCount)
+              : '';
+
+            const checkVariety = (b.checkVarietyName || '').toString();
+            const trialVariety = (b.trialVarietyName || '').toString();
+
+            const checkLen = (c.lengthFt !== undefined && c.lengthFt !== null) ? `${c.lengthFt} ft` : '';
+            const checkWid = (c.widthFt  !== undefined && c.widthFt  !== null) ? `${c.widthFt} ft` : '';
+            const trialLen = (t.lengthFt !== undefined && t.lengthFt !== null) ? `${t.lengthFt} ft` : '';
+            const trialWid = (t.widthFt  !== undefined && t.widthFt  !== null) ? `${t.widthFt} ft` : '';
+
+            const checkDims = (checkLen || checkWid) ? `${checkLen}${checkLen && checkWid ? ' × ' : ''}${checkWid}` : '';
+            const trialDims = (trialLen || trialWid) ? `${trialLen}${trialLen && trialWid ? ' × ' : ''}${trialWid}` : '';
+
+            const checkMoist = (typeof c.moisture === 'number') ? `${formatNumber(c.moisture, {decimals:1})}%` : '';
+            const trialMoist = (typeof t.moisture === 'number') ? `${formatNumber(t.moisture, {decimals:1})}%` : '';
+
+            const checkLbs = (typeof c.pounds === 'number') ? `${formatNumber(c.pounds, {decimals:0})} lbs` : '';
+            const trialLbs = (typeof t.pounds === 'number') ? `${formatNumber(t.pounds, {decimals:0})} lbs` : '';
+
+            const notes = (b.notes || '').toString().trim();
+
+            const metaLines = [];
+
+            if (plantDateStr || harvestDateStr) {
+              metaLines.push(
+                `<div class="block-meta-line"><strong>Dates:</strong> ${plantDateStr || '—'} → ${harvestDateStr || '—'}</div>`
+              );
+            }
+
+            if (combineCount) {
+              metaLines.push(
+                `<div class="block-meta-line"><strong>Combine passes:</strong> ${escapeHtml(combineCount)}</div>`
+              );
+            }
+
+            if (checkVariety || trialVariety) {
+              const parts = [];
+              if (checkVariety) parts.push(`Check – ${escapeHtml(checkVariety)}`);
+              if (trialVariety) parts.push(`Trial – ${escapeHtml(trialVariety)}`);
+              metaLines.push(
+                `<div class="block-meta-line"><strong>Varieties:</strong> ${parts.join('; ')}</div>`
+              );
+            }
+
+            if (checkDims || trialDims) {
+              const parts = [];
+              if (checkDims) parts.push(`Check plots: ${escapeHtml(checkDims)}`);
+              if (trialDims) parts.push(`Trial plots: ${escapeHtml(trialDims)}`);
+              metaLines.push(
+                `<div class="block-meta-line"><strong>Plot size:</strong> ${parts.join(' • ')}</div>`
+              );
+            }
+
+            if (checkMoist || trialMoist || checkLbs || trialLbs) {
+              const pieces = [];
+              if (checkMoist || checkLbs) {
+                pieces.push(`Check – ${[checkMoist, checkLbs].filter(Boolean).join(', ')}`);
+              }
+              if (trialMoist || trialLbs) {
+                pieces.push(`Trial – ${[trialMoist, trialLbs].filter(Boolean).join(', ')}`);
+              }
+              metaLines.push(
+                `<div class="block-meta-line"><strong>Moisture &amp; weight:</strong> ${pieces.join(' • ')}</div>`
+              );
+            }
+
+            const notesHtml = notes
+              ? `<div class="block-notes-main">${escapeHtml(notes)}</div>`
+              : `<div class="block-notes-main muted-small">No notes recorded for this block.</div>`;
+
+            const metaHtml = metaLines.length
+              ? `<div class="block-meta">${metaLines.join('')}</div>`
+              : '';
 
             return `
               <tr>
                 <td>${blockLabel}</td>
-                <td>${typeLabel}</td>
-                <td class="numeric">${typeof c.yieldBuAc === 'number' ? formatNumber(c.yieldBuAc, {decimals:1}) : '–'}</td>
-                <td class="numeric">${typeof t.yieldBuAc === 'number' ? formatNumber(t.yieldBuAc, {decimals:1}) : '–'}</td>
-                <td class="numeric">${typeof c.acres === 'number' ? formatNumber(c.acres, {decimals:1}) : '–'}</td>
-                <td class="numeric">${typeof t.acres === 'number' ? formatNumber(t.acres, {decimals:1}) : '–'}</td>
-                <td>${(b.notes || '').toString().trim() || '—'}</td>
+                <td>${escapeHtml(typeLabel)}</td>
+                <td class="numeric">${checkBu}</td>
+                <td class="numeric">${trialBu}</td>
+                <td class="numeric">${checkAcres}</td>
+                <td class="numeric">${trialAcres}</td>
+                <td>${notesHtml}${metaHtml}</td>
               </tr>
             `;
           }).join('');
         }
       }
 
+      // Files & photos: aggregate object-style attachments across all blocks
       if (els.modalFiles) {
         const allAttachments = [];
-        for (const b of blocks) {
+
+        blocks.forEach((b, index) => {
           if (Array.isArray(b.attachments)) {
-            for (const url of b.attachments) {
-              if (url && typeof url === 'string') allAttachments.push(url);
-            }
+            b.attachments.forEach(att => {
+              if (att && typeof att === 'object' && att.url) {
+                allAttachments.push({
+                  ...att,
+                  _blockIndex: index + 1
+                });
+              }
+            });
           }
-        }
+        });
 
         if (!allAttachments.length) {
           els.modalFiles.innerHTML = `<div class="thumb-empty">No files or photos are attached to this field’s blocks yet.</div>`;
         } else {
-          els.modalFiles.innerHTML = allAttachments.map(url => `
-            <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb">
-              <img src="${url}" alt="Trial file thumbnail">
-            </a>
-          `).join('');
+          els.modalFiles.innerHTML = allAttachments.map(att => {
+            const url = escapeHtml(att.url);
+            const nameRaw = att.name || '';
+            const name = escapeHtml(nameRaw || `Block ${att._blockIndex} file`);
+            const title = `Block ${att._blockIndex}${nameRaw ? ' • ' + nameRaw : ''}`;
+
+            const ct = (att.contentType || '').toString().toLowerCase();
+            const isImage = ct ? ct.startsWith('image/') : true;
+
+            if (isImage) {
+              return `
+                <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb" title="${escapeHtml(title)}">
+                  <img src="${url}" alt="${name}">
+                </a>
+              `;
+            }
+
+            const extGuess = ct.includes('/') ? ct.split('/').pop().toUpperCase() : 'FILE';
+
+            return `
+              <a href="${url}" target="_blank" rel="noopener noreferrer" class="thumb thumb-file" title="${escapeHtml(title)}">
+                <div class="thumb-file-inner">
+                  <div class="thumb-file-ext">${escapeHtml(extGuess)}</div>
+                  <div class="thumb-file-name">${name}</div>
+                </div>
+              </a>
+            `;
+          }).join('');
         }
       }
 
