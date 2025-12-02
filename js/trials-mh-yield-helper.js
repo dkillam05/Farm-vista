@@ -883,7 +883,7 @@ export function initMhYieldHelper(options = {}) {
 
   // ---------- Firestore load/save ----------
 
-  async function loadSeedProducts(){
+    async function loadSeedProducts(){
     try{
       const db = getDb();
       const baseRef = collection(db, 'productsSeed');
@@ -900,18 +900,14 @@ export function initMhYieldHelper(options = {}) {
 
       const cropField = mhState.cropKind === 'soy' ? 'cropSoy' : 'cropCorn';
 
+      // ✅ Filter by crop + active, then sort A–Z by "Brand Variety"
       seedOptions = rows
         .filter(r => r[cropField] === true)
         .filter(r => (r.status || '').toLowerCase() === 'active')
-            seedOptions = rows
-      .filter(r => r[cropField] === true)
-      .filter(r => (r.status || '').toLowerCase() === 'active')
-      .sort((a, b) => {
-        const aLabel = `${a.brand || ''} ${a.variety || ''}`.trim().toLowerCase();
-        const bLabel = `${b.brand || ''} ${b.variety || ''}`.trim().toLowerCase();
-        return aLabel.localeCompare(bLabel);
-      });
-
+        .sort((a, b) => {
+          const aLabel = `${a.brand || ''} ${a.variety || ''}`.trim().toLowerCase();
+          const bLabel = `${b.brand || ''} ${b.variety || ''}`.trim().toLowerCase();
+          return aLabel.localeCompare(bLabel);
         });
 
       if(mhState.stage === 'setup'){
