@@ -170,7 +170,7 @@
       width:100%;
     }
 
-    /* Summary card */
+    /* Summary card (Variety Plot header) */
     .trial-summary{
       margin-top:8px;
       border-radius:12px;
@@ -269,6 +269,46 @@
       background:rgba(47,108,60,0.12);
     }
 
+    /* AI summary card (Plot Summary) */
+    .ai-card{
+      border-radius:12px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      padding:12px 14px;
+      font-size:0.9rem;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .ai-card-title{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      font-weight:700;
+      font-size:0.9rem;
+    }
+    .ai-chip{
+      font-size:0.7rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      padding:3px 7px;
+      border-radius:999px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:color-mix(in srgb, var(--surface) 82%, var(--border) 18%);
+    }
+    .ai-summary-body{
+      font-size:0.88rem;
+      line-height:1.4;
+    }
+    .ai-summary-note{
+      font-size:0.76rem;
+      opacity:0.7;
+    }
+    .ai-summary-error{
+      font-size:0.86rem;
+      color:var(--danger,#A33A3A);
+    }
+
     /* Scorecard wrapper */
     .scorecard{
       margin-top:8px;
@@ -363,7 +403,7 @@
       display:none;
     }
 
-    /* MOBILE SCORECARDS – styled like field cards */
+    /* MOBILE SCORECARDS – now styled like trial field cards */
     .score-mobile-list{
       display:flex;
       flex-direction:column;
@@ -395,7 +435,7 @@
     .score-card-main{
       display:flex;
       flex-direction:column;
-      gap:2px;
+      gap:4px;
       min-width:0;
     }
     .score-card-variety{
@@ -454,8 +494,11 @@
       font-size:0.78rem;
       opacity:0.85;
       display:flex;
-      flex-wrap:wrap;
-      gap:6px;
+      justify-content:flex-end;
+      margin-top:2px;
+    }
+    .score-card-entry{
+      font-weight:500;
     }
 
     /* Hidden iframe for print */
@@ -582,6 +625,9 @@
     })();
   </script>
 
+  <!-- AI helper for Plot Summary -->
+  <script src="/Farm-vista/js/ai-reports.js"></script>
+
   <script type="module">
     import {
       ready,
@@ -613,10 +659,15 @@
         stripCount: 0,
         varietyCount: 0,
         topVariety: null,
+        strongestWinner: null,
         plantDate: null,
         plotLengthFt: null,
         plotWidthFt: null,
-        checkAvgYield: null
+        checkAvgYield: null,
+        farmName: '',
+        fieldName: '',
+        checkVarietyBrand: '',
+        checkVariety: ''
       };
     }
 
@@ -692,7 +743,7 @@
       if(s.crop) parts.push(s.crop);
       if(s.status) parts.push(s.status);
       parts.push(`${s.varietyCount} varieties`);
-      parts.push(`${s.fieldCount} fields`);
+      parts.push(`${s.fieldCount} field${s.fieldCount === 1 ? '' : 's'}`);
       parts.push(`${s.stripCount} strips`);
 
       meta.textContent = parts.join(' • ');
@@ -720,27 +771,6 @@
         ? (String(s.status).charAt(0).toUpperCase() + String(s.status).slice(1).toLowerCase())
         : '';
 
-      const top = s.topVariety;
-      const topHtml = top
-        ? `
-          <div class="trial-summary-top">
-            Top entry:
-            <strong>${escapeHtml(top.variety || '(Variety)')}${top.isCheck ? ' *' : ''}</strong>
-            ${top.brand ? ' · ' + escapeHtml(top.brand) : ''}
-            ${typeof top.yieldBuAc === 'number'
-              ? ` • ${top.yieldBuAc.toFixed(1)} bu/ac`
-              : ''}
-            ${typeof top.pctVsCheck === 'number'
-              ? ` (${top.pctVsCheck.toFixed(1)}% vs check)`
-              : ''}
-          </div>
-        `
-        : `
-          <div class="trial-summary-top">
-            Top entry will appear here once Variety Plot strips are entered for this trial.
-          </div>
-        `;
-
       const layoutParts = [];
       if (s.plantDate) {
         const d = formatDate(s.plantDate);
@@ -760,6 +790,45 @@
         ? `<div class="trial-summary-meta">${layoutParts.map(escapeHtml).join(' • ')}</div>`
         : '';
 
+      const farmFieldLine = (s.farmName || s.fieldName)
+        ? `<div class="trial-summary-meta">${escapeHtml(s.farmName || '')}${s.farmName && s.fieldName ? ' • ' : ''}${escapeHtml(s.fieldName || '')}</div>`
+        : '';
+
+      const checkParts = [];
+      if (s.checkVarietyBrand || s.checkVariety) {
+        let name = `${s.checkVarietyBrand ? s.checkVarietyBrand + ' ' : ''}${s.checkVariety || ''}`.trim();
+        if (name) checkParts.push(`${name} *`);
+      }
+      if (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield)) {
+        checkParts.push(`${s.checkAvgYield.toFixed(1)} bu/ac`);
+      }
+      const checkLine = checkParts.length
+        ? `<div class="trial-summary-meta">Check: ${checkParts.map(escapeHtml).join(' • ')}</div>`
+        : '';
+
+      const top = s.topVariety;
+      const topLine = top
+        ? `Top yielder:
+          <strong>${escapeHtml(top.variety || '(Variety)')}${top.isCheck ? ' *' : ''}</strong>
+          ${top.brand ? ' · ' + escapeHtml(top.brand) : ''}
+          ${typeof top.yieldBuAc === 'number'
+            ? ` • ${top.yieldBuAc.toFixed(1)} bu/ac`
+            : ''}
+          ${typeof top.pctVsCheck === 'number'
+            ? ` (${top.pctVsCheck.toFixed(1)}% vs check)`
+            : ''}`
+        : 'Top yielder will appear here once Variety Plot strips are entered for this trial.';
+
+      const sw = s.strongestWinner;
+      const swLine = sw
+        ? `Strongest winner vs check:
+          <strong>${escapeHtml(sw.variety || '(Variety)')}</strong>
+          ${sw.brand ? ' · ' + escapeHtml(sw.brand) : ''}
+          ${typeof sw.pctVsCheck === 'number'
+            ? ` • ${sw.pctVsCheck.toFixed(1)}% vs check`
+            : ''}`
+        : 'Strongest winner vs check will appear here once more strips are entered.';
+
       const checkAvgLabel = (typeof s.checkAvgYield === 'number' && Number.isFinite(s.checkAvgYield))
         ? s.checkAvgYield.toFixed(1)
         : '—';
@@ -771,9 +840,11 @@
               ${escapeHtml(s.trialName || 'Variety Plot Trial')}
             </div>
             <div class="trial-summary-meta">
-              ${metaParts.join(' • ')}
+              ${metaParts.join(' • ')} • ${s.varietyCount} varieties
             </div>
+            ${farmFieldLine}
             ${layoutLine}
+            ${checkLine}
           </div>
           ${statusLabel
             ? `<span class="status-chip">${escapeHtml(statusLabel)}</span>`
@@ -799,7 +870,12 @@
           </div>
         </div>
 
-        ${topHtml}
+        <div class="trial-summary-top">
+          ${topLine}
+        </div>
+        <div class="trial-summary-top">
+          ${swLine}
+        </div>
 
         <div class="trial-summary-footer">
           <a href="/Farm-vista/docs/plot-layout.html"
@@ -845,6 +921,7 @@
       if(!yearFilter || !trialId){
         updateMeta();
         renderSummaryCard();
+        kickOffAiSummary();
         return;
       }
 
@@ -854,6 +931,7 @@
         console.warn('[MH Scoreboard] selected trial not found:', trialId);
         updateMeta();
         renderSummaryCard();
+        kickOffAiSummary();
         return;
       }
 
@@ -863,6 +941,7 @@
         console.warn('[MH Scoreboard] selected trial is not Multiple Hybrid Trial');
         updateMeta();
         renderSummaryCard();
+        kickOffAiSummary();
         return;
       }
 
@@ -870,6 +949,7 @@
         console.warn('[MH Scoreboard] selected trial cropYear mismatch year filter');
         updateMeta();
         renderSummaryCard();
+        kickOffAiSummary();
         return;
       }
 
@@ -878,6 +958,7 @@
         console.warn('[MH Scoreboard] selected trial status not active/completed:', st);
         updateMeta();
         renderSummaryCard();
+        kickOffAiSummary();
         return;
       }
 
@@ -900,11 +981,16 @@
 
       let globalCheckSumAll = 0;
       let globalCheckCountAll = 0;
+      let primaryCheckBrand = '';
+      let primaryCheckVariety = '';
 
       for (const fieldDoc of fieldsSnap.docs) {
         const fieldData = fieldDoc.data() || {};
         const farmName  = fieldData.farmName  || '';
         const fieldName = fieldData.fieldName || '';
+
+        if (!STATE.summary.farmName) STATE.summary.farmName = farmName;
+        if (!STATE.summary.fieldName) STATE.summary.fieldName = fieldName;
 
         const mhStateRef = doc(fieldDoc.ref, 'multiHybrid', 'state');
         const mhSnap = await getDoc(mhStateRef);
@@ -938,7 +1024,6 @@
           const yieldNum = Number(rawYield);
           if (!Number.isFinite(yieldNum)) return;
 
-          // each pass gets its own entryNumber
           let entryNum;
           if (b.entryNumber !== null && b.entryNumber !== undefined && b.entryNumber !== '') {
             entryNum = Number(b.entryNumber);
@@ -954,9 +1039,17 @@
             entryNum = idx + 1;
           }
 
+          const isCheck = !!b.isCheck;
+          const moisture = (typeof b.moisturePct === 'number') ? Number(b.moisturePct) : null;
+
+          if (isCheck && !primaryCheckVariety) {
+            primaryCheckBrand = b.brand || '';
+            primaryCheckVariety = b.variety || '';
+          }
+
           strips.push({
             entryNum,
-            isCheck:  !!b.isCheck,
+            isCheck,
             yieldBuPerAc: yieldNum,
             brand:    b.brand    || '',
             variety:  b.variety  || '',
@@ -964,7 +1057,8 @@
             maturity: b.maturity || '',
             productId: b.productId || null,
             farmName,
-            fieldName
+            fieldName,
+            moisture
           });
         });
 
@@ -1059,7 +1153,8 @@
             farmField: farmFieldLabel,
             isCheck:  s.isCheck,
             entryNumber: s.entryNum,
-            rank: null
+            rank: null,
+            moisture: s.moisture
           });
         }
       }
@@ -1074,7 +1169,7 @@
         }
       }
 
-      // Rank per PASS (non-check), by yield
+      // Rank per pass (non-check), by yield
       const sortedForRank = rows
         .filter(r => !r.isCheck && typeof r.yieldBuAc === 'number' && Number.isFinite(r.yieldBuAc))
         .slice()
@@ -1083,6 +1178,23 @@
       let rankCounter = 1;
       for (const r of sortedForRank) {
         r.rank = rankCounter++;
+      }
+
+      // Strongest winner vs check (by %)
+      const sortedByPct = rows
+        .filter(r => !r.isCheck && typeof r.pctVsCheck === 'number' && Number.isFinite(r.pctVsCheck))
+        .slice()
+        .sort((a,b) => (b.pctVsCheck || 0) - (a.pctVsCheck || 0));
+
+      if (sortedByPct.length && sortedByPct[0].pctVsCheck > 0) {
+        const best = sortedByPct[0];
+        STATE.summary.strongestWinner = {
+          brand: best.brand,
+          variety: best.variety,
+          yieldBuAc: best.yieldBuAc,
+          pctVsCheck: best.pctVsCheck,
+          isCheck: false
+        };
       }
 
       // Fixed display order: by entryNumber only (never by yield)
@@ -1095,7 +1207,7 @@
       STATE.rows = rows;
 
       STATE.summary.fieldCount   = fieldIdsWithData.size;
-      STATE.summary.stripCount   = totalTestStrips;
+      STATE.summary.stripCount   = rows.length;
 
       const varietySet = new Set();
       rows.forEach(r => {
@@ -1108,6 +1220,9 @@
       } else {
         STATE.summary.checkAvgYield = null;
       }
+
+      STATE.summary.checkVarietyBrand = primaryCheckBrand;
+      STATE.summary.checkVariety      = primaryCheckVariety;
 
       if (sortedForRank.length) {
         const top = sortedForRank[0];
@@ -1123,7 +1238,9 @@
       console.log('[MH Scoreboard] Entry rows:', STATE.rows.length);
       updateMeta();
       renderSummaryCard();
+      kickOffAiSummary();
     }
+
     // helper to tell parent iframe our height when embedded
     function sendEmbedHeight(){
       try{
@@ -1213,6 +1330,7 @@
 
       const nfYield = new Intl.NumberFormat(undefined,{maximumFractionDigits:1});
       const nfPct   = new Intl.NumberFormat(undefined,{maximumFractionDigits:2});
+      const nfMoist = new Intl.NumberFormat(undefined,{maximumFractionDigits:1});
 
       container.innerHTML = rows.map(row => {
         const y = (typeof row.yieldBuAc === 'number') ? nfYield.format(row.yieldBuAc) : '—';
@@ -1222,56 +1340,60 @@
           ? (pctNum >= 0 ? 'score-card-adv score-card-adv--pos' : 'score-card-adv')
           : 'score-card-adv';
 
-        const varietyLabel = (escapeHtml(row.variety || '') || '(Variety not set)') + (row.isCheck ? ' *' : '');
-
         const advText = pctNum !== null
-          ? `${pctNum >= 0 ? '+' : ''}${nfPct.format(pctNum)}% vs check`
+          ? `${nfPct.format(pctNum)}% vs check`
           : '—';
 
         const entryLabel = (row.entryNumber != null)
           ? String(row.entryNumber)
           : '—';
 
-        let rankChip = '';
-        if (row.isCheck) {
-          rankChip = `<span class="score-card-chip">Rank -</span>`;
-        } else if (typeof row.rank === 'number' && Number.isFinite(row.rank)) {
-          rankChip = `<span class="score-card-chip">Rank #${row.rank}</span>`;
-        }
+        const moistLabel = (typeof row.moisture === 'number' && Number.isFinite(row.moisture))
+          ? nfMoist.format(row.moisture) + '%'
+          : '—';
 
-        const traitChip = row.trait
-          ? `<span class="score-card-chip">${escapeHtml(row.trait)}</span>`
-          : '';
+        const rankLabel = row.isCheck
+          ? '—'
+          : (typeof row.rank === 'number' && Number.isFinite(row.rank) ? `#${row.rank}` : '—');
 
-        const matChip = row.maturity
+        const parts = [];
+        if (row.brand) parts.push(row.brand);
+        if (row.variety) parts.push(row.variety);
+        let nameLine = parts.join(' ') || '(Variety not set)';
+        if (row.trait) nameLine += ' ' + row.trait;
+        if (row.isCheck) nameLine += ' *';
+
+        const rmChip = row.maturity
           ? `<span class="score-card-chip">${escapeHtml(row.maturity)} RM</span>`
           : '';
 
-        const checkChip = row.isCheck
+        const typeChip = row.isCheck
           ? `<span class="score-card-chip">Check *</span>`
-          : '';
+          : `<span class="score-card-chip">Test</span>`;
 
-        const entryChip = `<span class="score-card-chip">Entry ${escapeHtml(entryLabel)}</span>`;
+        const rankChip = (!row.isCheck && typeof row.rank === 'number' && Number.isFinite(row.rank))
+          ? `<span class="score-card-chip">Rank #${row.rank}</span>`
+          : '';
 
         return `
           <article class="score-card">
             <div class="score-card-header">
               <div class="score-card-main">
-                <div class="score-card-variety">${varietyLabel}</div>
-                <div class="score-card-brand">${escapeHtml(row.brand || '')}</div>
+                <div class="score-card-variety">${escapeHtml(nameLine)}</div>
+                <div class="score-card-tags">
+                  ${rmChip}
+                  ${typeChip}
+                  ${rankChip}
+                </div>
               </div>
               <div class="${advClass}">${advText}</div>
             </div>
 
-            <div class="score-card-tags">
-              ${entryChip}
-              ${traitChip}
-              ${matChip}
-              ${checkChip}
-              ${rankChip}
-            </div>
-
             <div class="score-card-metrics">
+              <div class="score-card-metric">
+                <span>Moisture</span>
+                <strong>${moistLabel}</strong>
+              </div>
               <div class="score-card-metric">
                 <span>Yield (bu/ac)</span>
                 <strong>${y}</strong>
@@ -1280,22 +1402,27 @@
                 <span>% vs Check</span>
                 <strong>${pctLabel}</strong>
               </div>
+              <div class="score-card-metric">
+                <span>Rank</span>
+                <strong>${rankLabel}</strong>
+              </div>
             </div>
 
-            <div class="score-card-footer"></div>
+            <div class="score-card-footer">
+              <span class="score-card-entry">Entry ${escapeHtml(entryLabel)}</span>
+            </div>
           </article>
         `;
       }).join('');
     }
 
-        function renderScoreboard(){
+    function renderScoreboard(){
       renderScoreboardTable();
       renderScoreboardMobile();
       if (STATE.isEmbed) {
         sendEmbedHeight();
       }
     }
-
 
     async function loadCompanyHeader(){
       if(STATE.company) return STATE.company;
@@ -1795,6 +1922,7 @@
         STATE.summary = createEmptySummary();
         updateMeta();
         renderSummaryCard();
+        kickOffAiSummary();
         return;
       }
 
@@ -1871,6 +1999,59 @@
       await populateTrialFilterOptions();
       updateMeta();
       renderSummaryCard();
+      kickOffAiSummary();
+    }
+
+    function kickOffAiSummary(){
+      const container = $('#aiSummary');
+      if (!container) return;
+
+      if (!STATE.summary.trialName || !STATE.filters.year || !STATE.filters.trialId) {
+        container.innerHTML = '<div class="ai-summary-note">Select crop year and Variety Plot trial to generate a written summary of how each variety performed.</div>';
+        return;
+      }
+
+      if (!window.FVAiReports) {
+        container.innerHTML = '<div class="ai-summary-error">AI helper script is not available. Numeric summary above is still accurate.</div>';
+        return;
+      }
+
+      const payload = {
+        trial: {
+          id: STATE.filters.trialId,
+          trialName: STATE.summary.trialName,
+          cropYear: STATE.summary.cropYear,
+          crop: STATE.summary.crop,
+          status: STATE.summary.status,
+          plantDate: STATE.summary.plantDate,
+          plotLengthFt: STATE.summary.plotLengthFt,
+          plotWidthFt: STATE.summary.plotWidthFt,
+          farmName: STATE.summary.farmName,
+          fieldName: STATE.summary.fieldName
+        },
+        summary: STATE.summary,
+        entries: STATE.rows.map(r => ({
+          brand: r.brand,
+          variety: r.variety,
+          trait: r.trait,
+          maturity: r.maturity,
+          yieldBuAc: r.yieldBuAc,
+          pctVsCheck: r.pctVsCheck,
+          isCheck: r.isCheck,
+          rank: r.rank,
+          entryNumber: r.entryNumber,
+          moisture: r.moisture
+        }))
+      };
+
+      if (typeof window.FVAiReports.renderMhPlotSummary === 'function') {
+        window.FVAiReports.renderMhPlotSummary(container, payload);
+      } else if (typeof window.FVAiReports.renderTrialSummary === 'function') {
+        // Fallback to existing helper if you haven't added a dedicated MH one yet
+        window.FVAiReports.renderTrialSummary(container, payload);
+      } else {
+        container.innerHTML = '<div class="ai-summary-error">AI helper is loaded but no renderer is defined for Variety Plot summaries.</div>';
+      }
     }
 
     (async function boot(){
@@ -1945,11 +2126,24 @@
             </div>
           </div>
 
-          <!-- Summary card -->
+          <!-- Variety Plot header card -->
           <section class="trial-summary" id="trialSummaryCard">
             <p class="trial-summary-empty">
               Select crop year and Variety Plot trial to see a variety scoreboard summary.
             </p>
+          </section>
+
+          <!-- AI Plot Summary -->
+          <section class="ai-card" aria-label="AI summary of this Variety Plot" aria-live="polite">
+            <div class="ai-card-title">
+              <span>Plot Summary</span>
+              <span class="ai-chip">AI Summary</span>
+            </div>
+            <div id="aiSummary" class="ai-summary-body">
+              <div class="ai-summary-note">
+                Select crop year and Variety Plot trial to generate a written summary of how each variety performed against the check.
+              </div>
+            </div>
           </section>
 
           <!-- Scoreboard -->
