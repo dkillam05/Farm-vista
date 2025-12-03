@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -247,17 +246,6 @@
         justify-content:center;
       }
     }
-
-    /* Hidden iframe for print */
-    #fv-print-frame{
-      position:fixed;
-      right:0;
-      bottom:0;
-      width:0;
-      height:0;
-      border:0;
-      visibility:hidden;
-    }
   </style>
 
   <script>
@@ -313,8 +301,7 @@
       btnBack: null,
       btnPrint: null,
       statusLine: null,
-      fieldTableBody: null,
-      iframe: null
+      fieldTableBody: null
     };
 
     /* ---------- helpers ---------- */
@@ -426,7 +413,6 @@
       els.btnPrint     = $('#btnPrint');
       els.statusLine   = $('#statusLine');
       els.fieldTableBody = $('#fieldTableBody');
-      els.iframe       = $('#fv-print-frame');
     }
 
     /* ---------- data loading ---------- */
@@ -1269,7 +1255,7 @@
 
       const field = getFirstSelectedField();
       if (!field){
-        alert('Select at least one field (we will use the first checked one) before printing.');
+        alert('Select at least one field (we will use the first checked one) before building the report.');
         return;
       }
 
@@ -1285,30 +1271,20 @@
         field
       });
 
-      let iframe = els.iframe;
-      if (!iframe){
-        iframe = document.createElement('iframe');
-        iframe.id = 'fv-print-frame';
-        document.body.appendChild(iframe);
-        els.iframe = iframe;
+      // Open the report as a real page so desktop + mobile can share/print
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+
+      // Try new tab/window first
+      const win = window.open(url, '_blank');
+
+      if (!win){
+        // Popup blocked or PWA – navigate current tab as a fallback
+        window.location.href = url;
       }
 
-      const win = iframe.contentWindow || iframe.contentDocument;
-      const doc = iframe.contentDocument || iframe.contentWindow.document;
-
-      doc.open();
-      doc.write(html);
-      doc.close();
-
-      setTimeout(() => {
-        try{
-          win.focus();
-          win.print();
-        }catch(err){
-          console.warn('[trial-detailed] iframe print failed, falling back to window.print()', err);
-          window.print();
-        }
-      }, 400);
+      // Note: we can't reliably revokeObjectURL here without possibly
+      // killing it in the other window, so we'll leave it be.
     }
 
     /* ---------- events & boot ---------- */
@@ -1455,8 +1431,5 @@
       </section>
     </div>
   </fv-shell>
-
-  <!-- Hidden iframe used for printing -->
-  <iframe id="fv-print-frame"></iframe>
 </body>
 </html>
