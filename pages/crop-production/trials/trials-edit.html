@@ -708,6 +708,40 @@
       }
     }
 
+    // NEW: sort trials by type (A–Z), then trialName (A–Z), then newest createdAt
+    function sortTrialsList(items){
+      if(!Array.isArray(items)) return items;
+      items.sort((a, b) => {
+        const da = a.data || {};
+        const db = b.data || {};
+
+        let typeA = (da.trialType || '').toString().trim().toLowerCase();
+        let typeB = (db.trialType || '').toString().trim().toLowerCase();
+
+        // Push missing types to the bottom
+        if(!typeA) typeA = '\uffff';
+        if(!typeB) typeB = '\uffff';
+
+        if(typeA < typeB) return -1;
+        if(typeA > typeB) return 1;
+
+        let nameA = (da.trialName || '').toString().trim().toLowerCase();
+        let nameB = (db.trialName || '').toString().trim().toLowerCase();
+
+        if(!nameA) nameA = '\uffff';
+        if(!nameB) nameB = '\uffff';
+
+        if(nameA < nameB) return -1;
+        if(nameA > nameB) return 1;
+
+        // If same type + name, keep newest first
+        const ta = getTime(da.createdAt);
+        const tb = getTime(db.createdAt);
+        return tb - ta;
+      });
+      return items;
+    }
+
     function getStatusLabel(code){
       if(!code) return '';
       const c = String(code).toLowerCase();
@@ -1432,11 +1466,8 @@
           data: d.data()
         }));
 
-        items.sort((a,b) => {
-          const ta = getTime(a.data.createdAt);
-          const tb = getTime(b.data.createdAt);
-          return tb - ta;
-        });
+        // Sort by type A–Z, then trialName A–Z, then newest
+        sortTrialsList(items);
 
         STATE.allItems = items;
         STATE.loaded = true;
