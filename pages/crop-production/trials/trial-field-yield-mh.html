@@ -591,15 +591,23 @@
       margin-top:8px;
     }
 
-    /* older notes/files styles from earlier version – mostly unused now */
+    /* Notes / files styles – mic lives INSIDE the notes box bottom-right */
     .notes-shell{
       position:relative;
     }
     .notes-input{
       width:100%;
       min-height:96px;
-      padding-right:52px;
+      padding:12px;
+      padding-right:52px; /* room for mic button */
       resize:vertical;
+      font:inherit;
+      font-size:14px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      box-sizing:border-box;
     }
 
     .mic-btn{
@@ -608,13 +616,14 @@
       bottom:10px;
       width:36px;
       height:36px;
-      border-radius:10px;
+      border-radius:10px; /* rounded square */
       border:1px solid var(--border);
       background:var(--surface);
       display:grid;
       place-items:center;
       cursor:pointer;
       color:var(--text);
+      box-shadow:0 2px 6px rgba(0,0,0,.12);
     }
     .mic-btn[disabled]{
       opacity:.6;
@@ -624,6 +633,7 @@
       background:#2F6C3C;
       color:#fff;
       border-color:#2F6C3C;
+      box-shadow:0 4px 12px rgba(46,123,53,0.4);
     }
     .mic-svg{
       width:18px;
@@ -635,6 +645,7 @@
       display:flex;
       flex-direction:column;
       gap:6px;
+      font-size:0.8rem;
     }
     .hidden-file{
       display:none;
@@ -799,8 +810,14 @@
       getFirestore,
       doc,
       getDoc,
+      setDoc,
       collection,
-      getDocs
+      getDocs,
+      getStorage,
+      ref,
+      uploadBytes,
+      getDownloadURL,
+      deleteObject
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -830,8 +847,8 @@
       if(!STATE.trialId || !STATE.db) return;
 
       try{
-        const ref = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
-        const snap = await getDoc(ref);
+        const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
+        const snap = await getDoc(refDoc);
         if(!snap.exists()) return;
 
         const t = snap.data() || {};
@@ -1043,7 +1060,7 @@
       `;
     }
 
-    // ===== Inline mic wiring (legacy from older notes UI – safe to leave) =====
+    // ===== Inline mic wiring (used by helper-rendered notes UI) =====
     function makeInlineMic(btnEl, taEl){
       if(!btnEl || !taEl) return;
 
@@ -1127,6 +1144,40 @@
     }
     // ===== End inline mic wiring =====
 
+    // ===== Helper to update a single block.files array in multiHybrid/state =====
+    async function updateBlockFilesInState({ trialId, fieldDocId, rowId, updateFn }){
+      if(!trialId || !fieldDocId || !rowId) return;
+
+      const db = getFirestore();
+      const stateRef = doc(
+        db,
+        CONFIG.COLLECTION_TRIALS,
+        trialId,
+        'fields',
+        fieldDocId,
+        'multiHybrid',
+        'state'
+      );
+
+      const snap = await getDoc(stateRef);
+      if(!snap.exists()) return;
+
+      const data = snap.data() || {};
+      const blocks = Array.isArray(data.blocks) ? [...data.blocks] : [];
+      const idx = blocks.findIndex(b => b && b.rowId === rowId);
+
+      if(idx === -1) return;
+
+      const block = { ...(blocks[idx] || {}) };
+      const files = Array.isArray(block.files) ? [...block.files] : [];
+
+      const newFiles = await updateFn(files);
+      block.files = newFiles;
+      blocks[idx] = block;
+
+      await setDoc(stateRef, { blocks }, { merge:true });
+    }
+
     (async function boot(){
       await ready;
 
@@ -1162,14 +1213,14 @@
         });
       }
 
-      // Initialize the MH helper – now wired to Firestore (and entryNumber)
+      // Initialize the MH helper – wired to Firestore (and entryNumber)
       initMhYieldHelper({
         db: STATE.db,
         trialId: STATE.trialId,
         fieldDocId: STATE.fieldDocId
       });
 
-      // Wire any notes/mic that helper has already rendered (older style)
+      // Wire any notes/mic that helper has already rendered
       wireNotesMics();
 
       // Watch for the helper adding/replacing content under mhStageShell
@@ -1209,41 +1260,163 @@
     })();
 
     // ============================================================
-    // NEW: Wire to MH Notes / Files custom events from helper
+    // Wire to MH Notes / Files custom events from helper
+    // Files: use Firestore + Storage so they persist in blocks[].files
+    // Notes: handled by helper via textarea input + Save
     // ============================================================
-    // Right now these just log & alert so you can see they are firing.
-    // Next step is to plug in your real upload + storage delete logic here.
+
+    const storage = getStorage();
+    let mhFileInput = null;
+    let mhPendingContext = null;
+
+    function ensureMhFileInput(){
+      if(mhFileInput) return mhFileInput;
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*,application/pdf';
+      input.className = 'hidden-file';
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.addEventListener('change', async () => {
+        const ctx = mhPendingContext;
+        mhPendingContext = null;
+
+        if(!ctx || !input.files || !input.files.length){
+          input.value = '';
+          return;
+        }
+
+        const file = input.files[0];
+        input.value = '';
+
+        try{
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const path =
+            `fieldTrials/${ctx.trialId}/fields/${ctx.fieldDocId}/multiHybrid/${ctx.rowId}/${Date.now()}_${safeName}`;
+
+          const sRef = ref(storage, path);
+          await uploadBytes(sRef, file);
+          const url = await getDownloadURL(sRef);
+
+          const meta = {
+            name: file.name,
+            size: file.size,
+            contentType: file.type || 'application/octet-stream',
+            url,
+            path,
+            uploadedAt: new Date().toISOString()
+          };
+
+          await updateBlockFilesInState({
+            trialId: ctx.trialId,
+            fieldDocId: ctx.fieldDocId,
+            rowId: ctx.rowId,
+            updateFn: (files) => [...files, meta]
+          });
+
+          // Optional: notify helper UI something changed
+          document.dispatchEvent(
+            new CustomEvent('mhFilesChanged', {
+              detail: {
+                trialId: ctx.trialId,
+                fieldDocId: ctx.fieldDocId,
+                rowId: ctx.rowId,
+                added: [meta],
+                removed: []
+              }
+            })
+          );
+        }catch(err){
+          console.error('Error uploading MH file:', err);
+          alert('There was a problem uploading that file. Please try again.');
+        }
+      });
+
+      mhFileInput = input;
+      return input;
+    }
+
     document.addEventListener('mhAddFile', (ev) => {
       const detail = ev.detail || {};
-      console.log('mhAddFile event:', detail);
       const { trialId, fieldDocId, rowId } = detail;
-      alert(`(Dev) Add file clicked for row: ${rowId || 'unknown'}\ntrialId: ${trialId}\nfieldDocId: ${fieldDocId}`);
-      // TODO: hook your existing uploader here:
-      //  - open file picker
-      //  - upload to Storage
-      //  - push { name, url, path, contentType, uploadedAt } into the matching block.files
-      //  - let helper Save & Close persist it
+
+      if(!trialId || !fieldDocId || !rowId){
+        console.warn('mhAddFile missing context:', detail);
+        return;
+      }
+
+      const input = ensureMhFileInput();
+      mhPendingContext = { trialId, fieldDocId, rowId };
+      input.click();
     });
 
-    document.addEventListener('mhDeleteFile', (ev) => {
+    document.addEventListener('mhDeleteFile', async (ev) => {
       const detail = ev.detail || {};
-      console.log('mhDeleteFile event:', detail);
-      const { rowId, file } = detail;
-      alert(`(Dev) Delete file requested on row: ${rowId || 'unknown'}\nfile: ${file?.name || '(no name)'}`);
-      // TODO:
-      //  - delete from Storage using file.path
-      //  - remove from block.files in Firestore (or let Save & Close handle)
+      const { trialId, fieldDocId, rowId, file } = detail;
+
+      if(!trialId || !fieldDocId || !rowId || !file){
+        console.warn('mhDeleteFile missing context:', detail);
+        return;
+      }
+
+      try{
+        // Try deleting from Storage if path is provided
+        if(file.path){
+          const sRef = ref(storage, file.path);
+          try{
+            await deleteObject(sRef);
+          }catch(err){
+            // If the object is already gone, we still want to clean Firestore
+            console.warn('Error deleting Storage object (continuing):', err);
+          }
+        }
+
+        await updateBlockFilesInState({
+          trialId,
+          fieldDocId,
+          rowId,
+          updateFn: (files) => {
+            return files.filter(f => {
+              if(file.path && f.path){
+                return f.path !== file.path;
+              }
+              // fallback: filter by name + url combo
+              if(file.name && file.url){
+                return !(f.name === file.name && f.url === file.url);
+              }
+              return true;
+            });
+          }
+        });
+
+        // Optional: notify helper UI
+        document.dispatchEvent(
+          new CustomEvent('mhFilesChanged', {
+            detail: {
+              trialId,
+              fieldDocId,
+              rowId,
+              added: [],
+              removed: [file]
+            }
+          })
+        );
+      }catch(err){
+        console.error('Error deleting MH file:', err);
+        alert('There was a problem deleting that file. Please try again.');
+      }
     });
 
     document.addEventListener('mhOpenFile', (ev) => {
       const detail = ev.detail || {};
-      console.log('mhOpenFile event:', detail);
       const { file } = detail;
       if(file && file.url){
         // For now just open in a new tab/window
         window.open(file.url, '_blank');
       }else{
-        alert('(Dev) No URL on file to open.');
+        alert('This file has no URL to open.');
       }
     });
     // ============================================================
