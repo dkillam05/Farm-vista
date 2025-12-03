@@ -214,12 +214,12 @@
     }
 
     .trial-meta{
+      font-size:0.8rem;
+      opacity:0.85;
+      margin-top:4px;
       display:flex;
       flex-wrap:wrap;
       gap:6px 10px;
-      margin-top:4px;
-      font-size:0.8rem;
-      opacity:0.85;
     }
 
     .trial-meta span{
@@ -304,9 +304,35 @@
       gap:10px;
     }
 
+    .trial-detail-title-area{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+
     .trial-detail-title{
       font-weight:700;
       font-size:1rem;
+      cursor:text;
+    }
+
+    .trial-detail-title-input{
+      display:none;
+      font-size:1rem;
+      font-weight:700;
+      padding:4px 6px;
+      border-radius:8px;
+      border:1px solid var(--border);
+      background:var(--surface-strong, var(--surface));
+      color:var(--text);
+      max-width:100%;
+    }
+
+    .trial-detail-edit-hint{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.6;
     }
 
     .trial-detail-close{
@@ -659,7 +685,9 @@
       isLoading: false,
       retryCount: 0,
       // trialId -> boolean (true = has field, false = no field) for MH trials
-      mhHasFieldByTrial: {}
+      mhHasFieldByTrial: {},
+      // inline title editing
+      isEditingTitle: false
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -777,13 +805,101 @@
       }
     }
 
+    function setTrialTitleView(title){
+      const textEl  = document.getElementById('trialDetailTitleText');
+      const inputEl = document.getElementById('trialDetailTitleInput');
+      if(!textEl || !inputEl) return;
+      STATE.isEditingTitle = false;
+      textEl.textContent = title || 'Field Trial';
+      textEl.style.display = 'block';
+      inputEl.style.display = 'none';
+    }
+
+    function beginEditTrialTitle(){
+      const id = STATE.selectedId;
+      if(!id || !STATE.db) return;
+      const textEl  = document.getElementById('trialDetailTitleText');
+      const inputEl = document.getElementById('trialDetailTitleInput');
+      if(!textEl || !inputEl) return;
+
+      STATE.isEditingTitle = true;
+      inputEl.value = (textEl.textContent || '').trim();
+      textEl.style.display = 'none';
+      inputEl.style.display = 'inline-block';
+      inputEl.focus();
+      inputEl.select();
+    }
+
+    function cancelEditTrialTitle(){
+      const id = STATE.selectedId;
+      const item = STATE.items.find(x => x.id === id);
+      const name = item?.data?.trialName || 'Field Trial';
+      setTrialTitleView(name);
+    }
+
+    async function commitEditTrialTitle(){
+      const id = STATE.selectedId;
+      const db = STATE.db;
+      if(!id || !db){
+        cancelEditTrialTitle();
+        return;
+      }
+
+      const inputEl = document.getElementById('trialDetailTitleInput');
+      if(!inputEl){
+        cancelEditTrialTitle();
+        return;
+      }
+
+      let newName = (inputEl.value || '').trim();
+      if(!newName){
+        newName = 'Field Trial';
+      }
+
+      const itemAll = STATE.allItems.find(x => x.id === id);
+      const oldName = itemAll?.data?.trialName || 'Field Trial';
+
+      // No change – just flip back to display mode
+      if(newName === oldName){
+        setTrialTitleView(newName);
+        return;
+      }
+
+      inputEl.disabled = true;
+
+      try{
+        const ref = doc(db, CONFIG.COLLECTION_TRIALS, id);
+        await updateDoc(ref, { trialName: newName });
+
+        if(itemAll){
+          itemAll.data.trialName = newName;
+        }
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        if(itemFiltered){
+          itemFiltered.data.trialName = newName;
+        }
+
+        setTrialTitleView(newName);
+        renderList();
+        showToast('Trial name updated.');
+      }catch(err){
+        console.error('Error updating trial name:', err);
+        showToast('Error updating trial name.');
+        // fall back to old name
+        setTrialTitleView(oldName);
+      }finally{
+        inputEl.disabled = false;
+      }
+    }
+
     function clearDetails(){
       const panel = $('.trial-detail-panel');
       if(!panel) return;
       panel.style.display = 'none';
       panel.dataset.id = '';
-      const titleEl = $('.trial-detail-title', panel);
-      if(titleEl) titleEl.textContent = 'Trial Details';
+
+      setTrialTitleView('Trial Details');
+
       const grid = $('.trial-detail-grid', panel);
       if(grid) grid.innerHTML = '';
       const notesBody = $('.trial-detail-notes-body', panel);
@@ -856,10 +972,7 @@
 
       panel.dataset.id = item.id;
 
-      const titleEl = $('.trial-detail-title', panel);
-      if(titleEl){
-        titleEl.textContent = title;
-      }
+      setTrialTitleView(title);
 
       const grid = $('.trial-detail-grid', panel);
       if(grid){
@@ -892,7 +1005,7 @@
 
           ${check ? `
           <div>
-            <div class="trial-detail-item-label">Check</</div>
+            <div class="trial-detail-item-label">Check</div>
             <div class="trial-detail-item-value">${check}</div>
           </div>` : ''}
 
@@ -1463,6 +1576,30 @@
         });
       }
 
+      const titleTextEl  = document.getElementById('trialDetailTitleText');
+      const titleInputEl = document.getElementById('trialDetailTitleInput');
+      if(titleTextEl && titleInputEl){
+        titleTextEl.addEventListener('click', () => {
+          if(!STATE.selectedId) return;
+          beginEditTrialTitle();
+        });
+
+        titleInputEl.addEventListener('blur', () => {
+          if(!STATE.isEditingTitle) return;
+          commitEditTrialTitle();
+        });
+
+        titleInputEl.addEventListener('keydown', (ev) => {
+          if(ev.key === 'Enter'){
+            ev.preventDefault();
+            titleInputEl.blur();
+          }else if(ev.key === 'Escape'){
+            ev.preventDefault();
+            cancelEditTrialTitle();
+          }
+        });
+      }
+
       const closeDetailBtn = $('#trialDetailClose');
       if(closeDetailBtn){
         closeDetailBtn.addEventListener('click', () => {
@@ -1547,7 +1684,7 @@
           <div>
             <h1>Add Field and Yield to Trials</h1>
             <p class="muted">
-              Review trials, Mark them completed, Add fields to trials by swiping left and add yield to fields by swiping left. Can also delete a trial if made improperly. 
+              Review trials, mark them completed, add fields to trials by swiping left and add yield to fields by swiping left. You can also delete a trial if made improperly.
             </p>
           </div>
         </header>
@@ -1585,7 +1722,17 @@
 
       <section class="trial-detail-panel" aria-label="Trial details">
         <div class="trial-detail-header">
-          <div class="trial-detail-title">Trial Details</div>
+          <div class="trial-detail-title-area">
+            <div class="trial-detail-title" id="trialDetailTitleText">Trial Details</div>
+            <input
+              type="text"
+              id="trialDetailTitleInput"
+              class="trial-detail-title-input"
+              maxlength="80"
+              autocomplete="off"
+            />
+            <div class="trial-detail-edit-hint">Tap name to edit</div>
+          </div>
           <button type="button" id="trialDetailClose" class="trial-detail-close">
             <span class="visually-hidden">Close</span>
             <svg viewBox="0 0 24 24" aria-hidden="true">
