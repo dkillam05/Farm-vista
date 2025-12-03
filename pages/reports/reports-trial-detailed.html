@@ -276,6 +276,57 @@
       border:0;
       visibility:hidden;
     }
+
+    /* ------------------------------------------------------------------
+       Mobile PDF "Preparing..." overlay
+       ------------------------------------------------------------------ */
+    .pdf-loading{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.35);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:9999;
+      padding:16px;
+    }
+    .pdf-loading.hidden{
+      display:none;
+    }
+    .pdf-loading-inner{
+      max-width:260px;
+      width:100%;
+      border-radius:16px;
+      background:var(--surface,#ffffff);
+      padding:16px 18px 14px;
+      box-shadow:0 18px 45px rgba(0,0,0,0.26);
+      text-align:center;
+    }
+    .pdf-loading-spinner{
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:3px solid rgba(0,0,0,0.12);
+      border-top-color:var(--accent,#2F6C3C);
+      margin:0 auto 10px;
+      animation:pdf-spin 0.8s linear infinite;
+    }
+    .pdf-loading-text{
+      font-size:0.95rem;
+      font-weight:600;
+      color:var(--text,#111827);
+      margin:0;
+    }
+    .pdf-loading-sub{
+      font-size:0.78rem;
+      margin-top:4px;
+      color:var(--muted,#67706B);
+    }
+    @keyframes pdf-spin{
+      to{
+        transform:rotate(360deg);
+      }
+    }
   </style>
 
   <script>
@@ -333,7 +384,8 @@
       btnPdfPhone: null,
       statusLine: null,
       fieldTableBody: null,
-      iframe: null
+      iframe: null,
+      pdfLoading: null
     };
 
     /* ---------- helpers ---------- */
@@ -457,6 +509,18 @@
       els.statusLine     = $('#statusLine');
       els.fieldTableBody = $('#fieldTableBody');
       els.iframe         = $('#fv-print-frame');
+      els.pdfLoading     = $('#pdfLoading');
+    }
+
+    function setPdfLoading(active){
+      if (!els.pdfLoading) return;
+      if (active){
+        els.pdfLoading.classList.remove('hidden');
+        els.pdfLoading.setAttribute('aria-hidden','false');
+      } else {
+        els.pdfLoading.classList.add('hidden');
+        els.pdfLoading.setAttribute('aria-hidden','true');
+      }
     }
 
     /* ---------- data loading ---------- */
@@ -1488,6 +1552,7 @@
     /* ---------- Mobile HTML-mode PDF helper ---------- */
 
     async function runMobilePdfDownload(){
+      setPdfLoading(true);
       try{
         if (!STATE.trialDoc){
           alert('Trial is not loaded yet. Try again in a moment.');
@@ -1513,7 +1578,8 @@
         });
 
         if (window.FVPdf && typeof window.FVPdf.openPdfFromHtml === 'function'){
-          window.FVPdf.openPdfFromHtml(html, {
+          // Cloud Run HTML → PDF flow
+          await window.FVPdf.openPdfFromHtml(html, {
             filename: 'Trial-Detailed-Packet.pdf'
           });
         }else{
@@ -1538,6 +1604,9 @@
             'Error while building mobile PDF: ' + (err && err.message ? err.message : String(err));
           els.statusLine.classList.add('status-error');
         }
+      }finally{
+        // Hide the loading overlay once we’re done (or errored)
+        setPdfLoading(false);
       }
     }
 
@@ -1699,6 +1768,21 @@
       </section>
     </div>
   </fv-shell>
+
+  <!-- Mobile PDF loading overlay -->
+  <div
+    id="pdfLoading"
+    class="pdf-loading hidden"
+    role="alertdialog"
+    aria-live="assertive"
+    aria-hidden="true"
+  >
+    <div class="pdf-loading-inner">
+      <div class="pdf-loading-spinner"></div>
+      <p class="pdf-loading-text">Preparing PDF…</p>
+      <p class="pdf-loading-sub">Please keep this tab open. Your phone will prompt you when the file is ready.</p>
+    </div>
+  </div>
 
   <!-- Hidden iframe used for printing on desktop -->
   <iframe id="fv-print-frame"></iframe>
