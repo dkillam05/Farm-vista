@@ -246,6 +246,17 @@
         justify-content:center;
       }
     }
+
+    /* Hidden iframe for print (desktop) */
+    #fv-print-frame{
+      position:fixed;
+      right:0;
+      bottom:0;
+      width:0;
+      height:0;
+      border:0;
+      visibility:hidden;
+    }
   </style>
 
   <script>
@@ -301,7 +312,8 @@
       btnBack: null,
       btnPrint: null,
       statusLine: null,
-      fieldTableBody: null
+      fieldTableBody: null,
+      iframe: null
     };
 
     /* ---------- helpers ---------- */
@@ -309,6 +321,11 @@
     function getTrialIdFromUrl(){
       const params = new URLSearchParams(window.location.search);
       return params.get('trialId') || params.get('id');
+    }
+
+    function isMobileLike(){
+      const ua = (navigator.userAgent || '').toLowerCase();
+      return /iphone|ipad|ipod|android|mobi/.test(ua);
     }
 
     function formatNumber(num, opts = {}) {
@@ -413,6 +430,7 @@
       els.btnPrint     = $('#btnPrint');
       els.statusLine   = $('#statusLine');
       els.fieldTableBody = $('#fieldTableBody');
+      els.iframe       = $('#fv-print-frame');
     }
 
     /* ---------- data loading ---------- */
@@ -936,7 +954,7 @@
 
     @page{
       size: landscape;
-      margin:8mm;
+      margin:12mm;
     }
 
     .page{
@@ -1271,20 +1289,42 @@
         field
       });
 
-      // Open the report as a real page so desktop + mobile can share/print
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
+      if (isMobileLike()){
+        // Mobile: open as a real page so you can Share → Print / Message / Mail
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, '_blank');
+        if (!win){
+          // popup blocked or PWA – fallback: navigate current tab
+          window.location.href = url;
+        }
+      } else {
+        // Desktop: use hidden iframe + print dialog
+        let iframe = els.iframe;
+        if (!iframe){
+          iframe = document.createElement('iframe');
+          iframe.id = 'fv-print-frame';
+          document.body.appendChild(iframe);
+          els.iframe = iframe;
+        }
 
-      // Try new tab/window first
-      const win = window.open(url, '_blank');
+        const win = iframe.contentWindow || iframe;
+        const doc = iframe.contentDocument || win.document;
 
-      if (!win){
-        // Popup blocked or PWA – navigate current tab as a fallback
-        window.location.href = url;
+        doc.open();
+        doc.write(html);
+        doc.close();
+
+        setTimeout(() => {
+          try{
+            win.focus();
+            win.print();
+          }catch(err){
+            console.warn('[trial-detailed] iframe print failed, falling back to window.print()', err);
+            window.print();
+          }
+        }, 400);
       }
-
-      // Note: we can't reliably revokeObjectURL here without possibly
-      // killing it in the other window, so we'll leave it be.
     }
 
     /* ---------- events & boot ---------- */
@@ -1431,5 +1471,8 @@
       </section>
     </div>
   </fv-shell>
+
+  <!-- Hidden iframe used for printing on desktop -->
+  <iframe id="fv-print-frame"></iframe>
 </body>
 </html>
