@@ -1,5 +1,5 @@
 /* ====================================================================
-/Farm-vista/js/trials-mh-yield-helper.js
+// /Farm-vista/js/trials-mh-yield-helper.js
 Reusable Multi-Hybrid Yield helper engine.
 Now:
  • Drives the modal UI (setup + blocks)
@@ -700,24 +700,21 @@ export function initMhYieldHelper(options = {}) {
           </div>
 
           <div class="mh-notes-files hidden" id="mh-notes-files-${b.rowId}" data-row-id="${b.rowId}">
-            <div class="field mh-notes-field">
+            <div class="field notes-shell">
               <label for="mh-block-notes-${b.rowId}">Notes</label>
-              <div class="mh-notes-with-mic">
-                <textarea
-                  id="mh-block-notes-${b.rowId}"
-                  class="input mh-notes-textarea"
-                  rows="3"
-                  placeholder="Add notes for this entry...">${notesVal}</textarea>
-                <button
-                  type="button"
-                  class="btn-icon dictation-btn"
-                  data-dictation-target="mh-block-notes-${b.rowId}"
-                  aria-label="Dictate notes">
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M8 2a2 2 0 0 0-2 2v3a2 2 0 1 0 4 0V4a2 2 0 0 0-2-2zM5.5 7a.5.5 0 0 1 1 0 1.5 1.5 0 0 0 3 0 .5.5 0 0 1 1 0 2.5 2.5 0 0 1-2 2.45V11h1.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1h1.5V9.45A2.5 2.5 0 0 1 5.5 7z"></path>
-                  </svg>
-                </button>
-              </div>
+              <textarea
+                id="mh-block-notes-${b.rowId}"
+                class="input notes-input"
+                rows="3"
+                placeholder="Add notes for this entry...">${notesVal}</textarea>
+              <button
+                type="button"
+                class="mic-btn"
+                aria-label="Dictate notes">
+                <svg class="mic-svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 2a2 2 0 0 0-2 2v3a2 2 0 1 0 4 0V4a2 2 0 0 0-2-2zM5.5 7a.5.5 0 0 1 1 0 1.5 1.5 0 0 0 3 0 .5.5 0 0 1 1 0 2.5 2.5 0 0 1-2 2.45V11h1.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1h1.5V9.45A2.5 2.5 0 0 1 5.5 7z"></path>
+                </svg>
+              </button>
             </div>
 
             <div class="mh-files-field">
@@ -1075,7 +1072,7 @@ export function initMhYieldHelper(options = {}) {
 
       const cropField = mhState.cropKind === 'soy' ? 'cropSoy' : 'cropCorn';
 
-      // ✅ Filter by crop + active, then sort A–Z by "Brand Variety"
+      // Filter by crop + active, then sort A–Z by "Brand Variety"
       seedOptions = rows
         .filter(r => r[cropField] === true)
         .filter(r => (r.status || '').toLowerCase() === 'active')
@@ -1146,8 +1143,6 @@ export function initMhYieldHelper(options = {}) {
         mhState.stage = mhState.blocks.length ? 'blocks' : 'setup';
 
         // Sync check flags both ways:
-        // 1) If we have checkProductId, mark hybrids/blocks with isCheck.
-        // 2) If we only have isCheck flags, infer checkProductId.
         if(mhState.checkProductId){
           mhState.hybrids = mhState.hybrids.map(h => ({
             ...h,
@@ -1172,8 +1167,7 @@ export function initMhYieldHelper(options = {}) {
           }
         }
 
-        // Normalize entryNumber 1..N and mirror onto blocks so reports
-        // and the scoreboard can sort by entryNumber.
+        // Normalize entryNumber 1..N and mirror onto blocks
         renumberEntries();
       }
 
@@ -1331,6 +1325,46 @@ export function initMhYieldHelper(options = {}) {
       saveToFirestore();
     });
   }
+
+  // Listen for file changes coming back from the host page (after upload/delete)
+  document.addEventListener('mhFilesChanged', ev => {
+    const detail = ev.detail || {};
+    const { trialId: tId, fieldDocId: fId, rowId, added = [], removed = [] } = detail;
+    if(!rowId) return;
+
+    // If trialId/fieldDocId are provided, make sure they match this helper
+    if(tId && trialId && tId !== trialId) return;
+    if(fId && fieldDocId && fId !== fieldDocId) return;
+
+    const blk = (mhState.blocks || []).find(b => b.rowId === rowId);
+    if(!blk) return;
+
+    let files = Array.isArray(blk.files) ? blk.files.slice() : [];
+
+    // Add any new files
+    added.forEach(f => files.push(f));
+
+    // Remove any that match
+    if(removed.length){
+      files = files.filter(f => {
+        return !removed.some(r => {
+          if(r.path && f.path){
+            return r.path === f.path;
+          }
+          if(r.name && r.url){
+            return r.name === f.name && r.url === f.url;
+          }
+          return false;
+        });
+      });
+    }
+
+    blk.files = files;
+
+    if(mhState.stage === 'blocks'){
+      renderBlocks();
+    }
+  });
 
   // Initial empty render (then Firestore load will replace)
   renderStage();
