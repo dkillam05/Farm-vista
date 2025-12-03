@@ -213,7 +213,6 @@
       transform:translateY(-1px);
     }
 
-    /* Desktop-only: card is NOT a button – no pointer/hover feel */
     @media (min-width:641px){
       .field-card{
         cursor:default;
@@ -245,7 +244,6 @@
       margin-top:2px;
     }
 
-    /* On phones: hide the desktop button, swipe handles yield */
     @media (max-width:640px){
       .field-card-top .btn-small{ display:none; }
     }
@@ -369,8 +367,6 @@
       color:#fff;
       box-shadow:0 8px 18px rgba(46,123,53,0.35);
     }
-
-    /* === Extra field / combo styles used by the helper === */
 
     .row{
       display:grid;
@@ -570,16 +566,6 @@
       color:var(--muted,#67706B);
     }
 
-    .field-mini{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-    }
-    .field-mini span{
-      font-size:0.8rem;
-      font-weight:600;
-    }
-
     .yield-extra{
       display:flex;
       flex-direction:column;
@@ -637,7 +623,7 @@
       display:block;
     }
 
-    /* Legacy files styles (not used by MH helper anymore, safe to keep) */
+    /* Legacy files styles (still fine to keep) */
     .files-shell{
       display:flex;
       flex-direction:column;
@@ -772,6 +758,65 @@
       margin-top:8px;
     }
 
+    /* Lightbox for file preview */
+    .mh-lightbox{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.75);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:10000;
+    }
+    .mh-lightbox-inner{
+      background:var(--surface,#fff);
+      border-radius:16px;
+      max-width:90vw;
+      max-height:90vh;
+      width: min(900px, 90vw);
+      box-shadow:0 20px 50px rgba(0,0,0,.45);
+      position:relative;
+      display:flex;
+      flex-direction:column;
+    }
+    .mh-lightbox-close{
+      position:absolute;
+      top:8px;
+      right:10px;
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      border:none;
+      background:rgba(0,0,0,.7);
+      color:#fff;
+      font-size:18px;
+      line-height:1;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .mh-lightbox-body{
+      padding:12px;
+      padding-top:40px;
+      flex:1;
+      min-height:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .mh-lightbox-img,
+    .mh-lightbox-frame{
+      border:none;
+      max-width:100%;
+      max-height:80vh;
+    }
+    .mh-lightbox-frame{
+      width:100%;
+      height:70vh;
+      background:#111;
+    }
+
     .hidden{display:none;}
   </style>
 
@@ -809,7 +854,6 @@
               ← Back to Trials
             </button>
 
-            <!-- Needed for helper; visually hidden so there is no extra big green button -->
             <button type="button" class="btn btn-primary visually-hidden" id="btnOpenModal">
               Open Yield Popup
             </button>
@@ -884,6 +928,17 @@
       </div>
       <div class="modal-footer">
         <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox for file preview -->
+  <div id="mhFileLightbox" class="mh-lightbox hidden" role="dialog" aria-modal="true" aria-label="Attachment preview">
+    <div class="mh-lightbox-inner">
+      <button type="button" id="mhFileLightboxClose" class="mh-lightbox-close" aria-label="Close preview">×</button>
+      <div class="mh-lightbox-body">
+        <img id="mhFileLightboxImg" class="mh-lightbox-img hidden" alt="Attachment preview" />
+        <iframe id="mhFileLightboxFrame" class="mh-lightbox-frame hidden" loading="lazy"></iframe>
       </div>
     </div>
   </div>
@@ -1142,7 +1197,7 @@
       `;
     }
 
-    // ===== Inline mic wiring (reuse existing notes-shell / mic-btn) =====
+    // ===== Inline mic wiring (reuse notes-shell / mic-btn) =====
     function makeInlineMic(btnEl, taEl){
       if(!btnEl || !taEl) return;
 
@@ -1218,7 +1273,6 @@
       });
     }
 
-    // helper to update a single block.files in multiHybrid/state
     async function updateBlockFilesInState({ trialId, fieldDocId, rowId, updateFn }){
       if(!trialId || !fieldDocId || !rowId) return;
 
@@ -1286,7 +1340,6 @@
         });
       }
 
-      // init helper
       initMhYieldHelper({
         db: STATE.db,
         trialId: STATE.trialId,
@@ -1303,7 +1356,6 @@
         obs.observe(mhShell, { childList:true, subtree:true });
       }
 
-      // desktop-only card click behavior
       const fieldCard   = document.getElementById('devFieldCard');
       const hiddenOpen  = document.getElementById('btnOpenModal');
 
@@ -1465,11 +1517,65 @@
       }
     });
 
+    // ===== Lightbox behaviour for mhOpenFile =====
+    const lbEl      = document.getElementById('mhFileLightbox');
+    const lbImg     = document.getElementById('mhFileLightboxImg');
+    const lbFrame   = document.getElementById('mhFileLightboxFrame');
+    const lbClose   = document.getElementById('mhFileLightboxClose');
+
+    function closeLightbox(){
+      if(!lbEl) return;
+      lbEl.classList.add('hidden');
+      if(lbImg){
+        lbImg.src = '';
+        lbImg.classList.add('hidden');
+      }
+      if(lbFrame){
+        lbFrame.src = '';
+        lbFrame.classList.add('hidden');
+      }
+    }
+
+    function openLightboxForFile(file){
+      if(!lbEl || !file || !file.url) return;
+
+      const ct = (file.contentType || '').toLowerCase();
+      const isImage = ct.startsWith('image/');
+
+      if(isImage && lbImg){
+        lbImg.src = file.url;
+        lbImg.classList.remove('hidden');
+        if(lbFrame) lbFrame.classList.add('hidden');
+      }else if(lbFrame){
+        lbFrame.src = file.url;
+        lbFrame.classList.remove('hidden');
+        if(lbImg) lbImg.classList.add('hidden');
+      }
+
+      lbEl.classList.remove('hidden');
+    }
+
+    if(lbClose){
+      lbClose.addEventListener('click', closeLightbox);
+    }
+    if(lbEl){
+      lbEl.addEventListener('click', (ev) => {
+        if(ev.target === lbEl){
+          closeLightbox();
+        }
+      });
+    }
+    document.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Escape' && !lbEl.classList.contains('hidden')){
+        closeLightbox();
+      }
+    });
+
     document.addEventListener('mhOpenFile', (ev) => {
       const detail = ev.detail || {};
       const { file } = detail;
       if(file && file.url){
-        window.open(file.url, '_blank');
+        openLightboxForFile(file);
       }else{
         alert('This file has no URL to open.');
       }
