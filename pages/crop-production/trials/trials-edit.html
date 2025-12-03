@@ -1517,7 +1517,7 @@
       const id = STATE.selectedId;
       if(!id || !STATE.db) return;
 
-      const ok = window.confirm('Delete this trial and its fields/yield blocks? This cannot be undone.');
+      const ok = window.confirm('Delete this trial and ALL of its fields and yield blocks? This cannot be undone.');
       if(!ok) return;
 
       const delBtn = $('#trialDeleteBtn');
@@ -1528,17 +1528,60 @@
       try{
         const db = STATE.db;
 
+        // 1) Delete nested data under each field:
+        //    - yieldBlocks subcollection
+        //    - multiHybrid/state doc (if present)
+        //    - then the field doc itself
         const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
         const fieldsSnap = await getDocs(fieldsRef);
-        await Promise.all(fieldsSnap.docs.map(d => deleteDoc(d.ref)));
 
+        await Promise.all(
+          fieldsSnap.docs.map(async (fieldDoc) => {
+            const fieldId = fieldDoc.id;
+
+            // Delete nested yieldBlocks under this field
+            const blocksRef = collection(
+              db,
+              CONFIG.COLLECTION_TRIALS,
+              id,
+              'fields',
+              fieldId,
+              'yieldBlocks'
+            );
+            const blocksSnap = await getDocs(blocksRef);
+            await Promise.all(blocksSnap.docs.map(b => deleteDoc(b.ref)));
+
+            // Delete multiHybrid/state doc if it exists (ignore errors)
+            const mhStateRef = doc(
+              db,
+              CONFIG.COLLECTION_TRIALS,
+              id,
+              'fields',
+              fieldId,
+              'multiHybrid',
+              'state'
+            );
+            try{
+              await deleteDoc(mhStateRef);
+            }catch(e){
+              // ignore – doc may not exist
+            }
+
+            // Finally delete the field doc itself
+            await deleteDoc(fieldDoc.ref);
+          })
+        );
+
+        // 2) Legacy top-level yieldBlocks under the trial (if any)
         const yieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'yieldBlocks');
         const yieldsSnap = await getDocs(yieldsRef);
         await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
 
+        // 3) Delete the trial doc
         const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
         await deleteDoc(trialRef);
 
+        // 4) Update local state
         STATE.allItems = STATE.allItems.filter(x => x.id !== id);
         STATE.items = STATE.items.filter(x => x.id !== id);
         STATE.selectedId = null;
