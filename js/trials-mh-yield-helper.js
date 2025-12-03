@@ -61,7 +61,7 @@ export function initMhYieldHelper(options = {}) {
     plantDate: null,       // 'YYYY-MM-DD' string
     checkProductId: null,
     hybrids: [],           // [{ rowId, entryNumber, productId, ..., isCheck, isNewEntry }]
-    blocks: []             // [{ rowId, entryNumber, productId, moisturePct, weightLbs, ... }]
+    blocks: []             // [{ rowId, entryNumber, productId, moisturePct, weightLbs, notes, files, ... }]
   };
 
   // Ensure entryNumber stays in sync with current hybrid order,
@@ -138,6 +138,16 @@ export function initMhYieldHelper(options = {}) {
     if(num === null || num === undefined || isNaN(num)) return '';
     const s = String(Math.round(num));
     return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function escapeHtml(str){
+    if(str == null) return '';
+    return String(str)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
   }
 
   function calcDevYield({ cropKind, moisturePct, wetWeightLbs, lengthFt, widthFt }){
@@ -609,6 +619,41 @@ export function initMhYieldHelper(options = {}) {
       const wtVal     = b.weightLbs    != null ? formatWithCommas(b.weightLbs) : '';
       const yldVal    = b.yieldBuPerAc != null ? formatNumber(b.yieldBuPerAc, 1) : '—';
 
+      const notesVal  = b.notes != null ? escapeHtml(b.notes) : '';
+      const files     = Array.isArray(b.files) ? b.files : [];
+
+      const thumbsHtml = files.length
+        ? files.map((f, fileIdx) => {
+            const safeName = escapeHtml(f.name || `File ${fileIdx + 1}`);
+            const url = f.url || '';
+            const ct  = (f.contentType || '').toLowerCase();
+            const isImage = ct.startsWith('image/');
+            return `
+              <div class="mh-file-thumb" data-row-id="${b.rowId}" data-file-index="${fileIdx}">
+                <button
+                  type="button"
+                  class="mh-file-thumb-img"
+                  data-row-id="${b.rowId}"
+                  data-file-index="${fileIdx}"
+                  title="${safeName}">
+                  ${isImage
+                    ? `<div class="mh-file-thumb-img-inner" style="background-image:url('${url}');"></div>`
+                    : `<div class="mh-file-thumb-icon">${safeName.slice(0,3).toUpperCase()}</div>`
+                  }
+                </button>
+                <button
+                  type="button"
+                  class="mh-file-thumb-delete"
+                  aria-label="Remove file"
+                  data-row-id="${b.rowId}"
+                  data-file-index="${fileIdx}">
+                  ×
+                </button>
+              </div>
+            `;
+          }).join('')
+        : `<div class="mh-files-empty">No files yet.</div>`;
+
       html += `
         <div class="yield-block-card" data-row-id="${b.rowId}">
           <div class="yield-block-head">
@@ -644,6 +689,52 @@ export function initMhYieldHelper(options = {}) {
             <strong id="mh-block-yield-${b.rowId}">${yldVal}</strong> bu/ac
           </div>
           <div class="help mh-block-error" id="mh-block-error-${b.rowId}"></div>
+
+          <div class="mh-notes-files-toggle-row">
+            <button
+              type="button"
+              class="btn btn-small btn-quiet mh-notes-toggle"
+              data-row-id="${b.rowId}">
+              Notes / Files
+            </button>
+          </div>
+
+          <div class="mh-notes-files hidden" id="mh-notes-files-${b.rowId}" data-row-id="${b.rowId}">
+            <div class="field mh-notes-field">
+              <label for="mh-block-notes-${b.rowId}">Notes</label>
+              <div class="mh-notes-with-mic">
+                <textarea
+                  id="mh-block-notes-${b.rowId}"
+                  class="input mh-notes-textarea"
+                  rows="3"
+                  placeholder="Add notes for this entry...">${notesVal}</textarea>
+                <button
+                  type="button"
+                  class="btn-icon dictation-btn"
+                  data-dictation-target="mh-block-notes-${b.rowId}"
+                  aria-label="Dictate notes">
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M8 2a2 2 0 0 0-2 2v3a2 2 0 1 0 4 0V4a2 2 0 0 0-2-2zM5.5 7a.5.5 0 0 1 1 0 1.5 1.5 0 0 0 3 0 .5.5 0 0 1 1 0 2.5 2.5 0 0 1-2 2.45V11h1.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1h1.5V9.45A2.5 2.5 0 0 1 5.5 7z"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="mh-files-field">
+              <div class="mh-files-header">
+                <span>Files &amp; photos</span>
+                <button
+                  type="button"
+                  class="btn btn-small btn-quiet mh-add-file-btn"
+                  data-row-id="${b.rowId}">
+                  + Add file
+                </button>
+              </div>
+              <div class="mh-files-grid" id="mh-files-grid-${b.rowId}">
+                ${thumbsHtml}
+              </div>
+            </div>
+          </div>
         </div>
       `;
     });
@@ -656,6 +747,17 @@ export function initMhYieldHelper(options = {}) {
       const wtInput    = document.getElementById(`mh-block-wt-${b.rowId}`);
       const yldEl      = document.getElementById(`mh-block-yield-${b.rowId}`);
       const errEl      = document.getElementById(`mh-block-error-${b.rowId}`);
+
+      const notesToggle = stageShell.querySelector(`.mh-notes-toggle[data-row-id="${b.rowId}"]`);
+      const notesSection= document.getElementById(`mh-notes-files-${b.rowId}`);
+      const notesInput  = document.getElementById(`mh-block-notes-${b.rowId}`);
+      const addFileBtn  = stageShell.querySelector(`.mh-add-file-btn[data-row-id="${b.rowId}"]`);
+      const fileThumbButtons = Array.from(
+        stageShell.querySelectorAll(`.mh-file-thumb-img[data-row-id="${b.rowId}"]`)
+      );
+      const fileDeleteButtons = Array.from(
+        stageShell.querySelectorAll(`.mh-file-thumb-delete[data-row-id="${b.rowId}"]`)
+      );
 
       function recalc(){
         const mRaw = moistInput ? moistInput.value.replace(/[^0-9.]/g,'') : '';
@@ -765,6 +867,79 @@ export function initMhYieldHelper(options = {}) {
           recalc();
         });
       }
+
+      // Notes toggle
+      if(notesToggle && notesSection){
+        notesToggle.addEventListener('click', () => {
+          notesSection.classList.toggle('hidden');
+        });
+      }
+
+      // Notes binding
+      if(notesInput){
+        notesInput.addEventListener('input', () => {
+          b.notes = notesInput.value;
+        });
+      }
+
+      // Add file → let global uploader handle it
+      if(addFileBtn){
+        addFileBtn.addEventListener('click', () => {
+          document.dispatchEvent(new CustomEvent('mhAddFile', {
+            detail: {
+              trialId,
+              fieldDocId,
+              rowId: b.rowId
+            }
+          }));
+        });
+      }
+
+      // Open file thumbnail → let a global viewer handle it
+      fileThumbButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.dataset.fileIndex || -1);
+          const filesArr = Array.isArray(b.files) ? b.files : [];
+          const file = filesArr[idx];
+          if(!file) return;
+
+          document.dispatchEvent(new CustomEvent('mhOpenFile', {
+            detail: {
+              trialId,
+              fieldDocId,
+              rowId: b.rowId,
+              file,
+              fileIndex: idx
+            }
+          }));
+        });
+      });
+
+      // Delete file thumbnail
+      fileDeleteButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.dataset.fileIndex || -1);
+          const filesArr = Array.isArray(b.files) ? b.files : [];
+          const file = filesArr[idx];
+          if(!file) return;
+
+          // Tell global handler to delete from Storage + Firestore
+          document.dispatchEvent(new CustomEvent('mhDeleteFile', {
+            detail: {
+              trialId,
+              fieldDocId,
+              rowId: b.rowId,
+              file,
+              fileIndex: idx
+            }
+          }));
+
+          // Optimistic local removal + re-render so UI feels snappy
+          filesArr.splice(idx, 1);
+          b.files = filesArr;
+          renderBlocks();
+        });
+      });
 
       // Initial draw if we already had values
       recalc();
@@ -883,7 +1058,7 @@ export function initMhYieldHelper(options = {}) {
 
   // ---------- Firestore load/save ----------
 
-    async function loadSeedProducts(){
+  async function loadSeedProducts(){
     try{
       const db = getDb();
       const baseRef = collection(db, 'productsSeed');
