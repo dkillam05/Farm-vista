@@ -13,6 +13,8 @@
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <!-- Shared PDF helper (Cloud Run) -->
+  <script src="/Farm-vista/js/fv-pdf.js"></script>
 
   <style>
     :root{
@@ -119,6 +121,11 @@
       padding-inline:10px;
     }
 
+    /* Mobile-only PDF button — hidden by default on desktop */
+    .btn-pdf-mobile{
+      display:none;
+    }
+
     .page-header-meta{
       font-size:0.9rem;
       opacity:0.8;
@@ -210,6 +217,8 @@
       margin-top:4px;
       display:flex;
       justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
     }
 
     .status-line{
@@ -243,8 +252,14 @@
         text-align:left;
       }
       .bottom-actions .btn{
+        flex:1 1 auto;
         width:100%;
         justify-content:center;
+      }
+
+      /* On mobile, show the PDF-for-phone button */
+      .btn-pdf-mobile{
+        display:inline-flex;
       }
     }
 
@@ -327,6 +342,11 @@
     function isMobileLike(){
       const ua = (navigator.userAgent || '').toLowerCase();
       return /iphone|ipad|ipod|android|mobi/.test(ua);
+    }
+
+    function isPdfPreview(){
+      const params = new URLSearchParams(window.location.search);
+      return params.get('pdfPreview') === '1';
     }
 
     function formatNumber(num, opts = {}) {
@@ -1360,16 +1380,30 @@
       );
     }
 
-    async function runDetailedPrint(){
+    /**
+     * Build and output the detailed packet.
+     * - Normal desktop: use hidden iframe + window.print() (same as before).
+     * - Normal mobile: open a blob/data URL in a new tab.
+     * - pdfPreview / inline mode (for Cloud Run): replace current document with the packet HTML,
+     *   no print(), so Puppeteer can render it cleanly.
+     */
+    async function runDetailedPrint(options = {}){
+      const inlineMode = !!options.inline || isPdfPreview();
+
       try{
         if (!STATE.trialDoc){
-          alert('Trial is not loaded yet. Try again in a moment.');
+          if (!inlineMode){
+            alert('Trial is not loaded yet. Try again in a moment.');
+          }
           return;
         }
 
-        const selectedFields = getSelectedFields();
+        // In pdfPreview/inline mode we include ALL fields (checkbox state is a UI concept).
+        const selectedFields = inlineMode ? STATE.fields : getSelectedFields();
         if (!selectedFields.length){
-          alert('Check at least one field before building the detailed packet.');
+          if (!inlineMode){
+            alert('Check at least one field before building the detailed packet.');
+          }
           return;
         }
 
@@ -1384,6 +1418,17 @@
           runDateOnly,
           fields: selectedFields
         });
+
+        if (inlineMode){
+          // For Cloud Run PDF (pdfPreview=1): replace the whole document with the packet.
+          // No window.print() here — FVPdf.shouldAutoPrint() will be false in this mode anyway.
+          document.open();
+          document.write(html);
+          document.close();
+          return;
+        }
+
+        // Existing behavior below stays the same for normal users.
 
         if (isMobileLike()){
           // Mobile: open as standalone HTML for Share → Print / Save, etc.
@@ -1495,6 +1540,11 @@
           els.statusLine.textContent =
             'Check the fields you want, then click Print Detailed Report to build the full packet.';
         }
+
+        // If Cloud Run hit this page with ?pdfPreview=1, auto-build the inline packet.
+        if (isPdfPreview()){
+          await runDetailedPrint({ inline: true });
+        }
       }catch(err){
         console.error('Error loading trial detailed data:', err);
         if (els.statusLine){
@@ -1566,8 +1616,18 @@
           </section>
 
           <div class="bottom-actions">
+            <!-- Desktop / normal primary action -->
             <button id="btnPrint" type="button" class="btn btn-primary">
               Print Detailed Report
+            </button>
+
+            <!-- Mobile-only PDF action, auto-wired by fv-pdf.js -->
+            <button
+              type="button"
+              class="btn btn-pdf-mobile"
+              data-fv-pdf-button
+            >
+              Download PDF for Phone
             </button>
           </div>
 
