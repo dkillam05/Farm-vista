@@ -279,7 +279,6 @@
       flex-direction:column;
       max-height:calc(100vh - 24px);
       margin:12px;
-      /* keep everything inside the box; header/footer stay put */
       overflow:hidden;
     }
     .modal-header{
@@ -319,7 +318,6 @@
       gap:10px;
       flex:1;
       min-height:0;
-      /* contents scroll INSIDE the box */
       overflow-y:auto;
     }
     .modal-footer{
@@ -332,7 +330,6 @@
       background:var(--surface);
     }
 
-    /* Mobile: keep header/footer visible, scroll inside, add top/bottom gap */
     @media (max-width:640px){
       .modal-backdrop{
         align-items:flex-start;
@@ -425,7 +422,6 @@
       border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
     }
 
-    /* Dropdown is part of normal flow so it pushes content down */
     .combo-panel{
       position:relative;
       left:auto;
@@ -599,7 +595,7 @@
       width:100%;
       min-height:96px;
       padding:12px;
-      padding-right:52px; /* room for mic button */
+      padding-right:52px;
       resize:vertical;
       font:inherit;
       font-size:14px;
@@ -616,7 +612,7 @@
       bottom:10px;
       width:36px;
       height:36px;
-      border-radius:10px; /* rounded square */
+      border-radius:10px;
       border:1px solid var(--border);
       background:var(--surface);
       display:grid;
@@ -641,11 +637,11 @@
       display:block;
     }
 
+    /* Legacy files styles (not used by MH helper anymore, safe to keep) */
     .files-shell{
       display:flex;
       flex-direction:column;
       gap:6px;
-      font-size:0.8rem;
     }
     .hidden-file{
       display:none;
@@ -684,6 +680,96 @@
     }
     .file-remove:hover{
       background:rgba(0,0,0,.06);
+    }
+
+    /* MH files / thumbnails */
+    .mh-files-field{
+      margin-top:10px;
+    }
+    .mh-files-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      font-size:0.82rem;
+    }
+    .mh-files-header span{
+      font-weight:600;
+    }
+    .mh-files-grid{
+      margin-top:6px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .mh-files-empty{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+      padding:4px 0;
+    }
+    .mh-file-thumb{
+      position:relative;
+      width:72px;
+      height:72px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      overflow:hidden;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .mh-file-thumb-img{
+      display:block;
+      width:100%;
+      height:100%;
+      border:none;
+      padding:0;
+      margin:0;
+      background:none;
+      cursor:pointer;
+    }
+    .mh-file-thumb-img-inner{
+      width:100%;
+      height:100%;
+      background-size:cover;
+      background-position:center;
+      background-repeat:no-repeat;
+    }
+    .mh-file-thumb-icon{
+      width:100%;
+      height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0.7rem;
+      font-weight:700;
+      text-transform:uppercase;
+      color:var(--text);
+    }
+    .mh-file-thumb-delete{
+      position:absolute;
+      top:4px;
+      right:4px;
+      width:18px;
+      height:18px;
+      border-radius:999px;
+      border:none;
+      background:rgba(0,0,0,.6);
+      color:#fff;
+      font-size:12px;
+      line-height:1;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .mh-file-thumb-delete:hover{
+      background:rgba(0,0,0,.8);
+    }
+
+    .mh-notes-files-toggle-row{
+      margin-top:8px;
     }
 
     .hidden{display:none;}
@@ -729,7 +815,6 @@
             </button>
           </div>
 
-          <!-- Summary block – driven by Firestore -->
           <div class="top-row">
             <div class="trial-summary">
               <div class="trial-summary-title" id="mhTrialName">Multi-Hybrid Trial</div>
@@ -762,7 +847,6 @@
                 <div class="field-card-note" id="devFieldSummary"></div>
               </div>
               <div>
-                <!-- Desktop-only button (hidden on phones via @media) -->
                 <button type="button" class="btn btn-small" id="btnFieldYield">
                   View / Add Yield
                 </button>
@@ -930,7 +1014,6 @@
       }
 
       try{
-        // If we weren't passed a fieldDocId, auto-pick the first field
         if(!STATE.fieldDocId){
           const fieldsCol = collection(
             STATE.db,
@@ -981,10 +1064,9 @@
             fieldNoteEl.textContent = bits.join(' • ');
           }
 
-          return; // we're done
+          return;
         }
 
-        // Normal path: we *have* a fieldDocId
         const fieldRef = doc(
           STATE.db,
           CONFIG.COLLECTION_TRIALS,
@@ -1060,13 +1142,12 @@
       `;
     }
 
-    // ===== Inline mic wiring (used by helper-rendered notes UI) =====
+    // ===== Inline mic wiring (reuse existing notes-shell / mic-btn) =====
     function makeInlineMic(btnEl, taEl){
       if(!btnEl || !taEl) return;
 
       const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
       if(!ok){
-        // Browser / PWA doesn't support speech – hide mic
         btnEl.style.display = 'none';
         return;
       }
@@ -1092,16 +1173,12 @@
             rec.start();
             active = true;
             setMic(true);
-          }catch(err){
-            // ignore double-start errors
-          }
+          }catch(err){}
         }else{
           try{
             rec.stop();
             rec.abort();
-          }catch(err){
-            // ignore
-          }
+          }catch(err){}
           active = false;
           setMic(false);
         }
@@ -1113,7 +1190,6 @@
           txt += ev.results[i][0].transcript;
         }
         taEl.value = baseText + txt;
-        // fire input so helper can capture changes into state
         taEl.dispatchEvent(new Event('input', { bubbles:true }));
       };
 
@@ -1134,7 +1210,6 @@
         if(shell.dataset.micWired === '1') return;
 
         const btn = shell.querySelector('.mic-btn');
-        // prefer specific notes-input class but fall back to any textarea
         const ta  = shell.querySelector('textarea.notes-input, textarea');
         if(!btn || !ta) return;
 
@@ -1142,9 +1217,8 @@
         shell.dataset.micWired = '1';
       });
     }
-    // ===== End inline mic wiring =====
 
-    // ===== Helper to update a single block.files array in multiHybrid/state =====
+    // helper to update a single block.files in multiHybrid/state
     async function updateBlockFilesInState({ trialId, fieldDocId, rowId, updateFn }){
       if(!trialId || !fieldDocId || !rowId) return;
 
@@ -1194,7 +1268,6 @@
       await loadField();
       updateYieldSummaryFromDom();
 
-      // Expose context in case you want it later
       window.MH_TRIAL_CONTEXT = {
         db: STATE.db,
         trialId: STATE.trialId,
@@ -1213,17 +1286,15 @@
         });
       }
 
-      // Initialize the MH helper – wired to Firestore (and entryNumber)
+      // init helper
       initMhYieldHelper({
         db: STATE.db,
         trialId: STATE.trialId,
         fieldDocId: STATE.fieldDocId
       });
 
-      // Wire any notes/mic that helper has already rendered
       wireNotesMics();
 
-      // Watch for the helper adding/replacing content under mhStageShell
       const mhShell = document.getElementById('mhStageShell');
       if(mhShell && 'MutationObserver' in window){
         const obs = new MutationObserver(() => {
@@ -1232,39 +1303,29 @@
         obs.observe(mhShell, { childList:true, subtree:true });
       }
 
-      // ===== Desktop-only: only "View / Add Yield" opens modal =====
+      // desktop-only card click behavior
       const fieldCard   = document.getElementById('devFieldCard');
       const hiddenOpen  = document.getElementById('btnOpenModal');
 
       if(fieldCard){
         fieldCard.addEventListener('click', (ev) => {
           const isMobile = window.matchMedia('(max-width: 640px)').matches;
-
-          // On phones, let existing swipe / handlers work untouched
           if(isMobile) return;
 
           const btnHit = ev.target.closest('#btnFieldYield');
           if(btnHit && hiddenOpen){
-            // Desktop: only this button opens the helper modal
             ev.preventDefault();
             ev.stopPropagation();
             hiddenOpen.click();
           }else{
-            // Click anywhere else on the card: do nothing
             ev.preventDefault();
             ev.stopPropagation();
           }
-        }, true); // capture so we can block other click handlers on the card
+        }, true);
       }
-      // ===== End desktop-only click control =====
     })();
 
-    // ============================================================
-    // Wire to MH Notes / Files custom events from helper
-    // Files: use Firestore + Storage so they persist in blocks[].files
-    // Notes: handled by helper via textarea input + Save
-    // ============================================================
-
+    // Storage + file handling
     const storage = getStorage();
     let mhFileInput = null;
     let mhPendingContext = null;
@@ -1316,7 +1377,6 @@
             updateFn: (files) => [...files, meta]
           });
 
-          // Optional: notify helper UI something changed
           document.dispatchEvent(
             new CustomEvent('mhFilesChanged', {
               detail: {
@@ -1362,13 +1422,11 @@
       }
 
       try{
-        // Try deleting from Storage if path is provided
         if(file.path){
           const sRef = ref(storage, file.path);
           try{
             await deleteObject(sRef);
           }catch(err){
-            // If the object is already gone, we still want to clean Firestore
             console.warn('Error deleting Storage object (continuing):', err);
           }
         }
@@ -1382,7 +1440,6 @@
               if(file.path && f.path){
                 return f.path !== file.path;
               }
-              // fallback: filter by name + url combo
               if(file.name && file.url){
                 return !(f.name === file.name && f.url === file.url);
               }
@@ -1391,7 +1448,6 @@
           }
         });
 
-        // Optional: notify helper UI
         document.dispatchEvent(
           new CustomEvent('mhFilesChanged', {
             detail: {
@@ -1413,13 +1469,11 @@
       const detail = ev.detail || {};
       const { file } = detail;
       if(file && file.url){
-        // For now just open in a new tab/window
         window.open(file.url, '_blank');
       }else{
         alert('This file has no URL to open.');
       }
     });
-    // ============================================================
   </script>
 </body>
 </html>
