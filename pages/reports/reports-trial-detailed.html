@@ -1305,7 +1305,6 @@
       align-items:stretch;
       justify-content:flex-start;
       min-height:0;
-      overflow:hidden;
     }
     .photo-row{
       display:flex;
@@ -1388,9 +1387,8 @@
     /**
      * Build and output the detailed packet.
      * - Normal desktop: use hidden iframe + window.print() (same as before).
-     * - Normal mobile: open a blob/data URL in a new tab.
-     * - pdfPreview / inline mode (for Cloud Run): replace current document with the packet HTML,
-     *   no print(), so Puppeteer can render it cleanly.
+     * - Normal mobile: open a blob/data URL in a new tab (fallback).
+     * - pdfPreview / inline mode (for Cloud Run): replace current document with the packet HTML.
      */
     async function runDetailedPrint(options = {}){
       const inlineMode = !!options.inline || isPdfPreview();
@@ -1425,19 +1423,16 @@
         });
 
         if (inlineMode){
-          // For Cloud Run PDF (pdfPreview=1): replace the whole document with the packet.
-          // No window.print() here — FVPdf.shouldAutoPrint() will be false in this mode anyway.
           document.open();
           document.write(html);
           document.close();
           return;
         }
 
-        // Existing behavior below stays the same for normal desktop users.
-
+        // Desktop print behavior
         if (isMobileLike()){
-          // Mobile path is now handled by the separate "Download PDF for Phone" button
-          // that uses HTML-mode PDF. We keep this branch only as a fallback.
+          // Mobile path is now handled by the "Download PDF" button using HTML-mode PDF.
+          // This remains as a fallback.
           try{
             const blob = new Blob([html], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
@@ -1451,7 +1446,6 @@
             window.location.href = dataUrl;
           }
         } else {
-          // Desktop: use hidden iframe + print dialog, but wait for images
           let iframe = els.iframe;
           if (!iframe){
             iframe = document.createElement('iframe');
@@ -1518,13 +1512,11 @@
           fields: selectedFields
         });
 
-        // Prefer the shared HTML-mode PDF helper if available
         if (window.FVPdf && typeof window.FVPdf.openPdfFromHtml === 'function'){
           window.FVPdf.openPdfFromHtml(html, {
             filename: 'Trial-Detailed-Packet.pdf'
           });
         }else{
-          // Fallback to old mobile behavior if helper isn't present
           console.warn('[trial-detailed] FVPdf.openPdfFromHtml missing, falling back to direct HTML open');
           try{
             const blob = new Blob([html], { type: 'text/html' });
@@ -1608,10 +1600,9 @@
 
         if (els.statusLine){
           els.statusLine.textContent =
-            'Check the fields you want, then click Print Detailed Report (desktop) or Download PDF for Phone (mobile).';
+            'Check the fields you want, then click Print Detailed Report (desktop) or Download PDF (mobile).';
         }
 
-        // If Cloud Run hit this page with ?pdfPreview=1, auto-build the inline packet.
         if (isPdfPreview()){
           await runDetailedPrint({ inline: true });
         }
@@ -1697,7 +1688,7 @@
               type="button"
               class="btn btn-pdf-mobile"
             >
-              Download PDF for Phone
+              Download PDF
             </button>
           </div>
 
