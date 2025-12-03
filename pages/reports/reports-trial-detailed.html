@@ -435,8 +435,25 @@
 
       const trialRef = doc(STATE.db, 'fieldTrials', trialId);
       const trialSnap = await getDoc(trialRef);
+
       if (!trialSnap.exists()) {
-        throw new Error('Trial not found');
+        // Do not throw here – just log and set empty state so UI still works.
+        console.warn('[trial-detailed] Trial not found:', trialId);
+        STATE.trialDoc = {
+          id: trialId,
+          trialName: 'Unknown trial'
+        };
+        STATE.fields = [];
+        STATE.totals = {
+          fieldCount: 0,
+          tillableAll: 0,
+          checkAcresAll: 0,
+          trialAcresAll: 0,
+          checkAvgAll: null,
+          trialAvgAll: null,
+          advantageAll: null
+        };
+        return;
       }
 
       const trialData = trialSnap.data() || {};
@@ -537,6 +554,13 @@
     function renderFieldSelection(){
       if (!els.fieldTableBody) return;
 
+      if (!STATE.fields.length) {
+        els.fieldTableBody.innerHTML = `
+          <tr><td colspan="4">No fields with yield blocks were found for this trial.</td></tr>
+        `;
+        return;
+      }
+
       const rows = STATE.fields.map((f, idx) => {
         const d = f.data || {};
         const s = f.stats || {};
@@ -576,9 +600,7 @@
         `;
       }).join('');
 
-      els.fieldTableBody.innerHTML = rows || `
-        <tr><td colspan="4">No fields with yield blocks were found for this trial.</td></tr>
-      `;
+      els.fieldTableBody.innerHTML = rows;
     }
 
     function getFirstSelectedField(){
@@ -609,7 +631,6 @@
 
     function buildBlockPageHtml({ company, runStr, runDateOnly, field, block, blockIndex }) {
       const t = STATE.trialDoc || {};
-      const totals = STATE.totals || {};
       const d = field.data || {};
       const s = field.stats || {};
 
@@ -950,7 +971,6 @@
           })
         ).join('');
       } else {
-        // Optional: a simple "no blocks" page so print isn't just a cover
         blockPagesHtml = `
 <section class="page">
   <div class="page-inner page-inner-block">
@@ -1319,6 +1339,11 @@
         return;
       }
 
+      if (!STATE.fields.length) {
+        alert('No fields with yield blocks were found for this trial.');
+        return;
+      }
+
       const field = getFirstSelectedField();
       if (!field){
         alert('Select at least one field (we will use the first checked one) before printing.');
@@ -1381,7 +1406,8 @@
           runDetailedPrint().catch(err => {
             console.error(err);
             if (els.statusLine){
-              els.statusLine.textContent = 'Error while building detailed report. Check console for details.';
+              const msg = err && err.message ? err.message : 'Unknown error. Check console or Firestore rules.';
+              els.statusLine.textContent = 'Error building detailed report: ' + msg;
               els.statusLine.classList.add('status-error');
             }
           });
@@ -1427,7 +1453,8 @@
       }catch(err){
         console.error('Error loading trial detailed data:', err);
         if (els.statusLine){
-          els.statusLine.textContent = 'Error loading trial data. Check console or Firestore rules.';
+          const msg = err && err.message ? err.message : 'Unknown error. Check console or Firestore rules.';
+          els.statusLine.textContent = 'Error loading trial data: ' + msg;
           els.statusLine.classList.add('status-error');
         }
       }
