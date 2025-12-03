@@ -532,10 +532,11 @@
       if (t.trialType) bits.push(t.trialType);
       if (t.operationTask) bits.push(t.operationTask);
       if (els.subtitle) els.subtitle.textContent =
-        bits.join(' • ') || 'Block-level detailed report with images';
+        bits.join(' • ') || 'Block-level detailed packet with one page per yield block.';
 
       if (els.metaLine) {
-        els.metaLine.textContent = 'Select one field below, then click Print Detailed Report.';
+        els.metaLine.textContent =
+          'Check the fields you want. The packet will include a trial summary plus one page per yield block for each checked field.';
       }
     }
 
@@ -559,9 +560,7 @@
           : '–';
 
         const includeId = `include-field-${idx}`;
-
-        // default: FIRST field checked, others unchecked
-        const checkedAttr = idx === 0 ? 'checked' : '';
+        const checkedAttr = 'checked'; // default: all fields included
 
         return `
           <tr data-field-id="${f.id}">
@@ -586,12 +585,13 @@
       `;
     }
 
-    function getFirstSelectedField(){
+    function getSelectedFields(){
       const cbs = Array.from(document.querySelectorAll('.js-include-field'));
-      const selected = cbs.filter(cb => cb.checked);
-      if (!selected.length) return null;
-      const id = selected[0].getAttribute('data-field-id');
-      return STATE.fields.find(f => f.id === id) || null;
+      const selectedIds = cbs
+        .filter(cb => cb.checked)
+        .map(cb => cb.getAttribute('data-field-id'));
+      if (!selectedIds.length) return [];
+      return STATE.fields.filter(f => selectedIds.includes(f.id));
     }
 
     function wireSelectionActions(){
@@ -610,66 +610,93 @@
       }
     }
 
-    /* ---------- build SIMPLE 2-PAGE print HTML: 2×2 equal grid ---------- */
+    /* ---------- build MULTI-FIELD, MULTI-BLOCK print HTML ---------- */
 
-    function buildDetailedPrintHtml({ company, runStr, runDateOnly, field }) {
+    function buildDetailedPrintHtml({ company, runStr, runDateOnly, fields }) {
       const t = STATE.trialDoc || {};
-      const totals = STATE.totals || {};
-      const d = field.data || {};
-      const s = field.stats || {};
+      const allFields = Array.isArray(fields) && fields.length ? fields : [];
 
-      const farmName = d.farmName || 'Unknown farm';
-      const fieldName = d.fieldName || '(Unnamed field)';
+      // recompute totals using only selected fields
+      let fieldCount = allFields.length;
+      let tillableAll = 0;
+      let checkAcresAll = 0;
+      let trialAcresAll = 0;
+      let checkBuAll = 0;
+      let trialBuAll = 0;
 
-      // Choose first block; if none, make an empty shell
-      const blocks = Array.isArray(field.blocks) ? field.blocks : [];
-      const block = blocks.length ? blocks[0] : {};
+      for (const f of allFields) {
+        const d = f.data || {};
+        const s = f.stats || {};
+        if (typeof d.tillable === 'number') tillableAll += d.tillable;
 
-      const c = block.check || {};
-      const tr = block.trial || {};
-
-      // Collect up to 4 image attachments from this block
-      const images = [];
-      if (Array.isArray(block.attachments)) {
-        for (const att of block.attachments) {
-          if (!att || typeof att !== 'object' || !att.url) continue;
-          const ct = (att.contentType || '').toString().toLowerCase();
-          const isImage = ct ? ct.startsWith('image/') : true;
-          if (!isImage) continue;
-          images.push(att);
-          if (images.length >= 4) break;
+        if (s.checkAc > 0 && s.checkAvg !== null) {
+          checkAcresAll += s.checkAc;
+          checkBuAll += s.checkAc * s.checkAvg;
+        }
+        if (s.trialAc > 0 && s.trialAvg !== null) {
+          trialAcresAll += s.trialAc;
+          trialBuAll += s.trialAc * s.trialAvg;
         }
       }
 
-      const plantDateStr   = formatDate(block.plantDate);
-      const harvestDateStr = formatDate(block.harvestDate);
-      const combineCount   = (block.combineCount !== undefined && block.combineCount !== null)
-        ? String(block.combineCount)
-        : '';
+      const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
+      const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
+      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null)
+        ? (trialAvgAll - checkAvgAll)
+        : null;
 
-      const checkVariety = (block.checkVarietyName || '').toString();
-      const trialVariety = (block.trialVarietyName || '').toString();
+      const totals = {
+        fieldCount,
+        tillableAll,
+        checkAcresAll,
+        trialAcresAll,
+        checkAvgAll,
+        trialAvgAll,
+        advantageAll
+      };
 
-      const checkMoist = typeof c.moisture === 'number' ? formatDecimal(c.moisture,1) + ' %' : '';
-      const trialMoist = typeof tr.moisture === 'number' ? formatDecimal(tr.moisture,1) + ' %' : '';
-      const checkLbs   = typeof c.pounds === 'number' ? formatInt(c.pounds) + ' lb' : '';
-      const trialLbs   = typeof tr.pounds === 'number' ? formatInt(tr.pounds) + ' lb' : '';
+      // Build field summary rows
+      const fieldRowsHtml = allFields.map(f => {
+        const d = f.data || {};
+        const s = f.stats || {};
+        const farmName = d.farmName || 'Unknown farm';
+        const fieldName = d.fieldName || '(Unnamed field)';
+        const trialAc = typeof d.trialAcres === 'number'
+          ? formatDecimal(d.trialAcres,1)
+          : '–';
+        const tillable = typeof d.tillable === 'number'
+          ? formatDecimal(d.tillable,1)
+          : '–';
+        const checkAvg = s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : '–';
+        const trialAvg = s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : '–';
+        const advText = s.advantage !== null
+          ? (s.advantage >= 0 ? '+' : '') + formatDecimal(s.advantage,1)
+          : '–';
 
-      const notes = (block.notes || '').toString().trim();
+        return `
+          <tr>
+            <td>
+              ${escapeHtml(fieldName)}<br>
+              <span class="muted-small">${escapeHtml(farmName)}</span>
+            </td>
+            <td class="cell-right">
+              ${
+                [
+                  trialAc !== '–' ? trialAc + ' trial ac' : '',
+                  tillable !== '–' ? tillable + ' tillable' : ''
+                ].filter(Boolean).join(' / ') || '–'
+              }
+            </td>
+            <td class="cell-right">${checkAvg}</td>
+            <td class="cell-right">${trialAvg}</td>
+            <td class="cell-right">${advText}</td>
+          </tr>
+        `;
+      }).join('') || `
+        <tr><td colspan="5">No fields selected.</td></tr>
+      `;
 
-      const checkBu    = typeof c.yieldBuAc === 'number' ? formatDecimal(c.yieldBuAc,1) : '';
-      const trialBu    = typeof tr.yieldBuAc === 'number' ? formatDecimal(tr.yieldBuAc,1) : '';
-      const checkAcres = typeof c.acres === 'number' ? formatDecimal(c.acres,2) : '';
-      const trialAcres = typeof tr.acres === 'number' ? formatDecimal(tr.acres,2) : '';
-      let advVal = null;
-      if (typeof c.yieldBuAc === 'number' && typeof tr.yieldBuAc === 'number') {
-        advVal = tr.yieldBuAc - c.yieldBuAc;
-      }
-      const advText = advVal !== null
-        ? (advVal >= 0 ? '+' : '') + formatDecimal(advVal,1)
-        : '';
-
-      /* ---------- PAGE 1: TRIAL SUMMARY COVER ---------- */
+      /* ---------- PAGE 1: TRIAL SUMMARY COVER (ALL SELECTED FIELDS) ---------- */
 
       const coverHtml = `
 <section class="page">
@@ -685,7 +712,7 @@
         </p>
       </div>
       <div class="report-meta-top">
-        <div><strong>Field Trial Detailed Report</strong></div>
+        <div><strong>Field Trial Detailed Packet</strong></div>
         <div>Generated: ${escapeHtml(runStr)}</div>
         <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
       </div>
@@ -699,7 +726,7 @@
 
     <div class="summary-strip">
       <div class="summary-pill">
-        <span class="summary-label">Fields</span>
+        <span class="summary-label">Fields in packet</span>
         <span class="summary-value">${formatInt(totals.fieldCount || 0)}</span>
       </div>
       <div class="summary-pill">
@@ -729,36 +756,24 @@
     </div>
 
     <section class="section">
-      <h2 class="section-title">Field selected for detail</h2>
-      <p class="section-sub">This detailed packet focuses on the field you selected from the summary report.</p>
+      <h2 class="section-title">Fields included in this packet</h2>
+      <p class="section-sub">
+        All checked fields are listed below. Each yield block from these fields has its own page in the remainder of the packet.
+      </p>
 
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th style="width:40%">Field</th>
-              <th style="width:28%">Farm / acres</th>
-              <th style="width:16%">Check bu/ac</th>
-              <th style="width:16%">Trial bu/ac</th>
+              <th style="width:32%">Field</th>
+              <th style="width:26%">Farm / acres</th>
+              <th style="width:14%">Check bu/ac</th>
+              <th style="width:14%">Trial bu/ac</th>
+              <th style="width:14%">Adv.</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td>${escapeHtml(fieldName)}</td>
-              <td>
-                ${escapeHtml(farmName)}<br>
-                <span class="muted-small">
-                  ${
-                    [
-                      typeof d.trialAcres === 'number' ? formatDecimal(d.trialAcres,1) + ' trial ac' : '',
-                      typeof d.tillable === 'number' ? formatDecimal(d.tillable,1) + ' tillable' : ''
-                    ].filter(Boolean).join(' / ')
-                  }
-                </span>
-              </td>
-              <td class="cell-right">${s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : '–'}</td>
-              <td class="cell-right">${s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : '–'}</td>
-            </tr>
+            ${fieldRowsHtml}
           </tbody>
         </table>
       </div>
@@ -766,43 +781,100 @@
 
     <footer class="report-footer">
       <div>Internal use only. Results may change as additional yield blocks are recorded.</div>
-      <div>FarmVista • Field Trial Detailed Report • ${escapeHtml(runDateOnly || '')}</div>
+      <div>FarmVista • Field Trial Detailed Packet • ${escapeHtml(runDateOnly || '')}</div>
     </footer>
   </div>
 </section>`;
 
-      /* ---------- PAGE 2: FIELD SUMMARY + 2×2 IMAGE GRID + NUMBERS ---------- */
+      /* ---------- PAGES 2+: ONE PAGE PER BLOCK FOR EACH FIELD ---------- */
 
-      const imageRows = [];
-      if (images.length){
-        const row1 = images.slice(0, 2);
-        const row2 = images.slice(2, 4);
-        if (row1.length){
-          imageRows.push(row1);
-        }
-        if (row2.length){
-          imageRows.push(row2);
-        }
-      }
+      const blockPages = [];
 
-      const gridHtml = imageRows.length
-        ? imageRows.map(row => `
-          <div class="photo-row">
-            ${row.map(att => {
-              const url  = escapeHtml(att.url || '');
-              const name = escapeHtml(att.name || '');
-              return `
-                <figure class="photo-fig">
-                  <img src="${url}" alt="${name || 'Block image'}" class="photo-img" />
-                  ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
-                </figure>
-              `;
-            }).join('')}
-          </div>
-        `).join('')
-        : '<p class="section-sub">No images are attached to this block yet.</p>';
+      for (const field of allFields) {
+        const d = field.data || {};
+        const s = field.stats || {};
 
-      const fieldPageHtml = `
+        const farmName = d.farmName || 'Unknown farm';
+        const fieldName = d.fieldName || '(Unnamed field)';
+
+        const blocks = Array.isArray(field.blocks) ? field.blocks : [];
+        if (!blocks.length) continue;
+
+        blocks.forEach((block, idx) => {
+          const c = block.check || {};
+          const tr = block.trial || {};
+
+          const images = [];
+          if (Array.isArray(block.attachments)) {
+            for (const att of block.attachments) {
+              if (!att || typeof att !== 'object' || !att.url) continue;
+              const ct = (att.contentType || '').toString().toLowerCase();
+              const isImage = ct ? ct.startsWith('image/') : true;
+              if (!isImage) continue;
+              images.push(att);
+              if (images.length >= 4) break;
+            }
+          }
+
+          const plantDateStr   = formatDate(block.plantDate);
+          const harvestDateStr = formatDate(block.harvestDate);
+          const combineCount   = (block.combineCount !== undefined && block.combineCount !== null)
+            ? String(block.combineCount)
+            : '';
+
+          const checkVariety = (block.checkVarietyName || '').toString();
+          const trialVariety = (block.trialVarietyName || '').toString();
+
+          const checkMoist = typeof c.moisture === 'number' ? formatDecimal(c.moisture,1) + ' %' : '';
+          const trialMoist = typeof tr.moisture === 'number' ? formatDecimal(tr.moisture,1) + ' %' : '';
+          const checkLbs   = typeof c.pounds === 'number' ? formatInt(c.pounds) + ' lb' : '';
+          const trialLbs   = typeof tr.pounds === 'number' ? formatInt(tr.pounds) + ' lb' : '';
+
+          const notes = (block.notes || '').toString().trim();
+
+          const checkBu    = typeof c.yieldBuAc === 'number' ? formatDecimal(c.yieldBuAc,1) : '';
+          const trialBu    = typeof tr.yieldBuAc === 'number' ? formatDecimal(tr.yieldBuAc,1) : '';
+          const checkAcres = typeof c.acres === 'number' ? formatDecimal(c.acres,2) : '';
+          const trialAcres = typeof tr.acres === 'number' ? formatDecimal(tr.acres,2) : '';
+
+          let blockAdvVal = null;
+          if (typeof c.yieldBuAc === 'number' && typeof tr.yieldBuAc === 'number') {
+            blockAdvVal = tr.yieldBuAc - c.yieldBuAc;
+          }
+          const blockAdvText = blockAdvVal !== null
+            ? (blockAdvVal >= 0 ? '+' : '') + formatDecimal(blockAdvVal,1)
+            : '';
+
+          const imageRows = [];
+          if (images.length){
+            const row1 = images.slice(0, 2);
+            const row2 = images.slice(2, 4);
+            if (row1.length) imageRows.push(row1);
+            if (row2.length) imageRows.push(row2);
+          }
+
+          const gridHtml = imageRows.length
+            ? imageRows.map(row => `
+              <div class="photo-row">
+                ${row.map(att => {
+                  const url  = escapeHtml(att.url || '');
+                  const name = escapeHtml(att.name || '');
+                  return `
+                    <figure class="photo-fig">
+                      <img src="${url}" alt="${name || 'Block image'}" class="photo-img" />
+                      ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
+                    </figure>
+                  `;
+                }).join('')}
+              </div>
+            `).join('')
+            : '<p class="section-sub">No images are attached to this block yet.</p>';
+
+          const blockNumber = (idx + 1);
+          const blockLabel = block.blockLabel || block.blockName || `Block ${blockNumber}`;
+          const blockTypeLabel = block.blockType || 'combine';
+
+          const blockPageHtml = `
 <section class="page">
   <div class="page-inner page-inner-block">
     <div class="block-main">
@@ -810,7 +882,7 @@
         <div>
           <div class="block-title">${escapeHtml(farmName)} • ${escapeHtml(fieldName)}</div>
           <div class="block-sub">
-            ${escapeHtml(t.trialName || 'Trial')} • Block 1 (${escapeHtml(block.blockType || 'combine')})
+            ${escapeHtml(t.trialName || 'Trial')} • ${escapeHtml(blockLabel)} (${escapeHtml(blockTypeLabel)})
           </div>
         </div>
         <div class="block-metrics">
@@ -872,6 +944,10 @@
                 .filter(Boolean).join('<br>') || '—'
             }</div>
           </div>
+          <div>
+            <div class="meta-label">Block advantage</div>
+            <div class="meta-value">${blockAdvText || '—'}</div>
+          </div>
         </div>
       </section>
 
@@ -922,19 +998,25 @@
       </section>
 
       <footer class="report-footer">
-        <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)} • Block 1</div>
+        <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)} • ${escapeHtml(blockLabel)}</div>
         <div>Block detail • ${escapeHtml(runDateOnly || '')}</div>
       </footer>
     </div>
   </div>
 </section>`;
 
-      // full document (2 pages)
+          blockPages.push(blockPageHtml);
+        });
+      }
+
+      // full document (summary page + one page per block)
+      const allPagesHtml = [coverHtml].concat(blockPages).join('');
+
       return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Field Trial Detailed Report</title>
+  <title>Field Trial Detailed Packet</title>
   <style>
     :root{
       --fv-green:#3B7E46;
@@ -966,7 +1048,7 @@
       padding:0;
     }
 
-    /* Page 2 flex layout to lock numbers to bottom */
+    /* Block pages: flex layout to lock numbers to bottom */
     .page-inner-block{
       min-height:100vh;
       display:flex;
@@ -1201,7 +1283,7 @@
       align-items:stretch;
       justify-content:flex-start;
       min-height:0;
-      overflow:hidden; /* prevents images from forcing a third page */
+      overflow:hidden;
     }
     .photo-row{
       display:flex;
@@ -1247,7 +1329,7 @@
     .numbers-notes{
       margin-top:4px;
       font-size:9px;
-      max-height:0.8in;   /* prevent long notes from creating a 3rd page */
+      max-height:0.8in;
       overflow:hidden;
     }
 
@@ -1260,7 +1342,7 @@
   </style>
 </head>
 <body>
-  ${coverHtml}${fieldPageHtml}
+  ${allPagesHtml}
 </body>
 </html>`;
     }
@@ -1272,9 +1354,9 @@
           return;
         }
 
-        const field = getFirstSelectedField();
-        if (!field){
-          alert('Select at least one field (we will use the first checked one) before building the report.');
+        const selectedFields = getSelectedFields();
+        if (!selectedFields.length){
+          alert('Check at least one field before building the detailed packet.');
           return;
         }
 
@@ -1287,7 +1369,7 @@
           company,
           runStr,
           runDateOnly,
-          field
+          fields: selectedFields
         });
 
         if (isMobileLike()){
@@ -1297,7 +1379,6 @@
             const url = URL.createObjectURL(blob);
             const win = window.open(url, '_blank');
             if (!win){
-              // popup blocked or PWA – navigate current tab
               window.location.href = url;
             }
           }catch(errMobile){
@@ -1395,7 +1476,7 @@
 
         if (els.statusLine){
           els.statusLine.textContent =
-            'Choose the field you want (we’ll use the first checked one), then click Print Detailed Report.';
+            'Check the fields you want, then click Print Detailed Report to build the full packet.';
         }
       }catch(err){
         console.error('Error loading trial detailed data:', err);
@@ -1417,9 +1498,9 @@
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧪</div>
           <div>
-            <h1 id="pageTitle">Trial Detailed Report</h1>
+            <h1 id="pageTitle">Trial Detailed Packet</h1>
             <p id="pageSubtitle" class="muted">
-              One trial, one field, four equal images and block numbers locked onto two landscape pages.
+              Trial summary for checked fields, plus one page per yield block.
             </p>
           </div>
         </header>
@@ -1439,9 +1520,9 @@
           <section class="field-select-panel">
             <div class="field-select-header">
               <div>
-                <div class="field-select-title">Choose the field for this detailed report</div>
+                <div class="field-select-title">Fields to include</div>
                 <div class="field-select-note">
-                  The detailed PDF uses the first checked field and up to four images from its first block.
+                  All checked fields will appear in the trial summary, with each yield block getting its own page.
                 </div>
               </div>
               <div class="field-select-actions">
