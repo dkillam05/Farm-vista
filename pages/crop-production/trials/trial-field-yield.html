@@ -19,7 +19,7 @@
   <!-- fv-combo (search-in-dropdown engine) – no longer used for varieties, but safe to keep -->
   <script src="/Farm-vista/js/fv-combo.js"></script>
 
-    <style>
+  <style>
     :root{
       --card-max: 900px;
       --page-bottom-gap: 72px;
@@ -706,6 +706,24 @@
       text-overflow:ellipsis;
       overflow:hidden;
     }
+    .yield-block-att-delete{
+      border:none;
+      background:transparent;
+      padding:2px;
+      margin-left:2px;
+      cursor:pointer;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0;
+      color:var(--muted,#67706B);
+    }
+    .yield-block-att-delete svg{
+      width:14px;
+      height:14px;
+      display:block;
+    }
 
     /* Image lightbox */
     .img-lightbox{
@@ -811,7 +829,7 @@
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed;}
   </style>
 
-   <!-- Lazy-load fv-shell if needed -->
+  <!-- Lazy-load fv-shell if needed -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -986,74 +1004,74 @@
     }
 
     async function loadVarietiesForTrialCrop(){
-  if(!STATE.db || !STATE.trial) return;
+      if(!STATE.db || !STATE.trial) return;
 
-  const cropKind = normalizeCropKind(STATE.trial.crop);
-  if(!cropKind) return;
+      const cropKind = normalizeCropKind(STATE.trial.crop);
+      if(!cropKind) return;
 
-  try{
-    const baseRef = collection(STATE.db, 'productsSeed');
+      try{
+        const baseRef = collection(STATE.db, 'productsSeed');
 
-    // Determine Firestore crop value
-    let cropValue = null;
-    if(cropKind === 'corn') cropValue = 'corn';
-    else if(cropKind === 'soy') cropValue = 'soybeans';
+        // Determine Firestore crop value
+        let cropValue = null;
+        if(cropKind === 'corn') cropValue = 'corn';
+        else if(cropKind === 'soy') cropValue = 'soybeans';
 
-    // Build query
-    let qRef;
-    if(cropValue){
-      qRef = query(
-        baseRef,
-        where('crop', '==', cropValue),
-        where('status', '==', 'active')
-      );
-    } else {
-      qRef = query(
-        baseRef,
-        where('status', '==', 'active')
-      );
+        // Build query
+        let qRef;
+        if(cropValue){
+          qRef = query(
+            baseRef,
+            where('crop', '==', cropValue),
+            where('status', '==', 'active')
+          );
+        } else {
+          qRef = query(
+            baseRef,
+            where('status', '==', 'active')
+          );
+        }
+
+        // Pull varieties
+        const snap = await getDocs(qRef);
+        const rows = [];
+
+        snap.forEach(d => {
+          const data = d.data() || {};
+
+          const brand    = data.brand    || '';
+          const variety  = data.variety  || data.productName || data.name || '';
+          const maturity = data.maturity || '';
+          const trait    = data.trait    || data.traitLabel || '';
+
+          const labelParts = [];
+          if(brand)    labelParts.push(brand);
+          if(variety)  labelParts.push(variety);
+          if(maturity) labelParts.push(maturity);
+          if(trait)    labelParts.push(trait);
+
+          const label = labelParts.join(' • ') || variety || 'Seed variety';
+
+          rows.push({
+            id: d.id,
+            label,
+            brand,
+            variety,
+            trait,
+            cropKind
+          });
+        });
+
+        // 🔥 SORT ALPHABETICALLY BY LABEL
+        rows.sort((a, b) => a.label.localeCompare(b.label));
+
+        // Save to state
+        STATE.varieties = rows;
+
+      } catch(err){
+        console.error('Error loading varieties for trial crop:', err);
+      }
     }
-
-    // Pull varieties
-    const snap = await getDocs(qRef);
-    const rows = [];
-
-    snap.forEach(d => {
-      const data = d.data() || {};
-
-      const brand    = data.brand    || '';
-      const variety  = data.variety  || data.productName || data.name || '';
-      const maturity = data.maturity || '';
-      const trait    = data.trait    || data.traitLabel || '';
-
-      const labelParts = [];
-      if(brand)    labelParts.push(brand);
-      if(variety)  labelParts.push(variety);
-      if(maturity) labelParts.push(maturity);
-      if(trait)    labelParts.push(trait);
-
-      const label = labelParts.join(' • ') || variety || 'Seed variety';
-
-      rows.push({
-        id: d.id,
-        label,
-        brand,
-        variety,
-        trait,
-        cropKind
-      });
-    });
-
-    // 🔥 SORT ALPHABETICALLY BY LABEL
-    rows.sort((a, b) => a.label.localeCompare(b.label));
-
-    // Save to state
-    STATE.varieties = rows;
-
-  } catch(err){
-    console.error('Error loading varieties for trial crop:', err);
-  }
-}
 
     async function loadFields(){
       if(!STATE.trialId) return;
@@ -1570,7 +1588,7 @@
             </div>
           </div>
           ${row.notes ? `<div class="field-card-note">${row.notes}</div>` : ''}
-        `;
+        ";
 
         const btn = div.querySelector('[data-role="open-yield"]');
         if(btn){
@@ -1612,13 +1630,14 @@
           listEl.appendChild(span);
           return;
         }
-        block.attachments.forEach(att => {
+
+        block.attachments.forEach((att, idx) => {
           const isImageThumb = att.url && att.contentType && att.contentType.startsWith('image/');
 
-          if(isImageThumb){
-            const wrapper = document.createElement('div');
-            wrapper.className = 'yield-block-att-item';
+          const wrapper = document.createElement('div');
+          wrapper.className = 'yield-block-att-item';
 
+          if(isImageThumb){
             const thumb = document.createElement('div');
             thumb.className = 'yield-block-thumb';
             const img = document.createElement('img');
@@ -1632,13 +1651,41 @@
             });
 
             wrapper.appendChild(thumb);
-            listEl.appendChild(wrapper);
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'yield-block-att-item-label';
+            labelSpan.textContent = att.name || 'image';
+            wrapper.appendChild(labelSpan);
           }else{
             const pill = document.createElement('div');
             pill.className = 'yield-block-att-pill';
             pill.textContent = att.name || 'file';
-            listEl.appendChild(pill);
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'yield-block-att-item-label';
+            labelSpan.textContent = att.name || 'file';
+
+            wrapper.appendChild(pill);
           }
+
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'yield-block-att-delete';
+          delBtn.setAttribute('aria-label', 'Remove attachment');
+          delBtn.innerHTML = `
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+            </svg>
+          `;
+          delBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            block.attachments.splice(idx, 1);
+            renderList();
+            showToast('Attachment removed.');
+          });
+
+          wrapper.appendChild(delBtn);
+          listEl.appendChild(wrapper);
         });
       }
 
