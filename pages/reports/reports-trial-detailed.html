@@ -257,7 +257,10 @@
         justify-content:center;
       }
 
-      /* On mobile, show the PDF-for-phone button */
+      /* On mobile, hide the desktop print button and show the phone PDF button */
+      #btnPrint{
+        display:none;
+      }
       .btn-pdf-mobile{
         display:inline-flex;
       }
@@ -327,6 +330,7 @@
       metaLine: null,
       btnBack: null,
       btnPrint: null,
+      btnPdfPhone: null,
       statusLine: null,
       fieldTableBody: null,
       iframe: null
@@ -444,14 +448,15 @@
     }
 
     function wireDom(){
-      els.title        = $('#pageTitle');
-      els.subtitle     = $('#pageSubtitle');
-      els.metaLine     = $('#pageMeta');
-      els.btnBack      = $('#btnBack');
-      els.btnPrint     = $('#btnPrint');
-      els.statusLine   = $('#statusLine');
+      els.title          = $('#pageTitle');
+      els.subtitle       = $('#pageSubtitle');
+      els.metaLine       = $('#pageMeta');
+      els.btnBack        = $('#btnBack');
+      els.btnPrint       = $('#btnPrint');
+      els.btnPdfPhone    = $('#btnPdfPhone');
+      els.statusLine     = $('#statusLine');
       els.fieldTableBody = $('#fieldTableBody');
-      els.iframe       = $('#fv-print-frame');
+      els.iframe         = $('#fv-print-frame');
     }
 
     /* ---------- data loading ---------- */
@@ -920,7 +925,7 @@
             <span class="value">${
               s.advantage !== null
                 ? (s.advantage >= 0 ? '+' : '') + formatDecimal(s.advantage,1) + ' bu/ac'
-                : 'n/a'
+            : 'n/a'
             }</span>
           </div>
         </div>
@@ -1428,10 +1433,11 @@
           return;
         }
 
-        // Existing behavior below stays the same for normal users.
+        // Existing behavior below stays the same for normal desktop users.
 
         if (isMobileLike()){
-          // Mobile: open as standalone HTML for Share → Print / Save, etc.
+          // Mobile path is now handled by the separate "Download PDF for Phone" button
+          // that uses HTML-mode PDF. We keep this branch only as a fallback.
           try{
             const blob = new Blob([html], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
@@ -1485,6 +1491,64 @@
       }
     }
 
+    /* ---------- Mobile HTML-mode PDF helper ---------- */
+
+    async function runMobilePdfDownload(){
+      try{
+        if (!STATE.trialDoc){
+          alert('Trial is not loaded yet. Try again in a moment.');
+          return;
+        }
+
+        const selectedFields = getSelectedFields();
+        if (!selectedFields.length){
+          alert('Check at least one field before downloading the PDF.');
+          return;
+        }
+
+        const company = await loadCompanyHeader();
+        const now = new Date();
+        const runStr = now.toLocaleString();
+        const runDateOnly = now.toLocaleDateString();
+
+        const html = buildDetailedPrintHtml({
+          company,
+          runStr,
+          runDateOnly,
+          fields: selectedFields
+        });
+
+        // Prefer the shared HTML-mode PDF helper if available
+        if (window.FVPdf && typeof window.FVPdf.openPdfFromHtml === 'function'){
+          window.FVPdf.openPdfFromHtml(html, {
+            filename: 'Trial-Detailed-Packet.pdf'
+          });
+        }else{
+          // Fallback to old mobile behavior if helper isn't present
+          console.warn('[trial-detailed] FVPdf.openPdfFromHtml missing, falling back to direct HTML open');
+          try{
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const win = window.open(url, '_blank');
+            if (!win){
+              window.location.href = url;
+            }
+          }catch(errMobile){
+            console.warn('[trial-detailed] mobile Blob open failed, falling back to data URL', errMobile);
+            const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+            window.location.href = dataUrl;
+          }
+        }
+      }catch(err){
+        console.error('Error while building mobile PDF:', err);
+        if (els.statusLine){
+          els.statusLine.textContent =
+            'Error while building mobile PDF: ' + (err && err.message ? err.message : String(err));
+          els.statusLine.classList.add('status-error');
+        }
+      }
+    }
+
     /* ---------- events & boot ---------- */
 
     function wireBasicEvents(){
@@ -1501,6 +1565,12 @@
       if (els.btnPrint){
         els.btnPrint.addEventListener('click', () => {
           runDetailedPrint();
+        });
+      }
+
+      if (els.btnPdfPhone){
+        els.btnPdfPhone.addEventListener('click', () => {
+          runMobilePdfDownload();
         });
       }
 
@@ -1538,7 +1608,7 @@
 
         if (els.statusLine){
           els.statusLine.textContent =
-            'Check the fields you want, then click Print Detailed Report to build the full packet.';
+            'Check the fields you want, then click Print Detailed Report (desktop) or Download PDF for Phone (mobile).';
         }
 
         // If Cloud Run hit this page with ?pdfPreview=1, auto-build the inline packet.
@@ -1621,11 +1691,11 @@
               Print Detailed Report
             </button>
 
-            <!-- Mobile-only PDF action, auto-wired by fv-pdf.js -->
+            <!-- Mobile-only PDF action: uses HTML-mode Cloud Run PDF helper -->
             <button
+              id="btnPdfPhone"
               type="button"
               class="btn btn-pdf-mobile"
-              data-fv-pdf-button
             >
               Download PDF for Phone
             </button>
