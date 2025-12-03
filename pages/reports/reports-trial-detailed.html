@@ -605,9 +605,9 @@
       }
     }
 
-    /* ---------- PAGE 2 helper: one block per page ---------- */
+    /* ---------- build SIMPLE 2-PAGE print HTML: 2×2 equal grid ---------- */
 
-    function buildBlockPageHtml({ company, runStr, runDateOnly, field, block, blockIndex }) {
+    function buildDetailedPrintHtml({ company, runStr, runDateOnly, field }) {
       const t = STATE.trialDoc || {};
       const totals = STATE.totals || {};
       const d = field.data || {};
@@ -615,6 +615,10 @@
 
       const farmName = d.farmName || 'Unknown farm';
       const fieldName = d.fieldName || '(Unnamed field)';
+
+      // Choose first block; if none, make an empty shell
+      const blocks = Array.isArray(field.blocks) ? field.blocks : [];
+      const block = blocks.length ? blocks[0] : {};
 
       const c = block.check || {};
       const tr = block.trial || {};
@@ -660,7 +664,109 @@
         ? (advVal >= 0 ? '+' : '') + formatDecimal(advVal,1)
         : '';
 
-      const blockLabel = `Block ${blockIndex + 1}`;
+      /* ---------- PAGE 1: TRIAL SUMMARY COVER ---------- */
+
+      const coverHtml = `
+<section class="page">
+  <div class="page-inner">
+    <header class="report-header">
+      <div class="report-logo"><span>DF</span></div>
+      <div class="company-block">
+        <p class="company-name">${escapeHtml(company.name || '')}</p>
+        <p class="company-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="report-meta-top">
+        <div><strong>Field Trial Detailed Report</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <h1 class="report-title">${escapeHtml(t.trialName || 'Field Trial')}</h1>
+    <p class="report-subtitle">
+      ${escapeHtml([t.cropYear, t.crop, t.trialType].filter(Boolean).join(' • '))}
+      ${t.operationTask ? ' • ' + escapeHtml(t.operationTask) : ''}
+    </p>
+
+    <div class="summary-strip">
+      <div class="summary-pill">
+        <span class="summary-label">Fields</span>
+        <span class="summary-value">${formatInt(totals.fieldCount || 0)}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Tillable acres</span>
+        <span class="summary-value">${totals.tillableAll ? formatInt(totals.tillableAll) + ' ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Trial acres</span>
+        <span class="summary-value">${totals.trialAcresAll ? formatInt(totals.trialAcresAll) + ' ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Check</span>
+        <span class="summary-value">${totals.checkAvgAll !== null ? formatDecimal(totals.checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Treatment</span>
+        <span class="summary-value">${totals.trialAvgAll !== null ? formatDecimal(totals.trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Advantage</span>
+        <span class="summary-value">${
+          totals.advantageAll !== null
+            ? (totals.advantageAll >= 0 ? '+' : '') + formatDecimal(totals.advantageAll,1) + ' bu/ac'
+            : 'n/a'
+        }</span>
+      </div>
+    </div>
+
+    <section class="section">
+      <h2 class="section-title">Field selected for detail</h2>
+      <p class="section-sub">This detailed packet focuses on the field you selected from the summary report.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40%">Field</th>
+              <th style="width:28%">Farm / acres</th>
+              <th style="width:16%">Check bu/ac</th>
+              <th style="width:16%">Trial bu/ac</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>${escapeHtml(fieldName)}</td>
+              <td>
+                ${escapeHtml(farmName)}<br>
+                <span class="muted-small">
+                  ${
+                    [
+                      typeof d.trialAcres === 'number' ? formatDecimal(d.trialAcres,1) + ' trial ac' : '',
+                      typeof d.tillable === 'number' ? formatDecimal(d.tillable,1) + ' tillable' : ''
+                    ].filter(Boolean).join(' / ')
+                  }
+                </span>
+              </td>
+              <td class="cell-right">${s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : '–'}</td>
+              <td class="cell-right">${s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : '–'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="report-footer">
+      <div>Internal use only. Results may change as additional yield blocks are recorded.</div>
+      <div>FarmVista • Field Trial Detailed Report • ${escapeHtml(runDateOnly || '')}</div>
+    </footer>
+  </div>
+</section>`;
+
+      /* ---------- PAGE 2: FIELD SUMMARY + 2×2 IMAGE GRID + NUMBERS ---------- */
 
       const imageRows = [];
       if (images.length){
@@ -691,7 +797,7 @@
         `).join('')
         : '<p class="section-sub">No images are attached to this block yet.</p>';
 
-      return `
+      const fieldPageHtml = `
 <section class="page">
   <div class="page-inner page-inner-block">
     <div class="block-main">
@@ -699,7 +805,7 @@
         <div>
           <div class="block-title">${escapeHtml(farmName)} • ${escapeHtml(fieldName)}</div>
           <div class="block-sub">
-            ${escapeHtml(t.trialName || 'Trial')} • ${escapeHtml(blockLabel)} (${escapeHtml(block.blockType || 'combine')})
+            ${escapeHtml(t.trialName || 'Trial')} • Block 1 (${escapeHtml(block.blockType || 'combine')})
           </div>
         </div>
         <div class="block-metrics">
@@ -811,173 +917,14 @@
       </section>
 
       <footer class="report-footer">
-        <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)} • ${escapeHtml(blockLabel)}</div>
+        <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)} • Block 1</div>
         <div>Block detail • ${escapeHtml(runDateOnly || '')}</div>
       </footer>
     </div>
   </div>
 </section>`;
-    }
 
-    /* ---------- build print HTML: cover + 1 page per block ---------- */
-
-    function buildDetailedPrintHtml({ company, runStr, runDateOnly, field }) {
-      const t = STATE.trialDoc || {};
-      const totals = STATE.totals || {};
-      const d = field.data || {};
-      const s = field.stats || {};
-
-      const farmName = d.farmName || 'Unknown farm';
-      const fieldName = d.fieldName || '(Unnamed field)';
-
-      /* ---------- PAGE 1: TRIAL SUMMARY COVER ---------- */
-
-      const coverHtml = `
-<section class="page">
-  <div class="page-inner">
-    <header class="report-header">
-      <div class="report-logo"><span>DF</span></div>
-      <div class="company-block">
-        <p class="company-name">${escapeHtml(company.name || '')}</p>
-        <p class="company-line">
-          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
-          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
-          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
-        </p>
-      </div>
-      <div class="report-meta-top">
-        <div><strong>Field Trial Detailed Report</strong></div>
-        <div>Generated: ${escapeHtml(runStr)}</div>
-        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
-      </div>
-    </header>
-
-    <h1 class="report-title">${escapeHtml(t.trialName || 'Field Trial')}</h1>
-    <p class="report-subtitle">
-      ${escapeHtml([t.cropYear, t.crop, t.trialType].filter(Boolean).join(' • '))}
-      ${t.operationTask ? ' • ' + escapeHtml(t.operationTask) : ''}
-    </p>
-
-    <div class="summary-strip">
-      <div class="summary-pill">
-        <span class="summary-label">Fields</span>
-        <span class="summary-value">${formatInt(totals.fieldCount || 0)}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Tillable acres</span>
-        <span class="summary-value">${totals.tillableAll ? formatInt(totals.tillableAll) + ' ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Trial acres</span>
-        <span class="summary-value">${totals.trialAcresAll ? formatInt(totals.trialAcresAll) + ' ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Check</span>
-        <span class="summary-value">${totals.checkAvgAll !== null ? formatDecimal(totals.checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Treatment</span>
-        <span class="summary-value">${totals.trialAvgAll !== null ? formatDecimal(totals.trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Advantage</span>
-        <span class="summary-value">${
-          totals.advantageAll !== null
-            ? (totals.advantageAll >= 0 ? '+' : '') + formatDecimal(totals.advantageAll,1) + ' bu/ac'
-            : 'n/a'
-        }</span>
-      </div>
-    </div>
-
-    <section class="section">
-      <h2 class="section-title">Field selected for detail</h2>
-      <p class="section-sub">This detailed packet focuses on the field you selected from the summary report.</p>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:40%">Field</th>
-              <th style="width:28%">Farm / acres</th>
-              <th style="width:16%">Check bu/ac</th>
-              <th style="width:16%">Trial bu/ac</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>${escapeHtml(fieldName)}</td>
-              <td>
-                ${escapeHtml(farmName)}<br>
-                <span class="muted-small">
-                  ${
-                    [
-                      typeof d.trialAcres === 'number' ? formatDecimal(d.trialAcres,1) + ' trial ac' : '',
-                      typeof d.tillable === 'number' ? formatDecimal(d.tillable,1) + ' tillable' : ''
-                    ].filter(Boolean).join(' / ')
-                  }
-                </span>
-              </td>
-              <td class="cell-right">${s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : '–'}</td>
-              <td class="cell-right">${s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : '–'}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <footer class="report-footer">
-      <div>Internal use only. Results may change as additional yield blocks are recorded.</div>
-      <div>FarmVista • Field Trial Detailed Report • ${escapeHtml(runDateOnly || '')}</div>
-    </footer>
-  </div>
-</section>`;
-
-      /* ---------- PAGES 2+: one page per block for this field ---------- */
-
-      const blocks = Array.isArray(field.blocks) ? field.blocks : [];
-
-      let blockPagesHtml = '';
-
-      if (blocks.length) {
-        blockPagesHtml = blocks.map((block, idx) =>
-          buildBlockPageHtml({
-            company,
-            runStr,
-            runDateOnly,
-            field,
-            block,
-            blockIndex: idx
-          })
-        ).join('');
-      } else {
-        // Optional: a simple "no blocks" page so print isn't just a cover
-        blockPagesHtml = `
-<section class="page">
-  <div class="page-inner page-inner-block">
-    <div class="block-main">
-      <header class="block-header">
-        <div>
-          <div class="block-title">${escapeHtml(farmName)} • ${escapeHtml(fieldName)}</div>
-          <div class="block-sub">
-            ${escapeHtml(t.trialName || 'Trial')} • No yield blocks found
-          </div>
-        </div>
-      </header>
-      <section class="section">
-        <p class="section-sub">This field does not have any yield blocks recorded yet, so no block-level detail is available.</p>
-      </section>
-    </div>
-    <div class="block-bottom">
-      <footer class="report-footer">
-        <div>${escapeHtml(farmName)} • ${escapeHtml(fieldName)}</div>
-        <div>No block data • ${escapeHtml(runDateOnly || '')}</div>
-      </footer>
-    </div>
-  </div>
-</section>`;
-      }
-
-      // full document (cover + one page per block)
+      // full document (2 pages)
       return `<!doctype html>
 <html>
 <head>
@@ -1308,7 +1255,7 @@
   </style>
 </head>
 <body>
-  ${coverHtml}${blockPagesHtml}
+  ${coverHtml}${fieldPageHtml}
 </body>
 </html>`;
     }
@@ -1446,7 +1393,7 @@
           <div>
             <h1 id="pageTitle">Trial Detailed Report</h1>
             <p id="pageSubtitle" class="muted">
-              One trial, one field, each block gets its own landscape page with images and numbers locked in place.
+              One trial, one field, four equal images and block numbers locked onto two landscape pages.
             </p>
           </div>
         </header>
@@ -1468,7 +1415,7 @@
               <div>
                 <div class="field-select-title">Choose the field for this detailed report</div>
                 <div class="field-select-note">
-                  The detailed PDF uses the first checked field and generates one page per block from its yield data.
+                  The detailed PDF uses the first checked field and up to four images from its first block.
                 </div>
               </div>
               <div class="field-select-actions">
