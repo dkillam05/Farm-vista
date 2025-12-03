@@ -591,6 +591,7 @@
       margin-top:8px;
     }
 
+    /* older notes/files styles from earlier version – mostly unused now */
     .notes-shell{
       position:relative;
     }
@@ -1042,7 +1043,7 @@
       `;
     }
 
-    // ===== Inline mic wiring (same pattern as working maintenance page) =====
+    // ===== Inline mic wiring (legacy from older notes UI – safe to leave) =====
     function makeInlineMic(btnEl, taEl){
       if(!btnEl || !taEl) return;
 
@@ -1168,7 +1169,7 @@
         fieldDocId: STATE.fieldDocId
       });
 
-      // Wire any notes/mic that helper has already rendered
+      // Wire any notes/mic that helper has already rendered (older style)
       wireNotesMics();
 
       // Watch for the helper adding/replacing content under mhStageShell
@@ -1206,6 +1207,46 @@
       }
       // ===== End desktop-only click control =====
     })();
+
+    // ============================================================
+    // NEW: Wire to MH Notes / Files custom events from helper
+    // ============================================================
+    // Right now these just log & alert so you can see they are firing.
+    // Next step is to plug in your real upload + storage delete logic here.
+    document.addEventListener('mhAddFile', (ev) => {
+      const detail = ev.detail || {};
+      console.log('mhAddFile event:', detail);
+      const { trialId, fieldDocId, rowId } = detail;
+      alert(`(Dev) Add file clicked for row: ${rowId || 'unknown'}\ntrialId: ${trialId}\nfieldDocId: ${fieldDocId}`);
+      // TODO: hook your existing uploader here:
+      //  - open file picker
+      //  - upload to Storage
+      //  - push { name, url, path, contentType, uploadedAt } into the matching block.files
+      //  - let helper Save & Close persist it
+    });
+
+    document.addEventListener('mhDeleteFile', (ev) => {
+      const detail = ev.detail || {};
+      console.log('mhDeleteFile event:', detail);
+      const { rowId, file } = detail;
+      alert(`(Dev) Delete file requested on row: ${rowId || 'unknown'}\nfile: ${file?.name || '(no name)'}`);
+      // TODO:
+      //  - delete from Storage using file.path
+      //  - remove from block.files in Firestore (or let Save & Close handle)
+    });
+
+    document.addEventListener('mhOpenFile', (ev) => {
+      const detail = ev.detail || {};
+      console.log('mhOpenFile event:', detail);
+      const { file } = detail;
+      if(file && file.url){
+        // For now just open in a new tab/window
+        window.open(file.url, '_blank');
+      }else{
+        alert('(Dev) No URL on file to open.');
+      }
+    });
+    // ============================================================
   </script>
 </body>
 </html>
