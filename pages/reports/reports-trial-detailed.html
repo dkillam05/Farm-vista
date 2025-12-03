@@ -1266,64 +1266,79 @@
     }
 
     async function runDetailedPrint(){
-      if (!STATE.trialDoc){
-        alert('Trial is not loaded yet. Try again in a moment.');
-        return;
-      }
-
-      const field = getFirstSelectedField();
-      if (!field){
-        alert('Select at least one field (we will use the first checked one) before building the report.');
-        return;
-      }
-
-      const company = await loadCompanyHeader();
-      const now = new Date();
-      const runStr = now.toLocaleString();
-      const runDateOnly = now.toLocaleDateString();
-
-      const html = buildDetailedPrintHtml({
-        company,
-        runStr,
-        runDateOnly,
-        field
-      });
-
-      if (isMobileLike()){
-        // Mobile: open as a real page so you can Share → Print / Message / Mail
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const win = window.open(url, '_blank');
-        if (!win){
-          // popup blocked or PWA – fallback: navigate current tab
-          window.location.href = url;
-        }
-      } else {
-        // Desktop: use hidden iframe + print dialog
-        let iframe = els.iframe;
-        if (!iframe){
-          iframe = document.createElement('iframe');
-          iframe.id = 'fv-print-frame';
-          document.body.appendChild(iframe);
-          els.iframe = iframe;
+      try{
+        if (!STATE.trialDoc){
+          alert('Trial is not loaded yet. Try again in a moment.');
+          return;
         }
 
-        const win = iframe.contentWindow || iframe;
-        const doc = iframe.contentDocument || win.document;
+        const field = getFirstSelectedField();
+        if (!field){
+          alert('Select at least one field (we will use the first checked one) before building the report.');
+          return;
+        }
 
-        doc.open();
-        doc.write(html);
-        doc.close();
+        const company = await loadCompanyHeader();
+        const now = new Date();
+        const runStr = now.toLocaleString();
+        const runDateOnly = now.toLocaleDateString();
 
-        setTimeout(() => {
+        const html = buildDetailedPrintHtml({
+          company,
+          runStr,
+          runDateOnly,
+          field
+        });
+
+        if (isMobileLike()){
+          // Mobile: try Blob + window.open, fallback to data URL
           try{
-            win.focus();
-            win.print();
-          }catch(err){
-            console.warn('[trial-detailed] iframe print failed, falling back to window.print()', err);
-            window.print();
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const win = window.open(url, '_blank');
+            if (!win){
+              // popup blocked or PWA – navigate current tab
+              window.location.href = url;
+            }
+          }catch(errMobile){
+            console.warn('[trial-detailed] mobile Blob open failed, falling back to data URL', errMobile);
+            const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+            window.location.href = dataUrl;
           }
-        }, 400);
+        } else {
+          // Desktop: use hidden iframe + print dialog
+          let iframe = els.iframe;
+          if (!iframe){
+            iframe = document.createElement('iframe');
+            iframe.id = 'fv-print-frame';
+            document.body.appendChild(iframe);
+            els.iframe = iframe;
+          }
+
+          const win = iframe.contentWindow || iframe;
+          const doc = iframe.contentDocument || win.document;
+
+          doc.open();
+          doc.write(html);
+          doc.close();
+
+          setTimeout(() => {
+            try{
+              win.focus();
+              win.print();
+            }catch(err){
+              console.warn('[trial-detailed] iframe print failed, falling back to window.print()', err);
+              window.print();
+            }
+          }, 400);
+        }
+      }catch(err){
+        console.error('Error while building detailed report:', err);
+        if (els.statusLine){
+          els.statusLine.textContent =
+            'Error while building detailed report: ' + (err && err.message ? err.message : String(err));
+          els.statusLine.classList.add('status-error');
+        }
       }
     }
 
@@ -1342,13 +1357,7 @@
 
       if (els.btnPrint){
         els.btnPrint.addEventListener('click', () => {
-          runDetailedPrint().catch(err => {
-            console.error(err);
-            if (els.statusLine){
-              els.statusLine.textContent = 'Error while building detailed report. Check console for details.';
-              els.statusLine.classList.add('status-error');
-            }
-          });
+          runDetailedPrint();
         });
       }
 
