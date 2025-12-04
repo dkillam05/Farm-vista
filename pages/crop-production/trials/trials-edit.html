@@ -235,6 +235,10 @@
       font-weight:600;
     }
 
+    .trial-meta-value{
+      font-weight:600;
+    }
+
     .trial-bottom-row{
       display:flex;
       justify-content:space-between;
@@ -467,6 +471,44 @@
       opacity:0.8;
     }
 
+    /* New: Fields list in details */
+    .trial-fields{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+    .trial-fields-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+    .trial-fields-list{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .trial-field-row{
+      padding:6px 8px;
+      border-radius:8px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .trial-field-name{
+      font-weight:600;
+      font-size:0.9rem;
+    }
+    .trial-field-meta{
+      font-size:0.82rem;
+      opacity:0.85;
+      margin-top:1px;
+    }
+    .trial-fields-empty{
+      font-size:0.86rem;
+      opacity:0.8;
+    }
+
     .trial-actions{
       margin-top:10px;
       display:flex;
@@ -687,11 +729,21 @@
       // trialId -> boolean (true = has field, false = no field) for MH trials
       mhHasFieldByTrial: {},
       // inline title editing
-      isEditingTitle: false
+      isEditingTitle: false,
+      // trialId -> aggregate stats + fields cache
+      trialStats: {},
+      trialFields: {},
+      trialStatsPromises: {}
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
     const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    function fmtNumber(value, decimals){
+      const n = Number(value);
+      if(!isFinite(n)) return null;
+      return n.toFixed(decimals);
+    }
 
     let toastEl;
     let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
@@ -795,6 +847,187 @@
       const isMh = isMultiHybridTrialData(data);
       const base = isMh ? CONFIG.ADD_YIELD_MH_URL : CONFIG.ADD_YIELD_URL;
       return `${base}?trialId=${encodeURIComponent(trialId)}`;
+    }
+
+    // Apply stats to a given trial card DOM node
+    function applyStatsToCard(card, stats){
+      if(!card) return;
+      const acresEl = card.querySelector('[data-role="stat-acres"] .trial-meta-value');
+      const checkEl = card.querySelector('[data-role="stat-check"] .trial-meta-value');
+      const trialEl = card.querySelector('[data-role="stat-trial"] .trial-meta-value');
+
+      if(acresEl){
+        if(stats && stats.totalTrialAcres != null && isFinite(stats.totalTrialAcres)){
+          const v = fmtNumber(stats.totalTrialAcres, 1);
+          acresEl.textContent = v !== null ? v : '—';
+        }else{
+          acresEl.textContent = '—';
+        }
+      }
+
+      if(checkEl){
+        if(stats && stats.avgCheckYield != null && isFinite(stats.avgCheckYield)){
+          const v = fmtNumber(stats.avgCheckYield, 1);
+          checkEl.textContent = v !== null ? v : '—';
+        }else{
+          checkEl.textContent = '—';
+        }
+      }
+
+      if(trialEl){
+        if(stats && stats.avgTrialYield != null && isFinite(stats.avgTrialYield)){
+          const v = fmtNumber(stats.avgTrialYield, 1);
+          trialEl.textContent = v !== null ? v : '—';
+        }else{
+          trialEl.textContent = '—';
+        }
+      }
+    }
+
+    // Load fields + stats (total acres + weighted avg yields) for a trial, with caching
+    async function loadTrialStats(trialId){
+      if(!STATE.db || !trialId) return { stats: null, fields: [] };
+
+      if(STATE.trialStatsPromises[trialId]){
+        return STATE.trialStatsPromises[trialId];
+      }
+
+      const p = (async () => {
+        const db = STATE.db;
+        const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, trialId, 'fields');
+        const fieldsSnap = await getDocs(fieldsRef);
+
+        const fields = [];
+        let totalTrialAcres = 0;
+        let checkWeighted = 0;
+        let checkAcres = 0;
+        let trialWeighted = 0;
+        let trialAcresBlocks = 0;
+
+        for(const fDoc of fieldsSnap.docs){
+          const fData = fDoc.data() || {};
+          const fieldId = fDoc.id;
+
+          const trialAcres = Number(fData.trialAcres) || 0;
+          const tillable   = Number(fData.tillable)   || 0;
+
+          fields.push({
+            id: fieldId,
+            farmName: fData.farmName || '',
+            fieldName: fData.fieldName || '',
+            trialAcres,
+            tillable
+          });
+
+          totalTrialAcres += trialAcres;
+
+          // Yield blocks under this field
+          const blocksRef = collection(
+            db,
+            CONFIG.COLLECTION_TRIALS,
+            trialId,
+            'fields',
+            fieldId,
+            'yieldBlocks'
+          );
+          const blocksSnap = await getDocs(blocksRef);
+          for(const bDoc of blocksSnap.docs){
+            const blk = bDoc.data() || {};
+            const chk = blk.check || {};
+            const tr  = blk.trial || {};
+
+            const chkAcres = Number(chk.acres) || 0;
+            const trAcres  = Number(tr.acres)  || 0;
+            const chkYield = Number(chk.yieldBuAc);
+            const trYield  = Number(tr.yieldBuAc);
+
+            if(chkAcres > 0 && !isNaN(chkYield)){
+              checkWeighted += chkYield * chkAcres;
+              checkAcres    += chkAcres;
+            }
+            if(trAcres > 0 && !isNaN(trYield)){
+              trialWeighted    += trYield * trAcres;
+              trialAcresBlocks += trAcres;
+            }
+          }
+        }
+
+        const stats = {
+          totalTrialAcres,
+          avgCheckYield: checkAcres > 0 ? (checkWeighted / checkAcres) : null,
+          avgTrialYield: trialAcresBlocks > 0 ? (trialWeighted / trialAcresBlocks) : null
+        };
+
+        STATE.trialStats[trialId] = stats;
+        STATE.trialFields[trialId] = fields;
+
+        return { stats, fields };
+      })().catch(err => {
+        console.error('Error loading trial stats for', trialId, err);
+        const fallback = { stats: null, fields: [] };
+        STATE.trialStats[trialId] = null;
+        STATE.trialFields[trialId] = [];
+        return fallback;
+      });
+
+      STATE.trialStatsPromises[trialId] = p;
+      return p;
+    }
+
+    // Render "Fields in this trial" section in detail panel
+    function renderTrialFields(trialId){
+      const listEl = document.getElementById('trialFieldsList');
+      if(!listEl || !trialId) return;
+
+      listEl.innerHTML = '<div class="trial-fields-empty">Loading fields...</div>';
+
+      loadTrialStats(trialId).then(({ fields }) => {
+        if(!listEl) return;
+        listEl.innerHTML = '';
+
+        if(!fields || !fields.length){
+          const empty = document.createElement('div');
+          empty.className = 'trial-fields-empty';
+          empty.textContent = 'No fields assigned yet.';
+          listEl.appendChild(empty);
+          return;
+        }
+
+        fields.forEach(f => {
+          const row = document.createElement('div');
+          row.className = 'trial-field-row';
+
+          const trialAcresText = (f.trialAcres && isFinite(f.trialAcres))
+            ? `${fmtNumber(f.trialAcres, 1)} ac trial`
+            : '';
+
+          const tillableText = (f.tillable && isFinite(f.tillable))
+            ? `${fmtNumber(f.tillable, 1)} ac tillable`
+            : '';
+
+          const metaParts = [];
+          if(trialAcresText) metaParts.push(trialAcresText);
+          if(tillableText)   metaParts.push(tillableText);
+
+          row.innerHTML = `
+            <div class="trial-field-name">
+              ${f.farmName || ''}${f.farmName && f.fieldName ? ' • ' : ''}${f.fieldName || ''}
+            </div>
+            ${metaParts.length ? `
+            <div class="trial-field-meta">
+              ${metaParts.join(' • ')}
+            </div>` : ''}
+          `;
+          listEl.appendChild(row);
+        });
+      }).catch(err => {
+        console.error('Error rendering fields for trial', trialId, err);
+        listEl.innerHTML = '';
+        const empty = document.createElement('div');
+        empty.className = 'trial-fields-empty';
+        empty.textContent = 'Error loading fields for this trial.';
+        listEl.appendChild(empty);
+      });
     }
 
     // For MH trials, figure out whether a field already exists and
@@ -942,6 +1175,10 @@
       if(footer) footer.innerHTML = '';
       const attGrid = $('#trialDetailAttachments');
       if(attGrid) attGrid.innerHTML = '';
+      const fieldsList = document.getElementById('trialFieldsList');
+      if(fieldsList){
+        fieldsList.innerHTML = '';
+      }
       const completeBtn = $('#trialCompleteBtn');
       if(completeBtn){
         completeBtn.style.display = 'none';
@@ -1102,6 +1339,9 @@
           attGrid.appendChild(empty);
         }
       }
+
+      // Show fields in this trial
+      renderTrialFields(item.id);
 
       const footer = $('.trial-detail-footer', panel);
       if(footer){
@@ -1325,6 +1565,18 @@
                 ${trialType ? `
                   <span><span class="trial-meta-label">Type</span> ${trialType}</span>
                 ` : ''}
+                <span class="trial-meta-stat" data-role="stat-acres">
+                  <span class="trial-meta-label">Trial acres</span>
+                  <span class="trial-meta-value">—</span>
+                </span>
+                <span class="trial-meta-stat" data-role="stat-check">
+                  <span class="trial-meta-label">Check avg</span>
+                  <span class="trial-meta-value">—</span> bu/ac
+                </span>
+                <span class="trial-meta-stat" data-role="stat-trial">
+                  <span class="trial-meta-label">Trial avg</span>
+                  <span class="trial-meta-value">—</span> bu/ac
+                </span>
               </div>
             </div>
           </div>
@@ -1364,6 +1616,18 @@
         if(isMhTrial){
           configureMhButtonsForTrial(card, id, d);
         }
+
+        // Apply cached stats if available immediately
+        if(STATE.trialStats[id]){
+          applyStatsToCard(card, STATE.trialStats[id]);
+        }
+
+        // Kick off async stats load (fields + weighted yields)
+        loadTrialStats(id).then(({ stats }) => {
+          applyStatsToCard(card, stats);
+        }).catch(err => {
+          console.error('Error applying stats to card', id, err);
+        });
 
         listEl.appendChild(card);
       }
@@ -1432,8 +1696,11 @@
 
       STATE.isLoading = true;
 
-      // Reset MH cache whenever we reload trials
+      // Reset caches whenever we reload trials
       STATE.mhHasFieldByTrial = {};
+      STATE.trialStats = {};
+      STATE.trialFields = {};
+      STATE.trialStatsPromises = {};
 
       const emptyEl = $('.trial-empty');
       const countEl = $('#trialCount');
@@ -1637,6 +1904,9 @@
       STATE.pendingFilter = null;
       STATE.retryCount = 0;
       STATE.mhHasFieldByTrial = {};
+      STATE.trialStats = {};
+      STATE.trialFields = {};
+      STATE.trialStatsPromises = {};
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -1825,6 +2095,11 @@
         <div class="trial-attachments">
           <div class="trial-attachments-label">Files &amp; Photos</div>
           <div class="trial-attachments-grid" id="trialDetailAttachments"></div>
+        </div>
+
+        <div class="trial-fields">
+          <div class="trial-fields-label">Fields in this trial</div>
+          <div class="trial-fields-list" id="trialFieldsList"></div>
         </div>
 
         <div class="trial-actions">
