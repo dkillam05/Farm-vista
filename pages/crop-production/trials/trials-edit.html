@@ -761,7 +761,7 @@
       pendingFilter: null,
       isLoading: false,
       retryCount: 0,
-      // trialId -> boolean (true = has field, false = no field) for MH trials
+      // MH trials: trialId -> boolean (true = has field, false = no field)
       mhHasFieldByTrial: {},
       // inline title editing
       isEditingTitle: false,
@@ -770,7 +770,14 @@
       // trialId -> aggregate stats + fields cache
       trialStats: {},
       trialFields: {},
-      trialStatsPromises: {}
+      trialStatsPromises: {},
+      // dropdown option lists, built from existing trials
+      optionLists: {
+        cropYears: [],
+        crops: [],
+        trialTypes: [],
+        operationTasks: []
+      }
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -780,6 +787,28 @@
       const n = Number(value);
       if(!isFinite(n)) return null;
       return n.toFixed(decimals);
+    }
+
+    function escapeHtml(str){
+      if(str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
+    function buildOptions(list, selected, isNumeric){
+      if(!Array.isArray(list)) return '';
+      const selStr = selected === null || selected === undefined ? '' : String(selected);
+      return list.map(v => {
+        const valStr = v === null || v === undefined ? '' : String(v);
+        const value = isNumeric ? valStr : valStr;
+        const selectedAttr = (selStr !== '' && selStr === valStr) ? ' selected' : '';
+        const safe = escapeHtml(value);
+        return `<option value="${safe}"${selectedAttr}>${safe}</option>`;
+      }).join('');
     }
 
     let toastEl;
@@ -797,7 +826,7 @@
       }
     }
 
-    // NEW: sort trials by type (A–Z), then trialName (A–Z), then newest createdAt
+    // sort trials by type (A–Z), then trialName (A–Z), then newest createdAt
     function sortTrialsList(items){
       if(!Array.isArray(items)) return items;
       items.sort((a, b) => {
@@ -807,7 +836,6 @@
         let typeA = (da.trialType || '').toString().trim().toLowerCase();
         let typeB = (db.trialType || '').toString().trim().toLowerCase();
 
-        // Push missing types to the bottom
         if(!typeA) typeA = '\uffff';
         if(!typeB) typeB = '\uffff';
 
@@ -823,12 +851,42 @@
         if(nameA < nameB) return -1;
         if(nameA > nameB) return 1;
 
-        // If same type + name, keep newest first
         const ta = getTime(da.createdAt);
         const tb = getTime(db.createdAt);
         return tb - ta;
       });
       return items;
+    }
+
+    function rebuildOptionLists(){
+      const yearsSet = new Set();
+      const cropsSet = new Set();
+      const typesSet = new Set();
+      const opsSet   = new Set();
+
+      for(const item of STATE.allItems){
+        const d = item.data || {};
+        if(d.cropYear !== null && d.cropYear !== undefined){
+          yearsSet.add(d.cropYear);
+        }
+        if(d.crop){
+          cropsSet.add(d.crop);
+        }
+        if(d.trialType){
+          typesSet.add(d.trialType);
+        }
+        if(d.operationTask){
+          opsSet.add(d.operationTask);
+        }
+      }
+
+      const years = Array.from(yearsSet).sort((a,b) => Number(a) - Number(b));
+      const asSortedStrings = set => Array.from(set).sort((a,b) => String(a).localeCompare(String(b)));
+
+      STATE.optionLists.cropYears = years;
+      STATE.optionLists.crops = asSortedStrings(cropsSet);
+      STATE.optionLists.trialTypes = asSortedStrings(typesSet);
+      STATE.optionLists.operationTasks = asSortedStrings(opsSet);
     }
 
     function getStatusLabel(code){
@@ -859,20 +917,17 @@
     function isMultiHybridTrialData(d){
       if (!d) return false;
 
-      // explicit flags still win
       if (d.isMultiHybrid === true || d.multiHybrid === true) return true;
 
       const trialType     = (d.trialType      || '').toString().toLowerCase();
       const seedTrialType = (d.seedTrialType  || '').toString().toLowerCase();
       const trialSubtype  = (d.trialSubtype   || '').toString().toLowerCase();
 
-      // Your current structure: Seed Varieties + Multiple Hybrid Trial
       if (trialType === 'seed varieties' &&
           seedTrialType === 'multiple hybrid trial') {
         return true;
       }
 
-      // Fallback: any subtype text that literally says multi + hybrid
       if (seedTrialType.includes('multi') && seedTrialType.includes('hybrid')) return true;
       if (trialSubtype.includes('multi')  && trialSubtype.includes('hybrid'))  return true;
       if (trialType.includes('multi')     && trialType.includes('hybrid'))     return true;
@@ -958,7 +1013,6 @@
 
           totalTrialAcres += trialAcres;
 
-          // Yield blocks under this field
           const blocksRef = collection(
             db,
             CONFIG.COLLECTION_TRIALS,
@@ -1048,7 +1102,7 @@
 
           row.innerHTML = `
             <div class="trial-field-name">
-              ${f.farmName || ''}${f.farmName && f.fieldName ? ' • ' : ''}${f.fieldName || ''}
+              ${escapeHtml(f.farmName || '')}${f.farmName && f.fieldName ? ' • ' : ''}${escapeHtml(f.fieldName || '')}
             </div>
             ${metaParts.length ? `
             <div class="trial-field-meta">
@@ -1067,8 +1121,6 @@
       });
     }
 
-    // For MH trials, figure out whether a field already exists and
-    // show/hide Add Fields / Add Yield buttons on the card.
     async function configureMhButtonsForTrial(card, trialId, data){
       if (!STATE.db) return;
       if (!isMultiHybridTrialData(data)) return;
@@ -1076,7 +1128,6 @@
       const addFieldBtn = card.querySelector('.trial-add-fields-btn');
       const addYieldBtn = card.querySelector('.trial-add-yield-btn');
 
-      // Optimistic default while loading: allow Add Field, hide Add Yield
       if(addFieldBtn) addFieldBtn.style.display = 'none';
       if(addYieldBtn) addYieldBtn.style.display = 'none';
 
@@ -1092,17 +1143,14 @@
         STATE.mhHasFieldByTrial[trialId] = hasField;
 
         if(hasField){
-          // MH trial already has a field: hide Add Field, show Add Yield
           if(addFieldBtn) addFieldBtn.style.display = 'none';
           if(addYieldBtn) addYieldBtn.style.display = '';
         }else{
-          // No field yet: show Add Field, hide Add Yield
           if(addFieldBtn) addFieldBtn.style.display = '';
           if(addYieldBtn) addYieldBtn.style.display = 'none';
         }
       }catch(err){
         console.error('Error checking MH field status:', err);
-        // On error, prefer to allow adding a field, but keep yield hidden
         STATE.mhHasFieldByTrial[trialId] = false;
         if(addFieldBtn) addFieldBtn.style.display = '';
         if(addYieldBtn) addYieldBtn.style.display = 'none';
@@ -1163,7 +1211,6 @@
       const itemAll = STATE.allItems.find(x => x.id === id);
       const oldName = itemAll?.data?.trialName || 'Field Trial';
 
-      // No change – just flip back to display mode
       if(newName === oldName){
         setTrialTitleView(newName);
         return;
@@ -1189,7 +1236,6 @@
       }catch(err){
         console.error('Error updating trial name:', err);
         showToast('Error updating trial name.');
-        // fall back to old name
         setTrialTitleView(oldName);
       }finally{
         inputEl.disabled = false;
@@ -1321,38 +1367,38 @@
           <div>
             <div class="trial-detail-item-label">Crop Year / Crop</div>
             <div class="trial-detail-item-value">
-              ${cropYear !== null ? cropYear : ''}${cropYear && crop ? ' • ' : ''}${crop}
+              ${cropYear !== null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}
             </div>
           </div>` : ''}
 
           ${trialType ? `
           <div>
             <div class="trial-detail-item-label">Trial Type</div>
-            <div class="trial-detail-item-value">${trialType}</div>
+            <div class="trial-detail-item-value">${escapeHtml(trialType)}</div>
           </div>` : ''}
 
           ${operationTask ? `
           <div>
             <div class="trial-detail-item-label">Operation</div>
-            <div class="trial-detail-item-value">${operationTask}</div>
+            <div class="trial-detail-item-value">${escapeHtml(operationTask)}</div>
           </div>` : ''}
 
           ${treatment ? `
           <div>
             <div class="trial-detail-item-label">Treatment Product</div>
-            <div class="trial-detail-item-value">${treatment}</div>
+            <div class="trial-detail-item-value">${escapeHtml(treatment)}</div>
           </div>` : ''}
 
           ${check ? `
           <div>
             <div class="trial-detail-item-label">Check</div>
-            <div class="trial-detail-item-value">${check}</div>
+            <div class="trial-detail-item-value">${escapeHtml(check)}</div>
           </div>` : ''}
 
           ${createdBy ? `
           <div>
             <div class="trial-detail-item-label">Created By</div>
-            <div class="trial-detail-item-value">${createdBy}</div>
+            <div class="trial-detail-item-value">${escapeHtml(createdBy)}</div>
           </div>` : ''}
 
           ${when ? `
@@ -1364,7 +1410,7 @@
           ${status ? `
           <div>
             <div class="trial-detail-item-label">Status</div>
-            <div class="trial-detail-item-value">${getStatusLabel(status)}</div>
+            <div class="trial-detail-item-value">${escapeHtml(getStatusLabel(status))}</div>
           </div>` : ''}
         `;
       }
@@ -1415,7 +1461,6 @@
         }
       }
 
-      // Show fields in this trial
       renderTrialFields(item.id);
 
       const footer = $('.trial-detail-footer', panel);
@@ -1473,49 +1518,42 @@
       const status = (d[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
       const notes = d.notes || '';
 
+      const cropYearOptions = buildOptions(STATE.optionLists.cropYears, cropYear, true);
+      const cropOptions = buildOptions(STATE.optionLists.crops, crop, false);
+      const trialTypeOptions = buildOptions(STATE.optionLists.trialTypes, trialType, false);
+      const opOptions = buildOptions(STATE.optionLists.operationTasks, operationTask, false);
+
       grid.innerHTML = `
         <div>
           <div class="trial-detail-item-label">Crop Year</div>
-          <input
-            type="number"
-            id="trialEditCropYear"
-            class="trial-edit-input"
-            inputmode="numeric"
-            value="${cropYear !== '' ? String(cropYear) : ''}"
-          />
+          <select id="trialEditCropYear" class="trial-edit-select">
+            <option value=""></option>
+            ${cropYearOptions}
+          </select>
         </div>
 
         <div>
           <div class="trial-detail-item-label">Crop</div>
-          <input
-            type="text"
-            id="trialEditCrop"
-            class="trial-edit-input"
-            maxlength="40"
-            value="${crop.replace(/"/g, '&quot;')}"
-          />
+          <select id="trialEditCrop" class="trial-edit-select">
+            <option value=""></option>
+            ${cropOptions}
+          </select>
         </div>
 
         <div>
           <div class="trial-detail-item-label">Trial Type</div>
-          <input
-            type="text"
-            id="trialEditTrialType"
-            class="trial-edit-input"
-            maxlength="80"
-            value="${trialType.replace(/"/g, '&quot;')}"
-          />
+          <select id="trialEditTrialType" class="trial-edit-select">
+            <option value=""></option>
+            ${trialTypeOptions}
+          </select>
         </div>
 
         <div>
           <div class="trial-detail-item-label">Operation</div>
-          <input
-            type="text"
-            id="trialEditOperation"
-            class="trial-edit-input"
-            maxlength="80"
-            value="${operationTask.replace(/"/g, '&quot;')}"
-          />
+          <select id="trialEditOperation" class="trial-edit-select">
+            <option value=""></option>
+            ${opOptions}
+          </select>
         </div>
 
         <div>
@@ -1525,7 +1563,7 @@
             id="trialEditTreatment"
             class="trial-edit-input"
             maxlength="120"
-            value="${treatment.replace(/"/g, '&quot;')}"
+            value="${escapeHtml(treatment)}"
           />
         </div>
 
@@ -1536,7 +1574,7 @@
             id="trialEditCheck"
             class="trial-edit-input"
             maxlength="120"
-            value="${check.replace(/"/g, '&quot;')}"
+            value="${escapeHtml(check)}"
           />
         </div>
 
@@ -1601,7 +1639,6 @@
       const notesEl      = $('#trialEditNotes');
 
       if(!cropYearEl || !cropEl || !trialTypeEl || !opEl || !treatmentEl || !checkEl || !statusEl || !notesEl){
-        // If something is off, just bail back to view mode
         STATE.isEditingSetup = false;
         renderDetails();
         return;
@@ -1653,7 +1690,6 @@
         const ref = doc(db, CONFIG.COLLECTION_TRIALS, id);
         await updateDoc(ref, updates);
 
-        // Update local copies
         const itemAll = STATE.allItems.find(x => x.id === id);
         const itemFiltered = STATE.items.find(x => x.id === id);
         const targets = [itemAll, itemFiltered].filter(Boolean);
@@ -1672,7 +1708,10 @@
         });
 
         STATE.isEditingSetup = false;
-        // Re-apply filter (status might have changed)
+
+        // rebuild option lists in case new values were introduced
+        rebuildOptionLists();
+
         const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
         applyFilter(currentFilter);
 
@@ -1720,7 +1759,6 @@
 
       initSwipeList(listEl, {
         itemSelector: '.fv-swipe-item',
-        // Swipe RIGHT -> Add Yield (positive)
         leftAction: {
           label: 'Add Yield',
           onAction: (itemEl) => {
@@ -1731,7 +1769,6 @@
             const data = item.data;
 
             (async () => {
-              // For MH trials, only allow Add Yield if there is a field
               if (isMultiHybridTrialData(data)) {
                 let hasField = STATE.mhHasFieldByTrial[trialId];
                 if (typeof hasField !== 'boolean' && STATE.db) {
@@ -1761,7 +1798,6 @@
             })();
           }
         },
-        // Swipe LEFT -> Add Field
         rightAction: {
           label: 'Add Field',
           onAction: (itemEl) => {
@@ -1771,7 +1807,6 @@
             const data = item?.data;
 
             (async () => {
-              // For MH trials, only allow Add Field if one doesn't already exist
               if (isMultiHybridTrialData(data)) {
                 let hasField = STATE.mhHasFieldByTrial[trialId];
                 if (typeof hasField !== 'boolean' && STATE.db) {
@@ -1885,18 +1920,18 @@
           <div class="trial-row-top">
             <div class="trial-main">
               <div class="trial-title">
-                ${title}
+                ${escapeHtml(title)}
               </div>
               <div class="trial-sub">
-                ${cropYear !== null ? cropYear : ''}${cropYear && crop ? ' • ' : ''}${crop}
-                ${trialType ? ` • ${trialType}` : ''}
+                ${cropYear !== null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}
+                ${trialType ? ` • ${escapeHtml(trialType)}` : ''}
               </div>
               <div class="trial-meta">
                 ${operationTask ? `
-                  <span><span class="trial-meta-label">Operation</span> ${operationTask}</span>
+                  <span><span class="trial-meta-label">Operation</span> ${escapeHtml(operationTask)}</span>
                 ` : ''}
                 ${trialType ? `
-                  <span><span class="trial-meta-label">Type</span> ${trialType}</span>
+                  <span><span class="trial-meta-label">Type</span> ${escapeHtml(trialType)}</span>
                 ` : ''}
                 <span class="trial-meta-stat" data-role="stat-acres">
                   <span class="trial-meta-label">Trial acres</span>
@@ -1914,33 +1949,13 @@
             </div>
           </div>
 
-                  <div class="trial-bottom-row">
-          <div>
-            ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
+          <div class="trial-bottom-row">
+            <div>
+              ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
+            </div>
+            <div class="trial-status-chip">${escapeHtml(friendlyStatus)}</div>
           </div>
-          <div class="trial-status-chip">${friendlyStatus}</div>
-        </div>
-      `;
-
-
-        listEl.appendChild(card);
-      }
-
-      if(countEl){
-        if(statusCode === CONFIG.STATUS_ALL){
-          countEl.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'}`;
-        }else{
-          countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
-        }
-      }
-
-      // Wire click handlers AFTER we append to DOM (and fix template typo)
-      const cards = listEl.querySelectorAll('.trial-card');
-      cards.forEach(card => {
-        const id = card.dataset.trialId;
-        const item = STATE.items.find(x => x.id === id);
-        if(!item) return;
-        const d = item.data;
+        `;
 
         card.addEventListener('click', () => {
           STATE.selectedId = id;
@@ -1966,7 +1981,6 @@
           });
         }
 
-        const isMhTrial = isMultiHybridTrialData(d);
         if(isMhTrial){
           configureMhButtonsForTrial(card, id, d);
         }
@@ -1980,9 +1994,18 @@
         }).catch(err => {
           console.error('Error applying stats to card', id, err);
         });
-      });
 
-      // Wire mobile swipe after list is rendered
+        listEl.appendChild(card);
+      }
+
+      if(countEl){
+        if(statusCode === CONFIG.STATUS_ALL){
+          countEl.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'}`;
+        }else{
+          countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
+        }
+      }
+
       setupMobileSwipe(listEl);
     }
 
@@ -2038,7 +2061,6 @@
 
       STATE.isLoading = true;
 
-      // Reset caches whenever we reload trials
       STATE.mhHasFieldByTrial = {};
       STATE.trialStats = {};
       STATE.trialFields = {};
@@ -2075,12 +2097,13 @@
           data: d.data()
         }));
 
-        // Sort by type A–Z, then trialName A–Z, then newest
         sortTrialsList(items);
 
         STATE.allItems = items;
         STATE.loaded = true;
         STATE.retryCount = 0;
+
+        rebuildOptionLists();
 
         const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
         STATE.pendingFilter = null;
@@ -2170,10 +2193,6 @@
       try{
         const db = STATE.db;
 
-        // 1) Delete nested data under each field:
-        //    - yieldBlocks subcollection
-        //    - multiHybrid/state doc (if present)
-        //    - then the field doc itself
         const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
         const fieldsSnap = await getDocs(fieldsRef);
 
@@ -2181,7 +2200,6 @@
           fieldsSnap.docs.map(async (fieldDoc) => {
             const fieldId = fieldDoc.id;
 
-            // Delete nested yieldBlocks under this field
             const blocksRef = collection(
               db,
               CONFIG.COLLECTION_TRIALS,
@@ -2193,7 +2211,6 @@
             const blocksSnap = await getDocs(blocksRef);
             await Promise.all(blocksSnap.docs.map(b => deleteDoc(b.ref)));
 
-            // Delete multiHybrid/state doc if it exists (ignore errors)
             const mhStateRef = doc(
               db,
               CONFIG.COLLECTION_TRIALS,
@@ -2209,21 +2226,17 @@
               // ignore – doc may not exist
             }
 
-            // Finally delete the field doc itself
             await deleteDoc(fieldDoc.ref);
           })
         );
 
-        // 2) Legacy top-level yieldBlocks under the trial (if any)
         const yieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'yieldBlocks');
         const yieldsSnap = await getDocs(yieldsRef);
         await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
 
-        // 3) Delete the trial doc
         const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
         await deleteDoc(trialRef);
 
-        // 4) Update local state
         STATE.allItems = STATE.allItems.filter(x => x.id !== id);
         STATE.items = STATE.items.filter(x => x.id !== id);
         STATE.selectedId = null;
@@ -2251,6 +2264,12 @@
       STATE.trialStats = {};
       STATE.trialFields = {};
       STATE.trialStatsPromises = {};
+      STATE.optionLists = {
+        cropYears: [],
+        crops: [],
+        trialTypes: [],
+        operationTasks: []
+      };
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -2366,11 +2385,9 @@
         });
       }
 
-      // Always hit Firestore on boot
       await loadAllTrials();
     })();
 
-    // PWA / mobile reload helpers – always re-hit Firestore when you re-enter
     window.addEventListener('focus', () => {
       if(!STATE.db) return;
       STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
