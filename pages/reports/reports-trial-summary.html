@@ -70,6 +70,12 @@
     }
     .muted{ color:var(--muted,#67706B); }
 
+    /* New: on-screen check/trial products line */
+    .hero-products{
+      margin:2px 0 0;
+      font-size:0.82rem;
+    }
+
     .body{
       padding:14px;
       display:grid;
@@ -903,6 +909,7 @@
     const els = {
       title: null,
       subtitle: null,
+      heroProducts: null,
       metaLine: null,
       topStats: null,
 
@@ -955,6 +962,7 @@
     function wireDom(){
       els.title         = $('#pageTitle');
       els.subtitle      = $('#pageSubtitle');
+      els.heroProducts  = $('#heroProducts');
       els.metaLine      = $('#reportMeta');
       els.topStats      = $('#top-stats');
 
@@ -1216,6 +1224,7 @@
 
       if (els.title) els.title.textContent = 'Field Trial Yield Summary';
       if (els.subtitle) els.subtitle.textContent = 'Choose a crop year and trial to view yield summary.';
+      if (els.heroProducts) els.heroProducts.textContent = '';
 
       if (els.metaLine) els.metaLine.textContent = 'No trial selected yet. Pick a trial above to load details.';
       if (els.topStats) els.topStats.innerHTML = '';
@@ -1323,6 +1332,20 @@
       if (t.crop) pieces.push(t.crop);
       if (t.trialType) pieces.push(t.trialType);
       if (els.subtitle) els.subtitle.textContent = pieces.join(' • ') || 'Trial details';
+
+      // New: show Check Product / Trial Product under the subtitle
+      const checkProduct = t.checkProduct || t.check || '';
+      const trialProduct = t.trialProduct || t.treatmentProduct || '';
+      if (els.heroProducts) {
+        if (checkProduct || trialProduct) {
+          const parts = [];
+          if (checkProduct) parts.push(`Check product: ${checkProduct}`);
+          if (trialProduct) parts.push(`Trial product: ${trialProduct}`);
+          els.heroProducts.textContent = parts.join(' • ');
+        } else {
+          els.heroProducts.textContent = '';
+        }
+      }
 
       const s = STATE.totals;
 
@@ -1589,7 +1612,7 @@
       if (typeof d.trialAcres === 'number') subBits.push(`${formatNumber(d.trialAcres, {decimals:1})} trial ac`);
       if (els.modalSub) els.modalSub.textContent = subBits.join(' • ');
 
-      // Summary: use the same stats object used by the main table (combined block stats)
+      // Summary
       if (els.modalSummary) {
         const sumHtml = [
           { label: 'Check weighted bu/ac', value: s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
@@ -1607,7 +1630,7 @@
         els.modalSummary.innerHTML = sumHtml;
       }
 
-      // Yield blocks: desktop table + mobile cards, both driven from the same blocks array
+      // Yield blocks
       if (els.modalBlocksBody) {
         if (!blocks.length) {
           els.modalBlocksBody.innerHTML = `
@@ -1663,7 +1686,6 @@
 
             const metaLines = [];
 
-            // Explicit Plant / Harvest labels
             if (plantDateStr) {
               metaLines.push(
                 `<div class="block-meta-line"><strong>Plant date:</strong> ${plantDateStr}</div>`
@@ -1772,7 +1794,7 @@
         }
       }
 
-      // Files & photos: aggregate object-style attachments across all blocks
+      // Files & photos
       if (els.modalFiles) {
         const allAttachments = [];
 
@@ -1835,7 +1857,6 @@
             `;
           }).join('');
 
-          // wire up click handlers to open the viewer
           const thumbs = els.modalFiles.querySelectorAll('.thumb');
           thumbs.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1850,7 +1871,6 @@
         }
       }
 
-      // Show the modal
       els.modalBackdrop.classList.remove('modal-hidden');
       els.modalBackdrop.setAttribute('aria-hidden', 'false');
     }
@@ -1909,6 +1929,10 @@
         farmMap.get(name).push(f);
       });
       const farmEntries = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+
+      // New: pull Check Product / Trial Product
+      const checkProductName = (t.checkProduct || t.check || '').toString();
+      const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
 
       return `<!doctype html>
 <html>
@@ -1994,6 +2018,12 @@
     .report-subtitle{
       font-size:13px;
       color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    /* New: Check/Trial products line in PDF */
+    .report-products{
+      font-size:12px;
+      color:#374151;
       margin:0 0 10px;
     }
     .summary-strip{
@@ -2118,6 +2148,24 @@
       ${escapeHtml([t.cropYear, t.crop, t.trialType].filter(Boolean).join(' • '))}
       ${t.operationTask ? ' • ' + escapeHtml(t.operationTask) : ''}
     </p>
+
+    ${
+      (checkProductName || trialProductName)
+        ? `<p class="report-products">
+            ${checkProductName
+              ? '<strong>Check product:</strong> ' + escapeHtml(checkProductName)
+              : ''}
+            ${
+              checkProductName && trialProductName
+                ? ' &nbsp;•&nbsp; '
+                : ''
+            }
+            ${trialProductName
+              ? '<strong>Trial product:</strong> ' + escapeHtml(trialProductName)
+              : ''}
+          </p>`
+        : ''
+    }
 
     <div class="summary-strip">
       <div class="summary-pill">
@@ -2341,23 +2389,21 @@
         });
       }
       if (els.printDetailedBtn){
-  els.printDetailedBtn.addEventListener('click', () => {
-    closePrintModal();
+        els.printDetailedBtn.addEventListener('click', () => {
+          closePrintModal();
 
-    // Make sure a trial is selected
-    if (!STATE.trialId) {
-      alert('Select a trial first, then choose Detailed report.');
-      return;
-    }
+          if (!STATE.trialId) {
+            alert('Select a trial first, then choose Detailed report.');
+            return;
+          }
 
-    const url = `/Farm-vista/pages/reports/reports-trial-detailed.html?trialId=${encodeURIComponent(STATE.trialId)}`;
-    window.location.href = url;
-  });
-}
+          const url = `/Farm-vista/pages/reports/reports-trial-detailed.html?trialId=${encodeURIComponent(STATE.trialId)}`;
+          window.location.href = url;
+        });
+      }
 
       document.addEventListener('keydown', (evt) => {
         if (evt.key === 'Escape') {
-          // close photo viewer first if open
           if (els.photoViewerBackdrop && !els.photoViewerBackdrop.classList.contains('modal-hidden')) {
             closePhotoViewer();
             return;
@@ -2440,7 +2486,6 @@
         populateYearFilter();
         populateTrialFilter();
 
-        // If URL provided a trialId, pre-select it
         const fromUrl = getTrialIdFromUrl();
         if (fromUrl) {
           const match = STATE.trials.find(t => t.id === fromUrl);
@@ -2492,6 +2537,8 @@
             <p id="pageSubtitle" class="muted">
               Choose a crop year and trial to view yield performance by field.
             </p>
+            <!-- New: on-screen check/trial products line -->
+            <p id="heroProducts" class="muted hero-products"></p>
           </div>
         </header>
 
@@ -2569,7 +2616,7 @@
             <div id="error-state" class="error-msg" style="display:none;"></div>
           </section>
 
-          <!-- Totals (shared, but stacks differently on mobile) -->
+          <!-- Totals -->
           <section id="totals-card" class="totals-card" style="display:none;" aria-label="Overall trial totals">
             <div class="totals-row">
               <div class="totals-label">Overall Trial Totals</div>
@@ -2632,17 +2679,14 @@
       </div>
 
       <div class="modal-body">
-        <!-- Summary (uses same field.stats that drives main table) -->
         <section>
           <div class="modal-section-title">Summary</div>
           <div class="modal-summary-grid" id="field-modal-summary"></div>
         </section>
 
-        <!-- Yield blocks: table on desktop, stacked cards on mobile -->
         <section>
           <div class="modal-section-title">Yield blocks</div>
 
-          <!-- Desktop layout: table (unchanged conceptually) -->
           <div class="blocks-table-wrap desktop-only">
             <table class="blocks-table">
               <thead>
@@ -2657,18 +2701,14 @@
                 </tr>
               </thead>
               <tbody id="field-modal-blocks-body">
-                <!-- rows injected by JS -->
               </tbody>
             </table>
           </div>
 
-          <!-- Mobile layout: cards (no table on phone) -->
           <div id="field-modal-blocks-cards" class="mobile-only block-card-list">
-            <!-- block cards injected by JS -->
           </div>
         </section>
 
-        <!-- Files & photos (thumbnails aggregated from all blocks) -->
         <section>
           <div class="modal-section-title">Files &amp; photos</div>
           <div id="field-modal-files" class="thumb-grid"></div>
@@ -2677,7 +2717,7 @@
     </div>
   </div>
 
-  <!-- Photo viewer modal (for thumbnails in Files & photos) -->
+  <!-- Photo viewer modal -->
   <div id="photo-viewer-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
     <div class="modal photo-modal" role="dialog" aria-modal="true" aria-labelledby="photo-viewer-caption">
       <div class="modal-head">
@@ -2717,7 +2757,7 @@
       <div class="print-modal-body">
         <p class="print-modal-note">
           Summary reports match your other FarmVista PDF reports and show trial-wide stats with a farm / field table.
-          Detailed reports will drill into block-level data and notes (coming later).
+          Detailed reports will drill into block-level data and notes.
         </p>
         <div class="print-modal-buttons">
           <button id="printSummaryBtn" type="button" class="btn btn-primary print-modal-btn">
