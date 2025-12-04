@@ -74,6 +74,12 @@
     }
     .muted{color:var(--muted,#67706B);}
 
+    /* New: hero-level products line */
+    .hero-products{
+      margin:2px 0 0;
+      font-size:0.82rem;
+    }
+
     .body{
       padding:16px;
       display:grid;
@@ -378,6 +384,7 @@
     const els = {
       title: null,
       subtitle: null,
+      heroProducts: null,
       metaLine: null,
       btnBack: null,
       btnPrint: null,
@@ -502,6 +509,7 @@
     function wireDom(){
       els.title          = $('#pageTitle');
       els.subtitle       = $('#pageSubtitle');
+      els.heroProducts   = $('#heroProducts');
       els.metaLine       = $('#pageMeta');
       els.btnBack        = $('#btnBack');
       els.btnPrint       = $('#btnPrint');
@@ -627,6 +635,20 @@
       if (els.metaLine) {
         els.metaLine.textContent =
           'Check the fields you want. The packet will include a trial summary plus one page per yield block for each checked field.';
+      }
+
+      // New: Hero products line (on-screen)
+      const checkProduct = t.checkProduct || t.check || '';
+      const trialProduct = t.trialProduct || t.treatmentProduct || '';
+      if (els.heroProducts){
+        if (checkProduct || trialProduct){
+          const parts = [];
+          if (checkProduct) parts.push(`Check product: ${checkProduct}`);
+          if (trialProduct) parts.push(`Trial product: ${trialProduct}`);
+          els.heroProducts.textContent = parts.join(' • ');
+        } else {
+          els.heroProducts.textContent = '';
+        }
       }
     }
 
@@ -786,6 +808,10 @@
         <tr><td colspan="5">No fields selected.</td></tr>
       `;
 
+      // New: pull product names from the trial document
+      const checkProductName = (t.checkProduct || t.check || '').toString();
+      const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
+
       /* ---------- PAGE 1: TRIAL SUMMARY COVER ---------- */
 
       const coverHtml = `
@@ -813,6 +839,24 @@
       ${escapeHtml([t.cropYear, t.crop, t.trialType].filter(Boolean).join(' • '))}
       ${t.operationTask ? ' • ' + escapeHtml(t.operationTask) : ''}
     </p>
+
+    ${
+      (checkProductName || trialProductName)
+        ? `<p class="report-products">
+            ${checkProductName
+              ? '<strong>Check product:</strong> ' + escapeHtml(checkProductName)
+              : ''}
+            ${
+              checkProductName && trialProductName
+                ? ' &nbsp;•&nbsp; '
+                : ''
+            }
+            ${trialProductName
+              ? '<strong>Trial product:</strong> ' + escapeHtml(trialProductName)
+              : ''}
+          </p>`
+        : ''
+    }
 
     <div class="summary-strip">
       <div class="summary-pill">
@@ -1203,6 +1247,13 @@
     .report-subtitle{
       font-size:12px;
       color:#6B7280;
+      margin:0 0 4px;
+    }
+
+    /* New products line in PDF header */
+    .report-products{
+      font-size:11px;
+      color:#374151;
       margin:0 0 8px;
     }
 
@@ -1699,6 +1750,8 @@
             <p id="pageSubtitle" class="muted">
               Trial summary for checked fields, plus one page per yield block.
             </p>
+            <!-- New: on-screen check/trial products line -->
+            <p id="heroProducts" class="muted hero-products"></p>
           </div>
         </header>
 
