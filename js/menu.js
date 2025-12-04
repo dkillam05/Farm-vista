@@ -92,8 +92,8 @@ export const NAV_MENU = {
       initialOpen: false,
       children: [
         // NEW: Maintenance sections at the top
-        { type: 'link', id: 'eq-maint-workorders', icon: '🧰', label: 'Maintenance Work Orders', href: '/Farm-vista/pages/equipment/maintenance-work-orders.html', activeMatch: 'starts-with' },
-        { type: 'link', id: 'eq-maint-records',    icon: '📚', label: 'Maintenance Records',    href: '/Farm-vista/pages/equipment/maintenance-records.html',     activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-maint-workorders', icon: '🧰', label: 'Maintenance Work Orders', href: '/Farm-vista/docs/cooming-soon.html', activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-maint-records',    icon: '📚', label: 'Maintenance Records',    href: '/Farm-vista/docs/cooming-soon.html',     activeMatch: 'starts-with' },
 
         // NEW: Equipment Inventory group to nest all equipment types
         {
