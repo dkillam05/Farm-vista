@@ -515,6 +515,22 @@
       justify-content:space-between;
       align-items:center;
       gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .trial-actions-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      align-items:center;
+    }
+
+    .trial-actions-right{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      align-items:center;
+      margin-left:auto;
     }
 
     .btn-complete{
@@ -660,6 +676,25 @@
       100%{opacity:0}
     }
 
+    /* Edit-mode inputs in detail panel */
+    .trial-edit-input,
+    .trial-edit-select,
+    .trial-edit-notes{
+      width:100%;
+      padding:6px 8px;
+      border-radius:8px;
+      border:1px solid var(--border);
+      background:var(--surface-strong, var(--surface));
+      font-size:0.9rem;
+      box-sizing:border-box;
+    }
+
+    .trial-edit-notes{
+      min-height:80px;
+      resize:vertical;
+      white-space:pre-wrap;
+    }
+
     /* ===== Mobile simplification ===== */
     @media (max-width: 600px){
       .trial-card{
@@ -730,6 +765,8 @@
       mhHasFieldByTrial: {},
       // inline title editing
       isEditingTitle: false,
+      // inline setup editing
+      isEditingSetup: false,
       // trialId -> aggregate stats + fields cache
       trialStats: {},
       trialFields: {},
@@ -1159,6 +1196,36 @@
       }
     }
 
+    function resetDetailButtonsForViewMode(){
+      const editBtn   = $('#trialEditBtn');
+      const saveBtn   = $('#trialSaveBtn');
+      const cancelBtn = $('#trialCancelBtn');
+      const completeBtn = $('#trialCompleteBtn');
+      const delBtn      = $('#trialDeleteBtn');
+
+      STATE.isEditingSetup = false;
+
+      if(editBtn){
+        editBtn.style.display = STATE.selectedId ? 'inline-flex' : 'none';
+        editBtn.disabled = !STATE.selectedId;
+      }
+      if(saveBtn){
+        saveBtn.style.display = 'none';
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+      if(cancelBtn){
+        cancelBtn.style.display = 'none';
+        cancelBtn.disabled = false;
+      }
+      if(completeBtn){
+        completeBtn.disabled = false;
+      }
+      if(delBtn){
+        delBtn.disabled = false;
+      }
+    }
+
     function clearDetails(){
       const panel = $('.trial-detail-panel');
       if(!panel) return;
@@ -1190,6 +1257,8 @@
       if(delBtn){
         delBtn.disabled = false;
       }
+
+      resetDetailButtonsForViewMode();
     }
 
     function openFileViewer(att){
@@ -1291,6 +1360,12 @@
             <div class="trial-detail-item-label">Created</div>
             <div class="trial-detail-item-value">${when.toLocaleString()}</div>
           </div>` : ''}
+
+          ${status ? `
+          <div>
+            <div class="trial-detail-item-label">Status</div>
+            <div class="trial-detail-item-value">${getStatusLabel(status)}</div>
+          </div>` : ''}
         `;
       }
 
@@ -1371,7 +1446,265 @@
         delBtn.disabled = false;
       }
 
+      resetDetailButtonsForViewMode();
       panel.style.display = 'flex';
+    }
+
+    function enterEditSetup(){
+      const id = STATE.selectedId;
+      if(!id || !STATE.db) return;
+      const panel = $('.trial-detail-panel');
+      if(!panel) return;
+      const item = STATE.items.find(x => x.id === id);
+      if(!item) return;
+      const d = item.data || {};
+
+      const grid = $('.trial-detail-grid', panel);
+      if(!grid) return;
+
+      STATE.isEditingSetup = true;
+
+      const cropYear = d.cropYear ?? '';
+      const crop = d.crop || '';
+      const trialType = d.trialType || '';
+      const operationTask = d.operationTask || '';
+      const treatment = d.treatmentProduct || '';
+      const check = d.check || '';
+      const status = (d[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
+      const notes = d.notes || '';
+
+      grid.innerHTML = `
+        <div>
+          <div class="trial-detail-item-label">Crop Year</div>
+          <input
+            type="number"
+            id="trialEditCropYear"
+            class="trial-edit-input"
+            inputmode="numeric"
+            value="${cropYear !== '' ? String(cropYear) : ''}"
+          />
+        </div>
+
+        <div>
+          <div class="trial-detail-item-label">Crop</div>
+          <input
+            type="text"
+            id="trialEditCrop"
+            class="trial-edit-input"
+            maxlength="40"
+            value="${crop.replace(/"/g, '&quot;')}"
+          />
+        </div>
+
+        <div>
+          <div class="trial-detail-item-label">Trial Type</div>
+          <input
+            type="text"
+            id="trialEditTrialType"
+            class="trial-edit-input"
+            maxlength="80"
+            value="${trialType.replace(/"/g, '&quot;')}"
+          />
+        </div>
+
+        <div>
+          <div class="trial-detail-item-label">Operation</div>
+          <input
+            type="text"
+            id="trialEditOperation"
+            class="trial-edit-input"
+            maxlength="80"
+            value="${operationTask.replace(/"/g, '&quot;')}"
+          />
+        </div>
+
+        <div>
+          <div class="trial-detail-item-label">Treatment Product</div>
+          <input
+            type="text"
+            id="trialEditTreatment"
+            class="trial-edit-input"
+            maxlength="120"
+            value="${treatment.replace(/"/g, '&quot;')}"
+          />
+        </div>
+
+        <div>
+          <div class="trial-detail-item-label">Check</div>
+          <input
+            type="text"
+            id="trialEditCheck"
+            class="trial-edit-input"
+            maxlength="120"
+            value="${check.replace(/"/g, '&quot;')}"
+          />
+        </div>
+
+        <div>
+          <div class="trial-detail-item-label">Status</div>
+          <select id="trialEditStatus" class="trial-edit-select">
+            <option value="pending"${status === CONFIG.STATUS_PENDING ? ' selected' : ''}>Pending</option>
+            <option value="active"${status === CONFIG.STATUS_ACTIVE ? ' selected' : ''}>Active</option>
+            <option value="completed"${status === CONFIG.STATUS_COMPLETED ? ' selected' : ''}>Completed</option>
+          </select>
+        </div>
+      `;
+
+      const notesBody = $('.trial-detail-notes-body', panel);
+      if(notesBody){
+        notesBody.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.id = 'trialEditNotes';
+        ta.className = 'trial-edit-notes';
+        ta.value = notes;
+        notesBody.appendChild(ta);
+      }
+
+      const editBtn   = $('#trialEditBtn');
+      const saveBtn   = $('#trialSaveBtn');
+      const cancelBtn = $('#trialCancelBtn');
+      const completeBtn = $('#trialCompleteBtn');
+      const delBtn      = $('#trialDeleteBtn');
+
+      if(editBtn){
+        editBtn.style.display = 'none';
+      }
+      if(saveBtn){
+        saveBtn.style.display = 'inline-flex';
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+      if(cancelBtn){
+        cancelBtn.style.display = 'inline-flex';
+        cancelBtn.disabled = false;
+      }
+      if(completeBtn){
+        completeBtn.disabled = true;
+      }
+      if(delBtn){
+        delBtn.disabled = true;
+      }
+    }
+
+    async function saveEditSetup(){
+      const id = STATE.selectedId;
+      const db = STATE.db;
+      if(!id || !db) return;
+
+      const cropYearEl   = $('#trialEditCropYear');
+      const cropEl       = $('#trialEditCrop');
+      const trialTypeEl  = $('#trialEditTrialType');
+      const opEl         = $('#trialEditOperation');
+      const treatmentEl  = $('#trialEditTreatment');
+      const checkEl      = $('#trialEditCheck');
+      const statusEl     = $('#trialEditStatus');
+      const notesEl      = $('#trialEditNotes');
+
+      if(!cropYearEl || !cropEl || !trialTypeEl || !opEl || !treatmentEl || !checkEl || !statusEl || !notesEl){
+        // If something is off, just bail back to view mode
+        STATE.isEditingSetup = false;
+        renderDetails();
+        return;
+      }
+
+      const editBtn   = $('#trialEditBtn');
+      const saveBtn   = $('#trialSaveBtn');
+      const cancelBtn = $('#trialCancelBtn');
+      const completeBtn = $('#trialCompleteBtn');
+      const delBtn      = $('#trialDeleteBtn');
+
+      if(saveBtn){
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+      }
+      if(cancelBtn){
+        cancelBtn.disabled = true;
+      }
+
+      const cropYearRaw = (cropYearEl.value || '').trim();
+      const cropRaw = (cropEl.value || '').trim();
+      const trialTypeRaw = (trialTypeEl.value || '').trim();
+      const opRaw = (opEl.value || '').trim();
+      const treatmentRaw = (treatmentEl.value || '').trim();
+      const checkRaw = (checkEl.value || '').trim();
+      const statusRaw = (statusEl.value || '').trim().toLowerCase();
+      const notesRaw = notesEl.value || '';
+
+      const updates = {};
+
+      if(cropYearRaw){
+        const n = Number(cropYearRaw);
+        updates.cropYear = isFinite(n) ? n : null;
+      }else{
+        updates.cropYear = null;
+      }
+
+      updates.crop = cropRaw || '';
+      updates.trialType = trialTypeRaw || '';
+      updates.operationTask = opRaw || '';
+      updates.treatmentProduct = treatmentRaw || '';
+      updates.check = checkRaw || '';
+      updates.notes = notesRaw;
+      if(statusRaw){
+        updates[CONFIG.STATUS_FIELD] = statusRaw;
+      }
+
+      try{
+        const ref = doc(db, CONFIG.COLLECTION_TRIALS, id);
+        await updateDoc(ref, updates);
+
+        // Update local copies
+        const itemAll = STATE.allItems.find(x => x.id === id);
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        const targets = [itemAll, itemFiltered].filter(Boolean);
+
+        targets.forEach(t => {
+          t.data.cropYear = updates.cropYear;
+          t.data.crop = updates.crop;
+          t.data.trialType = updates.trialType;
+          t.data.operationTask = updates.operationTask;
+          t.data.treatmentProduct = updates.treatmentProduct;
+          t.data.check = updates.check;
+          t.data.notes = updates.notes;
+          if(updates[CONFIG.STATUS_FIELD] !== undefined){
+            t.data[CONFIG.STATUS_FIELD] = updates[CONFIG.STATUS_FIELD];
+          }
+        });
+
+        STATE.isEditingSetup = false;
+        // Re-apply filter (status might have changed)
+        const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
+        applyFilter(currentFilter);
+
+        showToast('Trial setup updated.');
+      }catch(err){
+        console.error('Error updating trial setup:', err);
+        showToast('Error updating trial setup.');
+        STATE.isEditingSetup = false;
+        renderDetails();
+      }finally{
+        if(editBtn){
+          editBtn.disabled = false;
+        }
+        if(saveBtn){
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Changes';
+        }
+        if(cancelBtn){
+          cancelBtn.disabled = false;
+        }
+        if(completeBtn){
+          completeBtn.disabled = false;
+        }
+        if(delBtn){
+          delBtn.disabled = false;
+        }
+      }
+    }
+
+    function cancelEditSetup(){
+      STATE.isEditingSetup = false;
+      renderDetails();
     }
 
     function setupMobileSwipe(listEl){
@@ -1587,10 +1920,30 @@
             </div>
             <div class="trial-status-chip">${friendlyStatus}</div>
           </div>
-        `;
+        '';
+
+        listEl.appendChild(card);
+      }
+
+      if(countEl){
+        if(statusCode === CONFIG.STATUS_ALL){
+          countEl.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'}`;
+        }else{
+          countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
+        }
+      }
+
+      // Wire click handlers AFTER we append to DOM (and fix template typo)
+      const cards = listEl.querySelectorAll('.trial-card');
+      cards.forEach(card => {
+        const id = card.dataset.trialId;
+        const item = STATE.items.find(x => x.id === id);
+        if(!item) return;
+        const d = item.data;
 
         card.addEventListener('click', () => {
           STATE.selectedId = id;
+          STATE.isEditingSetup = false;
           renderDetails();
         });
 
@@ -1612,33 +1965,21 @@
           });
         }
 
-        // For MH trials, we decide which buttons to show based on whether a field exists.
+        const isMhTrial = isMultiHybridTrialData(d);
         if(isMhTrial){
           configureMhButtonsForTrial(card, id, d);
         }
 
-        // Apply cached stats if available immediately
         if(STATE.trialStats[id]){
           applyStatsToCard(card, STATE.trialStats[id]);
         }
 
-        // Kick off async stats load (fields + weighted yields)
         loadTrialStats(id).then(({ stats }) => {
           applyStatsToCard(card, stats);
         }).catch(err => {
           console.error('Error applying stats to card', id, err);
         });
-
-        listEl.appendChild(card);
-      }
-
-      if(countEl){
-        if(statusCode === CONFIG.STATUS_ALL){
-          countEl.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'}`;
-        }else{
-          countEl.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
-        }
-      }
+      });
 
       // Wire mobile swipe after list is rendered
       setupMobileSwipe(listEl);
@@ -1775,6 +2116,7 @@
     async function markTrialCompleted(){
       const id = STATE.selectedId;
       if(!id || !STATE.db) return;
+      if(STATE.isEditingSetup) return;
 
       const btn = $('#trialCompleteBtn');
       if(btn){
@@ -1814,6 +2156,7 @@
     async function deleteTrial(){
       const id = STATE.selectedId;
       if(!id || !STATE.db) return;
+      if(STATE.isEditingSetup) return;
 
       const ok = window.confirm('Delete this trial and ALL of its fields and yield blocks? This cannot be undone.');
       if(!ok) return;
@@ -1968,6 +2311,30 @@
         });
       }
 
+      const editBtn = $('#trialEditBtn');
+      if(editBtn){
+        editBtn.addEventListener('click', () => {
+          if(!STATE.selectedId) return;
+          enterEditSetup();
+        });
+      }
+
+      const saveBtn = $('#trialSaveBtn');
+      if(saveBtn){
+        saveBtn.addEventListener('click', () => {
+          if(!STATE.selectedId) return;
+          saveEditSetup();
+        });
+      }
+
+      const cancelBtn = $('#trialCancelBtn');
+      if(cancelBtn){
+        cancelBtn.addEventListener('click', () => {
+          if(!STATE.selectedId) return;
+          cancelEditSetup();
+        });
+      }
+
       fileModal       = $('#fileModal');
       fileBackdrop    = $('#fileBackdrop');
       fileCloseBtn    = $('#fileModalClose');
@@ -2103,14 +2470,27 @@
         </div>
 
         <div class="trial-actions">
-          <button type="button" id="trialCompleteBtn" class="btn btn-complete" style="display:none;">
-            Mark Trial Completed
-          </button>
-          <button type="button" id="trialDeleteBtn" class="trial-delete-btn" aria-label="Delete trial">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
-            </svg>
-          </button>
+          <div class="trial-actions-left">
+            <button type="button" id="trialEditBtn" class="btn btn-quiet" style="display:none;">
+              Edit Setup
+            </button>
+            <button type="button" id="trialSaveBtn" class="btn btn-complete" style="display:none;">
+              Save Changes
+            </button>
+            <button type="button" id="trialCancelBtn" class="btn btn-quiet" style="display:none;">
+              Cancel
+            </button>
+          </div>
+          <div class="trial-actions-right">
+            <button type="button" id="trialCompleteBtn" class="btn btn-complete" style="display:none;">
+              Mark Trial Completed
+            </button>
+            <button type="button" id="trialDeleteBtn" class="trial-delete-btn" aria-label="Delete trial">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="trial-detail-footer"></div>
