@@ -16,7 +16,17 @@
       Status: Waiting for file…
     </p>
 
-    <h3>Fields (key/value):</h3>
+    <!-- Parsed summary -->
+    <h3>Parsed Receipt Summary</h3>
+    <table border="1" cellpadding="6" cellspacing="0">
+      <tr><th>Vendor</th><td id="sum-vendor"></td></tr>
+      <tr><th>Date</th><td id="sum-date"></td></tr>
+      <tr><th>Amount / Total</th><td id="sum-amount"></td></tr>
+      <tr><th>Tax / VAT</th><td id="sum-tax"></td></tr>
+    </table>
+
+    <!-- Raw fields + full text for debugging -->
+    <h3>Fields (key/value from Document AI):</h3>
     <pre id="fields" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; min-height:40px;"></pre>
 
     <h3>Plain text from document:</h3>
@@ -28,6 +38,81 @@
       const fieldsEl = document.getElementById("fields");
       const textEl = document.getElementById("text");
 
+      const vendorEl = document.getElementById("sum-vendor");
+      const dateEl   = document.getElementById("sum-date");
+      const amtEl    = document.getElementById("sum-amount");
+      const taxEl    = document.getElementById("sum-tax");
+
+      // Very simple parser to pull vendor / date / total / tax from plain text
+      function parseReceipt(text) {
+        const lines = text
+          .split(/\r?\n/)
+          .map(l => l.trim())
+          .filter(Boolean);
+
+        let vendor = "";
+        let date   = "";
+        let amount = "";
+        let tax    = "";
+
+        // DATE: first thing that looks like YYYY-MM-DD or MM/DD/YYYY
+        const datePatterns = [
+          /\b\d{4}-\d{2}-\d{2}\b/,        // 2025-12-03
+          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/ // 12/03/25 or 12/03/2025
+        ];
+        for (const line of lines) {
+          for (const r of datePatterns) {
+            const m = line.match(r);
+            if (m) { date = m[0]; break; }
+          }
+          if (date) break;
+        }
+
+        // AMOUNT: look for "Amount due", "Total", "TOTAL"
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i].toLowerCase();
+          if (
+            l.includes("amount due") ||
+            l.includes("balance due") ||
+            l === "total" ||
+            l.startsWith("total ")
+          ) {
+            const candidates = [lines[i], lines[i + 1]];
+            const moneyRegex = /(\d+[.,]\d{2})/;
+            for (const c of candidates) {
+              if (!c) continue;
+              const m = c.match(moneyRegex);
+              if (m) { amount = m[1]; break; }
+            }
+            if (amount) break;
+          }
+        }
+
+        // TAX: look for VAT / tax
+        for (const line of lines) {
+          if (/tax|vat/i.test(line)) {
+            const m = line.match(/(\d+[.,]\d{2})/);
+            if (m) { tax = m[1]; break; }
+          }
+        }
+
+        // VENDOR: very rough – first line that isn't invoice/paid/etc and has letters
+        const skipWords = [
+          "invoice", "paid on", "payment method",
+          "customer", "amount due", "total", "subscription",
+          "designation"
+        ];
+        for (const line of lines) {
+          const low = line.toLowerCase();
+          if (skipWords.some(w => low.includes(w))) continue;
+          if (/^\d/.test(line)) continue; // starts with a number (likely not vendor)
+          vendor = line;
+          break;
+        }
+
+        return { vendor, date, amount, tax };
+      }
+
       btn.addEventListener("click", async () => {
         const input = document.getElementById("file");
         const file = input.files[0];
@@ -35,13 +120,15 @@
         if (!file) {
           statusEl.textContent = "Status: Pick a file first.";
           fieldsEl.textContent = "";
-          textEl.textContent = "";
+          textEl.textContent   = "";
+          vendorEl.textContent = dateEl.textContent = amtEl.textContent = taxEl.textContent = "";
           return;
         }
 
         statusEl.textContent = "Status: Reading file…";
         fieldsEl.textContent = "";
-        textEl.textContent = "";
+        textEl.textContent   = "";
+        vendorEl.textContent = dateEl.textContent = amtEl.textContent = taxEl.textContent = "";
 
         const reader = new FileReader();
         reader.onload = async () => {
@@ -65,18 +152,25 @@
             const json = await res.json();
             statusEl.textContent = json.ok ? "Status: OK" : "Status: Error";
 
-            // Show fields (if any)
+            // Show raw fields
             fieldsEl.textContent = JSON.stringify(json.fields || {}, null, 2);
 
-            // Show plain text
             const docText = json.document && json.document.text
               ? json.document.text
               : "(no document.text returned)";
             textEl.textContent = docText;
+
+            // Fill summary
+            const parsed = parseReceipt(docText);
+            vendorEl.textContent = parsed.vendor || "(not found)";
+            dateEl.textContent   = parsed.date   || "(not found)";
+            amtEl.textContent    = parsed.amount || "(not found)";
+            taxEl.textContent    = parsed.tax    || "(not found)";
           } catch (err) {
             statusEl.textContent = "Status: ERROR – see console";
             fieldsEl.textContent = "";
-            textEl.textContent = "ERROR: " + err.message;
+            textEl.textContent   = "ERROR: " + err.message;
+            vendorEl.textContent = dateEl.textContent = amtEl.textContent = taxEl.textContent = "";
             console.error(err);
           }
         };
