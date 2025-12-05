@@ -101,7 +101,7 @@ export const NAV_MENU = {
           id: 'eq-inventory',
           icon: '📦',
           label: 'Equipment Inventory',
-          href: '/Farm-vista/pages/equipment/index.html',
+          //href: '/Farm-vista/pages/equipment/index.html',
           collapsible: true,
           initialOpen: false,
           children: [
