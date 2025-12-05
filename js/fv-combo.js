@@ -1,5 +1,5 @@
 /* /Farm-vista/js/fv-combo.js
-   FarmVista Combo Upgrader — v1.3.0
+   FarmVista Combo Upgrader — v1.4.0
    - Rounded, tight “buttonish + combo panel”.
    - Portals to <body> so parents can’t clip it.
    - Panels prefer to open below; flip up if needed.
@@ -98,11 +98,38 @@
     return n;
   })();
 
+  /* ---------- Global close helpers ---------- */
   function closeAll(except = null) {
-    document.querySelectorAll('.fv-panel.show').forEach(p => { if (p !== except) p.classList.remove('show'); });
+    document.querySelectorAll('.fv-panel.show').forEach(p => {
+      if (p !== except) p.classList.remove('show');
+    });
   }
-  document.addEventListener('click', () => closeAll());
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+
+  // Helper: is a click inside any combo UI?
+  function isInsideCombo(target) {
+    return !!(
+      target.closest('.fv-panel') ||
+      target.closest('.fv-buttonish') ||
+      target.closest('.fv-field.fv-combo')
+    );
+  }
+
+  // Global outside-click handler (capture phase so stopPropagation()
+  // in app code can't block it).
+  document.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target;
+      if (isInsideCombo(target)) return;
+      closeAll();
+    },
+    true // <-- capture
+  );
+
+  // Esc closes any open combo
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeAll();
+  });
 
   /* ---- Footer helpers (canonical footer is .ftr) ---- */
   function getFooterEl() {
@@ -161,20 +188,31 @@
     sel.tabIndex = -1;
 
     // Build UI
-    const field  = document.createElement('div'); field.className = 'fv-field fv-combo';
-    const anchor = document.createElement('div'); anchor.className = 'fv-anchor';
-    const btn    = document.createElement('button'); btn.type = 'button'; btn.className = 'fv-buttonish has-caret'; btn.textContent = placeholder;
+    const field  = document.createElement('div');
+    field.className = 'fv-field fv-combo';
+    const anchor = document.createElement('div');
+    anchor.className = 'fv-anchor';
+    const btn    = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'fv-buttonish has-caret';
+    btn.textContent = placeholder;
 
-    const panel  = document.createElement('div'); panel.className = 'fv-panel';
+    const panel  = document.createElement('div');
+    panel.className = 'fv-panel';
     panel.setAttribute('role','listbox');
     panel.setAttribute('aria-label', sel.getAttribute('aria-label') || sel.name || 'List');
 
-    const list   = document.createElement('div'); list.className = 'fv-list';
+    const list   = document.createElement('div');
+    list.className = 'fv-list';
 
     if (searchable) {
-      const sWrap = document.createElement('div'); sWrap.className = 'fv-search';
-      const sInput = document.createElement('input'); sInput.type = 'search'; sInput.placeholder = sel.getAttribute('data-fv-placeholder') || 'Search…';
-      sWrap.appendChild(sInput); panel.appendChild(sWrap);
+      const sWrap = document.createElement('div');
+      sWrap.className = 'fv-search';
+      const sInput = document.createElement('input');
+      sInput.type = 'search';
+      sInput.placeholder = sel.getAttribute('data-fv-placeholder') || 'Search…';
+      sWrap.appendChild(sInput);
+      panel.appendChild(sWrap);
       sInput.addEventListener('input', () => render(sInput.value));
     }
     panel.appendChild(list);
@@ -188,7 +226,11 @@
     let items = [];
     function readItems() {
       items = Array.from(sel.options).map((opt, idx) => ({
-        id: String(idx), value: opt.value, label: opt.text, disabled: opt.disabled, hidden: opt.hidden
+        id: String(idx),
+        value: opt.value,
+        label: opt.text,
+        disabled: opt.disabled,
+        hidden: opt.hidden
       })).filter(x => !x.hidden);
     }
     function render(q='') {
@@ -279,31 +321,47 @@
 
       const sp = nearestScrollParent(anchor);
       const onMove = () => { if (panel.classList.contains('show')) placePanel(); };
-      if (sp === window) window.addEventListener('scroll', onMove, { passive:true });
-      else { sp.addEventListener('scroll', onMove, { passive:true }); window.addEventListener('scroll', onMove, { passive:true }); }
+      if (sp === window) {
+        window.addEventListener('scroll', onMove, { passive:true });
+      } else {
+        sp.addEventListener('scroll', onMove, { passive:true });
+        window.addEventListener('scroll', onMove, { passive:true });
+      }
       window.addEventListener('resize', onMove, { passive:true });
 
       scrollUnsub = () => {
-        if (sp === window) window.removeEventListener('scroll', onMove);
-        else { sp.removeEventListener('scroll', onMove); window.removeEventListener('scroll', onMove); }
+        if (sp === window) {
+          window.removeEventListener('scroll', onMove);
+        } else {
+          sp.removeEventListener('scroll', onMove);
+          window.removeEventListener('scroll', onMove);
+        }
         window.removeEventListener('resize', onMove);
       };
 
-      const s = panel.querySelector('.fv-search input'); if (s){ s.value=''; s.focus(); }
+      const s = panel.querySelector('.fv-search input');
+      if (s){
+        s.value='';
+        s.focus();
+      }
     }
+
     function close() {
       panel.classList.remove('show');
       if (typeof scrollUnsub === 'function') scrollUnsub();
     }
 
     btn.addEventListener('click', e => {
+      // Stop bubbling so other click handlers on cards/rows don't also fire.
       e.stopPropagation();
       panel.classList.contains('show') ? close() : open();
     });
 
     list.addEventListener('mousedown', e => {
-      const row = e.target.closest('.fv-item'); if (!row) return;
-      const it = items[Number(row.dataset.id)]; if (!it) return;
+      const row = e.target.closest('.fv-item');
+      if (!row) return;
+      const it = items[Number(row.dataset.id)];
+      if (!it) return;
       sel.value = it.value;
       btn.textContent = it.label || placeholder;
       close();
@@ -318,7 +376,8 @@
     // Keep in sync with dynamic option changes
     const mo = new MutationObserver(() => {
       const prev = sel.value;
-      readItems(); render('');
+      readItems();
+      render('');
       const currOpt = Array.from(sel.options).find(o => o.value === prev) || sel.options[sel.selectedIndex];
       btn.textContent = currOpt?.text || placeholder;
     });
@@ -329,7 +388,10 @@
       const opt = sel.options[sel.selectedIndex];
       btn.textContent = opt?.text || placeholder;
     });
-    const syncDisabled = () => { btn.disabled = sel.disabled; btn.classList.toggle('is-disabled', !!sel.disabled); };
+    const syncDisabled = () => {
+      btn.disabled = sel.disabled;
+      btn.classList.toggle('is-disabled', !!sel.disabled);
+    };
     syncDisabled();
     new MutationObserver(syncDisabled).observe(sel, { attributes: true, attributeFilter: ['disabled'] });
   }
@@ -338,8 +400,16 @@
     root.querySelectorAll('select[data-fv-combo]').forEach(upgradeSelect);
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => upgradeAll());
-  else upgradeAll();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => upgradeAll());
+  } else {
+    upgradeAll();
+  }
 
-  window.FVCombo = { upgrade: upgradeAll, upgradeSelect };
+  // Expose helpers for pages that want to re-upgrade after innerHTML.
+  window.FVCombo = {
+    upgrade: upgradeAll,
+    upgradeSelect,
+    closeAll
+  };
 })();
