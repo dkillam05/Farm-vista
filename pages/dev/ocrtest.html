@@ -1,12 +1,12 @@
 <!doctype html>
 <html>
   <body>
-    <h2>OCR Test Page (JSON)</h2>
+    <h2>OCR Test Page (JSON → Clean)</h2>
 
     <p>
       1) Click "Choose File" and select a RECEIPT image or PDF<br>
       2) Click "Scan Receipt"<br>
-      3) Watch the status line and result box below
+      3) See parsed output below
     </p>
 
     <input type="file" id="file" />
@@ -16,13 +16,17 @@
       Status: Waiting for file…
     </p>
 
-    <pre id="out" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; margin-top:10px; min-height:120px;">
-    </pre>
+    <h3>Fields (key/value):</h3>
+    <pre id="fields" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; min-height:40px;"></pre>
+
+    <h3>Plain text from document:</h3>
+    <pre id="text" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; min-height:120px;"></pre>
 
     <script>
       const btn = document.getElementById("btn");
-      const out = document.getElementById("out");
       const statusEl = document.getElementById("status");
+      const fieldsEl = document.getElementById("fields");
+      const textEl = document.getElementById("text");
 
       btn.addEventListener("click", async () => {
         const input = document.getElementById("file");
@@ -30,16 +34,18 @@
 
         if (!file) {
           statusEl.textContent = "Status: Pick a file first.";
-          out.textContent = "";
+          fieldsEl.textContent = "";
+          textEl.textContent = "";
           return;
         }
 
         statusEl.textContent = "Status: Reading file…";
+        fieldsEl.textContent = "";
+        textEl.textContent = "";
 
         const reader = new FileReader();
         reader.onload = async () => {
           try {
-            // reader.result is like: data:application/pdf;base64,AAAA...
             const base64 = reader.result.split(",")[1];
 
             statusEl.textContent = "Status: Sending to OCR…";
@@ -56,12 +62,21 @@
               }
             );
 
-            const text = await res.text();
-            statusEl.textContent = "Status: Response received.";
-            out.textContent = text;
+            const json = await res.json();
+            statusEl.textContent = json.ok ? "Status: OK" : "Status: Error";
+
+            // Show fields (if any)
+            fieldsEl.textContent = JSON.stringify(json.fields || {}, null, 2);
+
+            // Show plain text
+            const docText = json.document && json.document.text
+              ? json.document.text
+              : "(no document.text returned)";
+            textEl.textContent = docText;
           } catch (err) {
-            statusEl.textContent = "Status: ERROR – see below.";
-            out.textContent = "ERROR: " + err.message;
+            statusEl.textContent = "Status: ERROR – see console";
+            fieldsEl.textContent = "";
+            textEl.textContent = "ERROR: " + err.message;
             console.error(err);
           }
         };
