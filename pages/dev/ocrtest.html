@@ -1,12 +1,12 @@
 <!doctype html>
 <html>
   <body>
-    <h2>OCR Receipt Test (Expense Parser + Text Heuristics)</h2>
+    <h2>OCR Receipt Test (Expense Parser + Smart Fallback)</h2>
 
     <p>
       1) Choose a RECEIPT or INVOICE PDF/JPG<br>
       2) Click "Scan Receipt"<br>
-      3) See structured fields + plain text below
+      3) See parsed output below
     </p>
 
     <input type="file" id="file" />
@@ -26,7 +26,7 @@
       <tr><th>Currency</th><td id="sum-currency"></td></tr>
     </table>
 
-    <h3>Raw Fields Map (from parser)</h3>
+    <h3>Raw Fields Map (from receipt parser)</h3>
     <pre id="fields" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; min-height:40px;"></pre>
 
     <h3>Plain Text</h3>
@@ -44,20 +44,49 @@
       const taxEl      = document.getElementById("sum-tax");
       const currencyEl = document.getElementById("sum-currency");
 
-      // Heuristic parser using plain text
-      function parseReceiptFromText(text) {
-        const lines = text
+      function parseLines(text) {
+        return text
           .split(/\r?\n/)
           .map(l => l.trim())
           .filter(Boolean);
+      }
 
-        let vendor = "";
-        let date   = "";
-        let total  = "";
-        let tax    = "";
-        let currency = "";
+      function pickVendor(fields, text) {
+        // 1) Try structured fields first if Google ever returns them
+        const f = fields || {};
+        const structuredVendor =
+          f["supplier_name"] ||
+          f["merchant_name"] ||
+          f["vendor_name"];
+        if (structuredVendor) return structuredVendor;
 
-        // DATE: first thing that looks like YYYY-MM-DD or MM/DD/YYYY
+        // 2) Fallback: first "nice" line of text, skipping obvious junk
+        const lines = parseLines(text);
+        const skipWords = [
+          "invoice", "invoice n", "receipt", "paid on",
+          "payment method", "amount due", "total",
+          "thanks for your business", "thank you for your business",
+          "customer's address", "customer address", "designation",
+          "unit price", "quantity", "balance due"
+        ];
+        for (const line of lines) {
+          const low = line.toLowerCase();
+          if (skipWords.some(w => low.includes(w))) continue;
+          if (/^\d/.test(line)) continue; // starts with number
+          return line;
+        }
+        return "";
+      }
+
+      function pickDate(fields, text) {
+        const f = fields || {};
+        // 1) Structured date if present
+        const structuredDate =
+          (f["receipt_date"] || f["invoice_date"] || "").trim();
+        if (structuredDate) return structuredDate;
+
+        // 2) First date-looking string in text
+        const lines = parseLines(text);
         const datePatterns = [
           /\b\d{4}-\d{2}-\d{2}\b/,        // 2025-12-03
           /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/ // 12/03/25 or 12/03/2025
@@ -65,15 +94,43 @@
         for (const line of lines) {
           for (const r of datePatterns) {
             const m = line.match(r);
-            if (m) { date = m[0]; break; }
+            if (m) return m[0];
           }
-          if (date) break;
         }
+        return "";
+      }
 
-        // MONEY regex (integer or x.xx)
+      function pickTotals(fields, text) {
+        const f = fields || {};
+        let total = f["total_amount"] || "";
+        let tax   = f["tax_amount"]   || "";
+        let currency = f["currency"] || f["currency_code"] || "";
+
+        const lines = parseLines(text);
         const moneyRegex = /(\d+(?:[.,]\d{2})?)/;
 
-        // TOTAL: look near "Amount due" / "Total" with a currency hint
+        // Find all money-ish values with currency hints in text
+        const moneyCandidates = [];
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i];
+          if (/[€$]|usd|eur|gbp/i.test(l)) {
+            const m = l.match(moneyRegex);
+            if (m) {
+              const val = parseFloat(m[1].replace(",", "."));
+              if (!isNaN(val)) {
+                moneyCandidates.push({
+                  value: val,
+                  raw: m[1],
+                  line: l.toLowerCase(),
+                  idx: i
+                });
+              }
+            }
+          }
+        }
+
+        // Text-derived total: look near "Amount due" / "Total"
+        let textTotal = null;
         for (let i = 0; i < lines.length; i++) {
           const l = lines[i].toLowerCase();
           if (
@@ -82,76 +139,66 @@
             l === "total" ||
             l.startsWith("total ")
           ) {
-            const candidates = [lines[i], lines[i + 1], lines[i + 2]];
-            for (const c of candidates) {
-              if (!c) continue;
-              // Only use lines that mention currency (usd, $, eur, etc.)
-              if (!/[€$]|usd|eur|gbp/i.test(c)) continue;
-              const m = c.match(moneyRegex);
+            const windowLines = [lines[i], lines[i + 1], lines[i + 2]];
+            for (const wl of windowLines) {
+              if (!wl) continue;
+              if (!/[€$]|usd|eur|gbp/i.test(wl)) continue;
+              const m = wl.match(moneyRegex);
               if (m) {
-                total = m[1];
-                // Try to also infer currency string (optional)
-                const curMatch = c.match(/(usd|eur|gbp|\$|€)/i);
-                if (curMatch) {
-                  currency = curMatch[1].toUpperCase();
-                  if (currency === "$") currency = "USD";
-                  if (currency === "€") currency = "EUR";
+                const v = parseFloat(m[1].replace(",", "."));
+                if (!isNaN(v)) {
+                  textTotal = { num: v, raw: m[1] };
+                  break;
                 }
-                break;
               }
             }
-            if (total) break;
+            if (textTotal) break;
           }
         }
 
-        // TAX: look for "tax" or "vat" AND a money amount w/ currency
-        for (const line of lines) {
-          if (!/tax|vat/i.test(line)) continue;
-          if (!/[€$]|usd|eur|gbp/i.test(line)) continue; // must look like an amount, not an article number
-          const m = line.match(moneyRegex);
-          if (m) {
-            tax = m[1];
-            break;
+        // Decide on total:
+        // 1) Try structured total if it's not suspiciously tiny
+        let chosenTotal = "";
+        if (total) {
+          const parsed = parseFloat(total.replace(",", "."));
+          const maxCandidate = moneyCandidates.reduce(
+            (max, c) => (c.value > max ? c.value : max),
+            0
+          );
+          // if parsed total is non-zero and not way smaller than obvious amounts, use it
+          if (!isNaN(parsed) && parsed > 0 && parsed >= maxCandidate * 0.5) {
+            chosenTotal = total;
           }
         }
-
-        // VENDOR:
-        // Heuristic 1: line after "Payment method", skipping card brands
-        const cardBrands = /(visa|mastercard|amex|american express|discover|paypal|apple pay|google pay)/i;
-        for (let i = 0; i < lines.length; i++) {
-          if (/payment method/i.test(lines[i])) {
-            const maybeCard = lines[i + 1] || "";
-            let candidateVendor = "";
-            if (maybeCard && cardBrands.test(maybeCard)) {
-              candidateVendor = lines[i + 2] || "";
-            } else {
-              candidateVendor = maybeCard;
-            }
-            if (candidateVendor && !cardBrands.test(candidateVendor.toLowerCase())) {
-              vendor = candidateVendor;
-            }
-            break;
-          }
+        // 2) Otherwise use text-derived total
+        if (!chosenTotal && textTotal) {
+          chosenTotal = textTotal.raw;
         }
 
-        // Heuristic 2: if still blank, first "nice" line not obviously something else
-        if (!vendor) {
-          const skipWords = [
-            "invoice", "paid on", "payment method",
-            "customer", "amount due", "total", "subscription",
-            "designation", "quantity", "unit price",
-            "thank you for your business", "address"
-          ];
+        // TAX: structured if present, otherwise look for "tax"/"vat" with money
+        let chosenTax = tax;
+        if (!chosenTax) {
           for (const line of lines) {
-            const low = line.toLowerCase();
-            if (skipWords.some(w => low.includes(w))) continue;
-            if (/^\d/.test(line)) continue; // starts with number
-            vendor = line;
-            break;
+            if (!/tax|vat/i.test(line)) continue;
+            if (!/[€$]|usd|eur|gbp/i.test(line)) continue;
+            const m = line.match(moneyRegex);
+            if (m) {
+              chosenTax = m[1];
+              break;
+            }
           }
         }
 
-        return { vendor, date, total, tax, currency };
+        // Currency from structured first, else from text
+        if (!currency) {
+          for (const c of moneyCandidates) {
+            if (/usd|\$/i.test(c.line)) { currency = "USD"; break; }
+            if (/eur|€ /i.test(c.line)) { currency = "EUR"; break; }
+            if (/gbp|£/i.test(c.line)) { currency = "GBP"; break; }
+          }
+        }
+
+        return { total: chosenTotal, tax: chosenTax, currency };
       }
 
       btn.addEventListener("click", async () => {
@@ -180,9 +227,9 @@
               "https://fv-ocr-300398089669.us-central1.run.app/fvOcr",
               {
                 method: "POST",
-                headers: {"Content-Type": "application/json"},
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  mode: "receipt",              // use FV-Receipts-OCR
+                  mode: "receipt",
                   content: base64,
                   mimeType: file.type || "application/pdf"
                 })
@@ -192,20 +239,23 @@
             const json = await res.json();
             statusEl.textContent = json.ok ? "Status: OK" : "Status: ERROR";
 
-            // show field map from backend (if any)
+            // show fields map from backend
             fieldsEl.textContent = JSON.stringify(json.fields || {}, null, 2);
 
-            // plain text from processor
             const docText = json.document?.text || "(no text returned)";
             textEl.textContent = docText;
 
-            // parse from text as fallback / demo
-            const parsed = parseReceiptFromText(docText);
-            vendorEl.textContent   = parsed.vendor   || "(not found)";
-            dateEl.textContent     = parsed.date     || "(not found)";
-            totalEl.textContent    = parsed.total    || "(not found)";
-            taxEl.textContent      = parsed.tax      || "(not found)";
-            currencyEl.textContent = parsed.currency || "(not found)";
+            const fields = json.fields || {};
+
+            const vendor = pickVendor(fields, docText);
+            const date = pickDate(fields, docText);
+            const totals = pickTotals(fields, docText);
+
+            vendorEl.textContent   = vendor   || "(not found)";
+            dateEl.textContent     = date     || "(not found)";
+            totalEl.textContent    = totals.total    || "(not found)";
+            taxEl.textContent      = totals.tax      || "(not found)";
+            currencyEl.textContent = totals.currency || "(not found)";
           } catch (err) {
             statusEl.textContent = "Status: ERROR – see console";
             console.error(err);
