@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <body>
-    <h2>OCR Test Page</h2>
+    <h2>OCR Test Page (JSON)</h2>
 
     <p>
       1) Click "Choose File" and select a RECEIPT image or PDF<br>
@@ -25,8 +25,6 @@
       const statusEl = document.getElementById("status");
 
       btn.addEventListener("click", async () => {
-        statusEl.textContent = "Status: Button clicked…";
-
         const input = document.getElementById("file");
         const file = input.files[0];
 
@@ -36,29 +34,39 @@
           return;
         }
 
-        statusEl.textContent = "Status: Sending to OCR…";
-        out.textContent = "";
+        statusEl.textContent = "Status: Reading file…";
 
-        const fd = new FormData();
-        fd.append("file", file);
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            // reader.result is like: data:application/pdf;base64,AAAA...
+            const base64 = reader.result.split(",")[1];
 
-        try {
-          const res = await fetch(
-            "https://fv-ocr-300398089669.us-central1.run.app/fvOcr",
-            {
-              method: "POST",
-              body: fd
-            }
-          );
+            statusEl.textContent = "Status: Sending to OCR…";
 
-          const text = await res.text();
-          statusEl.textContent = "Status: Response received.";
-          out.textContent = text;
-        } catch (err) {
-          statusEl.textContent = "Status: ERROR – see below.";
-          out.textContent = "ERROR: " + err.message;
-          console.error(err);
-        }
+            const res = await fetch(
+              "https://fv-ocr-300398089669.us-central1.run.app/fvOcr",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  content: base64,
+                  mimeType: file.type || "application/pdf"
+                })
+              }
+            );
+
+            const text = await res.text();
+            statusEl.textContent = "Status: Response received.";
+            out.textContent = text;
+          } catch (err) {
+            statusEl.textContent = "Status: ERROR – see below.";
+            out.textContent = "ERROR: " + err.message;
+            console.error(err);
+          }
+        };
+
+        reader.readAsDataURL(file);
       });
     </script>
   </body>
