@@ -82,6 +82,7 @@
       font-size:12px;
       color:var(--fv-muted);
       margin:0;
+      white-space:pre-line;
     }
 
     .report-meta-top{
@@ -301,10 +302,96 @@
       }
     }
   </style>
+
+  <script>
+    /*
+      This script reads ?year=YYYY&month=MM from the URL
+      and sets up window.FV_REPORT_DATA.meta so the report
+      knows which month it's for.
+
+      You can later overwrite window.FV_REPORT_DATA.expenses
+      and .categories with real data from Firestore before DOMContentLoaded.
+    */
+
+    (function initReportDataFromQuery(){
+      var params = new URLSearchParams(window.location.search);
+      var yearStr = params.get('year');
+      var monthStr = params.get('month'); // "01".."12"
+      var year = yearStr ? parseInt(yearStr, 10) : null;
+      var monthIndex = monthStr ? (parseInt(monthStr, 10) - 1) : null; // 0-based
+
+      var monthNames = [
+        'January','February','March','April','May','June',
+        'July','August','September','October','November','December'
+      ];
+
+      var monthLabel = 'This Period';
+      var dateRange = '';
+
+      if (year && monthIndex >= 0 && monthIndex < 12) {
+        var mName = monthNames[monthIndex];
+        monthLabel = mName + ' ' + year;
+
+        var start = new Date(year, monthIndex, 1);
+        var end = new Date(year, monthIndex + 1, 0);
+
+        function fmt(d){
+          var shortNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          return shortNames[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+        }
+
+        dateRange = fmt(start) + ' – ' + fmt(end);
+      }
+
+      var now = new Date();
+      var runDateLocal = now.toISOString().slice(0,10);
+
+      // Base object
+      window.FV_REPORT_DATA = window.FV_REPORT_DATA || {};
+
+      // Company defaults (can be overridden by backend)
+      window.FV_REPORT_DATA.company = Object.assign({
+        name: 'Dowson Farms',
+        street: '',
+        city: 'Divernon',
+        state: 'IL',
+        zip: '',
+        phone: '',
+        email: ''
+      }, window.FV_REPORT_DATA.company || {});
+
+      // Meta defaults using month/year from URL
+      window.FV_REPORT_DATA.meta = Object.assign({
+        reportTitleShort: 'Monthly Expenses',
+        reportTitle: 'Monthly Expense Report',
+        reportSubtitle: 'Summary of farm expenditures for ' + monthLabel,
+        runDateTime: now.toLocaleString('en-US', {
+          year: 'numeric', month: 'short', day: '2-digit',
+          hour: '2-digit', minute: '2-digit'
+        }),
+        preparedBy: '',
+        monthLabel: monthLabel,
+        dateRange: dateRange || monthLabel,
+        filterSummary: 'All farms · All categories',
+        footerLeftText: 'Internal management report. For farm records only.',
+        footerRightText: 'Monthly Expenses',
+        runDate: runDateLocal
+      }, window.FV_REPORT_DATA.meta || {});
+
+      // Ensure arrays exist; backend can fill in real data
+      if (!Array.isArray(window.FV_REPORT_DATA.expenses)) {
+        window.FV_REPORT_DATA.expenses = [];
+      }
+      if (!Array.isArray(window.FV_REPORT_DATA.categories)) {
+        window.FV_REPORT_DATA.categories = [];
+      }
+      window.FV_REPORT_DATA.kpis = window.FV_REPORT_DATA.kpis || {};
+    })();
+  </script>
 </head>
 <body>
   <!--
-    EXPECTED DATA SHAPE (you overwrite window.FV_REPORT_DATA before DOMContentLoaded):
+    EXPECTED DATA SHAPE (backend can overwrite window.FV_REPORT_DATA before DOMContentLoaded):
 
     window.FV_REPORT_DATA = {
       company: {
@@ -502,15 +589,7 @@
   </div>
 
   <script>
-    // If backend doesn't overwrite this, use an empty default so it still renders a "no data" report
-    window.FV_REPORT_DATA = window.FV_REPORT_DATA || {
-      company: {},
-      meta: {},
-      kpis: {},
-      expenses: [],
-      categories: []
-    };
-
+    // Helper for setting text
     function text(id, value) {
       var el = document.getElementById(id);
       if (el) el.textContent = value || '';
@@ -525,13 +604,21 @@
       var categories = Array.isArray(data.categories) ? data.categories : [];
 
       // Header / company
-      text('companyName', company.name || '');
-      text('companyLine', [
+      var companyLineParts = [
         company.street,
-        company.city && company.state ? company.city + ', ' + company.state : company.city || company.state,
+        (company.city && company.state) ? (company.city + ', ' + company.state) : (company.city || company.state),
         company.zip
-      ].filter(Boolean).join(' · ') +
-      (company.phone || company.email ? '\nPhone: ' + (company.phone || '-') + ' · Email: ' + (company.email || '-') : ''));
+      ].filter(Boolean);
+
+      var contactParts = [];
+      if (company.phone) contactParts.push('Phone: ' + company.phone);
+      if (company.email) contactParts.push('Email: ' + company.email);
+      if (contactParts.length) {
+        companyLineParts.push(contactParts.join(' · '));
+      }
+
+      text('companyName', company.name || '');
+      text('companyLine', companyLineParts.join('\n'));
 
       // Meta
       text('reportTitleShort', meta.reportTitleShort || 'Monthly Expenses');
@@ -665,7 +752,7 @@
 
         expenses.forEach(function (e) {
           var urls = Array.isArray(e.receiptUrls) ? e.receiptUrls : [];
-          urls.forEach(function (url, idx) {
+          urls.forEach(function (url) {
             if (!url) return;
             anyReceipts = true;
             var wrap = document.createElement('div');
@@ -708,4 +795,3 @@
   </script>
 </body>
 </html>
-
