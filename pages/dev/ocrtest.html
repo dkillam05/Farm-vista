@@ -43,7 +43,7 @@
       const amtEl    = document.getElementById("sum-amount");
       const taxEl    = document.getElementById("sum-tax");
 
-      // Very simple parser to pull vendor / date / total / tax from plain text
+      // Smarter parser for vendor / date / amount / tax
       function parseReceipt(text) {
         const lines = text
           .split(/\r?\n/)
@@ -68,7 +68,8 @@
           if (date) break;
         }
 
-        // AMOUNT: look for "Amount due", "Total", "TOTAL"
+        // AMOUNT: look for "Amount due", "Total", etc., allow integers or 2-decimal
+        const moneyRegex = /(\d+(?:[.,]\d{2})?)/;
         for (let i = 0; i < lines.length; i++) {
           const l = lines[i].toLowerCase();
           if (
@@ -77,8 +78,7 @@
             l === "total" ||
             l.startsWith("total ")
           ) {
-            const candidates = [lines[i], lines[i + 1]];
-            const moneyRegex = /(\d+[.,]\d{2})/;
+            const candidates = [lines[i], lines[i + 1], lines[i + 2]];
             for (const c of candidates) {
               if (!c) continue;
               const m = c.match(moneyRegex);
@@ -88,26 +88,37 @@
           }
         }
 
-        // TAX: look for VAT / tax
+        // TAX: look for VAT / tax with a number
         for (const line of lines) {
           if (/tax|vat/i.test(line)) {
-            const m = line.match(/(\d+[.,]\d{2})/);
+            const m = line.match(moneyRegex);
             if (m) { tax = m[1]; break; }
           }
         }
 
-        // VENDOR: very rough – first line that isn't invoice/paid/etc and has letters
-        const skipWords = [
-          "invoice", "paid on", "payment method",
-          "customer", "amount due", "total", "subscription",
-          "designation"
-        ];
-        for (const line of lines) {
-          const low = line.toLowerCase();
-          if (skipWords.some(w => low.includes(w))) continue;
-          if (/^\d/.test(line)) continue; // starts with a number (likely not vendor)
-          vendor = line;
-          break;
+        // VENDOR:
+        // Heuristic 1: line after "Payment method"
+        for (let i = 0; i < lines.length; i++) {
+          if (/payment method/i.test(lines[i]) && lines[i + 1]) {
+            vendor = lines[i + 1];
+            break;
+          }
+        }
+
+        // Heuristic 2: if still blank, first "nice" line that isn't invoice/amount stuff
+        if (!vendor) {
+          const skipWords = [
+            "invoice", "paid on", "payment method",
+            "customer", "amount due", "total", "subscription",
+            "designation", "quantity", "unit price"
+          ];
+          for (const line of lines) {
+            const low = line.toLowerCase();
+            if (skipWords.some(w => low.includes(w))) continue;
+            if (/^\d/.test(line)) continue; // starts with number
+            vendor = line;
+            break;
+          }
         }
 
         return { vendor, date, amount, tax };
