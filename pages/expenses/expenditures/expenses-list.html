@@ -1,1 +1,1373 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • My Expenditures</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- PWA + icons (ABSOLUTE PATHS) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+
+  <!-- Theme + app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root {
+      --exp-card-max: 1200px;
+      --exp-gap: 16px;
+      --exp-accent: #2F6C3C;
+      --exp-muted: #6B7280;
+      --exp-border: #E5E7EB;
+      --exp-row-hover: #F9FAFB;
+      --exp-danger: #B91C1C;
+    }
+
+    body {
+      background: var(--page-bg, #f3f4f6);
+    }
+
+    .page-shell {
+      max-width: var(--exp-card-max);
+      margin: 0 auto;
+      padding: 16px clamp(12px, 4vw, 24px) 72px;
+      box-sizing: border-box;
+    }
+
+    .exp-hero {
+      background: linear-gradient(135deg, #355d3e, #4f8f5a);
+      color: #f9fafb;
+      border-radius: 18px;
+      padding: 16px 18px;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    }
+
+    .exp-hero-main {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .exp-hero-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .exp-hero-sub {
+      font-size: 0.88rem;
+      opacity: 0.9;
+    }
+
+    .exp-hero-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 0.78rem;
+    }
+
+    .exp-pill {
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: rgba(15, 118, 73, 0.2);
+      border: 1px solid rgba(209, 250, 229, 0.55);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .exp-pill span.label {
+      opacity: 0.8;
+    }
+
+    .exp-pill span.value {
+      font-weight: 600;
+    }
+
+    .exp-hero-icon {
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      background: rgba(17, 24, 39, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+
+    /* Filters row */
+    .exp-filters-card {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      border: 1px solid var(--exp-border);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .exp-filters-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .exp-filters-row > .filter-group {
+      min-width: 120px;
+      flex: 1 1 120px;
+    }
+
+    .filter-label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--exp-muted);
+      margin-bottom: 2px;
+    }
+
+    .filter-label span.req {
+      color: #DC2626;
+      margin-left: 2px;
+    }
+
+    .exp-filters-row select {
+      width: 100%;
+    }
+
+    .exp-stats {
+      margin-left: auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      font-size: 0.78rem;
+      color: var(--exp-muted);
+    }
+
+    .exp-stat-pill {
+      border-radius: 999px;
+      border: 1px solid var(--exp-border);
+      padding: 4px 8px;
+      background: #F9FAFB;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .exp-stat-pill strong {
+      color: #111827;
+      font-weight: 600;
+    }
+
+    .exp-spacer {
+      flex: 1;
+    }
+
+    /* Table / List */
+    .exp-table-card {
+      background: #ffffff;
+      border-radius: 14px;
+      border: 1px solid var(--exp-border);
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+    }
+
+    .exp-table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    table.exp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+
+    .exp-table thead {
+      background: #F3F4F6;
+    }
+
+    .exp-table th,
+    .exp-table td {
+      padding: 9px 10px;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .exp-table th {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #6B7280;
+      border-bottom: 1px solid #E5E7EB;
+    }
+
+    .exp-table td {
+      border-bottom: 1px solid #F3F4F6;
+      color: #111827;
+    }
+
+    .exp-table tbody tr:hover {
+      background: var(--exp-row-hover);
+    }
+
+    .exp-td-secondary {
+      color: var(--exp-muted);
+      font-size: 0.78em;
+    }
+
+    .exp-amount {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
+
+    .exp-status-pill {
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      border: 1px solid #D1FAE5;
+      background: #ECFDF5;
+      color: #065F46;
+    }
+
+    .exp-status-pill.pending {
+      background: #FEF3C7;
+      border-color: #FDE68A;
+      color: #92400E;
+    }
+
+    .exp-status-pill.rejected {
+      background: #FEE2E2;
+      border-color: #FECACA;
+      color: #991B1B;
+    }
+
+    .exp-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .btn-exp {
+      border-radius: 999px;
+      border: 1px solid var(--exp-border);
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      background: #F9FAFB;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-exp-primary {
+      border-color: rgba(16, 185, 129, 0.35);
+      background: #ECFDF5;
+      font-weight: 500;
+    }
+
+    .btn-exp-danger {
+      border-color: rgba(248, 113, 113, 0.5);
+      background: #FEF2F2;
+      color: var(--exp-danger);
+    }
+
+    .btn-exp:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    /* Mobile cards (stack under breakpoint) */
+    @media (max-width: 800px) {
+      .exp-table-card {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+      }
+
+      .exp-table-wrapper {
+        display: none; /* hide full table */
+      }
+
+      .exp-mobile-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 10px 12px 12px;
+      }
+
+      .exp-mobile-item {
+        border-radius: 12px;
+        border: 1px solid var(--exp-border);
+        padding: 9px 10px;
+        background: #ffffff;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .exp-mobile-row1 {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .exp-mobile-merchant {
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+
+      .exp-mobile-amount {
+        font-size: 0.92rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .exp-mobile-row2,
+      .exp-mobile-row3 {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.78rem;
+        color: var(--exp-muted);
+      }
+
+      .exp-mobile-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-top: 4px;
+      }
+    }
+
+    @media (min-width: 801px) {
+      .exp-mobile-list {
+        display: none;
+      }
+    }
+
+    /* Simple modal shell */
+    .exp-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      background: rgba(15, 23, 42, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .exp-modal-backdrop.show {
+      display: flex;
+    }
+
+    .exp-modal {
+      max-width: 520px;
+      width: 100%;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.35);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 90vh;
+    }
+
+    .exp-modal-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--exp-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .exp-modal-title {
+      font-size: 0.98rem;
+      font-weight: 600;
+    }
+
+    .exp-modal-body {
+      padding: 12px 14px 14px;
+      overflow-y: auto;
+      font-size: 0.84rem;
+    }
+
+    .exp-modal-footer {
+      padding: 8px 14px 10px;
+      border-top: 1px solid var(--exp-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .exp-form-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px 10px;
+    }
+
+    @media (min-width: 640px) {
+      .exp-form-grid.cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .exp-form-grid.cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    .exp-field label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: #4B5563;
+      margin-bottom: 2px;
+    }
+
+    .exp-field label span.req {
+      color: #DC2626;
+      margin-left: 2px;
+    }
+
+    .exp-field input[type="text"],
+    .exp-field input[type="number"],
+    .exp-field input[type="date"],
+    .exp-field textarea,
+    .exp-field select {
+      width: 100%;
+    }
+
+    .exp-field textarea {
+      min-height: 64px;
+      resize: vertical;
+    }
+
+    .exp-modal-meta {
+      font-size: 0.75rem;
+      color: var(--exp-muted);
+      margin-top: 8px;
+    }
+
+    .exp-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: #F3F4F6;
+      border: 1px solid #E5E7EB;
+    }
+
+    .exp-badge span {
+      font-weight: 500;
+    }
+
+    .btn {
+      border-radius: 999px;
+      padding: 6px 12px;
+      border: 1px solid transparent;
+      font-size: 0.84rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-primary {
+      background: var(--exp-accent);
+      border-color: var(--exp-accent);
+      color: #f9fafb;
+    }
+
+    .btn-secondary {
+      background: #F9FAFB;
+      border-color: var(--exp-border);
+      color: #111827;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: transparent;
+      color: #111827;
+    }
+
+    .btn-danger {
+      background: #F87171;
+      border-color: #DC2626;
+      color: #FEF2F2;
+    }
+
+    .btn[disabled] {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .exp-empty {
+      padding: 18px 14px 20px;
+      text-align: center;
+      font-size: 0.86rem;
+      color: var(--exp-muted);
+    }
+
+    .exp-empty strong {
+      display: block;
+      margin-bottom: 4px;
+      color: #111827;
+    }
+
+    .exp-chip-warning {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: #FEF3C7;
+      border: 1px solid #FDE68A;
+      color: #92400E;
+      font-size: 0.75rem;
+      margin-top: 4px;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <!-- HERO -->
+    <section class="exp-hero">
+      <div class="exp-hero-main">
+        <div class="exp-hero-title">My Expenditures</div>
+        <div class="exp-hero-sub">
+          Review, filter and edit your own expense submissions from the last three years.
+        </div>
+        <div class="exp-hero-pills">
+          <div class="exp-pill">
+            <span class="label">Window</span>
+            <span class="value">Last 3 years</span>
+          </div>
+          <div class="exp-pill">
+            <span class="label">Visibility</span>
+            <span class="value">Only my records</span>
+          </div>
+        </div>
+      </div>
+      <div class="exp-hero-icon" aria-hidden="true">
+        💸
+      </div>
+    </section>
+
+    <!-- FILTERS -->
+    <section class="exp-filters-card">
+      <div class="exp-filters-row">
+        <div class="filter-group">
+          <label class="filter-label" for="filter-year">
+            Year
+          </label>
+          <select id="filter-year" data-fv-combo data-fv-search="false">
+            <!-- populated by JS -->
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filter-month">
+            Month
+          </label>
+          <select id="filter-month" data-fv-combo data-fv-search="false">
+            <!-- populated by JS -->
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filter-category">
+            Category
+          </label>
+          <select id="filter-category" data-fv-combo data-fv-search="true">
+            <!-- populated by JS -->
+          </select>
+        </div>
+
+        <div class="exp-spacer"></div>
+
+        <div class="exp-stats">
+          <div class="exp-stat-pill">
+            <span>Showing</span>
+            <strong id="stat-count">0</strong>
+            <span>records</span>
+          </div>
+          <div class="exp-stat-pill">
+            <span>Total</span>
+            <strong id="stat-total">$0.00</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TABLE / LIST -->
+    <section class="exp-table-card" aria-label="Expenditure list">
+      <div class="exp-table-wrapper">
+        <table class="exp-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Merchant</th>
+              <th>Category</th>
+              <th>Payment</th>
+              <th>Project</th>
+              <th>Status</th>
+              <th class="exp-amount">Amount</th>
+              <th style="width:1%; text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="exp-table-body">
+            <!-- rows from JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Mobile list -->
+      <div class="exp-mobile-list" id="exp-mobile-list">
+        <!-- cards from JS -->
+      </div>
+
+      <div class="exp-empty" id="exp-empty-state" hidden>
+        <strong>No expenditures match your filters.</strong>
+        <div>Adjust the year, month or category, or submit a new expense on the receipt form.</div>
+        <div class="exp-chip-warning">
+          <span>Note:</span> Only your own expenses from the last three years are shown here.
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- VIEW MODAL -->
+  <div class="exp-modal-backdrop" id="exp-view-backdrop" aria-hidden="true">
+    <div class="exp-modal" role="dialog" aria-modal="true" aria-labelledby="exp-view-title">
+      <div class="exp-modal-header">
+        <div class="exp-modal-title" id="exp-view-title">View Expenditure</div>
+        <button class="btn-ghost" type="button" data-exp-close-view>&times;</button>
+      </div>
+      <div class="exp-modal-body">
+        <div class="exp-form-grid cols-2" id="exp-view-fields">
+          <!-- filled via JS -->
+        </div>
+        <div class="exp-modal-meta" id="exp-view-meta">
+          <!-- created/submitted info -->
+        </div>
+      </div>
+      <div class="exp-modal-footer">
+        <button class="btn-secondary" type="button" data-exp-close-view>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT MODAL -->
+  <div class="exp-modal-backdrop" id="exp-edit-backdrop" aria-hidden="true">
+    <div class="exp-modal" role="dialog" aria-modal="true" aria-labelledby="exp-edit-title">
+      <div class="exp-modal-header">
+        <div class="exp-modal-title" id="exp-edit-title">Edit Expenditure</div>
+        <button class="btn-ghost" type="button" data-exp-close-edit>&times;</button>
+      </div>
+      <div class="exp-modal-body">
+        <form id="exp-edit-form">
+          <input type="hidden" id="exp-edit-id" />
+
+          <div class="exp-form-grid cols-2">
+            <div class="exp-field">
+              <label for="edit-merchant">
+                Merchant<span class="req">*</span>
+              </label>
+              <input id="edit-merchant" type="text" autocomplete="off" required />
+            </div>
+
+            <div class="exp-field">
+              <label for="edit-total">
+                Total<span class="req">*</span>
+              </label>
+              <input id="edit-total" type="number" step="0.01" min="0" autocomplete="off" required />
+            </div>
+
+            <div class="exp-field">
+              <label for="edit-category">
+                Category<span class="req">*</span>
+              </label>
+              <select id="edit-category" data-fv-combo data-fv-search="true" required>
+                <!-- same categories as filter, populated in JS -->
+              </select>
+            </div>
+
+            <div class="exp-field">
+              <label for="edit-paymethod">
+                Payment method<span class="req">*</span>
+              </label>
+              <select id="edit-paymethod" data-fv-combo data-fv-search="false" required>
+                <option value="">Select payment</option>
+                <option value="card">Card</option>
+                <option value="cash">Cash</option>
+                <option value="check">Check</option>
+                <option value="ach">ACH</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div class="exp-field">
+              <label for="edit-rdate">
+                Receipt date<span class="req">*</span>
+              </label>
+              <input id="edit-rdate" type="date" required />
+            </div>
+
+            <div class="exp-field">
+              <label for="edit-submitted">
+                Submitted date<span class="req">*</span>
+              </label>
+              <input id="edit-submitted" type="date" required />
+            </div>
+
+            <div class="exp-field">
+              <label for="edit-project">
+                Project / Field
+              </label>
+              <input id="edit-project" type="text" autocomplete="off" />
+            </div>
+
+            <div class="exp-field">
+              <label for="edit-status">
+                Status<span class="req">*</span>
+              </label>
+              <select id="edit-status" data-fv-combo data-fv-search="false" required>
+                <option value="Submitted">Submitted</option>
+                <option value="Approved">Approved</option>
+                <option value="Paid">Paid</option>
+                <option value="Flagged">Flagged</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="exp-field" style="margin-top:8px;">
+            <label for="edit-notes">
+              Notes
+            </label>
+            <textarea id="edit-notes"></textarea>
+          </div>
+
+          <div class="exp-modal-meta" id="exp-edit-meta" style="margin-top:6px;">
+            <!-- created / who info via JS -->
+          </div>
+        </form>
+      </div>
+      <div class="exp-modal-footer">
+        <button class="btn-secondary" type="button" data-exp-close-edit>Cancel</button>
+        <button class="btn-danger" type="button" id="exp-delete-btn">Delete</button>
+        <button class="btn-primary" type="button" id="exp-save-btn">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Core JS + fv-combo -->
+  <script src="/Farm-vista/js/core.js"></script>
+  <script src="/Farm-vista/js/fv-combo.js"></script>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const THREE_YEARS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
+
+      // State
+      let allExpenditures = [];   // all docs (my last 3 years)
+      let filtered = [];          // after filters
+      let currentUserEmailLower = null;
+
+      // DOM
+      const yearSelect = document.getElementById('filter-year');
+      const monthSelect = document.getElementById('filter-month');
+      const categorySelect = document.getElementById('filter-category');
+
+      const statCount = document.getElementById('stat-count');
+      const statTotal = document.getElementById('stat-total');
+
+      const tableBody = document.getElementById('exp-table-body');
+      const mobileList = document.getElementById('exp-mobile-list');
+      const emptyState = document.getElementById('exp-empty-state');
+
+      const viewBackdrop = document.getElementById('exp-view-backdrop');
+      const editBackdrop = document.getElementById('exp-edit-backdrop');
+
+      const viewFieldsContainer = document.getElementById('exp-view-fields');
+      const viewMeta = document.getElementById('exp-view-meta');
+
+      const editForm = document.getElementById('exp-edit-form');
+      const editIdInput = document.getElementById('exp-edit-id');
+      const editMerchant = document.getElementById('edit-merchant');
+      const editTotal = document.getElementById('edit-total');
+      const editCategory = document.getElementById('edit-category');
+      const editPaymethod = document.getElementById('edit-paymethod');
+      const editRdate = document.getElementById('edit-rdate');
+      const editSubmitted = document.getElementById('edit-submitted');
+      const editProject = document.getElementById('edit-project');
+      const editStatus = document.getElementById('edit-status');
+      const editNotes = document.getElementById('edit-notes');
+      const editMeta = document.getElementById('exp-edit-meta');
+
+      const btnDelete = document.getElementById('exp-delete-btn');
+      const btnSave = document.getElementById('exp-save-btn');
+
+      const closeViewBtns = document.querySelectorAll('[data-exp-close-view]');
+      const closeEditBtns = document.querySelectorAll('[data-exp-close-edit]');
+
+      // Helpers
+      const monthNames = [
+        'All months',
+        'January','February','March','April','May','June',
+        'July','August','September','October','November','December'
+      ];
+
+      function formatCurrency(n) {
+        if (isNaN(n)) return '$0.00';
+        return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+      }
+
+      function parseDateSafe(str) {
+        if (!str) return null;
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      function formatDateForDisplay(doc) {
+        // Prefer submitted string; fallback to rdate; fallback to createdAt epoch
+        if (doc.submitted) return doc.submitted;
+        if (doc.rdate) return doc.rdate;
+        if (doc.createdAt instanceof Date) {
+          return doc.createdAt.toISOString().slice(0, 10);
+        }
+        if (typeof doc.t === 'number') {
+          return new Date(doc.t).toISOString().slice(0, 10);
+        }
+        return '';
+      }
+
+      function softStatusClass(status) {
+        if (!status) return '';
+        const s = String(status).toLowerCase();
+        if (s === 'submitted' || s === 'approved' || s === 'paid') return '';
+        if (s === 'flagged') return 'pending';
+        if (s === 'rejected' || s === 'denied') return 'rejected';
+        return '';
+      }
+
+      function computeThreeYearWindowCutoff() {
+        const now = Date.now();
+        return new Date(now - THREE_YEARS_MS);
+      }
+
+      function getYearFromDoc(doc) {
+        // use createdAt date if available, else submitted string
+        let d = null;
+        if (doc.createdAt instanceof Date) d = doc.createdAt;
+        else if (doc.submitted) d = parseDateSafe(doc.submitted);
+        else if (typeof doc.t === 'number') d = new Date(doc.t);
+        if (!d) return null;
+        return d.getFullYear();
+      }
+
+      function getMonthFromDoc(doc) {
+        let d = null;
+        if (doc.createdAt instanceof Date) d = doc.createdAt;
+        else if (doc.submitted) d = parseDateSafe(doc.submitted);
+        else if (typeof doc.t === 'number') d = new Date(doc.t);
+        if (!d) return null;
+        return d.getMonth() + 1; // 1–12
+      }
+
+      function getCategory(doc) {
+        return doc.category || '';
+      }
+
+      function getSubmitEmailLower(doc) {
+        const email = doc.submittedBy && doc.submittedBy.email;
+        return email ? email.toLowerCase() : null;
+      }
+
+      function filterToCurrentUserAndWindow(allDocs) {
+        const cutoff = computeThreeYearWindowCutoff();
+        return allDocs.filter(doc => {
+          // only my docs
+          if (currentUserEmailLower) {
+            const docEmail = getSubmitEmailLower(doc);
+            if (!docEmail || docEmail !== currentUserEmailLower) return false;
+          }
+          // last 3 years (based on createdAt or t)
+          let refDate = null;
+          if (doc.createdAt instanceof Date) refDate = doc.createdAt;
+          else if (typeof doc.t === 'number') refDate = new Date(doc.t);
+          else if (doc.submitted) refDate = parseDateSafe(doc.submitted);
+          if (!refDate) return false;
+          if (refDate < cutoff) return false;
+
+          // ignore soft-deleted
+          if (doc.isDeleted) return false;
+          return true;
+        });
+      }
+
+      function buildFilterOptions() {
+        // Year options: All + distinct years from filtered full list
+        const years = new Set();
+        allExpenditures.forEach(doc => {
+          const y = getYearFromDoc(doc);
+          if (y) years.add(y);
+        });
+        const sortedYears = Array.from(years).sort((a, b) => b - a);
+
+        yearSelect.innerHTML = '';
+        const optAll = document.createElement('option');
+        optAll.value = 'all';
+        optAll.textContent = 'All years';
+        yearSelect.appendChild(optAll);
+
+        sortedYears.forEach(y => {
+          const opt = document.createElement('option');
+          opt.value = String(y);
+          opt.textContent = String(y);
+          yearSelect.appendChild(opt);
+        });
+
+        // Month options
+        monthSelect.innerHTML = '';
+        monthNames.forEach((label, index) => {
+          const opt = document.createElement('option');
+          opt.value = index === 0 ? 'all' : String(index);
+          opt.textContent = label;
+          monthSelect.appendChild(opt);
+        });
+
+        // Category options
+        const cats = new Set();
+        allExpenditures.forEach(doc => {
+          const c = getCategory(doc);
+          if (c) cats.add(c);
+        });
+        const catArr = Array.from(cats).sort((a, b) => a.localeCompare(b));
+
+        categorySelect.innerHTML = '';
+        const catAll = document.createElement('option');
+        catAll.value = 'all';
+        catAll.textContent = 'All categories';
+        categorySelect.appendChild(catAll);
+
+        catArr.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c;
+          opt.textContent = c;
+          categorySelect.appendChild(opt);
+        });
+      }
+
+      function applyFilters() {
+        const yearVal = yearSelect.value || 'all';
+        const monthVal = monthSelect.value || 'all';
+        const categoryVal = categorySelect.value || 'all';
+
+        filtered = allExpenditures.filter(doc => {
+          const y = getYearFromDoc(doc);
+          const m = getMonthFromDoc(doc);
+          const c = getCategory(doc);
+
+          if (yearVal !== 'all' && y !== Number(yearVal)) return false;
+          if (monthVal !== 'all' && m !== Number(monthVal)) return false;
+          if (categoryVal !== 'all' && c !== categoryVal) return false;
+          return true;
+        });
+
+        renderList();
+      }
+
+      function renderList() {
+        // Stats
+        statCount.textContent = String(filtered.length);
+        const sum = filtered.reduce((acc, doc) => acc + (Number(doc.total) || 0), 0);
+        statTotal.textContent = formatCurrency(sum);
+
+        // Clear
+        tableBody.innerHTML = '';
+        mobileList.innerHTML = '';
+
+        if (!filtered.length) {
+          emptyState.hidden = false;
+          return;
+        }
+        emptyState.hidden = true;
+
+        filtered.forEach(doc => {
+          const tr = document.createElement('tr');
+
+          const dateTd = document.createElement('td');
+          dateTd.textContent = formatDateForDisplay(doc);
+          tr.appendChild(dateTd);
+
+          const merchantTd = document.createElement('td');
+          merchantTd.textContent = doc.merchant || '';
+          tr.appendChild(merchantTd);
+
+          const catTd = document.createElement('td');
+          catTd.textContent = doc.category || '';
+          tr.appendChild(catTd);
+
+          const payTd = document.createElement('td');
+          payTd.textContent = doc.paymethod || '';
+          tr.appendChild(payTd);
+
+          const projTd = document.createElement('td');
+          projTd.textContent = doc.project || '';
+          tr.appendChild(projTd);
+
+          const statusTd = document.createElement('td');
+          const status = doc.status || 'Submitted';
+          const span = document.createElement('span');
+          span.className = 'exp-status-pill ' + softStatusClass(status);
+          span.textContent = status;
+          statusTd.appendChild(span);
+          tr.appendChild(statusTd);
+
+          const amountTd = document.createElement('td');
+          amountTd.className = 'exp-amount';
+          amountTd.textContent = formatCurrency(Number(doc.total) || 0);
+          tr.appendChild(amountTd);
+
+          const actionsTd = document.createElement('td');
+          actionsTd.style.textAlign = 'right';
+          const actions = document.createElement('div');
+          actions.className = 'exp-actions';
+
+          const btnView = document.createElement('button');
+          btnView.type = 'button';
+          btnView.className = 'btn-exp';
+          btnView.textContent = 'View';
+          btnView.addEventListener('click', () => openViewModal(doc));
+
+          const btnEdit = document.createElement('button');
+          btnEdit.type = 'button';
+          btnEdit.className = 'btn-exp btn-exp-primary';
+          btnEdit.textContent = 'Edit';
+          btnEdit.addEventListener('click', () => openEditModal(doc));
+
+          actions.appendChild(btnView);
+          actions.appendChild(btnEdit);
+          actionsTd.appendChild(actions);
+          tr.appendChild(actionsTd);
+
+          tableBody.appendChild(tr);
+
+          // Mobile card
+          const card = document.createElement('div');
+          card.className = 'exp-mobile-item';
+
+          const row1 = document.createElement('div');
+          row1.className = 'exp-mobile-row1';
+          const merchantEl = document.createElement('div');
+          merchantEl.className = 'exp-mobile-merchant';
+          merchantEl.textContent = doc.merchant || '';
+          const amountEl = document.createElement('div');
+          amountEl.className = 'exp-mobile-amount';
+          amountEl.textContent = formatCurrency(Number(doc.total) || 0);
+          row1.appendChild(merchantEl);
+          row1.appendChild(amountEl);
+
+          const row2 = document.createElement('div');
+          row2.className = 'exp-mobile-row2';
+          const dateEl = document.createElement('div');
+          dateEl.textContent = formatDateForDisplay(doc);
+          const catEl = document.createElement('div');
+          catEl.textContent = doc.category || '';
+          row2.appendChild(dateEl);
+          row2.appendChild(catEl);
+
+          const row3 = document.createElement('div');
+          row3.className = 'exp-mobile-row3';
+          const projEl = document.createElement('div');
+          projEl.textContent = doc.project || '';
+          const statusEl = document.createElement('div');
+          const statusSpan = document.createElement('span');
+          statusSpan.className = 'exp-status-pill ' + softStatusClass(status);
+          statusSpan.textContent = status;
+          statusEl.appendChild(statusSpan);
+          row3.appendChild(projEl);
+          row3.appendChild(statusEl);
+
+          const actionsRow = document.createElement('div');
+          actionsRow.className = 'exp-mobile-actions';
+          const mView = document.createElement('button');
+          mView.type = 'button';
+          mView.className = 'btn-exp';
+          mView.textContent = 'View';
+          mView.addEventListener('click', () => openViewModal(doc));
+          const mEdit = document.createElement('button');
+          mEdit.type = 'button';
+          mEdit.className = 'btn-exp btn-exp-primary';
+          mEdit.textContent = 'Edit';
+          mEdit.addEventListener('click', () => openEditModal(doc));
+          actionsRow.appendChild(mView);
+          actionsRow.appendChild(mEdit);
+
+          card.appendChild(row1);
+          card.appendChild(row2);
+          card.appendChild(row3);
+          card.appendChild(actionsRow);
+
+          mobileList.appendChild(card);
+        });
+      }
+
+      function openViewModal(doc) {
+        viewFieldsContainer.innerHTML = '';
+
+        const addRow = (label, value) => {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'exp-field';
+          const lab = document.createElement('label');
+          lab.textContent = label;
+          const p = document.createElement('div');
+          p.textContent = value || '';
+          p.style.fontSize = '0.85rem';
+          p.style.color = '#111827';
+          wrapper.appendChild(lab);
+          wrapper.appendChild(p);
+          viewFieldsContainer.appendChild(wrapper);
+        };
+
+        addRow('Merchant', doc.merchant);
+        addRow('Total', formatCurrency(Number(doc.total) || 0));
+        addRow('Category', doc.category);
+        addRow('Payment method', doc.paymethod);
+        addRow('Project / Field', doc.project);
+        addRow('Status', doc.status || 'Submitted');
+        addRow('Receipt date', doc.rdate);
+        addRow('Submitted date', doc.submitted);
+
+        const notesVal = (doc.notes || '').trim();
+        if (notesVal) {
+          addRow('Notes', notesVal);
+        }
+
+        const who = doc.who || (doc.submittedBy && doc.submittedBy.name) || '';
+        const email = doc.submittedBy && doc.submittedBy.email;
+        const createdDate = doc.createdAt instanceof Date ? doc.createdAt.toISOString() : null;
+        const createdLocal = createdDate ? new Date(createdDate).toLocaleString() : '';
+
+        const parts = [];
+        if (who) parts.push('Submitted by ' + who);
+        if (email) parts.push('(' + email + ')');
+        if (createdLocal) parts.push('on ' + createdLocal);
+
+        viewMeta.textContent = parts.join(' ').trim();
+
+        viewBackdrop.classList.add('show');
+        viewBackdrop.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeViewModal() {
+        viewBackdrop.classList.remove('show');
+        viewBackdrop.setAttribute('aria-hidden', 'true');
+      }
+
+      function openEditModal(doc) {
+        editIdInput.value = doc.id || '';
+        editMerchant.value = doc.merchant || '';
+        editTotal.value = doc.total != null ? String(doc.total) : '';
+        editProject.value = doc.project || '';
+        editNotes.value = doc.notes || '';
+        editRdate.value = doc.rdate || '';
+        editSubmitted.value = doc.submitted || '';
+        editStatus.value = doc.status || 'Submitted';
+
+        // category & paymethod may not exist in options yet, but we set anyway
+        editCategory.value = doc.category || '';
+        editPaymethod.value = doc.paymethod || '';
+
+        const who = doc.who || (doc.submittedBy && doc.submittedBy.name) || '';
+        const email = doc.submittedBy && doc.submittedBy.email;
+        const createdDate = doc.createdAt instanceof Date ? doc.createdAt.toISOString() : null;
+        const createdLocal = createdDate ? new Date(createdDate).toLocaleString() : '';
+
+        const bits = [];
+        if (who) bits.push('Submitted by ' + who);
+        if (email) bits.push('(' + email + ')');
+        if (createdLocal) bits.push(' on ' + createdLocal);
+        editMeta.textContent = bits.join(' ').trim();
+
+        editBackdrop.classList.add('show');
+        editBackdrop.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeEditModal() {
+        editBackdrop.classList.remove('show');
+        editBackdrop.setAttribute('aria-hidden', 'true');
+      }
+
+      async function handleSave() {
+        if (!editForm.reportValidity()) return;
+
+        const id = editIdInput.value;
+        const docIndex = allExpenditures.findIndex(d => d.id === id);
+        if (docIndex === -1) {
+          console.warn('Could not find expenditure in local state for save');
+          return;
+        }
+
+        const updated = {
+          ...allExpenditures[docIndex],
+          merchant: editMerchant.value.trim(),
+          total: Number(editTotal.value || 0),
+          category: editCategory.value || '',
+          paymethod: editPaymethod.value || '',
+          project: editProject.value.trim() || '',
+          status: editStatus.value || 'Submitted',
+          rdate: editRdate.value || '',
+          submitted: editSubmitted.value || '',
+          notes: editNotes.value.trim()
+        };
+
+        // TODO: Wire to Firestore update / FVData.update
+        // Example (pseudo):
+        // await FVData.update('expenditures', id, updated);
+        console.log('TODO: save expenditure', id, updated);
+
+        allExpenditures[docIndex] = updated;
+        applyFilters();
+        closeEditModal();
+      }
+
+      async function handleDelete() {
+        const id = editIdInput.value;
+        if (!id) return;
+        if (!confirm('Delete this expenditure? This will hide it from your list.')) return;
+
+        const docIndex = allExpenditures.findIndex(d => d.id === id);
+        if (docIndex === -1) {
+          console.warn('Could not find expenditure in local state for delete');
+          return;
+        }
+
+        // Soft delete
+        const updated = {
+          ...allExpenditures[docIndex],
+          isDeleted: true,
+          deletedAt: new Date()
+        };
+
+        // TODO: Wire to Firestore update / FVData.update with isDeleted = true
+        // await FVData.update('expenditures', id, { isDeleted: true, deletedAt: serverTimestamp() });
+        console.log('TODO: soft-delete expenditure', id);
+
+        allExpenditures[docIndex] = updated;
+        allExpenditures = filterToCurrentUserAndWindow(allExpenditures);
+        buildFilterOptions();
+        applyFilters();
+        closeEditModal();
+      }
+
+      function attachEvents() {
+        yearSelect.addEventListener('change', applyFilters);
+        monthSelect.addEventListener('change', applyFilters);
+        categorySelect.addEventListener('change', applyFilters);
+
+        closeViewBtns.forEach(btn => btn.addEventListener('click', closeViewModal));
+        viewBackdrop.addEventListener('click', (e) => {
+          if (e.target === viewBackdrop) closeViewModal();
+        });
+
+        closeEditBtns.forEach(btn => btn.addEventListener('click', closeEditModal));
+        editBackdrop.addEventListener('click', (e) => {
+          if (e.target === editBackdrop) closeEditModal();
+        });
+
+        btnSave.addEventListener('click', handleSave);
+        btnDelete.addEventListener('click', handleDelete);
+      }
+
+      // --- LOAD DATA ---
+
+      async function loadExpendituresForCurrentUser() {
+        // !!! IMPORTANT !!!
+        // This function is where you wire in Firebase / FVData.
+        //
+        // Requirements:
+        // - Query `expenditures` collection
+        // - Only last 3 years (createdAt/ submitted / t)
+        // - You can return all docs; we will filter by currentUserEmailLower in JS
+        //
+        // Each returned object should look like:
+        // {
+        //   id: docId,
+        //   category: "Supplies",
+        //   createdAt: Date,            // convert Firestore Timestamp to JS Date
+        //   merchant: "LITTLE GREEN APPLE",
+        //   notes: "Just testing",
+        //   paymethod: "card",
+        //   project: "Office Decorations",
+        //   rdate: "2025-12-05",
+        //   status: "Submitted",
+        //   submitted: "2025-12-05",
+        //   submittedBy: { email, name },
+        //   t: 1764963201789,
+        //   total: 116.49,
+        //   who: "Dane Killam",
+        //   isDeleted: false
+        // }
+        //
+        // For now, we return an empty list so the page still loads.
+        console.warn('TODO: Implement loadExpendituresForCurrentUser() with Firestore / FVData');
+        return [];
+      }
+
+      async function init() {
+        attachEvents();
+
+        // Figure out the current user's email lower-case.
+        try {
+          // If core.js exposes FVAuth with currentUser:
+          if (window.FVAuth && window.FVAuth.currentUser) {
+            const u = window.FVAuth.currentUser;
+            if (u && u.email) currentUserEmailLower = u.email.toLowerCase();
+          } else if (window.FVAuth && typeof window.FVAuth.getCurrentUser === 'function') {
+            const u = await window.FVAuth.getCurrentUser();
+            if (u && u.email) currentUserEmailLower = u.email.toLowerCase();
+          } else {
+            console.warn('No FVAuth helper found; falling back to null user email.');
+          }
+        } catch (err) {
+          console.error('Error getting current user:', err);
+        }
+
+        allExpenditures = await loadExpendituresForCurrentUser();
+        // Only my docs & last 3 years
+        allExpenditures = filterToCurrentUserAndWindow(allExpenditures);
+
+        buildFilterOptions();
+        applyFilters();
+      }
+
+      document.addEventListener('DOMContentLoaded', init);
+    })();
+  </script>
+</body>
+</html>
+
