@@ -15,6 +15,8 @@
 
   <!-- (Left in place, but not used directly now) -->
   <script defer src="/Farm-vista/js/ocr-tesseract.js"></script>
+  <!-- fv-combo for Submitted By -->
+  <script defer src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
     .section {
@@ -66,6 +68,10 @@
       display: block;
       font-weight: 800;
       margin: 0 0 6px 0;
+    }
+    .field label .req {
+      color: #b3261e;
+      margin-left: 3px;
     }
     .input,
     .select,
@@ -232,13 +238,13 @@
           <!-- Row 1: Submitted By + Submitted Date -->
           <div class="grid-2">
             <div class="field">
-              <label for="whoSel">Submitted By</label>
+              <label for="whoSel">Submitted By<span class="req">*</span></label>
               <select id="whoSel" class="select" data-fv-combo data-fv-search="true">
                 <option value="">Loading employees…</option>
               </select>
             </div>
             <div class="field">
-              <label for="submitted">Submitted Date</label>
+              <label for="submitted">Submitted Date<span class="req">*</span></label>
               <input id="submitted" class="input" type="date">
             </div>
           </div>
@@ -246,7 +252,7 @@
           <!-- Row 2: Payment Method + Category -->
           <div class="grid-2">
             <div class="field">
-              <label for="paymethod">Payment Method</label>
+              <label for="paymethod">Payment Method<span class="req">*</span></label>
               <select id="paymethod" class="select">
                 <option value="">—</option>
                 <option value="reimb">Out-of-pocket (reimburse)</option>
@@ -254,7 +260,7 @@
               </select>
             </div>
             <div class="field">
-              <label for="category">Category</label>
+              <label for="category">Category<span class="req">*</span></label>
               <select id="category" class="select">
                 <option value="">—</option>
                 <option>Fuel</option>
@@ -271,15 +277,15 @@
           <!-- Row 3: Merchant + Total + Receipt Date -->
           <div class="grid-3">
             <div class="field">
-              <label for="merchant">Merchant</label>
+              <label for="merchant">Merchant<span class="req">*</span></label>
               <input id="merchant" class="input" placeholder="Store / vendor">
             </div>
             <div class="field">
-              <label for="total">Total (USD)</label>
+              <label for="total">Total (USD)<span class="req">*</span></label>
               <input id="total" class="input" inputmode="decimal" placeholder="$0.00">
             </div>
             <div class="field">
-              <label for="rdate">Receipt Date</label>
+              <label for="rdate">Receipt Date<span class="req">*</span></label>
               <input id="rdate" class="input" type="date">
             </div>
           </div>
@@ -290,7 +296,7 @@
           </div>
 
           <div class="field">
-            <label for="notes">Notes</label>
+            <label for="notes">Notes (optional)</label>
             <textarea id="notes" class="textarea" placeholder="Anything helpful for accounting…"></textarea>
           </div>
 
@@ -347,20 +353,36 @@
     /* Load employees into Submitted By (fv-combo) */
     async function loadEmployeesCombo() {
       try {
-        if (!firebase.firestore) return;
-        const db = firebase.firestore();
         const auth = firebase.auth ? firebase.auth() : null;
         const currentUser = auth && auth.currentUser;
         const currentEmail = currentUser && currentUser.email
           ? currentUser.email.toLowerCase()
           : "";
+        const currentName =
+          (currentUser && (currentUser.displayName || currentUser.email)) ||
+          "";
 
+        // Fallback: at minimum, show current user
+        function setFallback() {
+          whoSel.innerHTML = "";
+          if (currentName) {
+            whoSel.appendChild(new Option(currentName, currentEmail || currentName));
+          } else {
+            whoSel.appendChild(new Option("Unknown user", ""));
+          }
+        }
+
+        if (!firebase.firestore) {
+          setFallback();
+          return;
+        }
+
+        const db = firebase.firestore();
         const snap = await db.collection("employees").get();
         const opts = [];
 
         snap.forEach(doc => {
           const data = doc.data() || {};
-          const idLower = (doc.id || "").toLowerCase();
           const display =
             data.name ||
             data.displayName ||
@@ -370,12 +392,11 @@
             doc.id;
           const email = (data.email || doc.id || "").toLowerCase();
           opts.push({
-            value: email || idLower || display,
+            value: email || doc.id || display,
             label: display
           });
         });
 
-        // clear existing
         whoSel.innerHTML = "";
         whoSel.appendChild(new Option("— Select —", ""));
 
@@ -385,7 +406,7 @@
             whoSel.appendChild(new Option(o.label, o.value));
           });
 
-        // Default: logged-in user if present
+        // Default to logged-in user if present
         if (currentEmail) {
           for (let i = 0; i < whoSel.options.length; i++) {
             const opt = whoSel.options[i];
@@ -396,9 +417,44 @@
             }
           }
         }
+
+        // If nothing selected and we still have a current user, add them
+        if (!whoSel.value && currentName) {
+          whoSel.innerHTML = "";
+          whoSel.appendChild(new Option(currentName, currentEmail || currentName));
+        }
       } catch (err) {
         console.warn("Failed to load employees for Submitted By:", err);
-        // If it fails, just leave the combo with placeholder.
+        // fallback to current user if possible
+        const auth = firebase.auth ? firebase.auth() : null;
+        const currentUser = auth && auth.currentUser;
+        const currentEmail = currentUser && currentUser.email
+          ? currentUser.email.toLowerCase()
+          : "";
+        const currentName =
+          (currentUser && (currentUser.displayName || currentUser.email)) ||
+          "Unknown user";
+        whoSel.innerHTML = "";
+        whoSel.appendChild(new Option(currentName, currentEmail || currentName));
+      }
+    }
+
+    function initEmployeesCombo() {
+      try {
+        const auth = firebase.auth ? firebase.auth() : null;
+        if (auth) {
+          if (auth.currentUser) {
+            loadEmployeesCombo();
+          } else {
+            auth.onAuthStateChanged(() => {
+              loadEmployeesCombo();
+            });
+          }
+        } else {
+          // no auth object, just leave whatever is in the select
+        }
+      } catch (e) {
+        console.warn("initEmployeesCombo error:", e);
       }
     }
 
@@ -432,7 +488,6 @@
       if (!list || !list.length) return;
       file = list[0];
 
-      // Preview
       thumb.innerHTML = "";
       if (file.type.startsWith("image/")) {
         const img = document.createElement("img");
@@ -741,17 +796,34 @@
 
     $("btnSave").addEventListener("click", async () => {
       const submittedBy = getSubmittedByName();
+
       if (!submittedBy.trim()) {
-        alert("Please select who submitted this.");
+        alert("Submitted By is required.");
+        return;
+      }
+      if (!submitted.value) {
+        alert("Submitted Date is required.");
+        return;
+      }
+      if (!paymethod.value) {
+        alert("Payment Method is required.");
+        return;
+      }
+      if (!category.value) {
+        alert("Category is required.");
+        return;
+      }
+      if (!merchant.value.trim()) {
+        alert("Merchant is required.");
         return;
       }
       if (!rdate.value) {
-        alert("Please set the receipt date.");
+        alert("Receipt Date is required.");
         return;
       }
       const totalNum = parseUSD(total.value);
       if (totalNum === "") {
-        alert("Please enter the total.");
+        alert("Total amount is required.");
         return;
       }
 
@@ -797,13 +869,12 @@
       btnReplace.hidden = true;
       ocrStatus.textContent = "";
       thumb.innerHTML = "";
-      // keep submittedBy combo + submitted date
+      // keep Submitted By + Submitted Date
     });
 
-    // Kick off employee combo load
-    loadEmployeesCombo();
+    // Init employees combo after auth is ready
+    initEmployeesCombo();
   })();
   </script>
 </body>
 </html>
-
