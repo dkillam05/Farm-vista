@@ -94,6 +94,11 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    /* only bottom button row should be centered */
+    .rc-actions-bottom {
+      justify-content: center;
+    }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -508,9 +513,15 @@
             <textarea id="notes" class="textarea" placeholder="Anything helpful for accounting…"></textarea>
           </div>
 
-          <div class="rc-actions">
+          <!-- Bottom Clear / Save centered -->
+          <div class="rc-actions rc-actions-bottom">
             <button id="btnClear" class="btn" type="button">Clear</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+          </div>
+
+          <!-- Centered Cancel underneath -->
+          <div class="rc-actions rc-actions-bottom" style="margin-top:6px;">
+            <button id="btnCancel" class="btn" type="button">Cancel</button>
           </div>
         </div>
       </section>
@@ -613,7 +624,7 @@
         e.target.value = v === "" ? "" : usdFmt.format(v);
       });
 
-      /* Submitted By — similar pattern to grain bag put-down, but plain select */
+      /* Submitted By — plain select, default to logged-in user if possible */
       async function loadEmployeesCombo() {
         try {
           const snap = await getDocs(collection(db, 'employees'));
@@ -1292,6 +1303,7 @@
         t.classList.add("show");
       }
 
+      // Save: show toast, then go back to previous page
       $("btnSave").addEventListener("click", async () => {
         const submittedByName  = getSubmittedByName();
         const submittedByEmail = getSubmittedByEmail();
@@ -1350,24 +1362,24 @@
             createdAt: serverTimestamp()
           });
           showToast("Saved.");
+          setTimeout(() => {
+            window.history.back();
+          }, 700);
         } catch (e) {
           console.error(e);
           showToast("Saved locally.");
+          // stay on page so user can decide what to do when offline/failure
         }
       });
 
+      // Clear: full page refresh to reset everything
       $("btnClear").addEventListener("click", () => {
-        ["merchant", "rdate", "category", "total", "paymethod", "project", "notes"].forEach(id => {
-          const el = $(id);
-          if (!el) return;
-          if (el.tagName === "SELECT") el.selectedIndex = 0;
-          else el.value = "";
-        });
-        preview.hidden = true;
-        btnReplace.hidden = true;
-        ocrStatus.textContent = "";
-        thumb.innerHTML = "";
-        // Keep Submitted By + Submitted Date as-is
+        window.location.reload();
+      });
+
+      // Cancel: just go back to previous page
+      $("btnCancel").addEventListener("click", () => {
+        window.history.back();
       });
 
       // Load employees for Submitted By
