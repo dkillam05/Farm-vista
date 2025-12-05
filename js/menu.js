@@ -65,13 +65,13 @@ export const NAV_MENU = {
           activeMatch: 'exact'
         },
 
-        // Operational Records group for core operations
+        // Operational Records group for core operations — EXPAND ONLY
         {
           type: 'group',
           id: 'crop-operational-records',
           icon: '📋',
           label: 'Operational Records',
-          href: '/Farm-vista/pages/crop-production/index.html',
+          // no href → expand-only
           collapsible: true,
           initialOpen: false,
           children: [
@@ -189,12 +189,13 @@ export const NAV_MENU = {
           activeMatch: 'starts-with'
         },
 
-        // Equipment Inventory group – expand-only, no navigation
+        // Equipment Inventory group – EXPAND ONLY
         {
           type: 'group',
           id: 'eq-inventory',
           icon: '📦',
           label: 'Equipment Inventory',
+          // no href → expand-only
           collapsible: true,
           initialOpen: false,
           children: [
@@ -272,16 +273,17 @@ export const NAV_MENU = {
       id: 'office',
       icon: '🏢',
       label: 'Office',
-      // no href: expand-only
+      // no href → expand-only
       collapsible: true,
       initialOpen: false,
       children: [
+        // Teams & Partners – EXPAND ONLY
         {
           type: 'group',
           id: 'office-teams',
           icon: '👥',
           label: 'Teams & Partners',
-          // no href: expand-only
+          // no href → expand-only
           collapsible: true,
           initialOpen: false,
           children: [
@@ -341,7 +343,7 @@ export const NAV_MENU = {
       id: 'inventory',
       icon: '📦',
       label: 'Inventory',
-      // no href: expand-only
+      // no href → expand-only
       collapsible: true,
       initialOpen: false,
       children: [
@@ -370,7 +372,7 @@ export const NAV_MENU = {
       id: 'expenses',
       icon: '💵',
       label: 'Expenses',
-      // no href: expand-only
+      // no href → expand-only
       collapsible: true,
       initialOpen: false,
       children: [
@@ -382,7 +384,7 @@ export const NAV_MENU = {
           href: '/Farm-vista/pages/expenses/expenditures.html',
           activeMatch: 'starts-with'
         },
-        // Just a single "Reports" link (no Custom / Predefined split)
+        // Single "Reports" entry (no Custom / Predefined split)
         {
           type: 'link',
           id: 'exp-reports',
@@ -400,7 +402,7 @@ export const NAV_MENU = {
       id: 'calculators',
       icon: '🔢',
       label: 'Calculators',
-      // no href: expand-only
+      // no href → expand-only
       collapsible: true,
       initialOpen: false,
       children: [
@@ -470,11 +472,10 @@ export const NAV_MENU = {
       id: 'reports',
       icon: '📑',
       label: 'Reports',
-      // no href: expand-only
+      // no href → expand-only
       collapsible: true,
       initialOpen: false,
       children: [
-        // Single Predefined Reports page for now
         {
           type: 'link',
           id: 'reports-predef',
@@ -492,16 +493,17 @@ export const NAV_MENU = {
       id: 'setup',
       icon: '⚙️',
       label: 'Setup',
-      // no href: expand-only
+      // no href → expand-only
       collapsible: true,
       initialOpen: false,
       children: [
+        // Products – EXPAND ONLY
         {
           type: 'group',
           id: 'setup-products',
           icon: '🗂️',
           label: 'Products',
-          // no href: expand-only
+          // no href → expand-only
           collapsible: true,
           initialOpen: false,
           children: [
