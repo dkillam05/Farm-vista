@@ -1001,7 +1001,7 @@
       }
 
       function parseLines(text) {
-        return text
+        return (text || "")
           .split(/\r?\n/)
           .map(l => l.trim())
           .filter(Boolean);
@@ -1032,18 +1032,39 @@
         return "";
       }
 
+      /* ==== IMPROVED DATE PICKER (supports month names like "Nov 25 2025") ==== */
       function pickDate(fields, text) {
         const f = fields || {};
         const structured = (f["receipt_date"] || f["invoice_date"] || f["date"] || "").trim();
+
+        // 1) If backend gave us a clean date string, normalize it.
         if (structured) {
-          if (/^\d{4}-\d{2}-\d{2}/.test(structured)) return structured.slice(0, 10);
+          // ISO already
+          if (/^\d{4}-\d{2}-\d{2}/.test(structured)) {
+            return structured.slice(0, 10);
+          }
+          // Numeric formats like 11/25/25 or 11-25-2025
+          if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(structured)) {
+            const normalized = structured.replace(/-/g, "/");
+            const parts = normalized.split(/[\/]/);
+            if (parts.length === 3) {
+              const [mRaw, dRaw, yRaw] = parts;
+              const m = mRaw.padStart(2, "0");
+              const d = dRaw.padStart(2, "0");
+              let y = yRaw;
+              if (y.length === 2) y = "20" + y;
+              return `${y}-${m}-${d}`;
+            }
+          }
         }
 
-        const lines = parseLines(text);
+        const lines = parseLines(text || "");
+
+        // 2) Numeric-only formats from OCR text.
         const datePatterns = [
-          /\b\d{4}-\d{2}-\d{2}\b/,       // 2025-12-05
-          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, // 12/5/25 or 12/05/2025
-          /\b\d{1,2}-\d{1,2}-\d{2,4}\b/  // 12-5-25 or 12-05-2025
+          /\b\d{4}-\d{2}-\d{2}\b/,        // 2025-12-05
+          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/,// 12/5/25 or 12/05/2025
+          /\b\d{1,2}-\d{1,2}-\d{2,4}\b/   // 12-5-25 or 12-05-2025
         ];
         for (const line of lines) {
           for (const r of datePatterns) {
@@ -1056,8 +1077,10 @@
               if (parts.length === 3) {
                 const [a, b, c] = parts;
                 if (a.length === 4) {
+                  // yyyy/mm/dd
                   return [a, b.padStart(2, "0"), c.padStart(2, "0")].join("-");
                 } else {
+                  // mm/dd/yy or mm/dd/yyyy
                   const year = c.length === 2 ? "20" + c : c;
                   return [year, a.padStart(2, "0"), b.padStart(2, "0")].join("-");
                 }
@@ -1065,6 +1088,39 @@
             }
           }
         }
+
+        // 3) Month-name based formats (e.g. "Nov 25 2025 10:37 AM").
+        const monthMap = {
+          jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+          jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+        };
+        const monthNameRegex =
+          /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{2,4})/i;
+
+        function extractMonthNameDate(source) {
+          const match = monthNameRegex.exec(source);
+          if (!match) return "";
+          const monthKey = match[1].slice(0, 3).toLowerCase();
+          const monthNum = monthMap[monthKey];
+          if (!monthNum) return "";
+          const dayRaw = match[2];
+          let yearRaw = match[3];
+          if (yearRaw.length === 2) yearRaw = "20" + yearRaw;
+          const mm = String(monthNum).padStart(2, "0");
+          const dd = dayRaw.padStart(2, "0");
+          return `${yearRaw}-${mm}-${dd}`;
+        }
+
+        // Try line by line first (often the date is all on one line).
+        for (const line of lines) {
+          const iso = extractMonthNameDate(line);
+          if (iso) return iso;
+        }
+
+        // As a fallback, try the whole document text in case OCR broke lines oddly.
+        const wholeIso = extractMonthNameDate(text || "");
+        if (wholeIso) return wholeIso;
+
         return "";
       }
 
