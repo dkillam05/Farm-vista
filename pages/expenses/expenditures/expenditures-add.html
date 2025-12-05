@@ -179,6 +179,168 @@
       margin: 0 0 14px 0;
       color: var(--muted, #67706B);
     }
+
+    /* Camera modal + framing box (mobile-deposit style) */
+    .camera-modal[hidden] {
+      display: none !important;
+    }
+    .camera-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 99990;
+      display: grid;
+      place-items: center;
+    }
+    .camera-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+    }
+    .camera-shell {
+      position: relative;
+      width: min(100vw, 480px);
+      max-height: 90vh;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+    }
+    .camera-header {
+      padding: 8px 12px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: linear-gradient(90deg, rgba(0,0,0,.9), rgba(0,0,0,.5));
+      z-index: 2;
+    }
+    .camera-header button {
+      border: 0;
+      background: none;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .camera-body {
+      position: relative;
+      flex: 1;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    #cameraVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .camera-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .camera-frame {
+      width: 80%;
+      max-width: 360px;
+      aspect-ratio: 3 / 2;
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      transition: border-color .25s ease, box-shadow .25s ease;
+    }
+    .camera-frame.stable {
+      border-color: #7CFC7C;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+    }
+    .camera-hints {
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      color: #f1f1f1;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.65);
+      max-width: 90%;
+    }
+    .camera-footer {
+      padding: 8px 12px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #fff;
+      font-size: 13px;
+      background: linear-gradient(0deg, rgba(0,0,0,.9), rgba(0,0,0,.5));
+      gap: 8px;
+    }
+    .camera-footer-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 60%;
+    }
+    .torch-toggle {
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 4px 10px;
+      background: rgba(0, 0, 0, 0.4);
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .torch-toggle[hidden] {
+      display: none;
+    }
+    .torch-toggle.active {
+      background: #2F6C3C;
+      border-color: #2F6C3C;
+    }
+    .torch-note {
+      font-size: 11px;
+      opacity: .85;
+    }
+    .camera-footer-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .camera-capture-btn {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      background: transparent;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      position: relative;
+    }
+    .camera-capture-btn::before {
+      content: "";
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #fff;
+    }
+    .camera-cancel {
+      border: 0;
+      background: none;
+      color: #fff;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 4px 6px;
+    }
   </style>
 
   <script>
@@ -231,7 +393,7 @@
             <div id="ocrStatus" class="help"></div>
           </div>
 
-          <!-- hidden inputs -->
+          <!-- hidden inputs (fallbacks) -->
           <input id="camInput" type="file" accept="image/*,.pdf" capture="environment" hidden>
           <input id="fileInput" type="file" accept="image/*,.pdf" hidden>
 
@@ -309,6 +471,38 @@
     </div>
   </fv-shell>
 
+  <!-- Camera modal (mobile-deposit style) -->
+  <div id="cameraModal" class="camera-modal" hidden>
+    <div class="camera-backdrop"></div>
+    <div class="camera-shell" role="dialog" aria-modal="true" aria-labelledby="cameraTitle">
+      <div class="camera-header">
+        <span id="cameraTitle">Align receipt inside the box</span>
+        <button type="button" id="cameraCloseTop">Close</button>
+      </div>
+      <div class="camera-body">
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <div class="camera-overlay">
+          <div id="cameraFrame" class="camera-frame"></div>
+        </div>
+        <div class="camera-hints">
+          Use rear camera, keep the receipt centered and hold steady. The box will glow when the view is stable.
+        </div>
+      </div>
+      <div class="camera-footer">
+        <div class="camera-footer-left">
+          <button id="torchToggle" class="torch-toggle" type="button" hidden>
+            🔦 <span id="torchLabel">Flashlight</span>
+          </button>
+          <div id="torchNote" class="torch-note"></div>
+        </div>
+        <div class="camera-footer-right">
+          <button id="cameraCancel" class="camera-cancel" type="button">Cancel</button>
+          <button id="cameraCapture" class="camera-capture-btn" type="button" aria-label="Capture photo"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <script>
@@ -350,7 +544,7 @@
       e.target.value = v === "" ? "" : usdFmt.format(v);
     });
 
-    /* Load employees into Submitted By (fv-combo) */
+    /* Load employees into Submitted By (fv-combo) — same pattern as grain bag form */
     async function loadEmployeesCombo() {
       try {
         const auth = firebase.auth ? firebase.auth() : null;
@@ -367,6 +561,7 @@
           whoSel.innerHTML = "";
           if (currentName) {
             whoSel.appendChild(new Option(currentName, currentEmail || currentName));
+            whoSel.selectedIndex = 0;
           } else {
             whoSel.appendChild(new Option("Unknown user", ""));
           }
@@ -406,7 +601,7 @@
             whoSel.appendChild(new Option(o.label, o.value));
           });
 
-        // Default to logged-in user if present
+        // Default to logged-in user if present (same idea as chosen.sub on grain bag)
         if (currentEmail) {
           for (let i = 0; i < whoSel.options.length; i++) {
             const opt = whoSel.options[i];
@@ -418,10 +613,11 @@
           }
         }
 
-        // If nothing selected and we still have a current user, add them
+        // If nothing selected and we still have a current user, collapse to them only
         if (!whoSel.value && currentName) {
           whoSel.innerHTML = "";
           whoSel.appendChild(new Option(currentName, currentEmail || currentName));
+          whoSel.selectedIndex = 0;
         }
       } catch (err) {
         console.warn("Failed to load employees for Submitted By:", err);
@@ -436,6 +632,7 @@
           "Unknown user";
         whoSel.innerHTML = "";
         whoSel.appendChild(new Option(currentName, currentEmail || currentName));
+        whoSel.selectedIndex = 0;
       }
     }
 
@@ -450,8 +647,6 @@
               loadEmployeesCombo();
             });
           }
-        } else {
-          // no auth object, just leave whatever is in the select
         }
       } catch (e) {
         console.warn("initEmployeesCombo error:", e);
@@ -465,8 +660,12 @@
       if (opt && opt.text) return opt.text.trim();
       return whoSel.value || "";
     }
+    function getSubmittedByEmail() {
+      if (!whoSel) return "";
+      return (whoSel.value || "").trim();
+    }
 
-    /* Receipt capture */
+    /* Receipt capture (with camera overlay + torch where supported) */
     const btnTake   = $("btnTake"),
           btnImport = $("btnImport"),
           btnReplace= $("btnReplace");
@@ -477,12 +676,194 @@
           ocrStatus = $("ocrStatus");
     let file = null;
 
-    btnTake.addEventListener("click", () => camInput.click());
+    // Camera modal elements
+    const cameraModal   = $("cameraModal");
+    const cameraVideo   = $("cameraVideo");
+    const cameraFrame   = $("cameraFrame");
+    const cameraCloseTop= $("cameraCloseTop");
+    const cameraCancel  = $("cameraCancel");
+    const cameraCapture = $("cameraCapture");
+    const torchToggle   = $("torchToggle");
+    const torchLabel    = $("torchLabel");
+    const torchNote     = $("torchNote");
+
+    let camStream = null;
+    let camTrack  = null;
+    let torchOn   = false;
+    let lastFrameTime = 0;
+    let lastStableTime = 0;
+    let lastCenterBox = null;
+
+    btnTake.addEventListener("click", () => {
+      // Try rich camera experience first; fall back to input if not supported.
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        openCameraModal().catch(err => {
+          console.warn("Camera modal failed, falling back to input:", err);
+          camInput.click();
+        });
+      } else {
+        camInput.click();
+      }
+    });
     btnImport.addEventListener("click", () => fileInput.click());
     btnReplace.addEventListener("click", () => fileInput.click());
 
     camInput.addEventListener("change", () => handleFiles(camInput.files));
     fileInput.addEventListener("change", () => handleFiles(fileInput.files));
+
+    async function openCameraModal() {
+      torchOn = false;
+      if (camStream) {
+        stopCameraStream();
+      }
+      torchToggle.hidden = true;
+      torchNote.textContent = "";
+
+      cameraModal.hidden = false;
+
+      try {
+        camStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      } catch (err) {
+        cameraModal.hidden = true;
+        throw err;
+      }
+
+      cameraVideo.srcObject = camStream;
+      camTrack = camStream.getVideoTracks()[0] || null;
+
+      // Torch capability (Android Chrome mostly; iOS Safari will usually say no)
+      try {
+        const caps = camTrack && camTrack.getCapabilities ? camTrack.getCapabilities() : null;
+        if (caps && "torch" in caps) {
+          torchToggle.hidden = false;
+          torchOn = false;
+          torchLabel.textContent = "Flashlight";
+          torchNote.textContent = "";
+        } else {
+          torchToggle.hidden = true;
+          torchNote.textContent = "Flashlight control isn’t available on this device/browser.";
+        }
+      } catch (e) {
+        torchToggle.hidden = true;
+        torchNote.textContent = "Flashlight control isn’t available here.";
+      }
+
+      // Simple "stability" hint: if video frames are steady, glow the frame.
+      lastFrameTime = performance.now();
+      lastStableTime = lastFrameTime;
+      lastCenterBox = null;
+      requestAnimationFrame(checkFrameStability);
+    }
+
+    function stopCameraStream() {
+      if (camStream) {
+        camStream.getTracks().forEach(t => t.stop());
+      }
+      camStream = null;
+      camTrack = null;
+      torchOn = false;
+      cameraVideo.srcObject = null;
+    }
+
+    async function toggleTorch() {
+      if (!camTrack) return;
+      try {
+        const caps = camTrack.getCapabilities ? camTrack.getCapabilities() : null;
+        if (!caps || !("torch" in caps)) {
+          torchNote.textContent = "Flashlight not supported on this device.";
+          return;
+        }
+        torchOn = !torchOn;
+        await camTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+        torchToggle.classList.toggle("active", torchOn);
+        torchLabel.textContent = torchOn ? "Flashlight (On)" : "Flashlight";
+      } catch (e) {
+        console.warn("Torch toggle failed:", e);
+        torchNote.textContent = "Could not control flashlight. Your device may not allow it from the browser.";
+        torchOn = false;
+        torchToggle.classList.remove("active");
+      }
+    }
+
+    torchToggle.addEventListener("click", toggleTorch);
+
+    function closeCameraModal() {
+      stopCameraStream();
+      cameraModal.hidden = true;
+    }
+
+    cameraCloseTop.addEventListener("click", closeCameraModal);
+    cameraCancel.addEventListener("click", closeCameraModal);
+
+    cameraCapture.addEventListener("click", async () => {
+      if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) {
+        return;
+      }
+      try {
+        const canvas = document.createElement("canvas");
+        const vw = cameraVideo.videoWidth;
+        const vh = cameraVideo.videoHeight;
+
+        // Capture centered region roughly matching the framing box ratio
+        const aspect = 3 / 2;
+        let cw = vw * 0.8;
+        let ch = cw / aspect;
+        if (ch > vh) {
+          ch = vh * 0.8;
+          cw = ch * aspect;
+        }
+        const cx = (vw - cw) / 2;
+        const cy = (vh - ch) / 2;
+
+        canvas.width = cw;
+        canvas.height = ch;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(cameraVideo, cx, cy, cw, ch, 0, 0, cw, ch);
+
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error("Capture failed")), "image/jpeg", 0.9);
+        });
+
+        const capturedFile = new File([blob], "receipt-camera.jpg", { type: "image/jpeg" });
+        closeCameraModal();
+        handleFiles([capturedFile]);
+      } catch (err) {
+        console.error("Camera capture failed:", err);
+        closeCameraModal();
+      }
+    });
+
+    // Very lightweight "stability" signal: if view hasn't resized recently, mark frame as stable.
+    function checkFrameStability(now) {
+      if (!camStream || cameraModal.hidden) return;
+      const rect = cameraFrame.getBoundingClientRect();
+      const box = { w: rect.width, h: rect.height };
+      if (lastCenterBox) {
+        const dw = Math.abs(box.w - lastCenterBox.w);
+        const dh = Math.abs(box.h - lastCenterBox.h);
+        const moved = dw > 2 || dh > 2; // crude proxy for motion / zoom
+        if (!moved) {
+          if (now - lastStableTime > 800) {
+            cameraFrame.classList.add("stable");
+          }
+        } else {
+          cameraFrame.classList.remove("stable");
+          lastStableTime = now;
+        }
+      } else {
+        lastCenterBox = box;
+        lastStableTime = now;
+      }
+      lastCenterBox = box;
+      requestAnimationFrame(checkFrameStability);
+    }
 
     function handleFiles(list) {
       if (!list || !list.length) return;
@@ -795,9 +1176,10 @@
     }
 
     $("btnSave").addEventListener("click", async () => {
-      const submittedBy = getSubmittedByName();
+      const submittedByName  = getSubmittedByName();
+      const submittedByEmail = getSubmittedByEmail();
 
-      if (!submittedBy.trim()) {
+      if (!submittedByName.trim()) {
         alert("Submitted By is required.");
         return;
       }
@@ -828,7 +1210,13 @@
       }
 
       const payload = {
-        who: submittedBy,
+        // keep legacy flat field
+        who: submittedByName,
+        // add structured Submitted By like the grain bag entry does
+        submittedBy: {
+          name: submittedByName,
+          email: submittedByEmail || null
+        },
         submitted: submitted.value || todayISO(),
         merchant: merchant.value.trim(),
         rdate: rdate.value,
@@ -862,6 +1250,7 @@
     $("btnClear").addEventListener("click", () => {
       ["merchant", "rdate", "category", "total", "paymethod", "project", "notes"].forEach(id => {
         const el = $(id);
+        if (!el) return;
         if (el.tagName === "SELECT") el.selectedIndex = 0;
         else el.value = "";
       });
@@ -869,7 +1258,7 @@
       btnReplace.hidden = true;
       ocrStatus.textContent = "";
       thumb.innerHTML = "";
-      // keep Submitted By + Submitted Date
+      // keep Submitted By + Submitted Date as-is (same pattern as bag form keeping default)
     });
 
     // Init employees combo after auth is ready
