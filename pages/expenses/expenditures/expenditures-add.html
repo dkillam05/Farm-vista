@@ -13,10 +13,8 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Kept for future / compatibility -->
+  <!-- Kept for future / compatibility (not used directly here) -->
   <script defer src="/Farm-vista/js/ocr-tesseract.js"></script>
-  <!-- fv-combo for Submitted By dropdown -->
-  <script defer src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
     .section {
@@ -168,6 +166,7 @@
       85% { opacity: 1 }
       100% { opacity: 0 }
     }
+
     .page {
       max-width: 1100px;
       margin: 0 auto;
@@ -180,7 +179,7 @@
       color: var(--muted, #67706B);
     }
 
-    /* Camera modal + framing box (mobile-deposit style) */
+    /* Camera modal + vertical framing box (mobile-deposit style) */
     .camera-modal[hidden] {
       display: none !important;
     }
@@ -246,9 +245,9 @@
       justify-content: center;
     }
     .camera-frame {
-      width: 80%;
-      max-width: 360px;
-      aspect-ratio: 3 / 2;
+      width: 70%;
+      max-width: 320px;
+      aspect-ratio: 2 / 3; /* vertical for receipts */
       border-radius: 12px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
       border: 2px solid rgba(255, 255, 255, 0.9);
@@ -341,6 +340,52 @@
       cursor: pointer;
       padding: 4px 6px;
     }
+
+    /* OCR processing overlay */
+    .ocr-overlay[hidden] {
+      display: none !important;
+    }
+    .ocr-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 99995;
+      display: grid;
+      place-items: center;
+    }
+    .ocr-overlay-backdrop {
+      position: absolute;
+      inset: 0;
+      backdrop-filter: blur(3px);
+      background: rgba(0, 0, 0, 0.25);
+    }
+    .ocr-overlay-box {
+      position: relative;
+      padding: 16px 22px;
+      border-radius: 14px;
+      background: rgba(25, 25, 25, 0.94);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      min-width: 220px;
+    }
+    .ocr-spinner {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #fff;
+      animation: ocr-spin 0.8s linear infinite;
+    }
+    @keyframes ocr-spin {
+      to { transform: rotate(360deg); }
+    }
+    .ocr-overlay-text {
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+    }
   </style>
 
   <script>
@@ -401,7 +446,8 @@
           <div class="grid-2">
             <div class="field">
               <label for="whoSel">Submitted By<span class="req">*</span></label>
-              <select id="whoSel" class="select" data-fv-combo data-fv-search="true">
+              <!-- Plain select so dropdown stays anchored -->
+              <select id="whoSel" class="select">
                 <option value="">Loading employees…</option>
               </select>
             </div>
@@ -485,7 +531,7 @@
           <div id="cameraFrame" class="camera-frame"></div>
         </div>
         <div class="camera-hints">
-          Use rear camera, keep the receipt centered and hold steady. The box will glow when the view is stable.
+          Use rear camera, keep the receipt centered and hold steady. The box will glow when ready.
         </div>
       </div>
       <div class="camera-footer">
@@ -503,9 +549,18 @@
     </div>
   </div>
 
+  <!-- OCR processing overlay -->
+  <div id="ocrOverlay" class="ocr-overlay" hidden>
+    <div class="ocr-overlay-backdrop"></div>
+    <div class="ocr-overlay-box">
+      <div class="ocr-spinner"></div>
+      <div class="ocr-overlay-text">Processing receipt…</div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Main logic: modular Firebase (same pattern as grain bag put-down) -->
+  <!-- Main logic: modular Firebase (same style as grain bag put-down) -->
   <script type="module">
     import {
       ready,
@@ -558,7 +613,7 @@
         e.target.value = v === "" ? "" : usdFmt.format(v);
       });
 
-      /* Submitted By — same pattern as grain bag put-down */
+      /* Submitted By — similar pattern to grain bag put-down, but plain select */
       async function loadEmployeesCombo() {
         try {
           const snap = await getDocs(collection(db, 'employees'));
@@ -574,7 +629,6 @@
           list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
           whoSel.innerHTML = "";
-          // First blank option for "-- Select --"
           whoSel.appendChild(new Option("— Select —", ""));
 
           list.forEach(emp => {
@@ -591,22 +645,15 @@
           if (chosen) {
             whoSel.value = chosen.email || chosen.id;
           } else if (list.length) {
-            // fallback to first employee if no email match
             const first = list[0];
             whoSel.value = first.email || first.id;
           }
-
-          // Fire change so fv-combo updates its visible label
-          whoSel.dispatchEvent(new Event("change", { bubbles: true }));
-
         } catch (err) {
           console.warn("Failed to load employees for Submitted By:", err);
-          // Fallback to current user only
           const meName  = auth.currentUser?.displayName || auth.currentUser?.email || "Unknown user";
           const meEmail = (auth.currentUser?.email || "").toLowerCase();
           whoSel.innerHTML = "";
           whoSel.appendChild(new Option(meName, meEmail || meName));
-          whoSel.dispatchEvent(new Event("change", { bubbles: true }));
         }
       }
 
@@ -619,6 +666,22 @@
       function getSubmittedByEmail() {
         if (!whoSel) return "";
         return (whoSel.value || "").trim();
+      }
+
+      /* ======= OCR overlay helpers (min 2 seconds visible) ======= */
+      const ocrOverlay = $("ocrOverlay");
+      let ocrOverlayStartedAt = 0;
+
+      function showOcrOverlay() {
+        ocrOverlayStartedAt = Date.now();
+        ocrOverlay.hidden = false;
+      }
+      function hideOcrOverlay() {
+        const elapsed = Date.now() - ocrOverlayStartedAt;
+        const remaining = Math.max(0, 2000 - elapsed);
+        setTimeout(() => {
+          ocrOverlay.hidden = true;
+        }, remaining);
       }
 
       /* ======= Receipt capture + image normalization (HEIC → JPEG, resize) ======= */
@@ -646,8 +709,6 @@
       let camStream = null;
       let camTrack  = null;
       let torchOn   = false;
-      let lastStableTime = 0;
-      let lastBox = null;
 
       function readFileAsDataURL(file) {
         return new Promise((resolve, reject) => {
@@ -676,13 +737,11 @@
 
         const isPdf = type === "application/pdf" || /\.pdf$/i.test(lowerName);
         if (isPdf) {
-          // PDFs go as-is
           return rawFile;
         }
 
         const isImage = type.startsWith("image/");
         if (!isImage) {
-          // Unknown non-image: send as-is, let server decide
           return rawFile;
         }
 
@@ -698,13 +757,11 @@
           const srcW = img.naturalWidth || img.width;
           const srcH = img.naturalHeight || img.height;
 
-          // Very simple "too small" check; still allow but warn in console
           const longest = Math.max(srcW, srcH);
           if (longest < 900) {
             console.warn("Receipt image is quite small for OCR:", srcW, "x", srcH);
           }
 
-          // Resize to a max side (helps with huge iPhone pics)
           const MAX_SIDE = 2200;
           let scale = 1;
           if (longest > MAX_SIDE) {
@@ -719,7 +776,7 @@
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, dstW, dstH);
 
-          // Optional: simple brightness sanity check on center patch
+          // simple brightness sanity check
           try {
             const sz = 80;
             const sx = Math.max(0, (dstW - sz) / 2);
@@ -736,15 +793,16 @@
             if (avg < 40) {
               console.warn("Image looks very dark; OCR may struggle (avg brightness:", avg, ")");
             } else if (avg > 230) {
-              console.warn("Image looks very bright/washed out; OCR may struggle (avg brightness:", avg, ")");
+              console.warn("Image looks very bright; OCR may struggle (avg brightness:", avg, ")");
             }
-          } catch (e) {
-            // not fatal
-          }
+          } catch (_) {}
 
           const blob = await new Promise((resolve, reject) => {
-            canvas.toBlob(b => b ? resolve(b) : reject(new Error("JPEG encode failed")),
-              "image/jpeg", 0.9);
+            canvas.toBlob(
+              b => b ? resolve(b) : reject(new Error("JPEG encode failed")),
+              "image/jpeg",
+              0.9
+            );
           });
 
           const safeName = name.replace(/\.[^.]+$/, "") + ".jpg";
@@ -756,7 +814,6 @@
         }
       }
 
-      // ===== Camera modal logic =====
       async function openCameraModal() {
         torchOn = false;
         if (camStream) {
@@ -764,6 +821,7 @@
         }
         torchToggle.hidden = true;
         torchNote.textContent = "";
+        cameraFrame.classList.remove("stable");
 
         cameraModal.hidden = false;
 
@@ -800,9 +858,12 @@
           torchNote.textContent = "Flashlight control isn’t available here.";
         }
 
-        lastStableTime = performance.now();
-        lastBox = null;
-        requestAnimationFrame(checkFrameStability);
+        // Simple: always glow after ~1.2s so user sees it "ready"
+        setTimeout(() => {
+          if (!cameraModal.hidden) {
+            cameraFrame.classList.add("stable");
+          }
+        }, 1200);
       }
 
       function stopCameraStream() {
@@ -841,30 +902,6 @@
         cameraFrame.classList.remove("stable");
       }
 
-      function checkFrameStability(now) {
-        if (!camStream || cameraModal.hidden) return;
-        const rect = cameraFrame.getBoundingClientRect();
-        const box = { w: rect.width, h: rect.height };
-        if (lastBox) {
-          const dw = Math.abs(box.w - lastBox.w);
-          const dh = Math.abs(box.h - lastBox.h);
-          const moved = dw > 2 || dh > 2;
-          if (!moved) {
-            if (now - lastStableTime > 800) {
-              cameraFrame.classList.add("stable");
-            }
-          } else {
-            cameraFrame.classList.remove("stable");
-            lastStableTime = now;
-          }
-        } else {
-          lastBox = box;
-          lastStableTime = now;
-        }
-        lastBox = box;
-        requestAnimationFrame(checkFrameStability);
-      }
-
       async function captureFromCamera() {
         if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) {
           return;
@@ -874,12 +911,12 @@
           const vw = cameraVideo.videoWidth;
           const vh = cameraVideo.videoHeight;
 
-          const aspect = 3 / 2;
-          let cw = vw * 0.8;
-          let ch = cw / aspect;
-          if (ch > vh) {
-            ch = vh * 0.8;
-            cw = ch * aspect;
+          const aspect = 2 / 3; // vertical slice for receipts
+          let ch = vh * 0.8;
+          let cw = ch * aspect;
+          if (cw > vw) {
+            cw = vw * 0.8;
+            ch = cw / aspect;
           }
           const cx = (vw - cw) / 2;
           const cy = (vh - ch) / 2;
@@ -890,8 +927,11 @@
           ctx.drawImage(cameraVideo, cx, cy, cw, ch, 0, 0, cw, ch);
 
           const blob = await new Promise((resolve, reject) => {
-            canvas.toBlob(b => b ? resolve(b) : reject(new Error("Capture failed")),
-              "image/jpeg", 0.9);
+            canvas.toBlob(
+              b => b ? resolve(b) : reject(new Error("Capture failed")),
+              "image/jpeg",
+              0.9
+            );
           });
 
           const capturedFile = new File([blob], "receipt-camera.jpg", { type: "image/jpeg" });
@@ -928,10 +968,8 @@
         if (!list || !list.length) return;
         const rawFile = list[0];
 
-        // Normalize image before OCR (HEIC → JPEG, resize, etc.)
         const fileForOcr = await prepareImageForOcr(rawFile);
 
-        // Thumb preview (use normalized file if image, else show name)
         const previewFile = fileForOcr || rawFile;
         thumb.innerHTML = "";
         if ((previewFile.type || "").startsWith("image/")) {
@@ -985,15 +1023,16 @@
 
       function pickDate(fields, text) {
         const f = fields || {};
-        const structured = (f["receipt_date"] || f["invoice_date"] || "").trim();
+        const structured = (f["receipt_date"] || f["invoice_date"] || f["date"] || "").trim();
         if (structured) {
           if (/^\d{4}-\d{2}-\d{2}/.test(structured)) return structured.slice(0, 10);
         }
 
         const lines = parseLines(text);
         const datePatterns = [
-          /\b\d{4}-\d{2}-\d{2}\b/,
-          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/
+          /\b\d{4}-\d{2}-\d{2}\b/,       // 2025-12-05
+          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, // 12/5/25 or 12/05/2025
+          /\b\d{1,2}-\d{1,2}-\d{2,4}\b/  // 12-5-25 or 12-05-2025
         ];
         for (const line of lines) {
           for (const r of datePatterns) {
@@ -1001,7 +1040,8 @@
             if (m) {
               const raw = m[0];
               if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-              const parts = raw.replace(/-/g, "/").split("/");
+              const normalized = raw.replace(/-/g, "/");
+              const parts = normalized.split("/");
               if (parts.length === 3) {
                 const [a, b, c] = parts;
                 if (a.length === 4) {
@@ -1143,6 +1183,7 @@
         }
 
         ocrStatus.textContent = "Uploading to cloud OCR…";
+        showOcrOverlay();
 
         try {
           const base64 = await new Promise((resolve, reject) => {
@@ -1158,6 +1199,7 @@
 
           if (!base64) {
             ocrStatus.textContent = "Could not read file. Fill in manually.";
+            hideOcrOverlay();
             return;
           }
 
@@ -1177,6 +1219,7 @@
             const txt = await resp.text();
             console.error("OCR HTTP error:", resp.status, txt);
             ocrStatus.textContent = "OCR error from server. You can fill in manually.";
+            hideOcrOverlay();
             return;
           }
 
@@ -1184,6 +1227,7 @@
           if (!json.ok) {
             console.error("OCR logical error:", json);
             ocrStatus.textContent = "OCR could not read that receipt. Fill in manually.";
+            hideOcrOverlay();
             return;
           }
 
@@ -1235,6 +1279,8 @@
         } catch (e) {
           console.error("Cloud OCR failed:", e);
           ocrStatus.textContent = "OCR failed. You can fill in manually.";
+        } finally {
+          hideOcrOverlay();
         }
       }
 
@@ -1281,8 +1327,8 @@
         }
 
         const payload = {
-          who: submittedByName,  // legacy flat field
-          submittedBy: {         // structured like other modules
+          who: submittedByName,
+          submittedBy: {
             name: submittedByName,
             email: submittedByEmail || null
           },
@@ -1321,10 +1367,10 @@
         btnReplace.hidden = true;
         ocrStatus.textContent = "";
         thumb.innerHTML = "";
-        // Keep Submitted By + Submitted Date as-is (like grain bag keeps default)
+        // Keep Submitted By + Submitted Date as-is
       });
 
-      // Kick off Submitted By employees load (after Firebase ready)
+      // Load employees for Submitted By
       await loadEmployeesCombo();
     })();
   </script>
