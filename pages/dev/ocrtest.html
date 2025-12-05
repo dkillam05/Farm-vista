@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <body>
-    <h2>OCR Receipt Test (Expense Parser)</h2>
+    <h2>OCR Receipt Test (Expense Parser + Text Heuristics)</h2>
 
     <p>
       1) Choose a RECEIPT or INVOICE PDF/JPG<br>
@@ -26,8 +26,8 @@
       <tr><th>Currency</th><td id="sum-currency"></td></tr>
     </table>
 
-    <h3>Raw Entities (from Expense Parser)</h3>
-    <pre id="entities" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px;"></pre>
+    <h3>Raw Fields Map (from parser)</h3>
+    <pre id="fields" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; min-height:40px;"></pre>
 
     <h3>Plain Text</h3>
     <pre id="text" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; min-height:150px;"></pre>
@@ -35,14 +35,124 @@
     <script>
       const btn = document.getElementById("btn");
       const statusEl = document.getElementById("status");
-      const entitiesEl = document.getElementById("entities");
+      const fieldsEl = document.getElementById("fields");
       const textEl = document.getElementById("text");
 
-      const vendorEl = document.getElementById("sum-vendor");
-      const dateEl = document.getElementById("sum-date");
-      const totalEl = document.getElementById("sum-total");
-      const taxEl = document.getElementById("sum-tax");
+      const vendorEl   = document.getElementById("sum-vendor");
+      const dateEl     = document.getElementById("sum-date");
+      const totalEl    = document.getElementById("sum-total");
+      const taxEl      = document.getElementById("sum-tax");
       const currencyEl = document.getElementById("sum-currency");
+
+      // Heuristic parser using plain text
+      function parseReceiptFromText(text) {
+        const lines = text
+          .split(/\r?\n/)
+          .map(l => l.trim())
+          .filter(Boolean);
+
+        let vendor = "";
+        let date   = "";
+        let total  = "";
+        let tax    = "";
+        let currency = "";
+
+        // DATE: first thing that looks like YYYY-MM-DD or MM/DD/YYYY
+        const datePatterns = [
+          /\b\d{4}-\d{2}-\d{2}\b/,        // 2025-12-03
+          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/ // 12/03/25 or 12/03/2025
+        ];
+        for (const line of lines) {
+          for (const r of datePatterns) {
+            const m = line.match(r);
+            if (m) { date = m[0]; break; }
+          }
+          if (date) break;
+        }
+
+        // MONEY regex (integer or x.xx)
+        const moneyRegex = /(\d+(?:[.,]\d{2})?)/;
+
+        // TOTAL: look near "Amount due" / "Total" with a currency hint
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i].toLowerCase();
+          if (
+            l.includes("amount due") ||
+            l.includes("balance due") ||
+            l === "total" ||
+            l.startsWith("total ")
+          ) {
+            const candidates = [lines[i], lines[i + 1], lines[i + 2]];
+            for (const c of candidates) {
+              if (!c) continue;
+              // Only use lines that mention currency (usd, $, eur, etc.)
+              if (!/[€$]|usd|eur|gbp/i.test(c)) continue;
+              const m = c.match(moneyRegex);
+              if (m) {
+                total = m[1];
+                // Try to also infer currency string (optional)
+                const curMatch = c.match(/(usd|eur|gbp|\$|€)/i);
+                if (curMatch) {
+                  currency = curMatch[1].toUpperCase();
+                  if (currency === "$") currency = "USD";
+                  if (currency === "€") currency = "EUR";
+                }
+                break;
+              }
+            }
+            if (total) break;
+          }
+        }
+
+        // TAX: look for "tax" or "vat" AND a money amount w/ currency
+        for (const line of lines) {
+          if (!/tax|vat/i.test(line)) continue;
+          if (!/[€$]|usd|eur|gbp/i.test(line)) continue; // must look like an amount, not an article number
+          const m = line.match(moneyRegex);
+          if (m) {
+            tax = m[1];
+            break;
+          }
+        }
+
+        // VENDOR:
+        // Heuristic 1: line after "Payment method", skipping card brands
+        const cardBrands = /(visa|mastercard|amex|american express|discover|paypal|apple pay|google pay)/i;
+        for (let i = 0; i < lines.length; i++) {
+          if (/payment method/i.test(lines[i])) {
+            const maybeCard = lines[i + 1] || "";
+            let candidateVendor = "";
+            if (maybeCard && cardBrands.test(maybeCard)) {
+              candidateVendor = lines[i + 2] || "";
+            } else {
+              candidateVendor = maybeCard;
+            }
+            if (candidateVendor && !cardBrands.test(candidateVendor.toLowerCase())) {
+              vendor = candidateVendor;
+            }
+            break;
+          }
+        }
+
+        // Heuristic 2: if still blank, first "nice" line not obviously something else
+        if (!vendor) {
+          const skipWords = [
+            "invoice", "paid on", "payment method",
+            "customer", "amount due", "total", "subscription",
+            "designation", "quantity", "unit price",
+            "thank you for your business", "address"
+          ];
+          for (const line of lines) {
+            const low = line.toLowerCase();
+            if (skipWords.some(w => low.includes(w))) continue;
+            if (/^\d/.test(line)) continue; // starts with number
+            vendor = line;
+            break;
+          }
+        }
+
+        return { vendor, date, total, tax, currency };
+      }
 
       btn.addEventListener("click", async () => {
         const input = document.getElementById("file");
@@ -54,6 +164,10 @@
         }
 
         statusEl.textContent = "Status: Reading file…";
+        fieldsEl.textContent = "";
+        textEl.textContent   = "";
+        vendorEl.textContent = dateEl.textContent =
+          totalEl.textContent = taxEl.textContent = currencyEl.textContent = "";
 
         const reader = new FileReader();
         reader.onload = async () => {
@@ -68,7 +182,7 @@
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
-                  mode: "receipt",              // 👈 tells backend to use FV-Receipts-OCR
+                  mode: "receipt",              // use FV-Receipts-OCR
                   content: base64,
                   mimeType: file.type || "application/pdf"
                 })
@@ -78,20 +192,20 @@
             const json = await res.json();
             statusEl.textContent = json.ok ? "Status: OK" : "Status: ERROR";
 
-            // show all entities
-            entitiesEl.textContent = JSON.stringify(json.fields || {}, null, 2);
+            // show field map from backend (if any)
+            fieldsEl.textContent = JSON.stringify(json.fields || {}, null, 2);
 
-            // plain text
+            // plain text from processor
             const docText = json.document?.text || "(no text returned)";
             textEl.textContent = docText;
 
-            // fill structured fields
-            vendorEl.textContent   = json.fields["supplier_name"] || json.fields["vendor_name"] || "(not found)";
-            dateEl.textContent     = json.fields["invoice_date"]  || json.fields["receipt_date"] || "(not found)";
-            totalEl.textContent    = json.fields["total_amount"]  || json.fields["amount_due"]   || "(not found)";
-            taxEl.textContent      = json.fields["tax_amount"]    || "(not found)";
-            currencyEl.textContent = json.fields["currency_code"] || "(not found)";
-
+            // parse from text as fallback / demo
+            const parsed = parseReceiptFromText(docText);
+            vendorEl.textContent   = parsed.vendor   || "(not found)";
+            dateEl.textContent     = parsed.date     || "(not found)";
+            totalEl.textContent    = parsed.total    || "(not found)";
+            taxEl.textContent      = parsed.tax      || "(not found)";
+            currencyEl.textContent = parsed.currency || "(not found)";
           } catch (err) {
             statusEl.textContent = "Status: ERROR – see console";
             console.error(err);
@@ -103,4 +217,3 @@
     </script>
   </body>
 </html>
-
