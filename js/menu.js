@@ -44,7 +44,7 @@ export const NAV_MENU = {
         // Trials next
         { type: 'link', id: 'crop-trials',     icon: '🧬', label: 'Trials',              href: '/Farm-vista/pages/crop-production/trials.html',      activeMatch: 'exact' },
 
-        // NEW: Operational Records group for core operations
+        // Operational Records group for core operations
         {
           type: 'group',
           id: 'crop-operational-records',
@@ -95,16 +95,26 @@ export const NAV_MENU = {
         { type: 'link', id: 'eq-maint-workorders', icon: '🧰', label: 'Maintenance Work Orders', href: '/Farm-vista/docs/cooming-soon.html', activeMatch: 'starts-with' },
         { type: 'link', id: 'eq-maint-records',    icon: '📚', label: 'Maintenance Records',    href: '/Farm-vista/docs/cooming-soon.html',  activeMatch: 'starts-with' },
 
-        // Direct equipment inventory links (no Equipment Inventory button)
-        { type: 'link', id: 'eq-tractors',     icon: '🚜', label: 'Tractors',               href: '/Farm-vista/pages/equipment/equipment-tractors.html' },
-        { type: 'link', id: 'eq-combines',     icon: '🌾', label: 'Combines',               href: '/Farm-vista/pages/equipment/equipment-combines.html' },
-        { type: 'link', id: 'eq-implements',   icon: '⚙️', label: 'Implements',             href: '/Farm-vista/pages/equipment/equipment-implements.html' },
-        { type: 'link', id: 'eq-sprayers',     icon: '💦', label: 'Sprayers',               href: '/Farm-vista/pages/equipment/equipment-sprayers.html' },
-        { type: 'link', id: 'eq-fertilizer',   icon: '🧂', label: 'Fertilizer Equipment',   href: '/Farm-vista/pages/equipment/equipment-fertilizer.html' },
-        { type: 'link', id: 'eq-construction', icon: '🏗️', label: 'Construction',          href: '/Farm-vista/pages/equipment/equipment-construction.html' },
-        { type: 'link', id: 'eq-trucks',       icon: '🚚', label: 'Trucks',                 href: '/Farm-vista/pages/equipment/equipment-trucks.html' },
-        { type: 'link', id: 'eq-trailers',     icon: '🚛', label: 'Trailers',               href: '/Farm-vista/pages/equipment/equipment-trailers.html' },
-        { type: 'link', id: 'eq-starfire',     icon: '🛰️', label: 'StarFire / Technology', href: '/Farm-vista/pages/equipment/equipment-starfire.html' }
+        // Equipment Inventory group – ONLY expands, no navigation
+        {
+          type: 'group',
+          id: 'eq-inventory',
+          icon: '📦',
+          label: 'Equipment Inventory',
+          collapsible: true,
+          initialOpen: false,
+          children: [
+            { type: 'link', id: 'eq-tractors',     icon: '🚜', label: 'Tractors',               href: '/Farm-vista/pages/equipment/equipment-tractors.html' },
+            { type: 'link', id: 'eq-combines',     icon: '🌾', label: 'Combines',               href: '/Farm-vista/pages/equipment/equipment-combines.html' },
+            { type: 'link', id: 'eq-implements',   icon: '⚙️', label: 'Implements',             href: '/Farm-vista/pages/equipment/equipment-implements.html' },
+            { type: 'link', id: 'eq-sprayers',     icon: '💦', label: 'Sprayers',               href: '/Farm-vista/pages/equipment/equipment-sprayers.html' },
+            { type: 'link', id: 'eq-fertilizer',   icon: '🧂', label: 'Fertilizer Equipment',   href: '/Farm-vista/pages/equipment/equipment-fertilizer.html' },
+            { type: 'link', id: 'eq-construction', icon: '🏗️', label: 'Construction',          href: '/Farm-vista/pages/equipment/equipment-construction.html' },
+            { type: 'link', id: 'eq-trucks',       icon: '🚚', label: 'Trucks',                 href: '/Farm-vista/pages/equipment/equipment-trucks.html' },
+            { type: 'link', id: 'eq-trailers',     icon: '🚛', label: 'Trailers',               href: '/Farm-vista/pages/equipment/equipment-trailers.html' },
+            { type: 'link', id: 'eq-starfire',     icon: '🛰️', label: 'StarFire / Technology', href: '/Farm-vista/pages/equipment/equipment-starfire.html' }
+          ]
+        }
       ]
     },
 
@@ -244,7 +254,7 @@ export const NAV_MENU = {
           ]
         },
 
-        /* NEW: Import Templates, directly under Products */
+        /* Import Templates, directly under Products */
         { type: 'link', id: 'setup-import-templates', icon: '📥', label: 'Import Templates', href: '/Farm-vista/pages/setup/import-templates.html', activeMatch: 'starts-with' },
 
         { type: 'link', id: 'setup-message-board', icon: '📢', label: 'Message Board', href: '/Farm-vista/pages/setup/message-board.html', activeMatch: 'exact' },
