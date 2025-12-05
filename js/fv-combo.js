@@ -1,5 +1,5 @@
 /* /Farm-vista/js/fv-combo.js
-   FarmVista Combo Upgrader — v1.4.0
+   FarmVista Combo Upgrader — v1.4.1
    - Rounded, tight “buttonish + combo panel”.
    - Portals to <body> so parents can’t clip it.
    - Panels prefer to open below; flip up if needed.
@@ -123,7 +123,7 @@
       if (isInsideCombo(target)) return;
       closeAll();
     },
-    true // <-- capture
+    true // capture
   );
 
   // Esc closes any open combo
@@ -133,7 +133,6 @@
 
   /* ---- Footer helpers (canonical footer is .ftr) ---- */
   function getFooterEl() {
-    // Your footer uses .ftr; keep that as the primary selector.
     return (
       document.querySelector('.ftr') ||
       document.querySelector('[data-fv-footer]') ||
@@ -142,14 +141,13 @@
   }
   function getFooterZ() {
     const f = getFooterEl();
-    if (!f) return 900; // sane fallback (matches your CSS)
+    if (!f) return 900;
     const zi = parseInt(getComputedStyle(f).zIndex || '900', 10);
     return Number.isNaN(zi) ? 900 : zi;
   }
   function getFooterHeight() {
     const f = getFooterEl();
     if (f) return Math.max(0, f.getBoundingClientRect().height);
-    // Fallback to CSS var or 44 if no element found
     const root = getComputedStyle(document.documentElement);
     const varFtr = parseFloat(root.getPropertyValue('--ftr-h')) || 0;
     return varFtr || 44;
@@ -170,7 +168,6 @@
   function upgradeSelect(sel) {
     if (sel._fvUpgraded || !sel.matches('[data-fv-combo]')) return;
 
-    // Skip invisible nodes (prevents bad rects)
     const cs = getComputedStyle(sel);
     if (cs.display === 'none' || cs.visibility === 'hidden') return;
 
@@ -248,7 +245,6 @@
 
     function computeAndApplyZ() {
       const footerZ = getFooterZ();
-      // Always under the footer, but above normal content.
       panel.style.zIndex = String(Math.max(1, footerZ - 1));
     }
 
@@ -260,42 +256,34 @@
       const vwW = window.innerWidth;
       const vwH = window.innerHeight;
 
-      // Footer handling
       const footerH = getFooterHeight();
-      const bottomLimit = vwH - footerH - 6; // small margin above footer/border
+      const bottomLimit = vwH - footerH - 6;
 
-      // Temporarily show to measure content height
+      // Panel is already display:block via .show; just hide visually while measuring.
       panel.style.visibility = 'hidden';
-      panel.style.display = 'block';
 
-      // Width & horizontal clamp (avoid off-screen on narrow view)
       const desiredWidth = Math.max(180, r.width);
       panel.style.width = desiredWidth + 'px';
       const panelW = panel.offsetWidth || desiredWidth;
       let left = Math.round(Math.min(Math.max(8, r.left), vwW - panelW - 8));
 
-      // Default: open below the trigger
       let desiredTop = r.bottom + gap;
 
-      // Measure total panel height
       const fullH = panel.offsetHeight || 0;
 
-      // If opening below would cross the footer, try flipping up
       if ((desiredTop + fullH) > bottomLimit) {
         const tryUp = r.top - gap - fullH;
         if (tryUp >= 8) {
-          desiredTop = tryUp; // flip up
+          desiredTop = tryUp;
         } else {
-          // Not enough space either way: clamp and make the list scroll
           desiredTop = Math.max(8, desiredTop);
         }
       }
 
-      // Final clamp: bottom may not pass the footer line
       const maxBottom = bottomLimit;
       const searchEl = panel.querySelector('.fv-search');
       const searchChrome = searchEl ? (searchEl.getBoundingClientRect().height || 42) : 0;
-      const chrome = 8 + 8 + 2 + searchChrome; // pad(8+8) + border(2) + search
+      const chrome = 8 + 8 + 2 + searchChrome;
       const maxListHeight = Math.max(
         120,
         Math.min(
@@ -352,7 +340,6 @@
     }
 
     btn.addEventListener('click', e => {
-      // Stop bubbling so other click handlers on cards/rows don't also fire.
       e.stopPropagation();
       panel.classList.contains('show') ? close() : open();
     });
@@ -406,7 +393,6 @@
     upgradeAll();
   }
 
-  // Expose helpers for pages that want to re-upgrade after innerHTML.
   window.FVCombo = {
     upgrade: upgradeAll,
     upgradeSelect,
