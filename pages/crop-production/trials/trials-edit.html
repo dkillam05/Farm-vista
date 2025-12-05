@@ -792,7 +792,7 @@
       trialStats: {},
       trialFields: {},
       trialStatsPromises: {},
-      // dropdown option lists, built from existing trials
+      // dropdown option lists, built from existing trials (fallback)
       optionLists: {
         cropYears: [],
         crops: [],
@@ -830,6 +830,32 @@
         const safe = escapeHtml(value);
         return `<option value="${safe}"${selectedAttr}>${safe}</option>`;
       }).join('');
+    }
+
+    // Merge the current value into a base list (predefined or Firestore),
+    // ensure uniqueness, and sort.
+    function mergeCurrentIntoList(baseList, currentValue, isNumeric){
+      const list = Array.isArray(baseList) ? baseList.slice() : [];
+      const hasCurrent =
+        currentValue !== null &&
+        currentValue !== undefined &&
+        String(currentValue).trim() !== '';
+
+      if(hasCurrent){
+        const curKey = String(currentValue);
+        const exists = list.some(v => String(v) === curKey);
+        if(!exists){
+          list.push(currentValue);
+        }
+      }
+
+      if(isNumeric){
+        list.sort((a,b) => Number(a) - Number(b));
+      }else{
+        list.sort((a,b) => String(a).localeCompare(String(b)));
+      }
+
+      return list;
     }
 
     let toastEl;
@@ -1539,10 +1565,38 @@
       const status = (d[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
       const notes = d.notes || '';
 
-      const cropYearOptions = buildOptions(STATE.optionLists.cropYears, cropYear, true);
-      const cropOptions = buildOptions(STATE.optionLists.crops, crop, false);
-      const trialTypeOptions = buildOptions(STATE.optionLists.trialTypes, trialType, false);
-      const opOptions = buildOptions(STATE.optionLists.operationTasks, operationTask, false);
+      // Pull predefined lists from Add Trial page if available,
+      // otherwise fall back to Firestore-derived STATE.optionLists.
+      const pre = (typeof window !== 'undefined' && window.FV_TRIAL_OPTIONS)
+        ? window.FV_TRIAL_OPTIONS
+        : {};
+
+      const baseYears = (pre && Array.isArray(pre.cropYears) && pre.cropYears.length)
+        ? pre.cropYears
+        : STATE.optionLists.cropYears;
+
+      const baseCrops = (pre && Array.isArray(pre.crops) && pre.crops.length)
+        ? pre.crops
+        : STATE.optionLists.crops;
+
+      const baseTrialTypes = (pre && Array.isArray(pre.trialTypes) && pre.trialTypes.length)
+        ? pre.trialTypes
+        : STATE.optionLists.trialTypes;
+
+      const baseOps = (pre && Array.isArray(pre.operationTasks) && pre.operationTasks.length)
+        ? pre.operationTasks
+        : STATE.optionLists.operationTasks;
+
+      // Merge the current value into each list and sort
+      const cropYearList = mergeCurrentIntoList(baseYears, cropYear, true);
+      const cropList     = mergeCurrentIntoList(baseCrops, crop, false);
+      const trialTypeList= mergeCurrentIntoList(baseTrialTypes, trialType, false);
+      const opList       = mergeCurrentIntoList(baseOps, operationTask, false);
+
+      const cropYearOptions = buildOptions(cropYearList, cropYear, true);
+      const cropOptions     = buildOptions(cropList, crop, false);
+      const trialTypeOptions= buildOptions(trialTypeList, trialType, false);
+      const opOptions       = buildOptions(opList, operationTask, false);
 
       grid.innerHTML = `
         <div>
@@ -1597,11 +1651,13 @@
             maxlength="120"
             value="${escapeHtml(check)}"
           />
-        </div>
+        </div`
 
+        + `
         <div>
           <div class="trial-detail-item-label">Status</div>
-          <select id="trialEditStatus" class="select trial-edit-select" data-fv-combo>
+          <!-- Renamed ID to avoid any special-casing in fv-combo logic -->
+          <select id="trialEditStatusCombo" class="select trial-edit-select" data-fv-combo>
             <option value="pending"${status === CONFIG.STATUS_PENDING ? ' selected' : ''}>Pending</option>
             <option value="active"${status === CONFIG.STATUS_ACTIVE ? ' selected' : ''}>Active</option>
             <option value="completed"${status === CONFIG.STATUS_COMPLETED ? ' selected' : ''}>Completed</option>
@@ -1661,7 +1717,7 @@
       const opEl         = $('#trialEditOperation');
       const treatmentEl  = $('#trialEditTreatment');
       const checkEl      = $('#trialEditCheck');
-      const statusEl     = $('#trialEditStatus');
+      const statusEl     = $('#trialEditStatusCombo');
       const notesEl      = $('#trialEditNotes');
 
       if(!cropYearEl || !cropEl || !trialTypeEl || !opEl || !treatmentEl || !checkEl || !statusEl || !notesEl){
@@ -1735,6 +1791,8 @@
 
         STATE.isEditingSetup = false;
 
+        // Refresh Firestore-derived lists as a fallback,
+        // but edit combos will prefer FV_TRIAL_OPTIONS if defined.
         rebuildOptionLists();
 
         const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
