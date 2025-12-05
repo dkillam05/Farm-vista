@@ -1542,7 +1542,7 @@
       panel.style.display = 'flex';
     }
 
-    function enterEditSetup(){
+        function enterEditSetup(){
       const id = STATE.selectedId;
       if(!id || !STATE.db) return;
       const panel = $('.trial-detail-panel');
@@ -1565,38 +1565,59 @@
       const status = (d[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
       const notes = d.notes || '';
 
-      // Pull predefined lists from Add Trial page if available,
-      // otherwise fall back to Firestore-derived STATE.optionLists.
-      const pre = (typeof window !== 'undefined' && window.FV_TRIAL_OPTIONS)
-        ? window.FV_TRIAL_OPTIONS
-        : {};
+      /* ==============================
+         A. PREDEFINED EDIT DROPDOWNS
+         ============================== */
 
-      const baseYears = (pre && Array.isArray(pre.cropYears) && pre.cropYears.length)
-        ? pre.cropYears
-        : STATE.optionLists.cropYears;
+      // 1) Crop Year:
+      //    Still built from Firestore (STATE.optionLists.cropYears),
+      //    because Add Trial also uses dynamic years.
+      const baseYears = Array.isArray(STATE.optionLists.cropYears)
+        ? STATE.optionLists.cropYears
+        : [];
 
-      const baseCrops = (pre && Array.isArray(pre.crops) && pre.crops.length)
-        ? pre.crops
-        : STATE.optionLists.crops;
+      // 2) EXACT predefined lists from "Add Trial" page:
 
-      const baseTrialTypes = (pre && Array.isArray(pre.trialTypes) && pre.trialTypes.length)
-        ? pre.trialTypes
-        : STATE.optionLists.trialTypes;
+      // Crop
+      const baseCrops = [
+        'Corn',
+        'Soybeans',
+        'Wheat'
+      ];
 
-      const baseOps = (pre && Array.isArray(pre.operationTasks) && pre.operationTasks.length)
-        ? pre.operationTasks
-        : STATE.optionLists.operationTasks;
+      // Trial Type
+      const baseTrialTypes = [
+        'Seed Varieties',
+        'Seed Treatments',
+        'Biologics',
+        'Nitrogen',
+        'Tillage',
+        'Fungicides'
+      ];
 
-      // Merge the current value into each list and sort
-      const cropYearList = mergeCurrentIntoList(baseYears, cropYear, true);
-      const cropList     = mergeCurrentIntoList(baseCrops, crop, false);
-      const trialTypeList= mergeCurrentIntoList(baseTrialTypes, trialType, false);
-      const opList       = mergeCurrentIntoList(baseOps, operationTask, false);
+      // Operation Task
+      const baseOps = [
+        'Planting',
+        'Spraying',
+        'Aerial Application',
+        'Tillage',
+        'Fertilizer Application'
+      ];
+
+      // Merge current values if they are missing from those lists
+      const cropYearList   = mergeCurrentIntoList(baseYears, cropYear, true);
+      const cropList       = mergeCurrentIntoList(baseCrops, crop, false);
+      const trialTypeList  = mergeCurrentIntoList(baseTrialTypes, trialType, false);
+      const opList         = mergeCurrentIntoList(baseOps, operationTask, false);
 
       const cropYearOptions = buildOptions(cropYearList, cropYear, true);
       const cropOptions     = buildOptions(cropList, crop, false);
       const trialTypeOptions= buildOptions(trialTypeList, trialType, false);
       const opOptions       = buildOptions(opList, operationTask, false);
+
+      /* ==========================================
+         B. BUILD EDIT GRID (Status = PLAIN SELECT)
+         ========================================== */
 
       grid.innerHTML = `
         <div>
@@ -1651,19 +1672,65 @@
             maxlength="120"
             value="${escapeHtml(check)}"
           />
-        </div`
+        </div>
 
-        + `
         <div>
           <div class="trial-detail-item-label">Status</div>
-          <!-- Renamed ID to avoid any special-casing in fv-combo logic -->
-          <select id="trialEditStatusCombo" class="select trial-edit-select" data-fv-combo>
+          <!-- NOTE:
+               No data-fv-combo here on purpose.
+               This keeps Status as a native select (styled with .select),
+               which avoids the fv-combo portal positioning bug that was
+               pinning the panel to the top of the screen. -->
+          <select id="trialEditStatusCombo" class="select trial-edit-select">
             <option value="pending"${status === CONFIG.STATUS_PENDING ? ' selected' : ''}>Pending</option>
             <option value="active"${status === CONFIG.STATUS_ACTIVE ? ' selected' : ''}>Active</option>
             <option value="completed"${status === CONFIG.STATUS_COMPLETED ? ' selected' : ''}>Completed</option>
           </select>
         </div>
       `;
+
+      // Upgrade the NEW selects to fv-combo (Crop Year, Crop, Trial Type, Operation)
+      if (window.FVCombo && typeof window.FVCombo.upgrade === 'function') {
+        window.FVCombo.upgrade(panel);
+      }
+
+      // Notes textarea
+      const notesBody = $('.trial-detail-notes-body', panel);
+      if(notesBody){
+        notesBody.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.id = 'trialEditNotes';
+        ta.className = 'trial-edit-notes';
+        ta.value = notes;
+        notesBody.appendChild(ta);
+      }
+
+      // Button states
+      const editBtn   = $('#trialEditBtn');
+      const saveBtn   = $('#trialSaveBtn');
+      const cancelBtn = $('#trialCancelBtn');
+      const completeBtn = $('#trialCompleteBtn');
+      const delBtn      = $('#trialDeleteBtn');
+
+      if(editBtn){
+        editBtn.style.display = 'none';
+      }
+      if(saveBtn){
+        saveBtn.style.display = 'inline-flex';
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+      if(cancelBtn){
+        cancelBtn.style.display = 'inline-flex';
+        cancelBtn.disabled = false;
+      }
+      if(completeBtn){
+        completeBtn.disabled = true;
+      }
+      if(delBtn){
+        delBtn.disabled = true;
+      }
+    }
 
       // Upgrade the new selects to fv-combo dropdowns
       if (window.FVCombo && typeof window.FVCombo.upgrade === 'function') {
