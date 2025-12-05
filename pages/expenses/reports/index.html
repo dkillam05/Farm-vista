@@ -1,63 +1,391 @@
-<!doctype html><html lang="en"><head>
-  <meta charset="utf-8"/>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
   <title>FarmVista • Expense Reports</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <meta name="theme-color" content="#3B7E46"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
 
   <!-- App includes (consistent across the site) -->
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
   <script src="/Farm-vista/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <script defer src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
-    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
-    .page-title{margin:0 0 8px 0;}
-    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: clamp(14px, 3vw, 22px);
+      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--ftr-h, 42px) + 96px) !important;
+    }
 
-    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
-    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
-      padding:14px 16px;border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
-    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
-    .section-body{padding:22px;display:grid;place-items:center;text-align:center;color:var(--muted,#67706B);}
+    .page-title {
+      margin: 0 0 4px 0;
+    }
+
+    .page-sub {
+      margin: 0 0 16px 0;
+      color: var(--muted, #67706B);
+      font-size: 0.95rem;
+    }
+
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .year-filter {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.95rem;
+      color: var(--muted, #67706B);
+    }
+
+    .year-filter label {
+      font-weight: 500;
+    }
+
+    .year-filter select {
+      min-width: 120px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle, #D3D7D4);
+      background: var(--surface, #FFFFFF);
+      font: inherit;
+    }
+
+    .section {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: var(--shadow, 0 8px 20px rgba(0, 0, 0, .08));
+      overflow: hidden;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(90deg, rgba(47, 108, 60, .12), transparent);
+    }
+
+    .section-head .icon {
+      width: 24px;
+      height: 24px;
+      color: #2F6C3C;
+      display: grid;
+      place-items: center;
+    }
+
+    .section-head-title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .section-head-title strong {
+      font-size: 0.98rem;
+    }
+
+    .section-head-title span {
+      font-size: 0.82rem;
+      color: var(--muted, #67706B);
+    }
+
+    .section-body {
+      padding: 16px;
+    }
+
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (min-width: 700px) {
+      .month-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (min-width: 960px) {
+      .month-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+
+    .month-card {
+      border: 1px solid var(--border-subtle, #D3D7D4);
+      border-radius: 14px;
+      background: var(--surface-elevated, #FFFFFF);
+      padding: 12px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: var(--shadow-soft, 0 6px 16px rgba(0, 0, 0, .04));
+      cursor: pointer;
+      transition:
+        transform 0.12s ease,
+        box-shadow 0.12s ease,
+        border-color 0.12s ease,
+        background 0.12s ease;
+    }
+
+    .month-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(47, 108, 60, 0.4);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.10);
+      background: linear-gradient(135deg, rgba(47, 108, 60, 0.04), rgba(255, 255, 255, 0.96));
+    }
+
+    .month-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(47, 108, 60, 0.35);
+      background: radial-gradient(circle at 30% 0%, rgba(255, 255, 255, 0.9), rgba(47, 108, 60, 0.12));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #2F6C3C;
+      flex-shrink: 0;
+    }
+
+    .month-text-main {
+      font-size: 0.98rem;
+      font-weight: 600;
+    }
+
+    .month-text-sub {
+      font-size: 0.8rem;
+      color: var(--muted, #67706B);
+    }
+
+    .month-meta {
+      font-size: 0.78rem;
+      color: var(--muted, #67706B);
+      margin-top: 4px;
+    }
+
+    .month-card-inner {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
   </style>
 
-  <script>(function(){
-    if(!customElements.get('fv-shell')){
-      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
-    }
-  })();</script>
-</head><body>
+  <script>
+    (function () {
+      if (!customElements.get('fv-shell')) {
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/fv-shell.js';
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+    })();
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const yearSelect = document.getElementById('reportYear');
+      const grid = document.querySelector('[data-month-grid]');
+
+      function populateYears() {
+        if (!yearSelect) return;
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const years = [currentYear, currentYear - 1, currentYear - 2];
+
+        years.forEach((year, idx) => {
+          const opt = document.createElement('option');
+          opt.value = String(year);
+          opt.textContent = String(year);
+          if (idx === 0) opt.selected = true;
+          yearSelect.appendChild(opt);
+        });
+      }
+
+      function handleMonthClick(evt) {
+        const card = evt.target.closest('[data-month]');
+        if (!card) return;
+        const year = yearSelect ? yearSelect.value : '';
+        const month = card.getAttribute('data-month');
+        if (!year || !month) return;
+
+        const url =
+          `/Farm-vista/pages/reports/reports-monthly-expenses.html?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
+        window.location.href = url;
+      }
+
+      populateYears();
+
+      if (grid) {
+        grid.addEventListener('click', handleMonthClick);
+      }
+    });
+  </script>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Expense Reports</h1>
-      <p class="page-sub">This is the landing page for Expenditures reporting. As we add reports and dashboards, they’ll show up here.</p>
+      <p class="page-sub">
+        Tap a month to open the detailed expenditures report for that period. Use the year filter to jump between years.
+      </p>
 
-      <section class="section" aria-label="Expense reports">
+      <div class="filter-row">
+        <div></div>
+        <div class="year-filter">
+          <label for="reportYear">Year</label>
+          <select id="reportYear" name="reportYear" data-fv-combo="true"></select>
+        </div>
+      </div>
+
+      <section class="section" aria-label="Monthly expense reports">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
             <!-- simple report icon (MIT/Tabler style) -->
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M9 3h6l4 4v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2z"/>
-              <path d="M14 3v4a2 2 0 0 0 2 2h4"/>
-              <path d="M9 13h6M9 17h3"/>
+              <path d="M9 3h6l4 4v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2z" />
+              <path d="M14 3v4a2 2 0 0 0 2 2h4" />
+              <path d="M9 13h6" />
+              <path d="M9 17h3" />
             </svg>
           </div>
-          <div><strong>Reports</strong></div>
+          <div class="section-head-title">
+            <strong>Monthly Expense Reports</strong>
+            <span>One report per month for the selected year.</span>
+          </div>
         </header>
+
         <div class="section-body">
-          <div>
-            <p style="margin:0 0 6px 0;">No reports are published yet.</p>
-            <p style="margin:0;">Builds will appear here when ready.</p>
+          <div class="month-grid" data-month-grid>
+            <!-- Jan -->
+            <article class="month-card" data-month="01">
+              <div class="month-avatar">JAN</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">January</div>
+                <div class="month-text-sub">Tap to open January expenses.</div>
+              </div>
+            </article>
+
+            <!-- Feb -->
+            <article class="month-card" data-month="02">
+              <div class="month-avatar">FEB</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">February</div>
+                <div class="month-text-sub">Tap to open February expenses.</div>
+              </div>
+            </article>
+
+            <!-- Mar -->
+            <article class="month-card" data-month="03">
+              <div class="month-avatar">MAR</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">March</div>
+                <div class="month-text-sub">Tap to open March expenses.</div>
+              </div>
+            </article>
+
+            <!-- Apr -->
+            <article class="month-card" data-month="04">
+              <div class="month-avatar">APR</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">April</div>
+                <div class="month-text-sub">Tap to open April expenses.</div>
+              </div>
+            </article>
+
+            <!-- May -->
+            <article class="month-card" data-month="05">
+              <div class="month-avatar">MAY</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">May</div>
+                <div class="month-text-sub">Tap to open May expenses.</div>
+              </div>
+            </article>
+
+            <!-- Jun -->
+            <article class="month-card" data-month="06">
+              <div class="month-avatar">JUN</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">June</div>
+                <div class="month-text-sub">Tap to open June expenses.</div>
+              </div>
+            </article>
+
+            <!-- Jul -->
+            <article class="month-card" data-month="07">
+              <div class="month-avatar">JUL</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">July</div>
+                <div class="month-text-sub">Tap to open July expenses.</div>
+              </div>
+            </article>
+
+            <!-- Aug -->
+            <article class="month-card" data-month="08">
+              <div class="month-avatar">AUG</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">August</div>
+                <div class="month-text-sub">Tap to open August expenses.</div>
+              </div>
+            </article>
+
+            <!-- Sep -->
+            <article class="month-card" data-month="09">
+              <div class="month-avatar">SEP</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">September</div>
+                <div class="month-text-sub">Tap to open September expenses.</div>
+              </div>
+            </article>
+
+            <!-- Oct -->
+            <article class="month-card" data-month="10">
+              <div class="month-avatar">OCT</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">October</div>
+                <div class="month-text-sub">Tap to open October expenses.</div>
+              </div>
+            </article>
+
+            <!-- Nov -->
+            <article class="month-card" data-month="11">
+              <div class="month-avatar">NOV</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">November</div>
+                <div class="month-text-sub">Tap to open November expenses.</div>
+              </div>
+            </article>
+
+            <!-- Dec -->
+            <article class="month-card" data-month="12">
+              <div class="month-avatar">DEC</div>
+              <div class="month-card-inner">
+                <div class="month-text-main">December</div>
+                <div class="month-text-sub">Tap to open December expenses.</div>
+              </div>
+            </article>
           </div>
         </div>
       </section>
     </div>
   </fv-shell>
-</body></html>
+</body>
+</html>
