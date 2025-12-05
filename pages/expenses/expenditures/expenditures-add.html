@@ -580,15 +580,22 @@
       collection,
       addDoc,
       getDocs,
-      serverTimestamp
+      serverTimestamp,
+      // new: storage + update helpers
+      getStorage,
+      ref,
+      uploadBytes,
+      getDownloadURL,
+      updateDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     (async () => {
       "use strict";
 
       await ready;
-      const auth = getAuth();
-      const db   = getFirestore();
+      const auth    = getAuth();
+      const db      = getFirestore();
+      const storage = getStorage();
 
       const OCR_URL = "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
 
@@ -608,6 +615,10 @@
             notes     = $("notes");
 
       submitted.value = todayISO();
+
+      /* Keep track of the receipt file so we can upload it on Save */
+      let receiptFileForStorage = null;
+      let receiptFileOriginalName = "";
 
       /* USD formatting */
       const usdFmt = new Intl.NumberFormat("en-US", {
@@ -981,7 +992,13 @@
 
         const fileForOcr = await prepareImageForOcr(rawFile);
 
-        const previewFile = fileForOcr || rawFile;
+        // Remember this so we can upload it when the user taps Save
+        receiptFileForStorage = fileForOcr || rawFile;
+        receiptFileOriginalName = rawFile && rawFile.name
+          ? rawFile.name
+          : (receiptFileForStorage && receiptFileForStorage.name) || "receipt";
+
+        const previewFile = receiptFileForStorage;
         thumb.innerHTML = "";
         if ((previewFile.type || "").startsWith("image/")) {
           const img = document.createElement("img");
@@ -1359,7 +1376,25 @@
         t.classList.add("show");
       }
 
-      // Save: show toast, then go back to previous page
+      function buildReceiptPath(docId, file) {
+        const safeId = String(docId || "unknown");
+        const name = (file && file.name) || "receipt";
+        const extMatch = name.match(/\.([a-z0-9]+)$/i);
+        let ext = extMatch ? extMatch[1].toLowerCase() : "";
+        const type = (file && file.type) || "";
+
+        if (!ext) {
+          if (type === "application/pdf") ext = "pdf";
+          else if (/jpe?g$/i.test(type))  ext = "jpg";
+          else if (/png$/i.test(type))    ext = "png";
+          else if (/heic|heif/i.test(type)) ext = "heic";
+          else ext = "bin";
+        }
+
+        return `expenditures/${safeId}/receipt-original.${ext}`;
+      }
+
+      // Save: upload receipt image (if any), write doc, toast, then go back
       $("btnSave").addEventListener("click", async () => {
         const submittedByName  = getSubmittedByName();
         const submittedByEmail = getSubmittedByEmail();
@@ -1413,10 +1448,40 @@
         };
 
         try {
-          await addDoc(collection(db, "expenditures"), {
+          // First create the Firestore doc
+          const docRef = await addDoc(collection(db, "expenditures"), {
             ...payload,
             createdAt: serverTimestamp()
           });
+
+          // If we have a receipt image/PDF, upload it and attach metadata
+          if (receiptFileForStorage) {
+            try {
+              const path = buildReceiptPath(docRef.id, receiptFileForStorage);
+              const meta = {
+                contentType: receiptFileForStorage.type || "application/octet-stream"
+              };
+              const storageRef = ref(storage, path);
+              await uploadBytes(storageRef, receiptFileForStorage, meta);
+              const url = await getDownloadURL(storageRef);
+
+              await updateDoc(docRef, {
+                receiptImage: {
+                  url,
+                  path,
+                  contentType: receiptFileForStorage.type || null,
+                  fileName: receiptFileForStorage.name || receiptFileOriginalName || null,
+                  size: typeof receiptFileForStorage.size === "number"
+                    ? receiptFileForStorage.size
+                    : null
+                }
+              });
+            } catch (uploadErr) {
+              console.warn("Failed to upload / attach receipt image:", uploadErr);
+              // Don't block save if only the image upload failed.
+            }
+          }
+
           showToast("Saved.");
           setTimeout(() => {
             window.history.back();
