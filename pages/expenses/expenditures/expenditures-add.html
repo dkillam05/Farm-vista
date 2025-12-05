@@ -13,9 +13,9 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- (Left in place, but not used directly now) -->
+  <!-- Kept for future / compatibility -->
   <script defer src="/Farm-vista/js/ocr-tesseract.js"></script>
-  <!-- fv-combo for Submitted By -->
+  <!-- fv-combo for Submitted By dropdown -->
   <script defer src="/Farm-vista/js/fv-combo.js"></script>
 
   <style>
@@ -505,765 +505,828 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <script>
-  (function () {
-    "use strict";
+  <!-- Main logic: modular Firebase (same pattern as grain bag put-down) -->
+  <script type="module">
+    import {
+      ready,
+      getAuth,
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
 
-    const OCR_URL = "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
+    (async () => {
+      "use strict";
 
-    const firebase = window.firebase || {};
-    const $ = id => document.getElementById(id);
-    const todayISO = () =>
-      new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-        .toISOString().slice(0, 10);
+      await ready;
+      const auth = getAuth();
+      const db   = getFirestore();
 
-    const whoSel   = $("whoSel"),
-          submitted = $("submitted"),
-          merchant  = $("merchant"),
-          rdate     = $("rdate"),
-          category  = $("category"),
-          total     = $("total"),
-          paymethod = $("paymethod"),
-          project   = $("project"),
-          notes     = $("notes");
+      const OCR_URL = "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
 
-    submitted.value = todayISO();
+      const $ = id => document.getElementById(id);
+      const todayISO = () =>
+        new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+          .toISOString().slice(0, 10);
 
-    /* USD formatting */
-    const usdFmt = new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD"
-    });
-    const parseUSD = str => {
-      if (!str) return "";
-      const n = Number(String(str).replace(/[^0-9.-]/g, ""));
-      return isFinite(n) ? n : "";
-    };
-    total.addEventListener("blur", e => {
-      const v = parseUSD(e.target.value);
-      e.target.value = v === "" ? "" : usdFmt.format(v);
-    });
+      const whoSel   = $("whoSel"),
+            submitted = $("submitted"),
+            merchant  = $("merchant"),
+            rdate     = $("rdate"),
+            category  = $("category"),
+            total     = $("total"),
+            paymethod = $("paymethod"),
+            project   = $("project"),
+            notes     = $("notes");
 
-    /* Load employees into Submitted By (fv-combo) — same pattern as grain bag form */
-    async function loadEmployeesCombo() {
-      try {
-        const auth = firebase.auth ? firebase.auth() : null;
-        const currentUser = auth && auth.currentUser;
-        const currentEmail = currentUser && currentUser.email
-          ? currentUser.email.toLowerCase()
-          : "";
-        const currentName =
-          (currentUser && (currentUser.displayName || currentUser.email)) ||
-          "";
+      submitted.value = todayISO();
 
-        // Fallback: at minimum, show current user
-        function setFallback() {
+      /* USD formatting */
+      const usdFmt = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD"
+      });
+      const parseUSD = str => {
+        if (!str) return "";
+        const n = Number(String(str).replace(/[^0-9.-]/g, ""));
+        return isFinite(n) ? n : "";
+      };
+      total.addEventListener("blur", e => {
+        const v = parseUSD(e.target.value);
+        e.target.value = v === "" ? "" : usdFmt.format(v);
+      });
+
+      /* Submitted By — same pattern as grain bag put-down */
+      async function loadEmployeesCombo() {
+        try {
+          const snap = await getDocs(collection(db, 'employees'));
+          const list = [];
+          snap.forEach(d => {
+            const x = d.data() || {};
+            list.push({
+              id: d.id,
+              name: x.name || x.displayName || x.fullName || x.employeeName || x.email || d.id,
+              email: (x.email || d.id || "").toLowerCase()
+            });
+          });
+          list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
           whoSel.innerHTML = "";
-          if (currentName) {
-            whoSel.appendChild(new Option(currentName, currentEmail || currentName));
-            whoSel.selectedIndex = 0;
+          // First blank option for "-- Select --"
+          whoSel.appendChild(new Option("— Select —", ""));
+
+          list.forEach(emp => {
+            const opt = new Option(emp.name, emp.email || emp.id);
+            whoSel.appendChild(opt);
+          });
+
+          const meEmail = (auth.currentUser?.email || "").toLowerCase();
+          let chosen = null;
+          if (meEmail) {
+            chosen = list.find(e => (e.email || "").toLowerCase() === meEmail) || null;
+          }
+
+          if (chosen) {
+            whoSel.value = chosen.email || chosen.id;
+          } else if (list.length) {
+            // fallback to first employee if no email match
+            const first = list[0];
+            whoSel.value = first.email || first.id;
+          }
+
+          // Fire change so fv-combo updates its visible label
+          whoSel.dispatchEvent(new Event("change", { bubbles: true }));
+
+        } catch (err) {
+          console.warn("Failed to load employees for Submitted By:", err);
+          // Fallback to current user only
+          const meName  = auth.currentUser?.displayName || auth.currentUser?.email || "Unknown user";
+          const meEmail = (auth.currentUser?.email || "").toLowerCase();
+          whoSel.innerHTML = "";
+          whoSel.appendChild(new Option(meName, meEmail || meName));
+          whoSel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+
+      function getSubmittedByName() {
+        if (!whoSel) return "";
+        const opt = whoSel.options[whoSel.selectedIndex];
+        if (opt && opt.text) return opt.text.trim();
+        return whoSel.value || "";
+      }
+      function getSubmittedByEmail() {
+        if (!whoSel) return "";
+        return (whoSel.value || "").trim();
+      }
+
+      /* ======= Receipt capture + image normalization (HEIC → JPEG, resize) ======= */
+
+      const btnTake    = $("btnTake"),
+            btnImport  = $("btnImport"),
+            btnReplace = $("btnReplace");
+      const camInput   = $("camInput"),
+            fileInput  = $("fileInput");
+      const preview    = $("preview"),
+            thumb      = $("thumb"),
+            ocrStatus  = $("ocrStatus");
+
+      // Camera modal elements
+      const cameraModal    = $("cameraModal");
+      const cameraVideo    = $("cameraVideo");
+      const cameraFrame    = $("cameraFrame");
+      const cameraCloseTop = $("cameraCloseTop");
+      const cameraCancel   = $("cameraCancel");
+      const cameraCapture  = $("cameraCapture");
+      const torchToggle    = $("torchToggle");
+      const torchLabel     = $("torchLabel");
+      const torchNote      = $("torchNote");
+
+      let camStream = null;
+      let camTrack  = null;
+      let torchOn   = false;
+      let lastStableTime = 0;
+      let lastBox = null;
+
+      function readFileAsDataURL(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = err => reject(err);
+          img.src = src;
+        });
+      }
+
+      async function prepareImageForOcr(rawFile) {
+        if (!rawFile) return null;
+
+        const name = rawFile.name || "receipt";
+        const type = rawFile.type || "";
+        const lowerName = name.toLowerCase();
+
+        const isPdf = type === "application/pdf" || /\.pdf$/i.test(lowerName);
+        if (isPdf) {
+          // PDFs go as-is
+          return rawFile;
+        }
+
+        const isImage = type.startsWith("image/");
+        if (!isImage) {
+          // Unknown non-image: send as-is, let server decide
+          return rawFile;
+        }
+
+        const isHeic =
+          type === "image/heic" ||
+          type === "image/heif" ||
+          /\.heic$/i.test(lowerName) ||
+          /\.heif$/i.test(lowerName);
+
+        try {
+          const dataUrl = await readFileAsDataURL(rawFile);
+          const img = await loadImage(dataUrl);
+          const srcW = img.naturalWidth || img.width;
+          const srcH = img.naturalHeight || img.height;
+
+          // Very simple "too small" check; still allow but warn in console
+          const longest = Math.max(srcW, srcH);
+          if (longest < 900) {
+            console.warn("Receipt image is quite small for OCR:", srcW, "x", srcH);
+          }
+
+          // Resize to a max side (helps with huge iPhone pics)
+          const MAX_SIDE = 2200;
+          let scale = 1;
+          if (longest > MAX_SIDE) {
+            scale = MAX_SIDE / longest;
+          }
+          const dstW = Math.round(srcW * scale);
+          const dstH = Math.round(srcH * scale);
+
+          const canvas = document.createElement("canvas");
+          canvas.width = dstW;
+          canvas.height = dstH;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, dstW, dstH);
+
+          // Optional: simple brightness sanity check on center patch
+          try {
+            const sz = 80;
+            const sx = Math.max(0, (dstW - sz) / 2);
+            const sy = Math.max(0, (dstH - sz) / 2);
+            const patch = ctx.getImageData(sx, sy, Math.min(sz, dstW), Math.min(sz, dstH));
+            let sum = 0;
+            const data = patch.data;
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i], g = data[i+1], b = data[i+2];
+              const lum = 0.299*r + 0.587*g + 0.114*b;
+              sum += lum;
+            }
+            const avg = sum / (data.length / 4);
+            if (avg < 40) {
+              console.warn("Image looks very dark; OCR may struggle (avg brightness:", avg, ")");
+            } else if (avg > 230) {
+              console.warn("Image looks very bright/washed out; OCR may struggle (avg brightness:", avg, ")");
+            }
+          } catch (e) {
+            // not fatal
+          }
+
+          const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(b => b ? resolve(b) : reject(new Error("JPEG encode failed")),
+              "image/jpeg", 0.9);
+          });
+
+          const safeName = name.replace(/\.[^.]+$/, "") + ".jpg";
+          return new File([blob], safeName, { type: "image/jpeg" });
+
+        } catch (err) {
+          console.warn("prepareImageForOcr failed, sending raw file:", err);
+          return rawFile;
+        }
+      }
+
+      // ===== Camera modal logic =====
+      async function openCameraModal() {
+        torchOn = false;
+        if (camStream) {
+          stopCameraStream();
+        }
+        torchToggle.hidden = true;
+        torchNote.textContent = "";
+
+        cameraModal.hidden = false;
+
+        try {
+          camStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+        } catch (err) {
+          cameraModal.hidden = true;
+          throw err;
+        }
+
+        cameraVideo.srcObject = camStream;
+        camTrack = camStream.getVideoTracks()[0] || null;
+
+        try {
+          const caps = camTrack && camTrack.getCapabilities ? camTrack.getCapabilities() : null;
+          if (caps && "torch" in caps) {
+            torchToggle.hidden = false;
+            torchOn = false;
+            torchLabel.textContent = "Flashlight";
+            torchNote.textContent = "";
           } else {
-            whoSel.appendChild(new Option("Unknown user", ""));
+            torchToggle.hidden = true;
+            torchNote.textContent = "Flashlight control isn’t available on this device/browser.";
+          }
+        } catch (e) {
+          torchToggle.hidden = true;
+          torchNote.textContent = "Flashlight control isn’t available here.";
+        }
+
+        lastStableTime = performance.now();
+        lastBox = null;
+        requestAnimationFrame(checkFrameStability);
+      }
+
+      function stopCameraStream() {
+        if (camStream) {
+          camStream.getTracks().forEach(t => t.stop());
+        }
+        camStream = null;
+        camTrack = null;
+        torchOn = false;
+        cameraVideo.srcObject = null;
+      }
+
+      async function toggleTorch() {
+        if (!camTrack) return;
+        try {
+          const caps = camTrack.getCapabilities ? camTrack.getCapabilities() : null;
+          if (!caps || !("torch" in caps)) {
+            torchNote.textContent = "Flashlight not supported on this device.";
+            return;
+          }
+          torchOn = !torchOn;
+          await camTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+          torchToggle.classList.toggle("active", torchOn);
+          torchLabel.textContent = torchOn ? "Flashlight (On)" : "Flashlight";
+        } catch (e) {
+          console.warn("Torch toggle failed:", e);
+          torchNote.textContent = "Could not control flashlight. Your device may not allow it from the browser.";
+          torchOn = false;
+          torchToggle.classList.remove("active");
+        }
+      }
+
+      function closeCameraModal() {
+        stopCameraStream();
+        cameraModal.hidden = true;
+        cameraFrame.classList.remove("stable");
+      }
+
+      function checkFrameStability(now) {
+        if (!camStream || cameraModal.hidden) return;
+        const rect = cameraFrame.getBoundingClientRect();
+        const box = { w: rect.width, h: rect.height };
+        if (lastBox) {
+          const dw = Math.abs(box.w - lastBox.w);
+          const dh = Math.abs(box.h - lastBox.h);
+          const moved = dw > 2 || dh > 2;
+          if (!moved) {
+            if (now - lastStableTime > 800) {
+              cameraFrame.classList.add("stable");
+            }
+          } else {
+            cameraFrame.classList.remove("stable");
+            lastStableTime = now;
+          }
+        } else {
+          lastBox = box;
+          lastStableTime = now;
+        }
+        lastBox = box;
+        requestAnimationFrame(checkFrameStability);
+      }
+
+      async function captureFromCamera() {
+        if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) {
+          return;
+        }
+        try {
+          const canvas = document.createElement("canvas");
+          const vw = cameraVideo.videoWidth;
+          const vh = cameraVideo.videoHeight;
+
+          const aspect = 3 / 2;
+          let cw = vw * 0.8;
+          let ch = cw / aspect;
+          if (ch > vh) {
+            ch = vh * 0.8;
+            cw = ch * aspect;
+          }
+          const cx = (vw - cw) / 2;
+          const cy = (vh - ch) / 2;
+
+          canvas.width = cw;
+          canvas.height = ch;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(cameraVideo, cx, cy, cw, ch, 0, 0, cw, ch);
+
+          const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(b => b ? resolve(b) : reject(new Error("Capture failed")),
+              "image/jpeg", 0.9);
+          });
+
+          const capturedFile = new File([blob], "receipt-camera.jpg", { type: "image/jpeg" });
+          closeCameraModal();
+          await handleFiles([capturedFile]);
+        } catch (err) {
+          console.error("Camera capture failed:", err);
+          closeCameraModal();
+        }
+      }
+
+      torchToggle.addEventListener("click", toggleTorch);
+      cameraCloseTop.addEventListener("click", closeCameraModal);
+      cameraCancel.addEventListener("click", closeCameraModal);
+      cameraCapture.addEventListener("click", captureFromCamera);
+
+      btnTake.addEventListener("click", () => {
+        if (navigator.mediaDevices?.getUserMedia) {
+          openCameraModal().catch(err => {
+            console.warn("Camera modal failed, falling back to input:", err);
+            camInput.click();
+          });
+        } else {
+          camInput.click();
+        }
+      });
+      btnImport.addEventListener("click", () => fileInput.click());
+      btnReplace.addEventListener("click", () => fileInput.click());
+
+      camInput.addEventListener("change", () => { handleFiles(camInput.files); });
+      fileInput.addEventListener("change", () => { handleFiles(fileInput.files); });
+
+      async function handleFiles(list) {
+        if (!list || !list.length) return;
+        const rawFile = list[0];
+
+        // Normalize image before OCR (HEIC → JPEG, resize, etc.)
+        const fileForOcr = await prepareImageForOcr(rawFile);
+
+        // Thumb preview (use normalized file if image, else show name)
+        const previewFile = fileForOcr || rawFile;
+        thumb.innerHTML = "";
+        if ((previewFile.type || "").startsWith("image/")) {
+          const img = document.createElement("img");
+          img.alt = previewFile.name;
+          img.src = URL.createObjectURL(previewFile);
+          thumb.appendChild(img);
+        } else {
+          const div = document.createElement("div");
+          div.textContent = previewFile.name;
+          thumb.appendChild(div);
+        }
+
+        preview.hidden = false;
+        btnReplace.hidden = false;
+
+        await runCloudOCR(fileForOcr);
+      }
+
+      function parseLines(text) {
+        return text
+          .split(/\r?\n/)
+          .map(l => l.trim())
+          .filter(Boolean);
+      }
+
+      function pickVendor(fields, text) {
+        const f = fields || {};
+        const structuredVendor =
+          f["supplier_name"] ||
+          f["merchant_name"] ||
+          f["vendor_name"];
+        if (structuredVendor) return structuredVendor;
+
+        const lines = parseLines(text);
+        const skipWords = [
+          "invoice", "invoice n", "receipt", "paid on",
+          "payment method", "amount due", "total",
+          "thanks for your business", "thank you for your business",
+          "customer's address", "customer address", "designation",
+          "unit price", "quantity", "balance due"
+        ];
+        for (const line of lines) {
+          const low = line.toLowerCase();
+          if (skipWords.some(w => low.includes(w))) continue;
+          if (/^\d/.test(line)) continue;
+          return line;
+        }
+        return "";
+      }
+
+      function pickDate(fields, text) {
+        const f = fields || {};
+        const structured = (f["receipt_date"] || f["invoice_date"] || "").trim();
+        if (structured) {
+          if (/^\d{4}-\d{2}-\d{2}/.test(structured)) return structured.slice(0, 10);
+        }
+
+        const lines = parseLines(text);
+        const datePatterns = [
+          /\b\d{4}-\d{2}-\d{2}\b/,
+          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/
+        ];
+        for (const line of lines) {
+          for (const r of datePatterns) {
+            const m = line.match(r);
+            if (m) {
+              const raw = m[0];
+              if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+              const parts = raw.replace(/-/g, "/").split("/");
+              if (parts.length === 3) {
+                const [a, b, c] = parts;
+                if (a.length === 4) {
+                  return [a, b.padStart(2, "0"), c.padStart(2, "0")].join("-");
+                } else {
+                  const year = c.length === 2 ? "20" + c : c;
+                  return [year, a.padStart(2, "0"), b.padStart(2, "0")].join("-");
+                }
+              }
+            }
+          }
+        }
+        return "";
+      }
+
+      function pickTotals(fields, text) {
+        const f = fields || {};
+        let totalField = (f["total_amount"] || "").trim();
+        let taxField   = (f["tax_amount"] || "").trim();
+        let currency   = (f["currency"] || f["currency_code"] || "").toUpperCase();
+
+        const lines = parseLines(text);
+        const moneyRegex = /(\d+(?:[.,]\d{2})?)/;
+
+        const moneyCandidates = [];
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i];
+          if (/[€$]|usd|eur|gbp/i.test(l)) {
+            const m = l.match(moneyRegex);
+            if (m) {
+              const val = parseFloat(m[1].replace(",", "."));
+              if (!isNaN(val)) {
+                moneyCandidates.push({
+                  value: val,
+                  raw: m[1],
+                  line: l.toLowerCase(),
+                  idx: i
+                });
+              }
+            }
+          }
+        }
+        const maxCandidate = moneyCandidates.reduce(
+          (max, c) => c.value > max ? c.value : max,
+          0
+        );
+
+        let textTotal = null;
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i].toLowerCase();
+          if (
+            l.includes("amount due") ||
+            l.includes("balance due") ||
+            l === "total" ||
+            l.startsWith("total ")
+          ) {
+            const windowLines = [lines[i], lines[i + 1], lines[i + 2]];
+            for (const wl of windowLines) {
+              if (!wl) continue;
+              if (!/[€$]|usd|eur|gbp/i.test(wl)) continue;
+              const m = wl.match(moneyRegex);
+              if (m) {
+                const v = parseFloat(m[1].replace(",", "."));
+                if (!isNaN(v)) {
+                  textTotal = { num: v, raw: m[1] };
+                  break;
+                }
+              }
+            }
+            if (textTotal) break;
           }
         }
 
-        if (!firebase.firestore) {
-          setFallback();
-          return;
+        let chosenTotal = "";
+        if (totalField) {
+          const parsed = parseFloat(totalField.replace(",", "."));
+          if (!isNaN(parsed) && parsed > 0) {
+            if (!maxCandidate || parsed >= maxCandidate * 0.5) {
+              chosenTotal = totalField;
+            }
+          }
+        }
+        if (!chosenTotal && textTotal) {
+          chosenTotal = textTotal.raw;
         }
 
-        const db = firebase.firestore();
-        const snap = await db.collection("employees").get();
-        const opts = [];
-
-        snap.forEach(doc => {
-          const data = doc.data() || {};
-          const display =
-            data.name ||
-            data.displayName ||
-            data.fullName ||
-            data.employeeName ||
-            data.email ||
-            doc.id;
-          const email = (data.email || doc.id || "").toLowerCase();
-          opts.push({
-            value: email || doc.id || display,
-            label: display
-          });
-        });
-
-        whoSel.innerHTML = "";
-        whoSel.appendChild(new Option("— Select —", ""));
-
-        opts
-          .sort((a, b) => a.label.localeCompare(b.label))
-          .forEach(o => {
-            whoSel.appendChild(new Option(o.label, o.value));
-          });
-
-        // Default to logged-in user if present (same idea as chosen.sub on grain bag)
-        if (currentEmail) {
-          for (let i = 0; i < whoSel.options.length; i++) {
-            const opt = whoSel.options[i];
-            if (!opt.value) continue;
-            if (opt.value.toLowerCase() === currentEmail) {
-              whoSel.selectedIndex = i;
+        let chosenTax = taxField;
+        if (!chosenTax) {
+          for (const line of lines) {
+            if (!/tax|vat/i.test(line)) continue;
+            if (!/[€$]|usd|eur|gbp/i.test(line)) continue;
+            const m = line.match(moneyRegex);
+            if (m) {
+              chosenTax = m[1];
               break;
             }
           }
         }
 
-        // If nothing selected and we still have a current user, collapse to them only
-        if (!whoSel.value && currentName) {
-          whoSel.innerHTML = "";
-          whoSel.appendChild(new Option(currentName, currentEmail || currentName));
-          whoSel.selectedIndex = 0;
-        }
-      } catch (err) {
-        console.warn("Failed to load employees for Submitted By:", err);
-        // fallback to current user if possible
-        const auth = firebase.auth ? firebase.auth() : null;
-        const currentUser = auth && auth.currentUser;
-        const currentEmail = currentUser && currentUser.email
-          ? currentUser.email.toLowerCase()
-          : "";
-        const currentName =
-          (currentUser && (currentUser.displayName || currentUser.email)) ||
-          "Unknown user";
-        whoSel.innerHTML = "";
-        whoSel.appendChild(new Option(currentName, currentEmail || currentName));
-        whoSel.selectedIndex = 0;
-      }
-    }
-
-    function initEmployeesCombo() {
-      try {
-        const auth = firebase.auth ? firebase.auth() : null;
-        if (auth) {
-          if (auth.currentUser) {
-            loadEmployeesCombo();
-          } else {
-            auth.onAuthStateChanged(() => {
-              loadEmployeesCombo();
-            });
+        if (!currency) {
+          for (const c of moneyCandidates) {
+            if (/usd|\$/i.test(c.line)) { currency = "USD"; break; }
+            if (/eur|€/.test(c.line))   { currency = "EUR"; break; }
+            if (/gbp|£/i.test(c.line))  { currency = "GBP"; break; }
           }
         }
-      } catch (e) {
-        console.warn("initEmployeesCombo error:", e);
-      }
-    }
 
-    function getSubmittedByName() {
-      if (!whoSel) return "";
-      const opt = whoSel.options[whoSel.selectedIndex];
-      if (opt && opt.text && opt.value) return opt.text.trim();
-      if (opt && opt.text) return opt.text.trim();
-      return whoSel.value || "";
-    }
-    function getSubmittedByEmail() {
-      if (!whoSel) return "";
-      return (whoSel.value || "").trim();
-    }
-
-    /* Receipt capture (with camera overlay + torch where supported) */
-    const btnTake   = $("btnTake"),
-          btnImport = $("btnImport"),
-          btnReplace= $("btnReplace");
-    const camInput  = $("camInput"),
-          fileInput = $("fileInput");
-    const preview   = $("preview"),
-          thumb     = $("thumb"),
-          ocrStatus = $("ocrStatus");
-    let file = null;
-
-    // Camera modal elements
-    const cameraModal   = $("cameraModal");
-    const cameraVideo   = $("cameraVideo");
-    const cameraFrame   = $("cameraFrame");
-    const cameraCloseTop= $("cameraCloseTop");
-    const cameraCancel  = $("cameraCancel");
-    const cameraCapture = $("cameraCapture");
-    const torchToggle   = $("torchToggle");
-    const torchLabel    = $("torchLabel");
-    const torchNote     = $("torchNote");
-
-    let camStream = null;
-    let camTrack  = null;
-    let torchOn   = false;
-    let lastFrameTime = 0;
-    let lastStableTime = 0;
-    let lastCenterBox = null;
-
-    btnTake.addEventListener("click", () => {
-      // Try rich camera experience first; fall back to input if not supported.
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        openCameraModal().catch(err => {
-          console.warn("Camera modal failed, falling back to input:", err);
-          camInput.click();
-        });
-      } else {
-        camInput.click();
-      }
-    });
-    btnImport.addEventListener("click", () => fileInput.click());
-    btnReplace.addEventListener("click", () => fileInput.click());
-
-    camInput.addEventListener("change", () => handleFiles(camInput.files));
-    fileInput.addEventListener("change", () => handleFiles(fileInput.files));
-
-    async function openCameraModal() {
-      torchOn = false;
-      if (camStream) {
-        stopCameraStream();
-      }
-      torchToggle.hidden = true;
-      torchNote.textContent = "";
-
-      cameraModal.hidden = false;
-
-      try {
-        camStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
-      } catch (err) {
-        cameraModal.hidden = true;
-        throw err;
+        return { total: chosenTotal, tax: chosenTax, currency };
       }
 
-      cameraVideo.srcObject = camStream;
-      camTrack = camStream.getVideoTracks()[0] || null;
+      function guessCategoryFromText(text) {
+        if (/diesel|gas|fuel|pump/i.test(text)) return "Fuel";
+        if (/hotel|motel|inn|lodging/i.test(text)) return "Lodging";
+        if (/restaurant|cafe|food|meal/i.test(text)) return "Meals";
+        if (/toll|fee/i.test(text)) return "Fees/Tolls";
+        if (/parts|repair|service/i.test(text)) return "Repairs/Parts";
+        if (/supply|supplies/i.test(text)) return "Supplies";
+        return "";
+      }
 
-      // Torch capability (Android Chrome mostly; iOS Safari will usually say no)
-      try {
-        const caps = camTrack && camTrack.getCapabilities ? camTrack.getCapabilities() : null;
-        if (caps && "torch" in caps) {
-          torchToggle.hidden = false;
-          torchOn = false;
-          torchLabel.textContent = "Flashlight";
-          torchNote.textContent = "";
-        } else {
-          torchToggle.hidden = true;
-          torchNote.textContent = "Flashlight control isn’t available on this device/browser.";
+      function pickPaymentMethod(fields, text) {
+        const f = fields || {};
+        const val = (f["payment_type"] || "").toLowerCase();
+        const source = (val || text.toLowerCase());
+        if (/visa|mastercard|amex|american express|discover|card|credit|debit/i.test(source)) {
+          return "card";
         }
-      } catch (e) {
-        torchToggle.hidden = true;
-        torchNote.textContent = "Flashlight control isn’t available here.";
-      }
-
-      // Simple "stability" hint: if video frames are steady, glow the frame.
-      lastFrameTime = performance.now();
-      lastStableTime = lastFrameTime;
-      lastCenterBox = null;
-      requestAnimationFrame(checkFrameStability);
-    }
-
-    function stopCameraStream() {
-      if (camStream) {
-        camStream.getTracks().forEach(t => t.stop());
-      }
-      camStream = null;
-      camTrack = null;
-      torchOn = false;
-      cameraVideo.srcObject = null;
-    }
-
-    async function toggleTorch() {
-      if (!camTrack) return;
-      try {
-        const caps = camTrack.getCapabilities ? camTrack.getCapabilities() : null;
-        if (!caps || !("torch" in caps)) {
-          torchNote.textContent = "Flashlight not supported on this device.";
-          return;
+        if (/cash|reimburse/i.test(source)) {
+          return "reimb";
         }
-        torchOn = !torchOn;
-        await camTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
-        torchToggle.classList.toggle("active", torchOn);
-        torchLabel.textContent = torchOn ? "Flashlight (On)" : "Flashlight";
-      } catch (e) {
-        console.warn("Torch toggle failed:", e);
-        torchNote.textContent = "Could not control flashlight. Your device may not allow it from the browser.";
-        torchOn = false;
-        torchToggle.classList.remove("active");
-      }
-    }
-
-    torchToggle.addEventListener("click", toggleTorch);
-
-    function closeCameraModal() {
-      stopCameraStream();
-      cameraModal.hidden = true;
-    }
-
-    cameraCloseTop.addEventListener("click", closeCameraModal);
-    cameraCancel.addEventListener("click", closeCameraModal);
-
-    cameraCapture.addEventListener("click", async () => {
-      if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) {
-        return;
-      }
-      try {
-        const canvas = document.createElement("canvas");
-        const vw = cameraVideo.videoWidth;
-        const vh = cameraVideo.videoHeight;
-
-        // Capture centered region roughly matching the framing box ratio
-        const aspect = 3 / 2;
-        let cw = vw * 0.8;
-        let ch = cw / aspect;
-        if (ch > vh) {
-          ch = vh * 0.8;
-          cw = ch * aspect;
-        }
-        const cx = (vw - cw) / 2;
-        const cy = (vh - ch) / 2;
-
-        canvas.width = cw;
-        canvas.height = ch;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(cameraVideo, cx, cy, cw, ch, 0, 0, cw, ch);
-
-        const blob = await new Promise((resolve, reject) => {
-          canvas.toBlob(b => b ? resolve(b) : reject(new Error("Capture failed")), "image/jpeg", 0.9);
-        });
-
-        const capturedFile = new File([blob], "receipt-camera.jpg", { type: "image/jpeg" });
-        closeCameraModal();
-        handleFiles([capturedFile]);
-      } catch (err) {
-        console.error("Camera capture failed:", err);
-        closeCameraModal();
-      }
-    });
-
-    // Very lightweight "stability" signal: if view hasn't resized recently, mark frame as stable.
-    function checkFrameStability(now) {
-      if (!camStream || cameraModal.hidden) return;
-      const rect = cameraFrame.getBoundingClientRect();
-      const box = { w: rect.width, h: rect.height };
-      if (lastCenterBox) {
-        const dw = Math.abs(box.w - lastCenterBox.w);
-        const dh = Math.abs(box.h - lastCenterBox.h);
-        const moved = dw > 2 || dh > 2; // crude proxy for motion / zoom
-        if (!moved) {
-          if (now - lastStableTime > 800) {
-            cameraFrame.classList.add("stable");
-          }
-        } else {
-          cameraFrame.classList.remove("stable");
-          lastStableTime = now;
-        }
-      } else {
-        lastCenterBox = box;
-        lastStableTime = now;
-      }
-      lastCenterBox = box;
-      requestAnimationFrame(checkFrameStability);
-    }
-
-    function handleFiles(list) {
-      if (!list || !list.length) return;
-      file = list[0];
-
-      thumb.innerHTML = "";
-      if (file.type.startsWith("image/")) {
-        const img = document.createElement("img");
-        img.alt = file.name;
-        img.src = URL.createObjectURL(file);
-        thumb.appendChild(img);
-      } else {
-        const div = document.createElement("div");
-        div.textContent = file.name;
-        thumb.appendChild(div);
-      }
-      preview.hidden = false;
-      btnReplace.hidden = false;
-
-      runCloudOCR(file);
-    }
-
-    function parseLines(text) {
-      return text
-        .split(/\r?\n/)
-        .map(l => l.trim())
-        .filter(Boolean);
-    }
-
-    function pickVendor(fields, text) {
-      const f = fields || {};
-      const structuredVendor =
-        f["supplier_name"] ||
-        f["merchant_name"] ||
-        f["vendor_name"];
-      if (structuredVendor) return structuredVendor;
-
-      const lines = parseLines(text);
-      const skipWords = [
-        "invoice", "invoice n", "receipt", "paid on",
-        "payment method", "amount due", "total",
-        "thanks for your business", "thank you for your business",
-        "customer's address", "customer address", "designation",
-        "unit price", "quantity", "balance due"
-      ];
-      for (const line of lines) {
-        const low = line.toLowerCase();
-        if (skipWords.some(w => low.includes(w))) continue;
-        if (/^\d/.test(line)) continue;
-        return line;
-      }
-      return "";
-    }
-
-    function pickDate(fields, text) {
-      const f = fields || {};
-      const structured = (f["receipt_date"] || f["invoice_date"] || "").trim();
-      if (structured) {
-        if (/^\d{4}-\d{2}-\d{2}/.test(structured)) return structured.slice(0, 10);
+        return "";
       }
 
-      const lines = parseLines(text);
-      const datePatterns = [
-        /\b\d{4}-\d{2}-\d{2}\b/,
-        /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/
-      ];
-      for (const line of lines) {
-        for (const r of datePatterns) {
-          const m = line.match(r);
-          if (m) {
-            const raw = m[0];
-            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-            const parts = raw.replace(/-/g, "/").split("/");
-            if (parts.length === 3) {
-              const [a, b, c] = parts;
-              if (a.length === 4) {
-                return [a, b.padStart(2, "0"), c.padStart(2, "0")].join("-");
-              } else {
-                const year = c.length === 2 ? "20" + c : c;
-                return [year, a.padStart(2, "0"), b.padStart(2, "0")].join("-");
-              }
-            }
-          }
-        }
-      }
-      return "";
-    }
-
-    function pickTotals(fields, text) {
-      const f = fields || {};
-      let totalField = (f["total_amount"] || "").trim();
-      let taxField   = (f["tax_amount"] || "").trim();
-      let currency   = (f["currency"] || f["currency_code"] || "").toUpperCase();
-
-      const lines = parseLines(text);
-      const moneyRegex = /(\d+(?:[.,]\d{2})?)/;
-
-      const moneyCandidates = [];
-      for (let i = 0; i < lines.length; i++) {
-        const l = lines[i];
-        if (/[€$]|usd|eur|gbp/i.test(l)) {
-          const m = l.match(moneyRegex);
-          if (m) {
-            const val = parseFloat(m[1].replace(",", "."));
-            if (!isNaN(val)) {
-              moneyCandidates.push({
-                value: val,
-                raw: m[1],
-                line: l.toLowerCase(),
-                idx: i
-              });
-            }
-          }
-        }
-      }
-      const maxCandidate = moneyCandidates.reduce(
-        (max, c) => c.value > max ? c.value : max,
-        0
-      );
-
-      let textTotal = null;
-      for (let i = 0; i < lines.length; i++) {
-        const l = lines[i].toLowerCase();
-        if (
-          l.includes("amount due") ||
-          l.includes("balance due") ||
-          l === "total" ||
-          l.startsWith("total ")
-        ) {
-          const windowLines = [lines[i], lines[i + 1], lines[i + 2]];
-          for (const wl of windowLines) {
-            if (!wl) continue;
-            if (!/[€$]|usd|eur|gbp/i.test(wl)) continue;
-            const m = wl.match(moneyRegex);
-            if (m) {
-              const v = parseFloat(m[1].replace(",", "."));
-              if (!isNaN(v)) {
-                textTotal = { num: v, raw: m[1] };
-                break;
-              }
-            }
-          }
-          if (textTotal) break;
-        }
-      }
-
-      let chosenTotal = "";
-      if (totalField) {
-        const parsed = parseFloat(totalField.replace(",", "."));
-        if (!isNaN(parsed) && parsed > 0) {
-          if (!maxCandidate || parsed >= maxCandidate * 0.5) {
-            chosenTotal = totalField;
-          }
-        }
-      }
-      if (!chosenTotal && textTotal) {
-        chosenTotal = textTotal.raw;
-      }
-
-      let chosenTax = taxField;
-      if (!chosenTax) {
-        for (const line of lines) {
-          if (!/tax|vat/i.test(line)) continue;
-          if (!/[€$]|usd|eur|gbp/i.test(line)) continue;
-          const m = line.match(moneyRegex);
-          if (m) {
-            chosenTax = m[1];
-            break;
-          }
-        }
-      }
-
-      if (!currency) {
-        for (const c of moneyCandidates) {
-          if (/usd|\$/i.test(c.line)) { currency = "USD"; break; }
-          if (/eur|€/.test(c.line))   { currency = "EUR"; break; }
-          if (/gbp|£/i.test(c.line))  { currency = "GBP"; break; }
-        }
-      }
-
-      return { total: chosenTotal, tax: chosenTax, currency };
-    }
-
-    function guessCategoryFromText(text) {
-      if (/diesel|gas|fuel|pump/i.test(text)) return "Fuel";
-      if (/hotel|motel|inn|lodging/i.test(text)) return "Lodging";
-      if (/restaurant|cafe|food|meal/i.test(text)) return "Meals";
-      if (/toll|fee/i.test(text)) return "Fees/Tolls";
-      if (/parts|repair|service/i.test(text)) return "Repairs/Parts";
-      if (/supply|supplies/i.test(text)) return "Supplies";
-      return "";
-    }
-
-    function pickPaymentMethod(fields, text) {
-      const f = fields || {};
-      const val = (f["payment_type"] || "").toLowerCase();
-      const source = (val || text.toLowerCase());
-      if (/visa|mastercard|amex|american express|discover|card|credit|debit/i.test(source)) {
-        return "card";
-      }
-      if (/cash|reimburse/i.test(source)) {
-        return "reimb";
-      }
-      return "";
-    }
-
-    async function runCloudOCR(f) {
-      ocrStatus.textContent = "Uploading to cloud OCR…";
-
-      try {
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = () => reject(reader.error);
-          reader.onload = () => {
-            const res = String(reader.result || "");
-            const parts = res.split(",");
-            resolve(parts.length > 1 ? parts[1] : "");
-          };
-          reader.readAsDataURL(f);
-        });
-
-        if (!base64) {
-          ocrStatus.textContent = "Could not read file. Fill in manually.";
+      async function runCloudOCR(fileForOcr) {
+        const f = fileForOcr;
+        if (!f) {
+          ocrStatus.textContent = "No file to send to OCR.";
           return;
         }
 
-        ocrStatus.textContent = "Processing receipt in cloud…";
-
-        const resp = await fetch(OCR_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mode: "receipt",
-            content: base64,
-            mimeType: f.type || "application/pdf"
-          })
-        });
-
-        if (!resp.ok) {
-          const txt = await resp.text();
-          console.error("OCR HTTP error:", resp.status, txt);
-          ocrStatus.textContent = "OCR error from server. You can fill in manually.";
-          return;
-        }
-
-        const json = await resp.json();
-        if (!json.ok) {
-          console.error("OCR logical error:", json);
-          ocrStatus.textContent = "OCR could not read that receipt. Fill in manually.";
-          return;
-        }
-
-        const fields = json.fields || {};
-        const docText = (json.document && json.document.text) || "";
-
-        ocrStatus.textContent = "Auto-filling from receipt…";
+        ocrStatus.textContent = "Uploading to cloud OCR…";
 
         try {
-          const vendor  = pickVendor(fields, docText);
-          const date    = pickDate(fields, docText);
-          const totals  = pickTotals(fields, docText);
-          const cat     = guessCategoryFromText(docText);
-          const pay     = pickPaymentMethod(fields, docText);
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(reader.error);
+            reader.onload = () => {
+              const res = String(reader.result || "");
+              const parts = res.split(",");
+              resolve(parts.length > 1 ? parts[1] : "");
+            };
+            reader.readAsDataURL(f);
+          });
 
-          if (!merchant.value && vendor) {
-            merchant.value = vendor.slice(0, 64);
+          if (!base64) {
+            ocrStatus.textContent = "Could not read file. Fill in manually.";
+            return;
           }
 
-          if (!rdate.value && date) {
-            rdate.value = date;
+          ocrStatus.textContent = "Processing receipt in cloud…";
+
+          const resp = await fetch(OCR_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mode: "receipt",
+              content: base64,
+              mimeType: f.type || "application/pdf"
+            })
+          });
+
+          if (!resp.ok) {
+            const txt = await resp.text();
+            console.error("OCR HTTP error:", resp.status, txt);
+            ocrStatus.textContent = "OCR error from server. You can fill in manually.";
+            return;
           }
 
-          if (!total.value && totals.total) {
-            const num = parseFloat(String(totals.total).replace(",", "."));
-            if (!isNaN(num) && num > 0) {
-              total.value = usdFmt.format(num);
+          const json = await resp.json();
+          if (!json.ok) {
+            console.error("OCR logical error:", json);
+            ocrStatus.textContent = "OCR could not read that receipt. Fill in manually.";
+            return;
+          }
+
+          const fields = json.fields || {};
+          const docText = (json.document && json.document.text) || "";
+
+          ocrStatus.textContent = "Auto-filling from receipt…";
+
+          try {
+            const vendor  = pickVendor(fields, docText);
+            const date    = pickDate(fields, docText);
+            const totals  = pickTotals(fields, docText);
+            const cat     = guessCategoryFromText(docText);
+            const pay     = pickPaymentMethod(fields, docText);
+
+            if (!merchant.value && vendor) {
+              merchant.value = vendor.slice(0, 64);
             }
-          }
 
-          if (!paymethod.value && pay) {
-            paymethod.value = pay;
-          }
+            if (!rdate.value && date) {
+              rdate.value = date;
+            }
 
-          if (!category.value && cat) {
-            for (let i = 0; i < category.options.length; i++) {
-              if (category.options[i].text === cat) {
-                category.selectedIndex = i;
-                break;
+            if (!total.value && totals.total) {
+              const num = parseFloat(String(totals.total).replace(",", "."));
+              if (!isNaN(num) && num > 0) {
+                total.value = usdFmt.format(num);
               }
             }
+
+            if (!paymethod.value && pay) {
+              paymethod.value = pay;
+            }
+
+            if (!category.value && cat) {
+              for (let i = 0; i < category.options.length; i++) {
+                if (category.options[i].text === cat) {
+                  category.selectedIndex = i;
+                  break;
+                }
+              }
+            }
+
+            ocrStatus.textContent = "Auto-filled from receipt. Review and save.";
+          } catch (parseErr) {
+            console.warn("Parse from OCR failed:", parseErr);
+            ocrStatus.textContent = "Read text, but could not parse details. Fill in manually.";
           }
-
-          ocrStatus.textContent = "Auto-filled from receipt. Review and save.";
-        } catch (parseErr) {
-          console.warn("Parse from OCR failed:", parseErr);
-          ocrStatus.textContent = "Read text, but could not parse details. Fill in manually.";
+        } catch (e) {
+          console.error("Cloud OCR failed:", e);
+          ocrStatus.textContent = "OCR failed. You can fill in manually.";
         }
-      } catch (e) {
-        console.error("Cloud OCR failed:", e);
-        ocrStatus.textContent = "OCR failed. You can fill in manually.";
-      }
-    }
-
-    function showToast(msg = "Saved.") {
-      const t = $("toast");
-      t.textContent = msg;
-      t.classList.remove("show");
-      void t.offsetWidth;
-      t.classList.add("show");
-    }
-
-    $("btnSave").addEventListener("click", async () => {
-      const submittedByName  = getSubmittedByName();
-      const submittedByEmail = getSubmittedByEmail();
-
-      if (!submittedByName.trim()) {
-        alert("Submitted By is required.");
-        return;
-      }
-      if (!submitted.value) {
-        alert("Submitted Date is required.");
-        return;
-      }
-      if (!paymethod.value) {
-        alert("Payment Method is required.");
-        return;
-      }
-      if (!category.value) {
-        alert("Category is required.");
-        return;
-      }
-      if (!merchant.value.trim()) {
-        alert("Merchant is required.");
-        return;
-      }
-      if (!rdate.value) {
-        alert("Receipt Date is required.");
-        return;
-      }
-      const totalNum = parseUSD(total.value);
-      if (totalNum === "") {
-        alert("Total amount is required.");
-        return;
       }
 
-      const payload = {
-        // keep legacy flat field
-        who: submittedByName,
-        // add structured Submitted By like the grain bag entry does
-        submittedBy: {
-          name: submittedByName,
-          email: submittedByEmail || null
-        },
-        submitted: submitted.value || todayISO(),
-        merchant: merchant.value.trim(),
-        rdate: rdate.value,
-        category: category.value,
-        total: totalNum,
-        paymethod: paymethod.value,
-        project: project.value.trim(),
-        notes: notes.value.trim(),
-        status: "Submitted",
-        t: Date.now()
-      };
+      function showToast(msg = "Saved.") {
+        const t = $("toast");
+        t.textContent = msg;
+        t.classList.remove("show");
+        void t.offsetWidth;
+        t.classList.add("show");
+      }
 
-      try {
-        if (window.firebase?.firestore) {
-          const db = firebase.firestore();
-          await db.collection("expenditures").add({
+      $("btnSave").addEventListener("click", async () => {
+        const submittedByName  = getSubmittedByName();
+        const submittedByEmail = getSubmittedByEmail();
+
+        if (!submittedByName.trim()) {
+          alert("Submitted By is required.");
+          return;
+        }
+        if (!submitted.value) {
+          alert("Submitted Date is required.");
+          return;
+        }
+        if (!paymethod.value) {
+          alert("Payment Method is required.");
+          return;
+        }
+        if (!category.value) {
+          alert("Category is required.");
+          return;
+        }
+        if (!merchant.value.trim()) {
+          alert("Merchant is required.");
+          return;
+        }
+        if (!rdate.value) {
+          alert("Receipt Date is required.");
+          return;
+        }
+        const totalNum = parseUSD(total.value);
+        if (totalNum === "") {
+          alert("Total amount is required.");
+          return;
+        }
+
+        const payload = {
+          who: submittedByName,  // legacy flat field
+          submittedBy: {         // structured like other modules
+            name: submittedByName,
+            email: submittedByEmail || null
+          },
+          submitted: submitted.value || todayISO(),
+          merchant: merchant.value.trim(),
+          rdate: rdate.value,
+          category: category.value,
+          total: totalNum,
+          paymethod: paymethod.value,
+          project: project.value.trim(),
+          notes: notes.value.trim(),
+          status: "Submitted",
+          t: Date.now()
+        };
+
+        try {
+          await addDoc(collection(db, "expenditures"), {
             ...payload,
-            createdAt: (firebase.firestore.FieldValue &&
-                        firebase.firestore.FieldValue.serverTimestamp)
-                       ? firebase.firestore.FieldValue.serverTimestamp()
-                       : null
+            createdAt: serverTimestamp()
           });
+          showToast("Saved.");
+        } catch (e) {
+          console.error(e);
+          showToast("Saved locally.");
         }
-        showToast("Saved.");
-      } catch (e) {
-        console.error(e);
-        showToast("Saved locally.");
-      }
-    });
-
-    $("btnClear").addEventListener("click", () => {
-      ["merchant", "rdate", "category", "total", "paymethod", "project", "notes"].forEach(id => {
-        const el = $(id);
-        if (!el) return;
-        if (el.tagName === "SELECT") el.selectedIndex = 0;
-        else el.value = "";
       });
-      preview.hidden = true;
-      btnReplace.hidden = true;
-      ocrStatus.textContent = "";
-      thumb.innerHTML = "";
-      // keep Submitted By + Submitted Date as-is (same pattern as bag form keeping default)
-    });
 
-    // Init employees combo after auth is ready
-    initEmployeesCombo();
-  })();
+      $("btnClear").addEventListener("click", () => {
+        ["merchant", "rdate", "category", "total", "paymethod", "project", "notes"].forEach(id => {
+          const el = $(id);
+          if (!el) return;
+          if (el.tagName === "SELECT") el.selectedIndex = 0;
+          else el.value = "";
+        });
+        preview.hidden = true;
+        btnReplace.hidden = true;
+        ocrStatus.textContent = "";
+        thumb.innerHTML = "";
+        // Keep Submitted By + Submitted Date as-is (like grain bag keeps default)
+      });
+
+      // Kick off Submitted By employees load (after Firebase ready)
+      await loadEmployeesCombo();
+    })();
   </script>
 </body>
 </html>
