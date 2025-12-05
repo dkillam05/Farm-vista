@@ -1,26 +1,46 @@
-<input type="file" id="receiptFile" />
-<button onclick="testReceiptOCR()">Scan Receipt</button>
+<!doctype html>
+<html>
+  <body>
+    <h3>Receipt OCR Test</h3>
 
-<pre id="ocrOutput" style="white-space:pre-wrap"></pre>
+    <input type="file" id="file" />
+    <button id="btn">Scan Receipt</button>
 
-<script>
-async function testReceiptOCR() {
-  let file = document.getElementById("receiptFile").files[0];
-  if (!file) {
-    alert("Pick a file first");
-    return;
-  }
+    <pre id="out" style="white-space:pre-wrap; border:1px solid #ccc; padding:10px; margin-top:10px;"></pre>
 
-  let fd = new FormData();
-  fd.append("file", file);
+    <script>
+      const btn = document.getElementById("btn");
+      const out = document.getElementById("out");
 
-  let res = await fetch("https://fv-ocr-300398089669.us-central1.run.app/fvOcr", {
-    method: "POST",
-    body: fd
-  });
+      btn.addEventListener("click", async () => {
+        out.textContent = "Button clicked…";
 
-  let json = await res.json();
-  document.getElementById("ocrOutput").textContent =
-    JSON.stringify(json, null, 2);
-}
-</script>
+        const input = document.getElementById("file");
+        const file = input.files[0];
+
+        if (!file) {
+          out.textContent = "Pick a file first.";
+          return;
+        }
+
+        out.textContent = "Sending to OCR…";
+
+        const fd = new FormData();
+        fd.append("file", file);
+
+        try {
+          const res = await fetch("https://fv-ocr-300398089669.us-central1.run.app/fvOcr", {
+            method: "POST",
+            body: fd
+          });
+
+          const text = await res.text();
+          out.textContent = text;
+        } catch (err) {
+          out.textContent = "ERROR: " + err.message;
+          console.error(err);
+        }
+      });
+    </script>
+  </body>
+</html>
