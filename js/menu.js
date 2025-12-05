@@ -91,31 +91,20 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-        // NEW: Maintenance sections at the top
+        // Maintenance sections at the top
         { type: 'link', id: 'eq-maint-workorders', icon: '🧰', label: 'Maintenance Work Orders', href: '/Farm-vista/docs/cooming-soon.html', activeMatch: 'starts-with' },
-        { type: 'link', id: 'eq-maint-records',    icon: '📚', label: 'Maintenance Records',    href: '/Farm-vista/docs/cooming-soon.html',     activeMatch: 'starts-with' },
+        { type: 'link', id: 'eq-maint-records',    icon: '📚', label: 'Maintenance Records',    href: '/Farm-vista/docs/cooming-soon.html',  activeMatch: 'starts-with' },
 
-        // NEW: Equipment Inventory group to nest all equipment types
-        {
-          type: 'group',
-          id: 'eq-inventory',
-          icon: '📦',
-          label: 'Equipment Inventory',
-          //href: '/Farm-vista/pages/equipment/index.html',
-          collapsible: true,
-          initialOpen: false,
-          children: [
-            { type: 'link', id: 'eq-tractors',     icon: '🚜', label: 'Tractors',               href: '/Farm-vista/pages/equipment/equipment-tractors.html' },
-            { type: 'link', id: 'eq-combines',     icon: '🌾', label: 'Combines',               href: '/Farm-vista/pages/equipment/equipment-combines.html' },
-            { type: 'link', id: 'eq-implements',   icon: '⚙️', label: 'Implements',             href: '/Farm-vista/pages/equipment/equipment-implements.html' },
-            { type: 'link', id: 'eq-sprayers',     icon: '💦', label: 'Sprayers',               href: '/Farm-vista/pages/equipment/equipment-sprayers.html' },
-            { type: 'link', id: 'eq-fertilizer',   icon: '🧂', label: 'Fertilizer Equipment',   href: '/Farm-vista/pages/equipment/equipment-fertilizer.html' },
-            { type: 'link', id: 'eq-construction', icon: '🏗️', label: 'Construction',          href: '/Farm-vista/pages/equipment/equipment-construction.html' },
-            { type: 'link', id: 'eq-trucks',       icon: '🚚', label: 'Trucks',                 href: '/Farm-vista/pages/equipment/equipment-trucks.html' },
-            { type: 'link', id: 'eq-trailers',     icon: '🚛', label: 'Trailers',               href: '/Farm-vista/pages/equipment/equipment-trailers.html' },
-            { type: 'link', id: 'eq-starfire',     icon: '🛰️', label: 'StarFire / Technology', href: '/Farm-vista/pages/equipment/equipment-starfire.html' }
-          ]
-        }
+        // Direct equipment inventory links (no Equipment Inventory button)
+        { type: 'link', id: 'eq-tractors',     icon: '🚜', label: 'Tractors',               href: '/Farm-vista/pages/equipment/equipment-tractors.html' },
+        { type: 'link', id: 'eq-combines',     icon: '🌾', label: 'Combines',               href: '/Farm-vista/pages/equipment/equipment-combines.html' },
+        { type: 'link', id: 'eq-implements',   icon: '⚙️', label: 'Implements',             href: '/Farm-vista/pages/equipment/equipment-implements.html' },
+        { type: 'link', id: 'eq-sprayers',     icon: '💦', label: 'Sprayers',               href: '/Farm-vista/pages/equipment/equipment-sprayers.html' },
+        { type: 'link', id: 'eq-fertilizer',   icon: '🧂', label: 'Fertilizer Equipment',   href: '/Farm-vista/pages/equipment/equipment-fertilizer.html' },
+        { type: 'link', id: 'eq-construction', icon: '🏗️', label: 'Construction',          href: '/Farm-vista/pages/equipment/equipment-construction.html' },
+        { type: 'link', id: 'eq-trucks',       icon: '🚚', label: 'Trucks',                 href: '/Farm-vista/pages/equipment/equipment-trucks.html' },
+        { type: 'link', id: 'eq-trailers',     icon: '🚛', label: 'Trailers',               href: '/Farm-vista/pages/equipment/equipment-trailers.html' },
+        { type: 'link', id: 'eq-starfire',     icon: '🛰️', label: 'StarFire / Technology', href: '/Farm-vista/pages/equipment/equipment-starfire.html' }
       ]
     },
 
