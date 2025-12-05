@@ -13,8 +13,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- (Left in place, but no longer used for this page)
-       Quick local OCR (images/screenshots). -->
+  <!-- (Left in place, but not used directly now) -->
   <script defer src="/Farm-vista/js/ocr-tesseract.js"></script>
 
   <style>
@@ -214,6 +213,7 @@
         </header>
 
         <div class="section-body">
+          <!-- Camera / import -->
           <div class="rc-actions">
             <button id="btnTake" class="btn" type="button">Take Photo</button>
             <button id="btnImport" class="btn" type="button">Import</button>
@@ -229,11 +229,13 @@
           <input id="camInput" type="file" accept="image/*,.pdf" capture="environment" hidden>
           <input id="fileInput" type="file" accept="image/*,.pdf" hidden>
 
-          <!-- Submitted by / dates -->
+          <!-- Row 1: Submitted By + Submitted Date -->
           <div class="grid-2">
             <div class="field">
-              <label for="who">Submitted By</label>
-              <input id="who" class="input" placeholder="Your name">
+              <label for="whoSel">Submitted By</label>
+              <select id="whoSel" class="select" data-fv-combo data-fv-search="true">
+                <option value="">Loading employees…</option>
+              </select>
             </div>
             <div class="field">
               <label for="submitted">Submitted Date</label>
@@ -241,15 +243,15 @@
             </div>
           </div>
 
-          <!-- Core receipt fields -->
-          <div class="grid-3">
+          <!-- Row 2: Payment Method + Category -->
+          <div class="grid-2">
             <div class="field">
-              <label for="merchant">Merchant</label>
-              <input id="merchant" class="input" placeholder="Store / vendor">
-            </div>
-            <div class="field">
-              <label for="rdate">Receipt Date</label>
-              <input id="rdate" class="input" type="date">
+              <label for="paymethod">Payment Method</label>
+              <select id="paymethod" class="select">
+                <option value="">—</option>
+                <option value="reimb">Out-of-pocket (reimburse)</option>
+                <option value="card">Company card</option>
+              </select>
             </div>
             <div class="field">
               <label for="category">Category</label>
@@ -266,19 +268,19 @@
             </div>
           </div>
 
-          <!-- Single total in USD -->
-          <div class="grid-2">
+          <!-- Row 3: Merchant + Total + Receipt Date -->
+          <div class="grid-3">
+            <div class="field">
+              <label for="merchant">Merchant</label>
+              <input id="merchant" class="input" placeholder="Store / vendor">
+            </div>
             <div class="field">
               <label for="total">Total (USD)</label>
               <input id="total" class="input" inputmode="decimal" placeholder="$0.00">
             </div>
             <div class="field">
-              <label for="paymethod">Payment Method</label>
-              <select id="paymethod" class="select">
-                <option value="">—</option>
-                <option value="reimb">Out-of-pocket (reimburse)</option>
-                <option value="card">Company card</option>
-              </select>
+              <label for="rdate">Receipt Date</label>
+              <input id="rdate" class="input" type="date">
             </div>
           </div>
 
@@ -315,15 +317,15 @@
       new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
         .toISOString().slice(0, 10);
 
-    const who = $("who"),
+    const whoSel   = $("whoSel"),
           submitted = $("submitted"),
-          merchant = $("merchant"),
-          rdate = $("rdate"),
-          category = $("category"),
-          total = $("total"),
+          merchant  = $("merchant"),
+          rdate     = $("rdate"),
+          category  = $("category"),
+          total     = $("total"),
           paymethod = $("paymethod"),
-          project = $("project"),
-          notes = $("notes");
+          project   = $("project"),
+          notes     = $("notes");
 
     submitted.value = todayISO();
 
@@ -342,14 +344,80 @@
       e.target.value = v === "" ? "" : usdFmt.format(v);
     });
 
+    /* Load employees into Submitted By (fv-combo) */
+    async function loadEmployeesCombo() {
+      try {
+        if (!firebase.firestore) return;
+        const db = firebase.firestore();
+        const auth = firebase.auth ? firebase.auth() : null;
+        const currentUser = auth && auth.currentUser;
+        const currentEmail = currentUser && currentUser.email
+          ? currentUser.email.toLowerCase()
+          : "";
+
+        const snap = await db.collection("employees").get();
+        const opts = [];
+
+        snap.forEach(doc => {
+          const data = doc.data() || {};
+          const idLower = (doc.id || "").toLowerCase();
+          const display =
+            data.name ||
+            data.displayName ||
+            data.fullName ||
+            data.employeeName ||
+            data.email ||
+            doc.id;
+          const email = (data.email || doc.id || "").toLowerCase();
+          opts.push({
+            value: email || idLower || display,
+            label: display
+          });
+        });
+
+        // clear existing
+        whoSel.innerHTML = "";
+        whoSel.appendChild(new Option("— Select —", ""));
+
+        opts
+          .sort((a, b) => a.label.localeCompare(b.label))
+          .forEach(o => {
+            whoSel.appendChild(new Option(o.label, o.value));
+          });
+
+        // Default: logged-in user if present
+        if (currentEmail) {
+          for (let i = 0; i < whoSel.options.length; i++) {
+            const opt = whoSel.options[i];
+            if (!opt.value) continue;
+            if (opt.value.toLowerCase() === currentEmail) {
+              whoSel.selectedIndex = i;
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load employees for Submitted By:", err);
+        // If it fails, just leave the combo with placeholder.
+      }
+    }
+
+    function getSubmittedByName() {
+      if (!whoSel) return "";
+      const opt = whoSel.options[whoSel.selectedIndex];
+      if (opt && opt.text && opt.value) return opt.text.trim();
+      if (opt && opt.text) return opt.text.trim();
+      return whoSel.value || "";
+    }
+
     /* Receipt capture */
-    const btnTake = $("btnTake"),
+    const btnTake   = $("btnTake"),
           btnImport = $("btnImport"),
-          btnReplace = $("btnReplace");
-    const camInput = $("camInput"),
+          btnReplace= $("btnReplace");
+    const camInput  = $("camInput"),
           fileInput = $("fileInput");
-    const preview = $("preview"),
-          thumb = $("thumb"),
+    const preview   = $("preview"),
+          thumb     = $("thumb"),
           ocrStatus = $("ocrStatus");
     let file = null;
 
@@ -418,7 +486,6 @@
       const f = fields || {};
       const structured = (f["receipt_date"] || f["invoice_date"] || "").trim();
       if (structured) {
-        // assume ISO or close enough (YYYY-MM-DD)
         if (/^\d{4}-\d{2}-\d{2}/.test(structured)) return structured.slice(0, 10);
       }
 
@@ -452,13 +519,12 @@
     function pickTotals(fields, text) {
       const f = fields || {};
       let totalField = (f["total_amount"] || "").trim();
-      let taxField = (f["tax_amount"] || "").trim();
-      let currency = (f["currency"] || f["currency_code"] || "").toUpperCase();
+      let taxField   = (f["tax_amount"] || "").trim();
+      let currency   = (f["currency"] || f["currency_code"] || "").toUpperCase();
 
       const lines = parseLines(text);
       const moneyRegex = /(\d+(?:[.,]\d{2})?)/;
 
-      // collect money candidates with currency hints
       const moneyCandidates = [];
       for (let i = 0; i < lines.length; i++) {
         const l = lines[i];
@@ -482,7 +548,6 @@
         0
       );
 
-      // text-derived total: near "amount due"/"total"
       let textTotal = null;
       for (let i = 0; i < lines.length; i++) {
         const l = lines[i].toLowerCase();
@@ -509,12 +574,10 @@
         }
       }
 
-      // decide total:
       let chosenTotal = "";
       if (totalField) {
         const parsed = parseFloat(totalField.replace(",", "."));
         if (!isNaN(parsed) && parsed > 0) {
-          // if the parsed total is not ridiculously smaller than obvious amounts, trust it
           if (!maxCandidate || parsed >= maxCandidate * 0.5) {
             chosenTotal = totalField;
           }
@@ -524,7 +587,6 @@
         chosenTotal = textTotal.raw;
       }
 
-      // tax: structured or line with tax/vat and currency
       let chosenTax = taxField;
       if (!chosenTax) {
         for (const line of lines) {
@@ -538,12 +600,11 @@
         }
       }
 
-      // currency: from structured or from lines
       if (!currency) {
         for (const c of moneyCandidates) {
           if (/usd|\$/i.test(c.line)) { currency = "USD"; break; }
-          if (/eur|€/.test(c.line)) { currency = "EUR"; break; }
-          if (/gbp|£/i.test(c.line)) { currency = "GBP"; break; }
+          if (/eur|€/.test(c.line))   { currency = "EUR"; break; }
+          if (/gbp|£/i.test(c.line))  { currency = "GBP"; break; }
         }
       }
 
@@ -563,13 +624,10 @@
     function pickPaymentMethod(fields, text) {
       const f = fields || {};
       const val = (f["payment_type"] || "").toLowerCase();
-      if (!val && !text) return "";
-
       const source = (val || text.toLowerCase());
       if (/visa|mastercard|amex|american express|discover|card|credit|debit/i.test(source)) {
         return "card";
       }
-      // if it mentions reimburse/cash, we could map to "reimb"
       if (/cash|reimburse/i.test(source)) {
         return "reimb";
       }
@@ -580,7 +638,6 @@
       ocrStatus.textContent = "Uploading to cloud OCR…";
 
       try {
-        // read file as base64
         const base64 = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onerror = () => reject(reader.error);
@@ -629,11 +686,11 @@
         ocrStatus.textContent = "Auto-filling from receipt…";
 
         try {
-          const vendor = pickVendor(fields, docText);
-          const date = pickDate(fields, docText);
-          const totals = pickTotals(fields, docText);
-          const cat = guessCategoryFromText(docText);
-          const pay = pickPaymentMethod(fields, docText);
+          const vendor  = pickVendor(fields, docText);
+          const date    = pickDate(fields, docText);
+          const totals  = pickTotals(fields, docText);
+          const cat     = guessCategoryFromText(docText);
+          const pay     = pickPaymentMethod(fields, docText);
 
           if (!merchant.value && vendor) {
             merchant.value = vendor.slice(0, 64);
@@ -655,7 +712,6 @@
           }
 
           if (!category.value && cat) {
-            // match by visible text
             for (let i = 0; i < category.options.length; i++) {
               if (category.options[i].text === cat) {
                 category.selectedIndex = i;
@@ -684,8 +740,9 @@
     }
 
     $("btnSave").addEventListener("click", async () => {
-      if (!who.value.trim()) {
-        alert("Please enter who submitted this.");
+      const submittedBy = getSubmittedByName();
+      if (!submittedBy.trim()) {
+        alert("Please select who submitted this.");
         return;
       }
       if (!rdate.value) {
@@ -699,7 +756,7 @@
       }
 
       const payload = {
-        who: who.value.trim(),
+        who: submittedBy,
         submitted: submitted.value || todayISO(),
         merchant: merchant.value.trim(),
         rdate: rdate.value,
@@ -740,9 +797,13 @@
       btnReplace.hidden = true;
       ocrStatus.textContent = "";
       thumb.innerHTML = "";
-      // keep 'who' and 'submitted'
+      // keep submittedBy combo + submitted date
     });
+
+    // Kick off employee combo load
+    loadEmployeesCombo();
   })();
   </script>
 </body>
 </html>
+
