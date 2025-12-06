@@ -109,6 +109,14 @@
       background:#2F6C3C;
       color:#fff !important;
     }
+    .btn-outline{
+      background:var(--surface);
+      border-color:var(--border);
+    }
+    .btn-full{
+      width:100%;
+      justify-content:center;
+    }
 
     .page-header-meta{
       font-size:0.9rem;
@@ -218,6 +226,90 @@
       border:0;
       visibility:hidden;
     }
+
+    /* =========================
+       Centered report chooser modal
+       ========================= */
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,0.35);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:999;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .16s ease-out;
+      padding:16px;
+    }
+    .modal-backdrop.is-open{
+      opacity:1;
+      pointer-events:auto;
+    }
+    .modal-card{
+      width:100%;
+      max-width:420px;
+      border-radius:18px;
+      border:1px solid rgba(31,41,55,0.12);
+      background:var(--surface,#FFFFFF);
+      box-shadow:0 18px 45px rgba(0,0,0,0.27);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+    .modal-head{
+      padding:14px 18px 10px;
+      background:linear-gradient(120deg, rgba(63,133,77,0.14), rgba(243,244,246,1));
+      border-bottom:1px solid rgba(209,213,219,0.9);
+    }
+    .modal-title{
+      margin:0;
+      font-size:1rem;
+      font-weight:800;
+      letter-spacing:0.03em;
+      text-transform:uppercase;
+    }
+    .modal-subtitle{
+      margin:4px 0 0;
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
+    }
+    .modal-body{
+      padding:14px 16px 10px;
+      display:grid;
+      gap:10px;
+    }
+    .modal-footer{
+      padding:10px 16px 14px;
+      border-top:1px solid rgba(229,231,235,0.9);
+      display:flex;
+      justify-content:flex-end;
+    }
+    .modal-pill-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      font-size:0.78rem;
+      color:var(--muted,#6B7280);
+    }
+    .modal-pill{
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px dashed rgba(55,65,81,0.35);
+      background:rgba(243,244,246,0.9);
+      display:inline-flex;
+      gap:4px;
+      align-items:center;
+    }
+    .modal-options{
+      display:grid;
+      gap:8px;
+    }
+    .btn-modal-cancel{
+      padding-inline:12px;
+      min-width:auto;
+    }
   </style>
 
   <script>
@@ -253,7 +345,9 @@
       db: null,
       company: null,
       expenditures: [],   // normalized list
-      loaded: false
+      loaded: false,
+      selectedYear: null,
+      selectedMonth: null
     };
 
     function escapeHtml(str){
@@ -305,9 +399,7 @@
     async function loadCompanyHeader(){
       if(STATE.company) return STATE.company;
       try{
-        const [col,id] = CONFIG.COMPANY_DOC_PATH;
-        const ref = collection(STATE.db, col); // collection('company'), then doc(main) via getDocs? simpler: fall back to defaults
-        // If company doc not wired yet, just return defaults:
+        // For now fall back to defaults; you can wire actual company doc later
         STATE.company = {
           name: 'Dowson Farms',
           address: 'Divernon, IL',
@@ -346,6 +438,11 @@
         const total = Number(d.total) || 0;
         const receiptImage = d.receiptImage || null;
         const url = receiptImage && receiptImage.url ? receiptImage.url : null;
+        const submittedBy =
+          d.submittedBy ||
+          d.employeeName ||
+          d.submittedByName ||
+          '';
 
         list.push({
           id: docSnap.id,
@@ -357,7 +454,8 @@
           paymethod: d.paymethod || '',
           notes: d.notes || '',
           total,
-          receiptUrl: url
+          receiptUrl: url,
+          submittedBy
         });
       });
 
@@ -370,7 +468,17 @@
        Build print HTML (StarFire-style)
        ====================== */
 
-    function buildMonthlyPrintHtml({ company, runStr, runDateOnly, year, monthNum, expenses, totals }){
+    function buildMonthlyPrintHtml({
+      company,
+      runStr,
+      runDateOnly,
+      year,
+      monthNum,
+      expenses,
+      totals,
+      purposeLabel,
+      employeeName
+    }){
       const label = monthLabel(year, monthNum);
       const range = monthDateRange(year, monthNum);
       const filterSummary = `All expenditures for ${label}`;
@@ -436,11 +544,14 @@
             </td>
           </tr>`;
 
+      const purposeDisplay = purposeLabel || 'General Expenses';
+      const employeeDisplay = employeeName || 'Not specified';
+
       return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Monthly Expense Report – ${escapeHtml(label)}</title>
+  <title>Monthly Expense Report – ${escapeHtml(label)} – ${escapeHtml(purposeDisplay)}</title>
   <style>
     :root{
       --fv-green:#3B7E46;
@@ -717,13 +828,17 @@
       <div class="report-meta-top">
         <div><strong>Monthly Expense Report</strong></div>
         <div>Generated: ${escapeHtml(runStr)}</div>
-        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+        <div>Purpose: <strong>${escapeHtml(purposeDisplay)}</strong></div>
+        <div>Employee: <strong>${escapeHtml(employeeDisplay)}</strong></div>
       </div>
     </header>
 
     <section class="report-title-block">
       <h1 class="report-title">Monthly Expense Report</h1>
-      <p class="report-subtitle">Summary of farm expenditures for ${escapeHtml(label)}.</p>
+      <p class="report-subtitle">
+        Summary of farm expenditures for ${escapeHtml(label)}.
+        Purpose: ${escapeHtml(purposeDisplay)}.
+      </p>
 
       <div class="report-summary-strip">
         <div class="summary-pill">
@@ -733,6 +848,14 @@
         <div class="summary-pill">
           <span class="summary-label">Filters</span>
           <span class="summary-value">${escapeHtml(filterSummary)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Purpose</span>
+          <span class="summary-value">${escapeHtml(purposeDisplay)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Employee</span>
+          <span class="summary-value">${escapeHtml(employeeDisplay)}</span>
         </div>
         <div class="summary-pill">
           <span class="summary-label">Records</span>
@@ -813,7 +936,9 @@
        Print handler
        ====================== */
 
-    async function printMonth(yearNum, monthNum){
+    async function printMonth(yearNum, monthNum, options = {}){
+      const { purposeLabel = 'General Expenses' } = options;
+
       if(!STATE.loaded){
         alert('Expenses are still loading. Please try again in a moment.');
         return;
@@ -846,6 +971,22 @@
         }
       });
 
+      // Figure out the "submitted by" name for this report
+      let employeeName = '';
+      if(monthExpenses.length){
+        const names = new Set();
+        monthExpenses.forEach(e => {
+          if(e.submittedBy){
+            names.add(e.submittedBy);
+          }
+        });
+        if(names.size === 1){
+          employeeName = [...names][0];
+        }else if(names.size > 1){
+          employeeName = 'Multiple submitters';
+        }
+      }
+
       const totals = {
         recordCount: monthExpenses.length,
         totalSpendFormatted: formatCurrency(totalSpend),
@@ -860,7 +1001,9 @@
         year: yearNum,
         monthNum,
         expenses: monthExpenses,
-        totals
+        totals,
+        purposeLabel,
+        employeeName
       });
 
       let iframe = document.getElementById('fv-print-frame');
@@ -889,6 +1032,39 @@
     }
 
     /* ======================
+       Modal helpers
+       ====================== */
+
+    function openReportModal(yearNum, monthNum){
+      STATE.selectedYear = yearNum;
+      STATE.selectedMonth = monthNum;
+
+      const modal = document.querySelector('[data-report-modal]');
+      const monthLabelEl = document.getElementById('modalMonthLabel');
+      const purposeHintEl = document.getElementById('modalPurposeHint');
+
+      if(monthLabelEl){
+        monthLabelEl.textContent = monthLabel(yearNum, monthNum);
+      }
+      if(purposeHintEl){
+        purposeHintEl.textContent = `Choose how you want the ${monthLabel(yearNum, monthNum)} report labeled for the office.`;
+      }
+
+      if(modal){
+        modal.classList.add('is-open');
+      }
+    }
+
+    function closeReportModal(){
+      const modal = document.querySelector('[data-report-modal]');
+      if(modal){
+        modal.classList.remove('is-open');
+      }
+      STATE.selectedYear = null;
+      STATE.selectedMonth = null;
+    }
+
+    /* ======================
        Boot + tile wiring
        ====================== */
 
@@ -904,6 +1080,7 @@
       const yearSelect = document.getElementById('reportYear');
       const grid = document.querySelector('[data-month-grid]');
       const headerMeta = document.getElementById('expMeta');
+      const modal = document.querySelector('[data-report-modal]');
 
       function populateYears(){
         if(!yearSelect) return;
@@ -930,13 +1107,50 @@
         const monthNum = parseInt(monthStr,10);
         if(!yearNum || !monthNum) return;
 
-        printMonth(yearNum, monthNum);
+        // Instead of printing directly, open the chooser modal
+        openReportModal(yearNum, monthNum);
+      }
+
+      function handleModalClick(evt){
+        const target = evt.target;
+
+        // Close if backdrop click (but not when clicking inside the card)
+        if(target.hasAttribute('data-report-modal')){
+          closeReportModal();
+          return;
+        }
+
+        const typeBtn = target.closest('[data-report-type]');
+        if(typeBtn){
+          if(STATE.selectedYear && STATE.selectedMonth){
+            const type = typeBtn.getAttribute('data-report-type');
+            let purposeLabel = 'General Expenses';
+            if(type === 'reimbursement'){
+              purposeLabel = 'Personal Reimbursement';
+            }else if(type === 'company-card'){
+              purposeLabel = 'Company Card';
+            }
+
+            closeReportModal();
+            printMonth(STATE.selectedYear, STATE.selectedMonth, { purposeLabel });
+          }
+          return;
+        }
+
+        const cancelBtn = target.closest('[data-modal-cancel]');
+        if(cancelBtn){
+          closeReportModal();
+        }
       }
 
       populateYears();
 
       if(grid){
         grid.addEventListener('click', handleMonthClick);
+      }
+
+      if(modal){
+        modal.addEventListener('click', handleModalClick);
       }
 
       try{
@@ -964,7 +1178,8 @@
           <div>
             <h1>Monthly Expense Reports</h1>
             <p class="muted">
-              Tap a month to generate a printable PDF-style report of all expenditures for that period, including receipt images.
+              Tap a month to generate a printable report of all expenditures for that period, including receipt images.
+              You’ll choose whether it’s for <strong>personal reimbursement</strong> or the <strong>company card</strong>.
             </p>
           </div>
         </header>
@@ -996,7 +1211,7 @@
                   <div class="month-avatar">JAN</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">January</div>
-                    <div class="month-text-sub">Tap to print January expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Feb -->
@@ -1004,7 +1219,7 @@
                   <div class="month-avatar">FEB</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">February</div>
-                    <div class="month-text-sub">Tap to print February expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Mar -->
@@ -1012,7 +1227,7 @@
                   <div class="month-avatar">MAR</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">March</div>
-                    <div class="month-text-sub">Tap to print March expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Apr -->
@@ -1020,7 +1235,7 @@
                   <div class="month-avatar">APR</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">April</div>
-                    <div class="month-text-sub">Tap to print April expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- May -->
@@ -1028,7 +1243,7 @@
                   <div class="month-avatar">MAY</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">May</div>
-                    <div class="month-text-sub">Tap to print May expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Jun -->
@@ -1036,7 +1251,7 @@
                   <div class="month-avatar">JUN</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">June</div>
-                    <div class="month-text-sub">Tap to print June expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Jul -->
@@ -1044,7 +1259,7 @@
                   <div class="month-avatar">JUL</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">July</div>
-                    <div class="month-text-sub">Tap to print July expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Aug -->
@@ -1052,7 +1267,7 @@
                   <div class="month-avatar">AUG</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">August</div>
-                    <div class="month-text-sub">Tap to print August expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Sep -->
@@ -1060,7 +1275,7 @@
                   <div class="month-avatar">SEP</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">September</div>
-                    <div class="month-text-sub">Tap to print September expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Oct -->
@@ -1068,7 +1283,7 @@
                   <div class="month-avatar">OCT</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">October</div>
-                    <div class="month-text-sub">Tap to print October expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Nov -->
@@ -1076,7 +1291,7 @@
                   <div class="month-avatar">NOV</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">November</div>
-                    <div class="month-text-sub">Tap to print November expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
                 <!-- Dec -->
@@ -1084,7 +1299,7 @@
                   <div class="month-avatar">DEC</div>
                   <div class="month-card-inner">
                     <div class="month-text-main">December</div>
-                    <div class="month-text-sub">Tap to print December expenses.</div>
+                    <div class="month-text-sub">Tap to choose report type and print.</div>
                   </div>
                 </article>
               </div>
@@ -1096,6 +1311,44 @@
 
     <!-- Hidden iframe for print -->
     <iframe id="fv-print-frame"></iframe>
+
+    <!-- Centered modal: choose report type -->
+    <div class="modal-backdrop" data-report-modal>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-head">
+          <h2 id="modalTitle" class="modal-title">Choose report type</h2>
+          <p class="modal-subtitle">
+            <span id="modalMonthLabel">This month</span> • Monthly expense report
+          </p>
+        </div>
+        <div class="modal-body">
+          <div id="modalPurposeHint" class="modal-subtitle" style="margin:0 0 6px;"></div>
+
+          <div class="modal-options">
+            <button type="button" class="btn btn-primary btn-full" data-report-type="reimbursement">
+              Personal reimbursement
+            </button>
+            <button type="button" class="btn btn-outline btn-full" data-report-type="company-card">
+              Company card
+            </button>
+          </div>
+
+          <div class="modal-pill-row">
+            <div class="modal-pill">
+              <strong>Header:</strong> Purpose + Employee name
+            </div>
+            <div class="modal-pill">
+              Uses <strong>Submitted by</strong> to tell the office who this is for
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-quiet btn-modal-cancel" data-modal-cancel>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   </fv-shell>
 </body>
 </html>
