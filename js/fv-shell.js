@@ -21,7 +21,19 @@
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
       padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
-    .hdr .title{ text-align:center; font-weight:800; font-size:20px; }
+    .hdr .title{ text-align:center; font-weight:800; font-size:20px; display:flex; align-items:center; justify-content:center; gap:8px; }
+    .beta-pill{
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:800;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      background:rgba(239,68,68,0.95);
+      color:#fff;
+      border:1px solid rgba(0,0,0,0.18);
+      box-shadow:0 0 0 1px rgba(0,0,0,0.06);
+    }
     .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
@@ -283,7 +295,10 @@
 
   <header class="hdr" part="header">
     <button class="iconbtn js-menu" aria-label="Open menu">≡</button>
-    <div class="title">FarmVista</div>
+    <div class="title">
+      <span>FarmVista</span>
+      <span id="betaBadge" class="beta-pill" hidden>BETA</span>
+    </div>
     <button class="iconbtn js-account" aria-label="Account" title="Account">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -447,6 +462,7 @@
       this._logoutLabel = r.getElementById('logoutLabel');
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
+      this._betaBadge = r.getElementById('betaBadge');
 
       /* QC refs */
       this._qcRail   = r.querySelector('.js-qc');
@@ -459,6 +475,12 @@
       this._cameraModal      = r.querySelector('.js-camera-modal');
       this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
       this._cameraCloseBtn   = r.querySelector('.js-camera-close');
+
+      // Beta detection: only show badge on Farm-vista-beta origin
+      const isBeta = location.pathname.startsWith('/Farm-vista-beta/');
+      if (isBeta && this._betaBadge) {
+        this._betaBadge.hidden = false;
+      }
 
       if (this._boot) this._boot.hidden = false;
 
