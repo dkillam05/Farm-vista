@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Setup → Account Roles</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    body{background:var(--app-bg,var(--surface));min-height:100vh}
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .section{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible; /* allow selects to open over the next section */
+    }
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:12px 14px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:22px;height:22px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:12px;display:grid;gap:12px;}
+
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    @media(max-width:900px){.row{grid-template-columns:1fr}}
+    .field label{display:block;font-weight:800;margin:0 0 6px 0;}
+    .input,.select{width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px;padding:10px;outline:none;}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:128px;padding:9px 12px;border-radius:12px;
+      border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
+    .btn-quiet{min-width:auto;padding:6px 10px}
+
+    /* Permissions tree — compact for phones */
+    .tree{border:1px solid var(--border);border-radius:12px;padding:8px;background:var(--card-surface,var(--surface));}
+    details.node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:6px 0;}
+    summary{cursor:pointer;padding:8px 10px;display:flex;align-items:center;gap:10px;list-style:none;}
+    summary::before{content:"▸";display:inline-block;transform:translateY(1px);transition:transform .15s ease;}
+    details[open] > summary::before{transform:rotate(90deg) translateY(0);}
+    .sum-line{display:flex;align-items:center;gap:10px;flex:1;min-height:0}
+    .indent-0{padding-left:0}
+    .indent-1{padding-left:10px}
+    .indent-2{padding-left:20px}
+    .indent-3{padding-left:30px}
+    .indent-4{padding-left:40px}
+    .label{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+    .content{padding:6px 10px 10px}
+    .children{display:grid;gap:6px}
+
+    .switch-col{display:flex;gap:8px;flex-wrap:wrap;margin:0}
+    .switch{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:5px 10px;
+      font-weight:800;background:var(--surface);color:var(--text);cursor:pointer;user-select:none;min-height:30px}
+    .switch[data-on="true"]{background:#2F6C3C;color:#fff;border-color:#2F6C3C;}
+    .switch .tiny{font-size:12px;opacity:.92;font-weight:700}
+
+    .footer-guard{height:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 24px)}
+
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 30px);
+      transform:translateX(-50%);background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 2.8s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  </style>
+
+  <!-- Mirror NAV so tree is built from your live menu -->
+  <script type="module">
+    import NAV_MENU from '/Farm-vista/js/menu.js';
+    window.FV_NAV_MENU = NAV_MENU;
+    window.dispatchEvent(new Event('fv:menu-ready'));
+  </script>
+
+  <!-- Ensure fv-shell is loaded -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Firebase config FIRST -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Account Roles</h1>
+      <p class="page-sub">Turn menus <strong>on or off</strong>. Parent switches cascade to children. Open a child to override it.</p>
+
+      <!-- Role header -->
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">👥</div>
+          <div><strong>Role Details</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="row">
+            <div class="field">
+              <label for="rolePicker">Existing Roles</label>
+              <select id="rolePicker" class="select">
+                <option value="">— New role —</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="roleName">Role Name</label>
+              <input id="roleName" class="input" placeholder="e.g., Seasonal Operator">
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="newRole" class="btn" type="button">New</button>
+            <button id="saveRole" class="btn btn-primary" type="button">Save Role</button>
+            <button id="deleteRole" class="btn btn-danger" type="button">Delete Role</button>
+          </div>
+          <!-- Helper text intentionally removed -->
+        </div>
+      </section>
+
+      <!-- Permissions tree -->
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🔒</div>
+          <div><strong>Permissions</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="actions">
+            <button id="expandAll" class="btn btn-quiet" type="button">Expand All</button>
+            <button id="collapseAll" class="btn btn-quiet" type="button">Collapse All</button>
+          </div>
+          <div id="tree" class="tree" aria-live="polite"></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="footer-guard" aria-hidden="true"></div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, getDocs, addDoc, setDoc, deleteDoc, doc,
+      onSnapshot, orderBy, query, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    (function(){
+      "use strict";
+      const $ = id => document.getElementById(id);
+      const toast = $("toast");
+
+      /* ====== CONFIG ====== */
+      const COLLECTION = 'accountRoles';
+
+      /* ====== STATE ====== */
+      let MODE = 'stub'; // 'firebase' or 'stub'
+      let currentRoleId = "";
+      let roleDraft = { id:"", name:"", perms:{} }; // { [id]: boolean }
+      let NAV = null, IDX = null;
+
+      /* ====== UI HELPERS ====== */
+      function showToast(msg="Saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
+
+      const LS_KEY = "fv:roles:v1";
+      const uid = () => String(Date.now()) + Math.random().toString(36).slice(2,7);
+      const loadLS = () => { try{ const a=JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch{ return []; } };
+      const saveLS = (arr) => localStorage.setItem(LS_KEY, JSON.stringify(arr));
+
+      function getMenu(){ return window.FV_NAV_MENU || { items: [] }; }
+
+      /* ====== NAV INDEX ====== */
+      function buildIndex(menu){
+        const CAP_SET = new Set();
+        const CONTAINER_IDS = new Set();
+        const byParent = {};
+        function walk(items, depth=0, parent="__ROOT__"){
+          items.forEach(it=>{
+            if(it.id === "home") return;
+            const node = { id: it.id, type: it.type, label: it.label || it.id, depth, parent };
+            (byParent[parent]||(byParent[parent]=[])).push(node);
+            if(it.type==="group"){ CONTAINER_IDS.add(it.id); }
+            else { CAP_SET.add(it.id); }
+            if(Array.isArray(it.children)&&it.children.length){
+              walk(it.children, depth+1, it.id);
+            }
+          });
+        }
+        walk(menu.items||[]);
+        return { byParent, CAP_SET, CONTAINER_IDS };
+      }
+
+      function ensurePermRaw(nodeId){
+        const v = roleDraft.perms[nodeId];
+        if (typeof v === 'boolean') return v;
+        if (v && typeof v.on === 'boolean') return !!v.on;
+        roleDraft.perms[nodeId] = false;
+        return false;
+      }
+      function setPerm(nodeId, value){ roleDraft.perms[nodeId] = !!value; }
+
+      /* ====== TREE RENDER ====== */
+      function renderTree(){
+        const tree = $("tree");
+        NAV = getMenu();
+        if(!NAV || !Array.isArray(NAV.items)){ tree.textContent="Menu not available."; return; }
+        IDX = buildIndex(NAV);
+        const { byParent } = IDX;
+
+        function cascade(parentId, value){
+          const stack = (byParent[parentId]||[]).slice();
+          while(stack.length){
+            const n = stack.pop();
+            setPerm(n.id, value);
+            if(n.type==="group"){ (byParent[n.id]||[]).forEach(c=>stack.push(c)); }
+          }
+        }
+
+        function makeSwitch(label, node, isGroup){
+          const btn = document.createElement("button");
+          btn.type = "button"; btn.className="switch";
+          const state = !!ensurePermRaw(node.id);
+          btn.dataset.on = String(state);
+          btn.setAttribute("role","switch");
+          btn.setAttribute("aria-checked", String(state));
+          btn.innerHTML = `<span class="tiny">${label}</span>`;
+          btn.addEventListener("click", (e)=>{
+            e.stopPropagation();
+            const next = !ensurePermRaw(node.id);
+            setPerm(node.id, next);
+            btn.dataset.on = String(next);
+            btn.setAttribute("aria-checked", String(next));
+            if(isGroup){
+              cascade(node.id, next);
+              renderTree();
+            }
+          });
+          return btn;
+        }
+
+        function renderGroup(node){
+          const d = document.createElement("details");
+          d.className = "node";
+          const sum = document.createElement("summary");
+          const line = document.createElement("div");
+          line.className = "sum-line indent-"+Math.min(node.depth,4);
+          const label = document.createElement("div"); label.className="label"; label.textContent=node.label;
+          line.appendChild(label);
+          sum.appendChild(line);
+          const right = document.createElement("div");
+          right.className="switch-col";
+          right.appendChild(makeSwitch("Enabled", node, true));
+          sum.appendChild(right);
+          d.appendChild(sum);
+
+          const content = document.createElement("div");
+          content.className = "content";
+          const kidsWrap = document.createElement("div");
+          kidsWrap.className = "children";
+          (byParent[node.id]||[]).forEach(k=>{
+            kidsWrap.appendChild(k.type==="group" ? renderGroup(k) : renderLeaf(k));
+          });
+          content.appendChild(kidsWrap);
+          d.appendChild(content);
+          return d;
+        }
+
+        function renderLeaf(node){
+          const d = document.createElement("details");
+          d.className = "node";
+          const sum = document.createElement("summary");
+          const line = document.createElement("div");
+          line.className = "sum-line indent-"+Math.min(node.depth+1,4);
+          const label = document.createElement("div"); label.className="label"; label.textContent=node.label;
+          line.appendChild(label);
+          sum.appendChild(line);
+          const right = document.createElement("div");
+          right.className = "switch-col";
+          right.appendChild(makeSwitch("Enabled", node, false));
+          sum.appendChild(right);
+          d.appendChild(sum);
+          return d;
+        }
+
+        tree.innerHTML="";
+        (byParent["__ROOT__"]||[]).forEach(n=>{
+          tree.appendChild(n.type==="group" ? renderGroup(n) : renderLeaf(n));
+        });
+      }
+
+      /* ====== FIRESTORE BACKEND ====== */
+      async function loadRolesFS(){
+        const db = getFirestore();
+        const qref = query(collection(db, COLLECTION), orderBy('name'));
+        const snap = await getDocs(qref);
+        const out = [];
+        snap.forEach(docSnap=>{
+          const d = docSnap.data() || {};
+          out.push({ id: docSnap.id, name: d.name || "(unnamed)", perms: d.perms || {}, t: d.updatedAt || d.createdAt || 0 });
+        });
+        return out;
+      }
+      async function saveRoleFS(id, name, perms){
+        const db = getFirestore();
+        const clean = {};
+        Object.keys(perms||{}).forEach(k=>{
+          if (k==="home") return;
+          const v = perms[k];
+          clean[k] = (typeof v === 'boolean') ? v : !!(v && v.on);
+        });
+        if(id){
+          await setDoc(doc(db, COLLECTION, id), {
+            name, perms: clean, updatedAt: serverTimestamp()
+          }, { merge:true });
+          return id;
+        }else{
+          const ref = await addDoc(collection(db, COLLECTION), {
+            name, perms: clean, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+          });
+          return ref.id;
+        }
+      }
+      async function deleteRoleFS(id){
+        const db = getFirestore();
+        await deleteDoc(doc(db, COLLECTION, id));
+      }
+
+      /* ====== STORAGE (FS or LS) ====== */
+      async function loadRoles(){
+        return MODE==='firebase' ? await loadRolesFS() : loadLS();
+      }
+      async function saveRole(name, perms){
+        if(!name) throw new Error("Missing role name");
+        if(MODE==='firebase'){
+          return await saveRoleFS(currentRoleId, name, perms);
+        } else {
+          const all = loadLS();
+          if(currentRoleId){
+            const i = all.findIndex(r=>r.id===currentRoleId);
+            if(i>=0) all[i] = { id: currentRoleId, name, perms, t: Date.now() };
+          }else{
+            const id = uid();
+            all.unshift({ id, name, perms, t: Date.now() });
+            currentRoleId = id;
+          }
+          saveLS(all);
+          return currentRoleId;
+        }
+      }
+      async function deleteRole(){
+        if(!currentRoleId) return;
+        if(MODE==='firebase'){ await deleteRoleFS(currentRoleId); }
+        else { saveLS(loadLS().filter(x=>x.id!==currentRoleId)); }
+      }
+
+      /* ====== ROLE PICKER ====== */
+      function populateRolePickerFromArray(arr){
+        const sel = $("rolePicker");
+        const keep = sel.value;
+        sel.innerHTML = '<option value="">— New role —</option>';
+        (arr||[]).forEach(r=>{
+          const o=document.createElement("option");
+          o.value=r.id; o.textContent=r.name||"(unnamed)";
+          sel.appendChild(o);
+        });
+        if(keep && arr.some(r=>r.id===keep)) sel.value = keep;
+      }
+      function newDraft(){
+        currentRoleId = "";
+        roleDraft = { id:"", name:"", perms:{} };
+        $("roleName").value = "";
+        $("rolePicker").value = "";
+        renderTree();
+      }
+
+      /* ====== EVENTS ====== */
+      $("newRole").addEventListener("click", newDraft);
+
+      $("saveRole").addEventListener("click", async ()=>{
+        const name = $("roleName").value.trim();
+        if(!name){ alert("Please enter a role name."); return; }
+        try{
+          const id = await saveRole(name, roleDraft.perms);
+          currentRoleId = id;
+          const all = await loadRoles();
+          populateRolePickerFromArray(all);
+          $("rolePicker").value = id;
+          showToast(MODE==='firebase' ? "Saved to Firestore." : "Saved locally (stub mode).");
+        }catch(err){
+          console.error(err);
+          alert("Save failed.\n\n" + (err?.message || err));
+        }
+      });
+
+      $("deleteRole").addEventListener("click", async ()=>{
+        if(!currentRoleId){ alert("No role selected."); return; }
+        const name = $("roleName").value || "(unnamed)";
+        if(!confirm(`Delete role "${name}"? This cannot be undone.`)) return;
+        try{
+          await deleteRole();
+          const all = await loadRoles();
+          populateRolePickerFromArray(all);
+          newDraft();
+          showToast(MODE==='firebase' ? "Role deleted from Firestore." : "Role deleted locally.");
+        }catch(err){
+          console.error(err);
+          alert("Delete failed.\n\n" + (err?.message || err));
+        }
+      });
+
+      $("rolePicker").addEventListener("change", async ()=>{
+        const id = $("rolePicker").value;
+        if(!id){ newDraft(); return; }
+        const all = await loadRoles();
+        const r = all.find(x=>x.id===id);
+        if(!r){ newDraft(); return; }
+        currentRoleId = r.id;
+        const perms = {};
+        Object.keys(r.perms||{}).forEach(k=>{
+          if (k==="home") return;
+          const v=r.perms[k]; perms[k]=(typeof v==='boolean')?v:!!(v&&v.on);
+        });
+        roleDraft = { id:r.id, name:r.name, perms };
+        $("roleName").value = r.name || "";
+        renderTree();
+      });
+
+      $("expandAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=true); });
+      $("collapseAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=false); });
+
+      /* ====== LIVE SYNC (Firestore) ====== */
+      function liveBind(){
+        if(MODE!=='firebase') return;
+        try{
+          const db = getFirestore();
+          const qref = query(collection(db, COLLECTION), orderBy('name'));
+          onSnapshot(qref, (snap)=>{
+            const arr=[];
+            snap.forEach(docSnap=>{
+              const d=docSnap.data()||{};
+              arr.push({ id: docSnap.id, name: d.name||"(unnamed)", perms: d.perms||{}, t: d.updatedAt||d.createdAt||0 });
+            });
+            populateRolePickerFromArray(arr);
+          });
+        }catch(e){ /* non-fatal */ }
+      }
+
+      /* ====== INIT ====== */
+      async function init(){
+        const { mode } = await ready;
+        MODE = mode || 'stub';
+
+        NAV = getMenu();
+        renderTree();
+
+        const roles = await loadRoles();
+        populateRolePickerFromArray(roles);
+        newDraft();
+
+        liveBind();
+      }
+
+      if(window.FV_NAV_MENU){ init(); }
+      else{
+        window.addEventListener('fv:menu-ready', init, { once:true });
+        setTimeout(()=>{ if(window.FV_NAV_MENU) init(); }, 300);
+      }
+    })();
+  </script>
+</body>
+</html>
