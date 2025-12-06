@@ -422,11 +422,24 @@
         const total = Number(d.total) || 0;
         const receiptImage = d.receiptImage || null;
         const url = receiptImage && receiptImage.url ? receiptImage.url : null;
-        const submittedBy =
-          d.submittedBy ||
-          d.employeeName ||
-          d.submittedByName ||
-          '';
+
+        // 🔧 Normalize submittedBy so it's always a string
+        let submittedBy = '';
+        if (d.submittedBy) {
+          if (typeof d.submittedBy === 'string') {
+            submittedBy = d.submittedBy;
+          } else if (typeof d.submittedBy === 'object') {
+            submittedBy =
+              d.submittedBy.name ||
+              d.submittedBy.displayName ||
+              d.submittedBy.email ||
+              '';
+          }
+        } else if (d.employeeName) {
+          submittedBy = d.employeeName;
+        } else if (d.submittedByName) {
+          submittedBy = d.submittedByName;
+        }
 
         list.push({
           id: docSnap.id,
@@ -446,6 +459,8 @@
       list.sort((a,b) => (a.ymd || '').localeCompare(b.ymd || ''));
       STATE.expenditures = list;
       STATE.loaded = true;
+
+      console.log('[expenses-report] loaded expenditures:', STATE.expenditures);
     }
 
     /* ======================
@@ -929,6 +944,8 @@
       }
 
       const monthExpenses = STATE.expenditures.filter(e => e.year === yearNum && e.month === monthNum);
+      console.log('[expenses-report] month filter', { yearNum, monthNum, monthExpenses });
+
       const company = await loadCompanyHeader();
       const now = new Date();
       const runStr = now.toLocaleString();
@@ -942,7 +959,6 @@
         catTotals.set(key, (catTotals.get(key) || 0) + e.total);
       });
 
-      const label = monthLabel(yearNum, monthNum);
       const daysInMonth = new Date(yearNum, monthNum, 0).getDate() || 1;
       const avgPerDay = totalSpend / daysInMonth;
 
@@ -955,7 +971,7 @@
         }
       });
 
-      // Figure out the "submitted by" name for this report
+      // Figure out the "submitted by" name for this report (strings only now)
       let employeeName = '';
       if(monthExpenses.length){
         const names = new Set();
