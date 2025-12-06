@@ -1,9 +1,9 @@
-/* <fv-form-button> v3.2.14 — form entry tile
+/* <fv-form-button> v3.2.13 — form entry tile
    BASE: v3.2.11
-   Added icons:
-     - 'eye' (view/preview) with aliases: view, preview, visibility, show
-     - 'approve' (document with checkmark) with aliases: approval, approve-wo
-     - 'bug' (for bugs/issues tiles) with aliases: bugs, issue, issues, bug-report
+   Added icon: 'eye' (view/preview), with aliases:
+     'view'→'eye', 'preview'→'eye', 'visibility'→'eye', 'show'→'eye'
+   Added icon: 'approve' (work order approval), with aliases:
+     'approval'→'approve', 'approve-wo'→'approve'
 */
 (function () {
   const tpl = document.createElement('template');
@@ -167,32 +167,37 @@
         <circle cx="12" cy="11" r="1.9" fill="none" stroke="currentColor" stroke-width="1.7"/>
       </svg>`,
 
-    /* Eye (View/Preview) */
+    /* NEW: Eye (View/Preview) */
     eye: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
+        <!-- outline -->
         <path d="M2.5 12S6.5 6.5 12 6.5 21.5 12 21.5 12 17.5 17.5 12 17.5 2.5 12 2.5 12Z"
               fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <!-- pupil -->
         <circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
       </svg>`,
 
-    /* Approve (Document with Checkmark) */
+    /* NEW: Approve (Document with Checkmark) */
     approve: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
+        <!-- document -->
         <rect x="6" y="4.5" width="12" height="15" rx="2.2"
               fill="none" stroke="currentColor" stroke-width="1.7"/>
+        <!-- header line -->
         <path d="M9 8h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <!-- checkmark -->
         <path d="M9 14.5l2.1 2.1 4-4.3"
               fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
 
-    /* Bug (for Bugs & Issues tiles) */
+    /* NEW: Bug (for Bugs & Issues tiles) */
     bug: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M7.5 9a4.5 4.5 0 0 1 9 0v1.5h.75a2.75 2.75 0 0 1 2.75 2.75v.25a.75.75 0 0 1-1.5 0v-.25c0-.69-.56-1.25-1.25-1.25H16.5V15a4.5 4.5 0 0 1-3.75 4.44V21a.75.75 0 0 1-1.5 0v-1.56A4.5 4.5 0 0 1 7.5 15v-2.25H5.75c-.69 0-1.25.56-1.25 1.25v.25a.75.75 0 0 1-1.5 0v-.25A2.75 2.75 0 0 1 5.75 10.5H6.5V9Zm1.5 0v1.5h6V9a3 3 0 0 0-6 0Z"/>
       </svg>`
   };
 
-  /* Aliases */
+  /* Aliases so existing and semantic names work */
   ICONS["reconcile"] = ICONS["reconcile-scale"];
   ICONS["reconcile-sync"] = ICONS["reconcile-scale"];
   ICONS["maintenance"] = ICONS["wrench"];
@@ -203,19 +208,22 @@
   ICONS["map-pin"] = ICONS["pin"];
   ICONS["pin-drop"] = ICONS["pin"];
   ICONS["update-location"] = ICONS["pin"];
+  /* NEW aliases for eye */
   ICONS["view"] = ICONS["eye"];
   ICONS["preview"] = ICONS["eye"];
   ICONS["visibility"] = ICONS["eye"];
   ICONS["show"] = ICONS["eye"];
+  /* NEW aliases for approve */
   ICONS["approval"] = ICONS["approve"];
   ICONS["approve-wo"] = ICONS["approve"];
+  /* NEW aliases for bug */
   ICONS["bugs"] = ICONS["bug"];
   ICONS["issue"] = ICONS["bug"];
   ICONS["issues"] = ICONS["bug"];
   ICONS["bug-report"] = ICONS["bug"];
 
   class FVFormButton extends HTMLElement{
-    static get observedAttributes(){ return ['label','icon','href']; }
+    static get observedAttributes(){ return ['label','icon','href','icon-svg']; }
 
     constructor(){
       super();
@@ -249,11 +257,9 @@
       r.querySelector('a.tile').setAttribute('href', this.getAttribute('href') || '#');
 
       const iconHost = r.querySelector('.icon');
-      const iconAttr = (this.getAttribute('icon') || '').trim();
+      const key = (this.getAttribute('icon-svg') || '').trim();
 
-      if (iconAttr && ICONS[iconAttr]) {
-        const key = iconAttr;
-
+      if (key && ICONS[key]) {
         const bump =
           (key === 'report') ? '8px' :
           (key === 'reconcile-scale' || key === 'reconcile' || key === 'reconcile-sync') ? '12px' :
@@ -267,10 +273,10 @@
           '0px';
 
         this.style.setProperty('--icon-extra', bump);
-        iconHost.innerHTML = ICONS[iconAttr];
+        iconHost.innerHTML = ICONS[key];
       } else {
         this.style.setProperty('--icon-extra', '0px');
-        iconHost.textContent = iconAttr;
+        iconHost.textContent = this.getAttribute('icon') || '';
       }
     }
 
@@ -292,5 +298,3 @@
     customElements.define('fv-form-button', FVFormButton);
   }
 })();
-
-Once you drop this in and keep the Feedback page using `icon="bug"`, that tile should finally render the green SVG bug instead of the word “bug”.
