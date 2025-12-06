@@ -1,9 +1,11 @@
 /* /Farm-vista/js/fv-shell.js */
-/* FarmVista Shell — v5.10.22  (Mobile Quick Camera – Side Rail • Camera Popup with Close • Strong PTR Contract)
+/* FarmVista Shell — v5.10.23  (Mobile Quick Camera – Side Rail • Camera Popup with Close • Strong PTR Contract)
    - Mobile-only right-edge handle with “QR Scanner” and “Camera”.
    - QR Scanner => /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
-   - Camera => FarmVista popup with Receipt Scan (navigates to Expenditures Add quick-camera).
-   - Expenditures Add page (src=quick-camera) is responsible for auto-opening its own camera workflow.
+   - Camera => FarmVista popup with:
+       • Receipt Scan → if already on Expenditures Add, it triggers that page’s “Take Photo” button.
+                       otherwise, navigates to Expenditures Add (quick-camera mode).
+       • Grain Ticket (Coming Soon) → disabled.
    - PTR: Top-zone only, auth/context revalidation, page & data hooks, begin/end events.
 */
 (function () {
@@ -486,14 +488,27 @@
       /* QC init */
       this._initQuickCamera();
 
-      /* Camera popup – Receipt Scan navigation */
+      /* Camera popup – Receipt Scan behavior */
       if (this._cameraReceiptBtn) {
         this._cameraReceiptBtn.addEventListener('click', (e)=>{
           e.preventDefault();
-          // Navigate to Expenditures Add in quick-camera mode.
-          // That page is responsible for auto-opening its own camera workflow.
-          const target = '/Farm-vista/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
+
+          // Always close the popup first
           this._closeCameraModal();
+
+          const addPathFragment = '/pages/expenses/expenditures/expenditures-add.html';
+          const onAddPage = location.pathname.includes(addPathFragment);
+          const btnTake = document.getElementById('btnTake');
+
+          if (onAddPage && btnTake) {
+            // Already on Expenditures Add → behave exactly like tapping "Take Photo"
+            btnTake.click();
+            return;
+          }
+
+          // Otherwise, navigate to Expenditures Add in quick-camera mode.
+          // The add page can look at ?src=quick-camera if we wire that up later.
+          const target = '/Farm-vista/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
           location.href = target;
         });
       }
@@ -1281,7 +1296,7 @@
       // Open actions
       const html = document.documentElement;
       const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
-      const cameraURL = html.getAttribute('data-camera-url') || ''; // reserved; side rail now uses popup
+      const cameraURL = html.getAttribute('data-camera-url') || ''; // not used in this rail; popup instead
 
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
         e.preventDefault();
